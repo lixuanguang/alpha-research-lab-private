@@ -1,0 +1,54 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Alpha Research Lab — .gitignore
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.so
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# ── Rust ──────────────────────────────────────────────────────────────────────
+target/
+**/*.rs.bk
+Cargo.lock
+
+# ── Data / secrets ────────────────────────────────────────────────────────────
+data/
+*.parquet
+*.h5
+*.hdf5
+*.csv
+*.feather
+.env
+.env.*
+secrets/
+
+# ── Experiments (keep configs, ignore outputs) ───────────────────────────────
+experiments/**/outputs/
+experiments/**/results/
+experiments/**/logs/
+experiments/**/runs/
+
+# ── Runs (output root — env-var overridable via LAB_RUNS_ROOT) ───────────────
+runs/
+
+# ── Editors / OS ──────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
