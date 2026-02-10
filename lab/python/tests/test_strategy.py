@@ -22,7 +22,7 @@ import pandas as pd
 import pytest
 
 from lab.strategies.macro_equities.baseline_signals import cross_sectional_momentum
-from lab.strategies.macro_equities.portfolio_rules import apply_regime_overlay
+from lab.strategies.macro_equities.portfolio_rules import apply_regime_overlay, top_n_equal_weight
 from lab.strategies.macro_equities.regimes import dual_ma_regime
 
 # ── Shared fixtures ──────────────────────────────────────────────────────────
@@ -195,6 +195,24 @@ class TestApplyRegimeOverlay:
         """risk_off_scale=0.0 → fully flat."""
         out = apply_regime_overlay(base_weights, regime=1, risk_off_scale=0.0)
         assert out.abs().sum() == pytest.approx(0.0)
+
+    def test_scale_clamped_to_unit_interval(self, base_weights: pd.Series) -> None:
+        out_hi = apply_regime_overlay(base_weights, regime=1, risk_off_scale=1.7)
+        out_lo = apply_regime_overlay(base_weights, regime=1, risk_off_scale=-0.5)
+        pd.testing.assert_series_equal(out_hi, base_weights)
+        assert out_lo.abs().sum() == pytest.approx(0.0)
+
+
+class TestTopNEqualWeight:
+    def test_all_nan_scores_returns_zero_weights(self) -> None:
+        scores = pd.Series([np.nan, np.nan], index=["A", "B"])
+        out = top_n_equal_weight(scores, n=2, long_only=True)
+        assert (out == 0.0).all()
+
+    def test_non_positive_n_returns_zero_weights(self) -> None:
+        scores = pd.Series([0.4, 0.2], index=["A", "B"])
+        out = top_n_equal_weight(scores, n=0, long_only=True)
+        assert (out == 0.0).all()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -127,11 +127,20 @@ def _safe_corr(a: pd.Series, b: pd.Series) -> float:
     return float(c)
 
 
-def _resolve_path(path_like: str | Path, *, base: Path) -> Path:
+def _resolve_path(path_like: str | Path, *, base: Path, fallbacks: tuple[Path, ...] = ()) -> Path:
     p = Path(path_like)
     if p.is_absolute():
         return p
-    return (base / p).resolve()
+
+    candidates = [(base / p).resolve()]
+    candidates.extend((fb / p).resolve() for fb in fallbacks)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    # Return the primary resolution target for predictable downstream errors.
+    return candidates[0]
 
 
 def _universe_meta(universe_raw: dict[str, Any]) -> pd.DataFrame:
@@ -231,7 +240,12 @@ def _run_macro_allocator(
     from lab.strategies.macro.baselines import equal_weight_long_only, sixty_forty_proxy
 
     # ── Load config components ───────────────────────────────────────────
-    universe_cfg_path = _resolve_path(raw_config["universe_config"], base=Path.cwd())
+    repo_root = Path(__file__).resolve().parent.parent
+    universe_cfg_path = _resolve_path(
+        raw_config["universe_config"],
+        base=config_path.parent,
+        fallbacks=(repo_root,),
+    )
     universe_raw = yaml.safe_load(universe_cfg_path.read_text()) or {}
 
     dates_cfg = raw_config.get("dates", {})

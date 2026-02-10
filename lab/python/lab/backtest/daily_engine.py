@@ -96,11 +96,21 @@ def _rebalance_dates(
     warmup_idx = 0 if len(dates) <= min_warmup else min_warmup
     anchor = dates[warmup_idx]
 
-    # Generate theoretical rebalance schedule, then snap to actual trading days.
-    sched = pd.date_range(anchor, dates[-1], freq=offset)
     valid = dates[dates >= anchor]
-    weekend_gap = valid.to_series().diff().dt.days.gt(5).fillna(False).to_numpy()
-    rebal = valid[valid.isin(sched) | weekend_gap]
+
+    # Generate theoretical schedule and snap each point to the next observed
+    # trading day. This avoids silently missing rebalances when target dates
+    # fall on exchange holidays (e.g., Friday holiday for W-FRI schedules).
+    sched = pd.date_range(anchor, dates[-1], freq=offset)
+    if len(valid) == 0:
+        return pd.DatetimeIndex([])
+    if len(sched) == 0:
+        rebal = valid[::21]
+        return pd.DatetimeIndex(rebal)
+
+    pos = valid.searchsorted(sched, side="left")
+    pos = pos[(pos >= 0) & (pos < len(valid))]
+    rebal = pd.DatetimeIndex(valid[pos]).unique()
 
     if len(rebal) < 2:
         rebal = valid[::21]

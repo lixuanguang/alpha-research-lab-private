@@ -179,3 +179,24 @@ class TestDailyEngine:
         # With correct causality this strategy is anti-predictive on alternating returns.
         assert len(active) > 0
         assert (active <= 0).all()
+
+    def test_weekly_rebalance_with_missing_fridays(self) -> None:
+        """Weekly schedules should still rebalance when Friday data is absent."""
+        config = _make_config(rebalance="weekly", costs=0.0)
+
+        all_days = pd.bdate_range("2024-01-02", periods=180)
+        no_fridays = all_days[all_days.weekday != 4]
+        prices = pd.DataFrame(
+            {
+                "A": 100 + np.linspace(0, 5, len(no_fridays)),
+                "B": 100 + np.linspace(0, 3, len(no_fridays)),
+            },
+            index=no_fridays,
+        )
+
+        result = run_daily_backtest(config, prices, _equal_weight_signal)
+
+        # Previously this degraded to coarse fallback frequency when W-FRI dates
+        # were missing from the panel; a weekly-like cadence should produce many
+        # more rebalance records over ~9 months.
+        assert len(result.weights) >= 20

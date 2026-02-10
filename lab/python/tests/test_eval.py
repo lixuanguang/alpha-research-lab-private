@@ -153,6 +153,20 @@ class TestSummaryWithOperationalMetrics:
         }
         assert required.issubset(set(s.keys()))
 
+    def test_summary_handles_all_positive_returns_without_non_finite_values(self) -> None:
+        from lab.eval.metrics import summary
+
+        r = pd.Series(0.001, index=_DATES[:80], dtype=float)
+        s = summary(r)
+        assert np.isfinite(np.array(list(s.values()), dtype=float)).all()
+
+    def test_summary_handles_empty_returns(self) -> None:
+        from lab.eval.metrics import summary
+
+        s = summary(pd.Series(dtype=float))
+        assert np.isfinite(np.array(list(s.values()), dtype=float)).all()
+        assert s["cumulative_return"] == pytest.approx(0.0)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # §5.2  PLOTS

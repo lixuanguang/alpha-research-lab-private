@@ -139,8 +139,18 @@ def create_run(
         ``(run_id, run_directory_path)``
     """
     config_hash = compute_config_hash(raw_config)
-    rid = generate_run_id(config_hash)
-    rdir = run_dir(rid)
+    base_rid = generate_run_id(config_hash)
+    rid = base_rid
+    suffix = 0
+
+    while True:
+        rdir = run_dir(rid)
+        # Avoid accidental overwrite when multiple runs share the same
+        # second-level timestamp and config hash prefix.
+        if not any(rdir.iterdir()):
+            break
+        suffix += 1
+        rid = f"{base_rid}_{suffix:02d}"
 
     meta: dict[str, Any] = {
         "run_id": rid,

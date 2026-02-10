@@ -17,6 +17,18 @@ import numpy as np
 import pandas as pd
 
 ANN_FACTOR = 252
+_EPS = 1e-12
+
+
+def _clean_series(values: pd.Series) -> pd.Series:
+    s = values.astype(float)
+    s = s.replace([np.inf, -np.inf], np.nan).dropna()
+    return s
+
+
+def _finite_or_zero(value: float) -> float:
+    v = float(value)
+    return v if np.isfinite(v) else 0.0
 
 
 # ── Return / risk metrics ────────────────────────────────────────────────────
@@ -24,21 +36,30 @@ ANN_FACTOR = 252
 
 def cumulative_return(returns: pd.Series) -> float:
     """Total cumulative return (e.g. 1.35 means +135%)."""
-    return float((1 + returns).prod() - 1)
+    r = _clean_series(returns)
+    if r.empty:
+        return 0.0
+    return _finite_or_zero((1.0 + r).prod() - 1.0)
 
 
 def cagr(returns: pd.Series) -> float:
     """Compound annual growth rate from simple daily returns."""
-    cum = (1 + returns).prod()
-    n_years = len(returns) / ANN_FACTOR
+    r = _clean_series(returns)
+    n_years = len(r) / ANN_FACTOR
     if n_years <= 0:
         return 0.0
-    return float(cum ** (1 / n_years) - 1)
+    cum = float((1.0 + r).prod())
+    if not np.isfinite(cum) or cum < 0:
+        return 0.0
+    return _finite_or_zero(cum ** (1.0 / n_years) - 1.0)
 
 
 def annualised_vol(returns: pd.Series) -> float:
     """Annualised volatility (σ√252)."""
-    return float(returns.std() * np.sqrt(ANN_FACTOR))
+    r = _clean_series(returns)
+    if len(r) < 2:
+        return 0.0
+    return _finite_or_zero(r.std() * np.sqrt(ANN_FACTOR))
 
 
 def sharpe_ratio(returns: pd.Series, rf: float = 0.0) -> float:
@@ -51,61 +72,85 @@ def sharpe_ratio(returns: pd.Series, rf: float = 0.0) -> float:
     rf : float
         Annualised risk-free rate (default 0).
     """
-    excess = returns.mean() * ANN_FACTOR - rf
-    vol = annualised_vol(returns)
-    if vol == 0:
+    r = _clean_series(returns)
+    if r.empty:
         return 0.0
-    return float(excess / vol)
+    excess = r.mean() * ANN_FACTOR - rf
+    vol = annualised_vol(returns)
+    if vol <= _EPS:
+        return 0.0
+    return _finite_or_zero(excess / vol)
 
 
 def sortino_ratio(returns: pd.Series, rf: float = 0.0) -> float:
     """Annualised Sortino ratio (excess return / downside vol)."""
-    excess = returns.mean() * ANN_FACTOR - rf
-    downside = returns[returns < 0].std() * np.sqrt(ANN_FACTOR)
-    if downside == 0:
+    r = _clean_series(returns)
+    if r.empty:
         return 0.0
-    return float(excess / downside)
+    excess = r.mean() * ANN_FACTOR - rf
+    downside_series = r[r < 0]
+    if len(downside_series) < 2:
+        return 0.0
+    downside = downside_series.std() * np.sqrt(ANN_FACTOR)
+    if downside <= _EPS:
+        return 0.0
+    return _finite_or_zero(excess / downside)
 
 
 def max_drawdown(returns: pd.Series) -> float:
     """Maximum drawdown (as a negative fraction, e.g. -0.25 = -25%)."""
-    cum = (1 + returns).cumprod()
+    r = _clean_series(returns)
+    if r.empty:
+        return 0.0
+    cum = (1.0 + r).cumprod()
     peak = cum.cummax()
-    dd = (cum - peak) / peak
-    return float(dd.min())
+    dd = (cum - peak) / peak.replace(0.0, np.nan)
+    if dd.empty:
+        return 0.0
+    return _finite_or_zero(dd.min())
 
 
 def calmar_ratio(returns: pd.Series) -> float:
     """Calmar ratio = CAGR / |max drawdown|."""
     mdd = max_drawdown(returns)
-    if mdd == 0:
+    if abs(mdd) <= _EPS:
         return 0.0
-    return float(cagr(returns) / abs(mdd))
+    return _finite_or_zero(cagr(returns) / abs(mdd))
 
 
 def hit_rate(returns: pd.Series) -> float:
     """Fraction of days with positive returns."""
-    if len(returns) == 0:
+    r = _clean_series(returns)
+    if len(r) == 0:
         return 0.0
-    return float((returns > 0).mean())
+    return _finite_or_zero((r > 0).mean())
 
 
 def profit_factor(returns: pd.Series) -> float:
     """Gross profit / gross loss."""
-    gains = returns[returns > 0].sum()
-    losses = abs(returns[returns < 0].sum())
-    if losses == 0:
-        return float("inf") if gains > 0 else 0.0
-    return float(gains / losses)
+    r = _clean_series(returns)
+    if r.empty:
+        return 0.0
+    gains = float(r[r > 0].sum())
+    losses = abs(float(r[r < 0].sum()))
+    if losses <= _EPS:
+        return 1_000_000.0 if gains > _EPS else 0.0
+    return _finite_or_zero(gains / losses)
 
 
 def tail_ratio(returns: pd.Series, quantile: float = 0.05) -> float:
     """Ratio of right tail (95th pctl) to left tail (5th pctl)."""
-    right = np.percentile(returns, 100 * (1 - quantile))
-    left = abs(np.percentile(returns, 100 * quantile))
-    if left == 0:
+    if not 0 < quantile < 0.5:
+        raise ValueError("quantile must be in (0, 0.5)")
+    r = _clean_series(returns)
+    if r.empty:
         return 0.0
-    return float(right / left)
+    arr = r.to_numpy()
+    right = float(np.nanpercentile(arr, 100 * (1.0 - quantile)))
+    left = abs(float(np.nanpercentile(arr, 100 * quantile)))
+    if left <= _EPS:
+        return 0.0
+    return _finite_or_zero(right / left)
 
 
 # ── Operational metrics ──────────────────────────────────────────────────────
@@ -124,10 +169,13 @@ def average_turnover(turnover: pd.Series) -> float:
     float
         Average turnover on days where a rebalance occurred.
     """
-    rebal = turnover[turnover > 0]
+    t = _clean_series(turnover)
+    if t.empty:
+        return 0.0
+    rebal = t[t > 0]
     if len(rebal) == 0:
         return 0.0
-    return float(rebal.mean())
+    return _finite_or_zero(rebal.mean())
 
 
 def total_costs_paid(
@@ -150,8 +198,13 @@ def total_costs_paid(
     float
         Cumulative cost drag (positive number).
     """
-    diff = gross_returns - net_returns.reindex(gross_returns.index, fill_value=0.0)
-    return float(diff.sum())
+    gross = gross_returns.astype(float).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    net = net_returns.astype(float).replace([np.inf, -np.inf], np.nan).reindex(
+        gross.index, fill_value=0.0
+    )
+    net = net.fillna(0.0)
+    diff = gross - net
+    return _finite_or_zero(diff.sum())
 
 
 # ── Summary ──────────────────────────────────────────────────────────────────
@@ -197,4 +250,4 @@ def summary(
         d["avg_turnover"] = average_turnover(turnover)
     if gross_returns is not None:
         d["total_costs"] = total_costs_paid(gross_returns, returns)
-    return d
+    return {k: _finite_or_zero(v) for k, v in d.items()}

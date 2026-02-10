@@ -39,13 +39,23 @@ def top_n_equal_weight(
     pd.Series
         Target weights (sums to 1 if long-only).
     """
+    if n <= 0:
+        return pd.Series(0.0, index=scores.index)
+
     ranked = scores.dropna().sort_values(ascending=False)
+    if ranked.empty:
+        return pd.Series(0.0, index=scores.index)
+
     top = ranked.head(n)
+    if top.empty:
+        return pd.Series(0.0, index=scores.index)
 
     if long_only:
         weights = pd.Series(1.0 / len(top), index=top.index)
     else:
         bottom = ranked.tail(n)
+        if bottom.empty:
+            return pd.Series(0.0, index=scores.index)
         weights = pd.Series(0.0, index=ranked.index)
         weights[top.index] = 1.0 / len(top)
         weights[bottom.index] = -1.0 / len(bottom)
@@ -111,7 +121,11 @@ def apply_regime_overlay(
       and drawdowns.
     - ``risk_off_scale=1.0`` effectively disables the overlay.
     """
-    scale = risk_off_scale if regime == 1 else 1.0
+    scale = float(risk_off_scale)
+    if not pd.notna(scale):
+        scale = 1.0
+    scale = min(max(scale, 0.0), 1.0)
+    scale = scale if regime == 1 else 1.0
     return weights * scale
 
 
