@@ -14,7 +14,7 @@ Provides
 --------
 - ``single_split``     : one-shot 70/30 (default) train/test split.
 - ``expanding_splits``  : expanding-window walk-forward.
-- ``rolling_splits``    : fixed-window rolling walk-forward.
+- ``rolling_splits``    : fixed-window rolling walk-forward (year- or day-based).
 - ``purged_kfold``      : purged K-fold (stub — week-2+).
 """
 
@@ -121,8 +121,13 @@ def expanding_splits(
 
 def rolling_splits(
     dates: pd.DatetimeIndex,
-    train_years: int = 10,
-    test_years: int = 1,
+    train_years: int | None = 10,
+    test_years: int | None = 1,
+    *,
+    train_days: int | None = None,
+    test_days: int | None = None,
+    step_days: int | None = None,
+    embargo_days: int = 0,
 ) -> Iterator[SplitPair]:
     """Yield (train_dates, test_dates) with a fixed rolling window.
 
@@ -130,14 +135,63 @@ def rolling_splits(
     ----------
     dates : pd.DatetimeIndex
         Full sorted date index.
-    train_years, test_years : int
-        Durations in calendar years.
+    train_years, test_years : int | None
+        Legacy calendar-year durations.
+    train_days, test_days : int | None
+        Day-count durations (business-day index positions).
+        If either is provided, day-based mode is used.
+    step_days : int | None
+        Step size in day-based mode (defaults to ``test_days``).
+    embargo_days : int
+        Gap between train end and test start (day-based mode only).
 
     Yields
     ------
     (train_dates, test_dates)
     """
     _validate_dates_strict(dates)
+
+    # ── Day-based rolling folds (week-2) ────────────────────────────────
+    if train_days is not None or test_days is not None:
+        if train_days is None or test_days is None:
+            raise ValueError("Both train_days and test_days must be provided in day-based mode.")
+        if train_days <= 0 or test_days <= 0:
+            raise ValueError("train_days and test_days must be > 0.")
+        if embargo_days < 0:
+            raise ValueError("embargo_days must be >= 0.")
+
+        step = test_days if step_days is None else step_days
+        if step <= 0:
+            raise ValueError("step_days must be > 0.")
+
+        n = len(dates)
+        start_idx = 0
+
+        while True:
+            train_start = start_idx
+            train_end = train_start + train_days
+            test_start = train_end + embargo_days
+            test_end = test_start + test_days
+
+            if test_end > n:
+                break
+
+            train = dates[train_start:train_end]
+            test = dates[test_start:test_end]
+
+            if len(train) == 0 or len(test) == 0:
+                break
+
+            assert train.max() < test.min(), "train/test overlap — time-order violated"
+            yield train, test
+            start_idx += step
+        return
+
+    # ── Legacy year-based rolling folds (week-1 compatible) ─────────────
+    if train_years is None or test_years is None:
+        raise ValueError("train_years and test_years must be provided in year-based mode.")
+    if train_years <= 0 or test_years <= 0:
+        raise ValueError("train_years and test_years must be > 0.")
 
     start = dates.min()
     end = dates.max()

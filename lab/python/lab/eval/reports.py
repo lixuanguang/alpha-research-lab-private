@@ -161,3 +161,115 @@ def save_report(
     path.write_text(report_text)
     log.info("Report saved → %s", path)
     return path
+
+
+def _dict_table_md(title: str, data: dict[str, float], fmt: dict[str, str] | None = None) -> list[str]:
+    lines = [f"### {title}", "", "| Metric | Value |", "|---|---:|"]
+    for k, v in data.items():
+        formatter = (fmt or {}).get(k, "{:.4f}")
+        lines.append(f"| {k} | {formatter.format(v)} |")
+    lines.append("")
+    return lines
+
+
+def _metrics_matrix_md(title: str, rows: dict[str, dict[str, float]]) -> list[str]:
+    if not rows:
+        return [f"### {title}", "", "_n/a_", ""]
+    metrics = sorted({m for d in rows.values() for m in d})
+    lines = [f"### {title}", "", "| Strategy | " + " | ".join(metrics) + " |"]
+    lines.append("|---|" + "---:|" * len(metrics))
+    for name, vals in rows.items():
+        rendered = []
+        for metric in metrics:
+            v = vals.get(metric, float("nan"))
+            if pd.isna(v):
+                rendered.append("n/a")
+            else:
+                rendered.append(_FMT.get(metric, "{:.4f}").format(v))
+        lines.append("| " + name + " | " + " | ".join(rendered) + " |")
+    lines.append("")
+    return lines
+
+
+def macro_allocator_markdown_report(
+    name: str,
+    *,
+    metrics: dict[str, float],
+    baselines: dict[str, dict[str, float]],
+    cost_stress: dict[str, dict[str, float]],
+    regime_split: dict[str, dict[str, float]],
+    exposure_summary: dict[str, float],
+    risk_summary: dict[str, float],
+    figure_filenames: Sequence[str] = (),
+    meta: dict[str, Any] | None = None,
+) -> str:
+    """Build a Week-2 macro allocator report with diagnostics sections."""
+    lines: list[str] = [f"# {name}", ""]
+
+    if meta:
+        lines.append("## Provenance\n")
+        lines.append(f"- **Run ID:** `{meta.get('run_id', 'n/a')}`")
+        lines.append(f"- **Config hash:** `{meta.get('config_hash', 'n/a')}`")
+        lines.append(f"- **Git commit:** `{meta.get('git_commit', 'n/a')}`")
+        lines.append("")
+
+    lines.append("## Pre/Post Cost Performance\n")
+    lines.extend(_dict_table_md("Post-cost strategy metrics", metrics, _FMT))
+
+    lines.append("## Baselines\n")
+    lines.extend(_metrics_matrix_md("Baseline comparison", baselines))
+
+    lines.append("## Turnover And Costs\n")
+    lines.extend(_dict_table_md("Exposure / turnover summary", exposure_summary))
+
+    lines.append("## Cost Stress (1x/2x/4x)\n")
+    lines.extend(_metrics_matrix_md("Cost stress metrics", cost_stress))
+
+    lines.append("## Exposure Diagnostics\n")
+    lines.extend(_dict_table_md("Gross / net summary", exposure_summary))
+
+    lines.append("## Risk Contributions\n")
+    lines.extend(_dict_table_md("Risk contribution summary", risk_summary))
+
+    lines.append("## Regime Split Metrics\n")
+    lines.extend(_metrics_matrix_md("Risk-on vs risk-off", regime_split))
+
+    for fname in figure_filenames:
+        label = Path(fname).stem.replace("_", " ").title()
+        lines.append(f"## {label}\n")
+        lines.append(f"![{label}]({fname})\n")
+
+    return "\n".join(lines)
+
+
+def save_macro_allocator_report(
+    name: str,
+    output_dir: str | Path,
+    *,
+    metrics: dict[str, float],
+    baselines: dict[str, dict[str, float]],
+    cost_stress: dict[str, dict[str, float]],
+    regime_split: dict[str, dict[str, float]],
+    exposure_summary: dict[str, float],
+    risk_summary: dict[str, float],
+    figure_filenames: Sequence[str] = (),
+    meta: dict[str, Any] | None = None,
+) -> Path:
+    """Write Week-2 macro allocator report to ``report.md``."""
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    report_text = macro_allocator_markdown_report(
+        name,
+        metrics=metrics,
+        baselines=baselines,
+        cost_stress=cost_stress,
+        regime_split=regime_split,
+        exposure_summary=exposure_summary,
+        risk_summary=risk_summary,
+        figure_filenames=figure_filenames,
+        meta=meta,
+    )
+    path = out_dir / "report.md"
+    path.write_text(report_text)
+    log.info("Macro allocator report saved → %s", path)
+    return path

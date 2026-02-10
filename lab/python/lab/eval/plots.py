@@ -153,3 +153,58 @@ def turnover_plot(
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig
+
+
+def gross_net_exposure(
+    gross: pd.Series,
+    net: pd.Series,
+    *,
+    title: str = "Gross / Net Exposure",
+) -> Figure:
+    """Plot gross and net exposure time series."""
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(gross.index, gross.values, label="Gross", linewidth=1.2)
+    ax.plot(net.index, net.values, label="Net", linewidth=1.0)
+    ax.axhline(0, color="grey", linewidth=0.7)
+    ax.set_title(title)
+    ax.set_ylabel("Exposure")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def bucket_exposure_plot(
+    bucket_exposure: pd.DataFrame,
+    *,
+    title: str = "Bucket Exposure",
+) -> Figure:
+    """Plot bucket-level net exposures over time."""
+    fig, ax = plt.subplots(figsize=(12, 4))
+    for col in bucket_exposure.columns:
+        ax.plot(bucket_exposure.index, bucket_exposure[col], label=col, linewidth=1.0)
+    ax.axhline(0, color="grey", linewidth=0.7)
+    ax.set_title(title)
+    ax.set_ylabel("Net Exposure")
+    ax.legend(loc="upper left", ncol=2)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def risk_contribution_plot(
+    bucket_risk: pd.DataFrame,
+    *,
+    title: str = "Risk Contribution by Bucket",
+) -> Figure:
+    """Plot rolling risk contributions by bucket."""
+    fig, ax = plt.subplots(figsize=(12, 4))
+    for col in bucket_risk.columns:
+        ax.plot(bucket_risk.index, bucket_risk[col], label=col, linewidth=1.0)
+    ax.axhline(0, color="grey", linewidth=0.7)
+    ax.set_title(title)
+    ax.set_ylabel("Risk Contribution")
+    ax.legend(loc="upper left", ncol=2)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig

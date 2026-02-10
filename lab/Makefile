@@ -31,7 +31,10 @@ test:  ## Run Python + Rust test suites
 	$(CARGO) test --manifest-path crates/lab_rs/Cargo.toml
 
 # ── run ───────────────────────────────────────────────────────────────────────
-.PHONY: run
+.PHONY: ingest_prices run
+
+ingest_prices:  ## Ingest daily close prices + metadata for macro allocator
+	$(PYTHON) scripts/ingest_prices.py --config $(CONFIG)
 
 run:  ## Run an experiment: make run EXP=macro_equities CONFIG=path/to/config.yaml
 	$(PYTHON) scripts/run_experiment.py --exp $(EXP) --config $(CONFIG)

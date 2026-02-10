@@ -1,0 +1,46 @@
+exp: macro_allocator_ls
+strategy: macro.allocator_ls
+
+universe_config: experiments/macro/configs/universe.yaml
+
+dates:
+  start: "2016-01-01"
+  end: "2024-12-31"
+
+rebalance:
+  frequency: "W-FRI"
+
+signal:
+  name: ts_trend
+  method: ma_cross
+  fast: 20
+  slow: 120
+  lookback_days: 252
+  vol_scale_lookback: 63
+
+regime:
+  enabled: true
+  lag_days: 30
+  rates_proxy: TLT
+  equity_proxy: SPY
+  lookback_days: 63
+  risk_off_bucket_multipliers:
+    equities: 0.6
+    rates: 1.2
+    commodities: 1.1
+    credit: 0.7
+
+risk:
+  vol_target_annual: 0.10
+  vol_lookback_days: 63
+
+costs:
+  use_meta_costs: true
+  stress_multipliers: [1, 2, 4]
+
+evaluation:
+  folds:
+    train_days: 1260
+    test_days: 252
+    step_days: 252
+    embargo_days: 5

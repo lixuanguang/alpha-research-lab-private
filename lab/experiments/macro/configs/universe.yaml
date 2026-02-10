@@ -1,0 +1,54 @@
+tickers:
+  - SPY
+  - EFA
+  - EEM
+  - IEF
+  - TLT
+  - GLD
+  - DBC
+  - LQD
+
+ticker_meta:
+  SPY:
+    bucket: equities
+    cost_bps: 3
+    per_asset_cap: 0.35
+  EFA:
+    bucket: equities
+    cost_bps: 4
+    per_asset_cap: 0.35
+  EEM:
+    bucket: equities
+    cost_bps: 5
+    per_asset_cap: 0.35
+  IEF:
+    bucket: rates
+    cost_bps: 2
+    per_asset_cap: 0.35
+  TLT:
+    bucket: rates
+    cost_bps: 3
+    per_asset_cap: 0.35
+  GLD:
+    bucket: commodities
+    cost_bps: 4
+    per_asset_cap: 0.30
+  DBC:
+    bucket: commodities
+    cost_bps: 6
+    per_asset_cap: 0.25
+  LQD:
+    bucket: credit
+    cost_bps: 4
+    per_asset_cap: 0.30
+
+constraints:
+  gross_cap: 1.5
+  net_target: 0.0
+  net_band: 0.15
+  bucket_gross_caps:
+    equities: 0.8
+    rates: 0.9
+    commodities: 0.4
+    credit: 0.3
+    fx: 0.2

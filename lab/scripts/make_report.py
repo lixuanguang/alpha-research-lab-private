@@ -81,9 +81,35 @@ def main() -> None:
     if turnover_path.exists():
         turnover = pd.read_csv(turnover_path, index_col=0, parse_dates=True).squeeze("columns")
 
+    # ── Load results.json schema (if available) ──────────────────────────
+    results_path = rdir / "results.json"
+    results_payload: dict = {}
+    if results_path.exists():
+        with open(results_path) as fh:
+            results_payload = json.load(fh)
+
     # ── Load or compute metrics ───────────────────────────────────────────
     metrics_path = rdir / "metrics.json"
-    if metrics_path.exists():
+    if results_payload.get("schema_version") == "1.0":
+        overall = results_payload.get("results", {}).get("overall", {})
+        net = overall.get("metrics_net", {})
+        metrics = {
+            "cumulative_return": float((1.0 + returns).prod() - 1.0),
+            "cagr": float(net.get("cagr", 0.0)),
+            "ann_vol": float(net.get("vol_annual", 0.0)),
+            "sharpe": float(net.get("sharpe", 0.0)),
+            "sortino": float(net.get("sortino", 0.0)),
+            "max_dd": float(net.get("max_drawdown", 0.0)),
+            "calmar": float(net.get("calmar", 0.0)),
+        }
+        turn = overall.get("turnover", {})
+        if "avg_rebalance" in turn:
+            metrics["avg_turnover"] = float(turn["avg_rebalance"])
+        costs_info = overall.get("costs", {})
+        if "total_cost_return" in costs_info:
+            # Stored as negative drag in schema -> render positive paid-costs number.
+            metrics["total_costs"] = abs(float(costs_info["total_cost_return"]))
+    elif metrics_path.exists():
         with open(metrics_path) as fh:
             metrics: dict[str, float] = json.load(fh)
     else:
@@ -136,9 +162,15 @@ def main() -> None:
 
     # ── Build figure filename list (relative to run dir) ──────────────────
     figure_filenames: list[str] = []
-    for fname in ["cumulative_returns.png", "drawdown.png", "turnover.png"]:
-        if (fig_dir / fname).exists():
-            figure_filenames.append(f"figures/{fname}")
+    if results_payload.get("schema_version") == "1.0":
+        for entry in results_payload.get("artifacts", {}).get("figures", []):
+            path = str(entry.get("path", ""))
+            if path and (rdir / path).exists():
+                figure_filenames.append(path)
+    if not figure_filenames:
+        for fname in ["cumulative_returns.png", "drawdown.png", "turnover.png"]:
+            if (fig_dir / fname).exists():
+                figure_filenames.append(f"figures/{fname}")
 
     # ── Build & write Markdown report ─────────────────────────────────────
     from lab.eval.reports import save_report
