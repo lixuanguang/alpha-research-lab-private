@@ -47,7 +47,7 @@ matplotlib.use("Agg")  # headless backend — no GUI needed
 import lab.strategies.macro_equities  # noqa: F401
 from lab.core.config import load_config, load_raw_config
 from lab.core.logging import get_logger, setup_logging
-from lab.core.registry import create_run
+from lab.core.registry import compute_config_hash, compute_results_hash, create_run
 from lab.core.strategy_registry import get as get_strategy
 
 log = get_logger("scripts.run_experiment")
@@ -72,6 +72,12 @@ def main() -> None:
         type=str,
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+    )
+    parser.add_argument(
+        "--toy-seed",
+        type=int,
+        default=42,
+        help="RNG seed used when toy synthetic data is generated.",
     )
     args = parser.parse_args()
 
@@ -104,7 +110,7 @@ def main() -> None:
     # ── Load data ─────────────────────────────────────────────────────────
     from lab.data.loader import load_prices_or_make_toy
 
-    prices = load_prices_or_make_toy(config)
+    prices = load_prices_or_make_toy(config, seed=args.toy_seed)
     log.info("  Prices: %d days × %d assets", *prices.shape)
 
     # ── Run backtest ──────────────────────────────────────────────────────
@@ -133,16 +139,20 @@ def main() -> None:
     log.info("Metrics: %s", {k: f"{v:.4f}" for k, v in metrics.items()})
 
     # ── Save results.json (metrics + key config fields + hash) ────────
-    import hashlib
-
     rounded_metrics = {k: round(v, 6) for k, v in metrics.items()}
-    # Deterministic hash: same config + same seed → same results_hash
-    canonical = json.dumps(rounded_metrics, sort_keys=True)
-    results_hash = hashlib.sha256(canonical.encode()).hexdigest()
+    config_hash = compute_config_hash(raw_config)
+    # Deterministic hash: same config + same seed + same rounded metrics.
+    results_hash = compute_results_hash(
+        rounded_metrics,
+        config_hash=config_hash,
+        toy_seed=args.toy_seed,
+    )
 
     results = {
         "metrics": rounded_metrics,
         "results_hash": results_hash,
+        "config_hash": config_hash,
+        "toy_seed": args.toy_seed,
         "config": {
             "exp": config.exp,
             "strategy": config.strategy,

@@ -286,3 +286,59 @@ fn apply_update_modifies_existing_level() {
     let top = book.top_n_levels(Side::Bid, 1);
     assert_eq!(top[0].quantity, 20.0);
 }
+
+#[test]
+fn invalid_snapshot_prices_and_quantities_are_ignored() {
+    let mut book = OrderBook::new();
+    book.apply_snapshot(
+        &[
+            (100.0, 10.0),
+            (f64::NAN, 5.0),
+            (0.0, 2.0),
+            (-1.0, 3.0),
+            (99.0, f64::INFINITY),
+        ],
+        &[
+            (101.0, 8.0),
+            (f64::INFINITY, 1.0),
+            (102.0, f64::NAN),
+            (0.0, 5.0),
+        ],
+    );
+
+    assert_eq!(book.depth(Side::Bid), 1);
+    assert_eq!(book.best_bid(), Some(100.0));
+    assert_eq!(book.depth(Side::Ask), 1);
+    assert_eq!(book.best_ask(), Some(101.0));
+    assert!(book.is_valid());
+}
+
+#[test]
+fn invalid_update_price_is_noop() {
+    let mut book = OrderBook::new();
+    book.apply_snapshot(&[(100.0, 10.0)], &[(101.0, 5.0)]);
+
+    book.apply_update(Side::Bid, f64::NAN, 7.0);
+    book.apply_update(Side::Ask, f64::INFINITY, 9.0);
+    book.apply_update(Side::Bid, 0.0, 4.0);
+
+    assert_eq!(book.depth(Side::Bid), 1);
+    assert_eq!(book.best_bid(), Some(100.0));
+    assert_eq!(book.depth(Side::Ask), 1);
+    assert_eq!(book.best_ask(), Some(101.0));
+}
+
+#[test]
+fn non_finite_quantity_removes_existing_level() {
+    let mut book = OrderBook::new();
+    book.set_level(Side::Bid, 100.0, 10.0);
+    assert_eq!(book.depth(Side::Bid), 1);
+
+    book.set_level(Side::Bid, 100.0, f64::INFINITY);
+    assert_eq!(book.depth(Side::Bid), 0);
+
+    book.set_level(Side::Ask, 101.0, 4.0);
+    assert_eq!(book.depth(Side::Ask), 1);
+    book.set_level(Side::Ask, 101.0, f64::NAN);
+    assert_eq!(book.depth(Side::Ask), 0);
+}

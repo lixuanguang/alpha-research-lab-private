@@ -87,6 +87,11 @@ class TestSingleSplit:
         assert len(test) == 1
         _assert_split_invariants(train, test)
 
+    def test_duplicate_dates_raise(self) -> None:
+        dup = pd.DatetimeIndex(["2020-01-01", "2020-01-01", "2020-01-02"])
+        with pytest.raises(ValueError, match="strictly increasing and unique"):
+            list(single_split(dup))
+
 
 # ── expanding_splits ─────────────────────────────────────────────────────────
 
@@ -106,6 +111,22 @@ class TestExpandingSplits:
         if len(splits) >= 2:
             for i in range(1, len(splits)):
                 assert len(splits[i][0]) > len(splits[i - 1][0])
+
+    def test_train_years_affects_first_split(self, dates: pd.DatetimeIndex) -> None:
+        short = list(expanding_splits(dates, train_years=2, test_years=1, min_train_years=1))
+        long = list(expanding_splits(dates, train_years=6, test_years=1, min_train_years=1))
+        assert len(short) > 0 and len(long) > 0
+        assert len(short[0][0]) < len(long[0][0])
+        assert short[0][1].min() < long[0][1].min()
+
+    def test_bad_years_raise(self, dates: pd.DatetimeIndex) -> None:
+        with pytest.raises(ValueError):
+            list(expanding_splits(dates, train_years=0, test_years=1, min_train_years=1))
+
+    def test_duplicate_dates_raise(self) -> None:
+        dup = pd.DatetimeIndex(["2020-01-01", "2020-01-01", "2020-01-02"])
+        with pytest.raises(ValueError, match="strictly increasing and unique"):
+            list(expanding_splits(dup, train_years=1, test_years=1, min_train_years=1))
 
 
 # ── rolling_splits ───────────────────────────────────────────────────────────
@@ -127,3 +148,8 @@ class TestRollingSplits:
             prev_test = splits[i - 1][1]
             curr_test = splits[i][1]
             assert len(prev_test.intersection(curr_test)) == 0
+
+    def test_duplicate_dates_raise(self) -> None:
+        dup = pd.DatetimeIndex(["2020-01-01", "2020-01-01", "2020-01-02"])
+        with pytest.raises(ValueError, match="strictly increasing and unique"):
+            list(rolling_splits(dup, train_years=1, test_years=1))

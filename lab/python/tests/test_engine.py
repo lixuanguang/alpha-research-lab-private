@@ -140,3 +140,42 @@ class TestDailyEngine:
         result = run_daily_backtest(config, prices, _equal_weight_signal)
         assert len(result.returns) == 0
         assert result.weights.empty
+
+    def test_short_history_no_crash(self) -> None:
+        """Short histories should run (no warmup index crash)."""
+        config = _make_config(rebalance="weekly", costs=0.0)
+        dates = pd.bdate_range("2024-01-02", periods=50)
+        prices = pd.DataFrame(
+            {
+                "A": 100 + np.linspace(0, 2, len(dates)),
+                "B": 100 + np.linspace(0, 1, len(dates)),
+            },
+            index=dates,
+        )
+        result = run_daily_backtest(config, prices, _equal_weight_signal)
+        assert len(result.returns) == len(prices)
+
+    def test_rebalance_applies_next_day_not_same_day(self) -> None:
+        """Signal computed on day t must not affect day t return."""
+        config = _make_config(rebalance="daily", costs=0.0)
+        dates = pd.bdate_range("2024-01-02", periods=40)
+
+        # Alternate returns: +1%, -1%, +1%, ...
+        alternating = np.where(np.arange(len(dates)) % 2 == 0, 0.01, -0.01)
+        prices = pd.DataFrame(
+            {"A": 100.0 * np.cumprod(1.0 + alternating)},
+            index=dates,
+        )
+
+        def _same_day_sign_signal(_config: ExperimentConfig, p: pd.DataFrame) -> pd.Series:
+            if len(p) < 2:
+                return pd.Series({"A": 0.0})
+            today_ret = p["A"].iloc[-1] / p["A"].iloc[-2] - 1.0
+            return pd.Series({"A": 1.0 if today_ret >= 0 else -1.0})
+
+        result = run_daily_backtest(config, prices, _same_day_sign_signal)
+        active = result.returns[result.returns != 0]
+
+        # With correct causality this strategy is anti-predictive on alternating returns.
+        assert len(active) > 0
+        assert (active <= 0).all()

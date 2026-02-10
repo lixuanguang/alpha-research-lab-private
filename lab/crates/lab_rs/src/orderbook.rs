@@ -7,7 +7,8 @@
 //!
 //! 1. Best bid < best ask (no crossed book).
 //! 2. Bids sorted descending, asks sorted ascending.
-//! 3. All quantities are strictly positive (zero removes the level).
+//! 3. Prices are finite and strictly positive.
+//! 4. Quantities are finite and strictly positive (non-positive removes).
 //!
 //! ## API surface
 //!
@@ -62,6 +63,14 @@ impl Ord for OrdF64 {
     }
 }
 
+fn valid_price(price: f64) -> bool {
+    price.is_finite() && price > 0.0
+}
+
+fn valid_quantity(qty: f64) -> bool {
+    qty.is_finite() && qty > 0.0
+}
+
 /// A simple Level-2 order book (price → aggregated quantity).
 #[derive(Debug, Clone)]
 pub struct OrderBook {
@@ -91,12 +100,12 @@ impl OrderBook {
         self.bids.clear();
         self.asks.clear();
         for &(price, qty) in bids {
-            if qty > 0.0 {
+            if valid_price(price) && valid_quantity(qty) {
                 self.bids.insert(OrdF64(price), qty);
             }
         }
         for &(price, qty) in asks {
-            if qty > 0.0 {
+            if valid_price(price) && valid_quantity(qty) {
                 self.asks.insert(OrdF64(price), qty);
             }
         }
@@ -113,12 +122,15 @@ impl OrderBook {
     ///
     /// If `quantity` is zero the level is removed.
     pub fn set_level(&mut self, side: Side, price: f64, quantity: f64) {
+        if !valid_price(price) {
+            return;
+        }
         let key = OrdF64(price);
         let book = match side {
             Side::Bid => &mut self.bids,
             Side::Ask => &mut self.asks,
         };
-        if quantity <= 0.0 {
+        if !valid_quantity(quantity) {
             book.remove(&key);
         } else {
             book.insert(key, quantity);

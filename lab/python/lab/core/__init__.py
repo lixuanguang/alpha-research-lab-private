@@ -19,6 +19,7 @@ from lab.core.paths import (
 )
 from lab.core.registry import (
     compute_config_hash,
+    compute_results_hash,
     create_run,
     generate_run_id,
     get_git_commit,
@@ -31,6 +32,7 @@ __all__ = [
     "ExperimentConfig",
     # registry (run identity)
     "compute_config_hash",
+    "compute_results_hash",
     "create_run",
     # paths
     "data_dir",

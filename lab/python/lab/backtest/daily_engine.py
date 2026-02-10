@@ -69,12 +69,19 @@ def _rebalance_dates(
         Minimum number of trading days before the first rebalance (for signal
         lookback).
     """
+    if len(dates) == 0:
+        return dates
+
     offset = _FREQ_MAP.get(freq, "BMS")
+    # If history is shorter than warmup, start scheduling from the first date.
+    warmup_idx = 0 if len(dates) <= min_warmup else min_warmup
+    anchor = dates[warmup_idx]
+
     # Generate theoretical rebalance schedule, then snap to actual trading days
-    sched = pd.date_range(dates[min_warmup], dates[-1], freq=offset)
-    # Snap each date to the nearest actual trading day (forward-fill)
-    valid = dates[dates >= dates[min_warmup]]
-    rebal = valid[valid.isin(sched) | valid.to_series().diff().dt.days.gt(5).values]
+    sched = pd.date_range(anchor, dates[-1], freq=offset)
+    valid = dates[dates >= anchor]
+    weekend_gap = valid.to_series().diff().dt.days.gt(5).fillna(False).to_numpy()
+    rebal = valid[valid.isin(sched) | weekend_gap]
     # Fallback: if snapping left us with nothing, just use monthly iloc
     if len(rebal) < 2:
         rebal = valid[::21]
@@ -90,10 +97,10 @@ def run_daily_backtest(
 
     No-leakage guarantee
     --------------------
-    At each rebalance date ``dt``, the strategy receives only
-    ``prices.loc[:dt]`` — a slice that is inclusive up to ``dt`` and
-    **excludes all future rows**.  This is enforced structurally by the
-    for-loop below and cannot be circumvented by the strategy function.
+    At each date ``dt``, the engine first books that day's return using the
+    *previous* weights.  If ``dt`` is a rebalance date, new weights are then
+    computed from ``prices.loc[:dt]`` and become active from the next trading
+    day onward.  This prevents same-day look-ahead leakage.
 
     Parameters
     ----------
@@ -125,6 +132,7 @@ def run_daily_backtest(
     dates = prices.index
     rebal_dates = _rebalance_dates(dates, config.rebalance)
     log.info("  %d rebalance dates over %d trading days", len(rebal_dates), len(dates))
+    rebal_set = set(rebal_dates)
 
     # Containers
     weight_records: list[tuple[pd.Timestamp, pd.Series]] = []
@@ -134,12 +142,13 @@ def run_daily_backtest(
     port_gross = pd.Series(0.0, index=dates, dtype=float, name="gross_return")
 
     for dt in dates:
-        if dt in rebal_dates:
-            # ── NO LOOK-AHEAD ────────────────────────────────────────
-            # The strategy only receives prices up to and including the
-            # current rebalance date ``dt``.  ``prices.loc[:dt]`` slices
-            # the DataFrame using label-based indexing, which is inclusive
-            # on both ends, ensuring no future data is leaked.
+        # Daily PnL uses weights known before today's return.
+        day_ret = (current_weights * daily_ret.loc[dt]).sum()
+        port_gross.loc[dt] = day_ret
+
+        if dt in rebal_set:
+            # New weights are computed after observing today's close and only
+            # affect subsequent returns.
             new_weights = signal_fn(config, prices.loc[:dt])
             new_weights = new_weights.reindex(prices.columns, fill_value=0.0)
 
@@ -147,10 +156,6 @@ def run_daily_backtest(
             turnover_records[dt] = to
             current_weights = new_weights
             weight_records.append((dt, new_weights.copy()))
-
-        # Daily PnL: w · r  (weights drift intra-period, approximate as fixed)
-        day_ret = (current_weights * daily_ret.loc[dt]).sum()
-        port_gross.loc[dt] = day_ret
 
     # ── Assemble turnover series ─────────────────────────────────────────
     turnover = pd.Series(turnover_records, name="turnover").reindex(dates, fill_value=0.0)

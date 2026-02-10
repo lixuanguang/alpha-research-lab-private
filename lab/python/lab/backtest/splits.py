@@ -27,6 +27,14 @@ import pandas as pd
 SplitPair = tuple[pd.DatetimeIndex, pd.DatetimeIndex]
 
 
+def _validate_dates_strict(dates: pd.DatetimeIndex) -> None:
+    """Require strictly increasing unique timestamps."""
+    if not dates.is_monotonic_increasing or not dates.is_unique:
+        raise ValueError(
+            "dates must be strictly increasing and unique (no look-ahead leakage)."
+        )
+
+
 # ── Single split (week-1 default) ────────────────────────────────────────────
 
 
@@ -58,9 +66,8 @@ def single_split(
     if not 0 < train_frac < 1:
         raise ValueError(f"train_frac must be in (0, 1), got {train_frac}.")
 
-    # Enforce monotonic time order — reject unsorted inputs
-    if not dates.is_monotonic_increasing:
-        raise ValueError("dates must be sorted in ascending order (no look-ahead leakage).")
+    # Enforce strict time order
+    _validate_dates_strict(dates)
 
     split_idx = int(len(dates) * train_frac)
     # Ensure both sets are non-empty
@@ -93,12 +100,14 @@ def expanding_splits(
     ------
     (train_dates, test_dates)
     """
-    if not dates.is_monotonic_increasing:
-        raise ValueError("dates must be sorted in ascending order (no look-ahead leakage).")
+    _validate_dates_strict(dates)
+    if train_years <= 0 or test_years <= 0 or min_train_years <= 0:
+        raise ValueError("train_years, test_years, and min_train_years must all be > 0.")
 
     start = dates.min()
     end = dates.max()
-    test_start = start + pd.DateOffset(years=min_train_years)
+    first_train_years = max(train_years, min_train_years)
+    test_start = start + pd.DateOffset(years=first_train_years)
 
     while test_start + pd.DateOffset(years=test_years) <= end:
         test_end = test_start + pd.DateOffset(years=test_years)
@@ -128,8 +137,7 @@ def rolling_splits(
     ------
     (train_dates, test_dates)
     """
-    if not dates.is_monotonic_increasing:
-        raise ValueError("dates must be sorted in ascending order (no look-ahead leakage).")
+    _validate_dates_strict(dates)
 
     start = dates.min()
     end = dates.max()

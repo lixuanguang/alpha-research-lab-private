@@ -90,8 +90,10 @@ def estimate_turnover(
     float
         One-way turnover fraction.
     """
-    combined = old_weights.reindex(new_weights.index, fill_value=0.0)
-    return float(np.abs(new_weights - combined).sum() / 2.0)
+    all_assets = old_weights.index.union(new_weights.index)
+    old = old_weights.reindex(all_assets, fill_value=0.0)
+    new = new_weights.reindex(all_assets, fill_value=0.0)
+    return float(np.abs(new - old).sum() / 2.0)
 
 
 def apply_costs(

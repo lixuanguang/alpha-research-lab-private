@@ -17,6 +17,7 @@ import json
 import platform
 import subprocess
 import sys
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,27 @@ def compute_config_hash(raw_config: dict[str, Any]) -> str:
     """
     normalized = _normalize(raw_config)
     canonical = yaml.dump(normalized, default_flow_style=False, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def compute_results_hash(
+    metrics: Mapping[str, float],
+    *,
+    config_hash: str,
+    toy_seed: int,
+) -> str:
+    """SHA-256 hash binding metrics to config identity and toy seed.
+
+    The payload is canonicalised with sorted keys so identical inputs always
+    produce identical hashes.
+    """
+    rounded = {k: round(float(v), 6) for k, v in metrics.items()}
+    payload = {
+        "metrics": rounded,
+        "config_hash": config_hash,
+        "toy_seed": int(toy_seed),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 

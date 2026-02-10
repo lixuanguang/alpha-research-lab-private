@@ -54,6 +54,13 @@ class TestEstimateTurnover:
         # Δ = |−0.2| + |+0.2| + |0| = 0.4;  turnover = 0.4 / 2 = 0.2
         assert estimate_turnover(w_old, w_new) == pytest.approx(0.2)
 
+    def test_handles_asset_drop_and_add(self) -> None:
+        """Dropped names must contribute liquidation turnover."""
+        old = pd.Series({"A": 0.6, "B": 0.4})
+        new = pd.Series({"A": 1.0, "C": 0.0})
+        # Δ = |1.0-0.6| + |0.0-0.4| + |0.0-0.0| = 0.8; turnover = 0.4
+        assert estimate_turnover(old, new) == pytest.approx(0.4)
+
 
 # ── apply_costs ──────────────────────────────────────────────────────────────
 
