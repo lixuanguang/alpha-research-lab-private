@@ -181,3 +181,40 @@ def test_ingestion_failure_keeps_existing_cache_intact(
 
     after = {p.name: p.read_bytes() for p in cache_root.glob("*.parquet")}
     assert after == before
+
+
+@pytest.mark.parametrize(
+    ("meta_override", "error_match"),
+    [
+        ({"cost_bps": -1.0}, "cost_bps"),
+        ({"per_asset_cap": 0.0}, "per_asset_cap"),
+    ],
+)
+def test_ingestion_rejects_invalid_meta_before_persist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_override: dict[str, float], error_match: str
+) -> None:
+    monkeypatch.setenv("LAB_DATA_ROOT", str(tmp_path))
+
+    raw = {
+        "tickers": ["SPY"],
+        "ticker_meta": {
+            "SPY": {
+                "bucket": "equities",
+                "cost_bps": 3.0,
+                "per_asset_cap": 0.35,
+                **meta_override,
+            }
+        },
+    }
+    cfg = tmp_path / "universe.yaml"
+    cfg.write_text(yaml.safe_dump(raw))
+
+    with pytest.raises(ValueError, match=error_match):
+        run_price_ingestion(
+            config_path=cfg,
+            start="2024-01-02",
+            end="2024-01-31",
+            source="yf",
+            adapter=CountingAdapter(),
+            sleep_fn=lambda _s: None,
+        )

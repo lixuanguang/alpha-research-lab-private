@@ -383,7 +383,6 @@ def _run_macro_allocator(
     signal_cfg = raw_config.get("signal", {})
     if not isinstance(signal_cfg, dict):
         raise ValueError("signal config must be a mapping.")
-    signal_model = build_macro_signal(signal_cfg)
     signal_name = str(signal_cfg.get("name", "ts_trend")).strip() or "ts_trend"
     strategy_signal_label = f"{signal_name.lower().replace(' ', '_')}_ls"
     signal_method = str(signal_cfg.get("method", "ma_cross"))
@@ -505,8 +504,11 @@ def _run_macro_allocator(
 
     assert_splits_time_ordered(folds)
 
-    signal_model.fit(prices, None, meta)
-    signal_panel = signal_model.compute(prices, None, meta)
+    # Probe explicit future-return leakage with a model fitted only on the
+    # first training fold. This avoids training on future observations.
+    probe_signal_model = build_macro_signal(signal_cfg)
+    probe_signal_model.fit(prices.reindex(folds[0][0]), None, meta)
+    signal_panel = probe_signal_model.compute(prices, None, meta)
     assert_no_lookahead(signal_panel, prices, min_lag=1)
 
     eval_cfg = raw_config.get("evaluation", {})
@@ -640,8 +642,18 @@ def _run_macro_allocator(
         costs=engine_costs,
     )
 
+    def _build_fold_signal_model(train_idx: pd.DatetimeIndex) -> Any:
+        """Create and fit a fold-local model to prevent cross-fold leakage."""
+        model = build_macro_signal(signal_cfg)
+        model.fit(prices.reindex(train_idx), None, meta)
+        return model
+
     def _strategy_signal(
-        _cfg: MacroRunConfig, px: pd.DataFrame, with_regime: bool = True
+        signal_model: Any,
+        _cfg: MacroRunConfig,
+        px: pd.DataFrame,
+        *,
+        with_regime: bool = True,
     ) -> pd.Series:
         scores_t = signal_model.compute(px, None, meta).iloc[-1]
 
@@ -712,11 +724,14 @@ def _run_macro_allocator(
     for i, (train_dates, test_dates) in enumerate(folds, start=1):
         seg_prices = prices.loc[train_dates.min() : test_dates.max()]
         fold_id = f"fold_{i - 1}"
+        fold_signal_model = _build_fold_signal_model(train_dates)
 
         fold_res = run_daily_backtest(
             macro_engine_cfg,
             seg_prices,
-            lambda cfg, p: _strategy_signal(cfg, p, with_regime=True),
+            lambda cfg, p, model=fold_signal_model: _strategy_signal(
+                model, cfg, p, with_regime=True
+            ),
         )
 
         test_idx = test_dates
@@ -881,10 +896,13 @@ def _run_macro_allocator(
     no_reg_parts_to: list[pd.Series] = []
     for train_dates, test_dates in folds:
         seg_prices = prices.loc[train_dates.min() : test_dates.max()]
+        fold_signal_model = _build_fold_signal_model(train_dates)
         r = run_daily_backtest(
             macro_engine_cfg,
             seg_prices,
-            lambda cfg, p: _strategy_signal(cfg, p, with_regime=False),
+            lambda cfg, p, model=fold_signal_model: _strategy_signal(
+                model, cfg, p, with_regime=False
+            ),
         )
         idx = test_dates
         fold_gross = r.gross_returns.reindex(idx).fillna(0.0)

@@ -64,6 +64,26 @@ def _validate_close_panel(close: pd.DataFrame) -> None:
         raise ValueError("close-price panel contains non-positive prices.")
 
 
+def _validate_asset_meta(meta: pd.DataFrame) -> pd.DataFrame:
+    """Return a cleaned, validated asset-meta table."""
+    missing_cols = _REQUIRED_META_COLUMNS - set(meta.columns)
+    if missing_cols:
+        raise ValueError(f"asset meta missing required columns: {sorted(missing_cols)}")
+
+    out = meta.copy()
+    out = out.drop_duplicates(subset=["ticker"], keep="last")
+    out = out.sort_values("ticker").reset_index(drop=True)
+    out["cost_bps"] = out["cost_bps"].astype(float)
+    out["per_asset_cap"] = out["per_asset_cap"].astype(float)
+    if (out["cost_bps"] < 0).any():
+        raise ValueError("asset meta 'cost_bps' must be >= 0.")
+    if (out["per_asset_cap"] <= 0).any():
+        raise ValueError("asset meta 'per_asset_cap' must be > 0.")
+    if out["bucket"].astype(str).str.strip().eq("").any():
+        raise ValueError("asset meta 'bucket' must be non-empty for all rows.")
+    return out
+
+
 def _synthetic_prices(tickers: list[str], start: str, end: str) -> pd.DataFrame:
     log.warning(
         "Falling back to synthetic prices for %d tickers (%s to %s).",
@@ -155,22 +175,7 @@ def load_asset_meta() -> pd.DataFrame:
         log.warning("No asset metadata found at %s.", root)
         return pd.DataFrame(columns=sorted(_REQUIRED_META_COLUMNS))
 
-    missing_cols = _REQUIRED_META_COLUMNS - set(meta.columns)
-    if missing_cols:
-        raise ValueError(f"asset meta missing required columns: {sorted(missing_cols)}")
-
-    meta = meta.copy()
-    meta = meta.drop_duplicates(subset=["ticker"], keep="last")
-    meta = meta.sort_values("ticker").reset_index(drop=True)
-    meta["cost_bps"] = meta["cost_bps"].astype(float)
-    meta["per_asset_cap"] = meta["per_asset_cap"].astype(float)
-    if (meta["cost_bps"] < 0).any():
-        raise ValueError("asset meta 'cost_bps' must be >= 0.")
-    if (meta["per_asset_cap"] <= 0).any():
-        raise ValueError("asset meta 'per_asset_cap' must be > 0.")
-    if meta["bucket"].astype(str).str.strip().eq("").any():
-        raise ValueError("asset meta 'bucket' must be non-empty for all rows.")
-    return meta
+    return _validate_asset_meta(meta)
 
 
 def write_price_artifacts(
@@ -183,12 +188,14 @@ def write_price_artifacts(
     root = _prices_root()
     close_out = _coerce_price_panel(close)
     _validate_close_panel(close_out)
+    meta_out = _validate_asset_meta(meta)
+
     close_path = root / "close.parquet"
     if only_if_changed:
         write_parquet_if_changed(close_out, close_path, index=True)
     else:
         close_out.to_parquet(close_path)
-    meta_out = meta.drop_duplicates(subset=["ticker"], keep="last").reset_index(drop=True)
+
     meta_path = root / "meta.parquet"
     if only_if_changed:
         write_parquet_if_changed(meta_out, meta_path, index=False)
