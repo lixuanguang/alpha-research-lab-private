@@ -85,7 +85,9 @@ def build_weights(
     tickers = scores_t.index
     meta_idx = meta.set_index("ticker").reindex(tickers)
 
-    caps = meta_idx.get("per_asset_cap", pd.Series(index=tickers, dtype=float)).fillna(per_asset_cap)
+    caps = meta_idx.get("per_asset_cap", pd.Series(index=tickers, dtype=float)).fillna(
+        per_asset_cap
+    )
     caps = caps.astype(float)
     buckets = meta_idx.get("bucket", pd.Series(index=tickers, dtype=object)).fillna("other")
 

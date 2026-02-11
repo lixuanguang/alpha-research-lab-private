@@ -30,9 +30,7 @@ SplitPair = tuple[pd.DatetimeIndex, pd.DatetimeIndex]
 def _validate_dates_strict(dates: pd.DatetimeIndex) -> None:
     """Require strictly increasing unique timestamps."""
     if not dates.is_monotonic_increasing or not dates.is_unique:
-        raise ValueError(
-            "dates must be strictly increasing and unique (no look-ahead leakage)."
-        )
+        raise ValueError("dates must be strictly increasing and unique (no look-ahead leakage).")
 
 
 # ── Single split (week-1 default) ────────────────────────────────────────────
@@ -114,6 +112,9 @@ def expanding_splits(
         train_mask = (dates >= start) & (dates < test_start)
         test_mask = (dates >= test_start) & (dates < test_end)
         train, test = dates[train_mask], dates[test_mask]
+        if len(train) == 0 or len(test) == 0:
+            test_start = test_end
+            continue
         assert train.max() < test.min(), "train/test overlap — time-order violated"
         yield train, test
         test_start = test_end
@@ -205,6 +206,9 @@ def rolling_splits(
         train_mask = (dates >= train_start) & (dates < train_end)
         test_mask = (dates >= train_end) & (dates < test_end)
         train, test = dates[train_mask], dates[test_mask]
+        if len(train) == 0 or len(test) == 0:
+            train_start = train_end
+            continue
         assert train.max() < test.min(), "train/test overlap — time-order violated"
         yield train, test
         train_start = train_end  # non-overlapping steps

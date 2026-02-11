@@ -18,6 +18,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from lab.backtest.rebalance import rebalance_dates
 from lab.backtest.splits import expanding_splits, rolling_splits, single_split
 
 
@@ -128,6 +129,13 @@ class TestExpandingSplits:
         with pytest.raises(ValueError, match="strictly increasing and unique"):
             list(expanding_splits(dup, train_years=1, test_years=1, min_train_years=1))
 
+    def test_sparse_calendar_skips_empty_windows(self) -> None:
+        sparse = pd.date_range("2010-01-01", "2024-12-31", freq="BMS")
+        splits = list(expanding_splits(sparse, train_years=2, test_years=1, min_train_years=1))
+        assert len(splits) >= 1
+        for train, test in splits:
+            _assert_split_invariants(train, test)
+
 
 # ── rolling_splits ───────────────────────────────────────────────────────────
 
@@ -153,3 +161,27 @@ class TestRollingSplits:
         dup = pd.DatetimeIndex(["2020-01-01", "2020-01-01", "2020-01-02"])
         with pytest.raises(ValueError, match="strictly increasing and unique"):
             list(rolling_splits(dup, train_years=1, test_years=1))
+
+    def test_sparse_calendar_skips_empty_windows(self) -> None:
+        sparse = pd.date_range("2010-01-01", "2024-12-31", freq="BMS")
+        splits = list(rolling_splits(sparse, train_years=2, test_years=1))
+        assert len(splits) >= 1
+        for train, test in splits:
+            _assert_split_invariants(train, test)
+
+
+class TestRebalanceDates:
+    def test_weekly_schedule_snaps_to_observed_dates(self) -> None:
+        all_days = pd.bdate_range("2024-01-02", periods=180)
+        no_fridays = all_days[all_days.weekday != 4]
+
+        rebal = rebalance_dates(no_fridays, frequency="W-FRI")
+
+        assert len(rebal) >= 20
+        assert rebal.isin(no_fridays).all()
+        assert rebal.is_monotonic_increasing
+
+    def test_invalid_frequency_raises(self) -> None:
+        idx = pd.bdate_range("2024-01-02", periods=40)
+        with pytest.raises(ValueError, match="invalid rebalance frequency"):
+            rebalance_dates(idx, frequency="NOT_A_FREQ")

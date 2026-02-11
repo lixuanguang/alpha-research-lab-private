@@ -29,7 +29,9 @@ def assert_no_lookahead(
         return
 
     sig = signal_df.reindex(index=common_idx, columns=common_cols)
-    future_ret = prices_df.reindex(index=common_idx, columns=common_cols).pct_change().shift(-min_lag)
+    future_ret = (
+        prices_df.reindex(index=common_idx, columns=common_cols).pct_change().shift(-min_lag)
+    )
 
     for col in common_cols:
         s = sig[col]
@@ -43,9 +45,7 @@ def assert_no_lookahead(
         f_valid = f[valid]
 
         exact_match_ratio = np.isclose(s_valid.to_numpy(), f_valid.to_numpy(), atol=1e-12).mean()
-        sign_match_ratio = (
-            np.sign(s_valid.to_numpy()) == np.sign(f_valid.to_numpy())
-        ).mean()
+        sign_match_ratio = (np.sign(s_valid.to_numpy()) == np.sign(f_valid.to_numpy())).mean()
 
         if exact_match_ratio > 0.98 or sign_match_ratio > 0.99:
             raise AssertionError(

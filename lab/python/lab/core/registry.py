@@ -22,6 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import pandas as pd
 import yaml
 
 from lab.core.paths import run_dir
@@ -61,6 +63,8 @@ def compute_results_hash(
     *,
     config_hash: str,
     toy_seed: int,
+    data_snapshot_id: str | None = None,
+    artifact_hashes: Mapping[str, str] | None = None,
 ) -> str:
     """SHA-256 hash binding metrics to config identity and toy seed.
 
@@ -72,9 +76,76 @@ def compute_results_hash(
         "metrics": rounded,
         "config_hash": config_hash,
         "toy_seed": int(toy_seed),
+        "data_snapshot_id": str(data_snapshot_id) if data_snapshot_id is not None else None,
+        "artifact_hashes": dict(sorted((artifact_hashes or {}).items())),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _hash_update_str(h: Any, text: str) -> None:
+    b = text.encode("utf-8")
+    h.update(len(b).to_bytes(8, "little", signed=False))
+    h.update(b)
+
+
+def _canonical_datetime_index(idx: pd.DatetimeIndex) -> np.ndarray:
+    if idx.tz is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    return np.asarray(idx.asi8, dtype="<i8")
+
+
+def _hash_index(index: pd.Index) -> str:
+    h = hashlib.sha256()
+    _hash_update_str(h, type(index).__name__)
+    if isinstance(index, pd.DatetimeIndex):
+        arr = _canonical_datetime_index(index)
+        h.update(arr.tobytes(order="C"))
+    else:
+        for item in index.tolist():
+            _hash_update_str(h, str(item))
+    return h.hexdigest()
+
+
+def compute_stable_series_hash(series: pd.Series) -> str:
+    """Deterministic SHA-256 hash for a numeric series across environments."""
+    s = series.copy()
+    s.index = pd.Index(s.index)
+    s = s.sort_index()
+
+    values = s.to_numpy(dtype=np.float64, copy=True)
+    if not np.isfinite(values).all():
+        raise ValueError("compute_stable_series_hash requires finite values.")
+    values = np.ascontiguousarray(values.astype("<f8", copy=False))
+
+    h = hashlib.sha256()
+    _hash_update_str(h, "series")
+    _hash_update_str(h, str(s.name) if s.name is not None else "")
+    _hash_update_str(h, _hash_index(s.index))
+    _hash_update_str(h, str(values.shape))
+    h.update(values.tobytes(order="C"))
+    return h.hexdigest()
+
+
+def compute_stable_frame_hash(frame: pd.DataFrame) -> str:
+    """Deterministic SHA-256 hash for a numeric DataFrame across environments."""
+    df = frame.copy()
+    df = df.sort_index().sort_index(axis=1)
+    df.index = pd.Index(df.index)
+    df.columns = pd.Index(df.columns)
+
+    values = df.to_numpy(dtype=np.float64, copy=True)
+    if not np.isfinite(values).all():
+        raise ValueError("compute_stable_frame_hash requires finite values.")
+    values = np.ascontiguousarray(values.astype("<f8", copy=False))
+
+    h = hashlib.sha256()
+    _hash_update_str(h, "frame")
+    _hash_update_str(h, _hash_index(df.index))
+    _hash_update_str(h, _hash_index(df.columns))
+    _hash_update_str(h, str(values.shape))
+    h.update(values.tobytes(order="C"))
+    return h.hexdigest()
 
 
 # ── Run-ID generation ────────────────────────────────────────────────────────

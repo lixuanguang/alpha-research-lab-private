@@ -7,6 +7,7 @@ from lab.core.config import (
     load_raw_config,
     normalize_config,
     validate_config,
+    validate_macro_allocator_config,
 )
 from lab.core.logging import get_logger, setup_logging
 from lab.core.paths import (
@@ -20,6 +21,8 @@ from lab.core.paths import (
 from lab.core.registry import (
     compute_config_hash,
     compute_results_hash,
+    compute_stable_frame_hash,
+    compute_stable_series_hash,
     create_run,
     generate_run_id,
     get_git_commit,
@@ -33,6 +36,8 @@ __all__ = [
     # registry (run identity)
     "compute_config_hash",
     "compute_results_hash",
+    "compute_stable_frame_hash",
+    "compute_stable_series_hash",
     "create_run",
     # paths
     "data_dir",
@@ -54,4 +59,5 @@ __all__ = [
     "runs_root",
     "setup_logging",
     "validate_config",
+    "validate_macro_allocator_config",
 ]

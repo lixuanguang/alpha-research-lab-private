@@ -32,6 +32,12 @@ data/
 .env
 .env.*
 secrets/
+# Keep Python source modules under python/lab/data tracked.
+!python/lab/data/
+!python/lab/data/*.py
+!python/lab/data/loaders/
+!python/lab/data/loaders/*.py
+python/lab/data/**/__pycache__/
 
 # ── Experiments (keep configs, ignore outputs) ───────────────────────────────
 experiments/**/outputs/

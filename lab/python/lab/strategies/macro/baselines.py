@@ -27,7 +27,11 @@ def sixty_forty_proxy(
         return pd.Series(dtype=float)
 
     eq = equity_ticker if equity_ticker in tickers else tickers[0]
-    rt = rates_ticker if rates_ticker in tickers else (tickers[1] if len(tickers) > 1 else tickers[0])
+    rt = (
+        rates_ticker
+        if rates_ticker in tickers
+        else (tickers[1] if len(tickers) > 1 else tickers[0])
+    )
 
     w = pd.Series(0.0, index=tickers, dtype=float)
     if eq == rt:

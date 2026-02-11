@@ -163,7 +163,9 @@ def save_report(
     return path
 
 
-def _dict_table_md(title: str, data: dict[str, float], fmt: dict[str, str] | None = None) -> list[str]:
+def _dict_table_md(
+    title: str, data: dict[str, float], fmt: dict[str, str] | None = None
+) -> list[str]:
     lines = [f"### {title}", "", "| Metric | Value |", "|---|---:|"]
     for k, v in data.items():
         formatter = (fmt or {}).get(k, "{:.4f}")

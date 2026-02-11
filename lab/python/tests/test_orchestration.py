@@ -189,6 +189,93 @@ class TestConfigValidation:
         with pytest.raises(ConfigValidationError, match="signal"):
             load_config(p)
 
+    def test_start_date_after_end_date_fails_validation(self, tmp_path: Path) -> None:
+        import yaml
+
+        from lab.core.config import ConfigValidationError, load_config
+
+        cfg_dict = {
+            "exp": "test",
+            "universe": ["A"],
+            "start_date": "2021-01-01",
+            "end_date": "2020-12-31",
+            "rebalance": "monthly",
+            "signal": 20,
+            "costs": 5.0,
+            "initial_capital": 1_000_000,
+        }
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ConfigValidationError, match="start_date"):
+            load_config(p)
+
+    def test_duplicate_universe_tickers_fail_validation(self, tmp_path: Path) -> None:
+        import yaml
+
+        from lab.core.config import ConfigValidationError, load_config
+
+        cfg_dict = {
+            "exp": "test",
+            "universe": ["A", "A"],
+            "start_date": "2020-01-01",
+            "end_date": "2020-12-31",
+            "rebalance": "monthly",
+            "signal": 20,
+            "costs": 5.0,
+            "initial_capital": 1_000_000,
+        }
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ConfigValidationError, match="duplicate"):
+            load_config(p)
+
+
+class TestMacroAllocatorConfigValidation:
+    def test_valid_macro_config_passes(self) -> None:
+        from lab.core.config import validate_macro_allocator_config
+
+        raw = {
+            "exp": "macro_allocator_ls",
+            "strategy": "macro.allocator_ls",
+            "universe_config": "experiments/macro/configs/universe.yaml",
+            "dates": {"start": "2016-01-01", "end": "2024-12-31"},
+            "rebalance": {"frequency": "W-FRI"},
+            "signal": {
+                "method": "ma_cross",
+                "fast": 20,
+                "slow": 120,
+                "lookback_days": 252,
+                "vol_scale_lookback": 63,
+            },
+            "regime": {
+                "enabled": True,
+                "lag_days": 30,
+                "lookback_days": 63,
+                "risk_off_bucket_multipliers": {"equities": 0.6},
+            },
+            "risk": {"vol_target_annual": 0.10, "vol_lookback_days": 63},
+            "costs": {"use_meta_costs": True, "stress_multipliers": [1, 2, 4]},
+            "evaluation": {
+                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5}
+            },
+        }
+        validate_macro_allocator_config(raw)
+
+    def test_unknown_macro_field_fails(self) -> None:
+        from lab.core.config import ConfigValidationError, validate_macro_allocator_config
+
+        raw = {
+            "exp": "macro_allocator_ls",
+            "universe_config": "experiments/macro/configs/universe.yaml",
+            "dates": {"start": "2016-01-01", "end": "2024-12-31"},
+            "rebalance": {"frequency": "W-FRI"},
+            "signal": {"method": "ma_cross", "fast": 20, "slow": 120, "lookback_days": 252},
+            "evaluation": {"folds": {"train_days": 1260, "test_days": 252, "step_days": 252}},
+            "unexpected_field": 123,
+        }
+        with pytest.raises(ConfigValidationError, match="unknown"):
+            validate_macro_allocator_config(raw)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Data loader — load_prices_or_make_toy

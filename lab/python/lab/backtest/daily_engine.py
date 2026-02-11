@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 
 from lab.core.logging import get_logger
@@ -59,7 +60,9 @@ class BacktestResult:
         default_factory=lambda: pd.Series(dtype=float, name="net_exposure")
     )
     turnover_by_asset: pd.DataFrame = dataclasses.field(default_factory=pd.DataFrame)
-    costs: pd.Series = dataclasses.field(default_factory=lambda: pd.Series(dtype=float, name="costs"))
+    costs: pd.Series = dataclasses.field(
+        default_factory=lambda: pd.Series(dtype=float, name="costs")
+    )
     costs_by_asset: pd.DataFrame = dataclasses.field(default_factory=pd.DataFrame)
 
 
@@ -69,7 +72,6 @@ class _ConfigLike:
     exp: str
     rebalance: str
     costs: float | dict
-
 
 
 def _rebalance_dates(
@@ -203,6 +205,16 @@ def run_daily_backtest(
             if not isinstance(new_weights, pd.Series):
                 new_weights = pd.Series(new_weights, index=prices.columns, dtype=float)
             new_weights = new_weights.reindex(prices.columns, fill_value=0.0).astype(float)
+
+            finite_mask = np.isfinite(new_weights.to_numpy(dtype=float))
+            if not finite_mask.all():
+                n_bad = int((~finite_mask).sum())
+                log.warning(
+                    "Non-finite target weights on %s (%d values) -> coercing to 0.0",
+                    dt,
+                    n_bad,
+                )
+                new_weights = new_weights.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
             per_asset_turnover = (new_weights - current_weights).abs() / 2.0
             turnover_by_asset.loc[dt] = per_asset_turnover

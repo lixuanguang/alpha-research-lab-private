@@ -139,3 +139,62 @@ def test_price_loader_alignment_contract(tmp_path, monkeypatch) -> None:
     assert loaded_prices.index.is_unique
     assert loaded_prices.columns.is_unique
     assert set(loaded_prices.columns) == set(loaded_meta["ticker"])
+
+
+def test_price_loader_partial_synthetic_backfill_preserves_index(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LAB_DATA_ROOT", str(tmp_path))
+
+    # Simulate a real panel with an exchange-specific calendar (missing Fridays).
+    all_days = pd.bdate_range("2020-01-02", periods=80)
+    no_fridays = all_days[all_days.weekday != 4]
+    close = pd.DataFrame({"SPY": np.linspace(100, 120, len(no_fridays))}, index=no_fridays)
+
+    prices_dir = tmp_path / "prices"
+    prices_dir.mkdir(parents=True, exist_ok=True)
+    close.to_parquet(prices_dir / "close.parquet")
+
+    loaded = load_close_prices(["SPY", "TLT"], "2020-01-02", "2020-12-31")
+
+    assert loaded.index.equals(no_fridays)
+    assert list(loaded.columns) == ["SPY", "TLT"]
+    assert not loaded.isna().any().any()
+
+
+def test_price_loader_empty_requested_window_falls_back_to_synthetic(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LAB_DATA_ROOT", str(tmp_path))
+
+    dates = pd.bdate_range("2020-01-02", periods=60)
+    close = pd.DataFrame({"SPY": np.linspace(100, 120, len(dates))}, index=dates)
+
+    prices_dir = tmp_path / "prices"
+    prices_dir.mkdir(parents=True, exist_ok=True)
+    close.to_parquet(prices_dir / "close.parquet")
+
+    loaded = load_close_prices(["SPY", "TLT"], "2025-01-02", "2025-03-31")
+
+    assert not loaded.empty
+    assert list(loaded.columns) == ["SPY", "TLT"]
+
+
+def test_price_loader_fails_fast_on_non_positive_or_non_finite_prices(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LAB_DATA_ROOT", str(tmp_path))
+
+    dates = pd.bdate_range("2020-01-02", periods=40)
+    close = pd.DataFrame(
+        {
+            "SPY": np.linspace(100, 120, len(dates)),
+            "TLT": np.linspace(100, 110, len(dates)),
+        },
+        index=dates,
+    )
+    close.loc[dates[10], "SPY"] = 0.0
+    close.loc[dates[11], "TLT"] = np.inf
+
+    prices_dir = tmp_path / "prices"
+    prices_dir.mkdir(parents=True, exist_ok=True)
+    close.to_parquet(prices_dir / "close.parquet")
+
+    with pytest.raises(ValueError, match=r"NaN/inf|non-positive"):
+        load_close_prices(["SPY", "TLT"], "2020-01-02", "2020-12-31")

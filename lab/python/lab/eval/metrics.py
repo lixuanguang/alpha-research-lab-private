@@ -199,8 +199,10 @@ def total_costs_paid(
         Cumulative cost drag (positive number).
     """
     gross = gross_returns.astype(float).replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    net = net_returns.astype(float).replace([np.inf, -np.inf], np.nan).reindex(
-        gross.index, fill_value=0.0
+    net = (
+        net_returns.astype(float)
+        .replace([np.inf, -np.inf], np.nan)
+        .reindex(gross.index, fill_value=0.0)
     )
     net = net.fillna(0.0)
     diff = gross - net

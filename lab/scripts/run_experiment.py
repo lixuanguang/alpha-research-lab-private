@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import hashlib
 import json
 import shutil
 import sys
@@ -30,9 +29,15 @@ matplotlib.use("Agg")  # headless backend — no GUI needed
 
 # Importing the strategies package triggers @register decorators
 import lab.strategies.macro_equities  # noqa: F401
-from lab.core.config import load_config, load_raw_config
+from lab.core.config import load_config, load_raw_config, validate_macro_allocator_config
 from lab.core.logging import get_logger, setup_logging
-from lab.core.registry import compute_config_hash, compute_results_hash, create_run
+from lab.core.registry import (
+    compute_config_hash,
+    compute_results_hash,
+    compute_stable_frame_hash,
+    compute_stable_series_hash,
+    create_run,
+)
 from lab.core.strategy_registry import get as get_strategy
 
 log = get_logger("scripts.run_experiment")
@@ -108,14 +113,8 @@ def _round_nested(obj: Any, ndigits: int = 6) -> Any:
 
 
 def _compute_data_snapshot_id(prices: pd.DataFrame) -> str:
-    """Compute a deterministic snapshot identifier from the ingested panel."""
-    h = hashlib.sha256()
-    h.update(str(prices.shape).encode("utf-8"))
-    h.update(str(prices.index.min()).encode("utf-8"))
-    h.update(str(prices.index.max()).encode("utf-8"))
-    h.update(",".join(prices.columns).encode("utf-8"))
-    h.update(prices.head(10).round(8).to_csv().encode("utf-8"))
-    return f"prices_close_{h.hexdigest()[:8]}"
+    """Compute a deterministic snapshot identifier from the full close panel."""
+    return f"prices_close_{compute_stable_frame_hash(prices)[:12]}"
 
 
 def _safe_corr(a: pd.Series, b: pd.Series) -> float:
@@ -125,6 +124,57 @@ def _safe_corr(a: pd.Series, b: pd.Series) -> float:
     if pd.isna(c):
         return 0.0
     return float(c)
+
+
+def _validate_macro_inputs(prices: pd.DataFrame, meta: pd.DataFrame, tickers: list[str]) -> None:
+    if prices.empty:
+        raise ValueError("Loaded close-price panel is empty.")
+    if not prices.index.is_monotonic_increasing or not prices.index.is_unique:
+        raise ValueError("Close-price index must be unique and strictly increasing.")
+    if not prices.columns.is_unique:
+        raise ValueError("Close-price columns must be unique.")
+    if list(prices.columns) != tickers:
+        raise ValueError("Close-price columns must exactly match configured ticker order.")
+
+    arr = prices.to_numpy(dtype=float, copy=False)
+    if not np.isfinite(arr).all():
+        raise ValueError("Close-price panel contains NaN/inf values.")
+    if (arr <= 0).any():
+        raise ValueError("Close-price panel contains non-positive prices.")
+
+    if meta.empty:
+        raise ValueError("Universe metadata is empty.")
+    if meta["ticker"].duplicated().any():
+        raise ValueError("Universe metadata contains duplicate tickers.")
+    if set(meta["ticker"]) != set(tickers):
+        raise ValueError("Universe metadata tickers must match price-panel tickers exactly.")
+    if (meta["cost_bps"].astype(float) < 0).any():
+        raise ValueError("Universe metadata cost_bps must be >= 0.")
+    if (meta["per_asset_cap"].astype(float) <= 0).any():
+        raise ValueError("Universe metadata per_asset_cap must be > 0.")
+
+
+def _artifact_hashes(
+    *,
+    net_returns: pd.Series,
+    gross_returns: pd.Series,
+    turnover: pd.Series,
+    costs: pd.Series,
+    weights: pd.DataFrame,
+    weights_daily: pd.DataFrame,
+    bucket_exposure: pd.DataFrame,
+    costs_by_asset: pd.DataFrame,
+) -> dict[str, str]:
+    return {
+        "returns": compute_stable_series_hash(net_returns),
+        "gross_returns": compute_stable_series_hash(gross_returns),
+        "turnover": compute_stable_series_hash(turnover),
+        "costs": compute_stable_series_hash(costs),
+        "weights_rebalance": compute_stable_frame_hash(weights),
+        "weights_daily": compute_stable_frame_hash(weights_daily),
+        "bucket_exposure": compute_stable_frame_hash(bucket_exposure),
+        "costs_by_asset": compute_stable_frame_hash(costs_by_asset),
+    }
 
 
 def _resolve_path(path_like: str | Path, *, base: Path, fallbacks: tuple[Path, ...] = ()) -> Path:
@@ -145,17 +195,29 @@ def _resolve_path(path_like: str | Path, *, base: Path, fallbacks: tuple[Path, .
 
 def _universe_meta(universe_raw: dict[str, Any]) -> pd.DataFrame:
     tickers = universe_raw.get("tickers", [])
+    if not isinstance(tickers, list) or not tickers:
+        raise ValueError("universe config must define a non-empty 'tickers' list.")
+    if len(set(tickers)) != len(tickers):
+        raise ValueError("universe config 'tickers' must not contain duplicates.")
     ticker_meta = universe_raw.get("ticker_meta", {})
+    if not isinstance(ticker_meta, dict):
+        raise ValueError("universe config 'ticker_meta' must be a mapping.")
 
     rows: list[dict[str, Any]] = []
     for t in tickers:
-        info = ticker_meta.get(t, {})
+        info = ticker_meta.get(t)
+        if not isinstance(info, dict):
+            raise ValueError(f"ticker_meta must define mapping for ticker '{t}'.")
+        missing = {"bucket", "cost_bps", "per_asset_cap"} - set(info)
+        if missing:
+            fields = ", ".join(sorted(missing))
+            raise ValueError(f"ticker_meta for '{t}' missing required fields: {fields}")
         rows.append(
             {
                 "ticker": t,
-                "bucket": info.get("bucket", "other"),
-                "cost_bps": float(info.get("cost_bps", 5.0)),
-                "per_asset_cap": float(info.get("per_asset_cap", 0.35)),
+                "bucket": str(info["bucket"]),
+                "cost_bps": float(info["cost_bps"]),
+                "per_asset_cap": float(info["per_asset_cap"]),
             }
         )
     return pd.DataFrame(rows)
@@ -254,14 +316,35 @@ def _run_macro_allocator(
 
     meta = _universe_meta(universe_raw)
     tickers = meta["ticker"].tolist()
+    if not tickers:
+        raise ValueError("universe config produced zero tickers.")
     prices = load_close_prices(tickers=tickers, start=start, end=end)
+    _validate_macro_inputs(prices, meta, tickers)
     log.info("Loaded macro panel: %d days × %d assets", *prices.shape)
 
     constraints = universe_raw.get("constraints", {})
+    if not isinstance(constraints, dict):
+        raise ValueError("universe config 'constraints' must be a mapping.")
+    required_constraints = {"gross_cap", "net_target", "net_band", "bucket_gross_caps"}
+    missing_constraints = required_constraints - set(constraints)
+    if missing_constraints:
+        miss = ", ".join(sorted(missing_constraints))
+        raise ValueError(f"universe config constraints missing required fields: {miss}")
     gross_cap = float(constraints.get("gross_cap", 1.5))
     net_target = float(constraints.get("net_target", 0.0))
     net_band = float(constraints.get("net_band", 0.15))
-    bucket_caps = {k: float(v) for k, v in constraints.get("bucket_gross_caps", {}).items()}
+    raw_bucket_caps = constraints.get("bucket_gross_caps", {})
+    if not isinstance(raw_bucket_caps, dict) or not raw_bucket_caps:
+        raise ValueError("constraints.bucket_gross_caps must be a non-empty mapping.")
+    bucket_caps = {k: float(v) for k, v in raw_bucket_caps.items()}
+    if gross_cap <= 0:
+        raise ValueError("constraints.gross_cap must be > 0.")
+    if net_band < 0:
+        raise ValueError("constraints.net_band must be >= 0.")
+    if abs(net_target) > gross_cap:
+        raise ValueError("constraints.net_target magnitude must be <= constraints.gross_cap.")
+    if any(v < 0 for v in bucket_caps.values()):
+        raise ValueError("constraints.bucket_gross_caps values must be >= 0.")
     default_per_asset_cap = float(meta["per_asset_cap"].max()) if not meta.empty else 0.35
 
     signal_cfg = raw_config.get("signal", {})
@@ -270,12 +353,18 @@ def _run_macro_allocator(
     fast = int(signal_cfg.get("fast", 20))
     slow = int(signal_cfg.get("slow", 120))
     vol_scale_lb = int(signal_cfg.get("vol_scale_lookback", 63))
+    if vol_scale_lb < 0:
+        raise ValueError("signal.vol_scale_lookback must be >= 0.")
 
     rebalance_freq = raw_config.get("rebalance", {}).get("frequency", "W-FRI")
 
     risk_cfg = raw_config.get("risk", {})
     vol_target = float(risk_cfg.get("vol_target_annual", 0.10))
     vol_lookback_days = int(risk_cfg.get("vol_lookback_days", 63))
+    if vol_target < 0:
+        raise ValueError("risk.vol_target_annual must be >= 0.")
+    if vol_lookback_days <= 1:
+        raise ValueError("risk.vol_lookback_days must be > 1.")
 
     regime_cfg = raw_config.get("regime", {})
     regime_enabled = bool(regime_cfg.get("enabled", False))
@@ -286,10 +375,14 @@ def _run_macro_allocator(
     risk_off_multipliers = {
         k: float(v) for k, v in regime_cfg.get("risk_off_bucket_multipliers", {}).items()
     }
+    if any(v < 0 for v in risk_off_multipliers.values()):
+        raise ValueError("regime risk-off bucket multipliers must be >= 0.")
 
     costs_cfg = raw_config.get("costs", {})
     use_meta_costs = bool(costs_cfg.get("use_meta_costs", True))
     stress_multipliers = [float(x) for x in costs_cfg.get("stress_multipliers", [1, 2, 4])]
+    if not stress_multipliers or any(x <= 0 for x in stress_multipliers):
+        raise ValueError("costs.stress_multipliers must be a non-empty list of >0 values.")
 
     if use_meta_costs:
         per_asset_bps = meta.set_index("ticker")["cost_bps"].to_dict()
@@ -331,7 +424,9 @@ def _run_macro_allocator(
         costs=engine_costs,
     )
 
-    def _strategy_signal(_cfg: MacroRunConfig, px: pd.DataFrame, with_regime: bool = True) -> pd.Series:
+    def _strategy_signal(
+        _cfg: MacroRunConfig, px: pd.DataFrame, with_regime: bool = True
+    ) -> pd.Series:
         scores_t = compute_ts_trend_scores(
             px,
             lookback_days=lookback_days,
@@ -421,7 +516,11 @@ def _run_macro_allocator(
 
         fold_weights_rebal = fold_res.weights[fold_res.weights.index.isin(test_idx)]
         daily_w = (
-            fold_res.weights.reindex(seg_prices.index).ffill().fillna(0.0).reindex(test_idx).fillna(0.0)
+            fold_res.weights.reindex(seg_prices.index)
+            .ffill()
+            .fillna(0.0)
+            .reindex(test_idx)
+            .fillna(0.0)
         )
 
         fold_bucket_exp = _bucket_exposure_from_weights(daily_w, meta)
@@ -597,8 +696,12 @@ def _run_macro_allocator(
     else:
         regime_series = pd.Series(0, index=prices.index, dtype=int)
 
-    regime_on_idx = net_returns.index[regime_series.reindex(net_returns.index).fillna(0).astype(int) == 0]
-    regime_off_idx = net_returns.index[regime_series.reindex(net_returns.index).fillna(0).astype(int) == 1]
+    regime_on_idx = net_returns.index[
+        regime_series.reindex(net_returns.index).fillna(0).astype(int) == 0
+    ]
+    regime_off_idx = net_returns.index[
+        regime_series.reindex(net_returns.index).fillna(0).astype(int) == 1
+    ]
 
     regime_split = {}
     if len(regime_on_idx) > 0:
@@ -666,11 +769,6 @@ def _run_macro_allocator(
 
     # ── results.json ─────────────────────────────────────────────────────
     rounded_metrics = {k: round(float(v), 6) for k, v in metrics.items()}
-    results_hash = compute_results_hash(
-        rounded_metrics,
-        config_hash=raw_config_hash,
-        toy_seed=args.toy_seed,
-    )
 
     exposure_summary = {
         "avg_gross_exposure": float(gross_exposure.mean()),
@@ -680,8 +778,7 @@ def _run_macro_allocator(
     }
 
     risk_summary = {
-        f"bucket_rc_{k}": float(v)
-        for k, v in bucket_rc.mean().sort_index().to_dict().items()
+        f"bucket_rc_{k}": float(v) for k, v in bucket_rc.mean().sort_index().to_dict().items()
     }
     risk_summary.update(
         {
@@ -740,6 +837,23 @@ def _run_macro_allocator(
 
     run_meta = _finalize_meta(rdir)
     data_snapshot_id = _compute_data_snapshot_id(prices)
+    artifact_hashes = _artifact_hashes(
+        net_returns=net_returns,
+        gross_returns=gross_returns,
+        turnover=turnover,
+        costs=costs,
+        weights=weights,
+        weights_daily=weights_daily,
+        bucket_exposure=bucket_exposure,
+        costs_by_asset=costs_by_asset,
+    )
+    results_hash = compute_results_hash(
+        rounded_metrics,
+        config_hash=raw_config_hash,
+        toy_seed=args.toy_seed,
+        data_snapshot_id=data_snapshot_id,
+        artifact_hashes=artifact_hashes,
+    )
 
     results = {
         "schema_version": "1.0",
@@ -839,6 +953,7 @@ def _run_macro_allocator(
                 {"name": "cost_stress", "path": "tables/cost_stress.csv"},
                 {"name": "by_fold_metrics", "path": "tables/by_fold_metrics.csv"},
             ],
+            "hashes": artifact_hashes,
         },
     }
 
@@ -940,17 +1055,30 @@ def _run_legacy(
     # results.json
     rounded_metrics = {k: round(float(v), 6) for k, v in metrics.items()}
     config_hash = compute_config_hash(raw_config)
+    data_snapshot_id = _compute_data_snapshot_id(prices)
+    artifact_hashes = {
+        "returns": compute_stable_series_hash(result.returns),
+        "gross_returns": compute_stable_series_hash(result.gross_returns),
+        "turnover": compute_stable_series_hash(result.turnover),
+        "weights": compute_stable_frame_hash(
+            result.weights.reindex(columns=list(config.universe)).fillna(0.0)
+        ),
+    }
     results_hash = compute_results_hash(
         rounded_metrics,
         config_hash=config_hash,
         toy_seed=args.toy_seed,
+        data_snapshot_id=data_snapshot_id,
+        artifact_hashes=artifact_hashes,
     )
 
     results = {
         "metrics": rounded_metrics,
         "results_hash": results_hash,
         "config_hash": config_hash,
+        "data_snapshot_id": data_snapshot_id,
         "toy_seed": args.toy_seed,
+        "artifact_hashes": artifact_hashes,
         "config": {
             "exp": config.exp,
             "strategy": config.strategy,
@@ -1041,6 +1169,8 @@ def main() -> None:
     # ── Load raw config + create run folder ─────────────────────────────
     config_path = Path(args.config).resolve()
     raw_config = load_raw_config(config_path)
+    if "universe_config" in raw_config:
+        validate_macro_allocator_config(raw_config)
 
     rid, rdir = create_run(
         exp_name=args.exp,

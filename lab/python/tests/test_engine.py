@@ -200,3 +200,24 @@ class TestDailyEngine:
         # were missing from the panel; a weekly-like cadence should produce many
         # more rebalance records over ~9 months.
         assert len(result.weights) >= 20
+
+    def test_non_finite_signal_weights_are_sanitized(self) -> None:
+        """NaN/inf signal outputs should be coerced to flat weights, not NaN PnL."""
+        config = _make_config(rebalance="weekly", costs=0.0)
+        dates = pd.bdate_range("2024-01-02", periods=80)
+        prices = pd.DataFrame(
+            {
+                "A": 100 + np.linspace(0, 2, len(dates)),
+                "B": 100 + np.linspace(0, 1, len(dates)),
+            },
+            index=dates,
+        )
+
+        def _bad_signal(_config: ExperimentConfig, _p: pd.DataFrame) -> pd.Series:
+            return pd.Series({"A": np.nan, "B": np.inf})
+
+        result = run_daily_backtest(config, prices, _bad_signal)
+
+        assert np.isfinite(result.returns.to_numpy()).all()
+        assert np.isfinite(result.gross_returns.to_numpy()).all()
+        assert (result.weights.abs().sum(axis=1) == 0.0).all()
