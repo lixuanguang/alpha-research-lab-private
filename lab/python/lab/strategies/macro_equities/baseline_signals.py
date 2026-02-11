@@ -152,15 +152,21 @@ def cross_sectional_momentum(
                 prev_w = pd.Series(0.0, index=tickers)
             else:
                 ranked = row.sort_values(ascending=False)
-                long_names = ranked.head(top_n).index
                 if long_only:
+                    long_names = ranked.head(top_n).index
                     w = pd.Series(0.0, index=tickers)
                     w[long_names] = 1.0 / top_n
                 else:
-                    short_names = ranked.tail(top_n).index
+                    side_n = min(top_n, len(ranked) // 2)
+                    if side_n <= 0:
+                        prev_w = pd.Series(0.0, index=tickers)
+                        weights.loc[dt] = prev_w
+                        continue
+                    long_names = ranked.head(side_n).index
+                    short_names = ranked.tail(side_n).index
                     w = pd.Series(0.0, index=tickers)
-                    w[long_names] = 1.0 / top_n
-                    w[short_names] = -1.0 / top_n
+                    w[long_names] = 1.0 / side_n
+                    w[short_names] = -1.0 / side_n
                 prev_w = w
         weights.loc[dt] = prev_w
 

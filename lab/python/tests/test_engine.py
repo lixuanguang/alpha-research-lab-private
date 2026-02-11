@@ -221,3 +221,28 @@ class TestDailyEngine:
         assert np.isfinite(result.returns.to_numpy()).all()
         assert np.isfinite(result.gross_returns.to_numpy()).all()
         assert (result.weights.abs().sum(axis=1) == 0.0).all()
+
+    def test_rejects_unsorted_price_index(self) -> None:
+        config = _make_config(costs=0.0)
+        prices = _toy_prices(seed=7).sort_index(ascending=False)
+        with pytest.raises(ValueError, match="strictly increasing"):
+            run_daily_backtest(config, prices, _equal_weight_signal)
+
+    def test_rejects_non_positive_prices(self) -> None:
+        config = _make_config(costs=0.0)
+        prices = _toy_prices(seed=11)
+        prices.iloc[5, 0] = 0.0
+        with pytest.raises(ValueError, match="non-positive"):
+            run_daily_backtest(config, prices, _equal_weight_signal)
+
+    def test_rejects_negative_transaction_costs(self) -> None:
+        config = _make_config(costs=-5.0)
+        prices = _toy_prices(seed=42)
+        with pytest.raises(ValueError, match="must be >= 0"):
+            run_daily_backtest(config, prices, _equal_weight_signal)
+
+    def test_rejects_non_finite_transaction_costs(self) -> None:
+        config = _make_config(costs={"per_asset_bps": {"A": np.inf}})
+        prices = _toy_prices(seed=42)
+        with pytest.raises(ValueError, match="must be finite"):
+            run_daily_backtest(config, prices, _equal_weight_signal)

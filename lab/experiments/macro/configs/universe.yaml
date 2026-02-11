@@ -13,34 +13,42 @@ ticker_meta:
     bucket: equities
     cost_bps: 3
     per_asset_cap: 0.35
+    adv_usd_mn: 32000
   EFA:
     bucket: equities
     cost_bps: 4
     per_asset_cap: 0.35
+    adv_usd_mn: 1400
   EEM:
     bucket: equities
     cost_bps: 5
     per_asset_cap: 0.35
+    adv_usd_mn: 3200
   IEF:
     bucket: rates
     cost_bps: 2
     per_asset_cap: 0.35
+    adv_usd_mn: 2100
   TLT:
     bucket: rates
     cost_bps: 3
     per_asset_cap: 0.35
+    adv_usd_mn: 2800
   GLD:
     bucket: commodities
     cost_bps: 4
     per_asset_cap: 0.30
+    adv_usd_mn: 1700
   DBC:
     bucket: commodities
     cost_bps: 6
     per_asset_cap: 0.25
+    adv_usd_mn: 180
   LQD:
     bucket: credit
     cost_bps: 4
     per_asset_cap: 0.30
+    adv_usd_mn: 520
 
 constraints:
   gross_cap: 1.5

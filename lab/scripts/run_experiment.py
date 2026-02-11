@@ -152,6 +152,13 @@ def _validate_macro_inputs(prices: pd.DataFrame, meta: pd.DataFrame, tickers: li
         raise ValueError("Universe metadata cost_bps must be >= 0.")
     if (meta["per_asset_cap"].astype(float) <= 0).any():
         raise ValueError("Universe metadata per_asset_cap must be > 0.")
+    for adv_col in ("adv_usd", "adv_usd_mn"):
+        if adv_col in meta.columns:
+            adv = meta[adv_col].astype(float)
+            if not np.isfinite(adv.to_numpy()).all():
+                raise ValueError(f"Universe metadata {adv_col} must be finite when provided.")
+            if (adv <= 0).any():
+                raise ValueError(f"Universe metadata {adv_col} must be > 0 when provided.")
 
 
 def _artifact_hashes(
@@ -212,14 +219,17 @@ def _universe_meta(universe_raw: dict[str, Any]) -> pd.DataFrame:
         if missing:
             fields = ", ".join(sorted(missing))
             raise ValueError(f"ticker_meta for '{t}' missing required fields: {fields}")
-        rows.append(
-            {
-                "ticker": t,
-                "bucket": str(info["bucket"]),
-                "cost_bps": float(info["cost_bps"]),
-                "per_asset_cap": float(info["per_asset_cap"]),
-            }
-        )
+        row: dict[str, Any] = {
+            "ticker": t,
+            "bucket": str(info["bucket"]),
+            "cost_bps": float(info["cost_bps"]),
+            "per_asset_cap": float(info["per_asset_cap"]),
+        }
+        if "adv_usd" in info:
+            row["adv_usd"] = float(info["adv_usd"])
+        if "adv_usd_mn" in info:
+            row["adv_usd_mn"] = float(info["adv_usd_mn"])
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -255,6 +265,27 @@ def _bucket_exposure_from_weights(weights_daily: pd.DataFrame, meta: pd.DataFram
     return out
 
 
+def _calendar_label_from_index(index: pd.DatetimeIndex) -> str:
+    if len(index) == 0:
+        return "UNKNOWN"
+    weekdays_only = bool((index.weekday < 5).all())
+    return "OBSERVED_WEEKDAY" if weekdays_only else "OBSERVED_NON_WEEKDAY"
+
+
+def _adv_usd_series(meta: pd.DataFrame, adv_column: str) -> pd.Series | None:
+    """Resolve ADV in USD from metadata, supporting million-USD shorthand."""
+    if adv_column in meta.columns:
+        s = meta.set_index("ticker")[adv_column].astype(float)
+        if adv_column.endswith("_mn"):
+            s = s * 1_000_000.0
+        return s
+    if adv_column != "adv_usd" and "adv_usd" in meta.columns:
+        return meta.set_index("ticker")["adv_usd"].astype(float)
+    if adv_column == "adv_usd" and "adv_usd_mn" in meta.columns:
+        return meta.set_index("ticker")["adv_usd_mn"].astype(float) * 1_000_000.0
+    return None
+
+
 def _save_fold_metrics(
     fold_id: int,
     train_dates: pd.DatetimeIndex,
@@ -283,10 +314,12 @@ def _run_macro_allocator(
     from lab.backtest.daily_engine import run_daily_backtest
     from lab.backtest.leakage_checks import assert_no_lookahead, assert_splits_time_ordered
     from lab.backtest.splits import rolling_splits
+    from lab.costs.daily import adv_participation, carry_costs, turnover_impact_bps
     from lab.data.loaders.prices import load_close_prices
     from lab.eval.metrics import summary
     from lab.eval.plots import (
         bucket_exposure_plot,
+        capacity_participation_plot,
         cumulative_returns,
         drawdown,
         gross_net_exposure,
@@ -383,6 +416,54 @@ def _run_macro_allocator(
     stress_multipliers = [float(x) for x in costs_cfg.get("stress_multipliers", [1, 2, 4])]
     if not stress_multipliers or any(x <= 0 for x in stress_multipliers):
         raise ValueError("costs.stress_multipliers must be a non-empty list of >0 values.")
+    financing_bps_annual = float(costs_cfg.get("financing_bps_annual", 0.0))
+    short_borrow_bps_annual = float(costs_cfg.get("short_borrow_bps_annual", 0.0))
+    if financing_bps_annual < 0 or short_borrow_bps_annual < 0:
+        raise ValueError("costs financing/borrow bps must be >= 0.")
+
+    regime_cost_mult = costs_cfg.get("regime_multipliers", {})
+    if not isinstance(regime_cost_mult, dict):
+        raise ValueError("costs.regime_multipliers must be a mapping when provided.")
+    regime_cost_mult_on = float(regime_cost_mult.get("risk_on", 1.0))
+    regime_cost_mult_off = float(regime_cost_mult.get("risk_off", 1.0))
+    if regime_cost_mult_on <= 0 or regime_cost_mult_off <= 0:
+        raise ValueError("costs.regime_multipliers values must be > 0.")
+
+    impact_cfg = costs_cfg.get("impact", {})
+    if not isinstance(impact_cfg, dict):
+        raise ValueError("costs.impact must be a mapping when provided.")
+    impact_enabled = bool(impact_cfg.get("enabled", False))
+    impact_turnover_ref = float(impact_cfg.get("turnover_ref", 0.10))
+    impact_coeff_bps = float(impact_cfg.get("coefficient_bps", 0.0))
+    impact_exponent = float(impact_cfg.get("exponent", 0.5))
+    if impact_enabled:
+        if impact_turnover_ref <= 0:
+            raise ValueError("costs.impact.turnover_ref must be > 0 when enabled.")
+        if impact_coeff_bps < 0:
+            raise ValueError("costs.impact.coefficient_bps must be >= 0 when enabled.")
+        if impact_exponent <= 0:
+            raise ValueError("costs.impact.exponent must be > 0 when enabled.")
+
+    capacity_cfg = costs_cfg.get("capacity", {})
+    if not isinstance(capacity_cfg, dict):
+        raise ValueError("costs.capacity must be a mapping when provided.")
+    capacity_enabled = bool(capacity_cfg.get("enabled", False))
+    capacity_notional_usd = float(capacity_cfg.get("notional_usd", 0.0))
+    capacity_max_adv_participation = float(capacity_cfg.get("max_adv_participation", 0.20))
+    capacity_impact_bps = float(capacity_cfg.get("impact_bps_at_100pct_adv", 0.0))
+    capacity_breach_action = str(capacity_cfg.get("breach_action", "warn")).strip().lower()
+    capacity_adv_column = str(capacity_cfg.get("adv_column", "adv_usd")).strip()
+    if capacity_enabled:
+        if capacity_notional_usd <= 0:
+            raise ValueError("costs.capacity.notional_usd must be > 0 when enabled.")
+        if capacity_max_adv_participation <= 0:
+            raise ValueError("costs.capacity.max_adv_participation must be > 0 when enabled.")
+        if capacity_impact_bps < 0:
+            raise ValueError("costs.capacity.impact_bps_at_100pct_adv must be >= 0.")
+        if capacity_breach_action not in {"warn", "raise"}:
+            raise ValueError("costs.capacity.breach_action must be one of {'warn', 'raise'}.")
+        if not capacity_adv_column:
+            raise ValueError("costs.capacity.adv_column must be a non-empty string when enabled.")
 
     if use_meta_costs:
         per_asset_bps = meta.set_index("ticker")["cost_bps"].to_dict()
@@ -391,6 +472,16 @@ def _run_macro_allocator(
         }
     else:
         engine_costs = float(costs_cfg.get("bps", 5.0))
+
+    if isinstance(engine_costs, dict):
+        base_asset_cost_bps = (
+            pd.Series(engine_costs.get("per_asset_bps", {}), dtype=float)
+            .reindex(tickers)
+            .fillna(meta.set_index("ticker")["cost_bps"])
+            .fillna(meta["cost_bps"].mean())
+        )
+    else:
+        base_asset_cost_bps = pd.Series(float(engine_costs), index=tickers, dtype=float)
 
     # ── Walk-forward folds + leakage checks ──────────────────────────────
     folds_cfg = raw_config.get("evaluation", {}).get("folds", {})
@@ -417,6 +508,125 @@ def _run_macro_allocator(
         slow=slow,
     )
     assert_no_lookahead(signal_panel, prices, min_lag=1)
+
+    eval_cfg = raw_config.get("evaluation", {})
+    calendar_label = str(eval_cfg.get("calendar", "")).strip() or _calendar_label_from_index(prices.index)
+
+    if regime_enabled:
+        regime_series = compute_risk_off_regime(
+            prices,
+            lag_days=regime_lag,
+            rates_proxy=regime_rates,
+            equity_proxy=regime_equity,
+            lookback_days=regime_lb,
+        )
+    else:
+        regime_series = pd.Series(0, index=prices.index, dtype=int)
+    regime_series = regime_series.reindex(prices.index).fillna(0).astype(int)
+
+    adv_usd = _adv_usd_series(meta, capacity_adv_column)
+    if capacity_enabled and adv_usd is None:
+        raise ValueError(
+            f"capacity enabled but no ADV column available in metadata (requested '{capacity_adv_column}')."
+        )
+
+    def _apply_execution_realism(
+        *,
+        fold_label: str,
+        test_idx: pd.DatetimeIndex,
+        fold_gross: pd.Series,
+        fold_costs: pd.Series,
+        fold_cost_asset: pd.DataFrame,
+        fold_to_asset: pd.DataFrame,
+        fold_gross_exposure: pd.Series,
+        daily_w: pd.DataFrame,
+    ) -> dict[str, Any]:
+        gross = fold_gross.reindex(test_idx).fillna(0.0).astype(float)
+        costs = fold_costs.reindex(test_idx).fillna(0.0).astype(float)
+        cost_asset = fold_cost_asset.reindex(test_idx).reindex(columns=tickers).fillna(0.0).astype(float)
+        to_asset = fold_to_asset.reindex(test_idx).reindex(columns=tickers).fillna(0.0).clip(lower=0.0)
+        gross_exp = fold_gross_exposure.reindex(test_idx).ffill().fillna(0.0).astype(float)
+        weights = daily_w.reindex(test_idx).reindex(columns=tickers).fillna(0.0).astype(float)
+
+        regime_state = regime_series.reindex(test_idx).fillna(0).astype(int)
+        regime_mult = pd.Series(
+            np.where(regime_state == 1, regime_cost_mult_off, regime_cost_mult_on),
+            index=test_idx,
+            dtype=float,
+        )
+        regime_adj_asset = cost_asset.mul(regime_mult - 1.0, axis=0)
+
+        impact_asset = pd.DataFrame(0.0, index=test_idx, columns=tickers, dtype=float)
+        if impact_enabled and impact_coeff_bps > 0:
+            impact_bps = turnover_impact_bps(
+                to_asset,
+                turnover_ref=impact_turnover_ref,
+                coefficient_bps=impact_coeff_bps,
+                exponent=impact_exponent,
+            )
+            impact_asset = to_asset.mul(impact_bps, axis=0) / 1e4
+
+        participation = pd.DataFrame(0.0, index=test_idx, columns=tickers, dtype=float)
+        capacity_asset = pd.DataFrame(0.0, index=test_idx, columns=tickers, dtype=float)
+        capacity_breach_days = 0
+        capacity_max_participation = 0.0
+        if capacity_enabled:
+            assert adv_usd is not None
+            participation = adv_participation(
+                to_asset,
+                notional_usd=capacity_notional_usd,
+                adv_usd=adv_usd,
+            )
+            if not participation.empty:
+                capacity_max_participation = float(participation.to_numpy().max())
+                day_max = participation.max(axis=1)
+                breach_mask = day_max > capacity_max_adv_participation
+                capacity_breach_days = int(breach_mask.sum())
+                if capacity_breach_days > 0:
+                    msg = (
+                        f"{fold_label}: capacity breaches on {capacity_breach_days} days "
+                        f"(max participation={capacity_max_participation:.4f}, "
+                        f"limit={capacity_max_adv_participation:.4f})"
+                    )
+                    if capacity_breach_action == "raise":
+                        raise ValueError(msg)
+                    log.warning(msg)
+            if capacity_impact_bps > 0:
+                cap_bps = np.sqrt(participation.clip(lower=0.0)) * capacity_impact_bps
+                capacity_asset = to_asset.mul(cap_bps, axis=0) / 1e4
+
+        short_exposure = weights.clip(upper=0.0).abs().sum(axis=1)
+        carry_total, financing_costs, borrow_costs = carry_costs(
+            gross_exp,
+            short_exposure,
+            financing_bps_annual=financing_bps_annual,
+            short_borrow_bps_annual=short_borrow_bps_annual,
+        )
+
+        extra_asset = regime_adj_asset + impact_asset + capacity_asset
+        total_cost_asset = cost_asset + extra_asset
+        total_costs = costs + extra_asset.sum(axis=1) + carry_total
+        total_costs.name = "costs"
+
+        net = gross - total_costs
+        net.name = "net_return"
+        short_exposure.name = "short_exposure"
+        financing_costs = financing_costs.reindex(test_idx).fillna(0.0)
+        borrow_costs = borrow_costs.reindex(test_idx).fillna(0.0)
+        carry_total = carry_total.reindex(test_idx).fillna(0.0)
+
+        return {
+            "net": net,
+            "costs": total_costs,
+            "costs_by_asset": total_cost_asset,
+            "short_exposure": short_exposure,
+            "financing_costs": financing_costs,
+            "borrow_costs": borrow_costs,
+            "carry_costs": carry_total,
+            "participation": participation,
+            "capacity_breach_days": capacity_breach_days,
+            "capacity_max_participation": capacity_max_participation,
+        }
 
     macro_engine_cfg = MacroRunConfig(
         exp=str(raw_config.get("exp", args.exp)),
@@ -483,14 +693,21 @@ def _run_macro_allocator(
     turnover_parts: list[pd.Series] = []
     gross_exposure_parts: list[pd.Series] = []
     net_exposure_parts: list[pd.Series] = []
+    short_exposure_parts: list[pd.Series] = []
     costs_parts: list[pd.Series] = []
+    financing_cost_parts: list[pd.Series] = []
+    borrow_cost_parts: list[pd.Series] = []
+    carry_cost_parts: list[pd.Series] = []
     costs_asset_parts: list[pd.DataFrame] = []
     turnover_asset_parts: list[pd.DataFrame] = []
+    participation_parts: list[pd.DataFrame] = []
     rebalance_weights_parts: list[pd.DataFrame] = []
     daily_weights_parts: list[pd.DataFrame] = []
     bucket_exp_parts: list[pd.DataFrame] = []
     eval_folds: list[dict[str, Any]] = []
     by_fold_results: list[dict[str, Any]] = []
+    capacity_breach_days_total = 0
+    capacity_max_participation = 0.0
 
     for i, (train_dates, test_dates) in enumerate(folds, start=1):
         seg_prices = prices.loc[train_dates.min() : test_dates.max()]
@@ -503,7 +720,6 @@ def _run_macro_allocator(
         )
 
         test_idx = test_dates
-        fold_net = fold_res.returns.reindex(test_idx).fillna(0.0)
         fold_gross = fold_res.gross_returns.reindex(test_idx).fillna(0.0)
         fold_to = fold_res.turnover.reindex(test_idx).fillna(0.0)
 
@@ -521,6 +737,29 @@ def _run_macro_allocator(
             .fillna(0.0)
             .reindex(test_idx)
             .fillna(0.0)
+        )
+
+        overlay = _apply_execution_realism(
+            fold_label=fold_id,
+            test_idx=test_idx,
+            fold_gross=fold_gross,
+            fold_costs=fold_costs,
+            fold_cost_asset=fold_cost_asset,
+            fold_to_asset=fold_to_asset,
+            fold_gross_exposure=fold_gross_exposure,
+            daily_w=daily_w,
+        )
+        fold_net = overlay["net"]
+        fold_costs = overlay["costs"]
+        fold_cost_asset = overlay["costs_by_asset"]
+        fold_short_exposure = overlay["short_exposure"]
+        fold_financing_costs = overlay["financing_costs"]
+        fold_borrow_costs = overlay["borrow_costs"]
+        fold_carry_costs = overlay["carry_costs"]
+        fold_participation = overlay["participation"]
+        capacity_breach_days_total += int(overlay["capacity_breach_days"])
+        capacity_max_participation = max(
+            capacity_max_participation, float(overlay["capacity_max_participation"])
         )
 
         fold_bucket_exp = _bucket_exposure_from_weights(daily_w, meta)
@@ -551,9 +790,15 @@ def _run_macro_allocator(
         turnover_parts.append(fold_to)
         gross_exposure_parts.append(fold_gross_exposure)
         net_exposure_parts.append(fold_net_exposure)
+        short_exposure_parts.append(fold_short_exposure)
         costs_parts.append(fold_costs)
+        financing_cost_parts.append(fold_financing_costs)
+        borrow_cost_parts.append(fold_borrow_costs)
+        carry_cost_parts.append(fold_carry_costs)
         turnover_asset_parts.append(fold_to_asset)
         costs_asset_parts.append(fold_cost_asset)
+        if capacity_enabled:
+            participation_parts.append(fold_participation)
         rebalance_weights_parts.append(fold_weights_rebal)
         daily_weights_parts.append(daily_w)
         bucket_exp_parts.append(fold_bucket_exp)
@@ -563,13 +808,22 @@ def _run_macro_allocator(
     turnover = _concat_series(turnover_parts, "turnover")
     gross_exposure = _concat_series(gross_exposure_parts, "gross_exposure")
     net_exposure = _concat_series(net_exposure_parts, "net_exposure")
+    short_exposure = _concat_series(short_exposure_parts, "short_exposure")
     costs = _concat_series(costs_parts, "costs")
+    financing_costs = _concat_series(financing_cost_parts, "financing_costs")
+    borrow_costs = _concat_series(borrow_cost_parts, "borrow_costs")
+    carry_costs_total = _concat_series(carry_cost_parts, "carry_costs")
 
     turnover_by_asset = _concat_frames(turnover_asset_parts).reindex(columns=tickers).fillna(0.0)
     costs_by_asset = _concat_frames(costs_asset_parts).reindex(columns=tickers).fillna(0.0)
     weights = _concat_frames(rebalance_weights_parts).reindex(columns=tickers).fillna(0.0)
     weights_daily = _concat_frames(daily_weights_parts).reindex(columns=tickers).fillna(0.0)
     bucket_exposure = _concat_frames(bucket_exp_parts).fillna(0.0)
+    participation = (
+        _concat_frames(participation_parts).reindex(columns=tickers).fillna(0.0)
+        if participation_parts
+        else pd.DataFrame(0.0, index=net_returns.index, columns=tickers, dtype=float)
+    )
 
     metrics = summary(net_returns, turnover=turnover, gross_returns=gross_returns)
 
@@ -586,9 +840,34 @@ def _run_macro_allocator(
                 lambda _cfg, _p: static_weights,
             )
             idx = test_dates
-            parts_net.append(r.returns.reindex(idx).fillna(0.0))
-            parts_gross.append(r.gross_returns.reindex(idx).fillna(0.0))
-            parts_to.append(r.turnover.reindex(idx).fillna(0.0))
+            fold_gross = r.gross_returns.reindex(idx).fillna(0.0)
+            fold_to = r.turnover.reindex(idx).fillna(0.0)
+            fold_costs = r.costs.reindex(idx).fillna(0.0)
+            fold_to_asset = r.turnover_by_asset.reindex(idx).fillna(0.0)
+            fold_cost_asset = r.costs_by_asset.reindex(idx).fillna(0.0)
+            fold_gross_exposure = r.gross_exposure.reindex(idx).ffill().fillna(0.0)
+            daily_w = (
+                r.weights.reindex(seg_prices.index)
+                .ffill()
+                .fillna(0.0)
+                .reindex(idx)
+                .fillna(0.0)
+            )
+
+            overlay = _apply_execution_realism(
+                fold_label="baseline",
+                test_idx=idx,
+                fold_gross=fold_gross,
+                fold_costs=fold_costs,
+                fold_cost_asset=fold_cost_asset,
+                fold_to_asset=fold_to_asset,
+                fold_gross_exposure=fold_gross_exposure,
+                daily_w=daily_w,
+            )
+
+            parts_net.append(overlay["net"])
+            parts_gross.append(fold_gross)
+            parts_to.append(fold_to)
 
         bn = _concat_series(parts_net, "net_return")
         bg = _concat_series(parts_gross, "gross_return")
@@ -612,9 +891,32 @@ def _run_macro_allocator(
             lambda cfg, p: _strategy_signal(cfg, p, with_regime=False),
         )
         idx = test_dates
-        no_reg_parts_net.append(r.returns.reindex(idx).fillna(0.0))
-        no_reg_parts_gross.append(r.gross_returns.reindex(idx).fillna(0.0))
-        no_reg_parts_to.append(r.turnover.reindex(idx).fillna(0.0))
+        fold_gross = r.gross_returns.reindex(idx).fillna(0.0)
+        fold_to = r.turnover.reindex(idx).fillna(0.0)
+        fold_costs = r.costs.reindex(idx).fillna(0.0)
+        fold_to_asset = r.turnover_by_asset.reindex(idx).fillna(0.0)
+        fold_cost_asset = r.costs_by_asset.reindex(idx).fillna(0.0)
+        fold_gross_exposure = r.gross_exposure.reindex(idx).ffill().fillna(0.0)
+        daily_w = (
+            r.weights.reindex(seg_prices.index)
+            .ffill()
+            .fillna(0.0)
+            .reindex(idx)
+            .fillna(0.0)
+        )
+        overlay = _apply_execution_realism(
+            fold_label="trend_no_regime",
+            test_idx=idx,
+            fold_gross=fold_gross,
+            fold_costs=fold_costs,
+            fold_cost_asset=fold_cost_asset,
+            fold_to_asset=fold_to_asset,
+            fold_gross_exposure=fold_gross_exposure,
+            daily_w=daily_w,
+        )
+        no_reg_parts_net.append(overlay["net"])
+        no_reg_parts_gross.append(fold_gross)
+        no_reg_parts_to.append(fold_to)
 
     no_reg_net = _concat_series(no_reg_parts_net, "net_return")
     no_reg_gross = _concat_series(no_reg_parts_gross, "gross_return")
@@ -651,28 +953,56 @@ def _run_macro_allocator(
     ]
 
     # ── Cost stress ──────────────────────────────────────────────────────
-    if isinstance(engine_costs, dict):
-        asset_cost_bps = (
-            pd.Series(engine_costs.get("per_asset_bps", {}), dtype=float)
-            .reindex(tickers)
-            .fillna(meta.set_index("ticker")["cost_bps"])
-            .fillna(meta["cost_bps"].mean())
-        )
-    else:
-        asset_cost_bps = pd.Series(float(engine_costs), index=tickers, dtype=float)
-
+    regime_state_full = regime_series.reindex(net_returns.index).fillna(0).astype(int)
+    regime_cost_mult_series = pd.Series(
+        np.where(regime_state_full == 1, regime_cost_mult_off, regime_cost_mult_on),
+        index=net_returns.index,
+        dtype=float,
+    )
     cost_stress: dict[str, dict[str, float]] = {}
     cost_stress_payload: list[dict[str, Any]] = []
+    used_stress_labels: set[str] = set()
     for mult in stress_multipliers:
-        stressed_costs = turnover_by_asset.mul(asset_cost_bps * mult, axis=1) / 1e4
-        stressed_net = gross_returns - stressed_costs.sum(axis=1)
+        base_label = f"{mult:g}x"
+        label = base_label
+        suffix = 2
+        while label in used_stress_labels:
+            label = f"{base_label}_{suffix}"
+            suffix += 1
+        used_stress_labels.add(label)
+
+        stressed_txn_asset = turnover_by_asset.mul(base_asset_cost_bps * mult, axis=1) / 1e4
+        stressed_txn_asset = stressed_txn_asset.mul(regime_cost_mult_series, axis=0)
+
+        stressed_impact_asset = pd.DataFrame(0.0, index=net_returns.index, columns=tickers, dtype=float)
+        if impact_enabled and impact_coeff_bps > 0:
+            stress_impact_bps = turnover_impact_bps(
+                turnover_by_asset,
+                turnover_ref=impact_turnover_ref,
+                coefficient_bps=impact_coeff_bps * mult,
+                exponent=impact_exponent,
+            )
+            stressed_impact_asset = turnover_by_asset.mul(stress_impact_bps, axis=0) / 1e4
+
+        stressed_capacity_asset = pd.DataFrame(0.0, index=net_returns.index, columns=tickers, dtype=float)
+        if capacity_enabled and capacity_impact_bps > 0:
+            cap_bps = np.sqrt(participation.clip(lower=0.0)) * (capacity_impact_bps * mult)
+            stressed_capacity_asset = turnover_by_asset.mul(cap_bps, axis=0) / 1e4
+
+        stressed_total_cost = (
+            stressed_txn_asset.sum(axis=1)
+            + stressed_impact_asset.sum(axis=1)
+            + stressed_capacity_asset.sum(axis=1)
+            + carry_costs_total.reindex(net_returns.index).fillna(0.0)
+        )
+        stressed_net = gross_returns - stressed_total_cost
         stress_metrics = summary(stressed_net, turnover=turnover, gross_returns=gross_returns)
-        cost_stress[f"{int(mult)}x"] = {k: float(v) for k, v in stress_metrics.items()}
+        cost_stress[label] = {k: float(v) for k, v in stress_metrics.items()}
         cost_stress_payload.append(
             {
                 "multiplier": float(mult),
                 "metrics_net": _gross_metric_view(stress_metrics),
-                "total_cost_return": -float(stressed_costs.sum(axis=1).sum()),
+                "total_cost_return": -float(stressed_total_cost.sum()),
             }
         )
 
@@ -684,17 +1014,6 @@ def _run_macro_allocator(
         meta,
         window=63,
     )
-
-    if regime_enabled:
-        regime_series = compute_risk_off_regime(
-            prices,
-            lag_days=regime_lag,
-            rates_proxy=regime_rates,
-            equity_proxy=regime_equity,
-            lookback_days=regime_lb,
-        )
-    else:
-        regime_series = pd.Series(0, index=prices.index, dtype=int)
 
     regime_on_idx = net_returns.index[
         regime_series.reindex(net_returns.index).fillna(0).astype(int) == 0
@@ -730,9 +1049,15 @@ def _run_macro_allocator(
     weights.to_csv(rdir / "weights.csv")
     gross_exposure.to_csv(rdir / "gross_exposure.csv", header=True)
     net_exposure.to_csv(rdir / "net_exposure.csv", header=True)
+    short_exposure.to_csv(rdir / "short_exposure.csv", header=True)
     bucket_exposure.to_csv(rdir / "bucket_exposure.csv")
     costs.to_csv(rdir / "costs.csv", header=True)
+    financing_costs.to_csv(rdir / "financing_costs.csv", header=True)
+    borrow_costs.to_csv(rdir / "borrow_costs.csv", header=True)
+    carry_costs_total.to_csv(rdir / "carry_costs.csv", header=True)
     costs_by_asset.to_csv(rdir / "costs_by_asset.csv")
+    if capacity_enabled:
+        participation.to_csv(rdir / "capacity_participation.csv")
 
     with open(rdir / "metrics.json", "w") as fh:
         json.dump({k: round(float(v), 6) for k, v in metrics.items()}, fh, indent=2)
@@ -765,6 +1090,14 @@ def _run_macro_allocator(
     fig = risk_contribution_plot(bucket_rc, title="Risk Contribution by Bucket")
     fig.savefig(fig_dir / "risk_contribution_bucket.png", dpi=150, bbox_inches="tight")
 
+    if capacity_enabled and not participation.empty:
+        fig = capacity_participation_plot(
+            participation,
+            limit=capacity_max_adv_participation,
+            title="Capacity Participation (Max / P95)",
+        )
+        fig.savefig(fig_dir / "capacity_participation.png", dpi=150, bbox_inches="tight")
+
     plt.close("all")
 
     # ── results.json ─────────────────────────────────────────────────────
@@ -773,8 +1106,12 @@ def _run_macro_allocator(
     exposure_summary = {
         "avg_gross_exposure": float(gross_exposure.mean()),
         "avg_net_exposure": float(net_exposure.mean()),
+        "avg_short_exposure": float(short_exposure.mean()),
         "avg_turnover": float(turnover[turnover > 0].mean()) if (turnover > 0).any() else 0.0,
         "total_costs": float(costs.sum()),
+        "total_financing_costs": float(financing_costs.sum()),
+        "total_borrow_costs": float(borrow_costs.sum()),
+        "total_carry_costs": float(carry_costs_total.sum()),
     }
 
     risk_summary = {
@@ -825,15 +1162,55 @@ def _run_macro_allocator(
         by_fold_rows.append(flat)
     pd.DataFrame(by_fold_rows).to_csv(tables_dir / "by_fold_metrics.csv", index=False)
 
-    ticker_meta_records = [
-        {
+    if capacity_enabled:
+        cap = participation.reindex(columns=tickers).fillna(0.0)
+        cap_summary = pd.DataFrame(
+            {
+                "ticker": cap.columns,
+                "mean_participation": cap.mean(axis=0).to_numpy(),
+                "p95_participation": cap.quantile(0.95, axis=0).to_numpy(),
+                "max_participation": cap.max(axis=0).to_numpy(),
+                "breach_days": (cap > capacity_max_adv_participation).sum(axis=0).astype(int).to_numpy(),
+            }
+        )
+        if len(cap) > 0:
+            cap_summary["breach_rate"] = cap_summary["breach_days"] / float(len(cap))
+        else:
+            cap_summary["breach_rate"] = 0.0
+        cap_summary.to_csv(tables_dir / "capacity_summary.csv", index=False)
+
+        if len(cap) > 0:
+            day_max = cap.max(axis=1)
+            day_argmax = cap.idxmax(axis=1)
+            breach_mask = day_max > capacity_max_adv_participation
+            cap_breaches = pd.DataFrame(
+                {
+                    "date": cap.index,
+                    "max_participation": day_max.to_numpy(),
+                    "max_asset": day_argmax.to_numpy(),
+                    "breach_limit": breach_mask.to_numpy(),
+                }
+            )
+            cap_breaches = cap_breaches[cap_breaches["breach_limit"]].reset_index(drop=True)
+        else:
+            cap_breaches = pd.DataFrame(
+                columns=["date", "max_participation", "max_asset", "breach_limit"]
+            )
+        cap_breaches.to_csv(tables_dir / "capacity_breaches.csv", index=False)
+
+    ticker_meta_records: list[dict[str, Any]] = []
+    for _, row in meta.reset_index(drop=True).iterrows():
+        rec = {
             "ticker": str(row["ticker"]),
             "bucket": str(row["bucket"]),
             "cost_bps": float(row["cost_bps"]),
             "per_asset_cap": float(row["per_asset_cap"]),
         }
-        for _, row in meta.reset_index(drop=True).iterrows()
-    ]
+        if "adv_usd" in meta.columns and pd.notna(row.get("adv_usd")):
+            rec["adv_usd"] = float(row["adv_usd"])
+        if "adv_usd_mn" in meta.columns and pd.notna(row.get("adv_usd_mn")):
+            rec["adv_usd_mn"] = float(row["adv_usd_mn"])
+        ticker_meta_records.append(rec)
 
     run_meta = _finalize_meta(rdir)
     data_snapshot_id = _compute_data_snapshot_id(prices)
@@ -880,7 +1257,7 @@ def _run_macro_allocator(
         "evaluation": {
             "frequency": "daily",
             "rebalance_rule": rebalance_freq,
-            "calendar": "XNYS",
+            "calendar": calendar_label,
             "folds": eval_folds,
         },
         "strategy": {
@@ -894,8 +1271,8 @@ def _run_macro_allocator(
             },
             "assumptions": {
                 "macro_lag_days": regime_lag if regime_enabled else 0,
-                "financing_included": False,
-                "short_borrow_included": False,
+                "financing_included": financing_bps_annual > 0,
+                "short_borrow_included": short_borrow_bps_annual > 0,
             },
         },
         "results": {
@@ -913,6 +1290,26 @@ def _run_macro_allocator(
                     "assumed_costs": {
                         "use_meta_costs": use_meta_costs,
                         "cost_multiplier": 1.0,
+                        "financing_bps_annual": financing_bps_annual,
+                        "short_borrow_bps_annual": short_borrow_bps_annual,
+                        "regime_multipliers": {
+                            "risk_on": regime_cost_mult_on,
+                            "risk_off": regime_cost_mult_off,
+                        },
+                        "impact": {
+                            "enabled": impact_enabled,
+                            "turnover_ref": impact_turnover_ref,
+                            "coefficient_bps": impact_coeff_bps,
+                            "exponent": impact_exponent,
+                        },
+                        "capacity": {
+                            "enabled": capacity_enabled,
+                            "notional_usd": capacity_notional_usd,
+                            "max_adv_participation": capacity_max_adv_participation,
+                            "impact_bps_at_100pct_adv": capacity_impact_bps,
+                            "adv_column": capacity_adv_column,
+                            "breach_action": capacity_breach_action,
+                        },
                     },
                 },
                 "exposure": {
@@ -920,6 +1317,7 @@ def _run_macro_allocator(
                     "gross_p95": float(gross_exposure.quantile(0.95)),
                     "net_avg": float(net_exposure.mean()),
                     "net_p95_abs": float(net_exposure.abs().quantile(0.95)),
+                    "short_avg": float(short_exposure.mean()),
                 },
             },
             "by_fold": by_fold_results,
@@ -934,6 +1332,14 @@ def _run_macro_allocator(
                     "strategy_max_drawdown": float(metrics.get("max_dd", 0.0)),
                     "spy_max_drawdown": spy_mdd,
                     "difference": mdd_vs_spy,
+                },
+                "execution_realism": {
+                    "carry_cost_total": float(carry_costs_total.sum()),
+                    "financing_cost_total": float(financing_costs.sum()),
+                    "borrow_cost_total": float(borrow_costs.sum()),
+                    "capacity_breach_days": int(capacity_breach_days_total),
+                    "capacity_max_participation": float(capacity_max_participation),
+                    "capacity_limit": float(capacity_max_adv_participation),
                 },
             },
         },
@@ -952,10 +1358,27 @@ def _run_macro_allocator(
             "tables": [
                 {"name": "cost_stress", "path": "tables/cost_stress.csv"},
                 {"name": "by_fold_metrics", "path": "tables/by_fold_metrics.csv"},
+                {"name": "short_exposure", "path": "short_exposure.csv"},
+                {"name": "financing_costs", "path": "financing_costs.csv"},
+                {"name": "borrow_costs", "path": "borrow_costs.csv"},
+                {"name": "carry_costs", "path": "carry_costs.csv"},
             ],
             "hashes": artifact_hashes,
         },
     }
+    if capacity_enabled:
+        results["artifacts"]["figures"].append(
+            {"name": "capacity_participation", "path": "figures/capacity_participation.png"}
+        )
+        results["artifacts"]["tables"].append(
+            {"name": "capacity_participation", "path": "capacity_participation.csv"}
+        )
+        results["artifacts"]["tables"].append(
+            {"name": "capacity_summary", "path": "tables/capacity_summary.csv"}
+        )
+        results["artifacts"]["tables"].append(
+            {"name": "capacity_breaches", "path": "tables/capacity_breaches.csv"}
+        )
 
     # Keep legacy keys as non-breaking aliases while report readers migrate.
     results["legacy"] = {
@@ -984,6 +1407,8 @@ def _run_macro_allocator(
         "figures/bucket_exposure.png",
         "figures/risk_contribution_bucket.png",
     ]
+    if capacity_enabled and (fig_dir / "capacity_participation.png").exists():
+        figure_filenames.append("figures/capacity_participation.png")
 
     save_macro_allocator_report(
         raw_config.get("exp", args.exp),

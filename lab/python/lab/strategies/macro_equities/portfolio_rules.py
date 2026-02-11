@@ -53,9 +53,12 @@ def top_n_equal_weight(
     if long_only:
         weights = pd.Series(1.0 / len(top), index=top.index)
     else:
-        bottom = ranked.tail(n)
-        if bottom.empty:
+        # Keep long/short sleeves disjoint so net exposure is well-defined.
+        side_n = min(n, len(ranked) // 2)
+        if side_n <= 0:
             return pd.Series(0.0, index=scores.index)
+        top = ranked.head(side_n)
+        bottom = ranked.tail(side_n)
         weights = pd.Series(0.0, index=ranked.index)
         weights[top.index] = 1.0 / len(top)
         weights[bottom.index] = -1.0 / len(bottom)

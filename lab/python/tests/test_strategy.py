@@ -104,6 +104,13 @@ class TestCrossSectionalMomentum:
         w = cross_sectional_momentum(toy_prices, lookback=60, long_only=False)
         assert (w.min().min()) < 0
 
+    def test_long_short_large_top_n_keeps_disjoint_sleeves(self, toy_prices: pd.DataFrame) -> None:
+        """When top_n is large, long and short books must remain disjoint."""
+        w = cross_sectional_momentum(toy_prices, lookback=60, top_n=4, long_only=False)
+        active = w[w.abs().sum(axis=1) > 0]
+        np.testing.assert_allclose(active.sum(axis=1).to_numpy(), 0.0, atol=1e-10)
+        assert (active.ne(0).sum(axis=1) == 4).all()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # §4.2 — dual_ma_regime
@@ -213,6 +220,12 @@ class TestTopNEqualWeight:
         scores = pd.Series([0.4, 0.2], index=["A", "B"])
         out = top_n_equal_weight(scores, n=0, long_only=True)
         assert (out == 0.0).all()
+
+    def test_long_short_large_n_remains_dollar_neutral(self) -> None:
+        scores = pd.Series([0.9, 0.8, 0.3], index=["A", "B", "C"])
+        out = top_n_equal_weight(scores, n=2, long_only=False)
+        assert out.sum() == pytest.approx(0.0)
+        assert (out != 0.0).sum() == 2
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -198,6 +198,22 @@ class TestPlots:
         fig = turnover_plot(turnover_series)
         assert isinstance(fig, Figure)
 
+    def test_capacity_participation_plot_figure(self) -> None:
+        from matplotlib.figure import Figure
+
+        from lab.eval.plots import capacity_participation_plot
+
+        dates = pd.bdate_range("2024-01-02", periods=40)
+        p = pd.DataFrame(
+            {
+                "A": np.linspace(0.02, 0.25, len(dates)),
+                "B": np.linspace(0.01, 0.12, len(dates)),
+            },
+            index=dates,
+        )
+        fig = capacity_participation_plot(p, limit=0.20)
+        assert isinstance(fig, Figure)
+
     def test_at_least_three_plot_functions(self) -> None:
         """eval.plots exports ≥ 3 figure-generating functions."""
         from lab.eval import plots
@@ -332,6 +348,12 @@ class TestExports:
     def test_new_symbols_in_all(self) -> None:
         import lab.eval
 
-        for name in ("average_turnover", "total_costs_paid", "cumulative_return", "turnover_plot"):
+        for name in (
+            "average_turnover",
+            "total_costs_paid",
+            "cumulative_return",
+            "turnover_plot",
+            "capacity_participation_plot",
+        ):
             assert name in lab.eval.__all__, f"{name} missing from lab.eval.__all__"
             assert hasattr(lab.eval, name), f"{name} not importable from lab.eval"

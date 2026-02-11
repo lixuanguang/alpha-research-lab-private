@@ -17,6 +17,7 @@ from lab.eval.metrics import (
 )
 from lab.eval.plots import (
     bucket_exposure_plot,
+    capacity_participation_plot,
     cumulative_returns,
     drawdown,
     gross_net_exposure,
@@ -39,6 +40,7 @@ __all__ = [
     "bucket_exposure_plot",
     "cagr",
     "calmar_ratio",
+    "capacity_participation_plot",
     "compute_risk_contributions",
     "cumulative_return",
     "cumulative_returns",

@@ -189,6 +189,66 @@ class TestConfigValidation:
         with pytest.raises(ConfigValidationError, match="signal"):
             load_config(p)
 
+    def test_signal_boolean_fails_validation(self, tmp_path: Path) -> None:
+        import yaml
+
+        from lab.core.config import ConfigValidationError, load_config
+
+        cfg_dict = {
+            "exp": "test",
+            "universe": ["A"],
+            "start_date": "2020-01-01",
+            "end_date": "2020-12-31",
+            "rebalance": "monthly",
+            "signal": True,
+            "costs": 5.0,
+            "initial_capital": 1_000_000,
+        }
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ConfigValidationError, match="boolean"):
+            load_config(p)
+
+    def test_costs_boolean_fails_validation(self, tmp_path: Path) -> None:
+        import yaml
+
+        from lab.core.config import ConfigValidationError, load_config
+
+        cfg_dict = {
+            "exp": "test",
+            "universe": ["A"],
+            "start_date": "2020-01-01",
+            "end_date": "2020-12-31",
+            "rebalance": "monthly",
+            "signal": 20,
+            "costs": False,
+            "initial_capital": 1_000_000,
+        }
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ConfigValidationError, match="boolean"):
+            load_config(p)
+
+    def test_initial_capital_boolean_fails_validation(self, tmp_path: Path) -> None:
+        import yaml
+
+        from lab.core.config import ConfigValidationError, load_config
+
+        cfg_dict = {
+            "exp": "test",
+            "universe": ["A"],
+            "start_date": "2020-01-01",
+            "end_date": "2020-12-31",
+            "rebalance": "monthly",
+            "signal": 20,
+            "costs": 5.0,
+            "initial_capital": True,
+        }
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ConfigValidationError, match="initial_capital"):
+            load_config(p)
+
     def test_start_date_after_end_date_fails_validation(self, tmp_path: Path) -> None:
         import yaml
 
@@ -229,6 +289,27 @@ class TestConfigValidation:
         with pytest.raises(ConfigValidationError, match="duplicate"):
             load_config(p)
 
+    def test_regime_boolean_fields_fail_validation(self, tmp_path: Path) -> None:
+        import yaml
+
+        from lab.core.config import ConfigValidationError, load_config
+
+        cfg_dict = {
+            "exp": "test",
+            "universe": ["A"],
+            "start_date": "2020-01-01",
+            "end_date": "2020-12-31",
+            "rebalance": "monthly",
+            "signal": 20,
+            "costs": 5.0,
+            "initial_capital": 1_000_000,
+            "regime": {"fast": True, "slow": 60, "risk_off_scale": 0.3},
+        }
+        p = tmp_path / "cfg.yaml"
+        p.write_text(yaml.dump(cfg_dict))
+        with pytest.raises(ConfigValidationError, match=r"regime\.fast"):
+            load_config(p)
+
 
 class TestMacroAllocatorConfigValidation:
     def test_valid_macro_config_passes(self) -> None:
@@ -254,9 +335,30 @@ class TestMacroAllocatorConfigValidation:
                 "risk_off_bucket_multipliers": {"equities": 0.6},
             },
             "risk": {"vol_target_annual": 0.10, "vol_lookback_days": 63},
-            "costs": {"use_meta_costs": True, "stress_multipliers": [1, 2, 4]},
+            "costs": {
+                "use_meta_costs": True,
+                "financing_bps_annual": 25.0,
+                "short_borrow_bps_annual": 40.0,
+                "regime_multipliers": {"risk_on": 1.0, "risk_off": 1.2},
+                "impact": {
+                    "enabled": True,
+                    "turnover_ref": 0.10,
+                    "coefficient_bps": 1.5,
+                    "exponent": 0.5,
+                },
+                "capacity": {
+                    "enabled": True,
+                    "adv_column": "adv_usd_mn",
+                    "notional_usd": 10_000_000.0,
+                    "max_adv_participation": 0.2,
+                    "impact_bps_at_100pct_adv": 8.0,
+                    "breach_action": "warn",
+                },
+                "stress_multipliers": [1, 2, 4],
+            },
             "evaluation": {
-                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5}
+                "calendar": "OBSERVED_WEEKDAY",
+                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5},
             },
         }
         validate_macro_allocator_config(raw)
@@ -274,6 +376,71 @@ class TestMacroAllocatorConfigValidation:
             "unexpected_field": 123,
         }
         with pytest.raises(ConfigValidationError, match="unknown"):
+            validate_macro_allocator_config(raw)
+
+    def test_macro_numeric_boolean_fields_fail(self) -> None:
+        from lab.core.config import ConfigValidationError, validate_macro_allocator_config
+
+        raw = {
+            "exp": "macro_allocator_ls",
+            "universe_config": "experiments/macro/configs/universe.yaml",
+            "dates": {"start": "2016-01-01", "end": "2024-12-31"},
+            "rebalance": {"frequency": "W-FRI"},
+            "signal": {
+                "method": "ma_cross",
+                "fast": True,
+                "slow": 120,
+                "lookback_days": 252,
+                "vol_scale_lookback": 63,
+            },
+            "evaluation": {
+                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5}
+            },
+        }
+        with pytest.raises(ConfigValidationError, match="boolean"):
+            validate_macro_allocator_config(raw)
+
+    def test_macro_negative_financing_fails(self) -> None:
+        from lab.core.config import ConfigValidationError, validate_macro_allocator_config
+
+        raw = {
+            "exp": "macro_allocator_ls",
+            "universe_config": "experiments/macro/configs/universe.yaml",
+            "dates": {"start": "2016-01-01", "end": "2024-12-31"},
+            "rebalance": {"frequency": "W-FRI"},
+            "signal": {"method": "ma_cross", "fast": 20, "slow": 120, "lookback_days": 252},
+            "costs": {"financing_bps_annual": -1.0},
+            "evaluation": {
+                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5}
+            },
+        }
+        with pytest.raises(ConfigValidationError, match="financing"):
+            validate_macro_allocator_config(raw)
+
+    def test_macro_invalid_capacity_breach_action_fails(self) -> None:
+        from lab.core.config import ConfigValidationError, validate_macro_allocator_config
+
+        raw = {
+            "exp": "macro_allocator_ls",
+            "universe_config": "experiments/macro/configs/universe.yaml",
+            "dates": {"start": "2016-01-01", "end": "2024-12-31"},
+            "rebalance": {"frequency": "W-FRI"},
+            "signal": {"method": "ma_cross", "fast": 20, "slow": 120, "lookback_days": 252},
+            "costs": {
+                "capacity": {
+                    "enabled": True,
+                    "notional_usd": 5_000_000.0,
+                    "max_adv_participation": 0.2,
+                    "impact_bps_at_100pct_adv": 5.0,
+                    "adv_column": "adv_usd_mn",
+                    "breach_action": "stop",
+                }
+            },
+            "evaluation": {
+                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5}
+            },
+        }
+        with pytest.raises(ConfigValidationError, match="breach_action"):
             validate_macro_allocator_config(raw)
 
 

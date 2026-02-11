@@ -128,3 +128,101 @@ def apply_costs(
     """
     to = estimate_turnover(weights_prev, weights)
     return to * bps / 1e4
+
+
+def annual_bps_to_daily_fraction(bps_annual: float, ann_factor: float = 252.0) -> float:
+    """Convert annualized bps drag into daily return-space fraction."""
+    if ann_factor <= 0:
+        raise ValueError("ann_factor must be > 0.")
+    bps = float(bps_annual)
+    if not np.isfinite(bps):
+        raise ValueError("bps_annual must be finite.")
+    if bps < 0:
+        raise ValueError("bps_annual must be >= 0.")
+    return bps / 1e4 / float(ann_factor)
+
+
+def carry_costs(
+    gross_exposure: pd.Series,
+    short_exposure: pd.Series,
+    *,
+    financing_bps_annual: float = 0.0,
+    short_borrow_bps_annual: float = 0.0,
+    ann_factor: float = 252.0,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Compute daily financing + borrow drag in return space.
+
+    Returns
+    -------
+    tuple[pd.Series, pd.Series, pd.Series]
+        ``(total, financing, borrow)`` aligned to ``gross_exposure.index``.
+    """
+    idx = gross_exposure.index
+    gross = gross_exposure.astype(float).reindex(idx).fillna(0.0)
+    short = short_exposure.astype(float).reindex(idx).fillna(0.0)
+
+    if (gross < 0).any():
+        raise ValueError("gross_exposure must be >= 0.")
+    if (short < 0).any():
+        raise ValueError("short_exposure must be >= 0.")
+
+    fin_daily = annual_bps_to_daily_fraction(financing_bps_annual, ann_factor=ann_factor)
+    borrow_daily = annual_bps_to_daily_fraction(short_borrow_bps_annual, ann_factor=ann_factor)
+
+    financing = gross * fin_daily
+    financing.name = "financing_costs"
+
+    borrow = short * borrow_daily
+    borrow.name = "borrow_costs"
+
+    total = financing + borrow
+    total.name = "carry_costs"
+    return total, financing, borrow
+
+
+def turnover_impact_bps(
+    turnover_by_asset: pd.DataFrame,
+    *,
+    turnover_ref: float,
+    coefficient_bps: float,
+    exponent: float = 0.5,
+) -> pd.DataFrame:
+    """Return per-asset impact bps scaled by turnover intensity.
+
+    ``impact_bps = coefficient_bps * (turnover / turnover_ref) ** exponent``
+    """
+    if turnover_ref <= 0:
+        raise ValueError("turnover_ref must be > 0.")
+    if coefficient_bps < 0:
+        raise ValueError("coefficient_bps must be >= 0.")
+    if exponent <= 0:
+        raise ValueError("exponent must be > 0.")
+
+    to = turnover_by_asset.astype(float).fillna(0.0).clip(lower=0.0)
+    scaled = (to / float(turnover_ref)) ** float(exponent)
+    out = scaled * float(coefficient_bps)
+    return out.replace([np.inf, -np.inf], 0.0).fillna(0.0)
+
+
+def adv_participation(
+    turnover_by_asset: pd.DataFrame,
+    *,
+    notional_usd: float,
+    adv_usd: pd.Series,
+) -> pd.DataFrame:
+    """Estimate participation ratio from turnover fractions and ADV (USD)."""
+    if notional_usd <= 0:
+        raise ValueError("notional_usd must be > 0.")
+
+    adv = adv_usd.astype(float)
+    if (adv <= 0).any():
+        raise ValueError("adv_usd must be > 0 for all assets.")
+
+    to = turnover_by_asset.astype(float).fillna(0.0).clip(lower=0.0)
+    adv_aligned = adv.reindex(to.columns)
+    if adv_aligned.isna().any():
+        missing = adv_aligned[adv_aligned.isna()].index.tolist()
+        raise ValueError(f"adv_usd missing values for assets: {missing}")
+
+    participation = to.mul(float(notional_usd), axis=0).div(adv_aligned, axis=1)
+    return participation.replace([np.inf, -np.inf], 0.0).fillna(0.0)

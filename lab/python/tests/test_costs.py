@@ -17,7 +17,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lab.costs.daily import apply_costs, apply_linear_costs, estimate_turnover
+from lab.costs.daily import (
+    adv_participation,
+    annual_bps_to_daily_fraction,
+    apply_costs,
+    apply_linear_costs,
+    carry_costs,
+    estimate_turnover,
+    turnover_impact_bps,
+)
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -126,3 +134,62 @@ class TestApplyLinearCosts:
         net_hi = apply_linear_costs(gross, to_hi, cost_bps=10.0)
         # Higher turnover → lower net return
         assert (net_lo > net_hi).all()
+
+
+class TestCarryCosts:
+    def test_annual_bps_to_daily_fraction(self) -> None:
+        d = annual_bps_to_daily_fraction(252.0, ann_factor=252.0)
+        assert d == pytest.approx(1e-4)
+
+    def test_carry_costs_positive_when_exposed(self) -> None:
+        idx = pd.bdate_range("2024-01-02", periods=5)
+        gross = pd.Series([1.2, 1.1, 1.3, 1.0, 0.8], index=idx)
+        short = pd.Series([0.4, 0.3, 0.5, 0.2, 0.1], index=idx)
+        total, financing, borrow = carry_costs(
+            gross,
+            short,
+            financing_bps_annual=100.0,
+            short_borrow_bps_annual=200.0,
+        )
+        assert (total > 0).all()
+        pd.testing.assert_series_equal(total, financing + borrow, check_names=False)
+
+    def test_carry_costs_zero_when_rates_zero(self) -> None:
+        idx = pd.bdate_range("2024-01-02", periods=3)
+        gross = pd.Series([1.0, 1.0, 1.0], index=idx)
+        short = pd.Series([0.2, 0.2, 0.2], index=idx)
+        total, financing, borrow = carry_costs(gross, short)
+        assert (total == 0).all()
+        assert (financing == 0).all()
+        assert (borrow == 0).all()
+
+
+class TestTurnoverImpactBps:
+    def test_monotonic_with_turnover(self) -> None:
+        idx = pd.bdate_range("2024-01-02", periods=3)
+        to = pd.DataFrame({"A": [0.01, 0.04, 0.16]}, index=idx)
+        impact = turnover_impact_bps(
+            to,
+            turnover_ref=0.05,
+            coefficient_bps=2.0,
+            exponent=0.5,
+        )
+        vals = impact["A"].to_numpy()
+        assert vals[2] > vals[1] > vals[0] >= 0.0
+
+
+class TestAdvParticipation:
+    def test_participation_scales_with_notional(self) -> None:
+        idx = pd.bdate_range("2024-01-02", periods=2)
+        to = pd.DataFrame({"A": [0.10, 0.20]}, index=idx)
+        adv = pd.Series({"A": 10_000_000.0})
+        p_small = adv_participation(to, notional_usd=5_000_000.0, adv_usd=adv)
+        p_big = adv_participation(to, notional_usd=20_000_000.0, adv_usd=adv)
+        assert (p_big["A"] > p_small["A"]).all()
+
+    def test_missing_adv_raises(self) -> None:
+        idx = pd.bdate_range("2024-01-02", periods=2)
+        to = pd.DataFrame({"A": [0.10, 0.20], "B": [0.05, 0.10]}, index=idx)
+        adv = pd.Series({"A": 10_000_000.0})
+        with pytest.raises(ValueError, match="missing values"):
+            adv_participation(to, notional_usd=5_000_000.0, adv_usd=adv)

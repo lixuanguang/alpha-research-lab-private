@@ -36,9 +36,27 @@ risk:
 
 costs:
   use_meta_costs: true
+  financing_bps_annual: 25
+  short_borrow_bps_annual: 40
+  regime_multipliers:
+    risk_on: 1.0
+    risk_off: 1.2
+  impact:
+    enabled: true
+    turnover_ref: 0.10
+    coefficient_bps: 1.5
+    exponent: 0.5
+  capacity:
+    enabled: false
+    adv_column: adv_usd_mn
+    notional_usd: 10000000
+    max_adv_participation: 0.20
+    impact_bps_at_100pct_adv: 8.0
+    breach_action: warn
   stress_multipliers: [1, 2, 4]
 
 evaluation:
+  calendar: OBSERVED_WEEKDAY
   folds:
     train_days: 1260
     test_days: 252

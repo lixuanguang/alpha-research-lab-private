@@ -15,6 +15,7 @@ Design
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -74,6 +75,21 @@ class _ConfigLike:
     costs: float | dict
 
 
+def _validate_price_panel(prices: pd.DataFrame) -> None:
+    if not isinstance(prices.index, pd.DatetimeIndex):
+        raise ValueError("prices index must be a DatetimeIndex.")
+    if not prices.index.is_monotonic_increasing or not prices.index.is_unique:
+        raise ValueError("prices index must be unique and strictly increasing.")
+    if not prices.columns.is_unique:
+        raise ValueError("prices columns must be unique.")
+
+    arr = prices.to_numpy(dtype=float, copy=False)
+    if not np.isfinite(arr).all():
+        raise ValueError("prices panel contains NaN/inf values.")
+    if (arr <= 0).any():
+        raise ValueError("prices panel contains non-positive prices.")
+
+
 def _rebalance_dates(
     dates: pd.DatetimeIndex,
     freq: str,
@@ -128,16 +144,24 @@ def _resolve_asset_cost_bps(config: _ConfigLike, columns: pd.Index) -> pd.Series
         if "per_asset_bps" in costs:
             m = costs.get("per_asset_bps", {})
             s = pd.Series({k: float(v) for k, v in m.items()}, dtype=float)
-            return s.reindex(columns, fill_value=float(costs.get("bps", default_bps)))
-        return pd.Series(float(costs.get("bps", default_bps)), index=columns, dtype=float)
+            out = s.reindex(columns, fill_value=float(costs.get("bps", default_bps)))
+        else:
+            out = pd.Series(float(costs.get("bps", default_bps)), index=columns, dtype=float)
+    else:
+        out = pd.Series(float(default_bps if default_bps != 0 else costs), index=columns, dtype=float)
 
-    return pd.Series(float(default_bps if default_bps != 0 else costs), index=columns, dtype=float)
+    vals = out.to_numpy(dtype=float)
+    if not np.isfinite(vals).all():
+        raise ValueError("Transaction costs (bps) must be finite.")
+    if (vals < 0).any():
+        raise ValueError("Transaction costs (bps) must be >= 0.")
+    return out
 
 
 def run_daily_backtest(
     config: ExperimentConfig,
     prices: pd.DataFrame,
-    signal_fn: callable,
+    signal_fn: Callable[[ExperimentConfig, pd.DataFrame], pd.Series | dict | np.ndarray],
 ) -> BacktestResult:
     """Execute a walk-forward daily backtest.
 
@@ -173,6 +197,8 @@ def run_daily_backtest(
             turnover=pd.Series(dtype=float, name="turnover"),
             config=config,
         )
+
+    _validate_price_panel(prices)
 
     daily_ret = prices.pct_change().fillna(0.0)
     dates = prices.index
