@@ -86,6 +86,8 @@ class TestDailyEngine:
         """Output contains positions/weights over time."""
         assert isinstance(result.weights, pd.DataFrame)
         assert not result.weights.empty
+        assert isinstance(result.weights_daily, pd.DataFrame)
+        assert not result.weights_daily.empty
 
     def test_output_has_turnover(self, result: BacktestResult) -> None:
         """Output contains turnover over time."""
@@ -179,6 +181,33 @@ class TestDailyEngine:
         # With correct causality this strategy is anti-predictive on alternating returns.
         assert len(active) > 0
         assert (active <= 0).all()
+
+    def test_weights_daily_are_causal_pre_return_positions(self) -> None:
+        """Daily weights should represent holdings active for same-day return booking."""
+        config = _make_config(rebalance="daily", costs=0.0)
+        dates = pd.bdate_range("2024-01-02", periods=20)
+        prices = pd.DataFrame(
+            {
+                "A": 100.0 * np.cumprod(np.full(len(dates), 1.001)),
+                "B": 100.0 * np.cumprod(np.full(len(dates), 1.002)),
+            },
+            index=dates,
+        )
+
+        def _constant_signal(_config: ExperimentConfig, p: pd.DataFrame) -> pd.Series:
+            return pd.Series(0.5, index=p.columns)
+
+        result = run_daily_backtest(config, prices, _constant_signal)
+
+        pd.testing.assert_index_equal(result.weights_daily.index, prices.index)
+        assert (result.weights_daily.iloc[0] == 0.0).all()
+        observed = result.weights_daily.iloc[1].reindex(["A", "B"])
+        pd.testing.assert_series_equal(
+            observed,
+            pd.Series({"A": 0.5, "B": 0.5}),
+            check_names=False,
+        )
+        assert (result.weights_daily.iloc[1:].sum(axis=1) == 1.0).all()
 
     def test_weekly_rebalance_with_missing_fridays(self) -> None:
         """Weekly schedules should still rebalance when Friday data is absent."""

@@ -46,6 +46,8 @@ class BacktestResult:
     gross_returns: pd.Series
     # Position weights at each rebalance date
     weights: pd.DataFrame  # index=DatetimeIndex, columns=tickers
+    # Daily active weights used to book same-day PnL (causal, pre-return)
+    weights_daily: pd.DataFrame
     # Turnover at each rebalance
     turnover: pd.Series
     # Summary metrics dict (populated after run)
@@ -196,6 +198,7 @@ def run_daily_backtest(
             returns=pd.Series(dtype=float, name="net_return"),
             gross_returns=pd.Series(dtype=float, name="gross_return"),
             weights=pd.DataFrame(),
+            weights_daily=pd.DataFrame(),
             turnover=pd.Series(dtype=float, name="turnover"),
             config=config,
         )
@@ -214,12 +217,14 @@ def run_daily_backtest(
     turnover_records: dict[pd.Timestamp, float] = {}
 
     port_gross = pd.Series(0.0, index=dates, dtype=float, name="gross_return")
+    weights_daily = pd.DataFrame(0.0, index=dates, columns=prices.columns, dtype=float)
     gross_exposure = pd.Series(0.0, index=dates, dtype=float, name="gross_exposure")
     net_exposure = pd.Series(0.0, index=dates, dtype=float, name="net_exposure")
     turnover_by_asset = pd.DataFrame(0.0, index=dates, columns=prices.columns, dtype=float)
 
     for dt in dates:
         # Daily PnL uses weights known before today's return.
+        weights_daily.loc[dt] = current_weights
         gross_exposure.loc[dt] = current_weights.abs().sum()
         net_exposure.loc[dt] = current_weights.sum()
 
@@ -285,6 +290,7 @@ def run_daily_backtest(
         returns=net_returns,
         gross_returns=port_gross,
         weights=weight_df,
+        weights_daily=weights_daily,
         turnover=turnover,
         summary_metrics=metrics,
         config=config,

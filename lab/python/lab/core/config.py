@@ -168,6 +168,46 @@ def _coerce_float(value: Any, field: str) -> float:
     return out
 
 
+def _require_mapping(value: Any, *, error: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ConfigValidationError(error)
+    return value
+
+
+def _require_non_empty_string(value: Any, *, error: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigValidationError(error)
+    return value.strip()
+
+
+def _require_int_ge(value: Any, field: str, minimum: int, *, error: str) -> int:
+    out = _coerce_int(value, field)
+    if out < minimum:
+        raise ConfigValidationError(error)
+    return out
+
+
+def _require_int_gt(value: Any, field: str, minimum: int, *, error: str) -> int:
+    out = _coerce_int(value, field)
+    if out <= minimum:
+        raise ConfigValidationError(error)
+    return out
+
+
+def _require_float_ge(value: Any, field: str, minimum: float, *, error: str) -> float:
+    out = _coerce_float(value, field)
+    if out < minimum:
+        raise ConfigValidationError(error)
+    return out
+
+
+def _require_float_gt(value: Any, field: str, minimum: float, *, error: str) -> float:
+    out = _coerce_float(value, field)
+    if out <= minimum:
+        raise ConfigValidationError(error)
+    return out
+
+
 def _validate_universe(universe: Any) -> None:
     if not isinstance(universe, list):
         raise ConfigValidationError("'universe' must be a list of tickers.")
@@ -184,8 +224,12 @@ def _validate_signal(signal: Any) -> None:
     if isinstance(signal, bool):
         raise ConfigValidationError("'signal' integer lookback must be an integer, not boolean.")
     if isinstance(signal, int):
-        if signal <= 0:
-            raise ConfigValidationError("'signal' integer lookback must be > 0.")
+        _require_int_gt(
+            signal,
+            "signal",
+            0,
+            error="'signal' integer lookback must be > 0.",
+        )
         return
     if not isinstance(signal, dict):
         raise ConfigValidationError(
@@ -193,29 +237,32 @@ def _validate_signal(signal: Any) -> None:
         )
 
     if "lookback" in signal:
-        lookback = _coerce_int(signal["lookback"], "signal.lookback")
-        if lookback <= 0:
-            raise ConfigValidationError("'signal.lookback' must be > 0.")
+        _require_int_gt(
+            signal["lookback"],
+            "signal.lookback",
+            0,
+            error="'signal.lookback' must be > 0.",
+        )
     if "long_only" in signal and not isinstance(signal["long_only"], bool):
         raise ConfigValidationError("'signal.long_only' must be boolean when provided.")
-    if "name" in signal and (not isinstance(signal["name"], str) or not signal["name"].strip()):
-        raise ConfigValidationError("'signal.name' must be a non-empty string when provided.")
+    if "name" in signal:
+        _require_non_empty_string(
+            signal["name"],
+            error="'signal.name' must be a non-empty string when provided.",
+        )
 
 
 def _validate_costs(costs: Any) -> None:
     if isinstance(costs, bool):
         raise ConfigValidationError("'costs' must be numeric, not boolean.")
     if isinstance(costs, (int, float)):
-        if _coerce_float(costs, "costs") < 0:
-            raise ConfigValidationError("'costs' must be >= 0.")
+        _require_float_ge(costs, "costs", 0.0, error="'costs' must be >= 0.")
         return
     if not isinstance(costs, dict):
         raise ConfigValidationError("'costs' must be a number (bps) or a dict.")
 
     if "bps" in costs:
-        bps = _coerce_float(costs["bps"], "costs.bps")
-        if bps < 0:
-            raise ConfigValidationError("'costs.bps' must be >= 0.")
+        _require_float_ge(costs["bps"], "costs.bps", 0.0, error="'costs.bps' must be >= 0.")
     if "per_asset_bps" in costs:
         per_asset = costs["per_asset_bps"]
         if not isinstance(per_asset, dict):
@@ -225,8 +272,12 @@ def _validate_costs(costs: Any) -> None:
                 raise ConfigValidationError(
                     "'costs.per_asset_bps' keys must be non-empty ticker strings."
                 )
-            if _coerce_float(bps, "costs.per_asset_bps") < 0:
-                raise ConfigValidationError("'costs.per_asset_bps' values must be >= 0.")
+            _require_float_ge(
+                bps,
+                "costs.per_asset_bps",
+                0.0,
+                error="'costs.per_asset_bps' values must be >= 0.",
+            )
 
 
 def _validate_legacy_dates(raw: dict[str, Any]) -> None:
@@ -237,17 +288,20 @@ def _validate_legacy_dates(raw: dict[str, Any]) -> None:
 
 
 def _validate_macro_signal_config(signal: Any, field: str = "signal") -> None:
-    if not isinstance(signal, dict):
-        raise ConfigValidationError(f"'{field}' must be a mapping.")
+    _require_mapping(signal, error=f"'{field}' must be a mapping.")
 
-    name_raw = signal.get("name", "ts_trend")
-    if not isinstance(name_raw, str) or not name_raw.strip():
-        raise ConfigValidationError(f"'{field}.name' must be a non-empty string when provided.")
+    name_raw = _require_non_empty_string(
+        signal.get("name", "ts_trend"),
+        error=f"'{field}.name' must be a non-empty string when provided.",
+    )
     name = name_raw.strip().lower()
 
-    vol_scale = _coerce_int(signal.get("vol_scale_lookback", 63), f"{field}.vol_scale_lookback")
-    if vol_scale < 0:
-        raise ConfigValidationError(f"'{field}.vol_scale_lookback' must be >= 0.")
+    _require_int_ge(
+        signal.get("vol_scale_lookback", 63),
+        f"{field}.vol_scale_lookback",
+        0,
+        error=f"'{field}.vol_scale_lookback' must be >= 0.",
+    )
 
     if name in {"trend", "ts_trend"}:
         method = signal.get("method", "ma_cross")
@@ -255,13 +309,24 @@ def _validate_macro_signal_config(signal: Any, field: str = "signal") -> None:
             raise ConfigValidationError(
                 f"'{field}.method' must be one of {{'sign_return', 'ma_cross'}}."
             )
-        lookback_days = _coerce_int(signal.get("lookback_days", 252), f"{field}.lookback_days")
-        if lookback_days <= 0:
-            raise ConfigValidationError(f"'{field}.lookback_days' must be > 0.")
-        fast = _coerce_int(signal.get("fast", 20), f"{field}.fast")
-        slow = _coerce_int(signal.get("slow", 120), f"{field}.slow")
-        if fast <= 0 or slow <= 0:
-            raise ConfigValidationError(f"'{field}.fast' and '{field}.slow' must be > 0.")
+        _require_int_gt(
+            signal.get("lookback_days", 252),
+            f"{field}.lookback_days",
+            0,
+            error=f"'{field}.lookback_days' must be > 0.",
+        )
+        fast = _require_int_gt(
+            signal.get("fast", 20),
+            f"{field}.fast",
+            0,
+            error=f"'{field}.fast' and '{field}.slow' must be > 0.",
+        )
+        slow = _require_int_gt(
+            signal.get("slow", 120),
+            f"{field}.slow",
+            0,
+            error=f"'{field}.fast' and '{field}.slow' must be > 0.",
+        )
         if method == "ma_cross" and fast >= slow:
             raise ConfigValidationError(f"'{field}.fast' must be < '{field}.slow' for 'ma_cross'.")
         return
@@ -298,16 +363,20 @@ def _validate_macro_signal_config(signal: Any, field: str = "signal") -> None:
         elif isinstance(rp, dict):
             if "enabled" in rp and not isinstance(rp["enabled"], bool):
                 raise ConfigValidationError(f"'{field}.risk_parity.enabled' must be boolean.")
-            if (
-                "lookback_days" in rp
-                and _coerce_int(rp["lookback_days"], f"{field}.risk_parity.lookback_days") <= 1
-            ):
-                raise ConfigValidationError(f"'{field}.risk_parity.lookback_days' must be > 1.")
-            if (
-                "min_periods" in rp
-                and _coerce_int(rp["min_periods"], f"{field}.risk_parity.min_periods") <= 0
-            ):
-                raise ConfigValidationError(f"'{field}.risk_parity.min_periods' must be > 0.")
+            if "lookback_days" in rp:
+                _require_int_gt(
+                    rp["lookback_days"],
+                    f"{field}.risk_parity.lookback_days",
+                    1,
+                    error=f"'{field}.risk_parity.lookback_days' must be > 1.",
+                )
+            if "min_periods" in rp:
+                _require_int_gt(
+                    rp["min_periods"],
+                    f"{field}.risk_parity.min_periods",
+                    0,
+                    error=f"'{field}.risk_parity.min_periods' must be > 0.",
+                )
         else:
             raise ConfigValidationError(f"'{field}.risk_parity' must be boolean or a mapping.")
 
@@ -351,14 +420,13 @@ def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
     if unknown:
         raise ConfigValidationError(f"Macro config contains unknown fields: {', '.join(unknown)}")
 
-    if not isinstance(raw["exp"], str) or not raw["exp"].strip():
-        raise ConfigValidationError("'exp' must be a non-empty string.")
-    if not isinstance(raw["universe_config"], str) or not raw["universe_config"].strip():
-        raise ConfigValidationError("'universe_config' must be a non-empty path string.")
+    _require_non_empty_string(raw["exp"], error="'exp' must be a non-empty string.")
+    _require_non_empty_string(
+        raw["universe_config"],
+        error="'universe_config' must be a non-empty path string.",
+    )
 
-    dates = raw["dates"]
-    if not isinstance(dates, dict):
-        raise ConfigValidationError("'dates' must be a mapping with 'start' and 'end'.")
+    dates = _require_mapping(raw["dates"], error="'dates' must be a mapping with 'start' and 'end'.")
     if "start" not in dates or "end" not in dates:
         raise ConfigValidationError("'dates' must define both 'start' and 'end'.")
     start = _parse_date(dates["start"], "dates.start")
@@ -366,12 +434,11 @@ def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
     if start > end:
         raise ConfigValidationError("'dates.start' must be <= 'dates.end'.")
 
-    rebalance = raw["rebalance"]
-    if not isinstance(rebalance, dict):
-        raise ConfigValidationError("'rebalance' must be a mapping.")
-    freq = rebalance.get("frequency")
-    if not isinstance(freq, str) or not freq.strip():
-        raise ConfigValidationError("'rebalance.frequency' must be a non-empty string.")
+    rebalance = _require_mapping(raw["rebalance"], error="'rebalance' must be a mapping.")
+    freq = _require_non_empty_string(
+        rebalance.get("frequency"),
+        error="'rebalance.frequency' must be a non-empty string.",
+    )
     try:
         pd.date_range(start="2024-01-01", periods=2, freq=freq)
     except ValueError as exc:
@@ -379,126 +446,167 @@ def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
 
     _validate_macro_signal_config(raw["signal"], field="signal")
 
-    risk = raw.get("risk", {})
-    if not isinstance(risk, dict):
-        raise ConfigValidationError("'risk' must be a mapping when provided.")
-    if _coerce_float(risk.get("vol_target_annual", 0.0), "risk.vol_target_annual") < 0:
-        raise ConfigValidationError("'risk.vol_target_annual' must be >= 0.")
-    if _coerce_int(risk.get("vol_lookback_days", 63), "risk.vol_lookback_days") <= 1:
-        raise ConfigValidationError("'risk.vol_lookback_days' must be > 1.")
+    risk = _require_mapping(raw.get("risk", {}), error="'risk' must be a mapping when provided.")
+    _require_float_ge(
+        risk.get("vol_target_annual", 0.0),
+        "risk.vol_target_annual",
+        0.0,
+        error="'risk.vol_target_annual' must be >= 0.",
+    )
+    _require_int_gt(
+        risk.get("vol_lookback_days", 63),
+        "risk.vol_lookback_days",
+        1,
+        error="'risk.vol_lookback_days' must be > 1.",
+    )
 
-    regime = raw.get("regime", {})
-    if not isinstance(regime, dict):
-        raise ConfigValidationError("'regime' must be a mapping when provided.")
-    if "lag_days" in regime and _coerce_int(regime["lag_days"], "regime.lag_days") < 1:
-        raise ConfigValidationError("'regime.lag_days' must be >= 1.")
-    if (
-        "lookback_days" in regime
-        and _coerce_int(regime["lookback_days"], "regime.lookback_days") <= 1
-    ):
-        raise ConfigValidationError("'regime.lookback_days' must be > 1.")
+    regime = _require_mapping(raw.get("regime", {}), error="'regime' must be a mapping when provided.")
+    if "lag_days" in regime:
+        _require_int_ge(
+            regime["lag_days"],
+            "regime.lag_days",
+            1,
+            error="'regime.lag_days' must be >= 1.",
+        )
+    if "lookback_days" in regime:
+        _require_int_gt(
+            regime["lookback_days"],
+            "regime.lookback_days",
+            1,
+            error="'regime.lookback_days' must be > 1.",
+        )
     multipliers = regime.get("risk_off_bucket_multipliers", {})
     if not isinstance(multipliers, dict):
         raise ConfigValidationError("'regime.risk_off_bucket_multipliers' must be a mapping.")
     for bucket, mult in multipliers.items():
         if not isinstance(bucket, str) or not bucket.strip():
             raise ConfigValidationError("regime multiplier keys must be non-empty bucket names.")
-        if _coerce_float(mult, "regime.risk_off_bucket_multipliers") < 0:
-            raise ConfigValidationError("regime multipliers must be >= 0.")
+        _require_float_ge(
+            mult,
+            "regime.risk_off_bucket_multipliers",
+            0.0,
+            error="regime multipliers must be >= 0.",
+        )
 
-    costs = raw.get("costs", {})
-    if not isinstance(costs, dict):
-        raise ConfigValidationError("'costs' must be a mapping.")
+    costs = _require_mapping(raw.get("costs", {}), error="'costs' must be a mapping.")
     if not isinstance(costs.get("use_meta_costs", True), bool):
         raise ConfigValidationError("'costs.use_meta_costs' must be boolean.")
-    if _coerce_float(costs.get("bps", 5.0), "costs.bps") < 0:
-        raise ConfigValidationError("'costs.bps' must be >= 0.")
-    if _coerce_float(costs.get("financing_bps_annual", 0.0), "costs.financing_bps_annual") < 0:
-        raise ConfigValidationError("'costs.financing_bps_annual' must be >= 0.")
-    if (
-        _coerce_float(costs.get("short_borrow_bps_annual", 0.0), "costs.short_borrow_bps_annual")
-        < 0
-    ):
-        raise ConfigValidationError("'costs.short_borrow_bps_annual' must be >= 0.")
+    _require_float_ge(costs.get("bps", 5.0), "costs.bps", 0.0, error="'costs.bps' must be >= 0.")
+    _require_float_ge(
+        costs.get("financing_bps_annual", 0.0),
+        "costs.financing_bps_annual",
+        0.0,
+        error="'costs.financing_bps_annual' must be >= 0.",
+    )
+    _require_float_ge(
+        costs.get("short_borrow_bps_annual", 0.0),
+        "costs.short_borrow_bps_annual",
+        0.0,
+        error="'costs.short_borrow_bps_annual' must be >= 0.",
+    )
 
     regime_mult = costs.get("regime_multipliers", {})
     if not isinstance(regime_mult, dict):
         raise ConfigValidationError("'costs.regime_multipliers' must be a mapping.")
     for key in ("risk_on", "risk_off"):
-        if (
-            key in regime_mult
-            and _coerce_float(regime_mult[key], f"costs.regime_multipliers.{key}") <= 0
-        ):
-            raise ConfigValidationError(f"'costs.regime_multipliers.{key}' must be > 0.")
+        if key in regime_mult:
+            _require_float_gt(
+                regime_mult[key],
+                f"costs.regime_multipliers.{key}",
+                0.0,
+                error=f"'costs.regime_multipliers.{key}' must be > 0.",
+            )
 
     impact = costs.get("impact", {})
     if not isinstance(impact, dict):
         raise ConfigValidationError("'costs.impact' must be a mapping.")
     impact_enabled = bool(impact.get("enabled", False))
     if impact_enabled:
-        if _coerce_float(impact.get("turnover_ref", 0.0), "costs.impact.turnover_ref") <= 0:
-            raise ConfigValidationError("'costs.impact.turnover_ref' must be > 0 when enabled.")
-        if _coerce_float(impact.get("coefficient_bps", 0.0), "costs.impact.coefficient_bps") < 0:
-            raise ConfigValidationError("'costs.impact.coefficient_bps' must be >= 0 when enabled.")
-        if _coerce_float(impact.get("exponent", 0.0), "costs.impact.exponent") <= 0:
-            raise ConfigValidationError("'costs.impact.exponent' must be > 0 when enabled.")
+        _require_float_gt(
+            impact.get("turnover_ref", 0.0),
+            "costs.impact.turnover_ref",
+            0.0,
+            error="'costs.impact.turnover_ref' must be > 0 when enabled.",
+        )
+        _require_float_ge(
+            impact.get("coefficient_bps", 0.0),
+            "costs.impact.coefficient_bps",
+            0.0,
+            error="'costs.impact.coefficient_bps' must be >= 0 when enabled.",
+        )
+        _require_float_gt(
+            impact.get("exponent", 0.0),
+            "costs.impact.exponent",
+            0.0,
+            error="'costs.impact.exponent' must be > 0 when enabled.",
+        )
 
     capacity = costs.get("capacity", {})
     if not isinstance(capacity, dict):
         raise ConfigValidationError("'costs.capacity' must be a mapping.")
     capacity_enabled = bool(capacity.get("enabled", False))
     if capacity_enabled:
-        if _coerce_float(capacity.get("notional_usd", 0.0), "costs.capacity.notional_usd") <= 0:
-            raise ConfigValidationError("'costs.capacity.notional_usd' must be > 0 when enabled.")
-        if (
-            _coerce_float(
-                capacity.get("max_adv_participation", 0.0), "costs.capacity.max_adv_participation"
-            )
-            <= 0
-        ):
-            raise ConfigValidationError(
-                "'costs.capacity.max_adv_participation' must be > 0 when enabled."
-            )
-        if (
-            _coerce_float(
-                capacity.get("impact_bps_at_100pct_adv", 0.0),
-                "costs.capacity.impact_bps_at_100pct_adv",
-            )
-            < 0
-        ):
-            raise ConfigValidationError(
-                "'costs.capacity.impact_bps_at_100pct_adv' must be >= 0 when enabled."
-            )
+        _require_float_gt(
+            capacity.get("notional_usd", 0.0),
+            "costs.capacity.notional_usd",
+            0.0,
+            error="'costs.capacity.notional_usd' must be > 0 when enabled.",
+        )
+        _require_float_gt(
+            capacity.get("max_adv_participation", 0.0),
+            "costs.capacity.max_adv_participation",
+            0.0,
+            error="'costs.capacity.max_adv_participation' must be > 0 when enabled.",
+        )
+        _require_float_ge(
+            capacity.get("impact_bps_at_100pct_adv", 0.0),
+            "costs.capacity.impact_bps_at_100pct_adv",
+            0.0,
+            error="'costs.capacity.impact_bps_at_100pct_adv' must be >= 0 when enabled.",
+        )
         breach_action = str(capacity.get("breach_action", "warn")).strip().lower()
         if breach_action not in {"warn", "raise"}:
             raise ConfigValidationError(
                 "'costs.capacity.breach_action' must be one of {'warn', 'raise'}."
             )
-        adv_col = capacity.get("adv_column", "adv_usd")
-        if not isinstance(adv_col, str) or not adv_col.strip():
-            raise ConfigValidationError("'costs.capacity.adv_column' must be a non-empty string.")
+        _require_non_empty_string(
+            capacity.get("adv_column", "adv_usd"),
+            error="'costs.capacity.adv_column' must be a non-empty string.",
+        )
 
     stress = costs.get("stress_multipliers", [1, 2, 4])
     if not isinstance(stress, list) or not stress:
         raise ConfigValidationError("'costs.stress_multipliers' must be a non-empty list.")
-    if any(_coerce_float(x, "costs.stress_multipliers") <= 0 for x in stress):
-        raise ConfigValidationError("'costs.stress_multipliers' entries must be > 0.")
+    for x in stress:
+        _require_float_gt(
+            x,
+            "costs.stress_multipliers",
+            0.0,
+            error="'costs.stress_multipliers' entries must be > 0.",
+        )
 
-    evaluation = raw["evaluation"]
-    if not isinstance(evaluation, dict):
-        raise ConfigValidationError("'evaluation' must be a mapping.")
+    evaluation = _require_mapping(raw["evaluation"], error="'evaluation' must be a mapping.")
     if "calendar" in evaluation:
-        cal = evaluation["calendar"]
-        if not isinstance(cal, str) or not cal.strip():
-            raise ConfigValidationError("'evaluation.calendar' must be a non-empty string.")
+        _require_non_empty_string(
+            evaluation["calendar"],
+            error="'evaluation.calendar' must be a non-empty string.",
+        )
     folds = evaluation.get("folds")
     if not isinstance(folds, dict):
         raise ConfigValidationError("'evaluation.folds' must be a mapping.")
     for key in ("train_days", "test_days", "step_days"):
-        if _coerce_int(folds.get(key, 0), f"evaluation.folds.{key}") <= 0:
-            raise ConfigValidationError(f"'evaluation.folds.{key}' must be > 0.")
-    if _coerce_int(folds.get("embargo_days", 0), "evaluation.folds.embargo_days") < 0:
-        raise ConfigValidationError("'evaluation.folds.embargo_days' must be >= 0.")
+        _require_int_gt(
+            folds.get(key, 0),
+            f"evaluation.folds.{key}",
+            0,
+            error=f"'evaluation.folds.{key}' must be > 0.",
+        )
+    _require_int_ge(
+        folds.get("embargo_days", 0),
+        "evaluation.folds.embargo_days",
+        0,
+        error="'evaluation.folds.embargo_days' must be >= 0.",
+    )
 
 
 def validate_config(raw: dict[str, Any]) -> None:
@@ -528,17 +636,21 @@ def validate_config(raw: dict[str, Any]) -> None:
         raw["initial_capital"], (int, float)
     ):
         raise ConfigValidationError("'initial_capital' must be a number.")
-    if _coerce_float(raw["initial_capital"], "initial_capital") <= 0:
-        raise ConfigValidationError("'initial_capital' must be > 0.")
+    _require_float_gt(
+        raw["initial_capital"],
+        "initial_capital",
+        0.0,
+        error="'initial_capital' must be > 0.",
+    )
 
     if "regime" in raw and raw["regime"] is not None:
         regime = raw["regime"]
         if not isinstance(regime, dict):
             raise ConfigValidationError("'regime' must be a mapping when provided.")
-        if "fast" in regime and _coerce_int(regime["fast"], "regime.fast") <= 0:
-            raise ConfigValidationError("'regime.fast' must be > 0.")
-        if "slow" in regime and _coerce_int(regime["slow"], "regime.slow") <= 0:
-            raise ConfigValidationError("'regime.slow' must be > 0.")
+        if "fast" in regime:
+            _require_int_gt(regime["fast"], "regime.fast", 0, error="'regime.fast' must be > 0.")
+        if "slow" in regime:
+            _require_int_gt(regime["slow"], "regime.slow", 0, error="'regime.slow' must be > 0.")
         if (
             "fast" in regime
             and "slow" in regime

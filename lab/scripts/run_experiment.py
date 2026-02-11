@@ -709,6 +709,50 @@ def _run_macro_allocator(
             )
         return w
 
+    def _slice_fold_result(
+        result: Any,
+        *,
+        test_idx: pd.DatetimeIndex,
+    ) -> dict[str, Any]:
+        return {
+            "gross": result.gross_returns.reindex(test_idx).fillna(0.0),
+            "turnover": result.turnover.reindex(test_idx).fillna(0.0),
+            "costs": result.costs.reindex(test_idx).fillna(0.0),
+            "gross_exposure": result.gross_exposure.reindex(test_idx).ffill().fillna(0.0),
+            "net_exposure": result.net_exposure.reindex(test_idx).ffill().fillna(0.0),
+            "turnover_by_asset": result.turnover_by_asset.reindex(test_idx)
+            .reindex(columns=tickers)
+            .fillna(0.0),
+            "costs_by_asset": result.costs_by_asset.reindex(test_idx)
+            .reindex(columns=tickers)
+            .fillna(0.0),
+            "daily_weights": result.weights_daily.reindex(test_idx).reindex(columns=tickers).fillna(0.0),
+            "rebalance_weights": result.weights[result.weights.index.isin(test_idx)]
+            .reindex(columns=tickers)
+            .fillna(0.0),
+        }
+
+    def _run_fold_with_overlay(
+        *,
+        fold_label: str,
+        seg_prices: pd.DataFrame,
+        test_idx: pd.DatetimeIndex,
+        signal_fn: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        fold_res = run_daily_backtest(macro_engine_cfg, seg_prices, signal_fn)
+        fold_view = _slice_fold_result(fold_res, test_idx=test_idx)
+        overlay = _apply_execution_realism(
+            fold_label=fold_label,
+            test_idx=test_idx,
+            fold_gross=fold_view["gross"],
+            fold_costs=fold_view["costs"],
+            fold_cost_asset=fold_view["costs_by_asset"],
+            fold_to_asset=fold_view["turnover_by_asset"],
+            fold_gross_exposure=fold_view["gross_exposure"],
+            daily_w=fold_view["daily_weights"],
+        )
+        return fold_view, overlay
+
     # ── Run folds ────────────────────────────────────────────────────────
     net_parts: list[pd.Series] = []
     gross_parts: list[pd.Series] = []
@@ -736,44 +780,23 @@ def _run_macro_allocator(
         fold_id = f"fold_{i - 1}"
         fold_signal_model = _build_fold_signal_model(train_dates)
 
-        fold_res = run_daily_backtest(
-            macro_engine_cfg,
-            seg_prices,
-            lambda cfg, p, model=fold_signal_model: _strategy_signal(
+        fold_view, overlay = _run_fold_with_overlay(
+            fold_label=fold_id,
+            seg_prices=seg_prices,
+            test_idx=test_dates,
+            signal_fn=lambda cfg, p, model=fold_signal_model: _strategy_signal(
                 model, cfg, p, with_regime=True
             ),
         )
 
-        test_idx = test_dates
-        fold_gross = fold_res.gross_returns.reindex(test_idx).fillna(0.0)
-        fold_to = fold_res.turnover.reindex(test_idx).fillna(0.0)
+        fold_gross = fold_view["gross"]
+        fold_to = fold_view["turnover"]
+        fold_gross_exposure = fold_view["gross_exposure"]
+        fold_net_exposure = fold_view["net_exposure"]
+        fold_to_asset = fold_view["turnover_by_asset"]
+        fold_weights_rebal = fold_view["rebalance_weights"]
+        daily_w = fold_view["daily_weights"]
 
-        fold_gross_exposure = fold_res.gross_exposure.reindex(test_idx).ffill().fillna(0.0)
-        fold_net_exposure = fold_res.net_exposure.reindex(test_idx).ffill().fillna(0.0)
-
-        fold_costs = fold_res.costs.reindex(test_idx).fillna(0.0)
-        fold_to_asset = fold_res.turnover_by_asset.reindex(test_idx).fillna(0.0)
-        fold_cost_asset = fold_res.costs_by_asset.reindex(test_idx).fillna(0.0)
-
-        fold_weights_rebal = fold_res.weights[fold_res.weights.index.isin(test_idx)]
-        daily_w = (
-            fold_res.weights.reindex(seg_prices.index)
-            .ffill()
-            .fillna(0.0)
-            .reindex(test_idx)
-            .fillna(0.0)
-        )
-
-        overlay = _apply_execution_realism(
-            fold_label=fold_id,
-            test_idx=test_idx,
-            fold_gross=fold_gross,
-            fold_costs=fold_costs,
-            fold_cost_asset=fold_cost_asset,
-            fold_to_asset=fold_to_asset,
-            fold_gross_exposure=fold_gross_exposure,
-            daily_w=daily_w,
-        )
         fold_net = overlay["net"]
         fold_costs = overlay["costs"]
         fold_cost_asset = overlay["costs_by_asset"]
@@ -859,36 +882,16 @@ def _run_macro_allocator(
         parts_to: list[pd.Series] = []
         for train_dates, test_dates in folds:
             seg_prices = prices.loc[train_dates.min() : test_dates.max()]
-            r = run_daily_backtest(
-                macro_engine_cfg,
-                seg_prices,
-                lambda _cfg, _p: static_weights,
-            )
-            idx = test_dates
-            fold_gross = r.gross_returns.reindex(idx).fillna(0.0)
-            fold_to = r.turnover.reindex(idx).fillna(0.0)
-            fold_costs = r.costs.reindex(idx).fillna(0.0)
-            fold_to_asset = r.turnover_by_asset.reindex(idx).fillna(0.0)
-            fold_cost_asset = r.costs_by_asset.reindex(idx).fillna(0.0)
-            fold_gross_exposure = r.gross_exposure.reindex(idx).ffill().fillna(0.0)
-            daily_w = (
-                r.weights.reindex(seg_prices.index).ffill().fillna(0.0).reindex(idx).fillna(0.0)
-            )
-
-            overlay = _apply_execution_realism(
+            fold_view, overlay = _run_fold_with_overlay(
                 fold_label="baseline",
-                test_idx=idx,
-                fold_gross=fold_gross,
-                fold_costs=fold_costs,
-                fold_cost_asset=fold_cost_asset,
-                fold_to_asset=fold_to_asset,
-                fold_gross_exposure=fold_gross_exposure,
-                daily_w=daily_w,
+                seg_prices=seg_prices,
+                test_idx=test_dates,
+                signal_fn=lambda _cfg, _p, w=static_weights: w,
             )
 
             parts_net.append(overlay["net"])
-            parts_gross.append(fold_gross)
-            parts_to.append(fold_to)
+            parts_gross.append(fold_view["gross"])
+            parts_to.append(fold_view["turnover"])
 
         bn = _concat_series(parts_net, "net_return")
         bg = _concat_series(parts_gross, "gross_return")
@@ -907,34 +910,17 @@ def _run_macro_allocator(
     for train_dates, test_dates in folds:
         seg_prices = prices.loc[train_dates.min() : test_dates.max()]
         fold_signal_model = _build_fold_signal_model(train_dates)
-        r = run_daily_backtest(
-            macro_engine_cfg,
-            seg_prices,
-            lambda cfg, p, model=fold_signal_model: _strategy_signal(
+        fold_view, overlay = _run_fold_with_overlay(
+            fold_label="trend_no_regime",
+            seg_prices=seg_prices,
+            test_idx=test_dates,
+            signal_fn=lambda cfg, p, model=fold_signal_model: _strategy_signal(
                 model, cfg, p, with_regime=False
             ),
         )
-        idx = test_dates
-        fold_gross = r.gross_returns.reindex(idx).fillna(0.0)
-        fold_to = r.turnover.reindex(idx).fillna(0.0)
-        fold_costs = r.costs.reindex(idx).fillna(0.0)
-        fold_to_asset = r.turnover_by_asset.reindex(idx).fillna(0.0)
-        fold_cost_asset = r.costs_by_asset.reindex(idx).fillna(0.0)
-        fold_gross_exposure = r.gross_exposure.reindex(idx).ffill().fillna(0.0)
-        daily_w = r.weights.reindex(seg_prices.index).ffill().fillna(0.0).reindex(idx).fillna(0.0)
-        overlay = _apply_execution_realism(
-            fold_label="trend_no_regime",
-            test_idx=idx,
-            fold_gross=fold_gross,
-            fold_costs=fold_costs,
-            fold_cost_asset=fold_cost_asset,
-            fold_to_asset=fold_to_asset,
-            fold_gross_exposure=fold_gross_exposure,
-            daily_w=daily_w,
-        )
         no_reg_parts_net.append(overlay["net"])
-        no_reg_parts_gross.append(fold_gross)
-        no_reg_parts_to.append(fold_to)
+        no_reg_parts_gross.append(fold_view["gross"])
+        no_reg_parts_to.append(fold_view["turnover"])
 
     no_reg_net = _concat_series(no_reg_parts_net, "net_return")
     no_reg_gross = _concat_series(no_reg_parts_gross, "gross_return")
