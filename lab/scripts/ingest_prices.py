@@ -53,6 +53,18 @@ def _parse_args() -> argparse.Namespace:
         default=20,
         help="Tickers per network batch (recommended 10-25 for API hygiene).",
     )
+    parser.add_argument(
+        "--batch-pause",
+        type=float,
+        default=0.35,
+        help="Base sleep between batches in seconds (rate-limit hygiene).",
+    )
+    parser.add_argument(
+        "--batch-jitter",
+        type=float,
+        default=0.15,
+        help="Optional uniform random jitter added per batch sleep.",
+    )
     parser.add_argument("--max-attempts", type=int, default=4)
     parser.add_argument("--backoff-initial", type=float, default=1.0)
     parser.add_argument("--backoff-factor", type=float, default=2.0)
@@ -90,17 +102,23 @@ def main() -> None:
         retry=retry,
         cache_params={
             "batch_size": args.batch_size,
+            "batch_pause_s": args.batch_pause,
+            "batch_jitter_s": args.batch_jitter,
             "max_attempts": args.max_attempts,
             "backoff_initial_s": args.backoff_initial,
             "backoff_factor": args.backoff_factor,
             "backoff_max_s": args.backoff_max,
         },
+        batch_pause_s=args.batch_pause,
+        batch_jitter_s=args.batch_jitter,
     )
 
     log.info("Ingestion completed. cache_hit=%s key=%s", result.cache_hit, result.cache_key_id)
     log.info("Raw panel: %s", result.raw_path)
     log.info("Close panel: %s", result.close_path)
     log.info("Meta: %s", result.meta_path)
+    if result.ohlcv_path is not None:
+        log.info("OHLCV: %s", result.ohlcv_path)
     if result.actions_path is not None:
         log.info("Actions: %s", result.actions_path)
 

@@ -21,6 +21,16 @@ class PriceDataAdapter(ABC):
     ) -> pd.DataFrame:
         """Return a daily close panel indexed by date with ticker columns."""
 
+    def download_ohlcv(
+        self,
+        tickers: list[str],
+        start: str,
+        end: str,
+    ) -> pd.DataFrame | None:
+        """Return optional OHLCV panel with MultiIndex columns (ticker, field)."""
+        del tickers, start, end
+        return None
+
     def download_actions(
         self,
         tickers: list[str],

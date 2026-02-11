@@ -2,17 +2,23 @@
 
 ## Adjustment Policy (Yahoo Finance)
 
-This pipeline uses **dividend/split-adjusted closes** as the canonical price
-series:
+This pipeline uses adjusted tradable series from Yahoo:
 
-- Source field: `Adj Close`
-- Request mode: `auto_adjust=False`
-- Corporate actions (`Dividends`, `Stock Splits`) are fetched separately for
-  auditability and diagnostics.
+- Request mode: `auto_adjust=True`
+- Grouping: `group_by="ticker"`
+- Canonical OHLCV fields: `close`, `open`, `high`, `low`, `volume`
 
-We intentionally do **not** re-apply split/dividend math downstream. The
-normalized panel written to `LAB_DATA_ROOT/prices/close.parquet` is already in
-adjusted-close space.
+The canonical close panel at `LAB_DATA_ROOT/prices/close.parquet` is derived
+from adjusted `close` values and already reflects split/dividend adjustments.
+Corporate actions are persisted separately for diagnostics.
+
+Missing-value handling is conservative:
+
+- single aligned date index across tickers
+- short forward-fill only (`limit=3`)
+- any still-incomplete rows are dropped
+
+See `docs/data_provenance.md` for full policy and macro-data provenance.
 
 ## Caching
 
@@ -30,4 +36,3 @@ For each key, the cache stores:
 - normalized panel parquet
 
 This allows deterministic re-runs with no network calls when inputs match.
-

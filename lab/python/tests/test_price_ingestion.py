@@ -93,6 +93,29 @@ class LeadingNaNAdapter(PriceDataAdapter):
         return panel
 
 
+class OHLCVOnlyAdapter(PriceDataAdapter):
+    source = "yf"
+
+    def download_prices(self, tickers: list[str], start: str, end: str) -> pd.DataFrame:
+        del tickers, start, end
+        raise AssertionError("download_prices should not be called when OHLCV is available")
+
+    def download_ohlcv(self, tickers: list[str], start: str, end: str) -> pd.DataFrame | None:
+        idx = pd.bdate_range(start, end)
+        cols = pd.MultiIndex.from_product([tickers, ["close", "open", "high", "low", "volume"]])
+        out = pd.DataFrame(index=idx, columns=cols, dtype=float)
+        for i, ticker in enumerate(tickers):
+            base = 100.0 + i
+            ramp = np.linspace(0.0, 3.0, len(idx))
+            out[(ticker, "close")] = base + ramp
+            out[(ticker, "open")] = base + ramp - 0.2
+            out[(ticker, "high")] = base + ramp + 0.4
+            out[(ticker, "low")] = base + ramp - 0.5
+            out[(ticker, "volume")] = 1_000_000 + 1_000 * i
+        out.columns = pd.MultiIndex.from_tuples(out.columns, names=["ticker", "field"])
+        return out
+
+
 def test_ingestion_cache_hit_skips_network_and_preserves_close_bytes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -257,6 +280,101 @@ def test_yfinance_adapter_empty_tickers_short_circuits_download(
     assert list(prices.columns) == []
     assert isinstance(actions, pd.DataFrame)
     assert list(actions.columns) == ["date", "ticker", "dividends", "splits"]
+
+
+def test_yfinance_adapter_normalizes_ticker_grouped_ohlcv_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = YFinanceAdapter()
+    dates = pd.bdate_range("2024-01-02", periods=3)
+    raw_cols = pd.MultiIndex.from_tuples(
+        [
+            ("SPY", "Volume"),
+            ("SPY", "Close"),
+            ("SPY", "Open"),
+            ("SPY", "High"),
+            ("SPY", "Low"),
+            ("TLT", "Open"),
+            ("TLT", "High"),
+            ("TLT", "Low"),
+            ("TLT", "Close"),
+            ("TLT", "Volume"),
+        ]
+    )
+    raw = pd.DataFrame(
+        [
+            [1000.0, 100.0, 99.5, 100.5, 99.0, 101.0, 101.5, 100.2, 100.8, 800.0],
+            [1100.0, 101.0, 100.5, 101.5, 100.0, 102.0, 102.5, 101.1, 101.8, 820.0],
+            [1200.0, 102.0, 101.5, 102.5, 101.0, 103.0, 103.5, 102.0, 102.8, 840.0],
+        ],
+        index=dates,
+        columns=raw_cols,
+    )
+
+    monkeypatch.setattr(adapter, "_download", lambda **_kwargs: raw)
+
+    ohlcv = adapter.download_ohlcv(["SPY", "TLT"], start="2024-01-02", end="2024-01-31")
+    assert isinstance(ohlcv, pd.DataFrame)
+    assert isinstance(ohlcv.columns, pd.MultiIndex)
+    assert ohlcv.columns.names == ["ticker", "field"]
+    expected_cols = pd.MultiIndex.from_product(
+        [["SPY", "TLT"], ["close", "open", "high", "low", "volume"]],
+        names=["ticker", "field"],
+    )
+    assert ohlcv.columns.equals(expected_cols)
+
+    close = adapter.download_prices(["SPY", "TLT"], start="2024-01-02", end="2024-01-31")
+    assert list(close.columns) == ["SPY", "TLT"]
+    assert close["SPY"].iloc[0] == pytest.approx(100.0)
+    assert close["TLT"].iloc[-1] == pytest.approx(102.8)
+
+
+def test_ingestion_uses_ohlcv_when_available_and_persists_ohlcv_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LAB_DATA_ROOT", str(tmp_path))
+    cfg = _write_universe(tmp_path, ["SPY", "TLT"])
+
+    result = run_price_ingestion(
+        config_path=cfg,
+        start="2024-01-02",
+        end="2024-01-31",
+        source="yf",
+        batch_size=2,
+        adapter=OHLCVOnlyAdapter(),
+        sleep_fn=lambda _s: None,
+    )
+
+    assert result.ohlcv_path is not None
+    assert result.ohlcv_path.exists()
+    close = pd.read_parquet(result.close_path)
+    assert list(close.columns) == ["SPY", "TLT"]
+    assert close.index.is_monotonic_increasing
+    assert close.index.is_unique
+
+
+def test_ingestion_batch_throttle_pause_applies_between_batches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LAB_DATA_ROOT", str(tmp_path))
+    cfg = _write_universe(tmp_path, ["SPY", "TLT", "GLD"])
+    adapter = CountingAdapter()
+    sleeps: list[float] = []
+
+    run_price_ingestion(
+        config_path=cfg,
+        start="2024-01-02",
+        end="2024-01-31",
+        source="yf",
+        batch_size=2,
+        adapter=adapter,
+        sleep_fn=sleeps.append,
+        batch_pause_s=0.25,
+        batch_jitter_s=0.0,
+    )
+
+    # Two batches => one inter-batch pause.
+    assert sleeps == [0.25]
 
 
 @pytest.mark.parametrize(
