@@ -1,0 +1,279 @@
+"""Reusable ingestion pipeline with adapters, batching, retries, and caching."""
+
+from __future__ import annotations
+
+import dataclasses
+import math
+import time
+from collections.abc import Callable, Iterable
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import yaml
+
+from lab.core.logging import get_logger
+from lab.core.paths import data_dir
+from lab.data.adapters import (
+    LocalCSVAdapter,
+    PriceDataAdapter,
+    SyntheticAdapter,
+    YFinanceAdapter,
+)
+from lab.data.cache import PriceCache, write_parquet_if_changed
+from lab.data.loaders.prices import (
+    _coerce_price_panel,
+    _validate_close_panel,
+    write_price_artifacts,
+)
+
+log = get_logger("data.ingestion")
+
+
+@dataclasses.dataclass(frozen=True)
+class RetryConfig:
+    max_attempts: int = 4
+    backoff_initial_s: float = 1.0
+    backoff_factor: float = 2.0
+    backoff_max_s: float = 30.0
+
+
+@dataclasses.dataclass(frozen=True)
+class IngestionResult:
+    cache_hit: bool
+    source: str
+    cache_key_id: str
+    raw_path: Path
+    close_path: Path
+    meta_path: Path
+    actions_path: Path | None
+
+
+def _chunked(items: list[str], n: int) -> Iterable[list[str]]:
+    if n <= 0:
+        raise ValueError("batch size must be > 0")
+    for i in range(0, len(items), n):
+        yield items[i : i + n]
+
+
+def _load_universe(path: Path) -> tuple[list[str], pd.DataFrame]:
+    raw = yaml.safe_load(path.read_text()) or {}
+    tickers = raw.get("tickers", [])
+    if not isinstance(tickers, list) or not tickers:
+        raise ValueError("universe config must define a non-empty 'tickers' list.")
+    if len(set(tickers)) != len(tickers):
+        raise ValueError("universe config 'tickers' must not contain duplicates.")
+
+    ticker_meta = raw.get("ticker_meta", {})
+    if not isinstance(ticker_meta, dict):
+        raise ValueError("universe config 'ticker_meta' must be a mapping.")
+
+    rows: list[dict[str, Any]] = []
+    for ticker in tickers:
+        info = ticker_meta.get(ticker, {})
+        if not isinstance(info, dict):
+            raise ValueError(f"ticker_meta['{ticker}'] must be a mapping.")
+        row: dict[str, Any] = {
+            "ticker": ticker,
+            "bucket": info.get("bucket", "other"),
+            "cost_bps": float(info.get("cost_bps", 5.0)),
+            "per_asset_cap": float(info.get("per_asset_cap", 0.35)),
+        }
+        for key, value in info.items():
+            if key in row:
+                continue
+            row[key] = value
+        rows.append(row)
+
+    meta = pd.DataFrame.from_records(rows)
+    return tickers, meta
+
+
+def _normalize_close_panel(
+    raw_panel: pd.DataFrame,
+    *,
+    tickers: list[str],
+    start: str,
+    end: str,
+) -> pd.DataFrame:
+    out = _coerce_price_panel(raw_panel.reindex(columns=tickers))
+    out = out.loc[start:end]
+    if out.empty:
+        raise ValueError(f"Downloaded price panel is empty for requested window {start}..{end}.")
+
+    out = out.replace([np.inf, -np.inf], np.nan)
+    out = out.ffill().bfill()
+    out = _coerce_price_panel(out)
+    _validate_close_panel(out)
+    return out
+
+
+def _download_with_retry(
+    *,
+    adapter: PriceDataAdapter,
+    tickers: list[str],
+    start: str,
+    end: str,
+    retry: RetryConfig,
+    sleep_fn: Callable[[float], None],
+    batch_label: str,
+) -> pd.DataFrame:
+    if retry.max_attempts < 1:
+        raise ValueError("retry.max_attempts must be >= 1.")
+
+    for attempt in range(1, retry.max_attempts + 1):
+        try:
+            out = adapter.download_prices(tickers=tickers, start=start, end=end)
+            if not isinstance(out, pd.DataFrame):
+                raise RuntimeError("adapter returned non-DataFrame payload for prices.")
+            return out
+        except Exception as exc:
+            if attempt >= retry.max_attempts:
+                raise RuntimeError(
+                    f"Failed to download prices for {batch_label} after "
+                    f"{retry.max_attempts} attempts: {exc}"
+                ) from exc
+            delay = min(
+                retry.backoff_max_s,
+                retry.backoff_initial_s * math.pow(retry.backoff_factor, attempt - 1),
+            )
+            log.warning(
+                "Batch %s attempt %d/%d failed (%s). Retrying in %.2fs",
+                batch_label,
+                attempt,
+                retry.max_attempts,
+                exc,
+                delay,
+            )
+            sleep_fn(delay)
+
+    raise RuntimeError("unreachable retry state")
+
+
+def _batched_download_prices(
+    *,
+    adapter: PriceDataAdapter,
+    tickers: list[str],
+    start: str,
+    end: str,
+    batch_size: int,
+    retry: RetryConfig,
+    sleep_fn: Callable[[float], None],
+) -> pd.DataFrame:
+    parts: list[pd.DataFrame] = []
+    for idx, batch in enumerate(_chunked(tickers, batch_size), start=1):
+        label = f"#{idx} ({batch[0]}..{batch[-1]}, n={len(batch)})"
+        log.info("Downloading batch %s", label)
+        part = _download_with_retry(
+            adapter=adapter,
+            tickers=batch,
+            start=start,
+            end=end,
+            retry=retry,
+            sleep_fn=sleep_fn,
+            batch_label=label,
+        )
+        part = _coerce_price_panel(part).reindex(columns=batch)
+        parts.append(part)
+
+    if not parts:
+        return pd.DataFrame(columns=tickers)
+
+    merged = pd.concat(parts, axis=1)
+    merged = merged.loc[:, ~merged.columns.duplicated(keep="last")]
+    return merged.reindex(columns=tickers)
+
+
+def _adapter_for_source(source: str) -> PriceDataAdapter:
+    src = source.strip().lower()
+    if src in {"yf", "yfinance"}:
+        return YFinanceAdapter()
+    if src == "local":
+        return LocalCSVAdapter()
+    if src == "synthetic":
+        return SyntheticAdapter()
+    raise ValueError(f"unknown source '{source}'")
+
+
+def run_price_ingestion(
+    *,
+    config_path: Path,
+    start: str,
+    end: str,
+    source: str,
+    batch_size: int = 20,
+    retry: RetryConfig | None = None,
+    cache: PriceCache | None = None,
+    adapter: PriceDataAdapter | None = None,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    cache_params: dict[str, Any] | None = None,
+) -> IngestionResult:
+    """Ingest, cache, normalize, and persist price artifacts."""
+    tickers, meta = _load_universe(config_path)
+    resolved_adapter = adapter or _adapter_for_source(source)
+    source_key = resolved_adapter.source
+
+    prices_root = data_dir() / "prices"
+    raw_root = prices_root / "raw"
+    cache_root = prices_root / "cache"
+    raw_root.mkdir(parents=True, exist_ok=True)
+    cache_obj = cache if cache is not None else PriceCache(cache_root)
+    retry_cfg = retry if retry is not None else RetryConfig()
+
+    key = cache_obj.key(
+        source=source_key,
+        tickers=tickers,
+        start=start,
+        end=end,
+        params=cache_params or {"batch_size": batch_size},
+    )
+    cache_hit = False
+    cached = cache_obj.load(key)
+    if cached is not None:
+        raw_panel, close_panel = cached
+        cache_hit = True
+        log.info("Cache hit: %s", key.id)
+    else:
+        log.info("Cache miss: %s", key.id)
+        raw_panel = _batched_download_prices(
+            adapter=resolved_adapter,
+            tickers=tickers,
+            start=start,
+            end=end,
+            batch_size=batch_size,
+            retry=retry_cfg,
+            sleep_fn=sleep_fn,
+        )
+        close_panel = _normalize_close_panel(raw_panel, tickers=tickers, start=start, end=end)
+        # Store only after full successful processing.
+        cache_obj.store(key, raw=raw_panel, normalized=close_panel)
+
+    date_range = f"{pd.Timestamp(start).date()}_{pd.Timestamp(end).date()}"
+    raw_name = f"{source_key}_{date_range}_{key.short_hash}.parquet"
+    raw_path = raw_root / raw_name
+    write_parquet_if_changed(_coerce_price_panel(raw_panel), raw_path, index=True)
+
+    write_price_artifacts(close_panel, meta, only_if_changed=True)
+
+    actions_path: Path | None = None
+    try:
+        actions = resolved_adapter.download_actions(tickers=tickers, start=start, end=end)
+        if isinstance(actions, pd.DataFrame) and not actions.empty:
+            actions_path = raw_root / f"{source_key}_{date_range}_{key.short_hash}_actions.parquet"
+            write_parquet_if_changed(actions, actions_path, index=False)
+    except Exception as exc:
+        log.warning("Actions download skipped due to adapter error: %s", exc)
+
+    # Keep week-1 compatibility artifact stable.
+    write_parquet_if_changed(close_panel, data_dir() / "prices.parquet", index=True)
+
+    return IngestionResult(
+        cache_hit=cache_hit,
+        source=source_key,
+        cache_key_id=key.id,
+        raw_path=raw_path,
+        close_path=prices_root / "close.parquet",
+        meta_path=prices_root / "meta.parquet",
+        actions_path=actions_path,
+    )

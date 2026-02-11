@@ -70,4 +70,3 @@ def test_signal_scores_align_with_prices_and_have_no_post_warmup_nans() -> None:
 
     warmup = 121  # slow MA + one-day shift
     assert not scores.iloc[warmup:].isna().any().any()
-

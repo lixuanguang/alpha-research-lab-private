@@ -263,9 +263,7 @@ def _validate_macro_signal_config(signal: Any, field: str = "signal") -> None:
         if fast <= 0 or slow <= 0:
             raise ConfigValidationError(f"'{field}.fast' and '{field}.slow' must be > 0.")
         if method == "ma_cross" and fast >= slow:
-            raise ConfigValidationError(
-                f"'{field}.fast' must be < '{field}.slow' for 'ma_cross'."
-            )
+            raise ConfigValidationError(f"'{field}.fast' must be < '{field}.slow' for 'ma_cross'.")
         return
 
     if name == "ensemble":
@@ -304,22 +302,18 @@ def _validate_macro_signal_config(signal: Any, field: str = "signal") -> None:
                 "lookback_days" in rp
                 and _coerce_int(rp["lookback_days"], f"{field}.risk_parity.lookback_days") <= 1
             ):
-                raise ConfigValidationError(
-                    f"'{field}.risk_parity.lookback_days' must be > 1."
-                )
+                raise ConfigValidationError(f"'{field}.risk_parity.lookback_days' must be > 1.")
             if (
                 "min_periods" in rp
                 and _coerce_int(rp["min_periods"], f"{field}.risk_parity.min_periods") <= 0
             ):
-                raise ConfigValidationError(
-                    f"'{field}.risk_parity.min_periods' must be > 0."
-                )
+                raise ConfigValidationError(f"'{field}.risk_parity.min_periods' must be > 0.")
         else:
-            raise ConfigValidationError(
-                f"'{field}.risk_parity' must be boolean or a mapping."
-            )
+            raise ConfigValidationError(f"'{field}.risk_parity' must be boolean or a mapping.")
 
-        if "normalize_components" in signal and not isinstance(signal["normalize_components"], bool):
+        if "normalize_components" in signal and not isinstance(
+            signal["normalize_components"], bool
+        ):
             raise ConfigValidationError(f"'{field}.normalize_components' must be boolean.")
 
         for component_name, component_cfg in components.items():
@@ -398,7 +392,10 @@ def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
         raise ConfigValidationError("'regime' must be a mapping when provided.")
     if "lag_days" in regime and _coerce_int(regime["lag_days"], "regime.lag_days") < 1:
         raise ConfigValidationError("'regime.lag_days' must be >= 1.")
-    if "lookback_days" in regime and _coerce_int(regime["lookback_days"], "regime.lookback_days") <= 1:
+    if (
+        "lookback_days" in regime
+        and _coerce_int(regime["lookback_days"], "regime.lookback_days") <= 1
+    ):
         raise ConfigValidationError("'regime.lookback_days' must be > 1.")
     multipliers = regime.get("risk_off_bucket_multipliers", {})
     if not isinstance(multipliers, dict):
@@ -428,7 +425,10 @@ def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
     if not isinstance(regime_mult, dict):
         raise ConfigValidationError("'costs.regime_multipliers' must be a mapping.")
     for key in ("risk_on", "risk_off"):
-        if key in regime_mult and _coerce_float(regime_mult[key], f"costs.regime_multipliers.{key}") <= 0:
+        if (
+            key in regime_mult
+            and _coerce_float(regime_mult[key], f"costs.regime_multipliers.{key}") <= 0
+        ):
             raise ConfigValidationError(f"'costs.regime_multipliers.{key}' must be > 0.")
 
     impact = costs.get("impact", {})
@@ -439,9 +439,7 @@ def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
         if _coerce_float(impact.get("turnover_ref", 0.0), "costs.impact.turnover_ref") <= 0:
             raise ConfigValidationError("'costs.impact.turnover_ref' must be > 0 when enabled.")
         if _coerce_float(impact.get("coefficient_bps", 0.0), "costs.impact.coefficient_bps") < 0:
-            raise ConfigValidationError(
-                "'costs.impact.coefficient_bps' must be >= 0 when enabled."
-            )
+            raise ConfigValidationError("'costs.impact.coefficient_bps' must be >= 0 when enabled.")
         if _coerce_float(impact.get("exponent", 0.0), "costs.impact.exponent") <= 0:
             raise ConfigValidationError("'costs.impact.exponent' must be > 0 when enabled.")
 
@@ -526,7 +524,9 @@ def validate_config(raw: dict[str, Any]) -> None:
     _validate_signal(raw["signal"])
     _validate_costs(raw["costs"])
 
-    if isinstance(raw["initial_capital"], bool) or not isinstance(raw["initial_capital"], (int, float)):
+    if isinstance(raw["initial_capital"], bool) or not isinstance(
+        raw["initial_capital"], (int, float)
+    ):
         raise ConfigValidationError("'initial_capital' must be a number.")
     if _coerce_float(raw["initial_capital"], "initial_capital") <= 0:
         raise ConfigValidationError("'initial_capital' must be > 0.")
@@ -539,13 +539,17 @@ def validate_config(raw: dict[str, Any]) -> None:
             raise ConfigValidationError("'regime.fast' must be > 0.")
         if "slow" in regime and _coerce_int(regime["slow"], "regime.slow") <= 0:
             raise ConfigValidationError("'regime.slow' must be > 0.")
-        if "fast" in regime and "slow" in regime and _coerce_int(
-            regime["fast"], "regime.fast"
-        ) >= _coerce_int(regime["slow"], "regime.slow"):
+        if (
+            "fast" in regime
+            and "slow" in regime
+            and _coerce_int(regime["fast"], "regime.fast")
+            >= _coerce_int(regime["slow"], "regime.slow")
+        ):
             raise ConfigValidationError("'regime.fast' must be < 'regime.slow'.")
-        if "risk_off_scale" in regime and not 0 <= _coerce_float(
-            regime["risk_off_scale"], "regime.risk_off_scale"
-        ) <= 1:
+        if (
+            "risk_off_scale" in regime
+            and not 0 <= _coerce_float(regime["risk_off_scale"], "regime.risk_off_scale") <= 1
+        ):
             raise ConfigValidationError("'regime.risk_off_scale' must be in [0, 1].")
 
 

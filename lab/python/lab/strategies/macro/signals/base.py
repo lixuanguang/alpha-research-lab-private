@@ -85,4 +85,3 @@ class Signal(ABC):
         state: SignalState = None,
     ) -> pd.DataFrame:
         """Return raw score panel before alignment/clipping."""
-

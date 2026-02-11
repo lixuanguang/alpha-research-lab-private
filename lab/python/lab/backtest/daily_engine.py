@@ -148,7 +148,9 @@ def _resolve_asset_cost_bps(config: _ConfigLike, columns: pd.Index) -> pd.Series
         else:
             out = pd.Series(float(costs.get("bps", default_bps)), index=columns, dtype=float)
     else:
-        out = pd.Series(float(default_bps if default_bps != 0 else costs), index=columns, dtype=float)
+        out = pd.Series(
+            float(default_bps if default_bps != 0 else costs), index=columns, dtype=float
+        )
 
     vals = out.to_numpy(dtype=float)
     if not np.isfinite(vals).all():

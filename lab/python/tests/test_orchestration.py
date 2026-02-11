@@ -358,7 +358,12 @@ class TestMacroAllocatorConfigValidation:
             },
             "evaluation": {
                 "calendar": "OBSERVED_WEEKDAY",
-                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5},
+                "folds": {
+                    "train_days": 1260,
+                    "test_days": 252,
+                    "step_days": 252,
+                    "embargo_days": 5,
+                },
             },
         }
         validate_macro_allocator_config(raw)
@@ -404,7 +409,12 @@ class TestMacroAllocatorConfigValidation:
             },
             "evaluation": {
                 "calendar": "OBSERVED_WEEKDAY",
-                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5},
+                "folds": {
+                    "train_days": 1260,
+                    "test_days": 252,
+                    "step_days": 252,
+                    "embargo_days": 5,
+                },
             },
         }
         validate_macro_allocator_config(raw)

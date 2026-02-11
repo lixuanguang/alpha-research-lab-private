@@ -55,4 +55,3 @@ class TrendSignal(Signal):
             fast=self.fast,
             slow=self.slow,
         )
-

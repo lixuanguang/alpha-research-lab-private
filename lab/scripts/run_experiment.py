@@ -510,7 +510,9 @@ def _run_macro_allocator(
     assert_no_lookahead(signal_panel, prices, min_lag=1)
 
     eval_cfg = raw_config.get("evaluation", {})
-    calendar_label = str(eval_cfg.get("calendar", "")).strip() or _calendar_label_from_index(prices.index)
+    calendar_label = str(eval_cfg.get("calendar", "")).strip() or _calendar_label_from_index(
+        prices.index
+    )
 
     if regime_enabled:
         regime_series = compute_risk_off_regime(
@@ -543,8 +545,12 @@ def _run_macro_allocator(
     ) -> dict[str, Any]:
         gross = fold_gross.reindex(test_idx).fillna(0.0).astype(float)
         costs = fold_costs.reindex(test_idx).fillna(0.0).astype(float)
-        cost_asset = fold_cost_asset.reindex(test_idx).reindex(columns=tickers).fillna(0.0).astype(float)
-        to_asset = fold_to_asset.reindex(test_idx).reindex(columns=tickers).fillna(0.0).clip(lower=0.0)
+        cost_asset = (
+            fold_cost_asset.reindex(test_idx).reindex(columns=tickers).fillna(0.0).astype(float)
+        )
+        to_asset = (
+            fold_to_asset.reindex(test_idx).reindex(columns=tickers).fillna(0.0).clip(lower=0.0)
+        )
         gross_exp = fold_gross_exposure.reindex(test_idx).ffill().fillna(0.0).astype(float)
         weights = daily_w.reindex(test_idx).reindex(columns=tickers).fillna(0.0).astype(float)
 
@@ -841,11 +847,7 @@ def _run_macro_allocator(
             fold_cost_asset = r.costs_by_asset.reindex(idx).fillna(0.0)
             fold_gross_exposure = r.gross_exposure.reindex(idx).ffill().fillna(0.0)
             daily_w = (
-                r.weights.reindex(seg_prices.index)
-                .ffill()
-                .fillna(0.0)
-                .reindex(idx)
-                .fillna(0.0)
+                r.weights.reindex(seg_prices.index).ffill().fillna(0.0).reindex(idx).fillna(0.0)
             )
 
             overlay = _apply_execution_realism(
@@ -891,13 +893,7 @@ def _run_macro_allocator(
         fold_to_asset = r.turnover_by_asset.reindex(idx).fillna(0.0)
         fold_cost_asset = r.costs_by_asset.reindex(idx).fillna(0.0)
         fold_gross_exposure = r.gross_exposure.reindex(idx).ffill().fillna(0.0)
-        daily_w = (
-            r.weights.reindex(seg_prices.index)
-            .ffill()
-            .fillna(0.0)
-            .reindex(idx)
-            .fillna(0.0)
-        )
+        daily_w = r.weights.reindex(seg_prices.index).ffill().fillna(0.0).reindex(idx).fillna(0.0)
         overlay = _apply_execution_realism(
             fold_label="trend_no_regime",
             test_idx=idx,
@@ -969,7 +965,9 @@ def _run_macro_allocator(
         stressed_txn_asset = turnover_by_asset.mul(base_asset_cost_bps * mult, axis=1) / 1e4
         stressed_txn_asset = stressed_txn_asset.mul(regime_cost_mult_series, axis=0)
 
-        stressed_impact_asset = pd.DataFrame(0.0, index=net_returns.index, columns=tickers, dtype=float)
+        stressed_impact_asset = pd.DataFrame(
+            0.0, index=net_returns.index, columns=tickers, dtype=float
+        )
         if impact_enabled and impact_coeff_bps > 0:
             stress_impact_bps = turnover_impact_bps(
                 turnover_by_asset,
@@ -979,7 +977,9 @@ def _run_macro_allocator(
             )
             stressed_impact_asset = turnover_by_asset.mul(stress_impact_bps, axis=0) / 1e4
 
-        stressed_capacity_asset = pd.DataFrame(0.0, index=net_returns.index, columns=tickers, dtype=float)
+        stressed_capacity_asset = pd.DataFrame(
+            0.0, index=net_returns.index, columns=tickers, dtype=float
+        )
         if capacity_enabled and capacity_impact_bps > 0:
             cap_bps = np.sqrt(participation.clip(lower=0.0)) * (capacity_impact_bps * mult)
             stressed_capacity_asset = turnover_by_asset.mul(cap_bps, axis=0) / 1e4
@@ -1165,7 +1165,10 @@ def _run_macro_allocator(
                 "mean_participation": cap.mean(axis=0).to_numpy(),
                 "p95_participation": cap.quantile(0.95, axis=0).to_numpy(),
                 "max_participation": cap.max(axis=0).to_numpy(),
-                "breach_days": (cap > capacity_max_adv_participation).sum(axis=0).astype(int).to_numpy(),
+                "breach_days": (cap > capacity_max_adv_participation)
+                .sum(axis=0)
+                .astype(int)
+                .to_numpy(),
             }
         )
         if len(cap) > 0:

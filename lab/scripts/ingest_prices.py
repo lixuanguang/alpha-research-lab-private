@@ -4,14 +4,16 @@ ingest_prices.py
 ~~~~~~~~~~~~~~~~
 Ingest and persist daily close prices + metadata for the macro allocator.
 
-Usage
------
-    make ingest_prices CONFIG=experiments/macro/configs/universe.yaml
-
-By default this script looks for local CSV files under:
-    $LAB_DATA_ROOT/raw/prices/<TICKER>.csv
-Each CSV should contain date + close columns.
-Missing tickers are deterministically backfilled with synthetic prices.
+Features
+--------
+- Adapter-based sources (`yf`, `local`, `synthetic`)
+- Batched downloads
+- Exponential backoff retries
+- Disk cache keyed by source/tickers/date-range/params
+- Stable artifacts:
+  - `$LAB_DATA_ROOT/prices/raw/<source>_<date_range>_<hash>.parquet`
+  - `$LAB_DATA_ROOT/prices/close.parquet`
+  - `$LAB_DATA_ROOT/prices/meta.parquet`
 """
 
 from __future__ import annotations
@@ -20,31 +22,12 @@ import argparse
 import sys
 from pathlib import Path
 
-import pandas as pd
-import yaml
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
 from lab.core.logging import get_logger, setup_logging
-from lab.core.paths import data_dir
-from lab.data.loaders.prices import write_price_artifacts
-from lab.data.synthetic import generate_gbm_prices
+from lab.data.ingestion import RetryConfig, run_price_ingestion
 
 log = get_logger("scripts.ingest_prices")
-
-_CLOSE_COLUMN_CANDIDATES = [
-    "adj_close",
-    "Adj Close",
-    "close",
-    "Close",
-]
-
-_DATE_COLUMN_CANDIDATES = [
-    "date",
-    "Date",
-    "timestamp",
-    "Timestamp",
-]
 
 
 def _parse_args() -> argparse.Namespace:
@@ -60,10 +43,20 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source",
         type=str,
-        default="local",
-        choices=["local", "synthetic"],
+        default="yf",
+        choices=["yf", "yfinance", "local", "synthetic"],
         help="Price source adapter.",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=20,
+        help="Tickers per network batch (recommended 10-25 for API hygiene).",
+    )
+    parser.add_argument("--max-attempts", type=int, default=4)
+    parser.add_argument("--backoff-initial", type=float, default=1.0)
+    parser.add_argument("--backoff-factor", type=float, default=2.0)
+    parser.add_argument("--backoff-max", type=float, default=30.0)
     parser.add_argument(
         "--log-level",
         type=str,
@@ -71,92 +64,6 @@ def _parse_args() -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
     return parser.parse_args()
-
-
-def _load_universe(path: Path) -> tuple[list[str], pd.DataFrame]:
-    raw = yaml.safe_load(path.read_text()) or {}
-    tickers = raw.get("tickers", [])
-    if not tickers:
-        raise ValueError("universe config must define a non-empty 'tickers' list")
-
-    ticker_meta = raw.get("ticker_meta", {})
-    records: list[dict[str, object]] = []
-    for ticker in tickers:
-        info = ticker_meta.get(ticker, {})
-        records.append(
-            {
-                "ticker": ticker,
-                "bucket": info.get("bucket", "other"),
-                "cost_bps": float(info.get("cost_bps", 5.0)),
-                "per_asset_cap": float(info.get("per_asset_cap", 0.35)),
-            }
-        )
-
-    meta = pd.DataFrame.from_records(records)
-    return tickers, meta
-
-
-def _load_one_csv(path: Path) -> pd.Series:
-    raw = pd.read_csv(path)
-
-    date_col = next((c for c in _DATE_COLUMN_CANDIDATES if c in raw.columns), None)
-    close_col = next((c for c in _CLOSE_COLUMN_CANDIDATES if c in raw.columns), None)
-
-    if date_col is None or close_col is None:
-        raise ValueError(
-            f"CSV {path} must include date and close columns (got {list(raw.columns)})."
-        )
-
-    s = pd.Series(raw[close_col].to_numpy(), index=pd.to_datetime(raw[date_col]), name=path.stem)
-    s = s[~s.index.duplicated(keep="last")]
-    s = s.sort_index()
-    return s.astype(float)
-
-
-def _load_local_prices(tickers: list[str], start: str, end: str) -> pd.DataFrame:
-    raw_root = data_dir() / "raw" / "prices"
-    raw_root.mkdir(parents=True, exist_ok=True)
-
-    loaded: list[pd.Series] = []
-    missing: list[str] = []
-
-    for ticker in tickers:
-        path = raw_root / f"{ticker}.csv"
-        if not path.exists():
-            missing.append(ticker)
-            continue
-        try:
-            s = _load_one_csv(path)
-            s.name = ticker
-            loaded.append(s)
-        except Exception as exc:
-            log.warning("Failed to load %s: %s", path, exc)
-            missing.append(ticker)
-
-    if loaded:
-        panel = pd.concat(loaded, axis=1).sort_index()
-        panel = panel.loc[start:end]
-    else:
-        panel = pd.DataFrame(index=pd.bdate_range(start, end))
-
-    if missing:
-        synth = generate_gbm_prices(tickers=missing, start=start, end=end, seed=42)
-        panel = pd.concat([panel, synth], axis=1)
-
-    panel = panel.reindex(columns=tickers)
-    panel = panel.sort_index()
-    panel = panel[~panel.index.duplicated(keep="last")]
-    panel = panel.ffill().bfill()
-    return panel
-
-
-def _synthetic_prices(tickers: list[str], start: str, end: str) -> pd.DataFrame:
-    return generate_gbm_prices(
-        tickers=tickers,
-        start=start,
-        end=end,
-        seed=42,
-    )
 
 
 def main() -> None:
@@ -167,21 +74,35 @@ def main() -> None:
     if not cfg_path.is_absolute():
         cfg_path = Path.cwd() / cfg_path
 
-    tickers, meta = _load_universe(cfg_path)
-    log.info("Universe loaded: %d tickers", len(tickers))
+    retry = RetryConfig(
+        max_attempts=args.max_attempts,
+        backoff_initial_s=args.backoff_initial,
+        backoff_factor=args.backoff_factor,
+        backoff_max_s=args.backoff_max,
+    )
 
-    if args.source == "synthetic":
-        close = _synthetic_prices(tickers, args.start, args.end)
-    else:
-        close = _load_local_prices(tickers, args.start, args.end)
+    result = run_price_ingestion(
+        config_path=cfg_path,
+        start=args.start,
+        end=args.end,
+        source=args.source,
+        batch_size=args.batch_size,
+        retry=retry,
+        cache_params={
+            "batch_size": args.batch_size,
+            "max_attempts": args.max_attempts,
+            "backoff_initial_s": args.backoff_initial,
+            "backoff_factor": args.backoff_factor,
+            "backoff_max_s": args.backoff_max,
+        },
+    )
 
-    write_price_artifacts(close, meta)
-
-    # Keep week-1 loader compatibility
-    close.to_parquet(data_dir() / "prices.parquet")
-
-    log.info("Saved prices: %d days x %d assets", *close.shape)
-    log.info("Saved metadata rows: %d", len(meta))
+    log.info("Ingestion completed. cache_hit=%s key=%s", result.cache_hit, result.cache_key_id)
+    log.info("Raw panel: %s", result.raw_path)
+    log.info("Close panel: %s", result.close_path)
+    log.info("Meta: %s", result.meta_path)
+    if result.actions_path is not None:
+        log.info("Actions: %s", result.actions_path)
 
 
 if __name__ == "__main__":

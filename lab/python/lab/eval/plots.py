@@ -231,7 +231,9 @@ def capacity_participation_plot(
     fig, ax = plt.subplots(figsize=(12, 4))
     if len(max_part) > 0:
         ax.plot(max_part.index, max_part.values, label="Max Participation", linewidth=1.2)
-        ax.plot(p95_part.index, p95_part.values, label="P95 Participation", linewidth=1.0, alpha=0.8)
+        ax.plot(
+            p95_part.index, p95_part.values, label="P95 Participation", linewidth=1.0, alpha=0.8
+        )
     if limit is not None:
         ax.axhline(float(limit), color="red", linestyle="--", linewidth=1.0, label="Capacity Limit")
     ax.set_title(title)

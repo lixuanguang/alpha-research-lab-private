@@ -19,6 +19,7 @@ import pandas as pd
 
 from lab.core.logging import get_logger
 from lab.core.paths import data_dir
+from lab.data.cache import write_parquet_if_changed
 from lab.data.synthetic import generate_gbm_prices
 
 log = get_logger("data.loaders.prices")
@@ -172,12 +173,25 @@ def load_asset_meta() -> pd.DataFrame:
     return meta
 
 
-def write_price_artifacts(close: pd.DataFrame, meta: pd.DataFrame) -> None:
+def write_price_artifacts(
+    close: pd.DataFrame,
+    meta: pd.DataFrame,
+    *,
+    only_if_changed: bool = False,
+) -> None:
     """Write canonical Week-2 price artifacts under ``$LAB_DATA_ROOT/prices``."""
     root = _prices_root()
     close_out = _coerce_price_panel(close)
     _validate_close_panel(close_out)
-    close_out.to_parquet(root / "close.parquet")
+    close_path = root / "close.parquet"
+    if only_if_changed:
+        write_parquet_if_changed(close_out, close_path, index=True)
+    else:
+        close_out.to_parquet(close_path)
     meta_out = meta.drop_duplicates(subset=["ticker"], keep="last").reset_index(drop=True)
-    meta_out.to_parquet(root / "meta.parquet", index=False)
+    meta_path = root / "meta.parquet"
+    if only_if_changed:
+        write_parquet_if_changed(meta_out, meta_path, index=False)
+    else:
+        meta_out.to_parquet(meta_path, index=False)
     meta_out.to_csv(root / "meta.csv", index=False)
