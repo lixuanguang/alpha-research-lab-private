@@ -71,15 +71,23 @@ def _validate_asset_meta(meta: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"asset meta missing required columns: {sorted(missing_cols)}")
 
     out = meta.copy()
+    out["ticker"] = out["ticker"].astype(str).str.strip()
+    if out["ticker"].eq("").any():
+        raise ValueError("asset meta 'ticker' must be non-empty for all rows.")
     out = out.drop_duplicates(subset=["ticker"], keep="last")
     out = out.sort_values("ticker").reset_index(drop=True)
-    out["cost_bps"] = out["cost_bps"].astype(float)
-    out["per_asset_cap"] = out["per_asset_cap"].astype(float)
+    out["bucket"] = out["bucket"].astype(str).str.strip()
+    out["cost_bps"] = pd.to_numeric(out["cost_bps"], errors="coerce")
+    out["per_asset_cap"] = pd.to_numeric(out["per_asset_cap"], errors="coerce")
+    if not np.isfinite(out["cost_bps"].to_numpy(dtype=float)).all():
+        raise ValueError("asset meta 'cost_bps' must be finite.")
+    if not np.isfinite(out["per_asset_cap"].to_numpy(dtype=float)).all():
+        raise ValueError("asset meta 'per_asset_cap' must be finite.")
     if (out["cost_bps"] < 0).any():
         raise ValueError("asset meta 'cost_bps' must be >= 0.")
     if (out["per_asset_cap"] <= 0).any():
         raise ValueError("asset meta 'per_asset_cap' must be > 0.")
-    if out["bucket"].astype(str).str.strip().eq("").any():
+    if out["bucket"].eq("").any():
         raise ValueError("asset meta 'bucket' must be non-empty for all rows.")
     return out
 

@@ -148,10 +148,20 @@ def _validate_macro_inputs(prices: pd.DataFrame, meta: pd.DataFrame, tickers: li
         raise ValueError("Universe metadata contains duplicate tickers.")
     if set(meta["ticker"]) != set(tickers):
         raise ValueError("Universe metadata tickers must match price-panel tickers exactly.")
-    if (meta["cost_bps"].astype(float) < 0).any():
+    cost_bps = pd.to_numeric(meta["cost_bps"], errors="coerce")
+    per_asset_cap = pd.to_numeric(meta["per_asset_cap"], errors="coerce")
+    bucket = meta["bucket"].astype(str).str.strip()
+
+    if not np.isfinite(cost_bps.to_numpy(dtype=float)).all():
+        raise ValueError("Universe metadata cost_bps must be finite.")
+    if not np.isfinite(per_asset_cap.to_numpy(dtype=float)).all():
+        raise ValueError("Universe metadata per_asset_cap must be finite.")
+    if (cost_bps < 0).any():
         raise ValueError("Universe metadata cost_bps must be >= 0.")
-    if (meta["per_asset_cap"].astype(float) <= 0).any():
+    if (per_asset_cap <= 0).any():
         raise ValueError("Universe metadata per_asset_cap must be > 0.")
+    if bucket.eq("").any():
+        raise ValueError("Universe metadata bucket must be non-empty for all assets.")
     for adv_col in ("adv_usd", "adv_usd_mn"):
         if adv_col in meta.columns:
             adv = meta[adv_col].astype(float)

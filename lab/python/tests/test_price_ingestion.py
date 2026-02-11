@@ -11,6 +11,8 @@ import yaml
 
 from lab.core.paths import data_dir
 from lab.data.adapters.base import PriceDataAdapter
+from lab.data.adapters.local import LocalCSVAdapter
+from lab.data.adapters.yfinance import YFinanceAdapter
 from lab.data.ingestion import RetryConfig, run_price_ingestion
 
 
@@ -75,6 +77,20 @@ class AlwaysFailAdapter(PriceDataAdapter):
     def download_prices(self, tickers: list[str], start: str, end: str) -> pd.DataFrame:
         self.calls += 1
         raise RuntimeError("upstream unavailable")
+
+
+class LeadingNaNAdapter(PriceDataAdapter):
+    source = "yf"
+
+    def __init__(self, leading_nan_rows: int = 5) -> None:
+        self.leading_nan_rows = int(leading_nan_rows)
+
+    def download_prices(self, tickers: list[str], start: str, end: str) -> pd.DataFrame:
+        panel = _price_frame(tickers, start, end)
+        if tickers:
+            n = min(self.leading_nan_rows, len(panel))
+            panel.loc[panel.index[:n], tickers[-1]] = np.nan
+        return panel
 
 
 def test_ingestion_cache_hit_skips_network_and_preserves_close_bytes(
@@ -183,11 +199,73 @@ def test_ingestion_failure_keeps_existing_cache_intact(
     assert after == before
 
 
+def test_ingestion_drops_incomplete_leading_rows_instead_of_backfilling_future_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LAB_DATA_ROOT", str(tmp_path))
+    cfg = _write_universe(tmp_path, ["SPY", "TLT"])
+
+    start = "2024-01-02"
+    end = "2024-02-29"
+    run_price_ingestion(
+        config_path=cfg,
+        start=start,
+        end=end,
+        source="yf",
+        batch_size=2,
+        adapter=LeadingNaNAdapter(leading_nan_rows=5),
+        sleep_fn=lambda _s: None,
+    )
+
+    close = pd.read_parquet(data_dir() / "prices" / "close.parquet")
+    raw = _price_frame(["SPY", "TLT"], start, end)
+    raw.loc[raw.index[:5], "TLT"] = np.nan
+
+    first_valid = raw["TLT"].first_valid_index()
+    assert first_valid is not None
+    assert close.index.min() == first_valid
+    assert close.index.min() > pd.Timestamp(start)
+    assert np.isfinite(close.to_numpy(dtype=float)).all()
+    pd.testing.assert_series_equal(
+        close["TLT"],
+        raw.loc[close.index, "TLT"],
+        check_names=False,
+    )
+
+
+def test_local_csv_adapter_empty_tickers_returns_empty_panel(tmp_path: Path) -> None:
+    adapter = LocalCSVAdapter(root=tmp_path / "raw" / "prices")
+    out = adapter.download_prices([], start="2024-01-02", end="2024-01-31")
+    assert out.empty
+    assert list(out.columns) == []
+
+
+def test_yfinance_adapter_empty_tickers_short_circuits_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = YFinanceAdapter()
+
+    def _should_not_run(*_args: object, **_kwargs: object) -> pd.DataFrame:
+        raise AssertionError("download should not be called for empty ticker lists")
+
+    monkeypatch.setattr(adapter, "_download", _should_not_run)
+
+    prices = adapter.download_prices([], start="2024-01-02", end="2024-01-31")
+    actions = adapter.download_actions([], start="2024-01-02", end="2024-01-31")
+
+    assert prices.empty
+    assert list(prices.columns) == []
+    assert isinstance(actions, pd.DataFrame)
+    assert list(actions.columns) == ["date", "ticker", "dividends", "splits"]
+
+
 @pytest.mark.parametrize(
     ("meta_override", "error_match"),
     [
         ({"cost_bps": -1.0}, "cost_bps"),
         ({"per_asset_cap": 0.0}, "per_asset_cap"),
+        ({"cost_bps": float("nan")}, "finite"),
+        ({"per_asset_cap": float("nan")}, "finite"),
     ],
 )
 def test_ingestion_rejects_invalid_meta_before_persist(

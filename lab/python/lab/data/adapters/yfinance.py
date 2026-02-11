@@ -94,6 +94,9 @@ class YFinanceAdapter(PriceDataAdapter):
         start: str,
         end: str,
     ) -> pd.DataFrame:
+        if not tickers:
+            return pd.DataFrame()
+
         try:
             import yfinance as yf
         except ImportError as exc:  # pragma: no cover - optional dependency
@@ -124,6 +127,8 @@ class YFinanceAdapter(PriceDataAdapter):
         start: str,
         end: str,
     ) -> pd.DataFrame:
+        if not tickers:
+            return pd.DataFrame(columns=[])
         raw = self._download(tickers=tickers, start=start, end=end)
         return _to_wide_prices(raw, tickers=tickers)
 
@@ -133,5 +138,7 @@ class YFinanceAdapter(PriceDataAdapter):
         start: str,
         end: str,
     ) -> pd.DataFrame | None:
+        if not tickers:
+            return pd.DataFrame(columns=["date", "ticker", "dividends", "splits"])
         raw = self._download(tickers=tickers, start=start, end=end)
         return _to_actions(raw, tickers=tickers)

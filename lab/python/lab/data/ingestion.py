@@ -103,7 +103,22 @@ def _normalize_close_panel(
         raise ValueError(f"Downloaded price panel is empty for requested window {start}..{end}.")
 
     out = out.replace([np.inf, -np.inf], np.nan)
-    out = out.ffill().bfill()
+    # Forward-fill only to avoid introducing future information into earlier
+    # timestamps (back-filling creates implicit look-ahead).
+    out = out.ffill()
+    complete_rows = out.notna().all(axis=1)
+    if not complete_rows.any():
+        raise ValueError(
+            "Downloaded price panel has no fully-observed rows after forward-fill; "
+            "at least one asset has no valid history in the requested window."
+        )
+    dropped = int((~complete_rows).sum())
+    if dropped > 0:
+        log.warning(
+            "Dropping %d leading/incomplete rows to preserve no-lookahead data integrity.",
+            dropped,
+        )
+    out = out.loc[complete_rows]
     out = _coerce_price_panel(out)
     _validate_close_panel(out)
     return out

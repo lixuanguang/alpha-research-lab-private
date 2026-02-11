@@ -53,6 +53,9 @@ class LocalCSVAdapter(PriceDataAdapter):
         start: str,
         end: str,
     ) -> pd.DataFrame:
+        if not tickers:
+            return pd.DataFrame(columns=[])
+
         self.root.mkdir(parents=True, exist_ok=True)
         parts: list[pd.Series] = []
         missing: list[str] = []
