@@ -329,10 +329,10 @@ def _run_macro_allocator(
     from lab.eval.reports import save_macro_allocator_report
     from lab.eval.risk_attribution import compute_risk_contributions
     from lab.features.macro.regime import compute_risk_off_regime
-    from lab.features.macro.ts_trend import compute_ts_trend_scores
     from lab.portfolio.allocator_ls import build_weights
     from lab.portfolio.vol_target import apply_vol_target
     from lab.strategies.macro.baselines import equal_weight_long_only, sixty_forty_proxy
+    from lab.strategies.macro.signals import build_signal as build_macro_signal
 
     # ── Load config components ───────────────────────────────────────────
     repo_root = Path(__file__).resolve().parent.parent
@@ -381,7 +381,12 @@ def _run_macro_allocator(
     default_per_asset_cap = float(meta["per_asset_cap"].max()) if not meta.empty else 0.35
 
     signal_cfg = raw_config.get("signal", {})
-    signal_method = signal_cfg.get("method", "ma_cross")
+    if not isinstance(signal_cfg, dict):
+        raise ValueError("signal config must be a mapping.")
+    signal_model = build_macro_signal(signal_cfg)
+    signal_name = str(signal_cfg.get("name", "ts_trend")).strip() or "ts_trend"
+    strategy_signal_label = f"{signal_name.lower().replace(' ', '_')}_ls"
+    signal_method = str(signal_cfg.get("method", "ma_cross"))
     lookback_days = int(signal_cfg.get("lookback_days", 252))
     fast = int(signal_cfg.get("fast", 20))
     slow = int(signal_cfg.get("slow", 120))
@@ -500,13 +505,8 @@ def _run_macro_allocator(
 
     assert_splits_time_ordered(folds)
 
-    signal_panel = compute_ts_trend_scores(
-        prices,
-        lookback_days=lookback_days,
-        method=signal_method,
-        fast=fast,
-        slow=slow,
-    )
+    signal_model.fit(prices, None, meta)
+    signal_panel = signal_model.compute(prices, None, meta)
     assert_no_lookahead(signal_panel, prices, min_lag=1)
 
     eval_cfg = raw_config.get("evaluation", {})
@@ -637,13 +637,7 @@ def _run_macro_allocator(
     def _strategy_signal(
         _cfg: MacroRunConfig, px: pd.DataFrame, with_regime: bool = True
     ) -> pd.Series:
-        scores_t = compute_ts_trend_scores(
-            px,
-            lookback_days=lookback_days,
-            method=signal_method,
-            fast=fast,
-            slow=slow,
-        ).iloc[-1]
+        scores_t = signal_model.compute(px, None, meta).iloc[-1]
 
         vol_t: pd.Series | None
         if vol_scale_lb > 1:
@@ -943,6 +937,7 @@ def _run_macro_allocator(
         {
             "name": "trend_only_no_regime",
             "params": {
+                "signal_name": signal_name,
                 "method": signal_method,
                 "fast": fast,
                 "slow": slow,
@@ -1261,13 +1256,15 @@ def _run_macro_allocator(
             "folds": eval_folds,
         },
         "strategy": {
-            "name": "ts_trend_ls",
+            "name": strategy_signal_label,
             "params": {
+                "signal_name": signal_name,
                 "method": signal_method,
                 "fast": fast,
                 "slow": slow,
                 "lookback_days": lookback_days,
                 "vol_scale_lookback": vol_scale_lb,
+                "signal_config": _round_nested(signal_cfg),
             },
             "assumptions": {
                 "macro_lag_days": regime_lag if regime_enabled else 0,

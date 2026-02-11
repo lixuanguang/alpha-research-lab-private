@@ -236,6 +236,113 @@ def _validate_legacy_dates(raw: dict[str, Any]) -> None:
         raise ConfigValidationError("'start_date' must be <= 'end_date'.")
 
 
+def _validate_macro_signal_config(signal: Any, field: str = "signal") -> None:
+    if not isinstance(signal, dict):
+        raise ConfigValidationError(f"'{field}' must be a mapping.")
+
+    name_raw = signal.get("name", "ts_trend")
+    if not isinstance(name_raw, str) or not name_raw.strip():
+        raise ConfigValidationError(f"'{field}.name' must be a non-empty string when provided.")
+    name = name_raw.strip().lower()
+
+    vol_scale = _coerce_int(signal.get("vol_scale_lookback", 63), f"{field}.vol_scale_lookback")
+    if vol_scale < 0:
+        raise ConfigValidationError(f"'{field}.vol_scale_lookback' must be >= 0.")
+
+    if name in {"trend", "ts_trend"}:
+        method = signal.get("method", "ma_cross")
+        if method not in {"sign_return", "ma_cross"}:
+            raise ConfigValidationError(
+                f"'{field}.method' must be one of {{'sign_return', 'ma_cross'}}."
+            )
+        lookback_days = _coerce_int(signal.get("lookback_days", 252), f"{field}.lookback_days")
+        if lookback_days <= 0:
+            raise ConfigValidationError(f"'{field}.lookback_days' must be > 0.")
+        fast = _coerce_int(signal.get("fast", 20), f"{field}.fast")
+        slow = _coerce_int(signal.get("slow", 120), f"{field}.slow")
+        if fast <= 0 or slow <= 0:
+            raise ConfigValidationError(f"'{field}.fast' and '{field}.slow' must be > 0.")
+        if method == "ma_cross" and fast >= slow:
+            raise ConfigValidationError(
+                f"'{field}.fast' must be < '{field}.slow' for 'ma_cross'."
+            )
+        return
+
+    if name == "ensemble":
+        components = signal.get("signals")
+        if not isinstance(components, dict) or not components:
+            raise ConfigValidationError(f"'{field}.signals' must be a non-empty mapping.")
+
+        weights = signal.get("weights")
+        if weights is not None:
+            if not isinstance(weights, dict):
+                raise ConfigValidationError(f"'{field}.weights' must be a mapping when provided.")
+            unknown = sorted(set(weights) - set(components))
+            if unknown:
+                raise ConfigValidationError(
+                    f"'{field}.weights' contains unknown component(s): {', '.join(unknown)}"
+                )
+            abs_sum = 0.0
+            for comp_name, value in weights.items():
+                if not isinstance(comp_name, str) or not comp_name.strip():
+                    raise ConfigValidationError(
+                        f"'{field}.weights' keys must be non-empty component names."
+                    )
+                abs_sum += abs(_coerce_float(value, f"{field}.weights.{comp_name}"))
+            if math.isclose(abs_sum, 0.0):
+                raise ConfigValidationError(
+                    f"'{field}.weights' absolute sum must be > 0 when provided."
+                )
+
+        rp = signal.get("risk_parity", False)
+        if isinstance(rp, bool):
+            pass
+        elif isinstance(rp, dict):
+            if "enabled" in rp and not isinstance(rp["enabled"], bool):
+                raise ConfigValidationError(f"'{field}.risk_parity.enabled' must be boolean.")
+            if (
+                "lookback_days" in rp
+                and _coerce_int(rp["lookback_days"], f"{field}.risk_parity.lookback_days") <= 1
+            ):
+                raise ConfigValidationError(
+                    f"'{field}.risk_parity.lookback_days' must be > 1."
+                )
+            if (
+                "min_periods" in rp
+                and _coerce_int(rp["min_periods"], f"{field}.risk_parity.min_periods") <= 0
+            ):
+                raise ConfigValidationError(
+                    f"'{field}.risk_parity.min_periods' must be > 0."
+                )
+        else:
+            raise ConfigValidationError(
+                f"'{field}.risk_parity' must be boolean or a mapping."
+            )
+
+        if "normalize_components" in signal and not isinstance(signal["normalize_components"], bool):
+            raise ConfigValidationError(f"'{field}.normalize_components' must be boolean.")
+
+        for component_name, component_cfg in components.items():
+            if not isinstance(component_name, str) or not component_name.strip():
+                raise ConfigValidationError(
+                    f"'{field}.signals' keys must be non-empty component names."
+                )
+            if not isinstance(component_cfg, dict):
+                raise ConfigValidationError(
+                    f"'{field}.signals.{component_name}' must be a mapping."
+                )
+            child = dict(component_cfg)
+            if "name" not in child:
+                if component_name.strip().lower() in {"trend", "ts_trend"}:
+                    child["name"] = "ts_trend"
+                else:
+                    child["name"] = component_name
+            _validate_macro_signal_config(child, field=f"{field}.signals.{component_name}")
+        return
+
+    raise ConfigValidationError(f"'{field}.name' has unknown signal '{name}'.")
+
+
 def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
     """Strict schema validation for week-2 macro allocator configs."""
     if not isinstance(raw, dict):
@@ -276,24 +383,7 @@ def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
     except ValueError as exc:
         raise ConfigValidationError(f"'rebalance.frequency' is invalid: {freq!r}") from exc
 
-    signal = raw["signal"]
-    if not isinstance(signal, dict):
-        raise ConfigValidationError("'signal' must be a mapping.")
-    method = signal.get("method", "ma_cross")
-    if method not in {"sign_return", "ma_cross"}:
-        raise ConfigValidationError("'signal.method' must be one of {'sign_return', 'ma_cross'}.")
-    lookback_days = _coerce_int(signal.get("lookback_days", 252), "signal.lookback_days")
-    if lookback_days <= 0:
-        raise ConfigValidationError("'signal.lookback_days' must be > 0.")
-    fast = _coerce_int(signal.get("fast", 20), "signal.fast")
-    slow = _coerce_int(signal.get("slow", 120), "signal.slow")
-    if fast <= 0 or slow <= 0:
-        raise ConfigValidationError("'signal.fast' and 'signal.slow' must be > 0.")
-    if method == "ma_cross" and fast >= slow:
-        raise ConfigValidationError("'signal.fast' must be < 'signal.slow' for 'ma_cross'.")
-    vol_scale = _coerce_int(signal.get("vol_scale_lookback", 63), "signal.vol_scale_lookback")
-    if vol_scale < 0:
-        raise ConfigValidationError("'signal.vol_scale_lookback' must be >= 0.")
+    _validate_macro_signal_config(raw["signal"], field="signal")
 
     risk = raw.get("risk", {})
     if not isinstance(risk, dict):

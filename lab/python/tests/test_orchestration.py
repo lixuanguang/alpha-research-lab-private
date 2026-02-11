@@ -378,6 +378,37 @@ class TestMacroAllocatorConfigValidation:
         with pytest.raises(ConfigValidationError, match="unknown"):
             validate_macro_allocator_config(raw)
 
+    def test_valid_macro_ensemble_signal_config_passes(self) -> None:
+        from lab.core.config import validate_macro_allocator_config
+
+        raw = {
+            "exp": "macro_allocator_ls",
+            "strategy": "macro.allocator_ls",
+            "universe_config": "experiments/macro/configs/universe.yaml",
+            "dates": {"start": "2016-01-01", "end": "2024-12-31"},
+            "rebalance": {"frequency": "W-FRI"},
+            "signal": {
+                "name": "ensemble",
+                "weights": {"trend": 1.0},
+                "signals": {
+                    "trend": {
+                        "name": "ts_trend",
+                        "method": "ma_cross",
+                        "fast": 20,
+                        "slow": 120,
+                        "lookback_days": 252,
+                    }
+                },
+                "risk_parity": {"enabled": True, "lookback_days": 63},
+                "vol_scale_lookback": 63,
+            },
+            "evaluation": {
+                "calendar": "OBSERVED_WEEKDAY",
+                "folds": {"train_days": 1260, "test_days": 252, "step_days": 252, "embargo_days": 5},
+            },
+        }
+        validate_macro_allocator_config(raw)
+
     def test_macro_numeric_boolean_fields_fail(self) -> None:
         from lab.core.config import ConfigValidationError, validate_macro_allocator_config
 
