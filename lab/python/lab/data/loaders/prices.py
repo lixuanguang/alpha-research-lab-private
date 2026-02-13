@@ -160,10 +160,56 @@ def load_close_prices(
         # accidentally expand the panel index or introduce cross-asset NaNs.
         synth = _synthetic_prices(missing, start, end).reindex(out.index)
         if synth.isna().any().any():
-            synth = synth.ffill().bfill()
+            synth = synth.ffill()
+        if synth.isna().any().any():
+            raise ValueError(
+                "Synthetic fallback alignment produced unresolved leading NaNs; "
+                "expand the requested date window or provide local price history."
+            )
         out = pd.concat([out, synth], axis=1)
 
     out = out.reindex(columns=requested)
+    out = _coerce_price_panel(out)
+    _validate_close_panel(out)
+    return out
+
+
+def load_close_prices_strict(
+    tickers: Iterable[str],
+    start: str,
+    end: str,
+) -> pd.DataFrame:
+    """Load close prices from persisted artifacts only (no synthetic fallback)."""
+    requested = list(dict.fromkeys(tickers))
+    if not requested:
+        return pd.DataFrame()
+
+    root = _prices_root()
+    close_path = root / "close.parquet"
+    legacy_path = data_dir() / "prices.parquet"
+    if close_path.exists():
+        source_path = close_path
+    elif legacy_path.exists():
+        source_path = legacy_path
+    else:
+        raise FileNotFoundError(
+            "Missing persisted prices. Run `make ingest_prices CONFIG=...` before running experiments."
+        )
+
+    df = _coerce_price_panel(pd.read_parquet(source_path))
+    in_window = df.loc[start:end]
+    if in_window.empty:
+        raise ValueError(
+            f"Price artifact {source_path} has no rows in requested window {start}..{end}."
+        )
+
+    missing = [t for t in requested if t not in in_window.columns]
+    if missing:
+        raise ValueError(
+            f"Price artifact {source_path} missing requested tickers: {', '.join(missing)}."
+        )
+
+    out = in_window.reindex(columns=requested)
     out = _coerce_price_panel(out)
     _validate_close_panel(out)
     return out

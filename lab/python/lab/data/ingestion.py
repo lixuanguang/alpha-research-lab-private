@@ -130,71 +130,30 @@ def _normalize_close_panel(
 
 def _download_with_retry(
     *,
-    adapter: PriceDataAdapter,
-    tickers: list[str],
-    start: str,
-    end: str,
+    download_fn: Callable[[], pd.DataFrame | None],
     retry: RetryConfig,
     sleep_fn: Callable[[float], None],
     batch_label: str,
-) -> pd.DataFrame:
-    if retry.max_attempts < 1:
-        raise ValueError("retry.max_attempts must be >= 1.")
-
-    for attempt in range(1, retry.max_attempts + 1):
-        try:
-            out = adapter.download_prices(tickers=tickers, start=start, end=end)
-            if not isinstance(out, pd.DataFrame):
-                raise RuntimeError("adapter returned non-DataFrame payload for prices.")
-            return out
-        except Exception as exc:
-            if attempt >= retry.max_attempts:
-                raise RuntimeError(
-                    f"Failed to download prices for {batch_label} after "
-                    f"{retry.max_attempts} attempts: {exc}"
-                ) from exc
-            delay = min(
-                retry.backoff_max_s,
-                retry.backoff_initial_s * math.pow(retry.backoff_factor, attempt - 1),
-            )
-            log.warning(
-                "Batch %s attempt %d/%d failed (%s). Retrying in %.2fs",
-                batch_label,
-                attempt,
-                retry.max_attempts,
-                exc,
-                delay,
-            )
-            sleep_fn(delay)
-
-    raise RuntimeError("unreachable retry state")
-
-
-def _download_ohlcv_with_retry(
-    *,
-    adapter: PriceDataAdapter,
-    tickers: list[str],
-    start: str,
-    end: str,
-    retry: RetryConfig,
-    sleep_fn: Callable[[float], None],
-    batch_label: str,
+    payload: str,
+    allow_none: bool = False,
 ) -> pd.DataFrame | None:
     if retry.max_attempts < 1:
         raise ValueError("retry.max_attempts must be >= 1.")
 
     for attempt in range(1, retry.max_attempts + 1):
         try:
-            out = adapter.download_ohlcv(tickers=tickers, start=start, end=end)
+            out = download_fn()
             if out is None:
-                return None
+                if allow_none:
+                    return None
+                raise RuntimeError(f"adapter returned None payload for {payload}.")
             if not isinstance(out, pd.DataFrame):
-                raise RuntimeError("adapter returned non-DataFrame payload for OHLCV.")
+                raise RuntimeError(f"adapter returned non-DataFrame payload for {payload}.")
             return out
         except Exception as exc:
             if attempt >= retry.max_attempts:
                 raise RuntimeError(
-                    f"Failed to download OHLCV for {batch_label} after "
+                    f"Failed to download {payload} for {batch_label} after "
                     f"{retry.max_attempts} attempts: {exc}"
                 ) from exc
             delay = min(
@@ -252,14 +211,18 @@ def _batched_download_prices(
         label = f"#{idx} ({batch[0]}..{batch[-1]}, n={len(batch)})"
         log.info("Downloading batch %s", label)
         part = _download_with_retry(
-            adapter=adapter,
-            tickers=batch,
-            start=start,
-            end=end,
+            download_fn=lambda batch=batch: adapter.download_prices(
+                tickers=batch,
+                start=start,
+                end=end,
+            ),
             retry=retry,
             sleep_fn=sleep_fn,
             batch_label=label,
+            payload="prices",
         )
+        if part is None:
+            raise RuntimeError("adapter returned None payload for prices.")
         part = _coerce_price_panel(part).reindex(columns=batch)
         parts.append(part)
         _sleep_between_batches(
@@ -298,14 +261,17 @@ def _batched_download_ohlcv(
     for idx, batch in enumerate(batches, start=1):
         label = f"#{idx} ({batch[0]}..{batch[-1]}, n={len(batch)})"
         log.info("Downloading OHLCV batch %s", label)
-        part = _download_ohlcv_with_retry(
-            adapter=adapter,
-            tickers=batch,
-            start=start,
-            end=end,
+        part = _download_with_retry(
+            download_fn=lambda batch=batch: adapter.download_ohlcv(
+                tickers=batch,
+                start=start,
+                end=end,
+            ),
             retry=retry,
             sleep_fn=sleep_fn,
             batch_label=label,
+            payload="OHLCV",
+            allow_none=True,
         )
         if part is None:
             return None

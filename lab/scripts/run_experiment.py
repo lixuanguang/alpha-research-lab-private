@@ -31,12 +31,14 @@ matplotlib.use("Agg")  # headless backend — no GUI needed
 import lab.strategies.macro_equities  # noqa: F401
 from lab.core.config import load_config, load_raw_config, validate_macro_allocator_config
 from lab.core.logging import get_logger, setup_logging
+from lab.core.paths import data_dir
 from lab.core.registry import (
     compute_config_hash,
     compute_results_hash,
     compute_stable_frame_hash,
     compute_stable_series_hash,
     create_run,
+    update_run_meta,
 )
 from lab.core.strategy_registry import get as get_strategy
 
@@ -70,15 +72,7 @@ def _utc_now_iso() -> str:
 
 def _finalize_meta(rdir: Path) -> dict[str, Any]:
     """Add run end-time to meta.json and return the updated metadata."""
-    meta_path = rdir / "meta.json"
-    meta: dict[str, Any] = {}
-    if meta_path.exists():
-        with open(meta_path) as fh:
-            meta = json.load(fh)
-    meta["end_time"] = _utc_now_iso()
-    with open(meta_path, "w") as fh:
-        json.dump(meta, fh, indent=2)
-    return meta
+    return update_run_meta(rdir, end_time=_utc_now_iso())
 
 
 def _metric_view(metrics: dict[str, float]) -> dict[str, float]:
@@ -112,9 +106,46 @@ def _round_nested(obj: Any, ndigits: int = 6) -> Any:
     return obj
 
 
-def _compute_data_snapshot_id(prices: pd.DataFrame) -> str:
-    """Compute a deterministic snapshot identifier from the full close panel."""
-    return f"prices_close_{compute_stable_frame_hash(prices)[:12]}"
+def _parse_series_ids(raw: Any, default: list[str]) -> list[str]:
+    if raw is None:
+        return list(default)
+    if isinstance(raw, str):
+        out = [token.strip() for token in raw.split(",") if token.strip()]
+        return out or list(default)
+    if isinstance(raw, list):
+        out = [str(token).strip() for token in raw if str(token).strip()]
+        return out or list(default)
+    raise ValueError("macro.series_ids must be a list or comma-separated string when provided.")
+
+
+def _required_price_path() -> Path:
+    root_price = data_dir() / "prices" / "close.parquet"
+    legacy = data_dir() / "prices.parquet"
+    if root_price.exists():
+        return root_price
+    if legacy.exists():
+        return legacy
+    raise FileNotFoundError(
+        "Missing persisted prices. Run `make ingest_prices CONFIG=...` before `make run ...`."
+    )
+
+
+def _required_macro_files(series_ids: list[str]) -> list[Path]:
+    root = data_dir() / "macro" / "fred"
+    missing: list[str] = []
+    paths: list[Path] = []
+    for series_id in series_ids:
+        path = root / f"{series_id}.parquet"
+        if not path.exists():
+            missing.append(series_id)
+        paths.append(path)
+    if missing:
+        raise FileNotFoundError(
+            "Missing macro FRED files for series: "
+            f"{', '.join(missing)}. Run `make ingest_macro` or "
+            "`python scripts/ingest_macro_fred.py` first."
+        )
+    return paths
 
 
 def _safe_corr(a: pd.Series, b: pd.Series) -> float:
@@ -325,7 +356,9 @@ def _run_macro_allocator(
     from lab.backtest.leakage_checks import assert_no_lookahead, assert_splits_time_ordered
     from lab.backtest.splits import rolling_splits
     from lab.costs.daily import adv_participation, carry_costs, turnover_impact_bps
-    from lab.data.loaders.prices import load_close_prices
+    from lab.data.adapters import DEFAULT_WEEK3_SERIES_IDS, load_fred
+    from lab.data.loaders.prices import load_close_prices_strict
+    from lab.data.snapshot import create_data_snapshot
     from lab.eval.metrics import summary
     from lab.eval.plots import (
         bucket_exposure_plot,
@@ -338,6 +371,7 @@ def _run_macro_allocator(
     )
     from lab.eval.reports import save_macro_allocator_report
     from lab.eval.risk_attribution import compute_risk_contributions
+    from lab.features.macro.macro_lag import apply_observation_lag
     from lab.features.macro.regime import compute_risk_off_regime
     from lab.portfolio.allocator_ls import build_weights
     from lab.portfolio.vol_target import apply_vol_target
@@ -361,9 +395,75 @@ def _run_macro_allocator(
     tickers = meta["ticker"].tolist()
     if not tickers:
         raise ValueError("universe config produced zero tickers.")
-    prices = load_close_prices(tickers=tickers, start=start, end=end)
+
+    macro_cfg = raw_config.get("macro", {})
+    if macro_cfg is None:
+        macro_cfg = {}
+    if not isinstance(macro_cfg, dict):
+        raise ValueError("macro config must be a mapping when provided.")
+    macro_series_ids = _parse_series_ids(macro_cfg.get("series_ids"), DEFAULT_WEEK3_SERIES_IDS)
+    macro_lag_days = int(macro_cfg.get("lag_days", 30))
+    macro_ffill_limit = int(macro_cfg.get("ffill_limit", 22))
+    if macro_lag_days < 0:
+        raise ValueError("macro.lag_days must be >= 0.")
+    if macro_ffill_limit < 0:
+        raise ValueError("macro.ffill_limit must be >= 0.")
+
+    if args.toy:
+        from lab.data.synthetic import generate_gbm_prices
+
+        prices = generate_gbm_prices(
+            tickers=tickers,
+            start=start,
+            end=end,
+            seed=args.toy_seed,
+        )
+        macro_known = pd.DataFrame(index=prices.index, columns=macro_series_ids, dtype=float)
+        data_snapshot_id = f"toy_seed_{int(args.toy_seed)}"
+        update_run_meta(rdir, data_snapshot_id=data_snapshot_id)
+    else:
+        _required_price_path()
+        prices = load_close_prices_strict(tickers=tickers, start=start, end=end)
+        macro_files = _required_macro_files(macro_series_ids)
+        macro_raw = load_fred(macro_series_ids, start=start, end=end)
+        macro_known = apply_observation_lag(
+            macro_raw,
+            lag_days=macro_lag_days,
+            calendar_index=prices.index,
+            ffill_limit=macro_ffill_limit,
+        )
+        if macro_known.empty or not macro_known.notna().any().any():
+            raise ValueError(
+                "Loaded macro panel is empty after lag/alignment. Run `make ingest_macro` "
+                "and verify requested series have coverage in the backtest window."
+            )
+
+        data_snapshot_id, manifest_path, manifest = create_data_snapshot(
+            source_name="yf",
+            tickers=tickers,
+            start=start,
+            end=end,
+            adjustment_policy={
+                "auto_adjust": True,
+                "group_by": "ticker",
+                "threads": False,
+                "ffill_limit_prices": 3,
+                "macro_lag_days": macro_lag_days,
+                "macro_ffill_limit": macro_ffill_limit,
+            },
+            close_path=_required_price_path(),
+            macro_files=macro_files,
+        )
+        update_run_meta(
+            rdir,
+            data_snapshot_id=data_snapshot_id,
+            data_snapshot_manifest=str(manifest_path),
+            data_snapshot_hashes=manifest.get("hashes"),
+        )
+
     _validate_macro_inputs(prices, meta, tickers)
-    log.info("Loaded macro panel: %d days × %d assets", *prices.shape)
+    log.info("Loaded close panel: %d days × %d assets", *prices.shape)
+    log.info("Loaded macro-known panel: %d days × %d series", *macro_known.shape)
 
     constraints = universe_raw.get("constraints", {})
     if not isinstance(constraints, dict):
@@ -517,8 +617,12 @@ def _run_macro_allocator(
     # Probe explicit future-return leakage with a model fitted only on the
     # first training fold. This avoids training on future observations.
     probe_signal_model = build_macro_signal(signal_cfg)
-    probe_signal_model.fit(prices.reindex(folds[0][0]), None, meta)
-    signal_panel = probe_signal_model.compute(prices, None, meta)
+    probe_signal_model.fit(
+        prices.reindex(folds[0][0]),
+        macro_known.reindex(folds[0][0]),
+        meta,
+    )
+    signal_panel = probe_signal_model.compute(prices, macro_known, meta)
     assert_no_lookahead(signal_panel, prices, min_lag=1)
 
     eval_cfg = raw_config.get("evaluation", {})
@@ -527,16 +631,79 @@ def _run_macro_allocator(
     )
 
     if regime_enabled:
-        regime_series = compute_risk_off_regime(
-            prices,
-            lag_days=regime_lag,
-            rates_proxy=regime_rates,
-            equity_proxy=regime_equity,
-            lookback_days=regime_lb,
+        unrate = pd.to_numeric(
+            macro_known.get("UNRATE", pd.Series(index=prices.index)),
+            errors="coerce",
         )
+        cpi = pd.to_numeric(
+            macro_known.get("CPIAUCSL", pd.Series(index=prices.index)),
+            errors="coerce",
+        )
+        indpro = pd.to_numeric(
+            macro_known.get("INDPRO", pd.Series(index=prices.index)),
+            errors="coerce",
+        )
+        dff = pd.to_numeric(
+            macro_known.get("DFF", pd.Series(index=prices.index)),
+            errors="coerce",
+        )
+
+        cond_unrate = unrate.diff(21) > 0
+        cond_cpi = cpi.pct_change(252) > 0.02
+        cond_indpro = indpro.pct_change(126) < 0
+        cond_dff = dff > dff.rolling(252, min_periods=63).median()
+        macro_score = (
+            cond_unrate.astype(int)
+            + cond_cpi.astype(int)
+            + cond_indpro.astype(int)
+            + cond_dff.astype(int)
+        )
+        regime_series = (macro_score >= 2).astype(int).shift(1).fillna(0).astype(int)
+        regime_series = regime_series.reindex(prices.index).fillna(0).astype(int)
+        if int(regime_series.sum()) == 0 and not args.toy:
+            log.warning(
+                "Macro regime signal is all risk-on in this window; falling back to price-based regime."
+            )
+            regime_series = compute_risk_off_regime(
+                prices,
+                lag_days=regime_lag,
+                rates_proxy=regime_rates,
+                equity_proxy=regime_equity,
+                lookback_days=regime_lb,
+            )
     else:
         regime_series = pd.Series(0, index=prices.index, dtype=int)
     regime_series = regime_series.reindex(prices.index).fillna(0).astype(int)
+
+    feature_store_cfg = raw_config.get("feature_store", {})
+    if feature_store_cfg is None:
+        feature_store_cfg = {}
+    if not isinstance(feature_store_cfg, dict):
+        raise ValueError("feature_store config must be a mapping when provided.")
+    feature_store_enabled = bool(feature_store_cfg.get("enabled", False) or args.use_feature_store)
+    feature_frame: pd.DataFrame | None = None
+    feature_store_path: Path | None = None
+    trend_scores_precomputed: pd.DataFrame | None = None
+    if feature_store_enabled:
+        from lab.features.store import load_or_build_macro_allocator_feature_store
+
+        feature_frame, feature_store_path, from_cache = load_or_build_macro_allocator_feature_store(
+            snapshot_id=data_snapshot_id,
+            prices=prices,
+            macro_known=macro_known,
+            meta=meta,
+            regime_indicator=regime_series,
+        )
+        log.info(
+            "Feature store %s at %s",
+            "cache hit" if from_cache else "materialized",
+            feature_store_path,
+        )
+        trend_cols = [f"trend_score__{t}" for t in tickers]
+        if all(col in feature_frame.columns for col in trend_cols):
+            trend_scores_precomputed = feature_frame[trend_cols].copy()
+            trend_scores_precomputed.columns = tickers
+            assert_no_lookahead(trend_scores_precomputed, prices, min_lag=1)
 
     adv_usd = _adv_usd_series(meta, capacity_adv_column)
     if capacity_enabled and adv_usd is None:
@@ -654,8 +821,14 @@ def _run_macro_allocator(
 
     def _build_fold_signal_model(train_idx: pd.DatetimeIndex) -> Any:
         """Create and fit a fold-local model to prevent cross-fold leakage."""
+        if trend_scores_precomputed is not None and signal_name.lower() in {"trend", "ts_trend", ""}:
+            return None
         model = build_macro_signal(signal_cfg)
-        model.fit(prices.reindex(train_idx), None, meta)
+        model.fit(
+            prices.reindex(train_idx),
+            macro_known.reindex(train_idx),
+            meta,
+        )
         return model
 
     def _strategy_signal(
@@ -665,7 +838,13 @@ def _run_macro_allocator(
         *,
         with_regime: bool = True,
     ) -> pd.Series:
-        scores_t = signal_model.compute(px, None, meta).iloc[-1]
+        if trend_scores_precomputed is not None and signal_name.lower() in {"trend", "ts_trend", ""}:
+            scores_t = (
+                trend_scores_precomputed.reindex(px.index).reindex(columns=px.columns).iloc[-1].fillna(0.0)
+            )
+        else:
+            macro_px = macro_known.reindex(px.index)
+            scores_t = signal_model.compute(px, macro_px, meta).iloc[-1]
 
         vol_t: pd.Series | None
         if vol_scale_lb > 1:
@@ -675,14 +854,7 @@ def _run_macro_allocator(
 
         bucket_multipliers = None
         if with_regime and regime_enabled:
-            regime = compute_risk_off_regime(
-                px,
-                lag_days=regime_lag,
-                rates_proxy=regime_rates,
-                equity_proxy=regime_equity,
-                lookback_days=regime_lb,
-            )
-            risk_off = int(regime.iloc[-1]) if len(regime) else 0
+            risk_off = int(regime_series.reindex(px.index).fillna(0).iloc[-1]) if len(px) else 0
             if risk_off == 1:
                 bucket_multipliers = risk_off_multipliers
 
@@ -1225,7 +1397,7 @@ def _run_macro_allocator(
         ticker_meta_records.append(rec)
 
     run_meta = _finalize_meta(rdir)
-    data_snapshot_id = _compute_data_snapshot_id(prices)
+    data_snapshot_id = str(run_meta.get("data_snapshot_id") or data_snapshot_id)
     artifact_hashes = _artifact_hashes(
         net_returns=net_returns,
         gross_returns=gross_returns,
@@ -1254,6 +1426,7 @@ def _run_macro_allocator(
             "config_path": str(config_path),
             "config_hash": raw_config_hash,
             "data_snapshot_id": data_snapshot_id,
+            "feature_store_used": bool(feature_store_enabled),
             "results_hash": results_hash,
         },
         "universe": {
@@ -1284,7 +1457,7 @@ def _run_macro_allocator(
                 "signal_config": _round_nested(signal_cfg),
             },
             "assumptions": {
-                "macro_lag_days": regime_lag if regime_enabled else 0,
+                "macro_lag_days": macro_lag_days,
                 "financing_included": financing_bps_annual > 0,
                 "short_borrow_included": short_borrow_bps_annual > 0,
             },
@@ -1380,6 +1553,10 @@ def _run_macro_allocator(
             "hashes": artifact_hashes,
         },
     }
+    if feature_store_path is not None:
+        results["artifacts"]["tables"].append(
+            {"name": "feature_store", "path": str(feature_store_path)}
+        )
     if capacity_enabled:
         results["artifacts"]["figures"].append(
             {"name": "capacity_participation", "path": "figures/capacity_participation.png"}
@@ -1461,9 +1638,37 @@ def _run_legacy(
         sys.exit(1)
 
     # Load prices
-    from lab.data.loader import load_prices_or_make_toy
+    if args.toy:
+        from lab.data.loader import load_prices_or_make_toy
 
-    prices = load_prices_or_make_toy(config, seed=args.toy_seed)
+        prices = load_prices_or_make_toy(config, seed=args.toy_seed)
+        data_snapshot_id = f"toy_seed_{int(args.toy_seed)}"
+        update_run_meta(rdir, data_snapshot_id=data_snapshot_id)
+    else:
+        from lab.data.loaders.prices import load_close_prices_strict
+        from lab.data.snapshot import create_data_snapshot
+
+        price_path = _required_price_path()
+        prices = load_close_prices_strict(
+            tickers=list(config.universe),
+            start=config.start_date,
+            end=config.end_date,
+        )
+        data_snapshot_id, manifest_path, manifest = create_data_snapshot(
+            source_name="yf",
+            tickers=list(config.universe),
+            start=config.start_date,
+            end=config.end_date,
+            adjustment_policy={"auto_adjust": True, "group_by": "ticker", "threads": False},
+            close_path=price_path,
+            macro_files=[],
+        )
+        update_run_meta(
+            rdir,
+            data_snapshot_id=data_snapshot_id,
+            data_snapshot_manifest=str(manifest_path),
+            data_snapshot_hashes=manifest.get("hashes"),
+        )
     log.info("  Prices: %d days × %d assets", *prices.shape)
 
     # Backtest
@@ -1494,7 +1699,8 @@ def _run_legacy(
     # results.json
     rounded_metrics = {k: round(float(v), 6) for k, v in metrics.items()}
     config_hash = compute_config_hash(raw_config)
-    data_snapshot_id = _compute_data_snapshot_id(prices)
+    meta_for_snapshot = _finalize_meta(rdir)
+    data_snapshot_id = str(meta_for_snapshot.get("data_snapshot_id") or data_snapshot_id)
     artifact_hashes = {
         "returns": compute_stable_series_hash(result.returns),
         "gross_returns": compute_stable_series_hash(result.gross_returns),
@@ -1561,7 +1767,7 @@ def _run_legacy(
         if (fig_dir / f).exists()
     ]
 
-    meta = _finalize_meta(rdir)
+    meta = meta_for_snapshot
 
     save_report(
         config.exp,
@@ -1599,7 +1805,17 @@ def main() -> None:
         "--toy-seed",
         type=int,
         default=42,
-        help="RNG seed used when toy synthetic data is generated.",
+        help="RNG seed used when `--toy` synthetic data mode is enabled.",
+    )
+    parser.add_argument(
+        "--toy",
+        action="store_true",
+        help="Use synthetic toy data instead of persisted datasets in LAB_DATA_ROOT.",
+    )
+    parser.add_argument(
+        "--use-feature-store",
+        action="store_true",
+        help="Read/write snapshot-keyed feature store for faster macro runs.",
     )
     args = parser.parse_args()
 

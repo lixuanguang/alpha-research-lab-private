@@ -105,3 +105,6 @@ def test_create_run_avoids_collision(tmp_path: Path, monkeypatch) -> None:
     assert rdir1 != rdir2
     assert (rdir1 / "meta.json").exists()
     assert (rdir2 / "meta.json").exists()
+
+    meta = (rdir1 / "meta.json").read_text()
+    assert '"data_snapshot_id": null' in meta

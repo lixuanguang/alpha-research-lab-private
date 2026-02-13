@@ -16,6 +16,14 @@ from lab.data.cache import write_parquet_if_changed
 
 FRED_API_ENV = "FRED_API_KEY"
 FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
+DEFAULT_WEEK3_SERIES_IDS = [
+    "CPIAUCSL",  # CPI
+    "UNRATE",  # unemployment
+    "INDPRO",  # industrial production
+    "DFF",  # effective fed funds
+    "DGS10",  # US 10y yield
+    "BAA10Y",  # credit spread proxy
+]
 
 
 class FredAPIError(RuntimeError):

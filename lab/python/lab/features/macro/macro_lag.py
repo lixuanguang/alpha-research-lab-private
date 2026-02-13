@@ -19,7 +19,7 @@ def apply_observation_lag(
     lag_days: int = 30,
     per_series_lag_days: dict[str, int] | None = None,
     calendar_index: pd.DatetimeIndex | None = None,
-    backfill_limit: int = 2,
+    ffill_limit: int = 2,
 ) -> pd.DataFrame:
     """Build a known-at-time macro panel with explicit release lag.
 
@@ -28,7 +28,7 @@ def apply_observation_lag(
     1. Shift each series by its lag (calendar days) so a value observed on day
        ``d`` is first available on ``d + lag``.
     2. Align to ``calendar_index`` (or the macro index by default).
-    3. Optional short-gap backward fill after lagging only.
+    3. Optional short-gap forward fill after lagging only.
     """
     if macro.empty:
         target = calendar_index if calendar_index is not None else pd.DatetimeIndex([])
@@ -36,8 +36,8 @@ def apply_observation_lag(
 
     if lag_days < 0:
         raise ValueError("lag_days must be >= 0.")
-    if backfill_limit < 0:
-        raise ValueError("backfill_limit must be >= 0.")
+    if ffill_limit < 0:
+        raise ValueError("ffill_limit must be >= 0.")
 
     base = _coerce_macro_panel(macro)
     target_idx = (
@@ -62,8 +62,8 @@ def apply_observation_lag(
         known = pd.Series(series.to_numpy(dtype=float), index=effective_idx, name=col)
         known = known[~known.index.duplicated(keep="last")].sort_index()
         aligned = known.reindex(target_idx)
-        if backfill_limit > 0:
-            aligned = aligned.bfill(limit=backfill_limit)
+        if ffill_limit > 0:
+            aligned = aligned.ffill(limit=ffill_limit)
         out_cols[col] = aligned
 
     panel = pd.DataFrame(out_cols, index=target_idx).reindex(columns=list(base.columns))

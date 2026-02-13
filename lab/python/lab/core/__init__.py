@@ -26,6 +26,7 @@ from lab.core.registry import (
     create_run,
     generate_run_id,
     get_git_commit,
+    update_run_meta,
 )
 from lab.core.strategy_registry import get, list_strategies, register
 
@@ -58,6 +59,7 @@ __all__ = [
     "run_dir",
     "runs_root",
     "setup_logging",
+    "update_run_meta",
     "validate_config",
     "validate_macro_allocator_config",
 ]

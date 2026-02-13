@@ -229,6 +229,7 @@ def create_run(
         "exp_name": exp_name,
         "config_path": str(Path(config_path).resolve()),
         "config_hash": config_hash,
+        "data_snapshot_id": None,
         "git_commit": get_git_commit(),
         "python_version": sys.version,
         "platform": platform.platform(),
@@ -239,3 +240,22 @@ def create_run(
         json.dump(meta, fh, indent=2)
 
     return rid, rdir
+
+
+def update_run_meta(
+    rdir: Path,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Merge fields into run ``meta.json`` and return updated metadata."""
+    meta_path = Path(rdir) / "meta.json"
+    meta: dict[str, Any] = {}
+    if meta_path.exists():
+        with open(meta_path) as fh:
+            loaded = json.load(fh)
+        if isinstance(loaded, dict):
+            meta = loaded
+    for key, value in fields.items():
+        meta[str(key)] = value
+    with open(meta_path, "w") as fh:
+        json.dump(meta, fh, indent=2)
+    return meta

@@ -31,10 +31,16 @@ test:  ## Run Python + Rust test suites
 	$(CARGO) test --manifest-path crates/lab_rs/Cargo.toml
 
 # ── run ───────────────────────────────────────────────────────────────────────
-.PHONY: ingest_prices run
+.PHONY: ingest_prices ingest_macro data_qa run
 
 ingest_prices:  ## Ingest daily close prices + metadata for macro allocator
 	$(PYTHON) scripts/ingest_prices.py --config $(CONFIG)
+
+ingest_macro:  ## Ingest default macro series from FRED into LAB_DATA_ROOT
+	$(PYTHON) scripts/ingest_macro_fred.py
+
+data_qa:  ## Run data QA checks and write markdown/html report
+	$(PYTHON) scripts/data_qa_report.py
 
 run:  ## Run an experiment: make run EXP=macro_equities CONFIG=path/to/config.yaml
 	$(PYTHON) scripts/run_experiment.py --exp $(EXP) --config $(CONFIG)

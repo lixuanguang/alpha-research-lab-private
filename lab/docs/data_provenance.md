@@ -44,5 +44,5 @@ Missing-data handling for prices:
 - Default lag: `30` calendar days (configurable per-series).
 - Known-at-time panel rule: value at date `t` must come from observation date
   `<= t - lag_days`.
-- Alignment fill rule: no forward-looking fills; optional short backward fill
-  after lagging only (`backfill_limit`, default `2`).
+- Alignment fill rule: no future leakage; optional short forward-fill after
+  lagging only (`ffill_limit`, default `2`).

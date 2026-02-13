@@ -49,6 +49,32 @@ def _detect_ticker_level(
     return 1
 
 
+def _ticker_frames(
+    raw: pd.DataFrame,
+    *,
+    tickers: list[str],
+) -> dict[str, pd.DataFrame]:
+    if raw.empty:
+        return {ticker: pd.DataFrame(index=raw.index) for ticker in tickers}
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        ticker_level = _detect_ticker_level(raw.columns, tickers)
+        available = {str(v) for v in raw.columns.get_level_values(ticker_level).unique().tolist()}
+        out: dict[str, pd.DataFrame] = {}
+        for ticker in tickers:
+            if ticker in available:
+                out[ticker] = raw.xs(ticker, axis=1, level=ticker_level, drop_level=True)
+            else:
+                out[ticker] = pd.DataFrame(index=raw.index)
+        return out
+
+    first = tickers[0] if tickers else "ticker"
+    out = {first: raw}
+    for ticker in tickers[1:]:
+        out[ticker] = pd.DataFrame(index=raw.index)
+    return out
+
+
 def _one_ticker_ohlcv(
     raw: pd.DataFrame,
     *,
@@ -89,28 +115,12 @@ def _to_canonical_ohlcv(
         return empty
 
     base = _ensure_datetime_index(raw)
-    per_ticker: dict[str, pd.DataFrame] = {}
-
-    if isinstance(base.columns, pd.MultiIndex):
-        ticker_level = _detect_ticker_level(base.columns, tickers)
-        field_level = 1 - ticker_level
-        available_tickers = {
-            str(v) for v in base.columns.get_level_values(ticker_level).unique().tolist()
-        }
-        for ticker in tickers:
-            if ticker not in available_tickers:
-                per_ticker[ticker] = pd.DataFrame(index=base.index, columns=_CANONICAL_FIELDS)
-                continue
-            one = base.xs(ticker, axis=1, level=ticker_level, drop_level=True)
-            per_ticker[ticker] = _one_ticker_ohlcv(
-                one.rename(columns=lambda c: str(c) if field_level == 0 else c),
-                ticker=ticker,
-            )
-    else:
-        ticker = tickers[0] if tickers else "ticker"
-        per_ticker[ticker] = _one_ticker_ohlcv(base, ticker=ticker)
-        for t in tickers[1:]:
-            per_ticker[t] = pd.DataFrame(index=base.index, columns=_CANONICAL_FIELDS)
+    per_ticker = {
+        ticker: _one_ticker_ohlcv(frame, ticker=ticker)
+        if not frame.empty
+        else pd.DataFrame(index=base.index, columns=_CANONICAL_FIELDS, dtype=float)
+        for ticker, frame in _ticker_frames(base, tickers=tickers).items()
+    }
 
     out = pd.concat(per_ticker, axis=1, names=["ticker", "field"]).sort_index(axis=1)
     cols = pd.MultiIndex.from_product([tickers, _CANONICAL_FIELDS], names=["ticker", "field"])
@@ -150,47 +160,20 @@ def _to_actions(
     base = _ensure_datetime_index(raw)
     per_div: dict[str, pd.Series] = {}
     per_spl: dict[str, pd.Series] = {}
-
-    if isinstance(base.columns, pd.MultiIndex):
-        ticker_level = _detect_ticker_level(base.columns, tickers)
-        available_tickers = {
-            str(v) for v in base.columns.get_level_values(ticker_level).unique().tolist()
-        }
-        for ticker in tickers:
-            if ticker not in available_tickers:
-                per_div[ticker] = pd.Series(0.0, index=base.index, dtype=float)
-                per_spl[ticker] = pd.Series(0.0, index=base.index, dtype=float)
-                continue
-            one = base.xs(ticker, axis=1, level=ticker_level, drop_level=True)
-            div_col = next((c for c in one.columns if str(c).strip().lower() == "dividends"), None)
-            spl_col = next(
-                (c for c in one.columns if str(c).strip().lower() == "stock splits"),
-                None,
-            )
-            per_div[ticker] = (
-                pd.to_numeric(one[div_col], errors="coerce")
-                if div_col is not None
-                else pd.Series(0.0, index=base.index, dtype=float)
-            )
-            per_spl[ticker] = (
-                pd.to_numeric(one[spl_col], errors="coerce")
-                if spl_col is not None
-                else pd.Series(0.0, index=base.index, dtype=float)
-            )
-    else:
-        ticker = tickers[0] if tickers else "ticker"
-        div_col = next((c for c in base.columns if str(c).strip().lower() == "dividends"), None)
-        spl_col = next(
-            (c for c in base.columns if str(c).strip().lower() == "stock splits"),
-            None,
-        )
+    for ticker, frame in _ticker_frames(base, tickers=tickers).items():
+        if frame.empty:
+            per_div[ticker] = pd.Series(0.0, index=base.index, dtype=float)
+            per_spl[ticker] = pd.Series(0.0, index=base.index, dtype=float)
+            continue
+        div_col = next((c for c in frame.columns if str(c).strip().lower() == "dividends"), None)
+        spl_col = next((c for c in frame.columns if str(c).strip().lower() == "stock splits"), None)
         per_div[ticker] = (
-            pd.to_numeric(base[div_col], errors="coerce")
+            pd.to_numeric(frame[div_col], errors="coerce")
             if div_col is not None
             else pd.Series(0.0, index=base.index, dtype=float)
         )
         per_spl[ticker] = (
-            pd.to_numeric(base[spl_col], errors="coerce")
+            pd.to_numeric(frame[spl_col], errors="coerce")
             if spl_col is not None
             else pd.Series(0.0, index=base.index, dtype=float)
         )

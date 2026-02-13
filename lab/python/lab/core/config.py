@@ -68,6 +68,8 @@ _MACRO_ALLOWED_TOP_LEVEL = {
     "regime",
     "risk",
     "costs",
+    "macro",
+    "feature_store",
     "evaluation",
 }
 
@@ -487,6 +489,46 @@ def validate_macro_allocator_config(raw: dict[str, Any]) -> None:
             0.0,
             error="regime multipliers must be >= 0.",
         )
+
+    macro = _require_mapping(raw.get("macro", {}), error="'macro' must be a mapping when provided.")
+    if "lag_days" in macro:
+        _require_int_ge(
+            macro["lag_days"],
+            "macro.lag_days",
+            0,
+            error="'macro.lag_days' must be >= 0.",
+        )
+    if "ffill_limit" in macro:
+        _require_int_ge(
+            macro["ffill_limit"],
+            "macro.ffill_limit",
+            0,
+            error="'macro.ffill_limit' must be >= 0.",
+        )
+    if "series_ids" in macro:
+        series_ids = macro["series_ids"]
+        if isinstance(series_ids, str):
+            if not series_ids.strip():
+                raise ConfigValidationError("'macro.series_ids' must not be empty when provided.")
+        elif isinstance(series_ids, list):
+            if not series_ids:
+                raise ConfigValidationError("'macro.series_ids' must not be empty when provided.")
+            for series in series_ids:
+                _require_non_empty_string(
+                    series,
+                    error="'macro.series_ids' entries must be non-empty strings.",
+                )
+        else:
+            raise ConfigValidationError(
+                "'macro.series_ids' must be a list of strings or comma-separated string."
+            )
+
+    feature_store = _require_mapping(
+        raw.get("feature_store", {}),
+        error="'feature_store' must be a mapping when provided.",
+    )
+    if "enabled" in feature_store and not isinstance(feature_store["enabled"], bool):
+        raise ConfigValidationError("'feature_store.enabled' must be boolean.")
 
     costs = _require_mapping(raw.get("costs", {}), error="'costs' must be a mapping.")
     if not isinstance(costs.get("use_meta_costs", True), bool):

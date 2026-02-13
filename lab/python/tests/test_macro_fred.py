@@ -50,7 +50,7 @@ def test_apply_observation_lag_enforces_known_at_time_cutoff() -> None:
         raw,
         lag_days=lag_days,
         calendar_index=calendar,
-        backfill_limit=0,
+        ffill_limit=0,
     )
 
     assert lagged.index.equals(calendar)
@@ -65,7 +65,7 @@ def test_apply_observation_lag_enforces_known_at_time_cutoff() -> None:
         assert value == pytest.approx(float(raw.loc[latest_obs, "CPIAUCSL"]))
 
 
-def test_apply_observation_lag_avoids_forward_fill_and_only_short_backfills() -> None:
+def test_apply_observation_lag_uses_short_post_release_forward_fill_without_lookahead() -> None:
     obs_idx = pd.to_datetime(["2024-01-01", "2024-02-01"])
     raw = pd.DataFrame({"DFF": [5.25, 5.00]}, index=obs_idx)
     calendar = pd.bdate_range("2024-01-01", "2024-02-20")
@@ -74,11 +74,13 @@ def test_apply_observation_lag_avoids_forward_fill_and_only_short_backfills() ->
         raw,
         lag_days=10,
         calendar_index=calendar,
-        backfill_limit=2,
+        ffill_limit=2,
     )
 
-    # After lagging, first availability is 2024-01-11; only 2 days before can be bfilled.
-    assert lagged.loc[pd.Timestamp("2024-01-09"), "DFF"] == pytest.approx(5.25)
-    assert lagged.loc[pd.Timestamp("2024-01-10"), "DFF"] == pytest.approx(5.25)
-    # No forward-fill across long gaps after a known date.
-    assert np.isnan(lagged.loc[pd.Timestamp("2024-01-12"), "DFF"])
+    # First release availability is 2024-01-11; no value can exist before that date.
+    assert np.isnan(lagged.loc[pd.Timestamp("2024-01-09"), "DFF"])
+    assert np.isnan(lagged.loc[pd.Timestamp("2024-01-10"), "DFF"])
+    # After release date, only short forward fill is permitted.
+    assert lagged.loc[pd.Timestamp("2024-01-12"), "DFF"] == pytest.approx(5.25)
+    assert lagged.loc[pd.Timestamp("2024-01-15"), "DFF"] == pytest.approx(5.25)
+    assert np.isnan(lagged.loc[pd.Timestamp("2024-01-16"), "DFF"])
