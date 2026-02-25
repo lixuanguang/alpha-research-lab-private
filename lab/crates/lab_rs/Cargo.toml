@@ -1,9 +1,0 @@
-[package]
-name = "lab_rs"
-version = "0.1.0"
-edition = "2021"
-description = "Rust performance-critical components for the alpha research lab."
-
-[dependencies]
-
-[dev-dependencies]
