@@ -20,7 +20,6 @@ import alpha_core.config.secrets as secrets
 import alpha_core.events.models as event_models
 import alpha_core.events.schema_version as event_schema_version
 import alpha_core.instruments.models as instrument_models
-import alpha_core.utils.ids as id_utils
 
 try:
     pmxt_module = cast(Any, importlib.import_module("pmxt"))
@@ -157,10 +156,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             dropped=dropped,
         )
 
-        payload["event_id"] = id_utils.generate_event_id(payload)
-        book = event_models.CanonicalBookSnapshot.model_validate(
-            payload, context={"skip_event_id_validation": True}
-        )
+        book = event_models.CanonicalBookSnapshot.model_validate(payload)
         self._log_rejection_summary("book", dropped)
         return book
 
@@ -207,13 +203,8 @@ class PmxtAdapter(adapters_base.VenueAdapter):
                 "volume": volume,
                 "resolution": normalized_resolution,
             }
-            payload["event_id"] = id_utils.generate_event_id(payload)
             try:
-                mapped.append(
-                    event_models.CanonicalOHLCV.model_validate(
-                        payload, context={"skip_event_id_validation": True}
-                    )
-                )
+                mapped.append(event_models.CanonicalOHLCV.model_validate(payload))
             except ValidationError:
                 self._record_rejection("ohlcv", "invalid_event", dropped)
 

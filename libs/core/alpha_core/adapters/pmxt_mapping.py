@@ -112,10 +112,7 @@ def map_trade(
         "side": side,
         "trade_id": trade_id,
     }
-    payload["event_id"] = id_utils.generate_event_id(payload)
-    return event_models.CanonicalTrade.model_validate(
-        payload, context={"skip_event_id_validation": True}
-    )
+    return event_models.CanonicalTrade.model_validate(payload)
 
 
 def map_outcomes(market_id: str, raw_outcomes: list[object], *, venue: str) -> list[dict[str, str]]:

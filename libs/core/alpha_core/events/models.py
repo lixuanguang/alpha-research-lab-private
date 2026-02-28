@@ -7,7 +7,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import alpha_core.events.schema_version as schema_version
 import alpha_core.utils.ids as ids_utils
@@ -28,6 +28,9 @@ class TradeSide(StrEnum):
 
     BUY = "buy"
     SELL = "sell"
+
+
+_AUTO_EVENT_ID_SENTINEL = "__alpha_auto_event_id__"
 
 
 class PriceLevel(BaseModel):
@@ -51,6 +54,15 @@ class CanonicalMarketEvent(BaseModel):
     ts_event: datetime
     ts_record: datetime
     schema_version: int = Field(default=schema_version.CANONICAL_EVENT_SCHEMA_VERSION, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_missing_event_id(cls, data: object) -> object:
+        if isinstance(data, dict) and "event_id" not in data:
+            payload = dict(data)
+            payload["event_id"] = _AUTO_EVENT_ID_SENTINEL
+            return payload
+        return data
 
     @field_validator("event_id", "instrument_id", "venue_id")
     @classmethod
@@ -77,10 +89,11 @@ class CanonicalMarketEvent(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_event_id(self, info: ValidationInfo) -> CanonicalMarketEvent:
-        if isinstance(info.context, dict) and bool(info.context.get("skip_event_id_validation")):
-            return self
+    def _validate_event_id(self) -> CanonicalMarketEvent:
         expected = ids_utils.generate_event_id(self.model_dump(exclude={"event_id"}))
+        if self.event_id == _AUTO_EVENT_ID_SENTINEL:
+            self.event_id = expected
+            return self
         if self.event_id != expected:
             raise ValueError("`event_id` must match canonical payload hash")
         return self
