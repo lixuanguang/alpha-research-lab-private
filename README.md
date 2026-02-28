@@ -38,6 +38,14 @@ Prediction markets (Kalshi, Polymarket, Limitless, Baozi, Myriad, Probable) offe
 
 Deliver the **repo scaffold, canonical data model, instrument master, configuration system, CI baseline, and local development environment** — the bedrock that every subsequent stage (Data Plane MVP, Research Plane MVP, Live Plane MVP) builds upon.
 
+### Implementation Status (as of February 28, 2026)
+
+- Current stage: **F4 (Instrument Master & Symbology), implemented and hardened**
+- Completed steps: **F1, F2, F3, F4**
+- Remaining foundation steps: **F5, F6**
+- Current quality gate snapshot: `ruff check .`, `mypy libs/core`, and `pytest -q` passing locally (95 tests)
+- Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
+
 ---
 
 ## 2. Architecture — Prediction Markets Adaptation
@@ -496,6 +504,14 @@ scripts/bootstrap.sh, scripts/validate_env.py
 + tests/data/fixtures/sample_markets.json
 ```
 
+**Status Update (February 28, 2026):**
+- Added registry consistency hardening:
+  - Re-registering a market now removes stale outcomes from the in-memory outcome index.
+  - `get_market()`, `get_outcome()`, and `search()` now return defensive copies to prevent external mutation of registry state.
+- Added model consistency hardening:
+  - `MarketSpec` now enforces that each `OutcomeSpec.canonical_id` matches `{venue}:{market_id}:{outcome_id}`.
+- Added regression tests for stale-outcome cleanup, defensive-copy behavior, and canonical-id mismatch rejection.
+
 **Targets:**
 | Metric | Target |
 |---|---|
@@ -895,7 +911,7 @@ How each subsequent stage builds on the Foundation:
 ### Evolution Summary
 
 ```
-F1 ─── F2 ─── F3 ─── F4 ─── F5 ─── F6    ← FOUNDATION (current implementation: F4)
+F1 ─── F2 ─── F3 ─── F4 ─── F5 ─── F6    ← FOUNDATION (current implementation: F4, hardened as of 2026-02-28)
  │      │      │      │      │      │
  │      │      │      │      │      └──── Storage + Docker + App stubs
  │      │      │      │      └─────────── pmxt Adapter layer
