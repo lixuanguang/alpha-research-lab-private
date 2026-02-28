@@ -1,0 +1,3 @@
+name: polymarket
+exchange_class: Polymarket
+rate_limit_rpm: 120

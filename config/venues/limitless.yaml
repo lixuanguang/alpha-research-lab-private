@@ -1,0 +1,3 @@
+name: limitless
+exchange_class: Limitless
+rate_limit_rpm: 120

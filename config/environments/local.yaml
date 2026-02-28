@@ -1,0 +1,5 @@
+log_level: DEBUG
+feature_flags:
+  dry_run: true
+storage:
+  base_path: data/local

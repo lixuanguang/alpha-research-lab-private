@@ -1,0 +1,3 @@
+name: kalshi
+exchange_class: Kalshi
+rate_limit_rpm: 180

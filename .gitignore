@@ -53,6 +53,8 @@ logs/
 .env.*
 *.pem
 *.key
+secrets/*
+!secrets/.secrets.example
 
 # -----------------------------------------------------------------------------
 # Data outputs (keep fixtures/schemas in git)

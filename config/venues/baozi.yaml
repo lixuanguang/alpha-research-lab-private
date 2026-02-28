@@ -1,0 +1,3 @@
+name: baozi
+exchange_class: Baozi
+rate_limit_rpm: 120

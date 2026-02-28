@@ -1,0 +1,10 @@
+# User-level toggles for local control.
+# Set true/false to enable or disable each venue.
+venue_enabled:
+  kalshi: false
+  kalshidemo: false
+  polymarket: true
+  limitless: false
+  baozi: false
+  myriad: false
+  probable: false

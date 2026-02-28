@@ -1,0 +1,3 @@
+name: kalshidemo
+exchange_class: KalshiDemo
+rate_limit_rpm: 180
