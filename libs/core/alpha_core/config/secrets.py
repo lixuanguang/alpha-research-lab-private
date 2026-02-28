@@ -6,15 +6,8 @@ import os
 import re
 from pathlib import Path
 
-from alpha_core.config.models import Settings
-
-
-def _project_root() -> Path:
-    return Path(__file__).resolve().parents[4]
-
-
-def _default_secrets_file() -> Path:
-    return _project_root() / "secrets" / ".secrets"
+import alpha_core.config.models as config_models
+import alpha_core.config.paths as config_paths
 
 
 def _resolve_from_venue_secrets_file(env_var_name: str) -> str | None:
@@ -25,7 +18,9 @@ def _resolve_from_venue_secrets_file(env_var_name: str) -> str | None:
 
     venue_name = match.group(1).lower()
     key_kind = match.group(2)
-    venue_secrets_path = _project_root() / "secrets" / f"{venue_name}.secrets"
+    venue_secrets_path = (
+        config_paths.find_project_root(__file__) / "secrets" / f"{venue_name}.secrets"
+    )
     if not venue_secrets_path.exists():
         return None
 
@@ -37,15 +32,26 @@ def _resolve_from_venue_secrets_file(env_var_name: str) -> str | None:
         value = venue_secrets.get(alias)
         if value is None:
             continue
-        secret = value.strip()
-        return secret or None
+        return value.strip() or None
 
     return None
+
+
+def _has_secure_permissions(path: Path) -> bool:
+    """Require owner-only read/write permissions for secrets files on POSIX."""
+    if os.name == "nt":
+        return True
+    return (path.stat().st_mode & 0o077) == 0
 
 
 def _load_secrets_file(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
+    if not _has_secure_permissions(path):
+        raise PermissionError(
+            f"Insecure permissions on secrets file `{path}`. "
+            "Restrict access to owner only (chmod 600)."
+        )
 
     secrets: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -63,7 +69,7 @@ def _load_secrets_file(path: Path) -> dict[str, str]:
         key = key.strip()
         value = value.strip()
         if key:
-            secrets[key] = value
+            secrets[key] = _normalize_secret_value(value)
 
     return secrets
 
@@ -75,40 +81,46 @@ def resolve_secret(env_var_name: str | None, secrets_file: Path | None = None) -
 
     value = os.getenv(env_var_name)
     if value is not None:
-        secret = value.strip()
-        return secret or None
+        return _normalize_secret_value(value.strip()) or None
 
-    secret_path = _default_secrets_file() if secrets_file is None else secrets_file
+    secret_path = secrets_file
+    if secret_path is None:
+        secret_path = config_paths.find_project_root(__file__) / "secrets" / ".secrets"
+
     file_value = _load_secrets_file(secret_path).get(env_var_name)
     if file_value is None:
-        if secrets_file is not None:
-            return None
-        return _resolve_from_venue_secrets_file(env_var_name)
+        return None if secrets_file is not None else _resolve_from_venue_secrets_file(env_var_name)
 
-    secret = file_value.strip()
-    return secret or None
+    return file_value.strip() or None
 
 
-def missing_required_secrets(settings: Settings, secrets_file: Path | None = None) -> list[str]:
+def _normalize_secret_value(value: str) -> str:
+    """Normalize a parsed secret value from file content."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
+def missing_required_secrets(
+    settings: config_models.Settings,
+    secrets_file: Path | None = None,
+) -> list[str]:
     """Return missing env-var names required by enabled venues."""
-    missing: list[str] = []
-
-    for venue in settings.venues:
-        if not venue.enabled:
-            continue
-
-        required_names = [venue.api_key_env, venue.private_key_env]
-        for env_name in required_names:
-            if not env_name:
-                continue
-            if resolve_secret(env_name, secrets_file=secrets_file) is None:
-                missing.append(env_name)
-
-    return sorted(set(missing))
+    required_names = {
+        env_name
+        for venue in settings.venues
+        for env_name in (venue.api_key_env, venue.private_key_env)
+        if venue.enabled and env_name
+    }
+    return sorted(
+        env_name
+        for env_name in required_names
+        if resolve_secret(env_name, secrets_file=secrets_file) is None
+    )
 
 
 def raise_for_missing_required_secrets(
-    settings: Settings,
+    settings: config_models.Settings,
     secrets_file: Path | None = None,
 ) -> None:
     """Raise ValueError when an enabled venue is missing required credentials."""

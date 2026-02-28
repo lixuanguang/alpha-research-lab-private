@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+import importlib.metadata as importlib_metadata
 import re
-from importlib.metadata import PackageNotFoundError, version
 
 _DIST_NAME = "alpha-research-lab"
 
 
 def _resolve_version() -> str:
     try:
-        return version(_DIST_NAME)
-    except PackageNotFoundError:
+        return importlib_metadata.version(_DIST_NAME)
+    except importlib_metadata.PackageNotFoundError:
         return "0.0.0+unknown"
 
 

@@ -63,6 +63,7 @@ data/bronze/
 data/silver/
 data/gold/
 *.parquet
+*.pdf
 
 # -----------------------------------------------------------------------------
 # IDE / editor

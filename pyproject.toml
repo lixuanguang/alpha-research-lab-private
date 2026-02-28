@@ -126,6 +126,8 @@ testpaths = ["tests"]
 addopts = "-v --tb=short"
 # Add libs/core so tests can import alpha_core without extra env setup.
 pythonpath = ["libs/core"]
+# Explicit asyncio fixture loop scope to avoid pytest-asyncio deprecation behavior changes.
+asyncio_default_fixture_loop_scope = "function"
 
 # Coverage.py runtime collection settings.
 [tool.coverage.run]
