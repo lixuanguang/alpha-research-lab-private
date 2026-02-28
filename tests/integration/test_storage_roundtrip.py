@@ -98,8 +98,7 @@ def test_storage_roundtrip_parquet_reader_and_duckdb(tmp_path: Path) -> None:
     ts_events = duck_table.column("ts_event").to_pylist()
     ts_records = duck_table.column("ts_record").to_pylist()
     assert all(
-        ts_event <= ts_record
-        for ts_event, ts_record in zip(ts_events, ts_records, strict=True)
+        ts_event <= ts_record for ts_event, ts_record in zip(ts_events, ts_records, strict=True)
     )
 
 

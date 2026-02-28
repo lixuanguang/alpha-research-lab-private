@@ -205,6 +205,7 @@ class MarketMaster:
                     f"{canonical_market_id} != {registered_market_id}"
                 )
 
+
 def _matches_query(market: instrument_models.MarketSpec, query: str) -> bool:
     haystack_parts: list[str] = [market.title.lower()]
     if market.description is not None:

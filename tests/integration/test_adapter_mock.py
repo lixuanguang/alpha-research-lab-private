@@ -113,17 +113,13 @@ def test_adapter_flow_event_models_roundtrip_without_loss(monkeypatch: pytest.Mo
     book = asyncio.run(adapter.fetch_order_book("polymarket:us-pres-2028:yes"))
     candle = asyncio.run(adapter.fetch_ohlcv("polymarket:us-pres-2028:yes", resolution="1h"))[0]
 
-    assert (
-        event_models.CanonicalTrade.model_validate(trade.model_dump()).event_id
-        == trade.event_id
-    )
+    assert event_models.CanonicalTrade.model_validate(trade.model_dump()).event_id == trade.event_id
     assert (
         event_models.CanonicalBookSnapshot.model_validate(book.model_dump()).event_id
         == book.event_id
     )
     assert (
-        event_models.CanonicalOHLCV.model_validate(candle.model_dump()).event_id
-        == candle.event_id
+        event_models.CanonicalOHLCV.model_validate(candle.model_dump()).event_id == candle.event_id
     )
 
 

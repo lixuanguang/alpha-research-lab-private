@@ -35,9 +35,7 @@ def map_market(raw: object, *, venue: str) -> instrument_models.MarketSpec:
         "description": pmxt_parsing.coerce_optional_text(
             pmxt_parsing.pick(raw, "description", "details")
         ),
-        "category": pmxt_parsing.coerce_optional_text(
-            pmxt_parsing.pick(raw, "category", "group")
-        ),
+        "category": pmxt_parsing.coerce_optional_text(pmxt_parsing.pick(raw, "category", "group")),
         "tags": pmxt_parsing.coerce_tags(pmxt_parsing.pick(raw, "tags", default=[])),
         "outcomes": outcomes,
         "resolution_date": pmxt_parsing.coerce_event_time(
@@ -286,8 +284,7 @@ def resolve_instrument_id(
         )
         if parsed_venue != venue:
             raise ValueError(
-                "Canonical `outcome_id` venue mismatch: "
-                f"expected `{venue}`, got `{parsed_venue}`"
+                f"Canonical `outcome_id` venue mismatch: expected `{venue}`, got `{parsed_venue}`"
             )
         return instrument_symbology.make_canonical_outcome_id(venue, market_id, raw_outcome_id)
 
