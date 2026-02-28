@@ -165,14 +165,6 @@ def _path_exists(config: dict[str, Any], keys: list[str]) -> bool:
     return True
 
 
-def _is_feature_flag_override(config: dict[str, Any], keys: list[str]) -> bool:
-    return (
-        len(keys) >= 2
-        and keys[0] == "feature_flags"
-        and isinstance(config.get("feature_flags"), dict)
-    )
-
-
 def _collect_secret_env_names(config: dict[str, Any]) -> set[str]:
     venues = config.get("venues")
     if not isinstance(venues, list):
@@ -211,7 +203,12 @@ def _apply_env_overrides(
         parts = [part for part in config_path.split("__") if part]
         if not parts:
             continue
-        if not _path_exists(result, parts) and not _is_feature_flag_override(result, parts):
+        is_feature_flag_override = (
+            len(parts) >= 2
+            and parts[0] == "feature_flags"
+            and isinstance(result.get("feature_flags"), dict)
+        )
+        if not _path_exists(result, parts) and not is_feature_flag_override:
             continue
 
         parsed_value = yaml.safe_load(value)
@@ -335,9 +332,12 @@ def load_settings(
     apply_user_settings: bool = False,
 ) -> config_models.Settings:
     """Load settings from default config, optional environment, and env vars."""
-    config_root = (
-        config_paths.find_project_root(__file__) / "config" if config_dir is None else config_dir
-    )
+    if config_dir is None:
+        project_root = config_paths.find_project_root(__file__)
+        config_root = project_root / "config"
+    else:
+        config_root = config_dir.resolve()
+        project_root = config_root.parent
 
     default_path = config_root / "default.yaml"
     environments_dir = config_root / "environments"
@@ -360,6 +360,8 @@ def load_settings(
     settings_dict = _apply_env_overrides(settings_dict, secret_env_names=secret_env_names)
 
     settings = config_models.Settings.model_validate(settings_dict)
+    if not settings.storage.base_path.is_absolute():
+        settings.storage.base_path = (project_root / settings.storage.base_path).resolve()
     if validate_secrets:
         config_secrets.raise_for_missing_required_secrets(settings)
 

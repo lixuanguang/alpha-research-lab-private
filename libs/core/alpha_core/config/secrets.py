@@ -83,13 +83,16 @@ def resolve_secret(env_var_name: str | None, secrets_file: Path | None = None) -
     if value is not None:
         return _normalize_secret_value(value.strip()) or None
 
-    secret_path = secrets_file
-    if secret_path is None:
-        secret_path = config_paths.find_project_root(__file__) / "secrets" / ".secrets"
-
-    file_value = _load_secrets_file(secret_path).get(env_var_name)
-    if file_value is None:
-        return None if secrets_file is not None else _resolve_from_venue_secrets_file(env_var_name)
+    if secrets_file is None:
+        file_value = _load_secrets_file(
+            config_paths.find_project_root(__file__) / "secrets" / ".secrets"
+        ).get(env_var_name)
+        if file_value is None:
+            return _resolve_from_venue_secrets_file(env_var_name)
+    else:
+        file_value = _load_secrets_file(secrets_file).get(env_var_name)
+        if file_value is None:
+            return None
 
     return file_value.strip() or None
 

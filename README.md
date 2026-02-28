@@ -895,7 +895,7 @@ How each subsequent stage builds on the Foundation:
 ### Evolution Summary
 
 ```
-F1 ─── F2 ─── F3 ─── F4 ─── F5 ─── F6    ← FOUNDATION (current implementation: F2)
+F1 ─── F2 ─── F3 ─── F4 ─── F5 ─── F6    ← FOUNDATION (current implementation: F3)
  │      │      │      │      │      │
  │      │      │      │      │      └──── Storage + Docker + App stubs
  │      │      │      │      └─────────── pmxt Adapter layer

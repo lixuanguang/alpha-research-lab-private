@@ -326,6 +326,7 @@ def test_load_settings_discovers_project_root_from_cwd(
     settings = config_loader.load_settings()
 
     assert settings.project_name == "alpha-research-lab"
+    assert settings.storage.base_path == (temp_repo_root / "data").resolve()
 
 
 def test_load_settings_respects_alpha_research_root_env_var(
@@ -338,6 +339,7 @@ def test_load_settings_respects_alpha_research_root_env_var(
     settings = config_loader.load_settings()
 
     assert settings.project_name == "alpha-research-lab"
+    assert settings.storage.base_path == (temp_repo_root / "data").resolve()
 
 
 def test_invalid_alpha_research_root_env_var_raises(
