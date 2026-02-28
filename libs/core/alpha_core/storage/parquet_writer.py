@@ -1,0 +1,174 @@
+"""Parquet writers for canonical market events."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
+
+import alpha_core.events.models as event_models
+import alpha_core.storage.conventions as storage_conventions
+import alpha_core.utils.time as time_utils
+
+
+class ParquetEventWriter:
+    """Write canonical events to partitioned Parquet datasets."""
+
+    def __init__(self, storage_root: Path, compression: str = "zstd") -> None:
+        self._storage_root = storage_root
+        self._compression = compression
+
+    def write_trades(
+        self,
+        trades: list[event_models.CanonicalTrade],
+        tier: storage_conventions.StorageTier = storage_conventions.StorageTier.SILVER,
+    ) -> Path:
+        """Write canonical trades to the configured storage tier."""
+        dataset_root = storage_conventions.dataset_root(
+            self._storage_root,
+            tier,
+            storage_conventions.TRADE_DATASET_NAME,
+        )
+        dataset_root.mkdir(parents=True, exist_ok=True)
+        if not trades:
+            return dataset_root
+
+        rows = [self._trade_to_row(trade) for trade in trades]
+        self._write_partitioned_table(
+            rows=rows,
+            schema=storage_conventions.TRADE_PARQUET_SCHEMA,
+            dataset_root=dataset_root,
+            partition_cols=storage_conventions.resolve_partition_columns("silver_trades"),
+        )
+        return dataset_root
+
+    def write_books(
+        self,
+        books: list[event_models.CanonicalBookSnapshot],
+        tier: storage_conventions.StorageTier = storage_conventions.StorageTier.SILVER,
+    ) -> Path:
+        """Write canonical order book snapshots to the configured storage tier."""
+        dataset_root = storage_conventions.dataset_root(
+            self._storage_root,
+            tier,
+            storage_conventions.BOOK_DATASET_NAME,
+        )
+        dataset_root.mkdir(parents=True, exist_ok=True)
+        if not books:
+            return dataset_root
+
+        rows = [self._book_to_row(book) for book in books]
+        self._write_partitioned_table(
+            rows=rows,
+            schema=storage_conventions.BOOK_PARQUET_SCHEMA,
+            dataset_root=dataset_root,
+            partition_cols=storage_conventions.resolve_partition_columns("silver_books"),
+        )
+        return dataset_root
+
+    def write_ohlcv(
+        self,
+        candles: list[event_models.CanonicalOHLCV],
+        tier: storage_conventions.StorageTier = storage_conventions.StorageTier.SILVER,
+    ) -> Path:
+        """Write canonical OHLCV bars to the configured storage tier."""
+        dataset_root = storage_conventions.dataset_root(
+            self._storage_root,
+            tier,
+            storage_conventions.OHLCV_DATASET_NAME,
+        )
+        dataset_root.mkdir(parents=True, exist_ok=True)
+        if not candles:
+            return dataset_root
+
+        rows = [self._ohlcv_to_row(candle) for candle in candles]
+        self._write_partitioned_table(
+            rows=rows,
+            schema=storage_conventions.OHLCV_PARQUET_SCHEMA,
+            dataset_root=dataset_root,
+            partition_cols=storage_conventions.resolve_partition_columns("silver_ohlcv"),
+        )
+        return dataset_root
+
+    def _write_partitioned_table(
+        self,
+        rows: list[dict[str, object]],
+        schema: pa.Schema,
+        dataset_root: Path,
+        partition_cols: list[str],
+    ) -> None:
+        table = pa.Table.from_pylist(rows, schema=schema)
+        pq.write_to_dataset(
+            table,
+            root_path=str(dataset_root),
+            partition_cols=partition_cols,
+            compression=self._compression,
+        )
+
+    @staticmethod
+    def _trade_to_row(trade: event_models.CanonicalTrade) -> dict[str, object]:
+        ts_event = time_utils.ensure_utc(trade.ts_event)
+        return {
+            "event_id": trade.event_id,
+            "instrument_id": trade.instrument_id,
+            "venue_id": trade.venue_id,
+            "event_type": trade.event_type.value,
+            "ts_event": ts_event,
+            "ts_record": time_utils.ensure_utc(trade.ts_record),
+            "schema_version": trade.schema_version,
+            "price": trade.price,
+            "size": trade.size,
+            "side": trade.side.value,
+            "trade_id": trade.trade_id,
+            "venue": trade.venue_id,
+            "date": ts_event.date().isoformat(),
+        }
+
+    @staticmethod
+    def _book_to_row(book: event_models.CanonicalBookSnapshot) -> dict[str, object]:
+        ts_event = time_utils.ensure_utc(book.ts_event)
+        return {
+            "event_id": book.event_id,
+            "instrument_id": book.instrument_id,
+            "venue_id": book.venue_id,
+            "event_type": book.event_type.value,
+            "ts_event": ts_event,
+            "ts_record": time_utils.ensure_utc(book.ts_record),
+            "schema_version": book.schema_version,
+            "bids_json": _encode_price_levels(book.bids),
+            "asks_json": _encode_price_levels(book.asks),
+            "venue": book.venue_id,
+            "date": ts_event.date().isoformat(),
+            "hour": ts_event.strftime("%H"),
+        }
+
+    @staticmethod
+    def _ohlcv_to_row(candle: event_models.CanonicalOHLCV) -> dict[str, object]:
+        ts_event = time_utils.ensure_utc(candle.ts_event)
+        return {
+            "event_id": candle.event_id,
+            "instrument_id": candle.instrument_id,
+            "venue_id": candle.venue_id,
+            "event_type": candle.event_type.value,
+            "ts_event": ts_event,
+            "ts_record": time_utils.ensure_utc(candle.ts_record),
+            "schema_version": candle.schema_version,
+            "open": candle.open,
+            "high": candle.high,
+            "low": candle.low,
+            "close": candle.close,
+            "volume": candle.volume,
+            "resolution": candle.resolution,
+            "venue": candle.venue_id,
+            "date": ts_event.date().isoformat(),
+        }
+
+
+def _encode_price_levels(levels: list[event_models.PriceLevel]) -> str:
+    payload = [{"price": str(level.price), "size": str(level.size)} for level in levels]
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
+__all__ = ["ParquetEventWriter"]

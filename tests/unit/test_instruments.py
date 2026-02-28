@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -95,7 +96,7 @@ def test_market_master_load_and_get_lookups() -> None:
     master = instruments_master.MarketMaster()
     markets = _load_market_specs()
 
-    loaded = master.load_from_exchange(_MockAdapter(markets))
+    loaded = asyncio.run(master.load_from_exchange(_MockAdapter(markets)))
 
     assert loaded == len(markets)
     market = master.get_market("polymarket:us-pres-2028-winner")
@@ -108,7 +109,7 @@ def test_market_master_load_and_get_lookups() -> None:
 
 def test_market_master_get_market_returns_defensive_copy() -> None:
     master = instruments_master.MarketMaster()
-    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+    asyncio.run(master.load_from_exchange(_MockAdapter(_load_market_specs())))
 
     canonical_market_id = "polymarket:us-pres-2028-winner"
     market = master.get_market(canonical_market_id)
@@ -123,7 +124,7 @@ def test_market_master_get_market_returns_defensive_copy() -> None:
 
 def test_market_master_get_outcome_returns_defensive_copy() -> None:
     master = instruments_master.MarketMaster()
-    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+    asyncio.run(master.load_from_exchange(_MockAdapter(_load_market_specs())))
 
     canonical_outcome_id = "polymarket:us-pres-2028-winner:yes"
     outcome = master.get_outcome(canonical_outcome_id)
@@ -138,7 +139,7 @@ def test_market_master_get_outcome_returns_defensive_copy() -> None:
 
 def test_market_master_search_returns_defensive_copies() -> None:
     master = instruments_master.MarketMaster()
-    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+    asyncio.run(master.load_from_exchange(_MockAdapter(_load_market_specs())))
 
     results = master.search(venue="polymarket")
     assert results
@@ -171,21 +172,21 @@ def test_market_master_register_market_replaces_stale_outcomes() -> None:
 
 def test_market_master_search_filters_by_venue_category_and_lifecycle() -> None:
     master = instruments_master.MarketMaster()
-    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+    asyncio.run(master.load_from_exchange(_MockAdapter(_load_market_specs())))
 
     by_venue = master.search(venue="polymarket")
     by_category = master.search(category="politics")
     by_lifecycle = master.search(lifecycle=instrument_models.MarketLifecycle.HALTED)
 
-    assert len(by_venue) == 2
-    assert len(by_category) == 2
+    assert len(by_venue) == 4
+    assert len(by_category) == 3
     assert len(by_lifecycle) == 1
     assert by_lifecycle[0].market_id == "btc-above-100k-2026"
 
 
 def test_market_master_search_matches_text_query() -> None:
     master = instruments_master.MarketMaster()
-    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+    asyncio.run(master.load_from_exchange(_MockAdapter(_load_market_specs())))
 
     results = master.search(query="threshold")
 
@@ -195,7 +196,7 @@ def test_market_master_search_matches_text_query() -> None:
 
 def test_market_master_update_lifecycle_enforces_state_machine() -> None:
     master = instruments_master.MarketMaster()
-    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+    asyncio.run(master.load_from_exchange(_MockAdapter(_load_market_specs())))
 
     canonical_market_id = "polymarket:btc-above-100k-2026"
     master.update_lifecycle(canonical_market_id, instrument_models.MarketLifecycle.RESOLVED)
@@ -213,15 +214,15 @@ def test_market_master_snapshot_is_deterministic() -> None:
 
     first = instruments_master.MarketMaster()
     second = instruments_master.MarketMaster()
-    first.load_from_exchange(_MockAdapter(markets))
-    second.load_from_exchange(_MockAdapter(list(reversed(markets))))
+    asyncio.run(first.load_from_exchange(_MockAdapter(markets)))
+    asyncio.run(second.load_from_exchange(_MockAdapter(list(reversed(markets)))))
 
     assert first.snapshot() == second.snapshot()
 
 
 def test_market_master_persist_restore_roundtrip(tmp_path: Path) -> None:
     source = instruments_master.MarketMaster()
-    source.load_from_exchange(_MockAdapter(_load_market_specs()))
+    asyncio.run(source.load_from_exchange(_MockAdapter(_load_market_specs())))
 
     snapshot_path = tmp_path / "market_master.parquet"
     source.persist(snapshot_path)
@@ -236,7 +237,7 @@ def test_find_cross_venue_groups_matches_equivalent_titles() -> None:
     groups = symbology.find_cross_venue_groups(_load_market_specs())
 
     assert len(groups) == 1
-    assert {market.venue for market in groups[0]} == {"myriad", "polymarket"}
+    assert {market.venue for market in groups[0]} == {"kalshi", "limitless", "polymarket"}
 
 
 def test_make_canonical_outcome_id_rejects_reserved_separator_in_components() -> None:

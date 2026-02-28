@@ -40,10 +40,10 @@ Deliver the **repo scaffold, canonical data model, instrument master, configurat
 
 ### Implementation Status (as of February 28, 2026)
 
-- Current stage: **F5 (pmxt Adapter Layer), implemented and hardened**
-- Completed steps: **F1, F2, F3, F4, F5**
-- Remaining foundation steps: **F6**
-- Current quality gate snapshot: `ruff check .`, `mypy libs/core`, and `pytest -q` passing locally (122 tests)
+- Current stage: **F6 (Storage Layer & Local Docker), implemented**
+- Completed steps: **F1, F2, F3, F4, F5, F6**
+- Remaining foundation steps: **None**
+- Current quality gate snapshot: `ruff check .` and `mypy libs/core --strict` passing locally; `pytest -q` passes with DuckDB-dependent storage integration tests auto-skipped when `duckdb` is not installed
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 
 ---
@@ -123,7 +123,6 @@ The Foundation Stage delivers **exactly** the following (no more, no less):
 alpha-research-lab-private/
 ├── README.md
 ├── pyproject.toml                        # PEP 621 project metadata, dependencies, tool config
-├── setup.cfg                             # flake8 / mypy overrides if needed
 ├── .pre-commit-config.yaml               # pre-commit hooks (ruff, mypy, pytest)
 ├── .github/
 │   └── workflows/
@@ -157,15 +156,6 @@ alpha-research-lab-private/
 │           │   ├── base.py               # Abstract VenueAdapter interface
 │           │   ├── pmxt_adapter.py        # pmxt.Exchange → canonical model mapper
 │           │   └── venue_configs.py      # Per-venue quirks / normalization rules
-│           ├── execution/
-│           │   ├── __init__.py
-│           │   └── models.py             # OrderIntent, ExecutionReport, Fill (skeletons)
-│           ├── portfolio/
-│           │   ├── __init__.py
-│           │   └── models.py             # PositionState, PortfolioState (skeletons)
-│           ├── features/
-│           │   ├── __init__.py
-│           │   └── primitives.py         # Feature computation stubs
 │           ├── storage/
 │           │   ├── __init__.py
 │           │   ├── conventions.py        # Partition schemes, tier definitions
@@ -180,8 +170,7 @@ alpha-research-lab-private/
 │           └── utils/
 │               ├── __init__.py
 │               ├── time.py               # Timestamp normalization, timezone handling
-│               ├── ids.py                # Deterministic ID generation
-│               └── logging.py            # Structured logging setup
+│               └── ids.py                # Deterministic ID generation
 ├── apps/
 │   ├── data_collector/                   # Entrypoint A stub
 │   │   ├── __init__.py
@@ -191,9 +180,7 @@ alpha-research-lab-private/
 │   │   └── main.py
 │   └── research/                         # Entrypoint C stub
 │       ├── __init__.py
-│       ├── main.py
-│       └── notebooks/
-│           └── .gitkeep
+│       └── main.py
 ├── tests/
 │   ├── conftest.py                       # Shared fixtures (mock exchanges, sample data)
 │   ├── unit/
@@ -215,8 +202,6 @@ alpha-research-lab-private/
 │   └── docker/
 │       └── docker-compose.yml            # Local dev services scaffold
 ├── data/
-│   ├── samples/                          # Tiny datasets for CI
-│   │   └── .gitkeep
 │   └── schemas/
 │       └── canonical_event_v1.json       # JSON Schema for canonical events
 ├── docs/
@@ -465,7 +450,7 @@ scripts/bootstrap.sh, scripts/validate_env.py
    ```python
    class MarketMaster:
        """In-memory registry of known markets + outcomes with persistence."""
-       def load_from_exchange(self, adapter: VenueAdapter) -> int:
+       async def load_from_exchange(self, adapter: VenueAdapter) -> int:
            """Fetch & register all markets from an exchange. Returns count."""
        def get_market(self, canonical_id: str) -> MarketSpec | None
        def get_outcome(self, canonical_id: str) -> OutcomeSpec | None
@@ -672,10 +657,13 @@ scripts/bootstrap.sh, scripts/validate_env.py
   - Write 100 trades → correct Parquet partitions created
   - Read with date filter → only relevant partitions scanned
   - Schema matches expected columns + types
+  - Book snapshots partition by `venue/date/hour` as expected
+  - OHLCV bars partition by `venue/resolution/date` as expected
 - `tests/integration/test_storage_roundtrip.py`:
   - Generate canonical events → write Parquet → read via DuckDB → compare
   - Bitemporal fields survive the round-trip
   - Empty dataset handling (no crash)
+  - `register_silver("books")` and `register_silver("ohlcv")` expose queryable views
 
 **Codebase After F6:** Full foundation structure as shown in Section 4.
 
@@ -911,7 +899,7 @@ How each subsequent stage builds on the Foundation:
 ### Evolution Summary
 
 ```
-F1 ─── F2 ─── F3 ─── F4 ─── F5 ─── F6    ← FOUNDATION (current implementation: F5, hardened as of 2026-02-28)
+F1 ─── F2 ─── F3 ─── F4 ─── F5 ─── F6    ← FOUNDATION (current implementation: F6, hardened as of 2026-02-28)
  │      │      │      │      │      │
  │      │      │      │      │      └──── Storage + Docker + App stubs
  │      │      │      │      └─────────── pmxt Adapter layer

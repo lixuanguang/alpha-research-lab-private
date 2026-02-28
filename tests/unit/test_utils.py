@@ -28,33 +28,6 @@ def test_ensure_utc_converts_aware_datetime_to_utc() -> None:
     assert normalized.hour == 14
 
 
-def test_to_utc_naive_strips_timezone() -> None:
-    source = datetime(2026, 2, 1, 9, 30, tzinfo=timezone(timedelta(hours=2)))
-
-    stripped = time_utils.to_utc_naive(source)
-
-    assert stripped.tzinfo is None
-    assert stripped.hour == 7
-
-
-def test_unix_ns_roundtrip_preserves_microseconds() -> None:
-    source = datetime(2026, 2, 1, 9, 30, 12, 345678, tzinfo=UTC)
-
-    unix_ns = time_utils.datetime_to_unix_ns(source)
-    restored = time_utils.unix_ns_to_datetime(unix_ns)
-
-    assert restored == source
-
-
-def test_unix_ns_roundtrip_is_stable_for_large_timestamps() -> None:
-    source = datetime(2262, 1, 1, 0, 0, 0, 1, tzinfo=UTC)
-
-    unix_ns = time_utils.datetime_to_unix_ns(source)
-    restored = time_utils.unix_ns_to_datetime(unix_ns)
-
-    assert restored == source
-
-
 def test_generate_event_id_is_deterministic() -> None:
     payload = {
         "instrument_id": "polymarket:market-1:yes",

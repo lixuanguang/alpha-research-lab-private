@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
-import inspect
-from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Protocol
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
@@ -31,17 +28,19 @@ class MarketMaster:
         self._markets: dict[str, instrument_models.MarketSpec] = {}
         self._outcomes: dict[str, instrument_models.OutcomeSpec] = {}
 
-    def load_from_exchange(self, adapter: VenueAdapter) -> int:
+    async def load_from_exchange(self, adapter: VenueAdapter) -> int:
         """Fetch and register all markets from an exchange adapter."""
-        fetched = adapter.fetch_markets()
-        markets = self._resolve_fetch_result(fetched)
+        markets = await adapter.fetch_markets()
 
-        registered_count = 0
-        for market in markets:
+        for index, market in enumerate(markets):
+            if not isinstance(market, instrument_models.MarketSpec):
+                raise TypeError(
+                    "`fetch_markets()` returned non-MarketSpec item at "
+                    f"index {index}: {type(market).__name__}"
+                )
             self.register_market(market)
-            registered_count += 1
 
-        return registered_count
+        return len(markets)
 
     def register_market(self, market: instrument_models.MarketSpec) -> str:
         """Register a market and all outcomes, returning canonical market id."""
@@ -205,38 +204,6 @@ class MarketMaster:
                     "Persisted canonical market id does not match normalized market payload: "
                     f"{canonical_market_id} != {registered_market_id}"
                 )
-
-    @staticmethod
-    def _resolve_fetch_result(fetched: object) -> list[instrument_models.MarketSpec]:
-        if inspect.isawaitable(fetched):
-            return _run_awaitable(fetched)
-        if isinstance(fetched, list):
-            for index, market in enumerate(fetched):
-                if not isinstance(market, instrument_models.MarketSpec):
-                    raise TypeError(
-                        "`fetch_markets()` returned non-MarketSpec item at "
-                        f"index {index}: {type(market).__name__}"
-                    )
-            return cast(list[instrument_models.MarketSpec], fetched)
-        raise TypeError("`fetch_markets()` must return `list[MarketSpec]` or an awaitable")
-
-
-def _run_awaitable(awaitable: object) -> list[instrument_models.MarketSpec]:
-    if not inspect.isawaitable(awaitable):
-        raise TypeError("Expected awaitable market fetch result")
-
-    typed_awaitable = cast(Coroutine[Any, Any, list[instrument_models.MarketSpec]], awaitable)
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(typed_awaitable)
-
-    raise RuntimeError(
-        "`MarketMaster.load_from_exchange()` cannot execute awaitables while an event loop "
-        "is already running. Fetch markets in async code and call `register_market()` directly."
-    )
-
 
 def _matches_query(market: instrument_models.MarketSpec, query: str) -> bool:
     haystack_parts: list[str] = [market.title.lower()]

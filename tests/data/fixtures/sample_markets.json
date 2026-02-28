@@ -5,7 +5,11 @@
     "title": "Who will win the 2028 US presidential election?",
     "description": "Head-to-head market for 2028 election outcome",
     "category": "politics",
-    "tags": ["elections", "us", "president"],
+    "tags": [
+      "elections",
+      "us",
+      "president"
+    ],
     "outcomes": [
       {
         "outcome_id": "yes",
@@ -28,30 +32,65 @@
   },
   {
     "market_id": "us-pres-2028-winner",
-    "venue": "myriad",
+    "venue": "kalshi",
     "title": "Who will win the 2028 US presidential election?",
-    "description": "Equivalent election winner market",
+    "description": "Equivalent election winner market on Kalshi",
     "category": "politics",
-    "tags": ["elections", "us", "president"],
+    "tags": [
+      "elections",
+      "us",
+      "president"
+    ],
     "outcomes": [
       {
         "outcome_id": "yes",
         "label": "Yes",
-        "canonical_id": "myriad:us-pres-2028-winner:yes"
+        "canonical_id": "kalshi:us-pres-2028-winner:yes"
       },
       {
         "outcome_id": "no",
         "label": "No",
-        "canonical_id": "myriad:us-pres-2028-winner:no"
+        "canonical_id": "kalshi:us-pres-2028-winner:no"
       }
     ],
     "resolution_date": "2028-11-08T00:00:00Z",
     "lifecycle": "active",
-    "volume": "95000.2",
-    "liquidity": "64000.1",
-    "url": "https://myriad.markets/markets/us-pres-2028-winner",
+    "volume": "102500.1",
+    "liquidity": "76000.4",
+    "url": "https://kalshi.com/markets/us-pres-2028-winner",
     "first_seen": "2026-02-20T12:01:00Z",
     "last_updated": "2026-02-20T12:01:00Z"
+  },
+  {
+    "market_id": "us-pres-2028-winner",
+    "venue": "limitless",
+    "title": "Who will win the 2028 US presidential election?",
+    "description": "Equivalent election winner market on Limitless",
+    "category": "politics",
+    "tags": [
+      "elections",
+      "us",
+      "president"
+    ],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "limitless:us-pres-2028-winner:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "limitless:us-pres-2028-winner:no"
+      }
+    ],
+    "resolution_date": "2028-11-08T00:00:00Z",
+    "lifecycle": "active",
+    "volume": "89000.2",
+    "liquidity": "61000.3",
+    "url": "https://limitless.xyz/markets/us-pres-2028-winner",
+    "first_seen": "2026-02-20T12:02:00Z",
+    "last_updated": "2026-02-20T12:02:00Z"
   },
   {
     "market_id": "btc-above-100k-2026",
@@ -59,7 +98,11 @@
     "title": "Will BTC close above $100k by 2026-12-31?",
     "description": "Crypto threshold market",
     "category": "crypto",
-    "tags": ["btc", "crypto", "threshold"],
+    "tags": [
+      "btc",
+      "crypto",
+      "threshold"
+    ],
     "outcomes": [
       {
         "outcome_id": "yes",
@@ -79,5 +122,191 @@
     "url": "https://polymarket.com/markets/btc-above-100k-2026",
     "first_seen": "2026-02-22T10:00:00Z",
     "last_updated": "2026-02-22T11:00:00Z"
+  },
+  {
+    "market_id": "fed-cut-june-2026",
+    "venue": "kalshi",
+    "title": "Will the Fed cut rates by June 2026?",
+    "description": "Federal Reserve policy decision market",
+    "category": "macro",
+    "tags": [
+      "rates",
+      "fed",
+      "macro"
+    ],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "kalshi:fed-cut-june-2026:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "kalshi:fed-cut-june-2026:no"
+      }
+    ],
+    "resolution_date": "2026-06-30T23:59:59Z",
+    "lifecycle": "active",
+    "volume": "18000",
+    "liquidity": "7100",
+    "url": "https://kalshi.com/markets/fed-cut-june-2026",
+    "first_seen": "2026-02-23T09:00:00Z",
+    "last_updated": "2026-02-23T09:00:00Z"
+  },
+  {
+    "market_id": "inflation-above-4-2026",
+    "venue": "limitless",
+    "title": "Will US CPI print above 4% in December 2026?",
+    "description": "Inflation outcome market",
+    "category": "macro",
+    "tags": [
+      "inflation",
+      "cpi",
+      "macro"
+    ],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "limitless:inflation-above-4-2026:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "limitless:inflation-above-4-2026:no"
+      }
+    ],
+    "resolution_date": "2026-12-31T23:59:59Z",
+    "lifecycle": "active",
+    "volume": "14500",
+    "liquidity": "5900",
+    "url": "https://limitless.xyz/markets/inflation-above-4-2026",
+    "first_seen": "2026-02-23T09:30:00Z",
+    "last_updated": "2026-02-23T09:30:00Z"
+  },
+  {
+    "market_id": "us-gdp-growth-above-3-2026",
+    "venue": "polymarket",
+    "title": "Will US GDP growth exceed 3% in 2026?",
+    "description": "Macro growth market",
+    "category": "macro",
+    "tags": [
+      "gdp",
+      "growth",
+      "macro"
+    ],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "polymarket:us-gdp-growth-above-3-2026:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "polymarket:us-gdp-growth-above-3-2026:no"
+      }
+    ],
+    "resolution_date": "2026-12-31T23:59:59Z",
+    "lifecycle": "active",
+    "volume": "16300",
+    "liquidity": "6300",
+    "url": "https://polymarket.com/markets/us-gdp-growth-above-3-2026",
+    "first_seen": "2026-02-24T08:00:00Z",
+    "last_updated": "2026-02-24T08:00:00Z"
+  },
+  {
+    "market_id": "ai-chip-export-controls-2026",
+    "venue": "kalshi",
+    "title": "Will new AI chip export controls be enacted in 2026?",
+    "description": "Policy market around semiconductor exports",
+    "category": "geopolitics",
+    "tags": [
+      "ai",
+      "chips",
+      "policy"
+    ],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "kalshi:ai-chip-export-controls-2026:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "kalshi:ai-chip-export-controls-2026:no"
+      }
+    ],
+    "resolution_date": "2026-12-31T23:59:59Z",
+    "lifecycle": "active",
+    "volume": "9800",
+    "liquidity": "4000",
+    "url": "https://kalshi.com/markets/ai-chip-export-controls-2026",
+    "first_seen": "2026-02-24T08:30:00Z",
+    "last_updated": "2026-02-24T08:30:00Z"
+  },
+  {
+    "market_id": "spx-above-6500-2026",
+    "venue": "limitless",
+    "title": "Will the S&P 500 close above 6500 by end of 2026?",
+    "description": "US equity index target market",
+    "category": "equities",
+    "tags": [
+      "spx",
+      "equities",
+      "target"
+    ],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "limitless:spx-above-6500-2026:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "limitless:spx-above-6500-2026:no"
+      }
+    ],
+    "resolution_date": "2026-12-31T23:59:59Z",
+    "lifecycle": "active",
+    "volume": "13400",
+    "liquidity": "5200",
+    "url": "https://limitless.xyz/markets/spx-above-6500-2026",
+    "first_seen": "2026-02-24T09:00:00Z",
+    "last_updated": "2026-02-24T09:00:00Z"
+  },
+  {
+    "market_id": "eth-above-8k-2026",
+    "venue": "polymarket",
+    "title": "Will ETH close above $8k by 2026-12-31?",
+    "description": "Crypto large-cap target market",
+    "category": "crypto",
+    "tags": [
+      "eth",
+      "crypto",
+      "target"
+    ],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "polymarket:eth-above-8k-2026:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "polymarket:eth-above-8k-2026:no"
+      }
+    ],
+    "resolution_date": "2026-12-31T23:59:59Z",
+    "lifecycle": "active",
+    "volume": "22000",
+    "liquidity": "9100",
+    "url": "https://polymarket.com/markets/eth-above-8k-2026",
+    "first_seen": "2026-02-24T09:30:00Z",
+    "last_updated": "2026-02-24T09:30:00Z"
   }
 ]

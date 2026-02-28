@@ -164,10 +164,10 @@ def test_fetch_trades_rejects_ambiguous_non_canonical_outcome_id(
         },
     ]
 
-    _ = asyncio.run(adapter.fetch_markets())
+    asyncio.run(adapter.fetch_markets())
 
     with pytest.raises(ValueError, match="Ambiguous non-canonical `outcome_id`"):
-        _ = asyncio.run(adapter.fetch_trades("yes"))
+        asyncio.run(adapter.fetch_trades("yes"))
 
 
 def test_fetch_trades_skips_null_price_trades(
@@ -381,7 +381,7 @@ def test_rejection_counters_can_be_reset(monkeypatch: pytest.MonkeyPatch) -> Non
     exchange = _exchange(adapter)
     exchange._trades = [{"id": "x", "timestamp": "2026-02-28T10:00:00Z", "price": None, "size": 1}]
 
-    _ = asyncio.run(adapter.fetch_trades("kalshi:market-a:yes"))
+    asyncio.run(adapter.fetch_trades("kalshi:market-a:yes"))
     assert adapter.rejection_counters()["trades.invalid_payload"] == 1
 
     adapter.reset_rejection_counters()
@@ -398,6 +398,18 @@ def test_fetch_ohlcv_normalizes_unknown_resolution(monkeypatch: pytest.MonkeyPat
 
     assert len(candles) == 1
     assert candles[0].resolution == "1h"
+
+
+def test_normalize_price_keeps_probability_values_when_price_scale_is_gt_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_mock_pmxt(monkeypatch)
+    adapter = pmxt_adapter.PmxtAdapter("kalshi", _config("kalshi", "Kalshi"))
+
+    adapter._quirks = type("Quirks", (), {"price_scale": Decimal("100")})()
+
+    assert adapter._normalize_price(Decimal("0.65")) == Decimal("0.65")
+    assert adapter._normalize_price(Decimal("65")) == Decimal("0.65")
 
 
 @pytest.mark.perf
