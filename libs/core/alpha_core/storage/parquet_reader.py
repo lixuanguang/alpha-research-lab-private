@@ -25,35 +25,80 @@ class ParquetEventReader:
         end: datetime | None,
     ) -> pa.Table:
         """Read canonical trades with partition-prunable filters."""
+        return self._read_dataset(
+            dataset_name=storage_conventions.TRADE_DATASET_NAME,
+            schema=storage_conventions.TRADE_PARQUET_SCHEMA,
+            filter_expr=_build_time_filter(venue=venue, start=start, end=end),
+        )
+
+    def read_books(
+        self,
+        venue: str | None,
+        start: datetime | None,
+        end: datetime | None,
+    ) -> pa.Table:
+        """Read canonical order book snapshots with partition-prunable filters."""
+        return self._read_dataset(
+            dataset_name=storage_conventions.BOOK_DATASET_NAME,
+            schema=storage_conventions.BOOK_PARQUET_SCHEMA,
+            filter_expr=_build_time_filter(venue=venue, start=start, end=end),
+        )
+
+    def read_ohlcv(
+        self,
+        venue: str | None,
+        resolution: str | None,
+        start: datetime | None,
+        end: datetime | None,
+    ) -> pa.Table:
+        """Read canonical OHLCV bars with partition-prunable filters."""
+        return self._read_dataset(
+            dataset_name=storage_conventions.OHLCV_DATASET_NAME,
+            schema=storage_conventions.OHLCV_PARQUET_SCHEMA,
+            filter_expr=_build_time_filter(
+                venue=venue,
+                start=start,
+                end=end,
+                resolution=resolution,
+            ),
+        )
+
+    def _read_dataset(
+        self,
+        *,
+        dataset_name: str,
+        schema: pa.Schema,
+        filter_expr: ds.Expression | None,
+    ) -> pa.Table:
         dataset_root = storage_conventions.dataset_root(
             self._storage_root,
             storage_conventions.StorageTier.SILVER,
-            storage_conventions.TRADE_DATASET_NAME,
+            dataset_name,
         )
-
         if not dataset_root.exists():
-            return pa.Table.from_pylist([], schema=storage_conventions.TRADE_PARQUET_SCHEMA)
+            return pa.Table.from_pylist([], schema=schema)
 
         dataset = ds.dataset(str(dataset_root), format="parquet", partitioning="hive")
-        filter_expr = _build_trade_filter(venue=venue, start=start, end=end)
         table = dataset.to_table(filter=filter_expr)
-
         if table.num_rows == 0:
-            return pa.Table.from_pylist([], schema=storage_conventions.TRADE_PARQUET_SCHEMA)
+            return pa.Table.from_pylist([], schema=schema)
 
-        selected = table.select(storage_conventions.TRADE_PARQUET_SCHEMA.names)
-        return selected.cast(storage_conventions.TRADE_PARQUET_SCHEMA, safe=False)
+        selected = table.select(schema.names)
+        return selected.cast(schema, safe=False)
 
 
-def _build_trade_filter(
+def _build_time_filter(
     venue: str | None,
     start: datetime | None,
     end: datetime | None,
+    resolution: str | None = None,
 ) -> ds.Expression | None:
     expressions: list[ds.Expression] = []
 
     if venue is not None:
         expressions.append(ds.field("venue") == venue.strip().lower())
+    if resolution is not None:
+        expressions.append(ds.field("resolution") == resolution.strip())
 
     if start is not None:
         start_utc = time_utils.ensure_utc(start)

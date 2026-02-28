@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,8 +36,15 @@ class EventQualityChecker:
 
     def check(self, event: event_models.CanonicalMarketEvent) -> QualityReport:
         issues: list[QualityIssue] = []
+        ts_event = _safe_getattr(event, "ts_event")
+        ts_record = _safe_getattr(event, "ts_record")
+        instrument_id = _safe_getattr(event, "instrument_id")
 
-        if event.ts_event > event.ts_record:
+        if (
+            isinstance(ts_event, datetime)
+            and isinstance(ts_record, datetime)
+            and ts_event > ts_record
+        ):
             issues.append(
                 QualityIssue(
                     code="bitemporal_order",
@@ -45,7 +53,9 @@ class EventQualityChecker:
             )
 
         for field_name, model_field in event.__class__.model_fields.items():
-            if model_field.is_required() and getattr(event, field_name) is None:
+            if not model_field.is_required():
+                continue
+            if _safe_getattr(event, field_name) is None:
                 issues.append(
                     QualityIssue(
                         code="required_null",
@@ -53,7 +63,11 @@ class EventQualityChecker:
                     )
                 )
 
-        if isinstance(event, event_models.CanonicalTrade) and not (0 <= event.price <= 1):
+        if (
+            isinstance(event, event_models.CanonicalTrade)
+            and _safe_getattr(event, "price") is not None
+            and not (0 <= event.price <= 1)
+        ):
             issues.append(
                 QualityIssue(
                     code="trade_price_bounds",
@@ -61,15 +75,23 @@ class EventQualityChecker:
                 )
             )
 
-        previous_ts = self._last_ts_by_instrument.get(event.instrument_id)
-        if previous_ts is not None and event.ts_event < previous_ts:
-            issues.append(
-                QualityIssue(
-                    code="non_monotonic_event_time",
-                    message="`ts_event` regressed for instrument stream",
+        if isinstance(instrument_id, str) and instrument_id and isinstance(ts_event, datetime):
+            previous_ts = self._last_ts_by_instrument.get(instrument_id)
+            if previous_ts is not None and ts_event < previous_ts:
+                issues.append(
+                    QualityIssue(
+                        code="non_monotonic_event_time",
+                        message="`ts_event` regressed for instrument stream",
+                    )
                 )
-            )
-        else:
-            self._last_ts_by_instrument[event.instrument_id] = event.ts_event
+            else:
+                self._last_ts_by_instrument[instrument_id] = ts_event
 
         return QualityReport(is_valid=not issues, issues=issues)
+
+
+def _safe_getattr(event: object, field_name: str) -> object | None:
+    try:
+        return cast(object, getattr(event, field_name))
+    except AttributeError:
+        return None

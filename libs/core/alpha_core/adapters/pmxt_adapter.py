@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import logging
 from collections import Counter
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import Any, cast
 
 from pydantic import ValidationError
@@ -68,7 +68,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         self._rejection_counts.clear()
 
     async def fetch_markets(self) -> list[instrument_models.MarketSpec]:
-        raw_markets = cast(list[object], self._invoke_exchange("fetch_markets"))
+        raw_markets = cast(list[object], await self._invoke_exchange("fetch_markets"))
         self._outcome_market_index.clear()
 
         dropped: Counter[str] = Counter()
@@ -97,7 +97,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         instrument_id = self._instrument_id(outcome_id)
         raw_trades = cast(
             list[object],
-            self._invoke_exchange(
+            await self._invoke_exchange(
                 "fetch_trades",
                 outcome_id,
                 since=since,
@@ -125,7 +125,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         return mapped
 
     async def fetch_order_book(self, outcome_id: str) -> event_models.CanonicalBookSnapshot:
-        raw_book = self._invoke_exchange("fetch_order_book", outcome_id)
+        raw_book = await self._invoke_exchange("fetch_order_book", outcome_id)
 
         ts_record = datetime.now(tz=UTC)
         ts_event = pmxt_parsing.coerce_event_time(
@@ -145,16 +145,21 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         }
 
         dropped: Counter[str] = Counter()
-        payload["bids"] = self._map_book_levels(
+        payload["bids"], bids_invalid = pmxt_mapping.map_book_levels(
             pmxt_parsing.pick(raw_book, "bids", default=[]),
             side="bids",
-            dropped=dropped,
+            quirks=self._quirks,
         )
-        payload["asks"] = self._map_book_levels(
+        payload["asks"], asks_invalid = pmxt_mapping.map_book_levels(
             pmxt_parsing.pick(raw_book, "asks", default=[]),
             side="asks",
-            dropped=dropped,
+            quirks=self._quirks,
         )
+
+        if bids_invalid:
+            self._record_rejection_count("book", "bids_invalid_level", bids_invalid, dropped)
+        if asks_invalid:
+            self._record_rejection_count("book", "asks_invalid_level", asks_invalid, dropped)
 
         book = event_models.CanonicalBookSnapshot.model_validate(payload)
         self._log_rejection_summary("book", dropped)
@@ -168,7 +173,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
     ) -> list[event_models.CanonicalOHLCV]:
         raw_ohlcv = cast(
             list[object],
-            self._invoke_exchange(
+            await self._invoke_exchange(
                 "fetch_ohlcv",
                 outcome_id,
                 resolution=resolution,
@@ -218,39 +223,32 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             outcome_market_index=self._outcome_market_index,
         )
 
-    def _normalize_price(self, price: Decimal) -> Decimal:
-        return pmxt_mapping.normalize_price(price, quirks=self._quirks)
-
-    def _map_book_levels(
-        self,
-        raw_levels: object,
-        *,
-        side: str,
-        dropped: Counter[str],
-    ) -> list[dict[str, Decimal]]:
-        if not isinstance(raw_levels, list):
-            self._record_rejection("book", f"{side}_not_list", dropped)
-            return []
-
-        levels: list[dict[str, Decimal]] = []
-        for raw_level in raw_levels:
-            mapped = pmxt_mapping.parse_book_level(raw_level, quirks=self._quirks)
-            if mapped is None:
-                self._record_rejection("book", f"{side}_invalid_level", dropped)
-                continue
-            levels.append(mapped)
-        return levels
-
-    def _invoke_exchange(self, method_name: str, *args: object, **kwargs: object) -> object:
+    async def _invoke_exchange(self, method_name: str, *args: object, **kwargs: object) -> object:
         method = getattr(self._exchange, method_name)
+        result: object
         if not kwargs:
-            return method(*args)
-        return method(*args, **pmxt_parsing.supported_kwargs(method, kwargs))
+            result = method(*args)
+        else:
+            result = method(*args, **pmxt_parsing.supported_kwargs(method, kwargs))
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     def _record_rejection(self, scope: str, reason: str, dropped: Counter[str]) -> None:
+        self._record_rejection_count(scope, reason, 1, dropped)
+
+    def _record_rejection_count(
+        self,
+        scope: str,
+        reason: str,
+        count: int,
+        dropped: Counter[str],
+    ) -> None:
+        if count <= 0:
+            return
         key = f"{scope}.{reason}"
-        self._rejection_counts[key] += 1
-        dropped[reason] += 1
+        self._rejection_counts[key] += count
+        dropped[reason] += count
 
     def _log_rejection_summary(self, scope: str, dropped: Counter[str]) -> None:
         if not dropped:

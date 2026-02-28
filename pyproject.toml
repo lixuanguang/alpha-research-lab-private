@@ -129,7 +129,7 @@ markers = [
     "perf: performance-sensitive benchmark-style tests",
 ]
 # Add libs/core so tests can import alpha_core without extra env setup.
-pythonpath = ["libs/core"]
+pythonpath = [".", "libs/core"]
 # Explicit asyncio fixture loop scope to avoid pytest-asyncio deprecation behavior changes.
 asyncio_default_fixture_loop_scope = "function"
 

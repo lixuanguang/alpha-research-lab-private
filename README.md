@@ -11,7 +11,7 @@
 | Stage | Status | Tests | Docs |
 |---|---|---|---|
 | **Foundation** (F1–F6) | **Complete** | 138 passing | [Foundation Plan](docs/implementation/foundation-stage.md) |
-| **Data Plane MVP** (D1–D6) | **Next** | — | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
+| **Data Plane MVP** (D1–D6) | **In Progress (D1 complete)** | 158 passing | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
 | Research Plane MVP | Planned | — | — |
 | Live Plane MVP | Planned | — | — |
 | Observability Baseline | Planned | — | — |
@@ -19,9 +19,9 @@
 
 **Quality gates (as of March 1, 2026):**
 - `ruff check .` — 0 errors
-- `mypy libs/core --strict` — passing (minor `duckdb` optional-import notes)
-- `pytest -q` — 138 passed in < 1s
-- Test coverage ≥ 85% on `libs/core/`
+- `mypy libs/ apps/ --strict` — passing
+- `pytest -q` — 165 passed, 3 skipped in ~2s
+- Test coverage: 89.80% (`libs/core/alpha_core` + `apps/data_collector`)
 
 ---
 
@@ -33,7 +33,7 @@ cd alpha-research-lab-private
 pip install -e ".[dev]"
 pre-commit install
 python scripts/validate_env.py
-pytest tests/ -v --cov=libs/core/alpha_core
+pytest tests/ -v --cov=alpha_core --cov=apps/data_collector
 ```
 
 ---
@@ -109,7 +109,7 @@ Kalshi · KalshiDemo · Polymarket · Limitless · Baozi · Myriad · Probable
 |---|---|
 | Formatting | `ruff format` (100 char lines) |
 | Linting | `ruff check` — E/F/I/W/UP/RUF |
-| Types | `mypy --strict` on `libs/core/` |
+| Types | `mypy --strict` on `libs/` and `apps/` |
 | Models | Pydantic v2, `Decimal` for prices, UTC `datetime` always |
 | Tests | `pytest`, no network calls in CI, fixtures in `tests/data/` |
 | Branching | `main` ← `feature/...`, conventional commits |

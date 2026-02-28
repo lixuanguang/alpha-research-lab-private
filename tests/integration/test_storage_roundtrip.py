@@ -135,3 +135,17 @@ def test_duckdb_query_rejects_non_read_only_sql(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Only read-only queries are allowed"):
         analytics.query("CREATE TABLE forbidden_table (id INTEGER)")
+
+
+def test_duckdb_query_rejects_unregistered_relations(tmp_path: Path) -> None:
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    with pytest.raises(ValueError, match="registered silver views"):
+        analytics.query("SELECT * FROM non_registered_source")
+
+
+def test_duckdb_query_rejects_table_functions(tmp_path: Path) -> None:
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    with pytest.raises(ValueError, match="Table functions are not allowed"):
+        analytics.query("SELECT * FROM read_parquet('/tmp/arbitrary.parquet')")

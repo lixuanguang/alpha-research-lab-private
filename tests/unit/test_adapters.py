@@ -36,6 +36,20 @@ class _MockExchange:
         return self._ohlcv
 
 
+class _AsyncMockExchange(_MockExchange):
+    async def fetch_markets(self) -> list[object]:
+        return super().fetch_markets()
+
+    async def fetch_trades(self, *args: object, **kwargs: object) -> list[object]:
+        return super().fetch_trades(*args, **kwargs)
+
+    async def fetch_order_book(self, *args: object, **kwargs: object) -> object:
+        return super().fetch_order_book(*args, **kwargs)
+
+    async def fetch_ohlcv(self, *args: object, **kwargs: object) -> list[object]:
+        return super().fetch_ohlcv(*args, **kwargs)
+
+
 def _install_mock_pmxt(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_module = SimpleNamespace(
         Kalshi=_MockExchange,
@@ -47,6 +61,10 @@ def _install_mock_pmxt(monkeypatch: pytest.MonkeyPatch) -> None:
         Probable=_MockExchange,
     )
     monkeypatch.setattr(pmxt_adapter, "pmxt_module", mock_module)
+
+
+def _install_async_mock_pmxt(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pmxt_adapter, "pmxt_module", SimpleNamespace(Kalshi=_AsyncMockExchange))
 
 
 def _config(name: str, exchange_class: str) -> config_models.VenueConfig:
@@ -269,6 +287,10 @@ def test_fetch_order_book_skips_invalid_levels(
     assert counters["book.bids_invalid_level"] == 2
     assert counters["book.asks_invalid_level"] == 1
     assert any("scope=book" in record.getMessage() for record in caplog.records)
+    assert any(
+        "details={'asks_invalid_level': 1, 'bids_invalid_level': 2}" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_fetch_order_book_handles_out_of_range_numeric_timestamp(
@@ -400,16 +422,64 @@ def test_fetch_ohlcv_normalizes_unknown_resolution(monkeypatch: pytest.MonkeyPat
     assert candles[0].resolution == "1h"
 
 
-def test_normalize_price_keeps_probability_values_when_price_scale_is_gt_one(
+def test_fetch_trades_normalizes_scaled_prices_when_price_scale_is_gt_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_mock_pmxt(monkeypatch)
     adapter = pmxt_adapter.PmxtAdapter("kalshi", _config("kalshi", "Kalshi"))
+    exchange = _exchange(adapter)
+    exchange._trades = [
+        {
+            "id": "trade-1",
+            "timestamp": "2026-02-28T10:00:00Z",
+            "price": "65",
+            "size": "10",
+            "side": "buy",
+        }
+    ]
 
-    adapter._quirks = type("Quirks", (), {"price_scale": Decimal("100")})()
+    adapter._quirks = type(
+        "Quirks",
+        (),
+        {"price_scale": Decimal("100"), "side_aliases": {"buy": "buy", "sell": "sell"}},
+    )()
 
-    assert adapter._normalize_price(Decimal("0.65")) == Decimal("0.65")
-    assert adapter._normalize_price(Decimal("65")) == Decimal("0.65")
+    trades = asyncio.run(adapter.fetch_trades("kalshi:market-a:yes"))
+
+    assert [trade.price for trade in trades] == [Decimal("0.65")]
+
+
+def test_adapter_awaits_async_exchange_methods(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_async_mock_pmxt(monkeypatch)
+    adapter = pmxt_adapter.PmxtAdapter("kalshi", _config("kalshi", "Kalshi"))
+    exchange = _exchange(adapter)
+    exchange._markets = [
+        {
+            "id": "market-a",
+            "outcomes": [{"id": "yes", "label": "Yes"}],
+        }
+    ]
+    exchange._trades = [
+        {
+            "id": "trade-1",
+            "timestamp": "2026-02-28T10:00:00Z",
+            "price": "0.55",
+            "size": "10",
+            "side": "buy",
+        }
+    ]
+    exchange._book = {"timestamp": "2026-02-28T10:00:00Z", "bids": [["0.54", "1"]], "asks": []}
+    exchange._ohlcv = [["2026-02-28T10:00:00Z", "0.5", "0.6", "0.4", "0.55", "1"]]
+
+    markets = asyncio.run(adapter.fetch_markets())
+    trades = asyncio.run(adapter.fetch_trades("kalshi:market-a:yes"))
+    book = asyncio.run(adapter.fetch_order_book("kalshi:market-a:yes"))
+    candles = asyncio.run(adapter.fetch_ohlcv("kalshi:market-a:yes"))
+
+    assert len(markets) == 1
+    assert len(trades) == 1
+    assert len(book.bids) == 1
+    assert len(candles) == 1
 
 
 @pytest.mark.perf

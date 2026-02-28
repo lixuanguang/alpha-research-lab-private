@@ -181,6 +181,28 @@ def parse_book_level(
     return {"price": normalize_price(price, quirks=quirks), "size": size}
 
 
+def map_book_levels(
+    raw_levels: object,
+    *,
+    side: str,
+    quirks: venue_configs.VenueQuirks,
+) -> tuple[list[dict[str, Decimal]], int]:
+    """Map vendor book levels and return `(levels, invalid_count)` for one side."""
+    if not isinstance(raw_levels, list):
+        return [], 1
+
+    levels: list[dict[str, Decimal]] = []
+    invalid_count = 0
+    for raw_level in raw_levels:
+        mapped = parse_book_level(raw_level, quirks=quirks)
+        if mapped is None:
+            invalid_count += 1
+            continue
+        levels.append(mapped)
+
+    return levels, invalid_count
+
+
 def parse_ohlcv(
     raw: object,
     *,
@@ -224,12 +246,11 @@ def parse_ohlcv(
 
 
 def normalize_price(price: Decimal, *, quirks: venue_configs.VenueQuirks) -> Decimal:
-    scale = quirks.price_scale
-    if scale == 0:
+    if quirks.price_scale == 0:
         return price
     if price <= Decimal("1"):
         return price
-    return price / scale
+    return price / quirks.price_scale
 
 
 def map_side(raw_side: object, *, quirks: venue_configs.VenueQuirks) -> event_models.TradeSide:

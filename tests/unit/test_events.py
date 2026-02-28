@@ -246,3 +246,24 @@ def test_quality_checker_flags_bitemporal_order_violation() -> None:
 
     assert report.is_valid is False
     assert any(issue.code == "bitemporal_order" for issue in report.issues)
+
+
+def test_quality_checker_handles_missing_required_fields_without_crashing() -> None:
+    checker = event_quality.EventQualityChecker()
+    malformed_trade = event_models.CanonicalTrade.model_construct(
+        event_id="trade-invalid-missing-size",
+        instrument_id="polymarket:market-1:yes",
+        venue_id="polymarket",
+        event_type=event_models.EventType.TRADE,
+        ts_event=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+        ts_record=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),
+        schema_version=event_schema_version.CANONICAL_EVENT_SCHEMA_VERSION,
+        price=Decimal("0.61"),
+        side=event_models.TradeSide.BUY,
+        trade_id="trade-126",
+    )
+
+    report = checker.check(malformed_trade)
+
+    assert report.is_valid is False
+    assert any("`size`" in issue.message for issue in report.issues)

@@ -11,6 +11,7 @@ import pytest
 
 import alpha_core.events.models as event_models
 import alpha_core.storage.conventions as storage_conventions
+import alpha_core.storage.duckdb_layer as duckdb_layer
 import alpha_core.storage.parquet_reader as parquet_reader
 import alpha_core.storage.parquet_writer as parquet_writer
 import alpha_core.utils.ids as ids_utils
@@ -195,6 +196,29 @@ def test_write_books_creates_partitioned_paths_with_hour(tmp_path: Path) -> None
     assert (dataset_root / "venue=kalshi" / "date=2026-02-28" / "hour=10").exists()
 
 
+def test_read_books_filters_by_venue_and_time_window(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    base_ts = datetime(2026, 2, 28, 9, 0, tzinfo=UTC)
+
+    writer.write_books(
+        [
+            _make_book(book_index=0, venue="kalshi", ts_event=base_ts),
+            _make_book(book_index=1, venue="kalshi", ts_event=base_ts + timedelta(hours=1)),
+            _make_book(book_index=2, venue="polymarket", ts_event=base_ts + timedelta(hours=1)),
+        ]
+    )
+
+    filtered = reader.read_books(
+        venue="kalshi",
+        start=base_ts,
+        end=base_ts + timedelta(minutes=30),
+    )
+
+    assert filtered.num_rows == 1
+    assert set(filtered.column("venue").to_pylist()) == {"kalshi"}
+
+
 def test_write_ohlcv_creates_partitioned_paths_with_resolution(tmp_path: Path) -> None:
     writer = parquet_writer.ParquetEventWriter(tmp_path)
     base_ts = datetime(2026, 2, 28, 9, 0, tzinfo=UTC)
@@ -227,6 +251,36 @@ def test_write_ohlcv_creates_partitioned_paths_with_resolution(tmp_path: Path) -
     assert (dataset_root / "venue=polymarket" / "resolution=1h" / "date=2026-02-28").exists()
     assert (dataset_root / "venue=polymarket" / "resolution=1h" / "date=2026-03-01").exists()
     assert (dataset_root / "venue=polymarket" / "resolution=5m" / "date=2026-02-28").exists()
+
+
+def test_read_ohlcv_filters_by_venue_resolution_and_time_window(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    base_ts = datetime(2026, 2, 28, 9, 0, tzinfo=UTC)
+
+    writer.write_ohlcv(
+        [
+            _make_ohlcv(candle_index=0, venue="kalshi", ts_event=base_ts, resolution="1h"),
+            _make_ohlcv(candle_index=1, venue="kalshi", ts_event=base_ts, resolution="5m"),
+            _make_ohlcv(
+                candle_index=2,
+                venue="polymarket",
+                ts_event=base_ts + timedelta(days=1),
+                resolution="1h",
+            ),
+        ]
+    )
+
+    filtered = reader.read_ohlcv(
+        venue="kalshi",
+        resolution="1h",
+        start=base_ts - timedelta(minutes=1),
+        end=base_ts + timedelta(minutes=1),
+    )
+
+    assert filtered.num_rows == 1
+    assert filtered.column("resolution").to_pylist() == ["1h"]
+    assert set(filtered.column("venue").to_pylist()) == {"kalshi"}
 
 
 def test_write_trades_with_empty_input_creates_dataset_root_without_files(tmp_path: Path) -> None:
@@ -295,3 +349,67 @@ def test_storage_conventions_dataset_root_and_partition_columns_are_consistent()
 def test_resolve_partition_columns_raises_for_unknown_dataset_key() -> None:
     with pytest.raises(KeyError, match="Unknown storage dataset key"):
         storage_conventions.resolve_partition_columns("unknown_dataset")
+
+
+def test_duckdb_source_validation_allows_registered_view_and_cte() -> None:
+    statement = (
+        "WITH recent AS (SELECT * FROM silver_trades) "
+        "SELECT * FROM recent JOIN silver_trades ON recent.trade_id = silver_trades.trade_id"
+    )
+    duckdb_layer._validate_allowed_query_sources(statement, {"silver_trades"})
+
+
+def test_duckdb_source_validation_rejects_unregistered_relation() -> None:
+    with pytest.raises(ValueError, match="Unknown relation"):
+        duckdb_layer._validate_allowed_query_sources(
+            "SELECT * FROM ad_hoc_table",
+            {"silver_trades"},
+        )
+
+
+def test_duckdb_source_validation_rejects_quoted_unregistered_relation() -> None:
+    with pytest.raises(ValueError, match="Unknown relation"):
+        duckdb_layer._validate_allowed_query_sources(
+            'SELECT * FROM "sqlite_master"',
+            {"silver_trades"},
+        )
+
+
+def test_duckdb_source_validation_allows_quoted_registered_relation() -> None:
+    duckdb_layer._validate_allowed_query_sources(
+        'SELECT * FROM "silver_trades"',
+        {"silver_trades"},
+    )
+
+
+def test_duckdb_source_validation_rejects_table_function() -> None:
+    with pytest.raises(ValueError, match="Table functions are not allowed"):
+        duckdb_layer._validate_allowed_query_sources(
+            "SELECT * FROM read_parquet('/tmp/any.parquet')",
+            {"silver_trades"},
+        )
+
+
+def test_duckdb_query_rejects_dml_inside_with_statement(tmp_path: Path) -> None:
+    if duckdb_layer.duckdb_module is None:
+        pytest.skip("duckdb is not installed")
+
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    with pytest.raises(ValueError, match="Disallowed SQL keyword"):
+        analytics.query(
+            "WITH staged AS (SELECT 1) "
+            "INSERT INTO forbidden_table SELECT * FROM staged"
+        )
+
+
+def test_duckdb_query_allows_keywords_inside_string_literals(tmp_path: Path) -> None:
+    if duckdb_layer.duckdb_module is None:
+        pytest.skip("duckdb is not installed")
+
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    table = analytics.query("SELECT 'drop table maybe' AS text_value")
+
+    assert table.num_rows == 1
+    assert table.column("text_value").to_pylist() == ["drop table maybe"]
