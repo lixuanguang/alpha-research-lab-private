@@ -46,6 +46,16 @@ class MarketMaster:
     def register_market(self, market: instrument_models.MarketSpec) -> str:
         """Register a market and all outcomes, returning canonical market id."""
         canonical_market_id = symbology.make_canonical_market_id(market.venue, market.market_id)
+        existing_market = self._markets.get(canonical_market_id)
+        if existing_market is not None:
+            for existing_outcome in existing_market.outcomes:
+                existing_canonical_id = symbology.make_canonical_outcome_id(
+                    existing_market.venue,
+                    existing_market.market_id,
+                    existing_outcome.outcome_id,
+                )
+                self._outcomes.pop(existing_canonical_id, None)
+
         stored_market = market.model_copy(deep=True)
         normalized_outcomes: list[instrument_models.OutcomeSpec] = []
 
@@ -69,11 +79,17 @@ class MarketMaster:
 
     def get_market(self, canonical_id: str) -> instrument_models.MarketSpec | None:
         """Get a market by canonical market id (`{venue}:{market_id}`)."""
-        return self._markets.get(canonical_id)
+        market = self._markets.get(canonical_id)
+        if market is None:
+            return None
+        return market.model_copy(deep=True)
 
     def get_outcome(self, canonical_id: str) -> instrument_models.OutcomeSpec | None:
         """Get an outcome by canonical outcome id (`{venue}:{market_id}:{outcome_id}`)."""
-        return self._outcomes.get(canonical_id)
+        outcome = self._outcomes.get(canonical_id)
+        if outcome is None:
+            return None
+        return outcome.model_copy(deep=True)
 
     def search(
         self,
@@ -104,7 +120,8 @@ class MarketMaster:
 
             results.append(market)
 
-        return sorted(results, key=lambda market: (market.venue, market.market_id))
+        sorted_results = sorted(results, key=lambda market: (market.venue, market.market_id))
+        return [market.model_copy(deep=True) for market in sorted_results]
 
     def update_lifecycle(
         self,

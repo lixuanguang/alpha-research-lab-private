@@ -36,6 +36,14 @@ def _validate_id_component(value: str, field_name: str) -> str:
     return value
 
 
+def _make_canonical_outcome_id(venue: str, market_id: str, outcome_id: str) -> str:
+    return (
+        f"{venue}{_CANONICAL_ID_SEPARATOR}"
+        f"{market_id}{_CANONICAL_ID_SEPARATOR}"
+        f"{outcome_id}"
+    )
+
+
 class MarketLifecycle(StrEnum):
     """Lifecycle state for a prediction market."""
 
@@ -149,6 +157,17 @@ class MarketSpec(BaseModel):
                     "duplicate `outcome_id` values are not allowed in `outcomes`"
                 )
             seen_outcomes.add(normalized_outcome_id)
+
+            expected_canonical_id = _make_canonical_outcome_id(
+                self.venue,
+                self.market_id,
+                outcome.outcome_id,
+            )
+            if outcome.canonical_id != expected_canonical_id:
+                raise ValueError(
+                    "`outcomes[].canonical_id` must match derived canonical format: "
+                    f"`{expected_canonical_id}`"
+                )
         return self
 
 

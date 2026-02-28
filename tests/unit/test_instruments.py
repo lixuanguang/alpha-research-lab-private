@@ -106,6 +106,69 @@ def test_market_master_load_and_get_lookups() -> None:
     assert outcome.label == "Yes"
 
 
+def test_market_master_get_market_returns_defensive_copy() -> None:
+    master = instruments_master.MarketMaster()
+    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+
+    canonical_market_id = "polymarket:us-pres-2028-winner"
+    market = master.get_market(canonical_market_id)
+    assert market is not None
+
+    market.title = "Mutated title"
+    unchanged = master.get_market(canonical_market_id)
+
+    assert unchanged is not None
+    assert unchanged.title == "Who will win the 2028 US presidential election?"
+
+
+def test_market_master_get_outcome_returns_defensive_copy() -> None:
+    master = instruments_master.MarketMaster()
+    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+
+    canonical_outcome_id = "polymarket:us-pres-2028-winner:yes"
+    outcome = master.get_outcome(canonical_outcome_id)
+    assert outcome is not None
+
+    outcome.label = "Mutated label"
+    unchanged = master.get_outcome(canonical_outcome_id)
+
+    assert unchanged is not None
+    assert unchanged.label == "Yes"
+
+
+def test_market_master_search_returns_defensive_copies() -> None:
+    master = instruments_master.MarketMaster()
+    master.load_from_exchange(_MockAdapter(_load_market_specs()))
+
+    results = master.search(venue="polymarket")
+    assert results
+    results[0].title = "Mutated title from search"
+
+    refreshed = master.search(venue="polymarket")
+    assert refreshed[0].title != "Mutated title from search"
+
+
+def test_market_master_register_market_replaces_stale_outcomes() -> None:
+    master = instruments_master.MarketMaster()
+    original_market = _load_market_specs()[0]
+    master.register_market(original_market)
+
+    updated_payload = original_market.model_dump(mode="python")
+    updated_payload["outcomes"] = [
+        {
+            "outcome_id": "yes",
+            "label": "Yes",
+            "canonical_id": "polymarket:us-pres-2028-winner:yes",
+        }
+    ]
+    updated_market = instrument_models.MarketSpec.model_validate(updated_payload)
+    master.register_market(updated_market)
+
+    assert master.get_outcome("polymarket:us-pres-2028-winner:yes") is not None
+    assert master.get_outcome("polymarket:us-pres-2028-winner:no") is None
+    assert master.snapshot()["outcome_count"] == 1
+
+
 def test_market_master_search_filters_by_venue_category_and_lifecycle() -> None:
     master = instruments_master.MarketMaster()
     master.load_from_exchange(_MockAdapter(_load_market_specs()))
@@ -197,7 +260,7 @@ def test_market_spec_rejects_duplicate_outcome_ids() -> None:
         {
             "outcome_id": "YES",
             "label": "Yes",
-            "canonical_id": "polymarket:us-pres-2028-winner:yes",
+            "canonical_id": "polymarket:us-pres-2028-winner:YES",
         },
         {
             "outcome_id": "yes",
@@ -207,4 +270,12 @@ def test_market_spec_rejects_duplicate_outcome_ids() -> None:
     ]
 
     with pytest.raises(ValidationError, match="duplicate `outcome_id`"):
+        instrument_models.MarketSpec.model_validate(market_payload)
+
+
+def test_market_spec_rejects_mismatched_canonical_outcome_id() -> None:
+    market_payload = _load_market_specs()[0].model_dump(mode="python")
+    market_payload["outcomes"][0]["canonical_id"] = "polymarket:wrong-market:yes"
+
+    with pytest.raises(ValidationError, match="canonical_id"):
         instrument_models.MarketSpec.model_validate(market_payload)
