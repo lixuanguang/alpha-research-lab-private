@@ -40,10 +40,10 @@ Deliver the **repo scaffold, canonical data model, instrument master, configurat
 
 ### Implementation Status (as of February 28, 2026)
 
-- Current stage: **F4 (Instrument Master & Symbology), implemented and hardened**
-- Completed steps: **F1, F2, F3, F4**
-- Remaining foundation steps: **F5, F6**
-- Current quality gate snapshot: `ruff check .`, `mypy libs/core`, and `pytest -q` passing locally (95 tests)
+- Current stage: **F5 (pmxt Adapter Layer), implemented and hardened**
+- Completed steps: **F1, F2, F3, F4, F5**
+- Remaining foundation steps: **F6**
+- Current quality gate snapshot: `ruff check .`, `mypy libs/core`, and `pytest -q` passing locally (122 tests)
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 
 ---
@@ -911,7 +911,7 @@ How each subsequent stage builds on the Foundation:
 ### Evolution Summary
 
 ```
-F1 ─── F2 ─── F3 ─── F4 ─── F5 ─── F6    ← FOUNDATION (current implementation: F4, hardened as of 2026-02-28)
+F1 ─── F2 ─── F3 ─── F4 ─── F5 ─── F6    ← FOUNDATION (current implementation: F5, hardened as of 2026-02-28)
  │      │      │      │      │      │
  │      │      │      │      │      └──── Storage + Docker + App stubs
  │      │      │      │      └─────────── pmxt Adapter layer

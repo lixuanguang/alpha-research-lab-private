@@ -200,11 +200,9 @@ def test_market_master_update_lifecycle_enforces_state_machine() -> None:
     canonical_market_id = "polymarket:btc-above-100k-2026"
     master.update_lifecycle(canonical_market_id, instrument_models.MarketLifecycle.RESOLVED)
 
-    assert master.get_market(canonical_market_id) is not None
-    assert (
-        master.get_market(canonical_market_id).lifecycle
-        == instrument_models.MarketLifecycle.RESOLVED
-    )
+    updated_market = master.get_market(canonical_market_id)
+    assert updated_market is not None
+    assert updated_market.lifecycle == instrument_models.MarketLifecycle.RESOLVED
 
     with pytest.raises(ValueError, match="Invalid lifecycle transition"):
         master.update_lifecycle(canonical_market_id, instrument_models.MarketLifecycle.ACTIVE)
@@ -216,7 +214,7 @@ def test_market_master_snapshot_is_deterministic() -> None:
     first = instruments_master.MarketMaster()
     second = instruments_master.MarketMaster()
     first.load_from_exchange(_MockAdapter(markets))
-    second.load_from_exchange(_MockAdapter(reversed(markets)))
+    second.load_from_exchange(_MockAdapter(list(reversed(markets))))
 
     assert first.snapshot() == second.snapshot()
 

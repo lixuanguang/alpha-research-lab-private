@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.metadata as importlib_metadata
 import re
 
+import pytest
+
 import alpha_core
 
 
@@ -35,15 +37,17 @@ def test_extract_commit_hash_returns_none_without_hash() -> None:
     assert alpha_core._extract_commit_hash("0.1.0.dev3+local") is None
 
 
-def test_resolve_version_returns_fallback_when_dist_missing(monkeypatch) -> None:
+def test_resolve_version_returns_fallback_when_dist_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Fallback version is used when package metadata is not installed."""
-    monkeypatch.setattr(alpha_core.importlib_metadata, "version", _raise_package_not_found)
+    monkeypatch.setattr(importlib_metadata, "version", _raise_package_not_found)
 
     assert alpha_core._resolve_version() == "0.0.0+unknown"
 
 
-def test_resolve_version_uses_distribution_metadata(monkeypatch) -> None:
+def test_resolve_version_uses_distribution_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     """Version resolver returns metadata-provided version when available."""
-    monkeypatch.setattr(alpha_core.importlib_metadata, "version", lambda _: "1.2.3")
+    monkeypatch.setattr(importlib_metadata, "version", lambda _: "1.2.3")
 
     assert alpha_core._resolve_version() == "1.2.3"

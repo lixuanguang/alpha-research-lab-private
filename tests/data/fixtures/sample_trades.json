@@ -1,0 +1,26 @@
+[
+  {
+    "id": "trade-1",
+    "timestamp": "2026-02-28T12:00:00Z",
+    "price": "0.64",
+    "size": "25",
+    "side": "buy",
+    "outcome_id": "yes"
+  },
+  {
+    "id": "trade-2",
+    "timestamp": "2026-02-28T12:00:01Z",
+    "price": "0.65",
+    "size": "10",
+    "side": "sell",
+    "outcome_id": "yes"
+  },
+  {
+    "id": "trade-3",
+    "timestamp": "2026-02-28T12:00:02Z",
+    "price": "0.35",
+    "size": "12",
+    "side": "buy",
+    "outcome_id": "no"
+  }
+]

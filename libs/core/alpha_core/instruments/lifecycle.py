@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Set
-
 import alpha_core.instruments.models as instrument_models
 
-_ALLOWED_TRANSITIONS: Mapping[
+_ALLOWED_TRANSITIONS: dict[
     instrument_models.MarketLifecycle,
-    Set[instrument_models.MarketLifecycle],
+    set[instrument_models.MarketLifecycle],
 ] = {
     instrument_models.MarketLifecycle.ACTIVE: {
         instrument_models.MarketLifecycle.HALTED,
