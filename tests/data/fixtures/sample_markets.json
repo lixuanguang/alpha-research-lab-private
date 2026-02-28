@@ -1,0 +1,83 @@
+[
+  {
+    "market_id": "us-pres-2028-winner",
+    "venue": "kalshi",
+    "title": "Who will win the 2028 US presidential election?",
+    "description": "Head-to-head market for 2028 election outcome",
+    "category": "politics",
+    "tags": ["elections", "us", "president"],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "kalshi:us-pres-2028-winner:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "kalshi:us-pres-2028-winner:no"
+      }
+    ],
+    "resolution_date": "2028-11-08T00:00:00Z",
+    "lifecycle": "active",
+    "volume": "120000.5",
+    "liquidity": "85000.0",
+    "url": "https://kalshi.com/markets/us-pres-2028-winner",
+    "first_seen": "2026-02-20T12:00:00Z",
+    "last_updated": "2026-02-20T12:00:00Z"
+  },
+  {
+    "market_id": "us-pres-2028-winner",
+    "venue": "polymarket",
+    "title": "Who will win the 2028 US presidential election?",
+    "description": "Equivalent election winner market",
+    "category": "politics",
+    "tags": ["elections", "us", "president"],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "polymarket:us-pres-2028-winner:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "polymarket:us-pres-2028-winner:no"
+      }
+    ],
+    "resolution_date": "2028-11-08T00:00:00Z",
+    "lifecycle": "active",
+    "volume": "95000.2",
+    "liquidity": "64000.1",
+    "url": "https://polymarket.com/markets/us-pres-2028-winner",
+    "first_seen": "2026-02-20T12:01:00Z",
+    "last_updated": "2026-02-20T12:01:00Z"
+  },
+  {
+    "market_id": "btc-above-100k-2026",
+    "venue": "kalshi",
+    "title": "Will BTC close above $100k by 2026-12-31?",
+    "description": "Crypto threshold market",
+    "category": "crypto",
+    "tags": ["btc", "crypto", "threshold"],
+    "outcomes": [
+      {
+        "outcome_id": "yes",
+        "label": "Yes",
+        "canonical_id": "kalshi:btc-above-100k-2026:yes"
+      },
+      {
+        "outcome_id": "no",
+        "label": "No",
+        "canonical_id": "kalshi:btc-above-100k-2026:no"
+      }
+    ],
+    "resolution_date": "2026-12-31T23:59:59Z",
+    "lifecycle": "halted",
+    "volume": "25000",
+    "liquidity": "9000",
+    "url": "https://kalshi.com/markets/btc-above-100k-2026",
+    "first_seen": "2026-02-22T10:00:00Z",
+    "last_updated": "2026-02-22T11:00:00Z"
+  }
+]
