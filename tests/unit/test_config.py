@@ -26,8 +26,8 @@ def temp_config_tree(tmp_path: Path) -> Path:
                 "storage:",
                 "  base_path: data",
                 "venues:",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    rate_limit_rpm: 60",
             ]
         ),
@@ -54,8 +54,8 @@ def temp_repo_root(tmp_path: Path) -> Path:
                 "storage:",
                 "  base_path: data",
                 "venues:",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    rate_limit_rpm: 60",
             ]
         ),
@@ -69,7 +69,7 @@ def test_load_default_repo_config_validates() -> None:
 
     assert settings.project_name == "alpha-research-lab"
     assert settings.storage.base_path.name == "data"
-    assert any(venue.name == "kalshi" for venue in settings.venues)
+    assert any(venue.name == "polymarket" for venue in settings.venues)
 
 
 def test_environment_overlay_merges_correctly(temp_config_tree: Path) -> None:
@@ -130,72 +130,72 @@ def test_env_var_named_venue_override(
     monkeypatch: pytest.MonkeyPatch,
     temp_config_tree: Path,
 ) -> None:
-    monkeypatch.setenv("ALPHA_VENUES__KALSHI__RATE_LIMIT_RPM", "240")
+    monkeypatch.setenv("ALPHA_VENUES__POLYMARKET__RATE_LIMIT_RPM", "240")
 
     settings = config_loader.load_settings(config_dir=temp_config_tree)
-    kalshi = next(venue for venue in settings.venues if venue.name == "kalshi")
+    polymarket = next(venue for venue in settings.venues if venue.name == "polymarket")
 
-    assert kalshi.rate_limit_rpm == 240
+    assert polymarket.rate_limit_rpm == 240
 
 
 def test_venue_enabled_toggle_file_applies(temp_config_tree: Path) -> None:
     (temp_config_tree / "user_settings.yaml").write_text(
-        "venue_enabled:\n  kalshi: false\n",
+        "venue_enabled:\n  polymarket: false\n",
         encoding="utf-8",
     )
 
     settings = config_loader.load_settings(config_dir=temp_config_tree, apply_user_settings=True)
-    kalshi = next(venue for venue in settings.venues if venue.name == "kalshi")
+    polymarket = next(venue for venue in settings.venues if venue.name == "polymarket")
 
-    assert kalshi.enabled is False
+    assert polymarket.enabled is False
 
 
 def test_user_settings_are_opt_in(temp_config_tree: Path) -> None:
     (temp_config_tree / "user_settings.yaml").write_text(
-        "venue_enabled:\n  kalshi: false\n",
+        "venue_enabled:\n  polymarket: false\n",
         encoding="utf-8",
     )
 
     settings = config_loader.load_settings(config_dir=temp_config_tree)
-    kalshi = next(venue for venue in settings.venues if venue.name == "kalshi")
+    polymarket = next(venue for venue in settings.venues if venue.name == "polymarket")
 
-    assert kalshi.enabled is True
+    assert polymarket.enabled is True
 
 
 def test_venue_file_overrides_defaults(temp_config_tree: Path) -> None:
-    (temp_config_tree / "venues" / "kalshi.yaml").write_text(
-        "name: kalshi\nrate_limit_rpm: 180\n",
+    (temp_config_tree / "venues" / "polymarket.yaml").write_text(
+        "name: polymarket\nrate_limit_rpm: 180\n",
         encoding="utf-8",
     )
 
     settings = config_loader.load_settings(config_dir=temp_config_tree)
-    kalshi = next(venue for venue in settings.venues if venue.name == "kalshi")
+    polymarket = next(venue for venue in settings.venues if venue.name == "polymarket")
 
-    assert kalshi.rate_limit_rpm == 180
+    assert polymarket.rate_limit_rpm == 180
 
 
 def test_environment_overlay_overrides_venue_file_with_partial_named_entry(
     temp_config_tree: Path,
 ) -> None:
-    (temp_config_tree / "venues" / "kalshi.yaml").write_text(
-        "name: kalshi\nrate_limit_rpm: 180\n",
+    (temp_config_tree / "venues" / "polymarket.yaml").write_text(
+        "name: polymarket\nrate_limit_rpm: 180\n",
         encoding="utf-8",
     )
     (temp_config_tree / "environments" / "local.yaml").write_text(
-        "\n".join(["venues:", "  - name: kalshi", "    rate_limit_rpm: 240"]),
+        "\n".join(["venues:", "  - name: polymarket", "    rate_limit_rpm: 240"]),
         encoding="utf-8",
     )
 
     settings = config_loader.load_settings(environment="local", config_dir=temp_config_tree)
-    kalshi = next(venue for venue in settings.venues if venue.name == "kalshi")
+    polymarket = next(venue for venue in settings.venues if venue.name == "polymarket")
 
-    assert kalshi.rate_limit_rpm == 240
-    assert kalshi.exchange_class == "Kalshi"
+    assert polymarket.rate_limit_rpm == 240
+    assert polymarket.exchange_class == "Polymarket"
 
 
 def test_invalid_rate_limit_raises_validation_error(temp_config_tree: Path) -> None:
-    (temp_config_tree / "venues" / "kalshi.yaml").write_text(
-        "name: kalshi\nrate_limit_rpm: 0\n",
+    (temp_config_tree / "venues" / "polymarket.yaml").write_text(
+        "name: polymarket\nrate_limit_rpm: 0\n",
         encoding="utf-8",
     )
 
@@ -225,8 +225,8 @@ def test_partition_by_rejects_duplicates(temp_config_tree: Path) -> None:
                 "    - venue",
                 "    - venue",
                 "venues:",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    rate_limit_rpm: 60",
             ]
         ),
@@ -268,7 +268,7 @@ def test_user_settings_requires_mapping(temp_config_tree: Path) -> None:
 
 def test_user_settings_requires_boolean_values(temp_config_tree: Path) -> None:
     (temp_config_tree / "user_settings.yaml").write_text(
-        'venue_enabled:\n  kalshi: "false"\n',
+        'venue_enabled:\n  polymarket: "false"\n',
         encoding="utf-8",
     )
 
@@ -278,7 +278,7 @@ def test_user_settings_requires_boolean_values(temp_config_tree: Path) -> None:
 
 def test_user_settings_rejects_unknown_venue_names(temp_config_tree: Path) -> None:
     (temp_config_tree / "user_settings.yaml").write_text(
-        "venue_enabled:\n  kalshi_unknown: false\n",
+        "venue_enabled:\n  polymarket_unknown: false\n",
         encoding="utf-8",
     )
 
@@ -287,14 +287,14 @@ def test_user_settings_rejects_unknown_venue_names(temp_config_tree: Path) -> No
 
 
 def test_set_nested_value_rejects_non_numeric_list_index() -> None:
-    target = {"venues": [{"name": "kalshi", "rate_limit_rpm": 60}]}
+    target = {"venues": [{"name": "polymarket", "rate_limit_rpm": 60}]}
 
     with pytest.raises(ValueError, match="numeric indices or existing `name` values"):
         config_loader._set_nested_value(target, ["venues", "first", "rate_limit_rpm"], 120)
 
 
 def test_set_nested_value_rejects_out_of_range_list_index() -> None:
-    target = {"venues": [{"name": "kalshi", "rate_limit_rpm": 60}]}
+    target = {"venues": [{"name": "polymarket", "rate_limit_rpm": 60}]}
 
     with pytest.raises(IndexError, match="out of range"):
         config_loader._set_nested_value(target, ["venues", "1", "rate_limit_rpm"], 120)
@@ -308,10 +308,10 @@ def test_set_nested_value_rejects_non_container_path() -> None:
 
 
 def test_path_exists_supports_list_indices() -> None:
-    target = {"venues": [{"name": "kalshi", "enabled": True}]}
+    target = {"venues": [{"name": "polymarket", "enabled": True}]}
 
     assert config_loader._path_exists(target, ["venues", "0", "enabled"])
-    assert config_loader._path_exists(target, ["venues", "kalshi", "enabled"])
+    assert config_loader._path_exists(target, ["venues", "polymarket", "enabled"])
     assert not config_loader._path_exists(target, ["venues", "x", "enabled"])
     assert not config_loader._path_exists(target, ["venues", "9", "enabled"])
 
@@ -363,11 +363,11 @@ def test_duplicate_venue_names_in_default_config_raise(temp_config_tree: Path) -
                 "storage:",
                 "  base_path: data",
                 "venues:",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    rate_limit_rpm: 60",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    rate_limit_rpm: 120",
             ]
         ),
@@ -379,12 +379,12 @@ def test_duplicate_venue_names_in_default_config_raise(temp_config_tree: Path) -
 
 
 def test_duplicate_venue_names_across_venue_files_raise(temp_config_tree: Path) -> None:
-    (temp_config_tree / "venues" / "kalshi_a.yaml").write_text(
-        "name: kalshi\nrate_limit_rpm: 120\n",
+    (temp_config_tree / "venues" / "polymarket_a.yaml").write_text(
+        "name: polymarket\nrate_limit_rpm: 120\n",
         encoding="utf-8",
     )
-    (temp_config_tree / "venues" / "kalshi_b.yaml").write_text(
-        "name: kalshi\nrate_limit_rpm: 180\n",
+    (temp_config_tree / "venues" / "polymarket_b.yaml").write_text(
+        "name: polymarket\nrate_limit_rpm: 180\n",
         encoding="utf-8",
     )
 
@@ -524,7 +524,7 @@ def test_secret_resolution_discovers_project_root_from_cwd(
 
 
 def test_secret_env_var_does_not_break_config_load(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ALPHA_KALSHI_API_KEY", "dummy-token")
+    monkeypatch.setenv("ALPHA_POLYMARKET_API_KEY", "dummy-token")
 
     settings = config_loader.load_settings()
 
@@ -554,17 +554,17 @@ def test_missing_required_secrets_only_checks_enabled_venues(
                 "storage:",
                 "  base_path: data",
                 "venues:",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    enabled: true",
-                "    api_key_env: ALPHA_KALSHI_API_KEY",
-                "    private_key_env: ALPHA_KALSHI_PRIVATE_KEY",
+                "    api_key_env: ALPHA_POLYMARKET_API_KEY",
+                "    private_key_env: ALPHA_POLYMARKET_PRIVATE_KEY",
             ]
         ),
         encoding="utf-8",
     )
-    monkeypatch.delenv("ALPHA_KALSHI_API_KEY", raising=False)
-    monkeypatch.delenv("ALPHA_KALSHI_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_POLYMARKET_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_POLYMARKET_PRIVATE_KEY", raising=False)
 
     settings = config_loader.load_settings(config_dir=temp_config_tree)
     missing = config_secrets.missing_required_secrets(
@@ -572,7 +572,7 @@ def test_missing_required_secrets_only_checks_enabled_venues(
         secrets_file=temp_config_tree / "missing.secrets",
     )
 
-    assert missing == ["ALPHA_KALSHI_API_KEY", "ALPHA_KALSHI_PRIVATE_KEY"]
+    assert missing == ["ALPHA_POLYMARKET_API_KEY", "ALPHA_POLYMARKET_PRIVATE_KEY"]
 
 
 def test_missing_required_secrets_ignores_disabled_venues(temp_config_tree: Path) -> None:
@@ -584,11 +584,11 @@ def test_missing_required_secrets_ignores_disabled_venues(temp_config_tree: Path
                 "storage:",
                 "  base_path: data",
                 "venues:",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    enabled: false",
-                "    api_key_env: ALPHA_KALSHI_API_KEY",
-                "    private_key_env: ALPHA_KALSHI_PRIVATE_KEY",
+                "    api_key_env: ALPHA_POLYMARKET_API_KEY",
+                "    private_key_env: ALPHA_POLYMARKET_PRIVATE_KEY",
             ]
         ),
         encoding="utf-8",
@@ -610,17 +610,17 @@ def test_raise_for_missing_required_secrets_raises(
                 "storage:",
                 "  base_path: data",
                 "venues:",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    enabled: true",
-                "    api_key_env: ALPHA_KALSHI_API_KEY",
-                "    private_key_env: ALPHA_KALSHI_PRIVATE_KEY",
+                "    api_key_env: ALPHA_POLYMARKET_API_KEY",
+                "    private_key_env: ALPHA_POLYMARKET_PRIVATE_KEY",
             ]
         ),
         encoding="utf-8",
     )
-    monkeypatch.delenv("ALPHA_KALSHI_API_KEY", raising=False)
-    monkeypatch.delenv("ALPHA_KALSHI_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_POLYMARKET_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_POLYMARKET_PRIVATE_KEY", raising=False)
 
     settings = config_loader.load_settings(config_dir=temp_config_tree)
     with pytest.raises(ValueError, match="Missing required secrets"):
@@ -634,6 +634,13 @@ def test_load_settings_validate_secrets_true_raises(
     monkeypatch: pytest.MonkeyPatch,
     temp_config_tree: Path,
 ) -> None:
+    repo_root = temp_config_tree.parent
+    (repo_root / "pyproject.toml").write_text(
+        "[project]\nname = \"alpha-research-lab\"\nversion = \"0.1.0\"\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ALPHA_RESEARCH_ROOT", str(repo_root))
+
     (temp_config_tree / "default.yaml").write_text(
         "\n".join(
             [
@@ -642,17 +649,17 @@ def test_load_settings_validate_secrets_true_raises(
                 "storage:",
                 "  base_path: data",
                 "venues:",
-                "  - name: kalshi",
-                "    exchange_class: Kalshi",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
                 "    enabled: true",
-                "    api_key_env: ALPHA_KALSHI_API_KEY",
-                "    private_key_env: ALPHA_KALSHI_PRIVATE_KEY",
+                "    api_key_env: ALPHA_POLYMARKET_TEST_API_KEY",
+                "    private_key_env: ALPHA_POLYMARKET_TEST_PRIVATE_KEY",
             ]
         ),
         encoding="utf-8",
     )
-    monkeypatch.delenv("ALPHA_KALSHI_API_KEY", raising=False)
-    monkeypatch.delenv("ALPHA_KALSHI_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_POLYMARKET_TEST_API_KEY", raising=False)
+    monkeypatch.delenv("ALPHA_POLYMARKET_TEST_PRIVATE_KEY", raising=False)
 
     with pytest.raises(ValueError, match="Missing required secrets"):
         config_loader.load_settings(config_dir=temp_config_tree, validate_secrets=True)

@@ -36,8 +36,8 @@ def _refresh_event_id(payload: dict[str, object]) -> dict[str, object]:
 def _trade_fields() -> dict[str, object]:
     ts_event = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     payload: dict[str, object] = {
-        "instrument_id": "kalshi:market-1:yes",
-        "venue_id": "KALSHI",
+        "instrument_id": "polymarket:market-1:yes",
+        "venue_id": "POLYMARKET",
         "event_type": event_models.EventType.TRADE,
         "ts_event": ts_event,
         "ts_record": ts_event + timedelta(seconds=1),
@@ -53,8 +53,8 @@ def _book_fields() -> dict[str, object]:
     ts_event = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     return _with_event_id(
         {
-            "instrument_id": "kalshi:market-1:yes",
-            "venue_id": "kalshi",
+            "instrument_id": "polymarket:market-1:yes",
+            "venue_id": "polymarket",
             "event_type": event_models.EventType.BOOK_SNAPSHOT,
             "ts_event": ts_event,
             "ts_record": ts_event,
@@ -68,8 +68,8 @@ def _ohlcv_fields() -> dict[str, object]:
     ts_event = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     return _with_event_id(
         {
-            "instrument_id": "kalshi:market-1:yes",
-            "venue_id": "kalshi",
+            "instrument_id": "polymarket:market-1:yes",
+            "venue_id": "polymarket",
             "event_type": event_models.EventType.OHLCV,
             "ts_event": ts_event,
             "ts_record": ts_event,
@@ -88,7 +88,7 @@ def test_construct_trade_event() -> None:
 
     assert trade.event_type == event_models.EventType.TRADE
     assert trade.price == Decimal("0.61")
-    assert trade.venue_id == "kalshi"
+    assert trade.venue_id == "polymarket"
 
 
 def test_construct_book_snapshot_event() -> None:
@@ -184,7 +184,7 @@ def test_event_id_mismatch_is_rejected() -> None:
 def test_venue_is_normalized_to_lowercase() -> None:
     trade = event_models.CanonicalTrade.model_validate(_trade_fields())
 
-    assert trade.venue_id == "kalshi"
+    assert trade.venue_id == "polymarket"
 
 
 def test_ohlcv_consistency_constraints_are_enforced() -> None:
@@ -231,8 +231,8 @@ def test_quality_checker_flags_bitemporal_order_violation() -> None:
     checker = event_quality.EventQualityChecker()
     trade = event_models.CanonicalTrade.model_construct(
         event_id="trade-invalid",
-        instrument_id="kalshi:market-1:yes",
-        venue_id="kalshi",
+        instrument_id="polymarket:market-1:yes",
+        venue_id="polymarket",
         event_type=event_models.EventType.TRADE,
         ts_event=datetime(2026, 1, 1, 12, 1, tzinfo=UTC),
         ts_record=datetime(2026, 1, 1, 12, 0, tzinfo=UTC),

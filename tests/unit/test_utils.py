@@ -57,7 +57,7 @@ def test_unix_ns_roundtrip_is_stable_for_large_timestamps() -> None:
 
 def test_generate_event_id_is_deterministic() -> None:
     payload = {
-        "instrument_id": "kalshi:market-1:yes",
+        "instrument_id": "polymarket:market-1:yes",
         "price": Decimal("0.55"),
         "ts_event": datetime(2026, 2, 1, 9, 30, tzinfo=UTC),
         "side": "buy",
@@ -86,12 +86,12 @@ def test_generate_event_id_is_key_order_independent() -> None:
 
 def test_generate_event_id_changes_for_different_payload() -> None:
     base = {
-        "instrument_id": "kalshi:market-1:yes",
+        "instrument_id": "polymarket:market-1:yes",
         "price": Decimal("0.55"),
         "ts_event": datetime(2026, 2, 1, 9, 30, tzinfo=UTC),
     }
     changed = {
-        "instrument_id": "kalshi:market-1:yes",
+        "instrument_id": "polymarket:market-1:yes",
         "price": Decimal("0.56"),
         "ts_event": datetime(2026, 2, 1, 9, 30, tzinfo=UTC),
     }
