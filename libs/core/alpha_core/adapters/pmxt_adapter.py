@@ -158,7 +158,9 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         )
 
         payload["event_id"] = id_utils.generate_event_id(payload)
-        book = event_models.CanonicalBookSnapshot.model_validate(payload)
+        book = event_models.CanonicalBookSnapshot.model_validate(
+            payload, context={"skip_event_id_validation": True}
+        )
         self._log_rejection_summary("book", dropped)
         return book
 
@@ -207,7 +209,11 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             }
             payload["event_id"] = id_utils.generate_event_id(payload)
             try:
-                mapped.append(event_models.CanonicalOHLCV.model_validate(payload))
+                mapped.append(
+                    event_models.CanonicalOHLCV.model_validate(
+                        payload, context={"skip_event_id_validation": True}
+                    )
+                )
             except ValidationError:
                 self._record_rejection("ohlcv", "invalid_event", dropped)
 
