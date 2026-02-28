@@ -41,8 +41,7 @@ def parse_canonical_outcome_id(canonical_id: str) -> tuple[str, str, str]:
     parts = canonical_id.split(":")
     if len(parts) != 3 or not all(part.strip() for part in parts):
         raise ValueError(
-            "Invalid canonical outcome id format; expected "
-            "`{venue}:{market_id}:{outcome_id}`"
+            "Invalid canonical outcome id format; expected `{venue}:{market_id}:{outcome_id}`"
         )
     venue, market_id, outcome_id = parts
     return venue.lower(), market_id, outcome_id

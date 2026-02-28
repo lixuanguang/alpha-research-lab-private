@@ -37,11 +37,7 @@ def _validate_id_component(value: str, field_name: str) -> str:
 
 
 def _make_canonical_outcome_id(venue: str, market_id: str, outcome_id: str) -> str:
-    return (
-        f"{venue}{_CANONICAL_ID_SEPARATOR}"
-        f"{market_id}{_CANONICAL_ID_SEPARATOR}"
-        f"{outcome_id}"
-    )
+    return f"{venue}{_CANONICAL_ID_SEPARATOR}{market_id}{_CANONICAL_ID_SEPARATOR}{outcome_id}"
 
 
 class MarketLifecycle(StrEnum):
@@ -153,9 +149,7 @@ class MarketSpec(BaseModel):
         for outcome in self.outcomes:
             normalized_outcome_id = outcome.outcome_id.casefold()
             if normalized_outcome_id in seen_outcomes:
-                raise ValueError(
-                    "duplicate `outcome_id` values are not allowed in `outcomes`"
-                )
+                raise ValueError("duplicate `outcome_id` values are not allowed in `outcomes`")
             seen_outcomes.add(normalized_outcome_id)
 
             expected_canonical_id = _make_canonical_outcome_id(

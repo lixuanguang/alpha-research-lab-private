@@ -148,11 +148,7 @@ def _path_exists(config: dict[str, Any], keys: list[str]) -> bool:
                 continue
 
             named_item = next(
-                (
-                    item
-                    for item in cursor
-                    if isinstance(item, dict) and item.get("name") == key
-                ),
+                (item for item in cursor if isinstance(item, dict) and item.get("name") == key),
                 None,
             )
             if named_item is None:
@@ -246,8 +242,7 @@ def _merge_venue_files(config: dict[str, Any], venues_dir: Path) -> dict[str, An
         if venue_name in venue_file_source:
             source = venue_file_source[venue_name]
             raise ValueError(
-                "Duplicate venue name in venue files for "
-                f"`{venue_name}`: {source} and {venue_file}"
+                f"Duplicate venue name in venue files for `{venue_name}`: {source} and {venue_file}"
             )
         venue_file_source[venue_name] = venue_file
 

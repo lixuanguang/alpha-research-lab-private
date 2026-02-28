@@ -22,10 +22,7 @@ def test_version_format() -> None:
     assert re.match(
         r"^\d+(\.\d+){1,2}((a|b|rc)\d+|\.post\d+|\.dev\d+)?(\+[a-z0-9][a-z0-9.]*)?$",
         alpha_core.__version__,
-    ), (
-        f"Version '{alpha_core.__version__}' does not look like a valid "
-        "release/dev/build version"
-    )
+    ), f"Version '{alpha_core.__version__}' does not look like a valid release/dev/build version"
 
 
 def test_extract_commit_hash_parses_local_version() -> None:

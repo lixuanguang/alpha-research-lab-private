@@ -26,10 +26,7 @@ def datetime_to_unix_ns(dt: datetime) -> int:
     """Convert a datetime to Unix epoch nanoseconds."""
     dt_utc = ensure_utc(dt)
     delta = dt_utc - _UNIX_EPOCH_UTC
-    return (
-        (delta.days * 86_400 + delta.seconds) * 1_000_000_000
-        + delta.microseconds * 1_000
-    )
+    return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
 
 
 def unix_ns_to_datetime(unix_ns: int) -> datetime:

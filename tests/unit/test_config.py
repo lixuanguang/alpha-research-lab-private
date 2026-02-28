@@ -43,7 +43,7 @@ def temp_repo_root(tmp_path: Path) -> Path:
     (config_root / "environments").mkdir(parents=True)
     (config_root / "venues").mkdir(parents=True)
     (repo_root / "pyproject.toml").write_text(
-        "[project]\nname = \"alpha-research-lab\"\nversion = \"0.1.0\"\n",
+        '[project]\nname = "alpha-research-lab"\nversion = "0.1.0"\n',
         encoding="utf-8",
     )
     (config_root / "default.yaml").write_text(
@@ -425,8 +425,7 @@ def test_env_secret_takes_precedence_over_secrets_file(
     monkeypatch.setenv("ALPHA_TEST_SECRET", "env-token")
 
     assert (
-        config_secrets.resolve_secret("ALPHA_TEST_SECRET", secrets_file=secrets_file)
-        == "env-token"
+        config_secrets.resolve_secret("ALPHA_TEST_SECRET", secrets_file=secrets_file) == "env-token"
     )
 
 
@@ -491,7 +490,7 @@ def test_explicit_secrets_file_disables_venue_specific_fallback(
 def test_secret_resolution_unquotes_file_values(tmp_path: Path) -> None:
     secrets_file = tmp_path / ".secrets"
     secrets_file.write_text(
-        'ALPHA_QUOTED_DOUBLE="double-token"\nALPHA_QUOTED_SINGLE=\'single-token\'\n',
+        "ALPHA_QUOTED_DOUBLE=\"double-token\"\nALPHA_QUOTED_SINGLE='single-token'\n",
         encoding="utf-8",
     )
     secrets_file.chmod(0o600)
@@ -636,7 +635,7 @@ def test_load_settings_validate_secrets_true_raises(
 ) -> None:
     repo_root = temp_config_tree.parent
     (repo_root / "pyproject.toml").write_text(
-        "[project]\nname = \"alpha-research-lab\"\nversion = \"0.1.0\"\n",
+        '[project]\nname = "alpha-research-lab"\nversion = "0.1.0"\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("ALPHA_RESEARCH_ROOT", str(repo_root))

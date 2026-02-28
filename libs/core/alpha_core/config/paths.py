@@ -10,10 +10,9 @@ _ROOT_ENV_VAR = "ALPHA_RESEARCH_ROOT"
 
 def _is_project_root(candidate: Path) -> bool:
     """Return True when *candidate* looks like the repository root."""
-    return (
-        (candidate / "pyproject.toml").exists()
-        and (candidate / "config" / "default.yaml").exists()
-    )
+    return (candidate / "pyproject.toml").exists() and (
+        candidate / "config" / "default.yaml"
+    ).exists()
 
 
 def _search_upwards(start: Path) -> Path | None:
