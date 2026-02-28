@@ -398,8 +398,7 @@ def test_duckdb_query_rejects_dml_inside_with_statement(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="Disallowed SQL keyword"):
         analytics.query(
-            "WITH staged AS (SELECT 1) "
-            "INSERT INTO forbidden_table SELECT * FROM staged"
+            "WITH staged AS (SELECT 1) INSERT INTO forbidden_table SELECT * FROM staged"
         )
 
 

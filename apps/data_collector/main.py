@@ -149,5 +149,6 @@ def detect_gaps_command(venue: str | None, start: str | None, end: str | None) -
         f"(venue={venue or 'all'}, start={start or 'none'}, end={end or 'none'})"
     )
 
+
 if __name__ == "__main__":
     main()

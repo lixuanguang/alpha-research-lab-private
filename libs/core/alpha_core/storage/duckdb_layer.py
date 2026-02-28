@@ -88,10 +88,7 @@ class DuckDBAnalytics:
             raise ValueError("Only a single SQL statement is allowed")
         normalized_statement = _strip_comments(statement)
         if not _is_read_only_statement(normalized_statement):
-            raise ValueError(
-                "Only read-only queries are allowed "
-                "(`SELECT`, `WITH`, `EXPLAIN`)."
-            )
+            raise ValueError("Only read-only queries are allowed (`SELECT`, `WITH`, `EXPLAIN`).")
         _raise_if_forbidden_sql(normalized_statement)
         _validate_allowed_query_sources(normalized_statement, self._registered_views)
 
