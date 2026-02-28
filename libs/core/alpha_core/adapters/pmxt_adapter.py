@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 from collections import Counter
 from datetime import UTC, datetime
@@ -22,7 +23,7 @@ import alpha_core.instruments.models as instrument_models
 import alpha_core.utils.ids as id_utils
 
 try:
-    import pmxt as pmxt_module  # type: ignore[import-not-found]
+    pmxt_module = cast(Any, importlib.import_module("pmxt"))
 except ImportError:  # pragma: no cover
     pmxt_module = None
 

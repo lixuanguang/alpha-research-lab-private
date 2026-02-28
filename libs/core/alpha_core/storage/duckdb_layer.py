@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +26,9 @@ _SCHEMA_BY_DATASET: dict[str, pa.Schema] = {
 }
 
 try:
-    import duckdb as _duckdb_module  # type: ignore[import-not-found]
+    duckdb_module: Any | None = importlib.import_module("duckdb")
 except ModuleNotFoundError:
-    _duckdb_module = None
-duckdb_module: Any | None = _duckdb_module
+    duckdb_module = None
 
 
 class DuckDBAnalytics:
