@@ -122,7 +122,7 @@ class MonotonicTimestampExpectation(quality_base.QualityExpectation):
 
 
 class DuplicateTradeIdExpectation(quality_base.QualityExpectation):
-    """No duplicate trade_ids within a partition."""
+    """No duplicate `(instrument_id, trade_id)` pairs within a partition."""
 
     name = "duplicate_trade_id"
 
@@ -130,22 +130,28 @@ class DuplicateTradeIdExpectation(quality_base.QualityExpectation):
         self.severity = severity  # type: ignore[assignment]
 
     def validate(self, table: pa.Table) -> quality_base.QualityResult:
-        if table.num_rows == 0 or "trade_id" not in table.schema.names:
+        missing = {"instrument_id", "trade_id"} - set(table.schema.names)
+        if table.num_rows == 0 or missing:
             return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
-                details={"note": "no trade_id column or empty table"},
+                details={"note": "missing columns or empty table", "missing": sorted(missing)},
             )
+        pairs = zip(
+            table.column("instrument_id").to_pylist(),
+            table.column("trade_id").to_pylist(),
+            strict=True,
+        )
         total = table.num_rows
-        unique = table.column("trade_id").unique().to_pylist()
-        duplicates = total - len(unique)
+        unique_pairs = set(pairs)
+        duplicates = total - len(unique_pairs)
         passed = duplicates == 0
         return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
-            details={"duplicate_count": duplicates},
+            details={"duplicate_count": duplicates, "key_fields": ["instrument_id", "trade_id"]},
         )
 
 

@@ -30,6 +30,18 @@ def main() -> None:
 
 @main.command("run")
 @click.option(
+    "--venues",
+    multiple=True,
+    help="Optional venue subset (repeat flag); defaults to all enabled venues.",
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["poll", "stream", "both"]),
+    default="poll",
+    show_default=True,
+    help="Collection mode to execute.",
+)
+@click.option(
     "--environment",
     type=str,
     default=None,
@@ -74,6 +86,8 @@ def main() -> None:
     help="Per-request timeout applied to venue polling calls.",
 )
 def run_command(
+    venues: tuple[str, ...],
+    mode: str,
     environment: str | None,
     apply_user_settings: bool,
     validate_secrets: bool,
@@ -93,35 +107,62 @@ def run_command(
         apply_user_settings=apply_user_settings,
         validate_secrets=validate_secrets,
     )
-    enabled_venues = sorted(venue.name for venue in settings.venues if venue.enabled)
-    if not enabled_venues:
+    selected_venues = _resolve_target_venues(settings, requested_venues=venues)
+    if not selected_venues:
         raise click.ClickException("No enabled venues found for run command.")
 
     click.echo(
         "Run configuration ready "
-        f"(environment={environment or 'default'}, venues={','.join(enabled_venues)})"
+        f"(environment={environment or 'default'}, mode={mode}, venues={','.join(selected_venues)})"
     )
     if not execute:
         click.echo("Execution mode: plan-only (pass --execute to start pipelines).")
         return
 
     try:
-        completed_runs = asyncio.run(
-            collector_runtime.run_polling_pipelines(
-                settings,
-                once=once,
-                max_outcomes_per_venue=max_outcomes_per_venue,
-                request_timeout_seconds=request_timeout_seconds,
-                adapter_factory=adapters_pmxt.PmxtAdapter,
-                emit=lambda message, is_error: click.echo(message, err=is_error),
+        if mode == "poll":
+            completed_runs = asyncio.run(
+                collector_runtime.run_polling_pipelines(
+                    settings,
+                    once=once,
+                    max_outcomes_per_venue=max_outcomes_per_venue,
+                    request_timeout_seconds=request_timeout_seconds,
+                    adapter_factory=adapters_pmxt.PmxtAdapter,
+                    emit=lambda message, is_error: click.echo(message, err=is_error),
+                    venue_names=set(selected_venues),
+                )
             )
-        )
+        elif mode == "stream":
+            completed_runs = asyncio.run(
+                collector_runtime.run_streaming_pipelines(
+                    settings,
+                    once=once,
+                    max_outcomes_per_venue=max_outcomes_per_venue,
+                    request_timeout_seconds=request_timeout_seconds,
+                    adapter_factory=adapters_pmxt.PmxtAdapter,
+                    emit=lambda message, is_error: click.echo(message, err=is_error),
+                    venue_names=set(selected_venues),
+                )
+            )
+        else:
+            completed_runs = asyncio.run(
+                collector_runtime.run_polling_and_streaming(
+                    settings,
+                    once=once,
+                    max_outcomes_per_venue=max_outcomes_per_venue,
+                    request_timeout_seconds=request_timeout_seconds,
+                    adapter_factory=adapters_pmxt.PmxtAdapter,
+                    emit=lambda message, is_error: click.echo(message, err=is_error),
+                    venue_names=set(selected_venues),
+                )
+            )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(
         "Execution complete "
-        f"(mode={'once' if once else 'continuous'}, successful_runs={completed_runs})"
+        f"(collection_mode={mode}, run_mode={'once' if once else 'continuous'}, "
+        f"successful_runs={completed_runs})"
     )
 
 
@@ -332,6 +373,8 @@ def detect_gaps_command(
         end_dt = _parse_utc_datetime(end)
     except ValueError as exc:
         raise click.ClickException(f"Invalid datetime: {exc}") from exc
+    if max_gap_hours <= 0:
+        raise click.ClickException("`--max-gap-hours` must be > 0.")
 
     settings = config_loader.load_settings(
         environment=environment,
@@ -345,7 +388,14 @@ def detect_gaps_command(
     # Resolve outcome ids: use provided or scan silver data
     outcome_ids: list[str] = list(outcomes)
     if not outcome_ids:
-        outcome_ids = _scan_instrument_ids(reader, venue=venue, start=start_dt, end=end_dt)
+        outcome_ids = _scan_instrument_ids(
+            reader,
+            venue=venue,
+            start=start_dt,
+            end=end_dt,
+            event_type=event_type,
+            resolution=resolution if event_type == "ohlcv" else None,
+        )
         if not outcome_ids:
             click.echo(f"No data found for venue='{venue}' in the given window.")
             return
@@ -447,12 +497,43 @@ def _scan_instrument_ids(
     venue: str,
     start: datetime,
     end: datetime,
+    event_type: str,
+    resolution: str | None = None,
 ) -> list[str]:
-    """Return distinct instrument_ids present in silver trades for the window."""
-    table = reader.read_trades(venue=venue, start=start, end=end)
+    """Return distinct instrument_ids present in silver data for the window/event type."""
+    if event_type == "trades":
+        table = reader.read_trades(venue=venue, start=start, end=end)
+    elif event_type == "ohlcv":
+        table = reader.read_ohlcv(venue=venue, resolution=resolution, start=start, end=end)
+    else:
+        raise ValueError(f"Unsupported event_type for instrument scan: {event_type}")
     if table.num_rows == 0 or "instrument_id" not in table.schema.names:
         return []
     return sorted(set(table.column("instrument_id").to_pylist()))
+
+
+def _resolve_target_venues(
+    settings: config_models.Settings,
+    *,
+    requested_venues: tuple[str, ...],
+) -> list[str]:
+    enabled_venues = sorted(venue.name for venue in settings.venues if venue.enabled)
+    if not requested_venues:
+        return enabled_venues
+
+    requested = sorted({name.strip().lower() for name in requested_venues if name.strip()})
+    if not requested:
+        return enabled_venues
+
+    unknown = sorted(name for name in requested if name not in {v.name for v in settings.venues})
+    if unknown:
+        raise click.ClickException(f"Unknown venue(s) requested: {unknown}")
+
+    disabled_requested = sorted(name for name in requested if name not in enabled_venues)
+    if disabled_requested:
+        raise click.ClickException(f"Requested venue(s) are disabled: {disabled_requested}")
+
+    return requested
 
 
 if __name__ == "__main__":

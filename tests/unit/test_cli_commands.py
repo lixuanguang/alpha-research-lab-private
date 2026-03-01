@@ -8,6 +8,7 @@ from pathlib import Path
 import apps.data_collector.backfill as collector_backfill
 import apps.data_collector.main as data_collector_main
 import click.testing
+import pyarrow as pa
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -275,6 +276,51 @@ def test_detect_gaps_with_explicit_outcomes_and_no_gaps(
             "--outcomes", "polymarket:market-a:yes",
             "--start", "2026-03-01T00:00:00Z",
             "--end", "2026-03-01T12:00:00Z",
+        ],
+        env=_env(cli_repo),
+    )
+    assert result.exit_code == 0
+    assert "No gaps detected" in result.output
+
+
+def test_detect_gaps_ohlcv_scans_ohlcv_instrument_ids(
+    cli_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = click.testing.CliRunner()
+
+    monkeypatch.setattr(
+        "apps.data_collector.main.parquet_reader_mod.ParquetEventReader.read_trades",
+        lambda *_a, **_kw: pa.table(
+            {
+                "instrument_id": pa.array([], type=pa.string()),
+                "ts_event": pa.array([], type=pa.timestamp("us", tz="UTC")),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        "apps.data_collector.main.parquet_reader_mod.ParquetEventReader.read_ohlcv",
+        lambda *_a, **_kw: pa.table(
+            {
+                "instrument_id": pa.array(["polymarket:market-a:yes"]),
+                "ts_event": pa.array([datetime(2026, 3, 1, 0, tzinfo=UTC)]),
+                "resolution": pa.array(["1h"]),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        "apps.data_collector.main.gap_detector_mod.GapDetector.detect_ohlcv_gaps",
+        lambda *_a, **_kw: [],
+    )
+
+    result = runner.invoke(
+        data_collector_main.main,
+        [
+            "detect-gaps",
+            "--venue", "polymarket",
+            "--event-type", "ohlcv",
+            "--start", "2026-03-01T00:00:00Z",
+            "--end", "2026-03-01T12:00:00Z",
+            "--resolution", "1h",
         ],
         env=_env(cli_repo),
     )

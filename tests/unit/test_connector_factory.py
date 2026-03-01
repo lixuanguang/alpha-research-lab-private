@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime
 
 import apps.data_collector.connectors.book_poller as connector_book_poller
+import apps.data_collector.connectors.book_stream as connector_book_stream
 import apps.data_collector.connectors.factory as connector_factory
 import apps.data_collector.connectors.market_refresh as connector_market_refresh
 import apps.data_collector.connectors.ohlcv_poller as connector_ohlcv_poller
 import apps.data_collector.connectors.trade_poller as connector_trade_poller
+import apps.data_collector.connectors.trade_stream as connector_trade_stream
 
 import alpha_core.adapters.base as adapters_base
 import alpha_core.config.models as config_models
@@ -62,6 +65,39 @@ class _StubAdapter(adapters_base.VenueAdapter):
         self, outcome_id: str, resolution: str = "1h", limit: int = 100
     ) -> tuple[list[event_models.CanonicalOHLCV], list[object]]:
         return [], []
+
+
+class _StreamStubAdapter(_StubAdapter):
+    def watch_trades(self, outcome_id: str) -> AsyncIterator[list[event_models.CanonicalTrade]]:
+        del outcome_id
+
+        async def _stream() -> AsyncIterator[list[event_models.CanonicalTrade]]:
+            if False:
+                yield []
+
+        return _stream()
+
+    def watch_order_book(
+        self, outcome_id: str
+    ) -> AsyncIterator[event_models.CanonicalBookSnapshot]:
+        del outcome_id
+
+        async def _stream() -> AsyncIterator[event_models.CanonicalBookSnapshot]:
+            if False:
+                yield event_models.CanonicalBookSnapshot.model_validate(
+                    {
+                        "event_id": "skip",
+                        "instrument_id": "skip:skip:skip",
+                        "venue_id": "skip",
+                        "ts_event": datetime.now(),
+                        "ts_record": datetime.now(),
+                        "schema_version": 1,
+                        "bids": [],
+                        "asks": [],
+                    }
+                )
+
+        return _stream()
 
 
 def _settings_with_mode(venue: str, mode: str) -> config_models.Settings:
@@ -205,3 +241,19 @@ def test_factory_initialises_with_multiple_venues() -> None:
     kal_connectors = factory.create_poll_connectors(_StubAdapter("kalshi"), OUTCOME_IDS)
     assert len(pm_connectors) > 0
     assert len(kal_connectors) > 0
+
+
+def test_stream_mode_creates_trade_and_book_stream_connectors() -> None:
+    settings = _settings_with_mode("polymarket", "stream")
+    factory = connector_factory.VenueConnectorFactory(settings)
+    connectors = factory.create_stream_connectors(_StreamStubAdapter("polymarket"), OUTCOME_IDS)
+    types = [type(c) for c in connectors]
+    assert connector_trade_stream.TradeStreamConnector in types
+    assert connector_book_stream.BookStreamConnector in types
+
+
+def test_stream_connector_factory_returns_empty_when_adapter_has_no_watch_methods() -> None:
+    settings = _settings_with_mode("polymarket", "stream")
+    factory = connector_factory.VenueConnectorFactory(settings)
+    connectors = factory.create_stream_connectors(_StubAdapter("polymarket"), OUTCOME_IDS)
+    assert connectors == []

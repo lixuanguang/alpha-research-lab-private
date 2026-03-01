@@ -112,7 +112,7 @@ class GapDetector:
         cursor = _floor_to_resolution(_ensure_utc(start), candle_seconds)
         floor_end = _floor_to_resolution(_ensure_utc(end), candle_seconds)
 
-        while cursor < floor_end:
+        while cursor <= floor_end:
             if cursor not in present:
                 gap_end = cursor + timedelta(seconds=candle_seconds)
                 gaps.append(

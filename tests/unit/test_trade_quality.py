@@ -22,6 +22,7 @@ def _trade_table(
     n: int = 3,
     price: float = 0.5,
     trade_ids: list[str] | None = None,
+    instrument_ids: list[str] | None = None,
     ts_event: list[datetime] | None = None,
     ts_record: list[datetime] | None = None,
     nullify: str | None = None,
@@ -33,11 +34,13 @@ def _trade_table(
         ts_event = [_RECENT + timedelta(seconds=i) for i in range(n)]
     if ts_record is None:
         ts_record = [t + timedelta(seconds=1) for t in ts_event]
+    if instrument_ids is None:
+        instrument_ids = ["kalshi:m1:yes"] * n
 
     tbl = pa.table(
         {
             "event_id": pa.array([f"e-{i}" for i in range(n)]),
-            "instrument_id": pa.array(["kalshi:m1:yes"] * n),
+            "instrument_id": pa.array(instrument_ids),
             "price": pa.array([price] * n, type=pa.float64()),
             "size": pa.array([1.0] * n, type=pa.float64()),
             "trade_id": pa.array(trade_ids),
@@ -164,6 +167,16 @@ def test_duplicate_trade_id_fail_duplicate() -> None:
     result = quality_trade.DuplicateTradeIdExpectation().validate(tbl)
     assert result.passed is False
     assert result.details["duplicate_count"] == 1
+
+
+def test_duplicate_trade_id_allows_same_id_across_instruments() -> None:
+    tbl = _trade_table(
+        n=2,
+        trade_ids=["same-id", "same-id"],
+        instrument_ids=["kalshi:m1:yes", "kalshi:m2:yes"],
+    )
+    result = quality_trade.DuplicateTradeIdExpectation().validate(tbl)
+    assert result.passed is True
 
 
 def test_duplicate_trade_id_pass_empty_table() -> None:

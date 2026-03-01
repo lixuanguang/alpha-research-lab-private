@@ -47,20 +47,30 @@ class StreamingPipeline:
         streaming_writer: storage_streaming.StreamingParquetWriter,
         quality_checker: event_quality.EventQualityChecker,
         lineage_store: storage_lineage.LineageStore,
+        max_events: int | None = None,
     ) -> None:
+        if max_events is not None and max_events <= 0:
+            raise ValueError("`max_events` must be > 0 when configured")
         self._connector = connector
         self._bronze_writer = bronze_writer
         self._streaming_writer = streaming_writer
         self._quality_checker = quality_checker
         self._lineage_store = lineage_store
+        self._max_events = max_events
 
         # Mutable counters accumulated during a run.
         self._counts: dict[str, int] = defaultdict(int)
         self._errors: list[str] = []
         self._run: storage_lineage.IngestionRun | None = None
+        self._stop_requested = False
 
         # Wire the emit callback.
         self._connector.set_emit_callback(self._on_events)
+
+    @property
+    def connector_id(self) -> str:
+        """Expose connector id for runtime orchestration and logging."""
+        return self._connector.connector_id
 
     async def run(self) -> storage_lineage.IngestionRun:
         """Start the connector and run until it stops.
@@ -69,6 +79,7 @@ class StreamingPipeline:
         """
         self._counts.clear()
         self._errors.clear()
+        self._stop_requested = False
         self._run = self._lineage_store.start_run(
             venue=self._connector.venue,
             connector_type="streaming",
@@ -117,6 +128,11 @@ class StreamingPipeline:
             raise RuntimeError("Lineage run was not persisted")
         return completed
 
+    async def stop(self) -> None:
+        """Request connector shutdown for external orchestration paths."""
+        await self._connector.stop()
+        await self._connector.cancel_run_task()
+
     # ------------------------------------------------------------------
     # emit callback — called for each batch from the connector
     # ------------------------------------------------------------------
@@ -164,6 +180,17 @@ class StreamingPipeline:
                 message = f"streaming writer error: {exc}"
                 self._errors.append(message)
                 raise connector_types.FatalConnectorError(message) from exc
+
+        if (
+            self._max_events is not None
+            and self._counts["events_raw"] >= self._max_events
+            and not self._stop_requested
+        ):
+            self._stop_requested = True
+            try:
+                asyncio.get_running_loop().create_task(self._connector.stop())
+            except RuntimeError:
+                pass
 
     def _finalize_failed_run(self, *, run_id: str) -> storage_lineage.IngestionRun:
         self._lineage_store.fail_run(run_id, self._errors)

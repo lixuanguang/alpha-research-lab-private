@@ -14,6 +14,7 @@ import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
 import alpha_core.events.quality as event_quality
 import alpha_core.instruments.models as instrument_models
+import alpha_core.quality.gap_detector as quality_gap_detector
 import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_writer as storage_parquet
@@ -307,12 +308,10 @@ def test_backfill_ohlcv_limit_calculation_applies_resolution(tmp_path: Path) -> 
 
 
 def test_fill_gaps_dispatches_to_backfill_trades(tmp_path: Path) -> None:
-    from alpha_core.quality.gap_detector import TimeGap
-
     adapter = _MockAdapter()
     outcome_id = "polymarket:market-a:yes"
     # No data — backfill returns 0 events
-    gap = TimeGap(
+    gap = quality_gap_detector.TimeGap(
         venue="polymarket",
         outcome_id=outcome_id,
         gap_start=START,

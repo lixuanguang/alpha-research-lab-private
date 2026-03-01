@@ -169,7 +169,9 @@ def test_run_command_execute_path_reports_completion(
     )
 
     assert result.exit_code == 0
-    assert "Execution complete (mode=once, successful_runs=7)" in result.output
+    assert "Execution complete (collection_mode=poll, run_mode=once, successful_runs=7)" in (
+        result.output
+    )
 
 
 def test_run_command_rejects_invalid_max_outcomes(temp_cli_repo: Path) -> None:

@@ -310,3 +310,65 @@ def test_run_polling_pipelines_rejects_non_positive_max_outcomes() -> None:
                 emit=lambda _message, _is_error: None,
             )
         )
+
+
+def test_run_streaming_pipelines_once_raises_when_no_contexts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings()
+
+    async def _empty_stream_contexts(
+        *_args: object,
+        **_kwargs: object,
+    ) -> list[collector_runtime.StreamingPipelineContext]:
+        return []
+
+    monkeypatch.setattr(
+        collector_runtime,
+        "build_streaming_pipeline_contexts",
+        _empty_stream_contexts,
+    )
+
+    def _adapter_factory(
+        exchange_name: str,
+        config: config_models.VenueConfig,
+    ) -> adapters_base.VenueAdapter:
+        del config
+        return _StubAdapter(exchange_name)
+
+    with pytest.raises(ValueError, match="No streaming pipelines were created"):
+        asyncio.run(
+            collector_runtime.run_streaming_pipelines(
+                settings,
+                once=True,
+                max_outcomes_per_venue=10,
+                adapter_factory=_adapter_factory,
+                emit=lambda _message, _is_error: None,
+            )
+        )
+
+
+def test_run_polling_and_streaming_once_sums_run_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings()
+
+    async def _fake_run_polling(*_args: object, **_kwargs: object) -> int:
+        return 3
+
+    async def _fake_run_streaming(*_args: object, **_kwargs: object) -> int:
+        return 2
+
+    monkeypatch.setattr(collector_runtime, "run_polling_pipelines", _fake_run_polling)
+    monkeypatch.setattr(collector_runtime, "run_streaming_pipelines", _fake_run_streaming)
+
+    total = asyncio.run(
+        collector_runtime.run_polling_and_streaming(
+            settings,
+            once=True,
+            max_outcomes_per_venue=10,
+            adapter_factory=lambda _exchange, _cfg: _StubAdapter("kalshi"),
+            emit=lambda _message, _is_error: None,
+        )
+    )
+    assert total == 5

@@ -208,13 +208,13 @@ def test_trade_gap_non_positive_threshold_raises() -> None:
 
 
 def test_ohlcv_no_gaps() -> None:
-    """One candle per hour across 12 hours → no gaps."""
-    ts = [_START + timedelta(hours=i) for i in range(12)]
+    """One candle per hour across an inclusive 12-hour window → no gaps."""
+    ts = [_START + timedelta(hours=i) for i in range(13)]
     tbl = pa.table(
         {
             "ts_event": pa.array(ts, type=pa.timestamp("us", tz="UTC")),
-            "instrument_id": pa.array(["kalshi:m1:yes"] * 12),
-            "resolution": pa.array(["1h"] * 12),
+            "instrument_id": pa.array(["kalshi:m1:yes"] * len(ts)),
+            "resolution": pa.array(["1h"] * len(ts)),
         }
     )
     reader = _mock_reader(_empty_trades_tbl(), ohlcv_table=tbl)
@@ -225,7 +225,7 @@ def test_ohlcv_no_gaps() -> None:
 
 def test_ohlcv_missing_candle_detected() -> None:
     """Hour 3 is missing from the series."""
-    ts = [_START + timedelta(hours=i) for i in range(12) if i != 3]
+    ts = [_START + timedelta(hours=i) for i in range(13) if i != 3]
     tbl = pa.table(
         {
             "ts_event": pa.array(ts, type=pa.timestamp("us", tz="UTC")),
@@ -238,6 +238,21 @@ def test_ohlcv_missing_candle_detected() -> None:
     gaps = _detect_ohlcv(detector)
     assert any(g.event_type == "ohlcv" for g in gaps)
     assert len(gaps) >= 1
+
+
+def test_ohlcv_missing_end_boundary_candle_detected() -> None:
+    ts = [_START + timedelta(hours=i) for i in range(12)]  # missing hour 12
+    tbl = pa.table(
+        {
+            "ts_event": pa.array(ts, type=pa.timestamp("us", tz="UTC")),
+            "instrument_id": pa.array(["kalshi:m1:yes"] * len(ts)),
+            "resolution": pa.array(["1h"] * len(ts)),
+        }
+    )
+    reader = _mock_reader(_empty_trades_tbl(), ohlcv_table=tbl)
+    detector = quality_gap_detector.GapDetector(reader)
+    gaps = _detect_ohlcv(detector)
+    assert any(g.gap_start == _END for g in gaps)
 
 
 def test_ohlcv_invalid_resolution_raises() -> None:

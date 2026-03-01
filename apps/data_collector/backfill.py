@@ -4,22 +4,19 @@ from __future__ import annotations
 
 import math
 import time
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
 import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
 import alpha_core.events.quality as event_quality
+import alpha_core.quality.gap_detector as quality_gap_detector
 import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_writer as storage_parquet
 import alpha_core.utils.time as time_utils
 import apps.data_collector.connectors.raw_payloads as connector_raw_payloads
-
-if TYPE_CHECKING:
-    from alpha_core.quality.gap_detector import TimeGap
 
 # Maximum candles fetched per OHLCV backfill call (capped to avoid unreasonably large requests)
 _MAX_OHLCV_LIMIT = 10_000
@@ -242,7 +239,7 @@ class BackfillManager:
             run_id=run.run_id,
         )
 
-    async def fill_gaps(self, gaps: list[TimeGap]) -> list[BackfillResult]:
+    async def fill_gaps(self, gaps: list[quality_gap_detector.TimeGap]) -> list[BackfillResult]:
         """Automatically backfill detected gaps, routing by event_type."""
         results: list[BackfillResult] = []
         for gap in gaps:
@@ -278,7 +275,9 @@ async def _fetch_trades_windowed(
     """Paginate fetch_trades_with_raw to collect all trades in [start, end]."""
     all_trades: list[event_models.CanonicalTrade] = []
     all_raw: list[dict[str, object]] = []
+    seen_trade_keys: set[tuple[str, str]] = set()
     cursor: datetime | None = start
+    stalled_iterations = 0
 
     while True:
         raw_result: list[object]
@@ -292,21 +291,47 @@ async def _fetch_trades_windowed(
             raw_result, outcome_id=outcome_id
         )
 
-        in_window = [t for t in trades if start <= t.ts_event <= end]
-        if not in_window:
-            # All fetched trades are outside window (already past end)
-            break
+        new_rows = 0
+        trade_payload_pairs: list[tuple[event_models.CanonicalTrade, dict[str, object] | None]]
+        if len(normalized_raw) == len(trades):
+            trade_payload_pairs = list(zip(trades, normalized_raw, strict=True))
+        else:
+            trade_payload_pairs = [(trade, None) for trade in trades]
 
-        all_trades.extend(in_window)
-        all_raw.extend(normalized_raw[: len(in_window)])
+        for trade, raw_payload in trade_payload_pairs:
+            if not (start <= trade.ts_event <= end):
+                continue
+            trade_key = (trade.instrument_id, trade.trade_id)
+            if trade_key in seen_trade_keys:
+                continue
+            seen_trade_keys.add(trade_key)
+            all_trades.append(trade)
+            if raw_payload is not None:
+                all_raw.append(raw_payload)
+            new_rows += 1
 
-        # Advance cursor past last seen ts_event
+        # Cursor remains inclusive to avoid skipping same-timestamp trades.
         max_ts = max(t.ts_event for t in trades)
-        cursor = max_ts + timedelta(microseconds=1)
-
-        # Stop when we've passed the end of the window or batch was partial
-        if max_ts >= end or len(trades) < batch_size:
+        if max_ts > end:
             break
+
+        if len(trades) < batch_size:
+            break
+
+        if cursor is not None and max_ts < cursor:
+            raise RuntimeError(
+                "Trade pagination regressed cursor timestamp; aborting to avoid silent data loss."
+            )
+        if cursor is not None and max_ts == cursor and new_rows == 0:
+            stalled_iterations += 1
+            if stalled_iterations >= 2:
+                raise RuntimeError(
+                    "Trade pagination stalled at a single timestamp; venue pagination is ambiguous."
+                )
+        else:
+            stalled_iterations = 0
+
+        cursor = max_ts
 
     return all_trades, all_raw
 
