@@ -10,6 +10,22 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
+class CollectionConfig(BaseModel):
+    """Per-venue data collection behaviour settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["poll", "stream", "both"] = "poll"
+    trade_poll_interval: float = Field(default=30.0, gt=0)
+    ohlcv_poll_interval: float = Field(default=300.0, gt=0)
+    book_poll_interval: float = Field(default=60.0, gt=0)
+    market_refresh_interval: float = Field(default=300.0, gt=0)
+    stream_outcomes_max: int = Field(default=50, ge=1)
+    heartbeat_timeout: float = Field(default=120.0, gt=0)
+    reconnect_backoff_base: float = Field(default=1.0, gt=0)
+    reconnect_backoff_max: float = Field(default=60.0, gt=0)
+
+
 class VenueConfig(BaseModel):
     """Venue connectivity and rate-limiting configuration."""
 
@@ -21,6 +37,7 @@ class VenueConfig(BaseModel):
     api_key_env: str | None = None
     private_key_env: str | None = None
     rate_limit_rpm: int = Field(default=60, ge=1)
+    collection: CollectionConfig = Field(default_factory=CollectionConfig)
 
 
 class StorageConfig(BaseModel):

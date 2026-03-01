@@ -11,8 +11,15 @@ import click
 
 import alpha_core.adapters.pmxt_adapter as adapters_pmxt
 import alpha_core.config.loader as config_loader
+import alpha_core.config.models as config_models
 import alpha_core.config.secrets as config_secrets
+import alpha_core.events.quality as event_quality
+import alpha_core.quality.gap_detector as gap_detector_mod
+import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
+import alpha_core.storage.parquet_reader as parquet_reader_mod
+import alpha_core.storage.parquet_writer as storage_parquet
+import apps.data_collector.backfill as collector_backfill
 import apps.data_collector.runtime as collector_runtime
 
 
@@ -175,27 +182,204 @@ def status_command(apply_user_settings: bool) -> None:
 
 @main.command("backfill")
 @click.option("--venue", required=True, help="Target venue (e.g. polymarket).")
-@click.option("--instrument-id", required=True, help="Canonical instrument id to replay.")
-@click.option("--start", required=True, help="Inclusive UTC start timestamp.")
-@click.option("--end", required=True, help="Inclusive UTC end timestamp.")
-def backfill_command(venue: str, instrument_id: str, start: str, end: str) -> None:
-    """Backfill command shell (fully implemented in step D6)."""
-    raise click.ClickException(
-        "Command `backfill` is not implemented yet (pending D6). "
-        f"Received inputs: venue={venue}, instrument_id={instrument_id}, start={start}, end={end}"
+@click.option(
+    "--outcomes",
+    multiple=True,
+    required=True,
+    help="Canonical outcome ids to backfill (repeat flag for multiple).",
+)
+@click.option("--start", required=True, help="Inclusive UTC start timestamp (ISO 8601).")
+@click.option("--end", required=True, help="Inclusive UTC end timestamp (ISO 8601).")
+@click.option(
+    "--event-type",
+    type=click.Choice(["trades", "ohlcv"]),
+    default="trades",
+    show_default=True,
+    help="Data type to backfill.",
+)
+@click.option(
+    "--resolution",
+    default="1h",
+    show_default=True,
+    help="OHLCV resolution (ignored for trades). One of: 1m, 5m, 1h, 1d.",
+)
+@click.option(
+    "--batch-size",
+    type=int,
+    default=500,
+    show_default=True,
+    help="Number of trades fetched per pagination call.",
+)
+@click.option(
+    "--environment",
+    type=str,
+    default=None,
+    help="Optional environment overlay (e.g. local).",
+)
+def backfill_command(
+    venue: str,
+    outcomes: tuple[str, ...],
+    start: str,
+    end: str,
+    event_type: str,
+    resolution: str,
+    batch_size: int,
+    environment: str | None,
+) -> None:
+    """Backfill historical data for a time window."""
+    try:
+        start_dt = _parse_utc_datetime(start)
+        end_dt = _parse_utc_datetime(end)
+    except ValueError as exc:
+        raise click.ClickException(f"Invalid datetime: {exc}") from exc
+
+    if batch_size <= 0:
+        raise click.ClickException("`--batch-size` must be > 0.")
+
+    settings = config_loader.load_settings(
+        environment=environment,
+        apply_user_settings=False,
+        validate_secrets=False,
+    )
+    venue_config = _require_venue(settings, venue)
+    storage_root = settings.storage.base_path
+
+    try:
+        adapter = adapters_pmxt.PmxtAdapter(venue, venue_config)
+    except Exception as exc:
+        raise click.ClickException(f"Failed to initialise adapter for '{venue}': {exc}") from exc
+
+    manager = collector_backfill.BackfillManager(
+        adapter=adapter,
+        bronze_writer=storage_bronze.BronzeWriter(storage_root),
+        silver_writer=storage_parquet.ParquetEventWriter(storage_root),
+        quality_checker=event_quality.EventQualityChecker(),
+        lineage_store=storage_lineage.LineageStore(storage_root),
+    )
+    outcome_ids = list(outcomes)
+
+    try:
+        if event_type == "trades":
+            result = asyncio.run(
+                manager.backfill_trades(
+                    outcome_ids, start=start_dt, end=end_dt, batch_size=batch_size
+                )
+            )
+        else:
+            result = asyncio.run(
+                manager.backfill_ohlcv(
+                    outcome_ids, resolution=resolution, start=start_dt, end=end_dt
+                )
+            )
+    except Exception as exc:
+        raise click.ClickException(f"Backfill failed: {exc}") from exc
+
+    click.echo(
+        f"Backfill complete: venue={result.venue}, event_type={result.event_type}, "
+        f"fetched={result.events_fetched}, stored={result.events_stored}, "
+        f"rejected={result.events_rejected}, duration={result.duration_seconds:.2f}s"
     )
 
 
 @main.command("detect-gaps")
-@click.option("--venue", default=None, help="Optional venue filter.")
-@click.option("--start", default=None, help="Optional UTC start timestamp.")
-@click.option("--end", default=None, help="Optional UTC end timestamp.")
-def detect_gaps_command(venue: str | None, start: str | None, end: str | None) -> None:
-    """Gap-detection command shell (fully implemented in step D6)."""
-    raise click.ClickException(
-        "Command `detect-gaps` is not implemented yet (pending D6). "
-        f"Received inputs: venue={venue or 'all'}, start={start or 'none'}, end={end or 'none'}"
+@click.option("--venue", required=True, help="Target venue.")
+@click.option(
+    "--outcomes",
+    multiple=True,
+    help="Canonical outcome ids to check (repeat flag). Defaults to all found in silver data.",
+)
+@click.option(
+    "--event-type",
+    type=click.Choice(["trades", "ohlcv"]),
+    default="trades",
+    show_default=True,
+    help="Data type to scan for gaps.",
+)
+@click.option("--start", required=True, help="Window start (ISO 8601 UTC).")
+@click.option("--end", required=True, help="Window end (ISO 8601 UTC).")
+@click.option(
+    "--max-gap-hours",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="Minimum gap duration in hours to report.",
+)
+@click.option(
+    "--resolution",
+    default="1h",
+    show_default=True,
+    help="OHLCV resolution (ignored for trades). One of: 1m, 5m, 1h, 1d.",
+)
+@click.option(
+    "--environment",
+    type=str,
+    default=None,
+    help="Optional environment overlay (e.g. local).",
+)
+def detect_gaps_command(
+    venue: str,
+    outcomes: tuple[str, ...],
+    event_type: str,
+    start: str,
+    end: str,
+    max_gap_hours: float,
+    resolution: str,
+    environment: str | None,
+) -> None:
+    """Detect gaps in collected data for a time window."""
+    try:
+        start_dt = _parse_utc_datetime(start)
+        end_dt = _parse_utc_datetime(end)
+    except ValueError as exc:
+        raise click.ClickException(f"Invalid datetime: {exc}") from exc
+
+    settings = config_loader.load_settings(
+        environment=environment,
+        apply_user_settings=False,
+        validate_secrets=False,
     )
+    storage_root = settings.storage.base_path
+    reader = parquet_reader_mod.ParquetEventReader(storage_root)
+    detector = gap_detector_mod.GapDetector(reader)
+
+    # Resolve outcome ids: use provided or scan silver data
+    outcome_ids: list[str] = list(outcomes)
+    if not outcome_ids:
+        outcome_ids = _scan_instrument_ids(reader, venue=venue, start=start_dt, end=end_dt)
+        if not outcome_ids:
+            click.echo(f"No data found for venue='{venue}' in the given window.")
+            return
+
+    all_gaps: list[gap_detector_mod.TimeGap] = []
+    max_gap_seconds = max_gap_hours * 3600.0
+    for outcome_id in outcome_ids:
+        if event_type == "trades":
+            gaps = detector.detect_trade_gaps(
+                venue, outcome_id, start=start_dt, end=end_dt, max_gap_seconds=max_gap_seconds
+            )
+        else:
+            gaps = detector.detect_ohlcv_gaps(
+                venue, outcome_id, resolution=resolution, start=start_dt, end=end_dt
+            )
+        all_gaps.extend(gaps)
+
+    if not all_gaps:
+        click.echo(
+            f"No gaps detected for venue={venue}, event_type={event_type}, "
+            f"outcomes={len(outcome_ids)}, window=[{start_dt.date()}, {end_dt.date()}]."
+        )
+        return
+
+    click.echo(
+        f"Detected {len(all_gaps)} gap(s) for venue={venue}, event_type={event_type}:"
+    )
+    for gap in all_gaps:
+        click.echo(
+            f"  outcome={gap.outcome_id}, "
+            f"start={gap.gap_start.isoformat()}, "
+            f"end={gap.gap_end.isoformat()}, "
+            f"duration={gap.duration_seconds / 3600:.2f}h"
+        )
 
 
 def _echo_recent_runtime_metrics(storage_root: Path) -> None:
@@ -232,6 +416,43 @@ def _echo_recent_runtime_metrics(storage_root: Path) -> None:
             f"rejected={counts.get('rejected', 0)}, "
             f"errors={len(run.errors)}"
         )
+
+
+def _parse_utc_datetime(value: str) -> datetime:
+    """Parse an ISO 8601 string and return a UTC-aware datetime."""
+    cleaned = value.strip().rstrip("Z")
+    try:
+        dt = datetime.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise ValueError(f"Cannot parse '{value}' as ISO 8601 datetime.") from exc
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+def _require_venue(
+    settings: config_models.Settings, venue: str
+) -> config_models.VenueConfig:
+    """Return the VenueConfig for *venue* or raise ClickException."""
+    venue_config = next((v for v in settings.venues if v.name == venue), None)
+    if venue_config is None:
+        available = sorted(v.name for v in settings.venues)
+        raise click.ClickException(
+            f"Venue '{venue}' not found in config. Available: {available}"
+        )
+    return venue_config
+
+
+def _scan_instrument_ids(
+    reader: parquet_reader_mod.ParquetEventReader,
+    *,
+    venue: str,
+    start: datetime,
+    end: datetime,
+) -> list[str]:
+    """Return distinct instrument_ids present in silver trades for the window."""
+    table = reader.read_trades(venue=venue, start=start, end=end)
+    if table.num_rows == 0 or "instrument_id" not in table.schema.names:
+        return []
+    return sorted(set(table.column("instrument_id").to_pylist()))
 
 
 if __name__ == "__main__":

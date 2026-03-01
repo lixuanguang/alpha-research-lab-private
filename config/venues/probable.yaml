@@ -1,3 +1,13 @@
 name: probable
 exchange_class: Probable
 rate_limit_rpm: 120
+collection:
+  mode: poll
+  trade_poll_interval: 30
+  ohlcv_poll_interval: 300
+  book_poll_interval: 60
+  market_refresh_interval: 300
+  stream_outcomes_max: 50
+  heartbeat_timeout: 120
+  reconnect_backoff_base: 1.0
+  reconnect_backoff_max: 60.0

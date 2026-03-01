@@ -80,42 +80,45 @@ def test_run_and_validate_commands_use_loaded_settings(temp_cli_repo: Path) -> N
     assert "All required secrets resolved" in validate_result.output
 
 
-def test_status_backfill_and_detect_gaps_commands_return_expected_output(
+def test_status_command_returns_expected_venue_summary(
     temp_cli_repo: Path,
 ) -> None:
     runner = click_testing.CliRunner()
     env = _cli_env(temp_cli_repo)
 
     status_result = runner.invoke(data_collector_main.main, ["status"], env=env)
-    backfill_result = runner.invoke(
-        data_collector_main.main,
-        [
-            "backfill",
-            "--venue",
-            "polymarket",
-            "--instrument-id",
-            "polymarket:market-a:yes",
-            "--start",
-            "2026-02-28T00:00:00Z",
-            "--end",
-            "2026-02-28T01:00:00Z",
-        ],
-        env=env,
-    )
-    detect_gaps_result = runner.invoke(
-        data_collector_main.main,
-        ["detect-gaps", "--venue", "polymarket"],
-        env=env,
-    )
 
     assert status_result.exit_code == 0
     assert "Enabled venues (1): polymarket" in status_result.output
     assert "Disabled venues (1): kalshi" in status_result.output
     assert "Runtime metrics (24h): no ingestion runs recorded." in status_result.output
-    assert backfill_result.exit_code != 0
-    assert "not implemented yet (pending D6)" in backfill_result.output
-    assert detect_gaps_result.exit_code != 0
-    assert "not implemented yet (pending D6)" in detect_gaps_result.output
+
+
+def test_backfill_command_rejects_missing_outcomes(temp_cli_repo: Path) -> None:
+    runner = click_testing.CliRunner()
+    # --outcomes is now required; invoking without it must fail
+    result = runner.invoke(
+        data_collector_main.main,
+        [
+            "backfill",
+            "--venue", "polymarket",
+            "--start", "2026-02-28T00:00:00Z",
+            "--end", "2026-02-28T01:00:00Z",
+        ],
+        env=_cli_env(temp_cli_repo),
+    )
+    assert result.exit_code != 0
+
+
+def test_detect_gaps_command_rejects_missing_window(temp_cli_repo: Path) -> None:
+    runner = click_testing.CliRunner()
+    # --start and --end are now required
+    result = runner.invoke(
+        data_collector_main.main,
+        ["detect-gaps", "--venue", "polymarket"],
+        env=_cli_env(temp_cli_repo),
+    )
+    assert result.exit_code != 0
 
 
 def test_status_command_reports_recent_runtime_metrics(temp_cli_repo: Path) -> None:
