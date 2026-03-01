@@ -35,6 +35,7 @@ ENV/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage*
 .coverage.*
 htmlcov/
 .tox/

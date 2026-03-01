@@ -310,6 +310,23 @@ def test_fetch_order_book_handles_out_of_range_numeric_timestamp(
     assert book.ts_event == book.ts_record
 
 
+def test_fetch_order_book_raises_on_invalid_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_mock_pmxt(monkeypatch)
+    adapter = pmxt_adapter.PmxtAdapter("polymarket", _config("polymarket", "Polymarket"))
+    exchange = _exchange(adapter)
+    exchange._book = {
+        "timestamp": "2026-02-28T09:00:00Z",
+        "bids": [["1.50", "20"]],
+        "asks": [],
+    }
+
+    with pytest.raises(ValueError, match="Invalid order book payload"):
+        asyncio.run(adapter.fetch_order_book("polymarket:market-a:yes"))
+    assert adapter.rejection_counters()["book.invalid_payload"] == 1
+
+
 def test_fetch_trades_skips_invalid_side_values(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_mock_pmxt(monkeypatch)
     adapter = pmxt_adapter.PmxtAdapter("kalshi", _config("kalshi", "Kalshi"))

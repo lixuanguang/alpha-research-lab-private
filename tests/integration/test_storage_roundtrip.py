@@ -130,6 +130,40 @@ def test_duckdb_registers_books_and_ohlcv_views(tmp_path: Path) -> None:
     assert ohlcv_count.column("row_count").to_pylist() == [2]
 
 
+def test_storage_roundtrip_books_and_ohlcv_reader_paths(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    ts_base = datetime(2026, 2, 28, 11, 0, tzinfo=UTC)
+    writer.write_books(
+        [
+            _make_book(ts_event=ts_base),
+            _make_book(ts_event=ts_base + timedelta(hours=1)),
+        ]
+    )
+    writer.write_ohlcv(
+        [
+            _make_ohlcv(ts_event=ts_base),
+            _make_ohlcv(ts_event=ts_base + timedelta(days=1)),
+        ]
+    )
+
+    books = reader.read_books(
+        venue="kalshi",
+        start=ts_base - timedelta(minutes=1),
+        end=ts_base + timedelta(minutes=1),
+    )
+    candles = reader.read_ohlcv(
+        venue="kalshi",
+        resolution="1h",
+        start=ts_base - timedelta(minutes=1),
+        end=ts_base + timedelta(days=2),
+    )
+
+    assert books.num_rows == 1
+    assert candles.num_rows == 2
+
+
 def test_duckdb_query_rejects_non_read_only_sql(tmp_path: Path) -> None:
     analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
 

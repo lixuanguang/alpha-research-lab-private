@@ -83,6 +83,36 @@ def _parquet_files(root: Path) -> list[Path]:
     return sorted(root.rglob("*.parquet"))
 
 
+class _FakeDuckDBResult:
+    def __init__(self, table: pa.Table) -> None:
+        self._table = table
+
+    def fetch_arrow_table(self) -> pa.Table:
+        return self._table
+
+
+class _FakeDuckDBConnection:
+    def __init__(self, table: pa.Table) -> None:
+        self._table = table
+        self.calls: list[tuple[str, tuple[object, ...] | None]] = []
+
+    def execute(
+        self,
+        sql: str,
+        parameters: tuple[object, ...] | None = None,
+    ) -> _FakeDuckDBResult:
+        self.calls.append((sql, parameters))
+        return _FakeDuckDBResult(self._table)
+
+
+class _FakeDuckDBModule:
+    def __init__(self, table: pa.Table) -> None:
+        self.connection = _FakeDuckDBConnection(table)
+
+    def connect(self) -> _FakeDuckDBConnection:
+        return self.connection
+
+
 def test_write_trades_creates_partitioned_parquet_files(tmp_path: Path) -> None:
     writer = parquet_writer.ParquetEventWriter(tmp_path)
     base_ts = datetime(2026, 2, 28, 12, 0, tzinfo=UTC)
@@ -219,6 +249,15 @@ def test_read_books_filters_by_venue_and_time_window(tmp_path: Path) -> None:
     assert set(filtered.column("venue").to_pylist()) == {"kalshi"}
 
 
+def test_read_books_returns_empty_table_when_dataset_missing(tmp_path: Path) -> None:
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    table = reader.read_books()
+
+    assert table.num_rows == 0
+    assert table.schema == storage_conventions.BOOK_PARQUET_SCHEMA
+
+
 def test_write_ohlcv_creates_partitioned_paths_with_resolution(tmp_path: Path) -> None:
     writer = parquet_writer.ParquetEventWriter(tmp_path)
     base_ts = datetime(2026, 2, 28, 9, 0, tzinfo=UTC)
@@ -281,6 +320,30 @@ def test_read_ohlcv_filters_by_venue_resolution_and_time_window(tmp_path: Path) 
     assert filtered.num_rows == 1
     assert filtered.column("resolution").to_pylist() == ["1h"]
     assert set(filtered.column("venue").to_pylist()) == {"kalshi"}
+
+
+def test_read_ohlcv_returns_empty_table_when_dataset_missing(tmp_path: Path) -> None:
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    table = reader.read_ohlcv()
+
+    assert table.num_rows == 0
+    assert table.schema == storage_conventions.OHLCV_PARQUET_SCHEMA
+
+
+def test_read_methods_support_default_optional_arguments(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    ts = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+
+    writer.write_books([_make_book(book_index=1, venue="kalshi", ts_event=ts)])
+    writer.write_ohlcv([_make_ohlcv(candle_index=1, venue="kalshi", ts_event=ts, resolution="1h")])
+
+    books = reader.read_books()
+    candles = reader.read_ohlcv()
+
+    assert books.num_rows == 1
+    assert candles.num_rows == 1
 
 
 def test_write_trades_with_empty_input_creates_dataset_root_without_files(tmp_path: Path) -> None:
@@ -412,3 +475,139 @@ def test_duckdb_query_allows_keywords_inside_string_literals(tmp_path: Path) -> 
 
     assert table.num_rows == 1
     assert table.column("text_value").to_pylist() == ["drop table maybe"]
+
+
+def test_duckdb_analytics_init_requires_duckdb_module(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", None)
+    with pytest.raises(ModuleNotFoundError, match="duckdb is required"):
+        duckdb_layer.DuckDBAnalytics(tmp_path)
+
+
+def test_duckdb_query_executes_with_and_without_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_duckdb = _FakeDuckDBModule(pa.table({"value": [7]}))
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", fake_duckdb)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+    analytics._registered_views.add("silver_trades")
+
+    table_no_params = analytics.query("-- leading comment\nSELECT 1 AS value FROM silver_trades")
+    table_with_params = analytics.query(
+        "SELECT ? AS value FROM silver_trades",
+        parameters=(7,),
+    )
+
+    assert table_no_params.column("value").to_pylist() == [7]
+    assert table_with_params.column("value").to_pylist() == [7]
+    assert fake_duckdb.connection.calls[0][1] is None
+    assert fake_duckdb.connection.calls[1][1] == (7,)
+
+
+def test_duckdb_query_rejects_empty_and_multi_statement_sql(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_duckdb = _FakeDuckDBModule(pa.table({"value": [1]}))
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", fake_duckdb)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    with pytest.raises(ValueError, match="must be non-empty"):
+        analytics.query("   ")
+
+    with pytest.raises(ValueError, match="single SQL statement"):
+        analytics.query("SELECT 1; SELECT 2")
+
+
+def test_duckdb_register_silver_rejects_unsupported_event_type(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_duckdb = _FakeDuckDBModule(pa.table({"value": [1]}))
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", fake_duckdb)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    with pytest.raises(ValueError, match="Unsupported event_type"):
+        analytics.register_silver("invalid")
+
+
+def test_duckdb_register_silver_uses_empty_view_when_dataset_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_duckdb = _FakeDuckDBModule(pa.table({"value": [1]}))
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", fake_duckdb)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    analytics.register_silver("trades")
+
+    assert "silver_trades" in analytics._registered_views
+    sql, _ = fake_duckdb.connection.calls[-1]
+    assert "CREATE OR REPLACE VIEW" in sql
+    assert "WHERE FALSE" in sql
+
+
+def test_duckdb_register_silver_reads_parquet_when_dataset_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    writer.write_trades(
+        [
+            _make_trade(
+                trade_index=1,
+                venue="kalshi",
+                ts_event=datetime(2026, 3, 1, 10, 0, tzinfo=UTC),
+            )
+        ]
+    )
+    fake_duckdb = _FakeDuckDBModule(pa.table({"value": [1]}))
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", fake_duckdb)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    analytics.register_silver("trades")
+
+    assert "silver_trades" in analytics._registered_views
+    sql, _ = fake_duckdb.connection.calls[-1]
+    assert "read_parquet(" in sql
+    assert "hive_partitioning=1" in sql
+    assert "union_by_name=1" in sql
+
+
+def test_duckdb_query_rejects_table_function_through_public_api(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_duckdb = _FakeDuckDBModule(pa.table({"value": [1]}))
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", fake_duckdb)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    with pytest.raises(ValueError, match="Table functions are not allowed"):
+        analytics.query("SELECT * FROM read_parquet('/tmp/path.parquet')")
+
+
+def test_duckdb_internal_helpers_cover_edge_cases() -> None:
+    assert duckdb_layer._quote_identifier('a"b') == '"a""b"'
+    assert duckdb_layer._is_read_only_statement(" EXPLAIN SELECT 1")
+    assert not duckdb_layer._is_read_only_statement("PRAGMA table_info('x')")
+
+    stripped = duckdb_layer._strip_comments("/* block */ SELECT 1 -- inline")
+    assert "block" not in stripped
+    assert "--" not in stripped
+
+    with pytest.raises(ValueError, match="Disallowed SQL keyword"):
+        duckdb_layer._raise_if_forbidden_sql("SELECT * FROM source INSERT INTO sink")
+
+    assert duckdb_layer._arrow_type_to_duckdb_type(pa.string()) == "VARCHAR"
+    assert duckdb_layer._arrow_type_to_duckdb_type(pa.int32()) == "INTEGER"
+    assert duckdb_layer._arrow_type_to_duckdb_type(pa.decimal128(10, 2)) == "DECIMAL(10,2)"
+    assert duckdb_layer._arrow_type_to_duckdb_type(pa.timestamp("us", tz="UTC")) == "TIMESTAMPTZ"
+    with pytest.raises(TypeError, match="Unsupported Arrow type"):
+        duckdb_layer._arrow_type_to_duckdb_type(pa.bool_())
+
+    assert duckdb_layer._last_identifier_component('"schema"."ta""ble"') == '"ta""ble"'
+    assert duckdb_layer._last_identifier_component("db.schema.table") == "table"
+    assert duckdb_layer._last_identifier_component("   ") == ""

@@ -5,25 +5,7 @@ from __future__ import annotations
 import click
 
 import alpha_core.config.loader as config_loader
-import alpha_core.config.models as config_models
 import alpha_core.config.secrets as config_secrets
-
-
-def _load_settings(
-    *,
-    environment: str | None,
-    apply_user_settings: bool,
-    validate_secrets: bool,
-) -> config_models.Settings:
-    return config_loader.load_settings(
-        environment=environment,
-        validate_secrets=validate_secrets,
-        apply_user_settings=apply_user_settings,
-    )
-
-
-def _enabled_venue_names(settings: config_models.Settings) -> list[str]:
-    return sorted(venue.name for venue in settings.venues if venue.enabled)
 
 
 @click.group()
@@ -56,12 +38,12 @@ def run_command(
     validate_secrets: bool,
 ) -> None:
     """Validate runtime configuration and print the active collection scope."""
-    settings = _load_settings(
+    settings = config_loader.load_settings(
         environment=environment,
         apply_user_settings=apply_user_settings,
         validate_secrets=validate_secrets,
     )
-    enabled_venues = _enabled_venue_names(settings)
+    enabled_venues = sorted(venue.name for venue in settings.venues if venue.enabled)
     if not enabled_venues:
         raise click.ClickException("No enabled venues found for run command.")
 
@@ -86,13 +68,13 @@ def run_command(
 )
 def validate_command(environment: str | None, apply_user_settings: bool) -> None:
     """Validate config schema and report missing secrets for enabled venues."""
-    settings = _load_settings(
+    settings = config_loader.load_settings(
         environment=environment,
         apply_user_settings=apply_user_settings,
         validate_secrets=False,
     )
     missing = config_secrets.missing_required_secrets(settings)
-    enabled_venues = _enabled_venue_names(settings)
+    enabled_venues = sorted(venue.name for venue in settings.venues if venue.enabled)
 
     click.echo(
         "Configuration valid "
@@ -113,7 +95,7 @@ def validate_command(environment: str | None, apply_user_settings: bool) -> None
 )
 def status_command(apply_user_settings: bool) -> None:
     """Show enabled and disabled venues under current config selection."""
-    settings = _load_settings(
+    settings = config_loader.load_settings(
         environment=None,
         apply_user_settings=apply_user_settings,
         validate_secrets=False,

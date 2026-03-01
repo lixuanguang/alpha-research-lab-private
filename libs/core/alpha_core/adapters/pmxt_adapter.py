@@ -77,7 +77,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             try:
                 market = pmxt_mapping.map_market(raw_market, venue=self._venue)
             except (TypeError, ValueError, ValidationError):
-                self._record_rejection("markets", "invalid_payload", dropped)
+                self._record_rejection_count("markets", "invalid_payload", 1, dropped)
                 continue
 
             for outcome in market.outcomes:
@@ -118,50 +118,66 @@ class PmxtAdapter(adapters_base.VenueAdapter):
                     )
                 )
             except (TypeError, ValueError, ValidationError):
-                self._record_rejection("trades", "invalid_payload", dropped)
+                self._record_rejection_count("trades", "invalid_payload", 1, dropped)
                 continue
 
         self._log_rejection_summary("trades", dropped)
         return mapped
 
     async def fetch_order_book(self, outcome_id: str) -> event_models.CanonicalBookSnapshot:
+        instrument_id = self._instrument_id(outcome_id)
         raw_book = await self._invoke_exchange("fetch_order_book", outcome_id)
-
-        ts_record = datetime.now(tz=UTC)
-        ts_event = pmxt_parsing.coerce_event_time(
-            pmxt_parsing.pick(raw_book, "timestamp", "ts", "time", default=ts_record),
-            fallback=ts_record,
-        )
-        if ts_event is None:
-            ts_event = ts_record
-
-        payload: dict[str, Any] = {
-            "instrument_id": self._instrument_id(outcome_id),
-            "venue_id": self._venue,
-            "event_type": event_models.EventType.BOOK_SNAPSHOT,
-            "ts_event": pmxt_parsing.bound_event_time(ts_event=ts_event, ts_record=ts_record),
-            "ts_record": ts_record,
-            "schema_version": event_schema_version.CANONICAL_EVENT_SCHEMA_VERSION,
-        }
-
         dropped: Counter[str] = Counter()
-        payload["bids"], bids_invalid = pmxt_mapping.map_book_levels(
-            pmxt_parsing.pick(raw_book, "bids", default=[]),
-            side="bids",
-            quirks=self._quirks,
-        )
-        payload["asks"], asks_invalid = pmxt_mapping.map_book_levels(
-            pmxt_parsing.pick(raw_book, "asks", default=[]),
-            side="asks",
-            quirks=self._quirks,
-        )
 
-        if bids_invalid:
-            self._record_rejection_count("book", "bids_invalid_level", bids_invalid, dropped)
-        if asks_invalid:
-            self._record_rejection_count("book", "asks_invalid_level", asks_invalid, dropped)
+        try:
+            ts_record = datetime.now(tz=UTC)
+            ts_event = pmxt_parsing.coerce_event_time(
+                pmxt_parsing.pick(raw_book, "timestamp", "ts", "time", default=ts_record),
+                fallback=ts_record,
+            )
+            if ts_event is None:
+                ts_event = ts_record
 
-        book = event_models.CanonicalBookSnapshot.model_validate(payload)
+            raw_bids = pmxt_parsing.pick(raw_book, "bids", default=None)
+            raw_asks = pmxt_parsing.pick(raw_book, "asks", default=None)
+            if not isinstance(raw_bids, list) or not isinstance(raw_asks, list):
+                raise ValueError("order book payload must contain list fields `bids` and `asks`")
+
+            payload: dict[str, Any] = {
+                "instrument_id": instrument_id,
+                "venue_id": self._venue,
+                "event_type": event_models.EventType.BOOK_SNAPSHOT,
+                "ts_event": pmxt_parsing.bound_event_time(ts_event=ts_event, ts_record=ts_record),
+                "ts_record": ts_record,
+                "schema_version": event_schema_version.CANONICAL_EVENT_SCHEMA_VERSION,
+            }
+
+            payload["bids"], bids_invalid = pmxt_mapping.map_book_levels(
+                raw_bids,
+                side="bids",
+                quirks=self._quirks,
+            )
+            payload["asks"], asks_invalid = pmxt_mapping.map_book_levels(
+                raw_asks,
+                side="asks",
+                quirks=self._quirks,
+            )
+
+            if bids_invalid:
+                self._record_rejection_count("book", "bids_invalid_level", bids_invalid, dropped)
+            if asks_invalid:
+                self._record_rejection_count("book", "asks_invalid_level", asks_invalid, dropped)
+            if not payload["bids"] and not payload["asks"] and (bids_invalid or asks_invalid):
+                raise ValueError("order book payload contains no valid levels")
+
+            book = event_models.CanonicalBookSnapshot.model_validate(payload)
+        except (TypeError, ValueError, ValidationError) as exc:
+            self._record_rejection_count("book", "invalid_payload", 1, dropped)
+            self._log_rejection_summary("book", dropped)
+            raise ValueError(
+                "Invalid order book payload for "
+                f"venue `{self._venue}` and outcome `{outcome_id}`"
+            ) from exc
         self._log_rejection_summary("book", dropped)
         return book
 
@@ -190,7 +206,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             ts_record = datetime.now(tz=UTC)
             parsed = pmxt_mapping.parse_ohlcv(candle, quirks=self._quirks)
             if parsed is None:
-                self._record_rejection("ohlcv", "invalid_payload", dropped)
+                self._record_rejection_count("ohlcv", "invalid_payload", 1, dropped)
                 continue
 
             ts_event, open_price, high_price, low_price, close_price, volume = parsed
@@ -211,7 +227,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             try:
                 mapped.append(event_models.CanonicalOHLCV.model_validate(payload))
             except ValidationError:
-                self._record_rejection("ohlcv", "invalid_event", dropped)
+                self._record_rejection_count("ohlcv", "invalid_event", 1, dropped)
 
         self._log_rejection_summary("ohlcv", dropped)
         return mapped
@@ -233,9 +249,6 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         if inspect.isawaitable(result):
             return await result
         return result
-
-    def _record_rejection(self, scope: str, reason: str, dropped: Counter[str]) -> None:
-        self._record_rejection_count(scope, reason, 1, dropped)
 
     def _record_rejection_count(
         self,

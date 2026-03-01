@@ -20,9 +20,9 @@ class ParquetEventReader:
 
     def read_trades(
         self,
-        venue: str | None,
-        start: datetime | None,
-        end: datetime | None,
+        venue: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> pa.Table:
         """Read canonical trades with partition-prunable filters."""
         return self._read_dataset(
@@ -33,9 +33,9 @@ class ParquetEventReader:
 
     def read_books(
         self,
-        venue: str | None,
-        start: datetime | None,
-        end: datetime | None,
+        venue: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> pa.Table:
         """Read canonical order book snapshots with partition-prunable filters."""
         return self._read_dataset(
@@ -46,10 +46,10 @@ class ParquetEventReader:
 
     def read_ohlcv(
         self,
-        venue: str | None,
-        resolution: str | None,
-        start: datetime | None,
-        end: datetime | None,
+        venue: str | None = None,
+        resolution: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
     ) -> pa.Table:
         """Read canonical OHLCV bars with partition-prunable filters."""
         return self._read_dataset(
