@@ -71,6 +71,25 @@ def map_trade(
         or ts_record
     )
     ts_event = pmxt_parsing.bound_event_time(ts_event=ts_event, ts_record=ts_record)
+    sequence_id = pmxt_parsing.coerce_optional_text(
+        pmxt_parsing.pick(raw, "sequence_id", "sequence", "seq", default=None)
+    )
+    parsed_ts_exchange = pmxt_parsing.coerce_event_time(
+        pmxt_parsing.pick(raw, "exchange_timestamp", "source_timestamp", default=None),
+        fallback=None,
+    )
+    sequence_capable = bool(getattr(quirks, "sequence_id_capable", False)) or (
+        sequence_id is not None
+    )
+    latency_capable = bool(getattr(quirks, "latency_metadata_capable", False)) or (
+        parsed_ts_exchange is not None
+    )
+    ts_exchange = parsed_ts_exchange if latency_capable else None
+    source_latency_ms = (
+        max((ts_record - ts_exchange).total_seconds() * 1000.0, 0.0)
+        if ts_exchange is not None
+        else None
+    )
 
     price = pmxt_parsing.coerce_decimal(pmxt_parsing.pick(raw, "price", default=None))
     if price is None:
@@ -108,6 +127,11 @@ def map_trade(
         "ts_event": ts_event,
         "ts_record": ts_record,
         "schema_version": event_schema_version.CANONICAL_EVENT_SCHEMA_VERSION,
+        "sequence_id": sequence_id,
+        "ts_exchange": ts_exchange,
+        "source_latency_ms": source_latency_ms,
+        "sequence_id_capable": sequence_capable,
+        "latency_metadata_capable": latency_capable,
         "price": normalize_price(price, quirks=quirks),
         "size": size,
         "side": side,

@@ -52,6 +52,24 @@ def _book(index: int) -> event_models.CanonicalBookSnapshot:
     return event_models.CanonicalBookSnapshot.model_validate(payload)
 
 
+def _book_delta(index: int) -> event_models.CanonicalBookDelta:
+    ts_event = datetime(2026, 3, 1, 10, 0, tzinfo=UTC) + timedelta(seconds=index)
+    payload: dict[str, object] = {
+        "instrument_id": "kalshi:market-a:yes",
+        "venue_id": "kalshi",
+        "event_type": event_models.EventType.BOOK_DELTA,
+        "ts_event": ts_event,
+        "ts_record": ts_event + timedelta(milliseconds=100),
+        "schema_version": 1,
+        "side": "bid",
+        "price": Decimal("0.50"),
+        "delta_size": Decimal("3"),
+        "reason": "add",
+        "is_reconstructed": True,
+    }
+    return event_models.CanonicalBookDelta.model_validate(payload)
+
+
 def test_flush_returns_empty_mapping_for_empty_buffer(tmp_path: Path) -> None:
     writer = streaming_writer.StreamingParquetWriter(parquet_writer.ParquetEventWriter(tmp_path))
 
@@ -132,6 +150,20 @@ def test_close_flushes_remaining_events(tmp_path: Path) -> None:
 
     book_files = sorted((tmp_path / "silver" / "books").rglob("*.parquet"))
     assert book_files
+
+
+def test_close_flushes_remaining_book_deltas(tmp_path: Path) -> None:
+    writer = streaming_writer.StreamingParquetWriter(
+        parquet_writer.ParquetEventWriter(tmp_path),
+        max_buffer_size=100,
+        max_buffer_age_seconds=60.0,
+    )
+
+    writer.append(_book_delta(1))
+    writer.close()
+
+    delta_files = sorted((tmp_path / "silver" / "book_deltas").rglob("*.parquet"))
+    assert delta_files
 
 
 def test_flush_failure_retains_buffer_for_retry(

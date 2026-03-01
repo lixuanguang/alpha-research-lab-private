@@ -80,6 +80,26 @@ def test_run_and_validate_commands_use_loaded_settings(temp_cli_repo: Path) -> N
     assert "All required secrets resolved" in validate_result.output
 
 
+def test_validate_command_accepts_data_quality_window_flags(temp_cli_repo: Path) -> None:
+    runner = click_testing.CliRunner()
+    result = runner.invoke(
+        data_collector_main.main,
+        [
+            "validate",
+            "--ignore-user-settings",
+            "--venue",
+            "polymarket",
+            "--since",
+            "2026-02-28T00:00:00Z",
+        ],
+        env=_cli_env(temp_cli_repo),
+    )
+
+    assert result.exit_code == 0
+    assert "Configuration valid" in result.output
+    assert "Data quality validation: no matching silver data" in result.output
+
+
 def test_status_command_returns_expected_venue_summary(
     temp_cli_repo: Path,
 ) -> None:

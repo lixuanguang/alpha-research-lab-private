@@ -226,6 +226,7 @@ def _make_book_delta(
     ts_event: datetime,
     reason: str = "add",
     sequence_id: str | None = None,
+    is_reconstructed: bool = False,
 ) -> event_models.CanonicalBookDelta:
     payload: dict[str, object] = {
         "instrument_id": f"{venue}:market-x:yes",
@@ -239,6 +240,7 @@ def _make_book_delta(
         "delta_size": Decimal("3") + Decimal(delta_index % 4),
         "reason": reason,
         "sequence_id": sequence_id,
+        "is_reconstructed": is_reconstructed,
     }
     exclude_fields = event_models.event_id_exclude_fields(event_models.EventType.BOOK_DELTA)
     payload["event_id"] = ids_utils.generate_event_id(
@@ -296,3 +298,53 @@ def test_storage_roundtrip_book_deltas_is_reconstructed_flag_preserved(tmp_path:
     table = reader.read_book_deltas(venue="kalshi")
     flags = sorted(set(table.column("is_reconstructed").to_pylist()))
     assert flags == [False, True]
+
+
+def test_storage_roundtrip_book_deltas_per_event_flag_respected(tmp_path: Path) -> None:
+    """Per-event is_reconstructed on the model is persisted when the batch flag is False."""
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    ts_base = datetime(2026, 3, 3, 10, 0, tzinfo=UTC)
+    native = _make_book_delta(delta_index=0, ts_event=ts_base)
+    # is_reconstructed is set on the model itself, not via the batch kwarg
+    reconstructed = _make_book_delta(
+        delta_index=1, ts_event=ts_base + timedelta(seconds=1), is_reconstructed=True
+    )
+
+    writer.write_book_deltas([native, reconstructed])  # batch flag stays False
+
+    table = reader.read_book_deltas(venue="kalshi")
+    assert table.num_rows == 2
+    flags = sorted(set(table.column("is_reconstructed").to_pylist()))
+    assert flags == [False, True]
+
+
+def test_storage_roundtrip_book_deltas_duckdb_filter_by_is_reconstructed(
+    tmp_path: Path,
+) -> None:
+    """silver_book_deltas DuckDB view supports WHERE is_reconstructed filtering."""
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    ts_base = datetime(2026, 3, 3, 11, 0, tzinfo=UTC)
+    native = _make_book_delta(delta_index=0, ts_event=ts_base)
+    reconstructed = _make_book_delta(
+        delta_index=1, ts_event=ts_base + timedelta(seconds=1), is_reconstructed=True
+    )
+    writer.write_book_deltas([native, reconstructed])
+
+    analytics.register_silver("book_deltas")
+
+    all_rows = analytics.query("SELECT COUNT(*) AS n FROM silver_book_deltas")
+    assert all_rows.column("n").to_pylist() == [2]
+
+    recon_rows = analytics.query(
+        "SELECT COUNT(*) AS n FROM silver_book_deltas WHERE is_reconstructed = true"
+    )
+    assert recon_rows.column("n").to_pylist() == [1]
+
+    native_rows = analytics.query(
+        "SELECT COUNT(*) AS n FROM silver_book_deltas WHERE is_reconstructed = false"
+    )
+    assert native_rows.column("n").to_pylist() == [1]

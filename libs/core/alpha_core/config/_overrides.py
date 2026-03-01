@@ -120,24 +120,35 @@ def apply_venue_enabled_overrides(
     user_settings_path: Path,
 ) -> dict[str, Any]:
     """Apply opt-in user-level venue enabled/disabled overrides."""
-    toggles_cfg = config_merge.load_yaml(user_settings_path)
-    if not toggles_cfg:
+    enabled_map = _load_enabled_map(user_settings_path)
+    if not enabled_map:
         return config
-
-    enabled_map = toggles_cfg.get("venue_enabled")
-    if not isinstance(enabled_map, dict):
-        raise ValueError("`config/user_settings.yaml` must contain a mapping under `venue_enabled`")
 
     merged = dict(config)
     venues = merged.get("venues", [])
     if not isinstance(venues, list):
         raise ValueError("`venues` must be a list in configuration")
 
-    known_venues = {
-        venue["name"]
-        for venue in venues
-        if isinstance(venue, dict) and isinstance(venue.get("name"), str)
-    }
+    unknown_venues = sorted(name for name in enabled_map if name not in _known_venue_names(venues))
+    if unknown_venues:
+        unknown = ", ".join(unknown_venues)
+        raise ValueError(
+            f"Unknown venue name(s) in `config/user_settings.yaml` under `venue_enabled`: {unknown}"
+        )
+
+    merged["venues"] = _apply_enabled_map(venues, enabled_map)
+    return merged
+
+
+def _load_enabled_map(user_settings_path: Path) -> dict[str, bool]:
+    toggles_cfg = config_merge.load_yaml(user_settings_path)
+    if not toggles_cfg:
+        return {}
+
+    enabled_map = toggles_cfg.get("venue_enabled")
+    if not isinstance(enabled_map, dict):
+        raise ValueError("`config/user_settings.yaml` must contain a mapping under `venue_enabled`")
+
     normalized_enabled_map: dict[str, bool] = {}
     for raw_name, raw_value in enabled_map.items():
         if not isinstance(raw_name, str):
@@ -150,14 +161,18 @@ def apply_venue_enabled_overrides(
                 f"{type(raw_value).__name__}"
             )
         normalized_enabled_map[raw_name] = raw_value
+    return normalized_enabled_map
 
-    unknown_venues = sorted(name for name in normalized_enabled_map if name not in known_venues)
-    if unknown_venues:
-        unknown = ", ".join(unknown_venues)
-        raise ValueError(
-            f"Unknown venue name(s) in `config/user_settings.yaml` under `venue_enabled`: {unknown}"
-        )
 
+def _known_venue_names(venues: list[Any]) -> set[str]:
+    return {
+        venue["name"]
+        for venue in venues
+        if isinstance(venue, dict) and isinstance(venue.get("name"), str)
+    }
+
+
+def _apply_enabled_map(venues: list[Any], enabled_map: dict[str, bool]) -> list[Any]:
     updated: list[Any] = []
     for venue in venues:
         if not isinstance(venue, dict):
@@ -165,18 +180,12 @@ def apply_venue_enabled_overrides(
             continue
 
         venue_name = venue.get("name")
-        if not isinstance(venue_name, str):
+        if not isinstance(venue_name, str) or venue_name not in enabled_map:
             updated.append(venue)
             continue
 
-        if venue_name in normalized_enabled_map:
-            updated.append({**venue, "enabled": normalized_enabled_map[venue_name]})
-            continue
-
-        updated.append(venue)
-
-    merged["venues"] = updated
-    return merged
+        updated.append({**venue, "enabled": enabled_map[venue_name]})
+    return updated
 
 
 def resolve_environment_path(environments_dir: Path, environment: str) -> Path:

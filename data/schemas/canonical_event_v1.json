@@ -85,6 +85,18 @@
             "null"
           ],
           "minimum": 0.0
+        },
+        "sequence_id_capable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "latency_metadata_capable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [

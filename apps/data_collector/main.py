@@ -15,7 +15,9 @@ import alpha_core.config.loader as config_loader
 import alpha_core.config.models as config_models
 import alpha_core.config.secrets as config_secrets
 import alpha_core.events.quality as event_quality
+import alpha_core.quality.base as quality_base
 import alpha_core.quality.gap_detector as gap_detector_mod
+import alpha_core.quality.partition_validator as quality_partition_validator
 import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_reader as parquet_reader_mod
@@ -149,7 +151,24 @@ def run_command(
     show_default=True,
     help="Apply venue toggles from config/user_settings.yaml.",
 )
-def validate_command(environment: str | None, apply_user_settings: bool) -> None:
+@click.option(
+    "--venue",
+    type=str,
+    default=None,
+    help="Optional venue filter for data-quality validation.",
+)
+@click.option(
+    "--since",
+    type=str,
+    default=None,
+    help="Optional ISO8601 lower-bound for data-quality validation.",
+)
+def validate_command(
+    environment: str | None,
+    apply_user_settings: bool,
+    venue: str | None,
+    since: str | None,
+) -> None:
     """Validate config schema and report missing secrets for enabled venues."""
     settings = config_loader.load_settings(
         environment=environment,
@@ -167,6 +186,34 @@ def validate_command(environment: str | None, apply_user_settings: bool) -> None
         missing_joined = ", ".join(missing)
         raise click.ClickException(f"Missing required secrets: {missing_joined}")
     click.echo("All required secrets resolved for enabled venues.")
+
+    since_dt = _parse_utc_datetime(since) if since is not None else None
+    if venue is not None or since_dt is not None:
+        if venue is not None:
+            _require_venue(settings, venue.strip().lower())
+        reports = _run_quality_validation(
+            settings=settings,
+            venue=venue.strip().lower() if venue is not None else None,
+            since=since_dt,
+        )
+        if not reports:
+            click.echo("Data quality validation: no matching silver data in the requested window.")
+            return
+        failed_reports = sum(1 for report in reports if not report.passed)
+        degraded_reports = sum(1 for report in reports if report.degraded)
+        click.echo(
+            "Data quality validation complete: "
+            f"reports={len(reports)}, failed={failed_reports}, degraded={degraded_reports}"
+        )
+        for report in reports:
+            click.echo(
+                f"  suite={report.suite_name}, passed={report.passed}, "
+                f"degraded={report.degraded}, rows={report.row_count}"
+            )
+        if failed_reports > 0:
+            raise click.ClickException(
+                "Data quality validation failed one or more fail-severity suites."
+            )
 
 
 @main.command("status")
@@ -540,6 +587,21 @@ def _echo_recent_runtime_metrics(storage_root: Path) -> None:
             f"rejected={run.counts.get('rejected', 0)}, "
             f"errors={len(run.errors)}"
         )
+
+
+def _run_quality_validation(
+    *,
+    settings: config_models.Settings,
+    venue: str | None,
+    since: datetime | None,
+) -> list[quality_base.SuiteReport]:
+    window_start = since if since is not None else datetime.now(tz=UTC) - timedelta(days=1)
+    reader = parquet_reader_mod.ParquetEventReader(settings.storage.base_path)
+    validator = quality_partition_validator.PartitionValidator.from_defaults(
+        reader=reader,
+        include_microstructure=True,
+    )
+    return validator.validate_since(since=window_start, venue=venue)
 
 
 def _parse_utc_datetime(value: str) -> datetime:

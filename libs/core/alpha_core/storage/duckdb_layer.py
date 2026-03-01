@@ -171,16 +171,42 @@ def _extract_relation_references(statement: str) -> tuple[set[str], set[str]]:
     relations: set[str] = set()
     table_functions: set[str] = set()
 
+    for keyword, index in _scan_top_level_keywords(scrubbed_statement, ("from", "join")):
+        if keyword == "from":
+            _consume_sources_after_from(
+                scrubbed_statement,
+                index + len("from"),
+                relations=relations,
+                table_functions=table_functions,
+            )
+            continue
+        relation_name, is_table_function, _ = _consume_relation_source(
+            scrubbed_statement,
+            index + len("join"),
+        )
+        _record_relation_reference(
+            relation_name,
+            is_table_function,
+            relations=relations,
+            table_functions=table_functions,
+        )
+
+    return relations, table_functions
+
+
+def _scan_top_level_keywords(
+    statement: str, keywords: tuple[str, ...]
+) -> list[tuple[str, int]]:
+    matches: list[tuple[str, int]] = []
     index = 0
     depth = 0
     in_quotes = False
-    length = len(scrubbed_statement)
 
-    while index < length:
-        char = scrubbed_statement[index]
+    while index < len(statement):
+        char = statement[index]
         if in_quotes:
             if char == '"':
-                if index + 1 < length and scrubbed_statement[index + 1] == '"':
+                if index + 1 < len(statement) and statement[index + 1] == '"':
                     index += 2
                     continue
                 in_quotes = False
@@ -191,7 +217,6 @@ def _extract_relation_references(statement: str) -> tuple[set[str], set[str]]:
             in_quotes = True
             index += 1
             continue
-
         if char == "(":
             depth += 1
             index += 1
@@ -200,35 +225,21 @@ def _extract_relation_references(statement: str) -> tuple[set[str], set[str]]:
             depth = max(0, depth - 1)
             index += 1
             continue
-        if depth > 0:
-            index += 1
-            continue
 
-        if _matches_keyword_at(scrubbed_statement, index, "from"):
-            index = _consume_sources_after_from(
-                scrubbed_statement,
-                index + len("from"),
-                relations=relations,
-                table_functions=table_functions,
-            )
-            continue
-
-        if _matches_keyword_at(scrubbed_statement, index, "join"):
-            relation_name, is_table_function, index = _consume_relation_source(
-                scrubbed_statement,
-                index + len("join"),
-            )
-            if relation_name is not None:
-                normalized = _normalize_relation_name(relation_name)
-                if is_table_function:
-                    table_functions.add(normalized)
-                else:
-                    relations.add(normalized)
-            continue
+        if depth == 0:
+            matched = False
+            for keyword in keywords:
+                if not _matches_keyword_at(statement, index, keyword):
+                    continue
+                matches.append((keyword, index))
+                index += len(keyword)
+                matched = True
+                break
+            if matched:
+                continue
 
         index += 1
-
-    return relations, table_functions
+    return matches
 
 
 def _validate_allowed_query_sources(statement: str, registered_views: set[str]) -> None:
@@ -276,25 +287,40 @@ def _consume_sources_after_from(
     table_functions: set[str],
 ) -> int:
     relation_name, is_table_function, index = _consume_relation_source(statement, start_index)
-    if relation_name is not None:
-        normalized = _normalize_relation_name(relation_name)
-        if is_table_function:
-            table_functions.add(normalized)
-        else:
-            relations.add(normalized)
+    _record_relation_reference(
+        relation_name,
+        is_table_function,
+        relations=relations,
+        table_functions=table_functions,
+    )
 
     while True:
         index = _skip_whitespace(statement, index)
         if index >= len(statement) or statement[index] != ",":
             return index
         relation_name, is_table_function, index = _consume_relation_source(statement, index + 1)
-        if relation_name is None:
-            continue
-        normalized = _normalize_relation_name(relation_name)
-        if is_table_function:
-            table_functions.add(normalized)
-        else:
-            relations.add(normalized)
+        _record_relation_reference(
+            relation_name,
+            is_table_function,
+            relations=relations,
+            table_functions=table_functions,
+        )
+
+
+def _record_relation_reference(
+    relation_name: str | None,
+    is_table_function: bool,
+    *,
+    relations: set[str],
+    table_functions: set[str],
+) -> None:
+    if relation_name is None:
+        return
+    normalized = _normalize_relation_name(relation_name)
+    if is_table_function:
+        table_functions.add(normalized)
+        return
+    relations.add(normalized)
 
 
 def _consume_relation_source(

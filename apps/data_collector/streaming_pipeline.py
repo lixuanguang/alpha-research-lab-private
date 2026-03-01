@@ -110,6 +110,17 @@ class StreamingPipeline:
             return
 
         self._counts["events_raw"] += len(events)
+
+        # Log gap markers for observability; they flow through like any other event.
+        for event in events:
+            if event.is_reconnect_gap:
+                _LOGGER.warning(
+                    "Reconnect gap marker received: connector=%s instrument=%s",
+                    self._connector.connector_id,
+                    event.instrument_id,
+                )
+                self._counts["reconnect_gaps"] += 1
+
         valid_events = self._filter_valid_events(events)
         if valid_events:
             self._write_bronze_events(valid_events)
@@ -204,6 +215,9 @@ class StreamingPipeline:
 
     def _append_silver_events(self, events: list[event_models.CanonicalMarketEvent]) -> None:
         for event in events:
+            if isinstance(event, event_models.CanonicalMetadataUpdate):
+                self._counts["metadata_skipped"] += 1
+                continue
             try:
                 self._streaming_writer.append(event)
                 self._counts["events_silver"] += 1

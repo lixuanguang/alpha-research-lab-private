@@ -60,6 +60,10 @@ class PmxtAdapter(adapters_base.VenueAdapter):
     def venue_name(self) -> str:
         return self._venue
 
+    def book_stream_capabilities(self) -> dict[str, bool]:
+        """Return adapter-level stream capabilities for order-book metadata."""
+        return venue_configs.get_stream_capabilities(self._venue)
+
     def rejection_counters(self) -> dict[str, int]:
         """Return cumulative dropped-row counters grouped by scope and reason."""
         return dict(sorted(self._rejection_counts.items()))
@@ -364,12 +368,27 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         dropped: Counter[str],
     ) -> event_models.CanonicalBookSnapshot:
         ts_record = datetime.now(tz=UTC)
+        raw_ts_exchange = pmxt_parsing.coerce_event_time(
+            pmxt_parsing.pick(raw_book, "exchange_timestamp", "source_timestamp", default=None),
+            fallback=None,
+        )
         ts_event = (
             pmxt_parsing.coerce_event_time(
                 pmxt_parsing.pick(raw_book, "timestamp", "ts", "time", default=ts_record),
                 fallback=ts_record,
             )
             or ts_record
+        )
+        sequence_id = pmxt_parsing.coerce_optional_text(
+            pmxt_parsing.pick(raw_book, "sequence_id", "sequence", "seq", default=None)
+        )
+        sequence_capable = self._quirks.sequence_id_capable or sequence_id is not None
+        latency_capable = self._quirks.latency_metadata_capable or raw_ts_exchange is not None
+        ts_exchange = raw_ts_exchange if latency_capable else None
+        source_latency_ms = (
+            max((ts_record - ts_exchange).total_seconds() * 1000.0, 0.0)
+            if ts_exchange is not None
+            else None
         )
 
         raw_bids = pmxt_parsing.pick(raw_book, "bids", default=None)
@@ -384,6 +403,11 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             "ts_event": pmxt_parsing.bound_event_time(ts_event=ts_event, ts_record=ts_record),
             "ts_record": ts_record,
             "schema_version": event_schema_version.CANONICAL_EVENT_SCHEMA_VERSION,
+            "sequence_id": sequence_id,
+            "ts_exchange": ts_exchange,
+            "source_latency_ms": source_latency_ms,
+            "sequence_id_capable": sequence_capable,
+            "latency_metadata_capable": latency_capable,
         }
 
         payload["bids"], bids_invalid = pmxt_mapping.map_book_levels(

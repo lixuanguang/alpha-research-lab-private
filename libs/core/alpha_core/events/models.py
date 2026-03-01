@@ -39,7 +39,16 @@ _AUTO_EVENT_ID_SENTINEL = "__alpha_auto_event_id__"
 # payload (e.g. adding ts_exchange after the fact) does not silently break ID
 # checks.
 _EVENT_ID_EXCLUDE_FIELDS: frozenset[str] = frozenset(
-    {"event_id", "ts_exchange", "ts_receive", "source_latency_ms"}
+    {
+        "event_id",
+        "ts_exchange",
+        "ts_receive",
+        "source_latency_ms",
+        "sequence_id_capable",
+        "latency_metadata_capable",
+        "is_reconnect_gap",   # reconnect gap marker — metadata only
+        "is_reconstructed",   # delta reconstruction flag — metadata only
+    }
 )
 _EVENT_ID_EXCLUDE_EVENT_TYPES_FOR_SEQUENCE_ID: frozenset[EventType] = frozenset(
     {
@@ -86,6 +95,11 @@ class CanonicalMarketEvent(BaseModel):
     ts_exchange: datetime | None = None
     ts_receive: datetime | None = None
     source_latency_ms: float | None = None
+    # Explicit venue capabilities for sequence/latency metadata when fields are null.
+    sequence_id_capable: bool | None = None
+    latency_metadata_capable: bool | None = None
+    # Set to True on a synthetic gap-marker event emitted when a stream reconnects
+    is_reconnect_gap: bool = False
 
     @model_validator(mode="before")
     @classmethod
@@ -203,10 +217,11 @@ class CanonicalOHLCV(CanonicalMarketEvent):
 class CanonicalBookDelta(CanonicalMarketEvent):
     """Canonical order book delta (incremental update) event.
 
-    Represents a single-level change to one side of the book, as emitted by
-    venues that support delta-feed semantics.  ``reason`` identifies whether
-    the change resulted from a new resting order ('add'), a cancellation
-    ('cancel'), or a trade execution ('trade').
+    Represents a single-level change to one side of the book.  ``reason``
+    identifies whether the change resulted from a new resting order ('add'),
+    a cancellation ('cancel'), or a trade execution ('trade').
+    ``is_reconstructed=True`` means this delta was derived by diffing
+    consecutive snapshots rather than received natively from the venue.
     """
 
     event_type: Literal[EventType.BOOK_DELTA] = EventType.BOOK_DELTA
@@ -214,7 +229,7 @@ class CanonicalBookDelta(CanonicalMarketEvent):
     price: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
     delta_size: Decimal
     reason: Literal["add", "cancel", "trade"]
-    sequence_id: str | None = None  # venue-level sequence number for ordering
+    is_reconstructed: bool = False  # True when derived from consecutive snapshots
 
 
 class CanonicalMetadataUpdate(CanonicalMarketEvent):

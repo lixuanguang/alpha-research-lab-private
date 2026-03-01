@@ -6,7 +6,7 @@
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Implementation Status (as of March 2, 2026):** D1, D2, D3, D4, D5, and D6 complete  
-> **Current quality gate snapshot (validated March 2, 2026):** `ruff check .` (pass), `mypy libs/core --strict` (pass), `pytest tests/ -v` (`495 passed, 8 skipped`).
+> **Current quality gate snapshot (validated March 2, 2026):** `ruff check .` (pass), `mypy libs/ apps/ --strict` (pass), `pytest tests/ -v` (`534 passed, 8 skipped`).
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---
@@ -1044,7 +1044,7 @@ The Data Plane MVP is broken into **6 sequential sub-steps** (D1–D6). Each ste
 
 The Data Plane MVP is **complete** when all of the following are true:
 
-- [x] `ruff check . && mypy libs/core --strict` — 0 errors
+- [x] `ruff check . && mypy libs/ apps/ --strict` — 0 errors
 - [x] `pytest tests/ -v` — all tests green, ≥ 300 total, ≥ 85% coverage
 - [x] At least 2 venues have working polling connectors (trades + OHLCV + books)
 - [x] `MarketRefreshPoller` updates the `MarketMaster` on schedule
@@ -1062,8 +1062,8 @@ The Data Plane MVP is **complete** when all of the following are true:
 
 Validation snapshot (local, March 2, 2026):
 - `ruff check .` -> pass
-- `mypy libs/core --strict` -> pass
-- `pytest tests/ -v` -> `492 passed, 8 skipped`
+- `mypy libs/ apps/ --strict` -> pass
+- `pytest tests/ -v` -> `534 passed, 8 skipped`
 - Remaining external check: GitHub Actions CI status
 
 ---
@@ -1405,7 +1405,7 @@ python -m apps.data_collector.main detect-gaps \
 # Validate all recent silver data
 python -m apps.data_collector.main validate
 
-# Validate specific venue since a date
+# Validate specific venue since a date (runs suite validation on silver data)
 python -m apps.data_collector.main validate --venue polymarket --since 2026-02-28
 ```
 
@@ -1502,6 +1502,14 @@ Extension is complete when all are true:
 - [ ] Quality suite catches sequence gaps and stale/cadence violations.
 - [ ] `book_deltas` is queryable through reader and DuckDB view registration.
 - [ ] Integration tests cover reconnect + gap markers + delta reconstruction consistency.
+
+Validated implementation status (March 2, 2026):
+
+- [x] Books stream carries sequence/latency metadata (or explicit null + capability flag).
+- [x] Reconstruction path for `book_deltas` exists for snapshot-only venues.
+- [x] Quality suite catches sequence gaps and stale/cadence violations.
+- [x] `book_deltas` is queryable through reader and DuckDB view registration.
+- [x] Integration tests cover reconnect + gap markers + delta reconstruction consistency.
 
 ---
 

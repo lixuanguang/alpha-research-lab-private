@@ -130,6 +130,10 @@ class VenueConnectorFactory:
             )
         if hasattr(adapter, "watch_order_book"):
             book_adapter = cast(connector_book_stream.BookWatchAdapter, adapter)
+            emit_reconstructed_deltas = True
+            if hasattr(book_adapter, "book_stream_capabilities"):
+                capabilities = book_adapter.book_stream_capabilities()
+                emit_reconstructed_deltas = not bool(capabilities.get("native_book_deltas", False))
             connectors.append(
                 connector_book_stream.BookStreamConnector(
                     book_adapter,
@@ -138,6 +142,7 @@ class VenueConnectorFactory:
                     reconnect_backoff_max=collection.reconnect_backoff_max,
                     heartbeat_timeout=collection.heartbeat_timeout,
                     heartbeat_monitor=heartbeat_monitor,
+                    emit_deltas=emit_reconstructed_deltas,
                 )
             )
 

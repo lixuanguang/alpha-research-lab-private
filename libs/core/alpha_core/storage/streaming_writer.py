@@ -18,6 +18,7 @@ import alpha_core.storage.parquet_writer as parquet_writer
 _SUPPORTED_EVENT_TYPES: tuple[type[event_models.CanonicalMarketEvent], ...] = (
     event_models.CanonicalTrade,
     event_models.CanonicalBookSnapshot,
+    event_models.CanonicalBookDelta,
     event_models.CanonicalOHLCV,
 )
 _LOGGER = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ class StreamingParquetWriter:
     ) -> dict[str, Path]:
         trades: list[event_models.CanonicalTrade] = []
         books: list[event_models.CanonicalBookSnapshot] = []
+        deltas: list[event_models.CanonicalBookDelta] = []
         candles: list[event_models.CanonicalOHLCV] = []
 
         for event in buffered:
@@ -119,6 +121,8 @@ class StreamingParquetWriter:
                 trades.append(event)
             elif isinstance(event, event_models.CanonicalBookSnapshot):
                 books.append(event)
+            elif isinstance(event, event_models.CanonicalBookDelta):
+                deltas.append(event)
             elif isinstance(event, event_models.CanonicalOHLCV):
                 candles.append(event)
 
@@ -127,6 +131,8 @@ class StreamingParquetWriter:
             outputs["trades"] = self._writer.write_trades(trades)
         if books:
             outputs["books"] = self._writer.write_books(books)
+        if deltas:
+            outputs["book_deltas"] = self._writer.write_book_deltas(deltas)
         if candles:
             outputs["ohlcv"] = self._writer.write_ohlcv(candles)
 

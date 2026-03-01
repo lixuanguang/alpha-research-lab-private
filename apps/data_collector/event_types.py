@@ -11,6 +11,8 @@ def dataset_key_for_event(event: event_models.CanonicalMarketEvent) -> str:
         return "trades"
     if isinstance(event, event_models.CanonicalBookSnapshot):
         return "books"
+    if isinstance(event, event_models.CanonicalBookDelta):
+        return "book_deltas"
     if isinstance(event, event_models.CanonicalOHLCV):
         return "ohlcv"
     return "metadata"

@@ -12,6 +12,10 @@ class VenueQuirks:
 
     price_scale: Decimal
     side_aliases: dict[str, str]
+    # Capability flags used to annotate canonical events when metadata is absent.
+    sequence_id_capable: bool = False
+    latency_metadata_capable: bool = False
+    native_book_deltas_capable: bool = False
 
 
 _DEFAULT_SIDE_ALIASES = {
@@ -83,3 +87,13 @@ def get_exchange_class_name(venue_name: str) -> str:
     """Return the configured pmxt exchange class for a supported venue."""
     normalized = normalize_venue_name(venue_name)
     return _VENUE_EXCHANGE_CLASSES[normalized]
+
+
+def get_stream_capabilities(venue_name: str) -> dict[str, bool]:
+    """Return normalized stream-capability flags for a supported venue."""
+    quirks = get_venue_quirks(venue_name)
+    return {
+        "sequence_id": quirks.sequence_id_capable,
+        "latency_metadata": quirks.latency_metadata_capable,
+        "native_book_deltas": quirks.native_book_deltas_capable,
+    }

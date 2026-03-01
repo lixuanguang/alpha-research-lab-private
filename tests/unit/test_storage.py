@@ -90,6 +90,7 @@ def _make_book_delta(
     ts_event: datetime,
     reason: str = "add",
     sequence_id: str | None = None,
+    is_reconstructed: bool = False,
 ) -> event_models.CanonicalBookDelta:
     payload: dict[str, object] = {
         "instrument_id": f"{venue}:market-1:yes",
@@ -103,6 +104,7 @@ def _make_book_delta(
         "delta_size": Decimal("5") + Decimal(delta_index % 3),
         "reason": reason,
         "sequence_id": sequence_id,
+        "is_reconstructed": is_reconstructed,
     }
     exclude_fields = event_models.event_id_exclude_fields(event_models.EventType.BOOK_DELTA)
     payload["event_id"] = ids_utils.generate_event_id(
@@ -823,3 +825,43 @@ def test_read_book_deltas_filters_by_date_window(tmp_path: Path) -> None:
     assert result.num_rows == 1
     ts_values = result.column("ts_event").to_pylist()
     assert all(t.date().isoformat() == "2026-03-03" for t in ts_values)
+
+
+def test_write_book_deltas_per_event_is_reconstructed_preserved(tmp_path: Path) -> None:
+    """Per-event is_reconstructed=True survives round-trip even with batch flag=False."""
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    ts = datetime(2026, 3, 4, 10, 0, tzinfo=UTC)
+
+    native = _make_book_delta(delta_index=0, venue="kalshi", ts_event=ts)
+    reconstructed = _make_book_delta(
+        delta_index=1,
+        venue="kalshi",
+        ts_event=ts + timedelta(seconds=1),
+        is_reconstructed=True,
+    )
+
+    # Write both in a single call with the batch flag left at its default (False)
+    writer.write_book_deltas([native, reconstructed])
+    table = reader.read_book_deltas(venue="kalshi")
+
+    assert table.num_rows == 2
+    flags = table.column("is_reconstructed").to_pylist()
+    assert False in flags, "native delta should have is_reconstructed=False"
+    assert True in flags, "per-event reconstructed delta should be persisted as True"
+
+
+def test_write_book_deltas_batch_flag_overrides_per_event_flag(tmp_path: Path) -> None:
+    """Batch is_reconstructed=True marks all rows True regardless of per-event value."""
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    ts = datetime(2026, 3, 4, 11, 0, tzinfo=UTC)
+
+    # delta has is_reconstructed=False at the model level
+    delta = _make_book_delta(delta_index=0, venue="kalshi", ts_event=ts)
+
+    writer.write_book_deltas([delta], is_reconstructed=True)
+    table = reader.read_book_deltas(venue="kalshi")
+
+    assert table.num_rows == 1
+    assert table.column("is_reconstructed").to_pylist() == [True]

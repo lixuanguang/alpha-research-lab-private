@@ -194,3 +194,33 @@ def test_validate_partition_unknown_event_type_raises(storage: tuple) -> None:
     validator = _make_validator(reader)
     with pytest.raises(KeyError, match="unknown_type"):
         validator.validate_partition("unknown_type", "kalshi", _DATE)
+
+
+def test_partition_validator_defaults_include_microstructure_for_books_and_deltas(
+    tmp_path: Path,
+) -> None:
+    writer = parquet_writer_mod.ParquetEventWriter(tmp_path)
+    reader = parquet_reader_mod.ParquetEventReader(tmp_path)
+    writer.write_books([_make_book(0), _make_book(1)])
+
+    delta_payload = {
+        "instrument_id": "kalshi:market-1:yes",
+        "venue_id": "kalshi",
+        "event_type": event_models.EventType.BOOK_DELTA,
+        "ts_event": _TS_BASE,
+        "ts_record": _TS_BASE + timedelta(milliseconds=5),
+        "schema_version": 1,
+        "side": "bid",
+        "price": Decimal("0.49"),
+        "delta_size": Decimal("1"),
+        "reason": "add",
+        "is_reconstructed": True,
+    }
+    writer.write_book_deltas([event_models.CanonicalBookDelta.model_validate(delta_payload)])
+
+    validator = quality_partition_validator.PartitionValidator.from_defaults(reader)
+    book_report = validator.validate_partition("books", "kalshi", _DATE)
+    delta_report = validator.validate_partition("book_deltas", "kalshi", _DATE)
+
+    assert book_report.suite_name == "silver_books_with_microstructure"
+    assert delta_report.suite_name == "silver_book_deltas_microstructure"

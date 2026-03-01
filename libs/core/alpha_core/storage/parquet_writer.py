@@ -104,8 +104,11 @@ class ParquetEventWriter:
         Args:
             deltas: Canonical book delta events to persist.
             tier: Storage tier to write into (default: SILVER).
-            is_reconstructed: Mark all rows in this batch as synthesised from
-                a snapshot rather than received from a native delta feed.
+            is_reconstructed: Batch-level override — when ``True`` every row in
+                this call is marked as reconstructed regardless of the per-event
+                flag.  Per-event ``delta.is_reconstructed`` is always ORed with
+                this value, so individually-tagged deltas are preserved even
+                when the batch flag is ``False``.
         """
         dataset_root = storage_conventions.dataset_root(
             self._storage_root,
@@ -161,6 +164,8 @@ class ParquetEventWriter:
             if trade.ts_receive is not None
             else None,
             "source_latency_ms": trade.source_latency_ms,
+            "sequence_id_capable": trade.sequence_id_capable,
+            "latency_metadata_capable": trade.latency_metadata_capable,
             "price": trade.price,
             "size": trade.size,
             "side": trade.side.value,
@@ -188,6 +193,8 @@ class ParquetEventWriter:
             if book.ts_receive is not None
             else None,
             "source_latency_ms": book.source_latency_ms,
+            "sequence_id_capable": book.sequence_id_capable,
+            "latency_metadata_capable": book.latency_metadata_capable,
             "bids_json": _encode_price_levels(book.bids),
             "asks_json": _encode_price_levels(book.asks),
             "venue": book.venue_id,
@@ -214,6 +221,8 @@ class ParquetEventWriter:
             if candle.ts_receive is not None
             else None,
             "source_latency_ms": candle.source_latency_ms,
+            "sequence_id_capable": candle.sequence_id_capable,
+            "latency_metadata_capable": candle.latency_metadata_capable,
             "open": candle.open,
             "high": candle.high,
             "low": candle.low,
@@ -246,12 +255,14 @@ class ParquetEventWriter:
             if delta.ts_receive is not None
             else None,
             "source_latency_ms": delta.source_latency_ms,
+            "sequence_id_capable": delta.sequence_id_capable,
+            "latency_metadata_capable": delta.latency_metadata_capable,
             "side": delta.side,
             "price": delta.price,
             "delta_size": delta.delta_size,
             "reason": delta.reason,
             "sequence_id": delta.sequence_id,
-            "is_reconstructed": is_reconstructed,
+            "is_reconstructed": is_reconstructed or delta.is_reconstructed,
             "venue": delta.venue_id,
             "date": ts_event.date().isoformat(),
             "hour": ts_event.strftime("%H"),
