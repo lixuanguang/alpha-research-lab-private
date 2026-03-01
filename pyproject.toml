@@ -90,6 +90,8 @@ target-version = "py311"
 line-length = 100
 # Source roots Ruff should scan for checks/import sorting.
 src = ["libs/core", "apps", "tests"]
+# Keep exploratory notebooks out of source lint/type quality gates.
+extend-exclude = ["apps/research/notebooks/*.ipynb"]
 
 [tool.ruff.lint]
 # Rule families: pycodestyle/pyflakes/imports/warnings/pyupgrade/ruff-specific.

@@ -240,9 +240,9 @@ def _make_book_delta(
         "reason": reason,
         "sequence_id": sequence_id,
     }
-    # sequence_id is in _EVENT_ID_EXCLUDE_FIELDS — exclude when hashing
+    exclude_fields = event_models.event_id_exclude_fields(event_models.EventType.BOOK_DELTA)
     payload["event_id"] = ids_utils.generate_event_id(
-        {k: v for k, v in payload.items() if k not in event_models._EVENT_ID_EXCLUDE_FIELDS}
+        {k: v for k, v in payload.items() if k not in exclude_fields and v is not None}
     )
     return event_models.CanonicalBookDelta.model_validate(payload)
 

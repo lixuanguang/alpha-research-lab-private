@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -38,8 +39,24 @@ _AUTO_EVENT_ID_SENTINEL = "__alpha_auto_event_id__"
 # payload (e.g. adding ts_exchange after the fact) does not silently break ID
 # checks.
 _EVENT_ID_EXCLUDE_FIELDS: frozenset[str] = frozenset(
-    {"event_id", "sequence_id", "ts_exchange", "ts_receive", "source_latency_ms"}
+    {"event_id", "ts_exchange", "ts_receive", "source_latency_ms"}
 )
+_EVENT_ID_EXCLUDE_EVENT_TYPES_FOR_SEQUENCE_ID: frozenset[EventType] = frozenset(
+    {
+        EventType.TRADE,
+        EventType.BOOK_SNAPSHOT,
+        EventType.OHLCV,
+        EventType.METADATA_UPDATE,
+    }
+)
+
+
+def event_id_exclude_fields(event_type: EventType) -> set[str]:
+    """Return fields excluded from event-id hashing for a specific event type."""
+    excluded = set(_EVENT_ID_EXCLUDE_FIELDS)
+    if event_type in _EVENT_ID_EXCLUDE_EVENT_TYPES_FOR_SEQUENCE_ID:
+        excluded.add("sequence_id")
+    return excluded
 
 
 class PriceLevel(BaseModel):
@@ -102,6 +119,17 @@ class CanonicalMarketEvent(BaseModel):
     def _normalize_optional_utc(cls, value: datetime | None) -> datetime | None:
         return time_utils.ensure_utc(value) if value is not None else None
 
+    @field_validator("source_latency_ms")
+    @classmethod
+    def _validate_optional_latency_ms(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if not math.isfinite(value):
+            raise ValueError("`source_latency_ms` must be finite when provided")
+        if value < 0:
+            raise ValueError("`source_latency_ms` must be >= 0 when provided")
+        return value
+
     @model_validator(mode="after")
     def _validate_bitemporal_order(self) -> CanonicalMarketEvent:
         if self.ts_event > self.ts_record:
@@ -110,8 +138,9 @@ class CanonicalMarketEvent(BaseModel):
 
     @model_validator(mode="after")
     def _validate_event_id(self) -> CanonicalMarketEvent:
+        exclude_fields = event_id_exclude_fields(self.event_type)
         expected = ids_utils.generate_event_id(
-            self.model_dump(exclude=set(_EVENT_ID_EXCLUDE_FIELDS))
+            self.model_dump(exclude=exclude_fields, exclude_none=True)
         )
         if self.event_id == _AUTO_EVENT_ID_SENTINEL:
             self.event_id = expected

@@ -116,7 +116,10 @@ class ParquetEventWriter:
         if not deltas:
             return dataset_root
 
-        rows = [self._book_delta_to_row(delta, is_reconstructed=is_reconstructed) for delta in deltas]
+        rows = [
+            self._book_delta_to_row(delta, is_reconstructed=is_reconstructed)
+            for delta in deltas
+        ]
         self._write_partitioned_table(
             rows=rows,
             schema=storage_conventions.BOOK_DELTA_PARQUET_SCHEMA,
@@ -151,6 +154,14 @@ class ParquetEventWriter:
             "ts_event": ts_event,
             "ts_record": time_utils.ensure_utc(trade.ts_record),
             "schema_version": trade.schema_version,
+            "sequence_id": trade.sequence_id,
+            "ts_exchange": time_utils.ensure_utc(trade.ts_exchange)
+            if trade.ts_exchange is not None
+            else None,
+            "ts_receive": time_utils.ensure_utc(trade.ts_receive)
+            if trade.ts_receive is not None
+            else None,
+            "source_latency_ms": trade.source_latency_ms,
             "price": trade.price,
             "size": trade.size,
             "side": trade.side.value,
@@ -170,6 +181,14 @@ class ParquetEventWriter:
             "ts_event": ts_event,
             "ts_record": time_utils.ensure_utc(book.ts_record),
             "schema_version": book.schema_version,
+            "sequence_id": book.sequence_id,
+            "ts_exchange": time_utils.ensure_utc(book.ts_exchange)
+            if book.ts_exchange is not None
+            else None,
+            "ts_receive": time_utils.ensure_utc(book.ts_receive)
+            if book.ts_receive is not None
+            else None,
+            "source_latency_ms": book.source_latency_ms,
             "bids_json": _encode_price_levels(book.bids),
             "asks_json": _encode_price_levels(book.asks),
             "venue": book.venue_id,
@@ -188,6 +207,14 @@ class ParquetEventWriter:
             "ts_event": ts_event,
             "ts_record": time_utils.ensure_utc(candle.ts_record),
             "schema_version": candle.schema_version,
+            "sequence_id": candle.sequence_id,
+            "ts_exchange": time_utils.ensure_utc(candle.ts_exchange)
+            if candle.ts_exchange is not None
+            else None,
+            "ts_receive": time_utils.ensure_utc(candle.ts_receive)
+            if candle.ts_receive is not None
+            else None,
+            "source_latency_ms": candle.source_latency_ms,
             "open": candle.open,
             "high": candle.high,
             "low": candle.low,
@@ -214,6 +241,13 @@ class ParquetEventWriter:
             "ts_event": ts_event,
             "ts_record": time_utils.ensure_utc(delta.ts_record),
             "schema_version": delta.schema_version,
+            "ts_exchange": time_utils.ensure_utc(delta.ts_exchange)
+            if delta.ts_exchange is not None
+            else None,
+            "ts_receive": time_utils.ensure_utc(delta.ts_receive)
+            if delta.ts_receive is not None
+            else None,
+            "source_latency_ms": delta.source_latency_ms,
             "side": delta.side,
             "price": delta.price,
             "delta_size": delta.delta_size,

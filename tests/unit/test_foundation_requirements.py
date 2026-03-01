@@ -14,6 +14,7 @@ _EXPECTED_EVENT_VARIANTS = {
     "trade",
     "book_snapshot",
     "ohlcv",
+    "book_delta",
     "metadata_update",
 }
 _EXPECTED_BASE_FIELDS = {

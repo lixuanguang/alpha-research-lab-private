@@ -20,10 +20,13 @@ def _canonicalize_for_event_id(payload: dict[str, object]) -> dict[str, object]:
     if isinstance(venue_id, str):
         canonical["venue_id"] = venue_id.lower()
     canonical.setdefault("schema_version", event_schema_version.CANONICAL_EVENT_SCHEMA_VERSION)
+    event_type = canonical.get("event_type")
+    if not isinstance(event_type, event_models.EventType):
+        raise TypeError("payload `event_type` must be set to EventType before hashing")
     # Mirror the model's exclusion set so the hash matches what Pydantic computes.
-    for key in event_models._EVENT_ID_EXCLUDE_FIELDS:
+    for key in event_models.event_id_exclude_fields(event_type):
         canonical.pop(key, None)
-    return canonical
+    return {key: value for key, value in canonical.items() if value is not None}
 
 
 def _with_event_id(payload: dict[str, object]) -> dict[str, object]:
@@ -462,7 +465,7 @@ def test_optional_ts_receive_is_normalized_to_utc() -> None:
 
 
 def test_event_id_is_stable_when_optional_metadata_fields_are_added() -> None:
-    """Verify that _EVENT_ID_EXCLUDE_FIELDS upholds the core design invariant:
+    """Verify that event-id exclusion rules uphold the core design invariant:
     enriching an event with sequence_id / ts_exchange / ts_receive / source_latency_ms
     must not change its event_id.
     """
@@ -489,3 +492,22 @@ def test_event_id_is_stable_when_optional_metadata_fields_are_added() -> None:
     enriched_trade = event_models.CanonicalTrade.model_validate(enriched_fields)
 
     assert enriched_trade.event_id == base_trade.event_id
+
+
+def test_book_delta_event_id_changes_when_sequence_id_changes() -> None:
+    base = _book_delta_fields()
+    first_payload = dict(base)
+    first_payload["sequence_id"] = "seq-1"
+    first_payload["event_id"] = ids_utils.generate_event_id(
+        _canonicalize_for_event_id(first_payload)
+    )
+    first = event_models.CanonicalBookDelta.model_validate(first_payload)
+
+    second_payload = dict(base)
+    second_payload["sequence_id"] = "seq-2"
+    second_payload["event_id"] = ids_utils.generate_event_id(
+        _canonicalize_for_event_id(second_payload)
+    )
+    second = event_models.CanonicalBookDelta.model_validate(second_payload)
+
+    assert first.event_id != second.event_id

@@ -48,10 +48,6 @@ _CTE_NAME_RE = re.compile(
     rf"\b(?:with|,)\s*({_IDENTIFIER_COMPONENT_RE})\s+as\s*\(",
     re.IGNORECASE,
 )
-_RELATION_RE = re.compile(
-    rf"\b(?:from|join)\s+({_IDENTIFIER_PATH_RE})\s*(\()?",
-    re.IGNORECASE,
-)
 _INLINE_COMMENT_RE = re.compile(r"--[^\n]*")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 _SINGLE_QUOTE_STRING_RE = re.compile(r"'(?:''|[^'])*'")
@@ -171,14 +167,67 @@ def _extract_cte_names(statement: str) -> set[str]:
 
 
 def _extract_relation_references(statement: str) -> tuple[set[str], set[str]]:
+    scrubbed_statement = _SINGLE_QUOTE_STRING_RE.sub("''", statement)
     relations: set[str] = set()
     table_functions: set[str] = set()
-    for match in _RELATION_RE.finditer(statement):
-        relation_name = _normalize_relation_name(match.group(1))
-        if match.group(2) is not None:
-            table_functions.add(relation_name)
+
+    index = 0
+    depth = 0
+    in_quotes = False
+    length = len(scrubbed_statement)
+
+    while index < length:
+        char = scrubbed_statement[index]
+        if in_quotes:
+            if char == '"':
+                if index + 1 < length and scrubbed_statement[index + 1] == '"':
+                    index += 2
+                    continue
+                in_quotes = False
+            index += 1
             continue
-        relations.add(relation_name)
+
+        if char == '"':
+            in_quotes = True
+            index += 1
+            continue
+
+        if char == "(":
+            depth += 1
+            index += 1
+            continue
+        if char == ")":
+            depth = max(0, depth - 1)
+            index += 1
+            continue
+        if depth > 0:
+            index += 1
+            continue
+
+        if _matches_keyword_at(scrubbed_statement, index, "from"):
+            index = _consume_sources_after_from(
+                scrubbed_statement,
+                index + len("from"),
+                relations=relations,
+                table_functions=table_functions,
+            )
+            continue
+
+        if _matches_keyword_at(scrubbed_statement, index, "join"):
+            relation_name, is_table_function, index = _consume_relation_source(
+                scrubbed_statement,
+                index + len("join"),
+            )
+            if relation_name is not None:
+                normalized = _normalize_relation_name(relation_name)
+                if is_table_function:
+                    table_functions.add(normalized)
+                else:
+                    relations.add(normalized)
+            continue
+
+        index += 1
+
     return relations, table_functions
 
 
@@ -213,8 +262,160 @@ def _arrow_type_to_duckdb_type(arrow_type: pa.DataType) -> str:
         return "TIMESTAMPTZ"
     if pa.types.is_boolean(arrow_type):
         return "BOOLEAN"
+    if pa.types.is_float32(arrow_type) or pa.types.is_float64(arrow_type):
+        return "DOUBLE"
 
     raise TypeError(f"Unsupported Arrow type for DuckDB empty-view schema: {arrow_type}")
+
+
+def _consume_sources_after_from(
+    statement: str,
+    start_index: int,
+    *,
+    relations: set[str],
+    table_functions: set[str],
+) -> int:
+    relation_name, is_table_function, index = _consume_relation_source(statement, start_index)
+    if relation_name is not None:
+        normalized = _normalize_relation_name(relation_name)
+        if is_table_function:
+            table_functions.add(normalized)
+        else:
+            relations.add(normalized)
+
+    while True:
+        index = _skip_whitespace(statement, index)
+        if index >= len(statement) or statement[index] != ",":
+            return index
+        relation_name, is_table_function, index = _consume_relation_source(statement, index + 1)
+        if relation_name is None:
+            continue
+        normalized = _normalize_relation_name(relation_name)
+        if is_table_function:
+            table_functions.add(normalized)
+        else:
+            relations.add(normalized)
+
+
+def _consume_relation_source(
+    statement: str,
+    start_index: int,
+) -> tuple[str | None, bool, int]:
+    index = _skip_whitespace(statement, start_index)
+    if index >= len(statement):
+        return None, False, index
+
+    if statement[index] == "(":
+        return None, False, _skip_parenthesized_block(statement, index)
+
+    relation_name, index = _consume_identifier_path(statement, index)
+    if relation_name is None:
+        return None, False, index
+
+    index = _skip_whitespace(statement, index)
+    if index < len(statement) and statement[index] == "(":
+        return relation_name, True, _skip_parenthesized_block(statement, index)
+    return relation_name, False, index
+
+
+def _consume_identifier_path(statement: str, start_index: int) -> tuple[str | None, int]:
+    component, index = _consume_identifier_component(statement, start_index)
+    if component is None:
+        return None, start_index
+
+    components = [component]
+    while True:
+        dot_index = _skip_whitespace(statement, index)
+        if dot_index >= len(statement) or statement[dot_index] != ".":
+            index = dot_index
+            break
+        next_start = _skip_whitespace(statement, dot_index + 1)
+        next_component, next_index = _consume_identifier_component(statement, next_start)
+        if next_component is None:
+            index = dot_index
+            break
+        components.append(next_component)
+        index = next_index
+
+    return ".".join(components), index
+
+
+def _consume_identifier_component(statement: str, start_index: int) -> tuple[str | None, int]:
+    index = _skip_whitespace(statement, start_index)
+    if index >= len(statement):
+        return None, index
+
+    if statement[index] == '"':
+        end_index = index + 1
+        while end_index < len(statement):
+            if statement[end_index] == '"':
+                if end_index + 1 < len(statement) and statement[end_index + 1] == '"':
+                    end_index += 2
+                    continue
+                return statement[index : end_index + 1], end_index + 1
+            end_index += 1
+        return None, len(statement)
+
+    if not (statement[index].isalpha() or statement[index] == "_"):
+        return None, index
+    end_index = index + 1
+    while end_index < len(statement):
+        char = statement[end_index]
+        if char.isalnum() or char == "_":
+            end_index += 1
+            continue
+        break
+    return statement[index:end_index], end_index
+
+
+def _skip_whitespace(statement: str, start_index: int) -> int:
+    index = start_index
+    while index < len(statement) and statement[index].isspace():
+        index += 1
+    return index
+
+
+def _skip_parenthesized_block(statement: str, open_paren_index: int) -> int:
+    index = open_paren_index
+    depth = 0
+    in_quotes = False
+    while index < len(statement):
+        char = statement[index]
+        if in_quotes:
+            if char == '"':
+                if index + 1 < len(statement) and statement[index + 1] == '"':
+                    index += 2
+                    continue
+                in_quotes = False
+            index += 1
+            continue
+
+        if char == '"':
+            in_quotes = True
+            index += 1
+            continue
+
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+        index += 1
+    return len(statement)
+
+
+def _matches_keyword_at(statement: str, index: int, keyword: str) -> bool:
+    end = index + len(keyword)
+    if end > len(statement):
+        return False
+    if statement[index:end].lower() != keyword:
+        return False
+    if index > 0 and (statement[index - 1].isalnum() or statement[index - 1] == "_"):
+        return False
+    if end < len(statement) and (statement[end].isalnum() or statement[end] == "_"):
+        return False
+    return True
 
 
 def _last_identifier_component(relation: str) -> str:

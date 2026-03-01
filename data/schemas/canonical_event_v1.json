@@ -14,6 +14,9 @@
       "$ref": "#/$defs/ohlcv"
     },
     {
+      "$ref": "#/$defs/book_delta"
+    },
+    {
       "$ref": "#/$defs/metadata_update"
     }
   ],
@@ -39,6 +42,7 @@
             "trade",
             "book_snapshot",
             "ohlcv",
+            "book_delta",
             "metadata_update"
           ]
         },
@@ -53,6 +57,22 @@
         "schema_version": {
           "type": "integer",
           "minimum": 1
+        },
+        "sequence_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ts_exchange": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ts_receive": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "source_latency_ms": {
+          "type": "number",
+          "minimum": 0.0
         }
       },
       "required": [
@@ -210,6 +230,51 @@
             "close",
             "volume",
             "resolution"
+          ],
+          "unevaluatedProperties": false
+        }
+      ]
+    },
+    "book_delta": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/base"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {
+              "const": "book_delta"
+            },
+            "side": {
+              "type": "string",
+              "enum": [
+                "bid",
+                "ask"
+              ]
+            },
+            "price": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0
+            },
+            "delta_size": {
+              "type": "number"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "add",
+                "cancel",
+                "trade"
+              ]
+            }
+          },
+          "required": [
+            "side",
+            "price",
+            "delta_size",
+            "reason"
           ],
           "unevaluatedProperties": false
         }

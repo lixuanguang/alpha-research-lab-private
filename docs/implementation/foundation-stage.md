@@ -42,12 +42,12 @@ Prediction markets (Kalshi, Polymarket, Limitless, Baozi, Myriad, Probable) offe
 
 Deliver the **repo scaffold, canonical data model, instrument master, configuration system, CI baseline, and local development environment** — the bedrock that every subsequent stage (Data Plane MVP, Research Plane MVP, Live Plane MVP) builds upon.
 
-### Implementation Status (as of March 1, 2026)
+### Implementation Status (as of March 2, 2026)
 
 - Current stage: **Foundation complete and closed**
 - Completed steps: **F1, F2, F3, F4, F5, F6**
 - Remaining foundation steps: **None**
-- Current quality gate snapshot: `ruff check .` and `mypy libs/core --strict` passing locally; `pytest tests/ -v --run-perf` is green (`468 passed`)
+- Current quality gate snapshot: `ruff check .` and `mypy libs/core --strict` passing locally; `pytest tests/ -v` is green (`492 passed, 8 skipped`)
 - Foundation artifact lock added: `data/schemas/canonical_event_v1.json` and `tests/unit/test_foundation_requirements.py`
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 - Post-foundation maintenance note: config loading internals are now split across `alpha_core.config._merge` and `alpha_core.config._overrides`, with `alpha_core.config.loader` kept as the public orchestration entrypoint

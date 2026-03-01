@@ -5,8 +5,8 @@
 > **Focus:** Prediction market data collection via `pmxt` — polling + streaming connectors, bronze/silver storage, data quality automation, backfill/replay tooling  
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
-> **Implementation Status (as of March 1, 2026):** D1, D2, D3, D4, D5, and D6 complete  
-> **Current quality gate snapshot (validated March 1, 2026):** `ruff check .` (pass), `mypy libs/core --strict` (pass), `pytest tests/ -v --run-perf` (`468 passed`), and coverage `90.06%` on `alpha_core` + `apps.data_collector`.
+> **Implementation Status (as of March 2, 2026):** D1, D2, D3, D4, D5, and D6 complete  
+> **Current quality gate snapshot (validated March 2, 2026):** `ruff check .` (pass), `mypy libs/core --strict` (pass), `pytest tests/ -v` (`492 passed, 8 skipped`).
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---
@@ -1060,11 +1060,10 @@ The Data Plane MVP is **complete** when all of the following are true:
 - [ ] CI pipeline green on GitHub Actions
 - [x] Config system extended for collection settings (backward compatible)
 
-Validation snapshot (local, March 1, 2026):
+Validation snapshot (local, March 2, 2026):
 - `ruff check .` -> pass
 - `mypy libs/core --strict` -> pass
-- `pytest tests/ -v --run-perf` -> `468 passed`
-- `pytest tests/ --run-perf --cov=alpha_core --cov=apps.data_collector --cov-report=term` -> `90.06%` total coverage
+- `pytest tests/ -v` -> `492 passed, 8 skipped`
 - Remaining external check: GitHub Actions CI status
 
 ---

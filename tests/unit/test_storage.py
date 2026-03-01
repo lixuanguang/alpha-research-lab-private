@@ -104,9 +104,9 @@ def _make_book_delta(
         "reason": reason,
         "sequence_id": sequence_id,
     }
-    # sequence_id is in _EVENT_ID_EXCLUDE_FIELDS — exclude when hashing
+    exclude_fields = event_models.event_id_exclude_fields(event_models.EventType.BOOK_DELTA)
     payload["event_id"] = ids_utils.generate_event_id(
-        {k: v for k, v in payload.items() if k not in event_models._EVENT_ID_EXCLUDE_FIELDS}
+        {k: v for k, v in payload.items() if k not in exclude_fields and v is not None}
     )
     return event_models.CanonicalBookDelta.model_validate(payload)
 
@@ -518,6 +518,14 @@ def test_duckdb_source_validation_rejects_table_function() -> None:
         )
 
 
+def test_duckdb_source_validation_rejects_table_function_in_comma_join() -> None:
+    with pytest.raises(ValueError, match="Table functions are not allowed"):
+        duckdb_layer._validate_allowed_query_sources(
+            "SELECT * FROM silver_trades, read_parquet('/tmp/any.parquet')",
+            {"silver_trades"},
+        )
+
+
 def test_duckdb_query_rejects_dml_inside_with_statement(tmp_path: Path) -> None:
     if duckdb_layer.duckdb_module is None:
         pytest.skip("duckdb is not installed")
@@ -654,6 +662,19 @@ def test_duckdb_query_rejects_table_function_through_public_api(
         analytics.query("SELECT * FROM read_parquet('/tmp/path.parquet')")
 
 
+def test_duckdb_query_rejects_table_function_in_comma_join_public_api(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_duckdb = _FakeDuckDBModule(pa.table({"value": [1]}))
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", fake_duckdb)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+    analytics._registered_views.add("silver_trades")
+
+    with pytest.raises(ValueError, match="Table functions are not allowed"):
+        analytics.query("SELECT * FROM silver_trades, read_parquet('/tmp/path.parquet')")
+
+
 def test_duckdb_internal_helpers_cover_edge_cases() -> None:
     assert duckdb_layer._quote_identifier('a"b') == '"a""b"'
     assert duckdb_layer._is_read_only_statement(" EXPLAIN SELECT 1")
@@ -671,8 +692,9 @@ def test_duckdb_internal_helpers_cover_edge_cases() -> None:
     assert duckdb_layer._arrow_type_to_duckdb_type(pa.decimal128(10, 2)) == "DECIMAL(10,2)"
     assert duckdb_layer._arrow_type_to_duckdb_type(pa.timestamp("us", tz="UTC")) == "TIMESTAMPTZ"
     assert duckdb_layer._arrow_type_to_duckdb_type(pa.bool_()) == "BOOLEAN"
+    assert duckdb_layer._arrow_type_to_duckdb_type(pa.float64()) == "DOUBLE"
     with pytest.raises(TypeError, match="Unsupported Arrow type"):
-        duckdb_layer._arrow_type_to_duckdb_type(pa.float64())
+        duckdb_layer._arrow_type_to_duckdb_type(pa.date32())
 
     assert duckdb_layer._last_identifier_component('"schema"."ta""ble"') == '"ta""ble"'
     assert duckdb_layer._last_identifier_component("db.schema.table") == "table"
