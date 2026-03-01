@@ -130,9 +130,7 @@ def test_metrics_updated_after_stream() -> None:
 
 def test_heartbeat_recorded_per_batch() -> None:
     clock: list[float] = [0.0]
-    monitor = heartbeat_mod.HeartbeatMonitor(
-        timeout_seconds=30.0, time_func=lambda: clock[0]
-    )
+    monitor = heartbeat_mod.HeartbeatMonitor(timeout_seconds=30.0, time_func=lambda: clock[0])
     adapter = _MockAdapter()
     adapter.batches["kalshi:m:yes"] = [[_trade("t1")]]
     connector = trade_stream_mod.TradeStreamConnector(

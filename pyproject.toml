@@ -113,6 +113,8 @@ warn_return_any = true
 warn_unused_configs = true
 # Require explicit type annotations on all function defs.
 disallow_untyped_defs = true
+# Exclude generated/build artifacts that shadow source modules.
+exclude = "(^build/)"
 # Primary package set checked by mypy.
 packages = ["alpha_core"]
 # Add libs/core to module search path for local package layout.

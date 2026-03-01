@@ -72,7 +72,7 @@ def test_jitter_within_bounds() -> None:
         delay = p.next_delay(attempt)
         capped = min(1.0 * math.pow(2.0, attempt), 60.0)
         assert capped * 0.5 <= delay <= capped * 1.5, (
-            f"delay {delay} out of [{capped*0.5}, {capped*1.5}] at attempt {attempt}"
+            f"delay {delay} out of [{capped * 0.5}, {capped * 1.5}] at attempt {attempt}"
         )
 
 

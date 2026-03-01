@@ -16,9 +16,7 @@ class TradeWatchAdapter(Protocol):
 
     def venue_name(self) -> str: ...
 
-    def watch_trades(
-        self, outcome_id: str
-    ) -> AsyncIterator[list[event_models.CanonicalTrade]]: ...
+    def watch_trades(self, outcome_id: str) -> AsyncIterator[list[event_models.CanonicalTrade]]: ...
 
 
 class TradeStreamConnector(connector_base.OutcomeStreamingConnector):

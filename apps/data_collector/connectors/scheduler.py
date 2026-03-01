@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 
 import alpha_core.events.models as event_models
 import apps.data_collector.connectors.base as connector_base
@@ -22,12 +22,12 @@ class PollingScheduler:
 
     def __init__(
         self,
-        connectors: list[connector_base.PollingConnector],
+        connectors: Sequence[connector_base.PollingConnector],
         rate_limiters: dict[str, connector_rate_limiter.TokenBucketRateLimiter],
         execute_connector: ExecuteConnector | None = None,
         on_error: ErrorHandler | None = None,
     ) -> None:
-        self._connectors = connectors
+        self._connectors = list(connectors)
         self._rate_limiters = dict(rate_limiters)
         self._execute_connector = execute_connector or self._execute_default
         self._on_error = on_error
@@ -97,7 +97,7 @@ class PollingScheduler:
 
     def _schedule_next_runs(
         self,
-        connectors: list[connector_base.PollingConnector],
+        connectors: Sequence[connector_base.PollingConnector],
         *,
         base_monotonic: float,
     ) -> None:
@@ -108,7 +108,7 @@ class PollingScheduler:
 
     async def _run_connectors(
         self,
-        connectors: list[connector_base.PollingConnector],
+        connectors: Sequence[connector_base.PollingConnector],
     ) -> dict[str, list[event_models.CanonicalMarketEvent]]:
         runs = [self._run_single_connector(connector) for connector in connectors]
         settled = await asyncio.gather(*runs, return_exceptions=True)

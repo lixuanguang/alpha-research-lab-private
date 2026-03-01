@@ -12,7 +12,9 @@ import apps.data_collector.pipeline as collector_pipeline
 import apps.data_collector.runtime as collector_runtime
 import pytest
 
+import alpha_core.adapters.base as adapters_base
 import alpha_core.config.models as config_models
+import alpha_core.events.models as event_models
 import alpha_core.instruments.models as instrument_models
 import alpha_core.storage.lineage as storage_lineage
 
@@ -66,7 +68,7 @@ def _market(market_id: str, outcome_ids: list[str]) -> instrument_models.MarketS
     )
 
 
-class _StubAdapter:
+class _StubAdapter(adapters_base.VenueAdapter):
     def __init__(self, venue_name: str) -> None:
         self._venue_name = venue_name
 
@@ -81,6 +83,51 @@ class _StubAdapter:
     ) -> tuple[list[instrument_models.MarketSpec], list[object]]:
         markets = await self.fetch_markets()
         return markets, [market.model_dump(mode="json") for market in markets]
+
+    async def fetch_trades(
+        self,
+        outcome_id: str,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[event_models.CanonicalTrade]:
+        del outcome_id, since, limit
+        return []
+
+    async def fetch_order_book(self, outcome_id: str) -> event_models.CanonicalBookSnapshot:
+        raise NotImplementedError(f"book polling not implemented in test adapter: {outcome_id}")
+
+    async def fetch_ohlcv(
+        self,
+        outcome_id: str,
+        resolution: str = "1h",
+        limit: int = 100,
+    ) -> list[event_models.CanonicalOHLCV]:
+        del outcome_id, resolution, limit
+        return []
+
+    async def fetch_trades_with_raw(
+        self,
+        outcome_id: str,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalTrade], list[object]]:
+        del outcome_id, since, limit
+        return [], []
+
+    async def fetch_order_book_with_raw(
+        self,
+        outcome_id: str,
+    ) -> tuple[event_models.CanonicalBookSnapshot, object]:
+        raise NotImplementedError(f"book polling not implemented in test adapter: {outcome_id}")
+
+    async def fetch_ohlcv_with_raw(
+        self,
+        outcome_id: str,
+        resolution: str = "1h",
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalOHLCV], list[object]]:
+        del outcome_id, resolution, limit
+        return [], []
 
 
 class _FakePipeline:
@@ -223,13 +270,20 @@ def test_run_polling_pipelines_once_raises_when_no_contexts(
 
     monkeypatch.setattr(collector_runtime, "build_pipeline_contexts", _empty_contexts)
 
+    def _adapter_factory(
+        exchange_name: str,
+        config: config_models.VenueConfig,
+    ) -> adapters_base.VenueAdapter:
+        del config
+        return _StubAdapter(exchange_name)
+
     with pytest.raises(ValueError, match="No polling pipelines were created"):
         asyncio.run(
             collector_runtime.run_polling_pipelines(
                 settings,
                 once=True,
                 max_outcomes_per_venue=10,
-                adapter_factory=lambda *_: _StubAdapter("kalshi"),
+                adapter_factory=_adapter_factory,
                 emit=lambda _message, _is_error: None,
             )
         )
@@ -238,13 +292,20 @@ def test_run_polling_pipelines_once_raises_when_no_contexts(
 def test_run_polling_pipelines_rejects_non_positive_max_outcomes() -> None:
     settings = _settings()
 
+    def _adapter_factory(
+        exchange_name: str,
+        config: config_models.VenueConfig,
+    ) -> adapters_base.VenueAdapter:
+        del config
+        return _StubAdapter(exchange_name)
+
     with pytest.raises(ValueError, match="max_outcomes_per_venue"):
         asyncio.run(
             collector_runtime.run_polling_pipelines(
                 settings,
                 once=True,
                 max_outcomes_per_venue=0,
-                adapter_factory=lambda *_: _StubAdapter("kalshi"),
+                adapter_factory=_adapter_factory,
                 emit=lambda _message, _is_error: None,
             )
         )

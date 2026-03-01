@@ -26,7 +26,7 @@ def _metadata_event(instrument_id: str = "kalshi:market-a") -> event_models.Cano
 
 
 class _FinitePollingConnector(connector_base.PollingConnector):
-    def __init__(self, emit: object = None) -> None:
+    def __init__(self, emit: connector_base.EmitCallback | None = None) -> None:
         super().__init__(venue="kalshi", interval_seconds=0.01, emit=emit)
         self.poll_calls = 0
 

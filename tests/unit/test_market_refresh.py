@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import apps.data_collector.connectors.market_refresh as connector_market_refresh
 import pytest
 
+import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
 import alpha_core.instruments.master as instrument_master
 import alpha_core.instruments.models as instrument_models
@@ -48,7 +49,7 @@ def _market(
     )
 
 
-class _MockAdapter:
+class _MockAdapter(adapters_base.VenueAdapter):
     def __init__(
         self,
         markets: list[instrument_models.MarketSpec],
@@ -71,6 +72,51 @@ class _MockAdapter:
     ) -> tuple[list[instrument_models.MarketSpec], list[object]]:
         markets = await self.fetch_markets()
         return markets, [market.model_dump(mode="json") for market in markets]
+
+    async def fetch_trades(
+        self,
+        outcome_id: str,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[event_models.CanonicalTrade]:
+        del outcome_id, since, limit
+        return []
+
+    async def fetch_order_book(self, outcome_id: str) -> event_models.CanonicalBookSnapshot:
+        raise NotImplementedError(f"book polling not implemented in test adapter: {outcome_id}")
+
+    async def fetch_ohlcv(
+        self,
+        outcome_id: str,
+        resolution: str = "1h",
+        limit: int = 100,
+    ) -> list[event_models.CanonicalOHLCV]:
+        del outcome_id, resolution, limit
+        return []
+
+    async def fetch_trades_with_raw(
+        self,
+        outcome_id: str,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalTrade], list[object]]:
+        del outcome_id, since, limit
+        return [], []
+
+    async def fetch_order_book_with_raw(
+        self,
+        outcome_id: str,
+    ) -> tuple[event_models.CanonicalBookSnapshot, object]:
+        raise NotImplementedError(f"book polling not implemented in test adapter: {outcome_id}")
+
+    async def fetch_ohlcv_with_raw(
+        self,
+        outcome_id: str,
+        resolution: str = "1h",
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalOHLCV], list[object]]:
+        del outcome_id, resolution, limit
+        return [], []
 
 
 def test_market_refresh_registers_new_markets_and_emits_metadata_events() -> None:

@@ -185,9 +185,7 @@ def resolve_environment_path(environments_dir: Path, environment: str) -> Path:
     if not cleaned_environment:
         raise ValueError("`environment` must be a non-empty string when provided")
     if _ENVIRONMENT_NAME_RE.fullmatch(cleaned_environment) is None:
-        raise ValueError(
-            "Invalid `environment` value. Use only letters, numbers, `_`, and `-`."
-        )
+        raise ValueError("Invalid `environment` value. Use only letters, numbers, `_`, and `-`.")
 
     environments_root = environments_dir.resolve()
     environment_path = (environments_root / f"{cleaned_environment}.yaml").resolve()

@@ -36,18 +36,27 @@ class _MockExchange:
         return self._ohlcv
 
 
-class _AsyncMockExchange(_MockExchange):
+class _AsyncMockExchange:
+    def __init__(self, *_: object, **__: object) -> None:
+        self._markets: list[object] = []
+        self._trades: list[object] = []
+        self._book: object = {}
+        self._ohlcv: list[object] = []
+
     async def fetch_markets(self) -> list[object]:
-        return super().fetch_markets()
+        return self._markets
 
     async def fetch_trades(self, *args: object, **kwargs: object) -> list[object]:
-        return super().fetch_trades(*args, **kwargs)
+        del args, kwargs
+        return self._trades
 
     async def fetch_order_book(self, *args: object, **kwargs: object) -> object:
-        return super().fetch_order_book(*args, **kwargs)
+        del args, kwargs
+        return self._book
 
     async def fetch_ohlcv(self, *args: object, **kwargs: object) -> list[object]:
-        return super().fetch_ohlcv(*args, **kwargs)
+        del args, kwargs
+        return self._ohlcv
 
 
 def _install_mock_pmxt(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -550,8 +559,8 @@ def test_map_1000_trades_under_100ms(monkeypatch: pytest.MonkeyPatch) -> None:
     assert elapsed_ms < 100
 
 
-def _exchange(adapter: pmxt_adapter.PmxtAdapter) -> _MockExchange:
+def _exchange(adapter: pmxt_adapter.PmxtAdapter) -> _MockExchange | _AsyncMockExchange:
     exchange = adapter._exchange
-    if not isinstance(exchange, _MockExchange):
+    if not isinstance(exchange, (_MockExchange, _AsyncMockExchange)):
         raise TypeError("Unexpected exchange type")
     return exchange

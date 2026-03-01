@@ -8,7 +8,9 @@ from decimal import Decimal
 
 import apps.data_collector.connectors.trade_poller as connector_trade_poller
 
+import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
+import alpha_core.instruments.models as instrument_models
 import alpha_core.utils.ids as ids_utils
 
 
@@ -29,7 +31,7 @@ def _trade(trade_id: str, ts_event: datetime) -> event_models.CanonicalTrade:
     return event_models.CanonicalTrade.model_validate(payload)
 
 
-class _MockAdapter:
+class _MockAdapter(adapters_base.VenueAdapter):
     def __init__(self) -> None:
         self.calls: list[tuple[str, datetime | None, int]] = []
         self.responses: dict[str, list[event_models.CanonicalTrade]] = {}
@@ -58,6 +60,41 @@ class _MockAdapter:
         trades = await self.fetch_trades(outcome_id, since=since, limit=limit)
         return trades, [trade.model_dump(mode="json") for trade in trades]
 
+    async def fetch_markets(self) -> list[instrument_models.MarketSpec]:
+        return []
+
+    async def fetch_order_book(self, outcome_id: str) -> event_models.CanonicalBookSnapshot:
+        raise NotImplementedError(f"book polling not implemented in test adapter: {outcome_id}")
+
+    async def fetch_ohlcv(
+        self,
+        outcome_id: str,
+        resolution: str = "1h",
+        limit: int = 100,
+    ) -> list[event_models.CanonicalOHLCV]:
+        del outcome_id, resolution, limit
+        return []
+
+    async def fetch_markets_with_raw(
+        self,
+    ) -> tuple[list[instrument_models.MarketSpec], list[object]]:
+        return [], []
+
+    async def fetch_order_book_with_raw(
+        self,
+        outcome_id: str,
+    ) -> tuple[event_models.CanonicalBookSnapshot, object]:
+        raise NotImplementedError(f"book polling not implemented in test adapter: {outcome_id}")
+
+    async def fetch_ohlcv_with_raw(
+        self,
+        outcome_id: str,
+        resolution: str = "1h",
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalOHLCV], list[object]]:
+        del outcome_id, resolution, limit
+        return [], []
+
 
 def test_trade_poller_polls_all_outcomes_and_uses_limit() -> None:
     adapter = _MockAdapter()
@@ -73,8 +110,10 @@ def test_trade_poller_polls_all_outcomes_and_uses_limit() -> None:
     )
 
     events = asyncio.run(poller.poll_once()).events
+    trades = [event for event in events if isinstance(event, event_models.CanonicalTrade)]
 
-    assert [event.trade_id for event in events] == ["t1", "t2"]
+    assert len(trades) == len(events)
+    assert [trade.trade_id for trade in trades] == ["t1", "t2"]
     assert adapter.calls[0][2] == 42
     assert adapter.calls[1][2] == 42
 
@@ -162,6 +201,13 @@ def test_trade_poller_bounded_dedup_cache_allows_old_ids_after_eviction() -> Non
     adapter.responses = {"kalshi:market-a:yes": [_trade("t1", ts + timedelta(seconds=2))]}
     third = asyncio.run(poller.poll_once()).events
 
-    assert [trade.trade_id for trade in first] == ["t1"]
-    assert [trade.trade_id for trade in second] == ["t2"]
-    assert [trade.trade_id for trade in third] == ["t1"]
+    first_trades = [event for event in first if isinstance(event, event_models.CanonicalTrade)]
+    second_trades = [event for event in second if isinstance(event, event_models.CanonicalTrade)]
+    third_trades = [event for event in third if isinstance(event, event_models.CanonicalTrade)]
+
+    assert len(first_trades) == len(first)
+    assert len(second_trades) == len(second)
+    assert len(third_trades) == len(third)
+    assert [trade.trade_id for trade in first_trades] == ["t1"]
+    assert [trade.trade_id for trade in second_trades] == ["t2"]
+    assert [trade.trade_id for trade in third_trades] == ["t1"]

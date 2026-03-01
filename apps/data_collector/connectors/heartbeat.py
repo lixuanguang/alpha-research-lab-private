@@ -35,11 +35,7 @@ class HeartbeatMonitor:
     def check_stale(self) -> list[str]:
         """Return IDs of connectors that have not beaten within the timeout."""
         now = self._now()
-        return [
-            cid
-            for cid, last in self._last_beat.items()
-            if (now - last) > self._timeout
-        ]
+        return [cid for cid, last in self._last_beat.items() if (now - last) > self._timeout]
 
     def remove(self, connector_id: str) -> None:
         """Remove tracking for *connector_id* (e.g. on clean shutdown)."""

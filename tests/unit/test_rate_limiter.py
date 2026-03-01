@@ -48,7 +48,10 @@ def test_rate_limiter_available_is_false_when_exhausted() -> None:
 
 def test_rate_limiter_available_reflects_refill_progress(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_clock = _FakeClock()
-    monkeypatch.setattr(connector_rate_limiter.time, "monotonic", fake_clock.monotonic)
+    monkeypatch.setattr(
+        "apps.data_collector.connectors.rate_limiter.time.monotonic",
+        fake_clock.monotonic,
+    )
     limiter = connector_rate_limiter.TokenBucketRateLimiter(rpm=60)
     limiter._tokens = 0.0
     limiter._capacity = 1.0
@@ -102,8 +105,14 @@ def test_rate_limiter_meets_d3_accuracy_target_within_one_percent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_clock = _FakeClock()
-    monkeypatch.setattr(connector_rate_limiter.time, "monotonic", fake_clock.monotonic)
-    monkeypatch.setattr(connector_rate_limiter.asyncio, "sleep", fake_clock.sleep)
+    monkeypatch.setattr(
+        "apps.data_collector.connectors.rate_limiter.time.monotonic",
+        fake_clock.monotonic,
+    )
+    monkeypatch.setattr(
+        "apps.data_collector.connectors.rate_limiter.asyncio.sleep",
+        fake_clock.sleep,
+    )
     rpm = 600
     limiter = connector_rate_limiter.TokenBucketRateLimiter(rpm=rpm)
     limiter._tokens = 0.0

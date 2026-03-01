@@ -96,10 +96,7 @@ class StreamingPipeline:
                 _LOGGER.error("Streaming writer close error: %s", exc)
                 self._errors.append(f"streaming writer close error: {exc}")
 
-        if (
-            self._connector.state is connector_base.ConnectorState.ERROR
-            and not self._errors
-        ):
+        if self._connector.state is connector_base.ConnectorState.ERROR and not self._errors:
             connector_errors = self._connector.metrics().errors
             if connector_errors:
                 self._errors.append(connector_errors[-1])
@@ -123,9 +120,7 @@ class StreamingPipeline:
     # emit callback — called for each batch from the connector
     # ------------------------------------------------------------------
 
-    def _on_events(
-        self, events: list[event_models.CanonicalMarketEvent]
-    ) -> None:
+    def _on_events(self, events: list[event_models.CanonicalMarketEvent]) -> None:
         if not events:
             return
 

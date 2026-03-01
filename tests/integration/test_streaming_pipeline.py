@@ -150,9 +150,7 @@ def test_streaming_pipeline_empty_batches_no_crash(tmp_path: Path) -> None:
 
 def test_streaming_pipeline_buffer_rotation_on_large_batch(tmp_path: Path) -> None:
     """A buffer with max_buffer_size=5 should rotate (flush) when exceeded."""
-    adapter = _FiniteAdapter(
-        [[_trade(f"t{i}", _NOW + timedelta(seconds=i)) for i in range(10)]]
-    )
+    adapter = _FiniteAdapter([[_trade(f"t{i}", _NOW + timedelta(seconds=i)) for i in range(10)]])
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
@@ -164,7 +162,7 @@ def test_streaming_pipeline_buffer_rotation_on_large_batch(tmp_path: Path) -> No
     silver_writer = storage_parquet.ParquetEventWriter(tmp_path)
     streaming_writer = storage_streaming.StreamingParquetWriter(
         silver_writer,
-        max_buffer_size=5,       # Small buffer → triggers flush during the 10-event batch
+        max_buffer_size=5,  # Small buffer → triggers flush during the 10-event batch
         max_buffer_age_seconds=60.0,
     )
     pipeline = streaming_pipeline_mod.StreamingPipeline(

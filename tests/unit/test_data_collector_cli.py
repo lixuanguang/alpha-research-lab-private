@@ -125,8 +125,7 @@ def test_run_command_execute_path_reports_completion(
         return 7
 
     monkeypatch.setattr(
-        data_collector_main.collector_runtime,
-        "run_polling_pipelines",
+        "apps.data_collector.main.collector_runtime.run_polling_pipelines",
         _fake_run_polling_pipelines,
     )
 
