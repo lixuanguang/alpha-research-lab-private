@@ -11,8 +11,8 @@
 | Stage | Status | Tests | Docs |
 |---|---|---|---|
 | **Foundation** (F1–F6) | **Complete (closed)** | Covered by repo-wide quality gates | [Foundation Plan](docs/implementation/foundation-stage.md) |
-| **Data Plane MVP** (D1–D6) | **Complete (D1–D6 closed)** | 468 passing (`--run-perf`) | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
-| Research Plane MVP | Planned | — | — |
+| **Data Plane MVP** (D1–D6) | **Complete (D1–D6 closed)** | 460 passed, 8 skipped | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
+| **Research Plane MVP** (R1–R6) | **Next** | — | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
 | Live Plane MVP | Planned | — | — |
 | Observability Baseline | Planned | — | — |
 | Robustness Hardening | Planned | — | — |
@@ -20,8 +20,8 @@
 **Quality gates (as of March 1, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/core --strict` — 0 errors
-- `pytest tests/ -v --run-perf` — 468 passed in ~3.8s
-- Test coverage: 90.06% (`libs/core/alpha_core` + `apps/data_collector`)
+- `pytest tests/` — 460 passed, 8 skipped in ~3.9s
+- `mypy libs/core --strict` — 0 issues in 42 source files
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:
@@ -112,6 +112,14 @@ Kalshi · KalshiDemo · Polymarket · Limitless · Baozi · Myriad · Probable
 |---|---|
 | [Foundation Stage](docs/implementation/foundation-stage.md) | Repo scaffold, canonical models, instrument master, config, storage, CI |
 | [Data Plane MVP](docs/implementation/data-plane-mvp.md) | Live connectors, streaming/batch ingestion, data quality, backfill tools |
+| [Research Plane MVP](docs/implementation/research-plane-mvp.md) | Dataset builder, feature engineering, backtester, PM-specific evaluation |
+
+## Research Guides
+
+| Guide | Scope |
+|---|---|
+| [Research Signals Guide](docs/guides/research-signals-guide.md) | Signal lifecycle, PM signal taxonomy, stage-by-stage microstructure workflow |
+| [Notebook to Modules/CLI Migration Guide](docs/guides/notebook-to-modules-cli-migration-guide.md) | How to promote stable notebook logic into tested modules and CLI pipelines |
 
 ---
 

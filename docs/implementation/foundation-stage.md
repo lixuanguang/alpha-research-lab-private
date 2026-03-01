@@ -22,6 +22,7 @@
 8. [Codebase Evolution Roadmap](#8-codebase-evolution-roadmap)
 9. [Dependencies & Environment](#9-dependencies--environment)
 10. [Conventions & Standards](#10-conventions--standards)
+11. [Microstructure Foundation Extension (Optional Addendum)](#11-microstructure-foundation-extension-optional-addendum)
 
 ---
 
@@ -1041,6 +1042,78 @@ All significant decisions are recorded in `docs/adr/` following the format:
 - **Context:** Why the decision is needed
 - **Decision:** What was decided
 - **Consequences:** Trade-offs and implications
+
+---
+
+## 11. Microstructure Foundation Extension (Optional Addendum)
+
+Foundation is complete; this addendum defines optional foundational upgrades needed for queue/OFI/Hawkes research quality.
+
+Estimated additional effort: 20-40 hours.
+
+### 11.1 F3 Extension: Canonical Event Model Enhancements
+
+Add optional event metadata fields that improve microstructure reconstruction:
+
+- `sequence_id: str | None`
+- `ts_exchange: datetime | None`
+- `ts_receive: datetime | None`
+- `source_latency_ms: float | None`
+
+Add optional event type for delta semantics when available:
+
+- `BOOK_DELTA`
+
+Proposed model (if supported by venue payloads):
+
+```python
+class CanonicalBookDelta(CanonicalMarketEvent):
+    event_type: Literal[EventType.BOOK_DELTA] = EventType.BOOK_DELTA
+    side: Literal["bid", "ask"]
+    price: Decimal
+    delta_size: Decimal
+    reason: Literal["add", "cancel", "trade"]
+    sequence_id: str | None = None
+```
+
+### 11.2 F4 Extension: Outcome Grouping for Simplex Constraints
+
+For cross-contract arbitrage (`sum_i p_i = 1`) ensure instrument metadata can identify outcome sets cleanly.
+
+Add optional grouping field:
+
+- `outcome_group_id: str | None` on `MarketSpec` or derived mapping in symbology
+
+This enables fast retrieval of all mutually exclusive outcomes for one event.
+
+### 11.3 F6 Extension: Storage Conventions for Delta Data
+
+Add optional storage and schema conventions:
+
+- dataset name: `book_deltas`
+- partitioning: `venue/date/hour`
+- schema includes `reason`, `delta_size`, `sequence_id`, `is_reconstructed`
+
+Expose through:
+
+- `storage/conventions.py`
+- `parquet_writer.py` and `parquet_reader.py`
+- `duckdb_layer.py` registration map
+
+### 11.4 Foundation Addendum Tests
+
+Add or extend tests:
+
+- `tests/unit/test_events.py`: optional metadata serialization, `BOOK_DELTA` model validation
+- `tests/unit/test_storage.py`: `book_deltas` partition/schema round-trip
+- `tests/integration/test_storage_roundtrip.py`: delta dataset query via DuckDB
+
+### 11.5 Addendum Completion Criteria
+
+- [ ] Canonical models can represent sequence-aware and latency-aware market events.
+- [ ] Outcome grouping is available for simplex-constrained basket logic.
+- [ ] Storage conventions and readers support optional `book_deltas`.
+- [ ] New foundation addendum tests pass without regressing baseline foundation guarantees.
 
 ---
 

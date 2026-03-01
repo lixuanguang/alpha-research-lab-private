@@ -23,6 +23,7 @@
 8. [Codebase Evolution — File-by-File](#8-codebase-evolution--file-by-file)
 9. [Dependencies & New Packages](#9-dependencies--new-packages)
 10. [Operational Runbook Stubs](#10-operational-runbook-stubs)
+11. [Microstructure Data Extension (Queue/OFI Readiness)](#11-microstructure-data-extension-queueofi-readiness)
 
 ---
 
@@ -1415,6 +1416,93 @@ python -m apps.data_collector.main validate --venue polymarket --since 2026-02-2
 # Show all connector states and metrics
 python -m apps.data_collector.main status
 ```
+
+---
+
+## 11. Microstructure Data Extension (Queue/OFI Readiness)
+
+This addendum defines the additional data-plane work required for queue-based and event-time microstructure strategies.
+
+Estimated additional effort: 50-90 hours.
+
+### 11.1 D4 Extension: Streaming/Event Fidelity
+
+Augment streaming connectors and normalized events with microstructure-critical metadata:
+
+- sequence identifiers (venue sequence, if provided)
+- local receive timestamp at sub-second precision
+- source feed timestamp when available
+- reconnect gap markers to flag potential sequence breaks
+
+If venue does not provide native order-level deltas, add a reconstruction path:
+
+- derive `book_deltas` from consecutive snapshots
+- annotate reconstructed records with confidence flag
+
+Suggested file deltas:
+
+- `apps/data_collector/connectors/trade_stream.py`
+- `apps/data_collector/connectors/book_stream.py`
+- `apps/data_collector/streaming_pipeline.py`
+- `libs/core/alpha_core/events/models.py` (optional metadata fields)
+
+### 11.2 D5 Extension: Microstructure Quality Expectations
+
+Add dedicated quality expectations for microstructure usability:
+
+- `SequenceContinuityExpectation`
+- `SnapshotCadenceExpectation`
+- `TopOfBookStabilityExpectation`
+- `DeltaConservationExpectation` (for reconstructed deltas)
+- `StaleBookAgeExpectation` at short thresholds (for example seconds, not hours)
+
+Add a microstructure suite:
+
+```python
+MICROSTRUCTURE_BOOK_SUITE = QualitySuite(
+    "silver_books_microstructure",
+    expectations=[...],
+)
+```
+
+Suggested file deltas:
+
+- `libs/core/alpha_core/quality/suites/book_quality.py`
+- `libs/core/alpha_core/quality/partition_validator.py`
+- new `tests/unit/test_book_microstructure_quality.py`
+
+### 11.3 Storage and Access Contract Additions
+
+Add optional silver dataset for deltas:
+
+- `silver/book_deltas/venue=<venue>/date=<YYYY-MM-DD>/hour=<HH>/...`
+
+Schema should include at minimum:
+
+- `instrument_id`
+- `ts_event`
+- `ts_record`
+- `side`
+- `price`
+- `delta_size`
+- `reason` (`add`, `cancel`, `trade`)
+- `sequence_id` (nullable)
+- `is_reconstructed`
+
+Expose read path:
+
+- `ParquetEventReader.read_book_deltas(...)`
+- `DuckDBAnalytics.register_silver("book_deltas")`
+
+### 11.4 Data-Plane Acceptance Gates for Microstructure Readiness
+
+Extension is complete when all are true:
+
+- [ ] Books stream carries sequence/latency metadata (or explicit null + capability flag).
+- [ ] Reconstruction path for `book_deltas` exists for snapshot-only venues.
+- [ ] Quality suite catches sequence gaps and stale/cadence violations.
+- [ ] `book_deltas` is queryable through reader and DuckDB view registration.
+- [ ] Integration tests cover reconnect + gap markers + delta reconstruction consistency.
 
 ---
 
