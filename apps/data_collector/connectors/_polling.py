@@ -54,13 +54,14 @@ class PollingConnector(connector_lifecycle.BaseConnector):
         *,
         operation: str,
     ) -> _ResultT:
-        timeout_seconds = self.request_timeout_seconds
-        if timeout_seconds is None:
+        if self.request_timeout_seconds is None:
             return await awaitable
         try:
-            return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+            return await asyncio.wait_for(awaitable, timeout=self.request_timeout_seconds)
         except TimeoutError as exc:
-            raise TimeoutError(f"{operation} timed out after {timeout_seconds:.2f}s") from exc
+            raise TimeoutError(
+                f"{operation} timed out after {self.request_timeout_seconds:.2f}s"
+            ) from exc
 
     async def start(self) -> None:
         if self.state in {
@@ -92,7 +93,7 @@ class PollingConnector(connector_lifecycle.BaseConnector):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            self._record_error(str(exc))
+            self.record_runtime_error(str(exc))
         finally:
             if self.state is not connector_types.ConnectorState.ERROR:
                 self._mark_stopped()

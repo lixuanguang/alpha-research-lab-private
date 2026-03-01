@@ -69,12 +69,11 @@ class BaseConnector(ABC):
 
     async def cancel_run_task(self) -> None:
         """Cancel and await an in-flight run task, if present."""
-        task = self._task
-        if task is None or task.done():
+        if self._task is None or self._task.done():
             return
-        task.cancel()
+        self._task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
+            await self._task
 
     def _mark_running(self) -> None:
         if self._started_at_monotonic is None:
@@ -87,16 +86,13 @@ class BaseConnector(ABC):
         self.state = connector_types.ConnectorState.STOPPED
         self._started_at_monotonic = None
 
-    def _record_error(self, message: str) -> None:
+    def record_runtime_error(self, message: str) -> None:
+        """Record a runtime error and transition connector state to error."""
         self._freeze_uptime()
         self.state = connector_types.ConnectorState.ERROR
         self._started_at_monotonic = None
         self._metrics.events_rejected += 1
         self._metrics.errors.append(message)
-
-    def record_runtime_error(self, message: str) -> None:
-        """Record a runtime error and transition connector state to error."""
-        self._record_error(message)
 
     def _record_poll_failure(
         self,

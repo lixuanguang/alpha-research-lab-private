@@ -267,3 +267,34 @@ def test_quality_checker_handles_missing_required_fields_without_crashing() -> N
 
     assert report.is_valid is False
     assert any("`size`" in issue.message for issue in report.issues)
+
+
+def test_quality_checker_rejects_non_positive_capacity() -> None:
+    with pytest.raises(ValueError, match="max_instruments"):
+        event_quality.EventQualityChecker(max_instruments=0)
+
+
+def test_quality_checker_evicts_oldest_instrument_state_when_capacity_exceeded() -> None:
+    checker = event_quality.EventQualityChecker(max_instruments=1)
+
+    first = event_models.CanonicalTrade.model_validate(_trade_fields())
+    first_report = checker.check(first)
+
+    second_fields = _trade_fields()
+    second_fields["instrument_id"] = "polymarket:market-2:yes"
+    second_fields["trade_id"] = "trade-200"
+    second_fields = _refresh_event_id(second_fields)
+    second = event_models.CanonicalTrade.model_validate(second_fields)
+    second_report = checker.check(second)
+
+    third_fields = _trade_fields()
+    third_fields["trade_id"] = "trade-201"
+    third_fields["ts_event"] = datetime(2026, 1, 1, 11, 59, tzinfo=UTC)
+    third_fields["ts_record"] = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    third_fields = _refresh_event_id(third_fields)
+    third = event_models.CanonicalTrade.model_validate(third_fields)
+    third_report = checker.check(third)
+
+    assert first_report.is_valid is True
+    assert second_report.is_valid is True
+    assert third_report.is_valid is True

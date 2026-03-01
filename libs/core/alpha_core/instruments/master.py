@@ -56,12 +56,16 @@ class MarketMaster:
                 self._outcomes.pop(existing_canonical_id, None)
 
         stored_market = market.model_copy(deep=True)
-        if existing_market is None:
-            effective_first_seen = stored_market.first_seen
-            effective_last_updated = stored_market.last_updated
-        else:
-            effective_first_seen = min(existing_market.first_seen, stored_market.first_seen)
-            effective_last_updated = max(existing_market.last_updated, stored_market.last_updated)
+        first_seen = (
+            stored_market.first_seen
+            if existing_market is None
+            else min(existing_market.first_seen, stored_market.first_seen)
+        )
+        last_updated = (
+            stored_market.last_updated
+            if existing_market is None
+            else max(existing_market.last_updated, stored_market.last_updated)
+        )
         normalized_outcomes: list[instrument_models.OutcomeSpec] = []
 
         for outcome in stored_market.outcomes:
@@ -78,8 +82,8 @@ class MarketMaster:
             update={
                 "venue": stored_market.venue.lower(),
                 "outcomes": normalized_outcomes,
-                "first_seen": effective_first_seen,
-                "last_updated": effective_last_updated,
+                "first_seen": first_seen,
+                "last_updated": last_updated,
             }
         )
         return canonical_market_id

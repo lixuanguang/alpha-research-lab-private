@@ -11,6 +11,7 @@ import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_writer as storage_parquet
 import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.event_types as collector_event_types
 
 
 class PollingPipeline:
@@ -93,7 +94,7 @@ class PollingPipeline:
 
         grouped_payloads: dict[str, list[dict[str, object]]] = defaultdict(list)
         for event in events:
-            event_type = self._event_type_key(event)
+            event_type = collector_event_types.dataset_key_for_event(event)
             grouped_payloads[event_type].append(event.model_dump(mode="json"))
 
         for event_type, payloads in grouped_payloads.items():
@@ -148,15 +149,5 @@ class PollingPipeline:
             "ohlcv_written": len(candles),
             "metadata_skipped": metadata_updates,
         }
-
-    def _event_type_key(self, event: event_models.CanonicalMarketEvent) -> str:
-        if isinstance(event, event_models.CanonicalTrade):
-            return "trades"
-        if isinstance(event, event_models.CanonicalBookSnapshot):
-            return "books"
-        if isinstance(event, event_models.CanonicalOHLCV):
-            return "ohlcv"
-        return "metadata"
-
 
 __all__ = ["PollingPipeline"]

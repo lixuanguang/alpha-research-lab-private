@@ -74,13 +74,12 @@ class PartitionValidator:
         and runs validation.
         """
         reports: list[quality_base.SuiteReport] = []
-        start = since
 
         # No upper-bound end filter — include all partitions written after `since`
         event_type_readers = {
-            "trades": lambda: self._reader.read_trades(start=start),
-            "books": lambda: self._reader.read_books(start=start),
-            "ohlcv": lambda: self._reader.read_ohlcv(start=start),
+            "trades": lambda: self._reader.read_trades(start=since),
+            "books": lambda: self._reader.read_books(start=since),
+            "ohlcv": lambda: self._reader.read_ohlcv(start=since),
         }
 
         for event_type, suite in self._suites.items():

@@ -44,7 +44,7 @@ class PollingScheduler:
         while True:
             if await self.run_due_once():
                 continue
-            await asyncio.sleep(self._seconds_until_next_due(time.monotonic()))
+            await asyncio.sleep(self.seconds_until_next_due(time.monotonic()))
 
     async def run_once(self) -> dict[str, list[event_models.CanonicalMarketEvent]]:
         """Single pass for testing/debugging."""
@@ -67,8 +67,11 @@ class PollingScheduler:
         return results
 
     def seconds_until_next_due(self, now_monotonic: float) -> float:
-        """Public wrapper used by runtime loops and tests."""
-        return self._seconds_until_next_due(now_monotonic)
+        """Return seconds until the next scheduled connector execution is due."""
+        if not self._next_run_at_monotonic:
+            return 1.0
+        next_due = min(self._next_run_at_monotonic.values())
+        return max(0.01, next_due - now_monotonic)
 
     def _validate_rate_limiters(self) -> None:
         missing_venues = sorted(
@@ -88,12 +91,6 @@ class PollingScheduler:
             for connector in self._connectors
             if now_monotonic >= self._next_run_at_monotonic[connector.connector_id]
         ]
-
-    def _seconds_until_next_due(self, now_monotonic: float) -> float:
-        if not self._next_run_at_monotonic:
-            return 1.0
-        next_due = min(self._next_run_at_monotonic.values())
-        return max(0.01, next_due - now_monotonic)
 
     def _schedule_next_runs(
         self,

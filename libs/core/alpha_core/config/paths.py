@@ -17,9 +17,8 @@ def _is_project_root(candidate: Path) -> bool:
 
 def _search_upwards(start: Path) -> Path | None:
     """Search *start* and its parents for a project root marker."""
-    current = start.resolve()
-    if current.is_file():
-        current = current.parent
+    resolved_start = start.resolve()
+    current = resolved_start.parent if resolved_start.is_file() else resolved_start
 
     for candidate in (current, *current.parents):
         if _is_project_root(candidate):

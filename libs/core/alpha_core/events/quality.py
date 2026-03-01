@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 from datetime import datetime
 from typing import cast
 
@@ -31,8 +32,13 @@ class QualityReport(BaseModel):
 class EventQualityChecker:
     """Validate individual events against quality rules."""
 
-    def __init__(self) -> None:
-        self._last_ts_by_instrument: dict[str, datetime] = {}
+    def __init__(self, *, max_instruments: int = 50_000) -> None:
+        if max_instruments <= 0:
+            raise ValueError("`max_instruments` must be > 0")
+        self._max_instruments = max_instruments
+        self._last_ts_by_instrument: collections.OrderedDict[str, datetime] = (
+            collections.OrderedDict()
+        )
 
     def check(self, event: event_models.CanonicalMarketEvent) -> QualityReport:
         issues: list[QualityIssue] = []
@@ -85,9 +91,16 @@ class EventQualityChecker:
                     )
                 )
             else:
-                self._last_ts_by_instrument[instrument_id] = ts_event
+                self._remember_instrument_timestamp(instrument_id, ts_event)
 
         return QualityReport(is_valid=not issues, issues=issues)
+
+    def _remember_instrument_timestamp(self, instrument_id: str, ts_event: datetime) -> None:
+        self._last_ts_by_instrument[instrument_id] = ts_event
+        self._last_ts_by_instrument.move_to_end(instrument_id)
+        if len(self._last_ts_by_instrument) <= self._max_instruments:
+            return
+        self._last_ts_by_instrument.popitem(last=False)
 
 
 def _safe_getattr(event: object, field_name: str) -> object | None:

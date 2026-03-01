@@ -146,13 +146,12 @@ def path_exists(config: dict[str, Any], keys: list[str]) -> bool:
                 cursor = cursor[index]
                 continue
 
-            named_item = next(
+            cursor = next(
                 (item for item in cursor if isinstance(item, dict) and item.get("name") == key),
                 None,
             )
-            if named_item is None:
+            if cursor is None:
                 return False
-            cursor = named_item
             continue
 
         return False

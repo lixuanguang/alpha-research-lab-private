@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -102,12 +103,12 @@ def run_command(
     if request_timeout_seconds <= 0:
         raise click.ClickException("`--request-timeout-seconds` must be > 0.")
 
-    settings = config_loader.load_settings(
+    settings, selected_venues = _prepare_run_settings(
         environment=environment,
         apply_user_settings=apply_user_settings,
         validate_secrets=validate_secrets,
+        requested_venues=venues,
     )
-    selected_venues = _resolve_target_venues(settings, requested_venues=venues)
     if not selected_venues:
         raise click.ClickException("No enabled venues found for run command.")
 
@@ -119,45 +120,14 @@ def run_command(
         click.echo("Execution mode: plan-only (pass --execute to start pipelines).")
         return
 
-    try:
-        if mode == "poll":
-            completed_runs = asyncio.run(
-                collector_runtime.run_polling_pipelines(
-                    settings,
-                    once=once,
-                    max_outcomes_per_venue=max_outcomes_per_venue,
-                    request_timeout_seconds=request_timeout_seconds,
-                    adapter_factory=adapters_pmxt.PmxtAdapter,
-                    emit=lambda message, is_error: click.echo(message, err=is_error),
-                    venue_names=set(selected_venues),
-                )
-            )
-        elif mode == "stream":
-            completed_runs = asyncio.run(
-                collector_runtime.run_streaming_pipelines(
-                    settings,
-                    once=once,
-                    max_outcomes_per_venue=max_outcomes_per_venue,
-                    request_timeout_seconds=request_timeout_seconds,
-                    adapter_factory=adapters_pmxt.PmxtAdapter,
-                    emit=lambda message, is_error: click.echo(message, err=is_error),
-                    venue_names=set(selected_venues),
-                )
-            )
-        else:
-            completed_runs = asyncio.run(
-                collector_runtime.run_polling_and_streaming(
-                    settings,
-                    once=once,
-                    max_outcomes_per_venue=max_outcomes_per_venue,
-                    request_timeout_seconds=request_timeout_seconds,
-                    adapter_factory=adapters_pmxt.PmxtAdapter,
-                    emit=lambda message, is_error: click.echo(message, err=is_error),
-                    venue_names=set(selected_venues),
-                )
-            )
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+    completed_runs = _run_collection_mode(
+        mode=mode,
+        settings=settings,
+        once=once,
+        max_outcomes_per_venue=max_outcomes_per_venue,
+        request_timeout_seconds=request_timeout_seconds,
+        selected_venues=selected_venues,
+    )
 
     click.echo(
         "Execution complete "
@@ -268,52 +238,20 @@ def backfill_command(
     environment: str | None,
 ) -> None:
     """Backfill historical data for a time window."""
-    try:
-        start_dt = _parse_utc_datetime(start)
-        end_dt = _parse_utc_datetime(end)
-    except ValueError as exc:
-        raise click.ClickException(f"Invalid datetime: {exc}") from exc
-
+    start_dt, end_dt = _parse_window_datetimes(start, end)
     if batch_size <= 0:
         raise click.ClickException("`--batch-size` must be > 0.")
 
-    settings = config_loader.load_settings(
+    result = _run_backfill(
+        venue=venue,
+        outcomes=list(outcomes),
+        start_dt=start_dt,
+        end_dt=end_dt,
+        event_type=event_type,
+        resolution=resolution,
+        batch_size=batch_size,
         environment=environment,
-        apply_user_settings=False,
-        validate_secrets=False,
     )
-    venue_config = _require_venue(settings, venue)
-    storage_root = settings.storage.base_path
-
-    try:
-        adapter = adapters_pmxt.PmxtAdapter(venue, venue_config)
-    except Exception as exc:
-        raise click.ClickException(f"Failed to initialise adapter for '{venue}': {exc}") from exc
-
-    manager = collector_backfill.BackfillManager(
-        adapter=adapter,
-        bronze_writer=storage_bronze.BronzeWriter(storage_root),
-        silver_writer=storage_parquet.ParquetEventWriter(storage_root),
-        quality_checker=event_quality.EventQualityChecker(),
-        lineage_store=storage_lineage.LineageStore(storage_root),
-    )
-    outcome_ids = list(outcomes)
-
-    try:
-        if event_type == "trades":
-            result = asyncio.run(
-                manager.backfill_trades(
-                    outcome_ids, start=start_dt, end=end_dt, batch_size=batch_size
-                )
-            )
-        else:
-            result = asyncio.run(
-                manager.backfill_ohlcv(
-                    outcome_ids, resolution=resolution, start=start_dt, end=end_dt
-                )
-            )
-    except Exception as exc:
-        raise click.ClickException(f"Backfill failed: {exc}") from exc
 
     click.echo(
         f"Backfill complete: venue={result.venue}, event_type={result.event_type}, "
@@ -368,51 +306,23 @@ def detect_gaps_command(
     environment: str | None,
 ) -> None:
     """Detect gaps in collected data for a time window."""
-    try:
-        start_dt = _parse_utc_datetime(start)
-        end_dt = _parse_utc_datetime(end)
-    except ValueError as exc:
-        raise click.ClickException(f"Invalid datetime: {exc}") from exc
+    start_dt, end_dt = _parse_window_datetimes(start, end)
     if max_gap_hours <= 0:
         raise click.ClickException("`--max-gap-hours` must be > 0.")
 
-    settings = config_loader.load_settings(
+    outcome_ids, all_gaps = _detect_gaps(
+        venue=venue,
+        requested_outcomes=list(outcomes),
+        event_type=event_type,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        max_gap_hours=max_gap_hours,
+        resolution=resolution,
         environment=environment,
-        apply_user_settings=False,
-        validate_secrets=False,
     )
-    storage_root = settings.storage.base_path
-    reader = parquet_reader_mod.ParquetEventReader(storage_root)
-    detector = gap_detector_mod.GapDetector(reader)
-
-    # Resolve outcome ids: use provided or scan silver data
-    outcome_ids: list[str] = list(outcomes)
-    if not outcome_ids:
-        outcome_ids = _scan_instrument_ids(
-            reader,
-            venue=venue,
-            start=start_dt,
-            end=end_dt,
-            event_type=event_type,
-            resolution=resolution if event_type == "ohlcv" else None,
-        )
-        if not outcome_ids:
-            click.echo(f"No data found for venue='{venue}' in the given window.")
-            return
-
-    all_gaps: list[gap_detector_mod.TimeGap] = []
-    max_gap_seconds = max_gap_hours * 3600.0
-    for outcome_id in outcome_ids:
-        if event_type == "trades":
-            gaps = detector.detect_trade_gaps(
-                venue, outcome_id, start=start_dt, end=end_dt, max_gap_seconds=max_gap_seconds
-            )
-        else:
-            gaps = detector.detect_ohlcv_gaps(
-                venue, outcome_id, resolution=resolution, start=start_dt, end=end_dt
-            )
-        all_gaps.extend(gaps)
-
+    if outcome_ids is None:
+        click.echo(f"No data found for venue='{venue}' in the given window.")
+        return
     if not all_gaps:
         click.echo(
             f"No gaps detected for venue={venue}, event_type={event_type}, "
@@ -430,6 +340,173 @@ def detect_gaps_command(
             f"end={gap.gap_end.isoformat()}, "
             f"duration={gap.duration_seconds / 3600:.2f}h"
         )
+
+
+def _prepare_run_settings(
+    *,
+    environment: str | None,
+    apply_user_settings: bool,
+    validate_secrets: bool,
+    requested_venues: tuple[str, ...],
+) -> tuple[config_models.Settings, list[str]]:
+    settings = config_loader.load_settings(
+        environment=environment,
+        apply_user_settings=apply_user_settings,
+        validate_secrets=validate_secrets,
+    )
+    selected_venues = _resolve_target_venues(settings, requested_venues=requested_venues)
+    return settings, selected_venues
+
+
+def _run_collection_mode(
+    *,
+    mode: str,
+    settings: config_models.Settings,
+    once: bool,
+    max_outcomes_per_venue: int,
+    request_timeout_seconds: float,
+    selected_venues: list[str],
+) -> int:
+    run_collectors: dict[str, Callable[..., Coroutine[object, object, int]]] = {
+        "poll": collector_runtime.run_polling_pipelines,
+        "stream": collector_runtime.run_streaming_pipelines,
+        "both": collector_runtime.run_polling_and_streaming,
+    }
+    run_collector = run_collectors.get(mode)
+    if run_collector is None:
+        raise click.ClickException(f"Unsupported mode: {mode}")
+    try:
+        return asyncio.run(
+            run_collector(
+                settings,
+                once=once,
+                max_outcomes_per_venue=max_outcomes_per_venue,
+                request_timeout_seconds=request_timeout_seconds,
+                adapter_factory=adapters_pmxt.PmxtAdapter,
+                emit=_cli_emit,
+                venue_names=set(selected_venues),
+            )
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _cli_emit(message: str, is_error: bool) -> None:
+    click.echo(message, err=is_error)
+
+
+def _parse_window_datetimes(start: str, end: str) -> tuple[datetime, datetime]:
+    try:
+        return _parse_utc_datetime(start), _parse_utc_datetime(end)
+    except ValueError as exc:
+        raise click.ClickException(f"Invalid datetime: {exc}") from exc
+
+
+def _build_backfill_manager(
+    *,
+    venue: str,
+    environment: str | None,
+) -> collector_backfill.BackfillManager:
+    settings = config_loader.load_settings(
+        environment=environment,
+        apply_user_settings=False,
+        validate_secrets=False,
+    )
+    venue_config = _require_venue(settings, venue)
+    storage_root = settings.storage.base_path
+    try:
+        adapter = adapters_pmxt.PmxtAdapter(venue, venue_config)
+    except Exception as exc:
+        raise click.ClickException(f"Failed to initialise adapter for '{venue}': {exc}") from exc
+
+    return collector_backfill.BackfillManager(
+        adapter=adapter,
+        bronze_writer=storage_bronze.BronzeWriter(storage_root),
+        silver_writer=storage_parquet.ParquetEventWriter(storage_root),
+        quality_checker=event_quality.EventQualityChecker(),
+        lineage_store=storage_lineage.LineageStore(storage_root),
+    )
+
+
+def _run_backfill(
+    *,
+    venue: str,
+    outcomes: list[str],
+    start_dt: datetime,
+    end_dt: datetime,
+    event_type: str,
+    resolution: str,
+    batch_size: int,
+    environment: str | None,
+) -> collector_backfill.BackfillResult:
+    manager = _build_backfill_manager(venue=venue, environment=environment)
+    try:
+        if event_type == "trades":
+            return asyncio.run(
+                manager.backfill_trades(
+                    outcomes,
+                    start=start_dt,
+                    end=end_dt,
+                    batch_size=batch_size,
+                )
+            )
+        return asyncio.run(
+            manager.backfill_ohlcv(
+                outcomes,
+                resolution=resolution,
+                start=start_dt,
+                end=end_dt,
+            )
+        )
+    except Exception as exc:
+        raise click.ClickException(f"Backfill failed: {exc}") from exc
+
+
+def _detect_gaps(
+    *,
+    venue: str,
+    requested_outcomes: list[str],
+    event_type: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    max_gap_hours: float,
+    resolution: str,
+    environment: str | None,
+) -> tuple[list[str] | None, list[gap_detector_mod.TimeGap]]:
+    settings = config_loader.load_settings(
+        environment=environment,
+        apply_user_settings=False,
+        validate_secrets=False,
+    )
+    reader = parquet_reader_mod.ParquetEventReader(settings.storage.base_path)
+    detector = gap_detector_mod.GapDetector(reader)
+    outcome_ids = requested_outcomes or _scan_instrument_ids(
+        reader,
+        venue=venue,
+        start=start_dt,
+        end=end_dt,
+        event_type=event_type,
+        resolution=resolution if event_type == "ohlcv" else None,
+    )
+    if not outcome_ids:
+        return None, []
+
+    max_gap_seconds = max_gap_hours * 3600.0
+    all_gaps: list[gap_detector_mod.TimeGap] = []
+    for outcome_id in outcome_ids:
+        all_gaps.extend(
+            _detect_outcome_gaps(
+                detector,
+                venue=venue,
+                outcome_id=outcome_id,
+                event_type=event_type,
+                start_dt=start_dt,
+                end_dt=end_dt,
+                max_gap_seconds=max_gap_seconds,
+                resolution=resolution,
+            )
+        )
+    return outcome_ids, all_gaps
 
 
 def _echo_recent_runtime_metrics(storage_root: Path) -> None:
@@ -455,15 +532,14 @@ def _echo_recent_runtime_metrics(storage_root: Path) -> None:
 
     for venue in sorted(latest_by_venue):
         run = latest_by_venue[venue]
-        counts = run.counts
         click.echo(
             "Recent run: "
             f"venue={venue}, "
             f"status={run.status}, "
             f"run_id={run.run_id}, "
-            f"events_raw={counts.get('events_raw', 0)}, "
-            f"events_silver={counts.get('events_silver', 0)}, "
-            f"rejected={counts.get('rejected', 0)}, "
+            f"events_raw={run.counts.get('events_raw', 0)}, "
+            f"events_silver={run.counts.get('events_silver', 0)}, "
+            f"rejected={run.counts.get('rejected', 0)}, "
             f"errors={len(run.errors)}"
         )
 
@@ -509,7 +585,40 @@ def _scan_instrument_ids(
         raise ValueError(f"Unsupported event_type for instrument scan: {event_type}")
     if table.num_rows == 0 or "instrument_id" not in table.schema.names:
         return []
-    return sorted(set(table.column("instrument_id").to_pylist()))
+    outcome_ids = {
+        value.strip()
+        for value in table.column("instrument_id").to_pylist()
+        if isinstance(value, str) and value.strip()
+    }
+    return sorted(outcome_ids)
+
+
+def _detect_outcome_gaps(
+    detector: gap_detector_mod.GapDetector,
+    *,
+    venue: str,
+    outcome_id: str,
+    event_type: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    max_gap_seconds: float,
+    resolution: str,
+) -> list[gap_detector_mod.TimeGap]:
+    if event_type == "trades":
+        return detector.detect_trade_gaps(
+            venue,
+            outcome_id,
+            start=start_dt,
+            end=end_dt,
+            max_gap_seconds=max_gap_seconds,
+        )
+    return detector.detect_ohlcv_gaps(
+        venue,
+        outcome_id,
+        resolution=resolution,
+        start=start_dt,
+        end=end_dt,
+    )
 
 
 def _resolve_target_venues(

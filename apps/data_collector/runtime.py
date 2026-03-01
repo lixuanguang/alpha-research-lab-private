@@ -55,6 +55,15 @@ class StreamingPipelineContext:
     pipeline: collector_streaming_pipeline.StreamingPipeline
 
 
+@dataclasses.dataclass(slots=True)
+class VenueRuntimeSeed:
+    """Prepared per-venue runtime setup shared by polling and streaming builders."""
+
+    venue_config: config_models.VenueConfig
+    adapter: adapters_base.VenueAdapter
+    markets: list[instrument_models.MarketSpec]
+
+
 async def execute_pipeline_connector(
     context_by_connector_id: dict[str, PipelineContext],
     connector: connector_polling.PollingConnector,
@@ -66,15 +75,6 @@ async def execute_pipeline_connector(
         error_text = run.errors[-1] if run.errors else "unknown error"
         raise RuntimeError(error_text)
     return []
-
-
-def emit_pipeline_error(
-    emit: EmitMessage,
-    connector: connector_polling.PollingConnector,
-    error: BaseException,
-) -> None:
-    """Emit scheduler execution errors with connector context."""
-    emit(f"Pipeline failed ({connector.connector_id}): {error}", True)
 
 
 async def run_polling_pipelines(
@@ -235,33 +235,33 @@ async def build_pipeline_contexts(
     silver_writer = storage_parquet.ParquetEventWriter(storage_root)
     lineage_store = storage_lineage.LineageStore(storage_root)
     factory = connector_factory.VenueConnectorFactory(settings)
+    seeds = await _build_venue_runtime_seeds(
+        settings,
+        adapter_factory=adapter_factory,
+        request_timeout_seconds=request_timeout_seconds,
+        emit=emit,
+        venue_names=venue_names,
+    )
 
     contexts: list[PipelineContext] = []
-    for venue in settings.venues:
-        if not venue.enabled:
-            continue
-        if venue_names is not None and venue.name not in venue_names:
-            continue
-
-        try:
-            adapter = adapter_factory(venue.name, venue)
-            markets, _ = await asyncio.wait_for(
-                adapter.fetch_markets_with_raw(),
-                timeout=request_timeout_seconds,
-            )
-        except Exception as exc:
-            emit(f"Skipping venue `{venue.name}` due to setup failure: {exc}", True)
-            continue
-
-        outcome_ids = collect_outcome_ids(markets, max_outcomes_per_venue=max_outcomes_per_venue)
-        rate_limiter = connector_rate_limiter.TokenBucketRateLimiter(rpm=venue.rate_limit_rpm)
+    for seed in seeds:
+        outcome_ids = collect_outcome_ids(
+            seed.markets,
+            max_outcomes_per_venue=max_outcomes_per_venue,
+        )
+        rate_limiter = connector_rate_limiter.TokenBucketRateLimiter(
+            rpm=seed.venue_config.rate_limit_rpm
+        )
         connectors = factory.create_poll_connectors(
-            adapter,
+            seed.adapter,
             outcome_ids,
             request_timeout_seconds=request_timeout_seconds,
         )
         if not connectors:
-            emit(f"Skipping venue `{venue.name}`; no polling connectors configured.", True)
+            emit(
+                f"Skipping venue `{seed.venue_config.name}`; no polling connectors configured.",
+                True,
+            )
             continue
 
         for connector in connectors:
@@ -300,29 +300,27 @@ async def build_streaming_pipeline_contexts(
     bronze_writer = storage_bronze.BronzeWriter(storage_root)
     lineage_store = storage_lineage.LineageStore(storage_root)
     factory = connector_factory.VenueConnectorFactory(settings)
+    seeds = await _build_venue_runtime_seeds(
+        settings,
+        adapter_factory=adapter_factory,
+        request_timeout_seconds=request_timeout_seconds,
+        emit=emit,
+        venue_names=venue_names,
+    )
 
     contexts: list[StreamingPipelineContext] = []
-    for venue in settings.venues:
-        if not venue.enabled:
-            continue
-        if venue_names is not None and venue.name not in venue_names:
-            continue
-
-        try:
-            adapter = adapter_factory(venue.name, venue)
-            markets, _ = await asyncio.wait_for(
-                adapter.fetch_markets_with_raw(),
-                timeout=request_timeout_seconds,
-            )
-        except Exception as exc:
-            emit(f"Skipping venue `{venue.name}` due to setup failure: {exc}", True)
-            continue
-
-        stream_outcome_cap = min(max_outcomes_per_venue, venue.collection.stream_outcomes_max)
-        outcome_ids = collect_outcome_ids(markets, max_outcomes_per_venue=stream_outcome_cap)
-        connectors = factory.create_stream_connectors(adapter, outcome_ids)
+    for seed in seeds:
+        stream_outcome_cap = min(
+            max_outcomes_per_venue,
+            seed.venue_config.collection.stream_outcomes_max,
+        )
+        outcome_ids = collect_outcome_ids(seed.markets, max_outcomes_per_venue=stream_outcome_cap)
+        connectors = factory.create_stream_connectors(seed.adapter, outcome_ids)
         if not connectors:
-            emit(f"Skipping venue `{venue.name}`; no streaming connectors configured.", True)
+            emit(
+                f"Skipping venue `{seed.venue_config.name}`; no streaming connectors configured.",
+                True,
+            )
             continue
 
         for connector in connectors:
@@ -339,6 +337,40 @@ async def build_streaming_pipeline_contexts(
             contexts.append(StreamingPipelineContext(pipeline=pipeline))
 
     return contexts
+
+
+async def _build_venue_runtime_seeds(
+    settings: config_models.Settings,
+    *,
+    adapter_factory: AdapterFactory,
+    request_timeout_seconds: float,
+    emit: EmitMessage,
+    venue_names: set[str] | None,
+) -> list[VenueRuntimeSeed]:
+    seeds: list[VenueRuntimeSeed] = []
+    for venue in settings.venues:
+        if not venue.enabled:
+            continue
+        if venue_names is not None and venue.name not in venue_names:
+            continue
+
+        try:
+            adapter = adapter_factory(venue.name, venue)
+            markets, _ = await asyncio.wait_for(
+                adapter.fetch_markets_with_raw(),
+                timeout=request_timeout_seconds,
+            )
+        except Exception as exc:
+            emit(f"Skipping venue `{venue.name}` due to setup failure: {exc}", True)
+            continue
+        seeds.append(
+            VenueRuntimeSeed(
+                venue_config=venue,
+                adapter=adapter,
+                markets=markets,
+            )
+        )
+    return seeds
 
 
 def build_polling_scheduler(
@@ -362,7 +394,10 @@ def build_polling_scheduler(
             execute_pipeline_connector,
             context_by_connector_id,
         ),
-        on_error=functools.partial(emit_pipeline_error, emit),
+        on_error=lambda connector, error: emit(
+            f"Pipeline failed ({connector.connector_id}): {error}",
+            True,
+        ),
     )
 
 
@@ -421,7 +456,6 @@ __all__ = [
     "build_polling_scheduler",
     "build_streaming_pipeline_contexts",
     "collect_outcome_ids",
-    "emit_pipeline_error",
     "execute_pipeline_connector",
     "run_polling_and_streaming",
     "run_polling_pipelines",

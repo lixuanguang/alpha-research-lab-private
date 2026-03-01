@@ -143,9 +143,8 @@ class DuplicateTradeIdExpectation(quality_base.QualityExpectation):
             table.column("trade_id").to_pylist(),
             strict=True,
         )
-        total = table.num_rows
         unique_pairs = set(pairs)
-        duplicates = total - len(unique_pairs)
+        duplicates = table.num_rows - len(unique_pairs)
         passed = duplicates == 0
         return quality_base.QualityResult(
             expectation_name=self.name,

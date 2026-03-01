@@ -67,7 +67,7 @@ class StreamingConnector(connector_lifecycle.BaseConnector):
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    self._record_error(str(exc))
+                    self.record_runtime_error(str(exc))
                     if self._stop_event.is_set():
                         break
                     await self.reconnect(backoff=1.0)
@@ -154,7 +154,7 @@ class OutcomeStreamingConnector(StreamingConnector):
                 except asyncio.CancelledError:
                     raise
                 except connector_types.FatalConnectorError as error:
-                    self._record_error(str(error))
+                    self.record_runtime_error(str(error))
                     break
                 except Exception as error:
                     if self._stop_event.is_set():

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
@@ -28,6 +30,15 @@ _RESOLUTION_SECONDS: dict[str, float] = {
     "1h": 3600.0,
     "1d": 86400.0,
 }
+
+
+@dataclass(slots=True)
+class _TradePaginationState:
+    """Mutable pagination state for one outcome trade backfill."""
+
+    cursor: datetime | None
+    stalled_iterations: int = 0
+    seen_trade_keys: set[tuple[str, str]] = field(default_factory=set)
 
 
 class BackfillResult(BaseModel):
@@ -94,9 +105,10 @@ class BackfillManager:
             },
         )
         monotonic_start = time.monotonic()
-        all_trades: list[event_models.CanonicalTrade] = []
-        all_raw: list[dict[str, object]] = []
         errors: list[str] = []
+        fetched_total = 0
+        stored_total = 0
+        rejected_total = 0
 
         try:
             for outcome_id in outcome_ids:
@@ -108,26 +120,33 @@ class BackfillManager:
                         end=end_utc,
                         batch_size=batch_size,
                     )
-                    all_trades.extend(trades)
-                    all_raw.extend(raw)
                 except Exception as exc:
                     errors.append(f"outcome={outcome_id}: {exc}")
+                    continue
 
-            valid_trades, rejected = _filter_quality_trades(self._quality_checker, all_trades)
+                trades.sort(key=lambda trade: (trade.instrument_id, trade.ts_event, trade.trade_id))
+                valid_trades, rejected = _filter_quality_trades(self._quality_checker, trades)
 
-            if all_raw:
-                self._bronze_writer.write_raw_events(
-                    all_raw, venue=self._venue, event_type="trades", run_id=run.run_id
-                )
-            if valid_trades:
-                self._silver_writer.write_trades(valid_trades)
+                fetched_total += len(trades)
+                stored_total += len(valid_trades)
+                rejected_total += rejected
+
+                if raw:
+                    self._bronze_writer.write_raw_events(
+                        raw,
+                        venue=self._venue,
+                        event_type="trades",
+                        run_id=run.run_id,
+                    )
+                if valid_trades:
+                    self._silver_writer.write_trades(valid_trades)
 
             self._lineage_store.complete_run(
                 run.run_id,
                 counts={
-                    "events_raw": len(all_trades),
-                    "events_silver": len(valid_trades),
-                    "rejected": rejected,
+                    "events_raw": fetched_total,
+                    "events_silver": stored_total,
+                    "rejected": rejected_total,
                 },
                 errors=errors,
             )
@@ -141,9 +160,9 @@ class BackfillManager:
             outcome_ids=list(outcome_ids),
             window_start=start_utc,
             window_end=end_utc,
-            events_fetched=len(all_trades),
-            events_stored=len(valid_trades),
-            events_rejected=rejected,
+            events_fetched=fetched_total,
+            events_stored=stored_total,
+            events_rejected=rejected_total,
             duration_seconds=time.monotonic() - monotonic_start,
             run_id=run.run_id,
         )
@@ -184,9 +203,10 @@ class BackfillManager:
             },
         )
         monotonic_start = time.monotonic()
-        all_candles: list[event_models.CanonicalOHLCV] = []
-        all_raw: list[dict[str, object]] = []
         errors: list[str] = []
+        fetched_total = 0
+        stored_total = 0
+        rejected_total = 0
 
         try:
             for outcome_id in outcome_ids:
@@ -197,28 +217,43 @@ class BackfillManager:
                     normalized_raw = connector_raw_payloads.normalize_raw_payloads(
                         raw, outcome_id=outcome_id
                     )
-                    in_window = [c for c in candles if start_utc <= c.ts_event <= end_utc]
-                    all_candles.extend(in_window)
-                    # Include proportional raw payloads
-                    all_raw.extend(normalized_raw[: len(in_window)])
+                    in_window_candles, in_window_raw = _filter_ohlcv_window_with_raw(
+                        candles,
+                        normalized_raw,
+                        start=start_utc,
+                        end=end_utc,
+                    )
                 except Exception as exc:
                     errors.append(f"outcome={outcome_id}: {exc}")
+                    continue
 
-            valid_candles, rejected = _filter_quality_candles(self._quality_checker, all_candles)
-
-            if all_raw:
-                self._bronze_writer.write_raw_events(
-                    all_raw, venue=self._venue, event_type="ohlcv", run_id=run.run_id
+                in_window_candles.sort(
+                    key=lambda candle: (candle.instrument_id, candle.ts_event, candle.resolution)
                 )
-            if valid_candles:
-                self._silver_writer.write_ohlcv(valid_candles)
+                valid_candles, rejected = _filter_quality_candles(
+                    self._quality_checker,
+                    in_window_candles,
+                )
+                fetched_total += len(in_window_candles)
+                stored_total += len(valid_candles)
+                rejected_total += rejected
+
+                if in_window_raw:
+                    self._bronze_writer.write_raw_events(
+                        in_window_raw,
+                        venue=self._venue,
+                        event_type="ohlcv",
+                        run_id=run.run_id,
+                    )
+                if valid_candles:
+                    self._silver_writer.write_ohlcv(valid_candles)
 
             self._lineage_store.complete_run(
                 run.run_id,
                 counts={
-                    "events_raw": len(all_candles),
-                    "events_silver": len(valid_candles),
-                    "rejected": rejected,
+                    "events_raw": fetched_total,
+                    "events_silver": stored_total,
+                    "rejected": rejected_total,
                 },
                 errors=errors,
             )
@@ -232,9 +267,9 @@ class BackfillManager:
             outcome_ids=list(outcome_ids),
             window_start=start_utc,
             window_end=end_utc,
-            events_fetched=len(all_candles),
-            events_stored=len(valid_candles),
-            events_rejected=rejected,
+            events_fetched=fetched_total,
+            events_stored=stored_total,
+            events_rejected=rejected_total,
             duration_seconds=time.monotonic() - monotonic_start,
             run_id=run.run_id,
         )
@@ -275,65 +310,127 @@ async def _fetch_trades_windowed(
     """Paginate fetch_trades_with_raw to collect all trades in [start, end]."""
     all_trades: list[event_models.CanonicalTrade] = []
     all_raw: list[dict[str, object]] = []
-    seen_trade_keys: set[tuple[str, str]] = set()
-    cursor: datetime | None = start
-    stalled_iterations = 0
+    state = _TradePaginationState(cursor=start)
 
     while True:
-        raw_result: list[object]
-        trades, raw_result = await adapter.fetch_trades_with_raw(
-            outcome_id, since=cursor, limit=batch_size
+        trades, normalized_raw = await _fetch_trade_page(
+            adapter,
+            outcome_id=outcome_id,
+            cursor=state.cursor,
+            batch_size=batch_size,
         )
         if not trades:
             break
 
-        normalized_raw = connector_raw_payloads.normalize_raw_payloads(
-            raw_result, outcome_id=outcome_id
+        new_rows = _append_windowed_unique_trades(
+            trades=trades,
+            normalized_raw=normalized_raw,
+            start=start,
+            end=end,
+            state=state,
+            all_trades=all_trades,
+            all_raw=all_raw,
         )
-
-        new_rows = 0
-        trade_payload_pairs: list[tuple[event_models.CanonicalTrade, dict[str, object] | None]]
-        if len(normalized_raw) == len(trades):
-            trade_payload_pairs = list(zip(trades, normalized_raw, strict=True))
-        else:
-            trade_payload_pairs = [(trade, None) for trade in trades]
-
-        for trade, raw_payload in trade_payload_pairs:
-            if not (start <= trade.ts_event <= end):
-                continue
-            trade_key = (trade.instrument_id, trade.trade_id)
-            if trade_key in seen_trade_keys:
-                continue
-            seen_trade_keys.add(trade_key)
-            all_trades.append(trade)
-            if raw_payload is not None:
-                all_raw.append(raw_payload)
-            new_rows += 1
-
-        # Cursor remains inclusive to avoid skipping same-timestamp trades.
         max_ts = max(t.ts_event for t in trades)
-        if max_ts > end:
+        if _should_stop_trade_pagination(
+            max_ts=max_ts,
+            end=end,
+            page_size=len(trades),
+            batch_size=batch_size,
+        ):
             break
-
-        if len(trades) < batch_size:
-            break
-
-        if cursor is not None and max_ts < cursor:
-            raise RuntimeError(
-                "Trade pagination regressed cursor timestamp; aborting to avoid silent data loss."
-            )
-        if cursor is not None and max_ts == cursor and new_rows == 0:
-            stalled_iterations += 1
-            if stalled_iterations >= 2:
-                raise RuntimeError(
-                    "Trade pagination stalled at a single timestamp; venue pagination is ambiguous."
-                )
-        else:
-            stalled_iterations = 0
-
-        cursor = max_ts
+        _update_trade_pagination_state(state, max_ts=max_ts, new_rows=new_rows)
 
     return all_trades, all_raw
+
+
+async def _fetch_trade_page(
+    adapter: adapters_base.VenueAdapter,
+    *,
+    outcome_id: str,
+    cursor: datetime | None,
+    batch_size: int,
+) -> tuple[list[event_models.CanonicalTrade], list[dict[str, object]]]:
+    raw_result: list[object]
+    trades, raw_result = await adapter.fetch_trades_with_raw(
+        outcome_id,
+        since=cursor,
+        limit=batch_size,
+    )
+    normalized_raw = connector_raw_payloads.normalize_raw_payloads(
+        raw_result,
+        outcome_id=outcome_id,
+    )
+    return trades, normalized_raw
+
+
+def _append_windowed_unique_trades(
+    *,
+    trades: list[event_models.CanonicalTrade],
+    normalized_raw: list[dict[str, object]],
+    start: datetime,
+    end: datetime,
+    state: _TradePaginationState,
+    all_trades: list[event_models.CanonicalTrade],
+    all_raw: list[dict[str, object]],
+) -> int:
+    new_rows = 0
+    for trade, raw_payload in _pair_trades_with_raw_payloads(trades, normalized_raw):
+        if not (start <= trade.ts_event <= end):
+            continue
+        trade_key = (trade.instrument_id, trade.trade_id)
+        if trade_key in state.seen_trade_keys:
+            continue
+
+        state.seen_trade_keys.add(trade_key)
+        all_trades.append(trade)
+        if raw_payload is not None:
+            all_raw.append(raw_payload)
+        new_rows += 1
+    return new_rows
+
+
+def _pair_trades_with_raw_payloads(
+    trades: list[event_models.CanonicalTrade],
+    normalized_raw: list[dict[str, object]],
+) -> Iterable[tuple[event_models.CanonicalTrade, dict[str, object] | None]]:
+    if len(normalized_raw) == len(trades):
+        return zip(trades, normalized_raw, strict=True)
+    return ((trade, None) for trade in trades)
+
+
+def _should_stop_trade_pagination(
+    *,
+    max_ts: datetime,
+    end: datetime,
+    page_size: int,
+    batch_size: int,
+) -> bool:
+    if max_ts > end:
+        return True
+    return page_size < batch_size
+
+
+def _update_trade_pagination_state(
+    state: _TradePaginationState,
+    *,
+    max_ts: datetime,
+    new_rows: int,
+) -> None:
+    cursor = state.cursor
+    if cursor is not None and max_ts < cursor:
+        raise RuntimeError(
+            "Trade pagination regressed cursor timestamp; aborting to avoid silent data loss."
+        )
+    if cursor is not None and max_ts == cursor and new_rows == 0:
+        state.stalled_iterations += 1
+        if state.stalled_iterations >= 2:
+            raise RuntimeError(
+                "Trade pagination stalled at a single timestamp; venue pagination is ambiguous."
+            )
+    else:
+        state.stalled_iterations = 0
+    state.cursor = max_ts
 
 
 def _filter_quality_trades(
@@ -364,6 +461,31 @@ def _filter_quality_candles(
         else:
             rejected += 1
     return valid, rejected
+
+
+def _filter_ohlcv_window_with_raw(
+    candles: list[event_models.CanonicalOHLCV],
+    raw_payloads: list[dict[str, object]],
+    *,
+    start: datetime,
+    end: datetime,
+) -> tuple[list[event_models.CanonicalOHLCV], list[dict[str, object]]]:
+    """Filter candles to [start, end] and preserve raw-payload alignment when available."""
+    in_window_candles: list[event_models.CanonicalOHLCV] = []
+    in_window_raw_payloads: list[dict[str, object]] = []
+
+    if len(raw_payloads) == len(candles):
+        for candle, raw_payload in zip(candles, raw_payloads, strict=True):
+            if not (start <= candle.ts_event <= end):
+                continue
+            in_window_candles.append(candle)
+            in_window_raw_payloads.append(raw_payload)
+        return in_window_candles, in_window_raw_payloads
+
+    for candle in candles:
+        if start <= candle.ts_event <= end:
+            in_window_candles.append(candle)
+    return in_window_candles, in_window_raw_payloads
 
 
 def _validate_window(start: datetime, end: datetime) -> None:

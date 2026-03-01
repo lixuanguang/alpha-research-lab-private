@@ -326,3 +326,42 @@ def test_detect_gaps_ohlcv_scans_ohlcv_instrument_ids(
     )
     assert result.exit_code == 0
     assert "No gaps detected" in result.output
+
+
+def test_scan_instrument_ids_ignores_null_and_blank_values() -> None:
+    class _ReaderStub:
+        def read_trades(self, **_kwargs: object) -> pa.Table:
+            return pa.table(
+                {
+                    "instrument_id": pa.array(
+                        [None, "", "  ", "polymarket:market-a:yes", "polymarket:market-a:yes"]
+                    ),
+                    "ts_event": pa.array(
+                        [
+                            datetime(2026, 3, 1, 0, tzinfo=UTC),
+                            datetime(2026, 3, 1, 0, tzinfo=UTC),
+                            datetime(2026, 3, 1, 0, tzinfo=UTC),
+                            datetime(2026, 3, 1, 1, tzinfo=UTC),
+                            datetime(2026, 3, 1, 2, tzinfo=UTC),
+                        ]
+                    ),
+                }
+            )
+
+        def read_ohlcv(self, **_kwargs: object) -> pa.Table:
+            return pa.table(
+                {
+                    "instrument_id": pa.array([], type=pa.string()),
+                    "ts_event": pa.array([], type=pa.timestamp("us", tz="UTC")),
+                }
+            )
+
+    outcome_ids = data_collector_main._scan_instrument_ids(
+        _ReaderStub(),
+        venue="polymarket",
+        start=datetime(2026, 3, 1, 0, tzinfo=UTC),
+        end=datetime(2026, 3, 1, 12, tzinfo=UTC),
+        event_type="trades",
+    )
+
+    assert outcome_ids == ["polymarket:market-a:yes"]

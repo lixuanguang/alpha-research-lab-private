@@ -147,10 +147,9 @@ class StreamingParquetWriter:
         timer.start()
 
     def _cancel_flush_timer_locked(self) -> None:
-        timer = self._flush_timer
-        self._flush_timer = None
-        if timer is not None:
-            timer.cancel()
+        if self._flush_timer is not None:
+            self._flush_timer.cancel()
+            self._flush_timer = None
 
     def _flush_from_timer(self) -> None:
         try:
@@ -184,10 +183,9 @@ class StreamingParquetWriter:
         atexit.register(callback)
 
     def _unregister_atexit_hook(self) -> None:
-        callback = self._atexit_callback
-        if callback is None:
+        if self._atexit_callback is None:
             return
-        atexit.unregister(callback)
+        atexit.unregister(self._atexit_callback)
         self._atexit_callback = None
 
 

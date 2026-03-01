@@ -114,7 +114,11 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         since: datetime | None = None,
         limit: int = 100,
     ) -> tuple[list[event_models.CanonicalTrade], list[object]]:
-        instrument_id = self._instrument_id(outcome_id)
+        instrument_id = pmxt_mapping.resolve_instrument_id(
+            outcome_id,
+            venue=self._venue,
+            outcome_market_index=self._outcome_market_index,
+        )
         raw_trades = cast(
             list[object],
             await self._invoke_exchange(
@@ -152,7 +156,11 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         self,
         outcome_id: str,
     ) -> tuple[event_models.CanonicalBookSnapshot, object]:
-        instrument_id = self._instrument_id(outcome_id)
+        instrument_id = pmxt_mapping.resolve_instrument_id(
+            outcome_id,
+            venue=self._venue,
+            outcome_market_index=self._outcome_market_index,
+        )
         raw_book = await self._invoke_exchange("fetch_order_book", outcome_id)
         dropped: Counter[str] = Counter()
 
@@ -201,7 +209,11 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             ),
         )
 
-        instrument_id = self._instrument_id(outcome_id)
+        instrument_id = pmxt_mapping.resolve_instrument_id(
+            outcome_id,
+            venue=self._venue,
+            outcome_market_index=self._outcome_market_index,
+        )
         normalized_resolution = pmxt_parsing.normalize_resolution(resolution)
         dropped: Counter[str] = Counter()
         mapped: list[event_models.CanonicalOHLCV] = []
@@ -238,65 +250,78 @@ class PmxtAdapter(adapters_base.VenueAdapter):
 
     def watch_trades(self, outcome_id: str) -> AsyncIterator[list[event_models.CanonicalTrade]]:
         """Stream canonical trade batches from the venue watch feed."""
-        instrument_id = self._instrument_id(outcome_id)
-
-        async def _stream() -> AsyncIterator[list[event_models.CanonicalTrade]]:
-            raw_stream = self._invoke_exchange_stream("watch_trades", outcome_id)
-            async for raw_batch in raw_stream:
-                batch = raw_batch if isinstance(raw_batch, list) else [raw_batch]
-                dropped: Counter[str] = Counter()
-                mapped_batch: list[event_models.CanonicalTrade] = []
-                for raw_trade in batch:
-                    try:
-                        mapped_batch.append(
-                            pmxt_mapping.map_trade(
-                                raw_trade,
-                                venue=self._venue,
-                                instrument_id=instrument_id,
-                                quirks=self._quirks,
-                            )
-                        )
-                    except (TypeError, ValueError, ValidationError):
-                        self._record_rejection_count("watch_trades", "invalid_payload", 1, dropped)
-                self._log_rejection_summary("watch_trades", dropped)
-                if mapped_batch:
-                    yield mapped_batch
-
-        return _stream()
+        return self._iter_trade_batches(
+            outcome_id,
+            instrument_id=pmxt_mapping.resolve_instrument_id(
+                outcome_id,
+                venue=self._venue,
+                outcome_market_index=self._outcome_market_index,
+            ),
+        )
 
     def watch_order_book(
         self,
         outcome_id: str,
     ) -> AsyncIterator[event_models.CanonicalBookSnapshot]:
         """Stream canonical order book snapshots from the venue watch feed."""
-        instrument_id = self._instrument_id(outcome_id)
+        return self._iter_order_book_snapshots(
+            outcome_id,
+            instrument_id=pmxt_mapping.resolve_instrument_id(
+                outcome_id,
+                venue=self._venue,
+                outcome_market_index=self._outcome_market_index,
+            ),
+        )
 
-        async def _stream() -> AsyncIterator[event_models.CanonicalBookSnapshot]:
-            raw_stream = self._invoke_exchange_stream("watch_order_book", outcome_id)
-            async for raw_book in raw_stream:
-                dropped: Counter[str] = Counter()
+    async def _iter_trade_batches(
+        self,
+        outcome_id: str,
+        *,
+        instrument_id: str,
+    ) -> AsyncIterator[list[event_models.CanonicalTrade]]:
+        raw_stream = self._invoke_exchange_stream("watch_trades", outcome_id)
+        async for raw_batch in raw_stream:
+            batch = raw_batch if isinstance(raw_batch, list) else [raw_batch]
+            dropped: Counter[str] = Counter()
+            mapped_batch: list[event_models.CanonicalTrade] = []
+            for raw_trade in batch:
                 try:
-                    mapped = self._map_order_book_payload(
-                        raw_book,
-                        instrument_id=instrument_id,
-                        scope="watch_order_book",
-                        dropped=dropped,
+                    mapped_batch.append(
+                        pmxt_mapping.map_trade(
+                            raw_trade,
+                            venue=self._venue,
+                            instrument_id=instrument_id,
+                            quirks=self._quirks,
+                        )
                     )
                 except (TypeError, ValueError, ValidationError):
-                    self._record_rejection_count("watch_order_book", "invalid_payload", 1, dropped)
-                    self._log_rejection_summary("watch_order_book", dropped)
-                    continue
+                    self._record_rejection_count("watch_trades", "invalid_payload", 1, dropped)
+            self._log_rejection_summary("watch_trades", dropped)
+            if mapped_batch:
+                yield mapped_batch
+
+    async def _iter_order_book_snapshots(
+        self,
+        outcome_id: str,
+        *,
+        instrument_id: str,
+    ) -> AsyncIterator[event_models.CanonicalBookSnapshot]:
+        raw_stream = self._invoke_exchange_stream("watch_order_book", outcome_id)
+        async for raw_book in raw_stream:
+            dropped: Counter[str] = Counter()
+            try:
+                mapped = self._map_order_book_payload(
+                    raw_book,
+                    instrument_id=instrument_id,
+                    scope="watch_order_book",
+                    dropped=dropped,
+                )
+            except (TypeError, ValueError, ValidationError):
+                self._record_rejection_count("watch_order_book", "invalid_payload", 1, dropped)
                 self._log_rejection_summary("watch_order_book", dropped)
-                yield mapped
-
-        return _stream()
-
-    def _instrument_id(self, outcome_id: str) -> str:
-        return pmxt_mapping.resolve_instrument_id(
-            outcome_id,
-            venue=self._venue,
-            outcome_market_index=self._outcome_market_index,
-        )
+                continue
+            self._log_rejection_summary("watch_order_book", dropped)
+            yield mapped
 
     async def _invoke_exchange(self, method_name: str, *args: object, **kwargs: object) -> object:
         method = getattr(self._exchange, method_name)
@@ -339,12 +364,13 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         dropped: Counter[str],
     ) -> event_models.CanonicalBookSnapshot:
         ts_record = datetime.now(tz=UTC)
-        ts_event = pmxt_parsing.coerce_event_time(
-            pmxt_parsing.pick(raw_book, "timestamp", "ts", "time", default=ts_record),
-            fallback=ts_record,
+        ts_event = (
+            pmxt_parsing.coerce_event_time(
+                pmxt_parsing.pick(raw_book, "timestamp", "ts", "time", default=ts_record),
+                fallback=ts_record,
+            )
+            or ts_record
         )
-        if ts_event is None:
-            ts_event = ts_record
 
         raw_bids = pmxt_parsing.pick(raw_book, "bids", default=None)
         raw_asks = pmxt_parsing.pick(raw_book, "asks", default=None)

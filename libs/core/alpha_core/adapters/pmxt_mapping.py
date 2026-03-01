@@ -63,12 +63,13 @@ def map_trade(
 ) -> event_models.CanonicalTrade:
     """Map one raw trade payload into a canonical trade event."""
     ts_record = datetime.now(tz=UTC)
-    ts_event = pmxt_parsing.coerce_event_time(
-        pmxt_parsing.pick(raw, "timestamp", "ts", "time", "datetime", default=ts_record),
-        fallback=ts_record,
+    ts_event = (
+        pmxt_parsing.coerce_event_time(
+            pmxt_parsing.pick(raw, "timestamp", "ts", "time", "datetime", default=ts_record),
+            fallback=ts_record,
+        )
+        or ts_record
     )
-    if ts_event is None:
-        ts_event = ts_record
     ts_event = pmxt_parsing.bound_event_time(ts_event=ts_event, ts_record=ts_record)
 
     price = pmxt_parsing.coerce_decimal(pmxt_parsing.pick(raw, "price", default=None))

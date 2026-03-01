@@ -21,11 +21,9 @@ def load_settings(
 ) -> config_models.Settings:
     """Load settings from default config, optional environment, and env vars."""
     if config_dir is None:
-        project_root = config_paths.find_project_root(__file__)
-        config_root = project_root / "config"
+        config_root = config_paths.find_project_root(__file__) / "config"
     else:
         config_root = config_dir.resolve()
-        project_root = config_root.parent
 
     default_path = config_root / "default.yaml"
     environments_dir = config_root / "environments"
@@ -59,7 +57,7 @@ def load_settings(
 
     settings = config_models.Settings.model_validate(settings_dict)
     if not settings.storage.base_path.is_absolute():
-        settings.storage.base_path = (project_root / settings.storage.base_path).resolve()
+        settings.storage.base_path = (config_root.parent / settings.storage.base_path).resolve()
     if validate_secrets:
         config_secrets.raise_for_missing_required_secrets(settings)
 
