@@ -180,9 +180,7 @@ def test_backfill_trades_single_page_stores_silver(tmp_path: Path) -> None:
     adapter.trade_pages[outcome_id] = [trades]
 
     manager = _make_manager(adapter, tmp_path)
-    result = asyncio.run(
-        manager.backfill_trades([outcome_id], start=START, end=END)
-    )
+    result = asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
 
     assert result.events_fetched == 5
     assert result.events_stored == 5
@@ -196,13 +194,11 @@ def test_backfill_trades_paginates_until_window_end(tmp_path: Path) -> None:
     outcome_id = "polymarket:market-a:yes"
     # Page 1: 3 trades in window ; Page 2: 3 trades, last one past end
     page1 = [_trade(f"t{i}", START + timedelta(minutes=i * 10)) for i in range(3)]
-    page2 = [_trade(f"t{i+3}", START + timedelta(hours=i + 1)) for i in range(3)]
+    page2 = [_trade(f"t{i + 3}", START + timedelta(hours=i + 1)) for i in range(3)]
     adapter.trade_pages[outcome_id] = [page1, page2]
 
     manager = _make_manager(adapter, tmp_path)
-    result = asyncio.run(
-        manager.backfill_trades([outcome_id], start=START, end=END, batch_size=3)
-    )
+    result = asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END, batch_size=3))
 
     assert result.events_fetched >= 3
 
@@ -210,9 +206,7 @@ def test_backfill_trades_paginates_until_window_end(tmp_path: Path) -> None:
 def test_backfill_trades_empty_response_returns_zero_counts(tmp_path: Path) -> None:
     adapter = _MockAdapter()
     manager = _make_manager(adapter, tmp_path)
-    result = asyncio.run(
-        manager.backfill_trades(["polymarket:x:yes"], start=START, end=END)
-    )
+    result = asyncio.run(manager.backfill_trades(["polymarket:x:yes"], start=START, end=END))
     assert result.events_fetched == 0
     assert result.events_stored == 0
 
@@ -225,9 +219,7 @@ def test_backfill_trades_multiple_outcome_ids(tmp_path: Path) -> None:
     adapter.trade_pages[oid_b] = [[_trade("tb1", START + timedelta(minutes=2))]]
 
     manager = _make_manager(adapter, tmp_path)
-    result = asyncio.run(
-        manager.backfill_trades([oid_a, oid_b], start=START, end=END)
-    )
+    result = asyncio.run(manager.backfill_trades([oid_a, oid_b], start=START, end=END))
     assert result.events_fetched == 2
     assert result.events_stored == 2
 
@@ -236,11 +228,7 @@ def test_backfill_trades_invalid_window_raises(tmp_path: Path) -> None:
     adapter = _MockAdapter()
     manager = _make_manager(adapter, tmp_path)
     with pytest.raises(ValueError, match=r"end.*after.*start"):
-        asyncio.run(
-            manager.backfill_trades(
-                ["polymarket:x:yes"], start=END, end=START
-            )
-        )
+        asyncio.run(manager.backfill_trades(["polymarket:x:yes"], start=END, end=START))
 
 
 def test_backfill_trades_invalid_batch_size_raises(tmp_path: Path) -> None:
@@ -258,9 +246,7 @@ def test_backfill_trades_records_lineage_run(tmp_path: Path) -> None:
     adapter.trade_pages[outcome_id] = [[_trade("t1", START + timedelta(minutes=5))]]
 
     manager = _make_manager(adapter, tmp_path)
-    result = asyncio.run(
-        manager.backfill_trades([outcome_id], start=START, end=END)
-    )
+    result = asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
 
     store = storage_lineage.LineageStore(tmp_path)
     run = store.get_run(result.run_id)

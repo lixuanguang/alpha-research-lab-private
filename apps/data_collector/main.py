@@ -330,9 +330,7 @@ def detect_gaps_command(
         )
         return
 
-    click.echo(
-        f"Detected {len(all_gaps)} gap(s) for venue={venue}, event_type={event_type}:"
-    )
+    click.echo(f"Detected {len(all_gaps)} gap(s) for venue={venue}, event_type={event_type}:")
     for gap in all_gaps:
         click.echo(
             f"  outcome={gap.outcome_id}, "
@@ -554,16 +552,12 @@ def _parse_utc_datetime(value: str) -> datetime:
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
-def _require_venue(
-    settings: config_models.Settings, venue: str
-) -> config_models.VenueConfig:
+def _require_venue(settings: config_models.Settings, venue: str) -> config_models.VenueConfig:
     """Return the VenueConfig for *venue* or raise ClickException."""
     venue_config = next((v for v in settings.venues if v.name == venue), None)
     if venue_config is None:
         available = sorted(v.name for v in settings.venues)
-        raise click.ClickException(
-            f"Venue '{venue}' not found in config. Available: {available}"
-        )
+        raise click.ClickException(f"Venue '{venue}' not found in config. Available: {available}")
     return venue_config
 
 

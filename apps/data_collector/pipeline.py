@@ -150,4 +150,5 @@ class PollingPipeline:
             "metadata_skipped": metadata_updates,
         }
 
+
 __all__ = ["PollingPipeline"]

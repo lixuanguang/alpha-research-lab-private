@@ -50,9 +50,7 @@ class VenueConnectorFactory:
         """
         venue_name = adapter.venue_name()
         venue_config = self._venue_map.get(venue_name)
-        collection = (
-            venue_config.collection if venue_config else config_models.CollectionConfig()
-        )
+        collection = venue_config.collection if venue_config else config_models.CollectionConfig()
         market_master = instrument_master.MarketMaster()
 
         connectors: list[connector_polling.PollingConnector] = [

@@ -175,7 +175,9 @@ def test_poll_cycle_writes_bronze_and_silver(tmp_path: Path) -> None:
 
     # Run the trade poller through a PollingPipeline
     trade_connector = next(
-        c for c in connectors if hasattr(c, "_outcome_ids")
+        c
+        for c in connectors
+        if hasattr(c, "_outcome_ids")
         and OUTCOME_A in getattr(c, "_outcome_ids", [])
         and "trade" in type(c).__name__.lower()
     )
@@ -205,9 +207,7 @@ def test_backfill_produces_silver_data(tmp_path: Path) -> None:
     adapter = _MockExchangeAdapter(trades=trades)
 
     manager = _make_manager(adapter, tmp_path)
-    result = asyncio.run(
-        manager.backfill_trades([OUTCOME_A], start=start, end=end)
-    )
+    result = asyncio.run(manager.backfill_trades([OUTCOME_A], start=start, end=end))
 
     silver_files = list((tmp_path / "silver" / "trades").rglob("*.parquet"))
     assert result.events_stored == 6
@@ -222,9 +222,7 @@ def test_backfill_ohlcv_produces_silver_data(tmp_path: Path) -> None:
     adapter = _MockExchangeAdapter(candles=candles)
 
     manager = _make_manager(adapter, tmp_path)
-    result = asyncio.run(
-        manager.backfill_ohlcv([OUTCOME_A], resolution="1h", start=start, end=end)
-    )
+    result = asyncio.run(manager.backfill_ohlcv([OUTCOME_A], resolution="1h", start=start, end=end))
 
     silver_files = list((tmp_path / "silver" / "ohlcv").rglob("*.parquet"))
     assert result.events_stored == 4

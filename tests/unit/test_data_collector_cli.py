@@ -101,9 +101,12 @@ def test_backfill_command_rejects_missing_outcomes(temp_cli_repo: Path) -> None:
         data_collector_main.main,
         [
             "backfill",
-            "--venue", "polymarket",
-            "--start", "2026-02-28T00:00:00Z",
-            "--end", "2026-02-28T01:00:00Z",
+            "--venue",
+            "polymarket",
+            "--start",
+            "2026-02-28T00:00:00Z",
+            "--end",
+            "2026-02-28T01:00:00Z",
         ],
         env=_cli_env(temp_cli_repo),
     )

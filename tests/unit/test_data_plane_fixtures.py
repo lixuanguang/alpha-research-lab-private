@@ -35,8 +35,5 @@ def test_json_fixtures_load_as_non_empty_lists() -> None:
 def test_gapped_trades_fixture_contains_trade_time_gap() -> None:
     table = pq.read_table(_FIXTURE_ROOT / "gapped_trades.parquet")
     ts_event = sorted(table.column("ts_event").to_pylist())
-    gaps = [
-        (current - previous).total_seconds()
-        for previous, current in pairwise(ts_event)
-    ]
+    gaps = [(current - previous).total_seconds() for previous, current in pairwise(ts_event)]
     assert any(gap > 300 for gap in gaps)

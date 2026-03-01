@@ -203,8 +203,7 @@ class BackfillManager:
             raise ValueError("`outcome_ids` must be non-empty")
         if resolution not in _RESOLUTION_SECONDS:
             raise ValueError(
-                f"Unknown resolution '{resolution}'. "
-                f"Expected one of {list(_RESOLUTION_SECONDS)}"
+                f"Unknown resolution '{resolution}'. Expected one of {list(_RESOLUTION_SECONDS)}"
             )
 
         start_utc = time_utils.ensure_utc(start)
