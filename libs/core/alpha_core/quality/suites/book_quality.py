@@ -204,7 +204,7 @@ class SequenceContinuityExpectation(quality_base.QualityExpectation):
         gap_count = 0
         for rows in groups.values():
             prev_seq: int | None = None
-            for (_, row_idx) in rows:
+            for _, row_idx in rows:
                 raw = seq_col[row_idx].as_py()
                 if raw is None:
                     prev_seq = None
@@ -467,8 +467,10 @@ class StaleBookAgeExpectation(quality_base.QualityExpectation):
             )
 
         now_utc = datetime.now(UTC)
-        latest_dt = latest_raw if isinstance(latest_raw, datetime) else datetime.fromtimestamp(
-            float(latest_raw) / 1e6, tz=UTC
+        latest_dt = (
+            latest_raw
+            if isinstance(latest_raw, datetime)
+            else datetime.fromtimestamp(float(latest_raw) / 1e6, tz=UTC)
         )
         age_seconds = (now_utc - latest_dt).total_seconds()
         passed = age_seconds <= self.max_age_seconds

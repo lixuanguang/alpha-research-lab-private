@@ -46,8 +46,8 @@ _EVENT_ID_EXCLUDE_FIELDS: frozenset[str] = frozenset(
         "source_latency_ms",
         "sequence_id_capable",
         "latency_metadata_capable",
-        "is_reconnect_gap",   # reconnect gap marker — metadata only
-        "is_reconstructed",   # delta reconstruction flag — metadata only
+        "is_reconnect_gap",  # reconnect gap marker — metadata only
+        "is_reconstructed",  # delta reconstruction flag — metadata only
     }
 )
 _EVENT_ID_EXCLUDE_EVENT_TYPES_FOR_SEQUENCE_ID: frozenset[EventType] = frozenset(

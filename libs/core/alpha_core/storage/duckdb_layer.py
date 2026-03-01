@@ -194,9 +194,7 @@ def _extract_relation_references(statement: str) -> tuple[set[str], set[str]]:
     return relations, table_functions
 
 
-def _scan_top_level_keywords(
-    statement: str, keywords: tuple[str, ...]
-) -> list[tuple[str, int]]:
+def _scan_top_level_keywords(statement: str, keywords: tuple[str, ...]) -> list[tuple[str, int]]:
     matches: list[tuple[str, int]] = []
     index = 0
     depth = 0

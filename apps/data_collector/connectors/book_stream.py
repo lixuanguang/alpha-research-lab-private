@@ -30,6 +30,7 @@ class BookWatchAdapter(Protocol):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_gap_marker(
     outcome_id: str, venue: str, ts: datetime, *, stream_capabilities: dict[str, bool]
 ) -> event_models.CanonicalMetadataUpdate:
@@ -107,6 +108,7 @@ def _compute_book_deltas(
 # ---------------------------------------------------------------------------
 # Connector
 # ---------------------------------------------------------------------------
+
 
 class BookStreamConnector(connector_streaming.OutcomeStreamingConnector):
     """Streams order book snapshots via an adapter's ``watch_order_book``.
