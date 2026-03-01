@@ -86,6 +86,17 @@ def test_rate_limiter_supports_concurrent_acquire() -> None:
     assert asyncio.run(_run()) == 4
 
 
+def test_rate_limiter_handles_float_precision_near_one_token() -> None:
+    limiter = connector_rate_limiter.TokenBucketRateLimiter(rpm=60)
+    limiter._tokens = 1.0 - 1e-15
+
+    async def _run() -> None:
+        await asyncio.wait_for(limiter.acquire(), timeout=0.05)
+
+    asyncio.run(_run())
+    assert limiter._tokens >= 0.0
+
+
 @pytest.mark.perf
 def test_rate_limiter_meets_d3_accuracy_target_within_one_percent(
     monkeypatch: pytest.MonkeyPatch,

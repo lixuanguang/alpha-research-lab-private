@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import time
 
+_TOKEN_EPSILON = 1e-12
+_MIN_WAIT_SECONDS = 1e-6
+
 
 class TokenBucketRateLimiter:
     """Per-venue rate limiter respecting venue_config.rate_limit_rpm."""
@@ -23,12 +26,16 @@ class TokenBucketRateLimiter:
         while True:
             async with self._lock:
                 self._refill_locked()
-                if self._tokens >= 1.0:
-                    self._tokens -= 1.0
+                if self._tokens + _TOKEN_EPSILON >= 1.0:
+                    # Clamp tiny floating-point deficits so acquire cannot spin indefinitely.
+                    self._tokens = max(0.0, self._tokens - 1.0)
                     return
 
                 missing_tokens = 1.0 - self._tokens
-                wait_seconds = missing_tokens / self._refill_rate_per_second
+                wait_seconds = max(
+                    missing_tokens / self._refill_rate_per_second,
+                    _MIN_WAIT_SECONDS,
+                )
 
             await asyncio.sleep(wait_seconds)
 
@@ -40,11 +47,11 @@ class TokenBucketRateLimiter:
             self._capacity,
             self._tokens + elapsed * self._refill_rate_per_second,
         )
-        return projected_tokens >= 1.0
+        return projected_tokens + _TOKEN_EPSILON >= 1.0
 
     def _refill_locked(self) -> None:
         now = time.monotonic()
-        elapsed = now - self._last_refill
+        elapsed = max(0.0, now - self._last_refill)
         self._last_refill = now
         self._tokens = min(self._capacity, self._tokens + elapsed * self._refill_rate_per_second)
 

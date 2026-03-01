@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 import alpha_core.config.models as config_models
 import alpha_core.config.paths as config_paths
