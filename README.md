@@ -11,7 +11,7 @@
 | Stage | Status | Tests | Docs |
 |---|---|---|---|
 | **Foundation** (F1–F6) | **Complete (closed)** | Covered by repo-wide quality gates | [Foundation Plan](docs/implementation/foundation-stage.md) |
-| **Data Plane MVP** (D1–D6) | **Complete (D1–D6 closed)** | 454 passing, 8 skipped | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
+| **Data Plane MVP** (D1–D6) | **Complete (D1–D6 closed)** | 468 passing (`--run-perf`) | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
 | Research Plane MVP | Planned | — | — |
 | Live Plane MVP | Planned | — | — |
 | Observability Baseline | Planned | — | — |
@@ -19,9 +19,9 @@
 
 **Quality gates (as of March 1, 2026):**
 - `ruff check .` — 0 errors
-- `mypy libs/ apps/ --strict` — passing
-- `pytest -q` — 454 passed, 8 skipped in ~3.7s
-- Test coverage: 92.18% (`libs/core/alpha_core` + `apps/data_collector`)
+- `mypy libs/core --strict` — 0 errors
+- `pytest tests/ -v --run-perf` — 468 passed in ~3.8s
+- Test coverage: 90.06% (`libs/core/alpha_core` + `apps/data_collector`)
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:

@@ -68,6 +68,8 @@ class _MockAdapter(adapters_base.VenueAdapter):
         self._venue = venue
         self.trade_pages: dict[str, list[list[event_models.CanonicalTrade]]] = {}
         self.ohlcv_responses: dict[str, list[event_models.CanonicalOHLCV]] = {}
+        self.trade_errors: dict[str, list[Exception]] = {}
+        self.ohlcv_errors: dict[str, list[Exception]] = {}
         self.fetch_trades_calls: list[tuple[str, object, int]] = []
         self.fetch_ohlcv_calls: list[tuple[str, str, int]] = []
 
@@ -94,6 +96,9 @@ class _MockAdapter(adapters_base.VenueAdapter):
     async def fetch_trades_with_raw(
         self, outcome_id: str, since: datetime | None = None, limit: int = 100
     ) -> tuple[list[event_models.CanonicalTrade], list[object]]:
+        errors = self.trade_errors.get(outcome_id)
+        if errors:
+            raise errors.pop(0)
         self.fetch_trades_calls.append((outcome_id, since, limit))
         trades = await self.fetch_trades(outcome_id, since=since, limit=limit)
         return trades, [t.model_dump(mode="json") for t in trades]
@@ -114,13 +119,18 @@ class _MockAdapter(adapters_base.VenueAdapter):
     async def fetch_ohlcv_with_raw(
         self, outcome_id: str, resolution: str = "1h", limit: int = 100
     ) -> tuple[list[event_models.CanonicalOHLCV], list[object]]:
+        errors = self.ohlcv_errors.get(outcome_id)
+        if errors:
+            raise errors.pop(0)
         self.fetch_ohlcv_calls.append((outcome_id, resolution, limit))
         candles = await self.fetch_ohlcv(outcome_id, resolution=resolution, limit=limit)
         return candles, [c.model_dump(mode="json") for c in candles]
 
 
 def _make_manager(
-    adapter: _MockAdapter, tmp_path: Path
+    adapter: _MockAdapter,
+    tmp_path: Path,
+    **manager_kwargs: object,
 ) -> collector_backfill.BackfillManager:
     return collector_backfill.BackfillManager(
         adapter=adapter,
@@ -128,6 +138,7 @@ def _make_manager(
         silver_writer=storage_parquet.ParquetEventWriter(tmp_path),
         quality_checker=event_quality.EventQualityChecker(),
         lineage_store=storage_lineage.LineageStore(tmp_path),
+        **manager_kwargs,
     )
 
 
@@ -258,6 +269,71 @@ def test_backfill_trades_records_lineage_run(tmp_path: Path) -> None:
     assert run.venue == "polymarket"
 
 
+def test_backfill_trades_retries_transient_api_errors_with_backoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _MockAdapter()
+    outcome_id = "polymarket:market-a:yes"
+    adapter.trade_errors[outcome_id] = [TimeoutError("timeout-1"), TimeoutError("timeout-2")]
+    adapter.trade_pages[outcome_id] = [[_trade("t1", START + timedelta(minutes=1))]]
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(collector_backfill.asyncio, "sleep", _fake_sleep)
+
+    manager = _make_manager(
+        adapter,
+        tmp_path,
+        fetch_retry_attempts=3,
+        fetch_retry_backoff_base_seconds=0.1,
+        fetch_retry_backoff_max_seconds=1.0,
+    )
+    result = asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
+
+    assert result.events_stored == 1
+    assert delays == [0.1, 0.2]
+    assert len(adapter.fetch_trades_calls) == 1
+
+
+def test_backfill_trades_reports_failure_after_retry_exhaustion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _MockAdapter()
+    outcome_id = "polymarket:market-a:yes"
+    adapter.trade_errors[outcome_id] = [
+        TimeoutError("timeout-1"),
+        TimeoutError("timeout-2"),
+        TimeoutError("timeout-3"),
+    ]
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(collector_backfill.asyncio, "sleep", _fake_sleep)
+
+    manager = _make_manager(
+        adapter,
+        tmp_path,
+        fetch_retry_attempts=3,
+        fetch_retry_backoff_base_seconds=0.1,
+        fetch_retry_backoff_max_seconds=1.0,
+    )
+    result = asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
+
+    assert result.events_fetched == 0
+    assert result.events_stored == 0
+    assert delays == [0.1, 0.2]
+    lineage_run = storage_lineage.LineageStore(tmp_path).get_run(result.run_id)
+    assert lineage_run is not None
+    assert lineage_run.status == "completed"
+    assert any("failed after 3 attempt(s)" in error for error in lineage_run.errors)
+
+
 # ---------------------------------------------------------------------------
 # backfill_ohlcv
 # ---------------------------------------------------------------------------
@@ -300,6 +376,36 @@ def test_backfill_ohlcv_limit_calculation_applies_resolution(tmp_path: Path) -> 
     assert adapter.fetch_ohlcv_calls
     _, _, limit = adapter.fetch_ohlcv_calls[0]
     assert limit >= 2
+
+
+def test_backfill_ohlcv_retries_transient_api_errors_with_backoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = _MockAdapter()
+    outcome_id = "polymarket:market-a:yes"
+    adapter.ohlcv_errors[outcome_id] = [TimeoutError("timeout-1")]
+    adapter.ohlcv_responses[outcome_id] = [_candle(START + timedelta(hours=1))]
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(collector_backfill.asyncio, "sleep", _fake_sleep)
+
+    manager = _make_manager(
+        adapter,
+        tmp_path,
+        fetch_retry_attempts=3,
+        fetch_retry_backoff_base_seconds=0.05,
+        fetch_retry_backoff_max_seconds=1.0,
+    )
+    result = asyncio.run(
+        manager.backfill_ohlcv([outcome_id], resolution="1h", start=START, end=END)
+    )
+
+    assert result.events_stored == 1
+    assert delays == [0.05]
 
 
 # ---------------------------------------------------------------------------

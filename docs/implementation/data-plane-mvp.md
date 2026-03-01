@@ -6,7 +6,7 @@
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Implementation Status (as of March 1, 2026):** D1, D2, D3, D4, D5, and D6 complete  
-> **Current quality gate snapshot:** `ruff check .`, `mypy libs/core apps --strict`, `pytest -q` (`454 passed, 8 skipped`)
+> **Current quality gate snapshot (validated March 1, 2026):** `ruff check .` (pass), `mypy libs/core --strict` (pass), `pytest tests/ -v --run-perf` (`468 passed`), and coverage `90.06%` on `alpha_core` + `apps.data_collector`.
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---
@@ -1043,21 +1043,28 @@ The Data Plane MVP is broken into **6 sequential sub-steps** (D1–D6). Each ste
 
 The Data Plane MVP is **complete** when all of the following are true:
 
-- [ ] `ruff check . && mypy libs/core --strict` — 0 errors
-- [ ] `pytest tests/ -v` — all tests green, ≥ 300 total, ≥ 85% coverage
-- [ ] At least 2 venues have working polling connectors (trades + OHLCV + books)
-- [ ] `MarketRefreshPoller` updates the `MarketMaster` on schedule
-- [ ] Bronze tier stores raw payloads with run_id and compression
-- [ ] Silver tier stores normalised events with complete Parquet readers (trades + books + OHLCV)
-- [ ] Data quality suites exist for trades, books, and OHLCV
-- [ ] Gap detector identifies missing time windows
-- [ ] Backfill manager can fill detected gaps
-- [ ] Lineage store tracks every ingestion run
-- [ ] CLI works: `data_collector run`, `backfill`, `validate`, `status`, `detect-gaps`
-- [ ] Streaming writer buffers and rotates correctly
-- [ ] All connectors handle errors gracefully (no crashes on API failures)
+- [x] `ruff check . && mypy libs/core --strict` — 0 errors
+- [x] `pytest tests/ -v` — all tests green, ≥ 300 total, ≥ 85% coverage
+- [x] At least 2 venues have working polling connectors (trades + OHLCV + books)
+- [x] `MarketRefreshPoller` updates the `MarketMaster` on schedule
+- [x] Bronze tier stores raw payloads with run_id and compression
+- [x] Silver tier stores normalised events with complete Parquet readers (trades + books + OHLCV)
+- [x] Data quality suites exist for trades, books, and OHLCV
+- [x] Gap detector identifies missing time windows
+- [x] Backfill manager can fill detected gaps
+- [x] Lineage store tracks every ingestion run
+- [x] CLI works: `data_collector run`, `backfill`, `validate`, `status`, `detect-gaps`
+- [x] Streaming writer buffers and rotates correctly
+- [x] All connectors handle errors gracefully (no crashes on API failures)
 - [ ] CI pipeline green on GitHub Actions
-- [ ] Config system extended for collection settings (backward compatible)
+- [x] Config system extended for collection settings (backward compatible)
+
+Validation snapshot (local, March 1, 2026):
+- `ruff check .` -> pass
+- `mypy libs/core --strict` -> pass
+- `pytest tests/ -v --run-perf` -> `468 passed`
+- `pytest tests/ --run-perf --cov=alpha_core --cov=apps.data_collector --cov-report=term` -> `90.06%` total coverage
+- Remaining external check: GitHub Actions CI status
 
 ---
 

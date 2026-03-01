@@ -65,6 +65,7 @@ data/silver/
 data/gold/
 *.parquet
 *.pdf
+!tests/data/fixtures/*.parquet
 
 # -----------------------------------------------------------------------------
 # IDE / editor

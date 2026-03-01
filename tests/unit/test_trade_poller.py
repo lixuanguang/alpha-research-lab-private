@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import apps.data_collector.connectors.trade_poller as connector_trade_poller
+import pytest
 
 import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
@@ -211,3 +212,13 @@ def test_trade_poller_bounded_dedup_cache_allows_old_ids_after_eviction() -> Non
     assert [trade.trade_id for trade in first_trades] == ["t1"]
     assert [trade.trade_id for trade in second_trades] == ["t2"]
     assert [trade.trade_id for trade in third_trades] == ["t1"]
+
+
+def test_trade_poller_rejects_invalid_limit_per_poll() -> None:
+    adapter = _MockAdapter()
+    with pytest.raises(ValueError, match="limit_per_poll"):
+        connector_trade_poller.TradePoller(
+            adapter,
+            outcome_ids=["kalshi:market-a:yes"],
+            limit_per_poll=0,
+        )

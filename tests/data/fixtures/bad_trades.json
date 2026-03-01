@@ -1,0 +1,26 @@
+[
+  {
+    "id": "bad-null-price",
+    "outcome_id": "kalshi:market-a:yes",
+    "price": null,
+    "size": "10",
+    "side": "buy",
+    "timestamp": "2026-03-01T12:00:00Z"
+  },
+  {
+    "id": "bad-out-of-range-price",
+    "outcome_id": "kalshi:market-a:yes",
+    "price": "1.25",
+    "size": "6",
+    "side": "sell",
+    "timestamp": "2026-03-01T12:00:01Z"
+  },
+  {
+    "id": "bad-future-timestamp",
+    "outcome_id": "kalshi:market-a:yes",
+    "price": "0.51",
+    "size": "9",
+    "side": "buy",
+    "timestamp": "2099-01-01T00:00:00Z"
+  }
+]

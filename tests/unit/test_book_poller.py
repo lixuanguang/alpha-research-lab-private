@@ -34,11 +34,14 @@ class _MockAdapter(adapters_base.VenueAdapter):
         self.calls: list[str] = []
         self.responses: dict[str, event_models.CanonicalBookSnapshot] = {}
         self.failures: set[str] = set()
+        self.delay_seconds = 0.0
 
     def venue_name(self) -> str:
         return "kalshi"
 
     async def fetch_order_book(self, outcome_id: str) -> event_models.CanonicalBookSnapshot:
+        if self.delay_seconds:
+            await asyncio.sleep(self.delay_seconds)
         self.calls.append(outcome_id)
         if outcome_id in self.failures:
             raise RuntimeError("fetch failed")
@@ -155,3 +158,41 @@ def test_book_poller_continues_on_per_outcome_errors() -> None:
 
     assert len(events) == 1
     assert poller.metrics().events_rejected == 1
+
+
+def test_book_poller_marks_timeouts_as_rejections() -> None:
+    adapter = _MockAdapter()
+    adapter.delay_seconds = 0.05
+    adapter.responses = {
+        "kalshi:market-a:yes": _book(datetime(2026, 3, 1, 12, 0, tzinfo=UTC)),
+    }
+    poller = connector_book_poller.BookSnapshotPoller(
+        adapter,
+        outcome_ids=["kalshi:market-a:yes"],
+        request_timeout_seconds=0.01,
+    )
+
+    batch = asyncio.run(poller.poll_once())
+
+    assert batch.events == []
+    assert poller.metrics().events_rejected == 1
+    assert "timed out" in poller.metrics().errors[0]
+
+
+def test_book_poller_includes_raw_payloads_in_batch() -> None:
+    adapter = _MockAdapter()
+    ts = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+    adapter.responses = {
+        "kalshi:market-a:yes": _book(ts),
+    }
+    poller = connector_book_poller.BookSnapshotPoller(
+        adapter,
+        outcome_ids=["kalshi:market-a:yes"],
+    )
+
+    batch = asyncio.run(poller.poll_once())
+
+    assert len(batch.events) == 1
+    assert "books" in batch.raw_payloads
+    assert len(batch.raw_payloads["books"]) == 1
+    assert batch.raw_payloads["books"][0]["outcome_id"] == "kalshi:market-a:yes"

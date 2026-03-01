@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 import time
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -30,6 +32,10 @@ _RESOLUTION_SECONDS: dict[str, float] = {
     "1h": 3600.0,
     "1d": 86400.0,
 }
+_FETCH_RETRY_ATTEMPTS = 3
+_FETCH_RETRY_BACKOFF_BASE_SECONDS = 0.25
+_FETCH_RETRY_BACKOFF_MAX_SECONDS = 2.0
+_ResultT = TypeVar("_ResultT")
 
 
 @dataclass(slots=True)
@@ -68,13 +74,27 @@ class BackfillManager:
         silver_writer: storage_parquet.ParquetEventWriter,
         quality_checker: event_quality.EventQualityChecker,
         lineage_store: storage_lineage.LineageStore,
+        fetch_retry_attempts: int = _FETCH_RETRY_ATTEMPTS,
+        fetch_retry_backoff_base_seconds: float = _FETCH_RETRY_BACKOFF_BASE_SECONDS,
+        fetch_retry_backoff_max_seconds: float = _FETCH_RETRY_BACKOFF_MAX_SECONDS,
     ) -> None:
+        if fetch_retry_attempts <= 0:
+            raise ValueError("`fetch_retry_attempts` must be > 0")
+        if fetch_retry_backoff_base_seconds <= 0:
+            raise ValueError("`fetch_retry_backoff_base_seconds` must be > 0")
+        if fetch_retry_backoff_max_seconds < fetch_retry_backoff_base_seconds:
+            raise ValueError(
+                "`fetch_retry_backoff_max_seconds` must be >= `fetch_retry_backoff_base_seconds`"
+            )
         self._venue = adapter.venue_name()
         self._adapter = adapter
         self._bronze_writer = bronze_writer
         self._silver_writer = silver_writer
         self._quality_checker = quality_checker
         self._lineage_store = lineage_store
+        self._fetch_retry_attempts = fetch_retry_attempts
+        self._fetch_retry_backoff_base_seconds = fetch_retry_backoff_base_seconds
+        self._fetch_retry_backoff_max_seconds = fetch_retry_backoff_max_seconds
 
     async def backfill_trades(
         self,
@@ -119,6 +139,9 @@ class BackfillManager:
                         start=start_utc,
                         end=end_utc,
                         batch_size=batch_size,
+                        fetch_retry_attempts=self._fetch_retry_attempts,
+                        fetch_retry_backoff_base_seconds=self._fetch_retry_backoff_base_seconds,
+                        fetch_retry_backoff_max_seconds=self._fetch_retry_backoff_max_seconds,
                     )
                 except Exception as exc:
                     errors.append(f"outcome={outcome_id}: {exc}")
@@ -211,8 +234,17 @@ class BackfillManager:
         try:
             for outcome_id in outcome_ids:
                 try:
-                    candles, raw = await self._adapter.fetch_ohlcv_with_raw(
-                        outcome_id, resolution=resolution, limit=limit
+                    candles, raw = await _call_with_retries(
+                        lambda: self._adapter.fetch_ohlcv_with_raw(
+                            outcome_id,
+                            resolution=resolution,
+                            limit=limit,
+                        ),
+                        operation="fetch_ohlcv_with_raw",
+                        outcome_id=outcome_id,
+                        max_attempts=self._fetch_retry_attempts,
+                        backoff_base_seconds=self._fetch_retry_backoff_base_seconds,
+                        backoff_max_seconds=self._fetch_retry_backoff_max_seconds,
                     )
                     normalized_raw = connector_raw_payloads.normalize_raw_payloads(
                         raw, outcome_id=outcome_id
@@ -306,6 +338,9 @@ async def _fetch_trades_windowed(
     start: datetime,
     end: datetime,
     batch_size: int,
+    fetch_retry_attempts: int,
+    fetch_retry_backoff_base_seconds: float,
+    fetch_retry_backoff_max_seconds: float,
 ) -> tuple[list[event_models.CanonicalTrade], list[dict[str, object]]]:
     """Paginate fetch_trades_with_raw to collect all trades in [start, end]."""
     all_trades: list[event_models.CanonicalTrade] = []
@@ -318,6 +353,9 @@ async def _fetch_trades_windowed(
             outcome_id=outcome_id,
             cursor=state.cursor,
             batch_size=batch_size,
+            fetch_retry_attempts=fetch_retry_attempts,
+            fetch_retry_backoff_base_seconds=fetch_retry_backoff_base_seconds,
+            fetch_retry_backoff_max_seconds=fetch_retry_backoff_max_seconds,
         )
         if not trades:
             break
@@ -350,18 +388,53 @@ async def _fetch_trade_page(
     outcome_id: str,
     cursor: datetime | None,
     batch_size: int,
+    fetch_retry_attempts: int,
+    fetch_retry_backoff_base_seconds: float,
+    fetch_retry_backoff_max_seconds: float,
 ) -> tuple[list[event_models.CanonicalTrade], list[dict[str, object]]]:
     raw_result: list[object]
-    trades, raw_result = await adapter.fetch_trades_with_raw(
-        outcome_id,
-        since=cursor,
-        limit=batch_size,
+    trades, raw_result = await _call_with_retries(
+        lambda: adapter.fetch_trades_with_raw(
+            outcome_id,
+            since=cursor,
+            limit=batch_size,
+        ),
+        operation="fetch_trades_with_raw",
+        outcome_id=outcome_id,
+        max_attempts=fetch_retry_attempts,
+        backoff_base_seconds=fetch_retry_backoff_base_seconds,
+        backoff_max_seconds=fetch_retry_backoff_max_seconds,
     )
     normalized_raw = connector_raw_payloads.normalize_raw_payloads(
         raw_result,
         outcome_id=outcome_id,
     )
     return trades, normalized_raw
+
+
+async def _call_with_retries(
+    fn: Callable[[], Awaitable[_ResultT]],
+    *,
+    operation: str,
+    outcome_id: str,
+    max_attempts: int,
+    backoff_base_seconds: float,
+    backoff_max_seconds: float,
+) -> _ResultT:
+    last_error: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return await fn()
+        except Exception as exc:
+            last_error = exc
+            if attempt + 1 >= max_attempts:
+                break
+            delay_seconds = min(backoff_max_seconds, backoff_base_seconds * (2**attempt))
+            await asyncio.sleep(delay_seconds)
+    raise RuntimeError(
+        f"{operation} failed after {max_attempts} attempt(s) "
+        f"for outcome `{outcome_id}`: {last_error}"
+    ) from last_error
 
 
 def _append_windowed_unique_trades(
