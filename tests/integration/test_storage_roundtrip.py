@@ -212,3 +212,88 @@ def test_storage_roundtrip_ohlcv_duckdb_filters_resolution(tmp_path: Path) -> No
 
     assert table.column("resolution").to_pylist() == ["1h", "5m"]
     assert table.column("row_count").to_pylist() == [2, 1]
+
+
+# ---------------------------------------------------------------------------
+# F6 Extension: book_deltas roundtrip
+# ---------------------------------------------------------------------------
+
+
+def _make_book_delta(
+    *,
+    delta_index: int,
+    venue: str = "kalshi",
+    ts_event: datetime,
+    reason: str = "add",
+    sequence_id: str | None = None,
+) -> event_models.CanonicalBookDelta:
+    payload: dict[str, object] = {
+        "instrument_id": f"{venue}:market-x:yes",
+        "venue_id": venue,
+        "event_type": event_models.EventType.BOOK_DELTA,
+        "ts_event": ts_event,
+        "ts_record": ts_event + timedelta(milliseconds=5),
+        "schema_version": 1,
+        "side": "bid" if delta_index % 2 == 0 else "ask",
+        "price": Decimal("0.50") + Decimal(delta_index % 10) / Decimal("100"),
+        "delta_size": Decimal("3") + Decimal(delta_index % 4),
+        "reason": reason,
+        "sequence_id": sequence_id,
+    }
+    # sequence_id is in _EVENT_ID_EXCLUDE_FIELDS — exclude when hashing
+    payload["event_id"] = ids_utils.generate_event_id(
+        {k: v for k, v in payload.items() if k not in event_models._EVENT_ID_EXCLUDE_FIELDS}
+    )
+    return event_models.CanonicalBookDelta.model_validate(payload)
+
+
+def test_storage_roundtrip_book_deltas_parquet_reader_and_duckdb(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    ts_base = datetime(2026, 3, 3, 8, 0, tzinfo=UTC)
+    deltas = [
+        _make_book_delta(delta_index=i, ts_event=ts_base + timedelta(seconds=i))
+        for i in range(3)
+    ]
+    writer.write_book_deltas(deltas)
+
+    table = reader.read_book_deltas(venue="kalshi")
+    assert table.num_rows == 3
+    assert set(table.column("reason").to_pylist()) == {"add"}
+
+    analytics.register_silver("book_deltas")
+    result = analytics.query("SELECT COUNT(*) AS n FROM silver_book_deltas")
+    assert result.column("n").to_pylist() == [3]
+
+
+def test_storage_roundtrip_book_deltas_empty_dataset_no_crash(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    writer.write_book_deltas([])
+
+    table = reader.read_book_deltas()
+    assert table.num_rows == 0
+
+    analytics.register_silver("book_deltas")
+    result = analytics.query("SELECT COUNT(*) AS n FROM silver_book_deltas")
+    assert result.column("n").to_pylist() == [0]
+
+
+def test_storage_roundtrip_book_deltas_is_reconstructed_flag_preserved(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    ts_base = datetime(2026, 3, 3, 9, 0, tzinfo=UTC)
+    native = _make_book_delta(delta_index=0, ts_event=ts_base)
+    reconstructed = _make_book_delta(delta_index=1, ts_event=ts_base + timedelta(seconds=1))
+
+    writer.write_book_deltas([native], is_reconstructed=False)
+    writer.write_book_deltas([reconstructed], is_reconstructed=True)
+
+    table = reader.read_book_deltas(venue="kalshi")
+    flags = sorted(set(table.column("is_reconstructed").to_pylist()))
+    assert flags == [False, True]

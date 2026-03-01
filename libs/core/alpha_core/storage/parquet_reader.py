@@ -63,6 +63,19 @@ class ParquetEventReader:
             ),
         )
 
+    def read_book_deltas(
+        self,
+        venue: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> pa.Table:
+        """Read canonical book delta events with partition-prunable filters."""
+        return self._read_dataset(
+            dataset_name=storage_conventions.BOOK_DELTA_DATASET_NAME,
+            schema=storage_conventions.BOOK_DELTA_PARQUET_SCHEMA,
+            filter_expr=_build_time_filter(venue=venue, start=start, end=end),
+        )
+
     def _read_dataset(
         self,
         *,

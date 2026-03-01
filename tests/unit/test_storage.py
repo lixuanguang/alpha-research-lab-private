@@ -83,6 +83,34 @@ def _parquet_files(root: Path) -> list[Path]:
     return sorted(root.rglob("*.parquet"))
 
 
+def _make_book_delta(
+    *,
+    delta_index: int,
+    venue: str,
+    ts_event: datetime,
+    reason: str = "add",
+    sequence_id: str | None = None,
+) -> event_models.CanonicalBookDelta:
+    payload: dict[str, object] = {
+        "instrument_id": f"{venue}:market-1:yes",
+        "venue_id": venue,
+        "event_type": event_models.EventType.BOOK_DELTA,
+        "ts_event": ts_event,
+        "ts_record": ts_event + timedelta(milliseconds=5),
+        "schema_version": 1,
+        "side": "bid" if delta_index % 2 == 0 else "ask",
+        "price": Decimal("0.50") + Decimal(delta_index % 10) / Decimal("100"),
+        "delta_size": Decimal("5") + Decimal(delta_index % 3),
+        "reason": reason,
+        "sequence_id": sequence_id,
+    }
+    # sequence_id is in _EVENT_ID_EXCLUDE_FIELDS — exclude when hashing
+    payload["event_id"] = ids_utils.generate_event_id(
+        {k: v for k, v in payload.items() if k not in event_models._EVENT_ID_EXCLUDE_FIELDS}
+    )
+    return event_models.CanonicalBookDelta.model_validate(payload)
+
+
 class _FakeDuckDBResult:
     def __init__(self, table: pa.Table) -> None:
         self._table = table
@@ -642,9 +670,138 @@ def test_duckdb_internal_helpers_cover_edge_cases() -> None:
     assert duckdb_layer._arrow_type_to_duckdb_type(pa.int32()) == "INTEGER"
     assert duckdb_layer._arrow_type_to_duckdb_type(pa.decimal128(10, 2)) == "DECIMAL(10,2)"
     assert duckdb_layer._arrow_type_to_duckdb_type(pa.timestamp("us", tz="UTC")) == "TIMESTAMPTZ"
+    assert duckdb_layer._arrow_type_to_duckdb_type(pa.bool_()) == "BOOLEAN"
     with pytest.raises(TypeError, match="Unsupported Arrow type"):
-        duckdb_layer._arrow_type_to_duckdb_type(pa.bool_())
+        duckdb_layer._arrow_type_to_duckdb_type(pa.float64())
 
     assert duckdb_layer._last_identifier_component('"schema"."ta""ble"') == '"ta""ble"'
     assert duckdb_layer._last_identifier_component("db.schema.table") == "table"
     assert duckdb_layer._last_identifier_component("   ") == ""
+
+
+# ---------------------------------------------------------------------------
+# F6 Extension: book_deltas dataset
+# ---------------------------------------------------------------------------
+
+
+def test_write_book_deltas_creates_venue_date_hour_partitions(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    ts = datetime(2026, 3, 2, 14, 0, tzinfo=UTC)
+    deltas = [
+        _make_book_delta(delta_index=i, venue="kalshi", ts_event=ts + timedelta(seconds=i))
+        for i in range(3)
+    ]
+
+    dataset_root = writer.write_book_deltas(deltas)
+
+    parquet_paths = _parquet_files(dataset_root)
+    assert parquet_paths, "Expected at least one Parquet file"
+    # Should be partitioned by venue / date / hour
+    path_str = str(parquet_paths[0])
+    assert "venue=kalshi" in path_str
+    assert "date=2026-03-02" in path_str
+    assert "hour=14" in path_str
+
+
+def test_write_book_deltas_schema_has_required_columns(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    ts = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
+    deltas = [
+        _make_book_delta(delta_index=0, venue="polymarket", ts_event=ts, sequence_id="seq-001")
+    ]
+
+    writer.write_book_deltas(deltas)
+    table = reader.read_book_deltas(venue="polymarket")
+
+    assert table.num_rows == 1
+    required_cols = {"reason", "delta_size", "sequence_id", "is_reconstructed"}
+    assert required_cols.issubset(set(table.schema.names))
+
+
+def test_write_book_deltas_is_reconstructed_flag(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    ts = datetime(2026, 3, 2, 10, 0, tzinfo=UTC)
+    native = _make_book_delta(delta_index=0, venue="kalshi", ts_event=ts)
+    reconstructed = _make_book_delta(
+        delta_index=1, venue="kalshi", ts_event=ts + timedelta(seconds=1)
+    )
+
+    writer.write_book_deltas([native], is_reconstructed=False)
+    writer.write_book_deltas([reconstructed], is_reconstructed=True)
+    table = reader.read_book_deltas(venue="kalshi")
+
+    flags = table.column("is_reconstructed").to_pylist()
+    assert False in flags
+    assert True in flags
+
+
+def test_write_book_deltas_sequence_id_nullable(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    ts = datetime(2026, 3, 2, 11, 0, tzinfo=UTC)
+    deltas = [
+        _make_book_delta(delta_index=0, venue="kalshi", ts_event=ts, sequence_id="seq-42"),
+        _make_book_delta(delta_index=1, venue="kalshi", ts_event=ts + timedelta(seconds=1)),
+    ]
+
+    writer.write_book_deltas(deltas)
+    table = reader.read_book_deltas(venue="kalshi")
+
+    seq_ids = table.column("sequence_id").to_pylist()
+    assert "seq-42" in seq_ids
+    assert None in seq_ids
+
+
+def test_write_book_deltas_empty_list_does_not_crash(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    writer.write_book_deltas([])
+    table = reader.read_book_deltas()
+
+    assert table.num_rows == 0
+
+
+def test_book_deltas_registered_in_duckdb_supported_datasets() -> None:
+    assert "book_delta" in duckdb_layer._SUPPORTED_EVENT_DATASETS
+    assert "book_deltas" in duckdb_layer._SUPPORTED_EVENT_DATASETS
+    assert (
+        duckdb_layer._SUPPORTED_EVENT_DATASETS["book_deltas"]
+        == storage_conventions.BOOK_DELTA_DATASET_NAME
+    )
+
+
+def test_book_delta_schema_registered_in_duckdb_schema_map() -> None:
+    import alpha_core.storage.conventions as conv
+
+    assert conv.BOOK_DELTA_DATASET_NAME in duckdb_layer._SCHEMA_BY_DATASET
+    schema = duckdb_layer._SCHEMA_BY_DATASET[conv.BOOK_DELTA_DATASET_NAME]
+    col_names = set(schema.names)
+    assert {"reason", "delta_size", "sequence_id", "is_reconstructed"}.issubset(col_names)
+
+
+def test_read_book_deltas_filters_by_date_window(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    ts_day1 = datetime(2026, 3, 3, 10, 0, tzinfo=UTC)
+    ts_day2 = datetime(2026, 3, 5, 10, 0, tzinfo=UTC)
+    writer.write_book_deltas(
+        [_make_book_delta(delta_index=0, venue="kalshi", ts_event=ts_day1)]
+    )
+    writer.write_book_deltas(
+        [_make_book_delta(delta_index=1, venue="kalshi", ts_event=ts_day2)]
+    )
+
+    # Request only the first day
+    result = reader.read_book_deltas(
+        venue="kalshi",
+        start=datetime(2026, 3, 3, tzinfo=UTC),
+        end=datetime(2026, 3, 4, tzinfo=UTC),
+    )
+
+    assert result.num_rows == 1
+    ts_values = result.column("ts_event").to_pylist()
+    assert all(t.date().isoformat() == "2026-03-03" for t in ts_values)

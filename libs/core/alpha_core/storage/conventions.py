@@ -20,6 +20,7 @@ PARTITION_SCHEME: dict[str, list[str]] = {
     "silver_trades": ["venue", "date"],
     "silver_books": ["venue", "date", "hour"],
     "silver_ohlcv": ["venue", "resolution", "date"],
+    "silver_book_deltas": ["venue", "date", "hour"],
     "instrument_master": ["venue"],
 }
 
@@ -28,6 +29,7 @@ _DECIMAL_TYPE = pa.decimal128(20, 10)
 TRADE_DATASET_NAME = "trades"
 BOOK_DATASET_NAME = "books"
 OHLCV_DATASET_NAME = "ohlcv"
+BOOK_DELTA_DATASET_NAME = "book_deltas"
 
 TRADE_PARQUET_SCHEMA = pa.schema(
     [
@@ -81,6 +83,30 @@ OHLCV_PARQUET_SCHEMA = pa.schema(
         pa.field("resolution", pa.string(), nullable=False),
         pa.field("venue", pa.string(), nullable=False),
         pa.field("date", pa.string(), nullable=False),
+    ]
+)
+
+# Schema for incremental order-book delta events (F6 extension).
+# `is_reconstructed` marks deltas synthesised from a snapshot rather than
+# received natively from a venue delta feed.
+BOOK_DELTA_PARQUET_SCHEMA = pa.schema(
+    [
+        pa.field("event_id", pa.string(), nullable=False),
+        pa.field("instrument_id", pa.string(), nullable=False),
+        pa.field("venue_id", pa.string(), nullable=False),
+        pa.field("event_type", pa.string(), nullable=False),
+        pa.field("ts_event", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("ts_record", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("schema_version", pa.int32(), nullable=False),
+        pa.field("side", pa.string(), nullable=False),
+        pa.field("price", _DECIMAL_TYPE, nullable=False),
+        pa.field("delta_size", _DECIMAL_TYPE, nullable=False),
+        pa.field("reason", pa.string(), nullable=False),
+        pa.field("sequence_id", pa.string(), nullable=True),
+        pa.field("is_reconstructed", pa.bool_(), nullable=False),
+        pa.field("venue", pa.string(), nullable=False),
+        pa.field("date", pa.string(), nullable=False),
+        pa.field("hour", pa.string(), nullable=False),
     ]
 )
 

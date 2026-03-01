@@ -92,6 +92,39 @@ class ParquetEventWriter:
         )
         return dataset_root
 
+    def write_book_deltas(
+        self,
+        deltas: list[event_models.CanonicalBookDelta],
+        tier: storage_conventions.StorageTier = storage_conventions.StorageTier.SILVER,
+        *,
+        is_reconstructed: bool = False,
+    ) -> Path:
+        """Write canonical book delta events to the configured storage tier.
+
+        Args:
+            deltas: Canonical book delta events to persist.
+            tier: Storage tier to write into (default: SILVER).
+            is_reconstructed: Mark all rows in this batch as synthesised from
+                a snapshot rather than received from a native delta feed.
+        """
+        dataset_root = storage_conventions.dataset_root(
+            self._storage_root,
+            tier,
+            storage_conventions.BOOK_DELTA_DATASET_NAME,
+        )
+        dataset_root.mkdir(parents=True, exist_ok=True)
+        if not deltas:
+            return dataset_root
+
+        rows = [self._book_delta_to_row(delta, is_reconstructed=is_reconstructed) for delta in deltas]
+        self._write_partitioned_table(
+            rows=rows,
+            schema=storage_conventions.BOOK_DELTA_PARQUET_SCHEMA,
+            dataset_root=dataset_root,
+            partition_cols=storage_conventions.resolve_partition_columns("silver_book_deltas"),
+        )
+        return dataset_root
+
     def _write_partitioned_table(
         self,
         rows: list[dict[str, object]],
@@ -163,6 +196,33 @@ class ParquetEventWriter:
             "resolution": candle.resolution,
             "venue": candle.venue_id,
             "date": ts_event.date().isoformat(),
+        }
+
+
+    @staticmethod
+    def _book_delta_to_row(
+        delta: event_models.CanonicalBookDelta,
+        *,
+        is_reconstructed: bool,
+    ) -> dict[str, object]:
+        ts_event = time_utils.ensure_utc(delta.ts_event)
+        return {
+            "event_id": delta.event_id,
+            "instrument_id": delta.instrument_id,
+            "venue_id": delta.venue_id,
+            "event_type": delta.event_type.value,
+            "ts_event": ts_event,
+            "ts_record": time_utils.ensure_utc(delta.ts_record),
+            "schema_version": delta.schema_version,
+            "side": delta.side,
+            "price": delta.price,
+            "delta_size": delta.delta_size,
+            "reason": delta.reason,
+            "sequence_id": delta.sequence_id,
+            "is_reconstructed": is_reconstructed,
+            "venue": delta.venue_id,
+            "date": ts_event.date().isoformat(),
+            "hour": ts_event.strftime("%H"),
         }
 
 

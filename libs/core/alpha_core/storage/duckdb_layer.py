@@ -17,6 +17,8 @@ _SUPPORTED_EVENT_DATASETS: dict[str, str] = {
     "book": storage_conventions.BOOK_DATASET_NAME,
     "books": storage_conventions.BOOK_DATASET_NAME,
     "ohlcv": storage_conventions.OHLCV_DATASET_NAME,
+    "book_delta": storage_conventions.BOOK_DELTA_DATASET_NAME,
+    "book_deltas": storage_conventions.BOOK_DELTA_DATASET_NAME,
 }
 _READ_ONLY_PREFIXES = ("select", "with", "explain")
 _FORBIDDEN_SQL_KEYWORDS = (
@@ -58,6 +60,7 @@ _SCHEMA_BY_DATASET: dict[str, pa.Schema] = {
     storage_conventions.TRADE_DATASET_NAME: storage_conventions.TRADE_PARQUET_SCHEMA,
     storage_conventions.BOOK_DATASET_NAME: storage_conventions.BOOK_PARQUET_SCHEMA,
     storage_conventions.OHLCV_DATASET_NAME: storage_conventions.OHLCV_PARQUET_SCHEMA,
+    storage_conventions.BOOK_DELTA_DATASET_NAME: storage_conventions.BOOK_DELTA_PARQUET_SCHEMA,
 }
 
 try:
@@ -208,6 +211,8 @@ def _arrow_type_to_duckdb_type(arrow_type: pa.DataType) -> str:
         return f"DECIMAL({arrow_type.precision},{arrow_type.scale})"
     if pa.types.is_timestamp(arrow_type):
         return "TIMESTAMPTZ"
+    if pa.types.is_boolean(arrow_type):
+        return "BOOLEAN"
 
     raise TypeError(f"Unsupported Arrow type for DuckDB empty-view schema: {arrow_type}")
 

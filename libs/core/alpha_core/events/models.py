@@ -19,6 +19,7 @@ class EventType(StrEnum):
 
     TRADE = "trade"
     BOOK_SNAPSHOT = "book_snapshot"
+    BOOK_DELTA = "book_delta"
     OHLCV = "ohlcv"
     METADATA_UPDATE = "metadata_update"
 
@@ -31,6 +32,14 @@ class TradeSide(StrEnum):
 
 
 _AUTO_EVENT_ID_SENTINEL = "__alpha_auto_event_id__"
+
+# Fields that annotate an event with extra metadata but do not affect its
+# canonical identity.  Excluded from the event_id hash so that enriching a
+# payload (e.g. adding ts_exchange after the fact) does not silently break ID
+# checks.
+_EVENT_ID_EXCLUDE_FIELDS: frozenset[str] = frozenset(
+    {"event_id", "sequence_id", "ts_exchange", "ts_receive", "source_latency_ms"}
+)
 
 
 class PriceLevel(BaseModel):
@@ -54,6 +63,12 @@ class CanonicalMarketEvent(BaseModel):
     ts_event: datetime
     ts_record: datetime
     schema_version: int = Field(default=schema_version.CANONICAL_EVENT_SCHEMA_VERSION, ge=1)
+
+    # Optional microstructure metadata (F3 extension)
+    sequence_id: str | None = None
+    ts_exchange: datetime | None = None
+    ts_receive: datetime | None = None
+    source_latency_ms: float | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -82,6 +97,11 @@ class CanonicalMarketEvent(BaseModel):
     def _normalize_utc(cls, value: datetime) -> datetime:
         return time_utils.ensure_utc(value)
 
+    @field_validator("ts_exchange", "ts_receive")
+    @classmethod
+    def _normalize_optional_utc(cls, value: datetime | None) -> datetime | None:
+        return time_utils.ensure_utc(value) if value is not None else None
+
     @model_validator(mode="after")
     def _validate_bitemporal_order(self) -> CanonicalMarketEvent:
         if self.ts_event > self.ts_record:
@@ -90,7 +110,9 @@ class CanonicalMarketEvent(BaseModel):
 
     @model_validator(mode="after")
     def _validate_event_id(self) -> CanonicalMarketEvent:
-        expected = ids_utils.generate_event_id(self.model_dump(exclude={"event_id"}))
+        expected = ids_utils.generate_event_id(
+            self.model_dump(exclude=set(_EVENT_ID_EXCLUDE_FIELDS))
+        )
         if self.event_id == _AUTO_EVENT_ID_SENTINEL:
             self.event_id = expected
             return self
@@ -137,6 +159,23 @@ class CanonicalOHLCV(CanonicalMarketEvent):
         if self.close < self.low or self.close > self.high:
             raise ValueError("`close` must be within [low, high]")
         return self
+
+
+class CanonicalBookDelta(CanonicalMarketEvent):
+    """Canonical order book delta (incremental update) event.
+
+    Represents a single-level change to one side of the book, as emitted by
+    venues that support delta-feed semantics.  ``reason`` identifies whether
+    the change resulted from a new resting order ('add'), a cancellation
+    ('cancel'), or a trade execution ('trade').
+    """
+
+    event_type: Literal[EventType.BOOK_DELTA] = EventType.BOOK_DELTA
+    side: Literal["bid", "ask"]
+    price: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
+    delta_size: Decimal
+    reason: Literal["add", "cancel", "trade"]
+    sequence_id: str | None = None  # venue-level sequence number for ordering
 
 
 class CanonicalMetadataUpdate(CanonicalMarketEvent):

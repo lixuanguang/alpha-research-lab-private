@@ -307,3 +307,123 @@ def test_market_spec_rejects_mismatched_canonical_outcome_id() -> None:
 
     with pytest.raises(ValidationError, match="canonical_id"):
         instrument_models.MarketSpec.model_validate(market_payload)
+
+
+# ---------------------------------------------------------------------------
+# F4 Extension: outcome_group_id and simplex-group fast lookup
+# ---------------------------------------------------------------------------
+
+
+def _make_grouped_markets(
+    group_id: str,
+) -> list[instrument_models.MarketSpec]:
+    """Two markets sharing the same outcome_group_id (the simplex basket)."""
+    base_time = datetime(2026, 3, 1, tzinfo=UTC)
+    markets = []
+    for i, (market_id, outcome_id, label) in enumerate(
+        [
+            ("eth-hits-5k-q3", "yes", "Yes"),
+            ("eth-hits-5k-q4", "yes", "Yes"),
+        ]
+    ):
+        canonical_id = f"kalshi:{market_id}:{outcome_id}"
+        markets.append(
+            instrument_models.MarketSpec.model_validate(
+                {
+                    "market_id": market_id,
+                    "venue": "kalshi",
+                    "title": f"ETH > $5k — market {i + 1}",
+                    "outcomes": [
+                        {"outcome_id": outcome_id, "label": label, "canonical_id": canonical_id}
+                    ],
+                    "first_seen": base_time,
+                    "last_updated": base_time,
+                    "outcome_group_id": group_id,
+                }
+            )
+        )
+    return markets
+
+
+def test_outcome_group_id_defaults_to_none() -> None:
+    market = _load_market_specs()[0]
+
+    assert market.outcome_group_id is None
+
+
+def test_outcome_group_id_is_preserved_on_round_trip() -> None:
+    markets = _make_grouped_markets("eth-5k-simplex")
+    market = markets[0]
+
+    restored = instrument_models.MarketSpec.model_validate(market.model_dump(mode="python"))
+
+    assert restored.outcome_group_id == "eth-5k-simplex"
+
+
+def test_outcome_group_id_whitespace_is_stripped_and_empty_becomes_none() -> None:
+    base = _make_grouped_markets("g1")[0].model_dump(mode="python")
+    base["outcome_group_id"] = "   "
+    market = instrument_models.MarketSpec.model_validate(base)
+
+    assert market.outcome_group_id is None
+
+
+def test_market_master_get_markets_by_group_returns_all_members() -> None:
+    master = instruments_master.MarketMaster()
+    for market in _make_grouped_markets("eth-5k-simplex"):
+        master.register_market(market)
+
+    results = master.get_markets_by_group("eth-5k-simplex")
+
+    assert len(results) == 2
+    assert {m.market_id for m in results} == {"eth-hits-5k-q3", "eth-hits-5k-q4"}
+
+
+def test_market_master_get_markets_by_group_returns_empty_for_unknown_group() -> None:
+    master = instruments_master.MarketMaster()
+
+    assert master.get_markets_by_group("nonexistent-group") == []
+
+
+def test_market_master_get_markets_by_group_returns_defensive_copies() -> None:
+    master = instruments_master.MarketMaster()
+    for market in _make_grouped_markets("eth-5k-simplex"):
+        master.register_market(market)
+
+    results = master.get_markets_by_group("eth-5k-simplex")
+    results[0].title = "Mutated"
+
+    fresh = master.get_markets_by_group("eth-5k-simplex")
+    assert fresh[0].title != "Mutated"
+
+
+def test_market_master_group_index_cleared_when_outcome_group_id_removed() -> None:
+    master = instruments_master.MarketMaster()
+    market_with_group = _make_grouped_markets("eth-5k-simplex")[0]
+    master.register_market(market_with_group)
+
+    assert master.get_markets_by_group("eth-5k-simplex")
+
+    market_without_group = market_with_group.model_copy(update={"outcome_group_id": None})
+    master.register_market(market_without_group)
+
+    assert master.get_markets_by_group("eth-5k-simplex") == []
+
+
+def test_market_master_persist_restore_roundtrip_preserves_outcome_group_id(
+    tmp_path: Path,
+) -> None:
+    source = instruments_master.MarketMaster()
+    for market in _make_grouped_markets("eth-5k-simplex"):
+        source.register_market(market)
+
+    snapshot_path = tmp_path / "market_master_groups.parquet"
+    source.persist(snapshot_path)
+
+    restored = instruments_master.MarketMaster()
+    restored.restore(snapshot_path)
+
+    results = restored.get_markets_by_group("eth-5k-simplex")
+    assert len(results) == 2
+    assert all(m.outcome_group_id == "eth-5k-simplex" for m in results)
+

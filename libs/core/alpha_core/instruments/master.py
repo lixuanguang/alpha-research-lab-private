@@ -27,6 +27,9 @@ class MarketMaster:
     def __init__(self) -> None:
         self._markets: dict[str, instrument_models.MarketSpec] = {}
         self._outcomes: dict[str, instrument_models.OutcomeSpec] = {}
+        # Maps outcome_group_id → sorted list of canonical market IDs for fast
+        # simplex-constrained basket lookup.
+        self._markets_by_group: dict[str, list[str]] = {}
 
     async def load_from_exchange(self, adapter: VenueAdapter) -> int:
         """Fetch and register all markets from an exchange adapter."""
@@ -54,6 +57,11 @@ class MarketMaster:
                     existing_outcome.outcome_id,
                 )
                 self._outcomes.pop(existing_canonical_id, None)
+            # Remove from old group index if group membership may have changed.
+            if existing_market.outcome_group_id is not None:
+                _remove_from_group(
+                    self._markets_by_group, existing_market.outcome_group_id, canonical_market_id
+                )
 
         stored_market = market.model_copy(deep=True)
         first_seen = (
@@ -78,6 +86,7 @@ class MarketMaster:
             normalized_outcomes.append(normalized_outcome)
             self._outcomes[canonical_outcome_id] = normalized_outcome
 
+        new_group_id = stored_market.outcome_group_id
         self._markets[canonical_market_id] = stored_market.model_copy(
             update={
                 "venue": stored_market.venue.lower(),
@@ -86,6 +95,11 @@ class MarketMaster:
                 "last_updated": last_updated,
             }
         )
+        if new_group_id is not None:
+            group_members = self._markets_by_group.setdefault(new_group_id, [])
+            if canonical_market_id not in group_members:
+                group_members.append(canonical_market_id)
+                group_members.sort()
         return canonical_market_id
 
     def get_market(self, canonical_id: str) -> instrument_models.MarketSpec | None:
@@ -101,6 +115,23 @@ class MarketMaster:
         if outcome is None:
             return None
         return outcome.model_copy(deep=True)
+
+    def get_markets_by_group(
+        self, group_id: str
+    ) -> list[instrument_models.MarketSpec]:
+        """Return all markets belonging to an outcome group, sorted by canonical market id.
+
+        Outcome groups identify sets of markets whose outcome probabilities satisfy
+        the simplex constraint (``sum_i p_i = 1``), enabling cross-contract arbitrage.
+        Returns an empty list when the group id is unknown.
+        """
+        canonical_ids = self._markets_by_group.get(group_id, [])
+        markets: list[instrument_models.MarketSpec] = []
+        for canonical_id in canonical_ids:
+            market = self._markets.get(canonical_id)
+            if market is not None:
+                markets.append(market.model_copy(deep=True))
+        return markets
 
     def search(
         self,
@@ -202,6 +233,7 @@ class MarketMaster:
 
         self._markets.clear()
         self._outcomes.clear()
+        self._markets_by_group.clear()
 
         for canonical_market_id, payload_json in zip(canonical_market_ids, payloads, strict=True):
             if not isinstance(canonical_market_id, str):
@@ -227,3 +259,18 @@ def _matches_query(market: instrument_models.MarketSpec, query: str) -> bool:
     haystack_parts.extend(tag.lower() for tag in market.tags)
     haystack_parts.extend(outcome.label.lower() for outcome in market.outcomes)
     return query in " ".join(haystack_parts)
+
+
+def _remove_from_group(
+    index: dict[str, list[str]], group_id: str, canonical_market_id: str
+) -> None:
+    """Remove a canonical market id from a group index entry, pruning empty entries."""
+    members = index.get(group_id)
+    if members is None:
+        return
+    try:
+        members.remove(canonical_market_id)
+    except ValueError:
+        pass
+    if not members:
+        del index[group_id]

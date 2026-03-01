@@ -88,6 +88,10 @@ class MarketSpec(BaseModel):
     url: str | None = None
     first_seen: datetime
     last_updated: datetime
+    # Optional group key for simplex-constrained outcome sets (sum_i p_i = 1).
+    # Outcomes sharing the same outcome_group_id form a complete mutually-exclusive
+    # partition that satisfies the probability simplex constraint.
+    outcome_group_id: str | None = None
 
     @field_validator("market_id", "venue", "title")
     @classmethod
@@ -99,7 +103,7 @@ class MarketSpec(BaseModel):
     def _validate_market_id_components(cls, value: str, info: ValidationInfo) -> str:
         return _validate_id_component(value, info.field_name or "value")
 
-    @field_validator("description", "category", "url")
+    @field_validator("description", "category", "url", "outcome_group_id")
     @classmethod
     def _strip_optional_text(cls, value: str | None) -> str | None:
         return _clean_optional_text(value)
