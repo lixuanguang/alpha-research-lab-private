@@ -11,6 +11,7 @@ import alpha_core.instruments.master as instrument_master
 import alpha_core.instruments.models as instrument_models
 import alpha_core.instruments.symbology as instrument_symbology
 import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors.raw_payloads as connector_raw_payloads
 
 
 class MarketRefreshPoller(connector_base.PollingConnector):
@@ -21,13 +22,28 @@ class MarketRefreshPoller(connector_base.PollingConnector):
         adapter: adapters_base.VenueAdapter,
         master: instrument_master.MarketMaster,
         interval_seconds: float = 300.0,
+        request_timeout_seconds: float | None = 10.0,
     ) -> None:
         self._adapter = adapter
         self._master = master
-        super().__init__(venue=adapter.venue_name(), interval_seconds=interval_seconds)
+        super().__init__(
+            venue=adapter.venue_name(),
+            interval_seconds=interval_seconds,
+            request_timeout_seconds=request_timeout_seconds,
+        )
 
-    async def poll_once(self) -> list[event_models.CanonicalMarketEvent]:
-        markets = await self._adapter.fetch_markets()
+    def event_types(self) -> list[str]:
+        return ["metadata"]
+
+    async def poll_once(self) -> connector_base.PollingBatch:
+        markets, raw_payloads = await self._await_with_timeout(
+            self._adapter.fetch_markets_with_raw(),
+            operation="fetch_markets",
+        )
+        normalized_raw_payloads = connector_raw_payloads.normalize_raw_payloads(
+            raw_payloads,
+            outcome_id="market_metadata",
+        )
         metadata_events: list[event_models.CanonicalMarketEvent] = []
 
         for market in markets:
@@ -53,7 +69,10 @@ class MarketRefreshPoller(connector_base.PollingConnector):
                     self._build_metadata_event(canonical_market_id, fields_changed=fields_changed)
                 )
 
-        return metadata_events
+        return connector_base.PollingBatch(
+            events=metadata_events,
+            raw_payloads=({"metadata": normalized_raw_payloads} if normalized_raw_payloads else {}),
+        )
 
     def _build_metadata_event(
         self,

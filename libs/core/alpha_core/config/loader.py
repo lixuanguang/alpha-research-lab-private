@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import importlib
 import os
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
+
+import yaml  # type: ignore[import-untyped]
 
 import alpha_core.config.models as config_models
 import alpha_core.config.paths as config_paths
 import alpha_core.config.secrets as config_secrets
 
 _ENV_PREFIX = "ALPHA_"
-yaml = cast(Any, importlib.import_module("yaml"))
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

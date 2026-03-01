@@ -113,3 +113,52 @@ def test_status_backfill_and_detect_gaps_commands_return_expected_output(
     assert "Backfill request captured" in backfill_result.output
     assert detect_gaps_result.exit_code == 0
     assert "Gap detection inputs accepted" in detect_gaps_result.output
+
+
+def test_run_command_execute_path_reports_completion(
+    temp_cli_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = click_testing.CliRunner()
+
+    async def _fake_run_polling_pipelines(*_args: object, **_kwargs: object) -> int:
+        return 7
+
+    monkeypatch.setattr(
+        data_collector_main.collector_runtime,
+        "run_polling_pipelines",
+        _fake_run_polling_pipelines,
+    )
+
+    result = runner.invoke(
+        data_collector_main.main,
+        ["run", "--ignore-user-settings", "--execute"],
+        env=_cli_env(temp_cli_repo),
+    )
+
+    assert result.exit_code == 0
+    assert "Execution complete (mode=once, successful_runs=7)" in result.output
+
+
+def test_run_command_rejects_invalid_max_outcomes(temp_cli_repo: Path) -> None:
+    runner = click_testing.CliRunner()
+    result = runner.invoke(
+        data_collector_main.main,
+        ["run", "--max-outcomes-per-venue", "0"],
+        env=_cli_env(temp_cli_repo),
+    )
+
+    assert result.exit_code != 0
+    assert "--max-outcomes-per-venue" in result.output
+
+
+def test_run_command_rejects_invalid_request_timeout(temp_cli_repo: Path) -> None:
+    runner = click_testing.CliRunner()
+    result = runner.invoke(
+        data_collector_main.main,
+        ["run", "--request-timeout-seconds", "0"],
+        env=_cli_env(temp_cli_repo),
+    )
+
+    assert result.exit_code != 0
+    assert "--request-timeout-seconds" in result.output

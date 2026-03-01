@@ -30,17 +30,20 @@ class _FinitePollingConnector(connector_base.PollingConnector):
         super().__init__(venue="kalshi", interval_seconds=0.01, emit=emit)
         self.poll_calls = 0
 
-    async def poll_once(self) -> list[event_models.CanonicalMarketEvent]:
+    async def poll_once(self) -> connector_base.PollingBatch:
         self.poll_calls += 1
         self._stop_event.set()
-        return [_metadata_event()]
+        return connector_base.PollingBatch(
+            events=[_metadata_event()],
+            raw_payloads={},
+        )
 
 
 class _FailingPollingConnector(connector_base.PollingConnector):
     def __init__(self) -> None:
         super().__init__(venue="kalshi", interval_seconds=0.01)
 
-    async def poll_once(self) -> list[event_models.CanonicalMarketEvent]:
+    async def poll_once(self) -> connector_base.PollingBatch:
         raise RuntimeError("poll failed")
 
 
@@ -60,8 +63,8 @@ class _ReconnectingStreamingConnector(connector_base.StreamingConnector):
 
 
 class _SimplePollingConnector(connector_base.PollingConnector):
-    async def poll_once(self) -> list[event_models.CanonicalMarketEvent]:
-        return []
+    async def poll_once(self) -> connector_base.PollingBatch:
+        return connector_base.PollingBatch(events=[], raw_payloads={})
 
 
 class _SyncCollector:

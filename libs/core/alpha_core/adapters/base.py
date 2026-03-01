@@ -41,3 +41,34 @@ class VenueAdapter(ABC):
     @abstractmethod
     def venue_name(self) -> str:
         """Return normalized venue identifier."""
+
+    @abstractmethod
+    async def fetch_markets_with_raw(
+        self,
+    ) -> tuple[list[instrument_models.MarketSpec], list[object]]:
+        """Fetch canonical markets plus corresponding raw vendor payloads."""
+
+    @abstractmethod
+    async def fetch_trades_with_raw(
+        self,
+        outcome_id: str,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalTrade], list[object]]:
+        """Fetch canonical trades plus corresponding raw vendor payloads."""
+
+    @abstractmethod
+    async def fetch_order_book_with_raw(
+        self,
+        outcome_id: str,
+    ) -> tuple[event_models.CanonicalBookSnapshot, object]:
+        """Fetch canonical order book plus corresponding raw vendor payload."""
+
+    @abstractmethod
+    async def fetch_ohlcv_with_raw(
+        self,
+        outcome_id: str,
+        resolution: str = "1h",
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalOHLCV], list[object]]:
+        """Fetch canonical OHLCV bars plus corresponding raw vendor payloads."""

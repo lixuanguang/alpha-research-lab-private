@@ -10,8 +10,8 @@
 
 | Stage | Status | Tests | Docs |
 |---|---|---|---|
-| **Foundation** (F1–F6) | **Complete** | 138 passing | [Foundation Plan](docs/implementation/foundation-stage.md) |
-| **Data Plane MVP** (D1–D6) | **In Progress (D2 complete)** | 203 passing | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
+| **Foundation** (F1–F6) | **Complete (closed)** | Covered by repo-wide quality gates | [Foundation Plan](docs/implementation/foundation-stage.md) |
+| **Data Plane MVP** (D1–D6) | **In Progress (D1–D3 complete)** | 252 passing, 11 skipped | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
 | Research Plane MVP | Planned | — | — |
 | Live Plane MVP | Planned | — | — |
 | Observability Baseline | Planned | — | — |
@@ -20,8 +20,8 @@
 **Quality gates (as of March 1, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/ apps/ --strict` — passing
-- `pytest -q` — 203 passed, 8 skipped in ~2s
-- Test coverage: 93.17% (`libs/core/alpha_core` + `apps/data_collector`)
+- `pytest -q` — 252 passed, 11 skipped in ~3s
+- Test coverage: 91.79% (`libs/core/alpha_core` + `apps/data_collector`)
 
 ---
 

@@ -1,6 +1,6 @@
 # Alpha Research Lab — Foundation Stage Implementation Plan
 
-> **Status: COMPLETE** — All F1–F6 steps implemented. 138 tests passing.  
+> **Status: COMPLETE** — All F1–F6 steps implemented and closed.  
 > See [main README](../../README.md) for current project status.
 
 > **Focus:** Prediction markets alpha research using the `pmxt` unified API  
@@ -41,12 +41,13 @@ Prediction markets (Kalshi, Polymarket, Limitless, Baozi, Myriad, Probable) offe
 
 Deliver the **repo scaffold, canonical data model, instrument master, configuration system, CI baseline, and local development environment** — the bedrock that every subsequent stage (Data Plane MVP, Research Plane MVP, Live Plane MVP) builds upon.
 
-### Implementation Status (as of February 28, 2026)
+### Implementation Status (as of March 1, 2026)
 
-- Current stage: **F6 (Storage Layer & Local Docker), implemented**
+- Current stage: **Foundation complete and closed**
 - Completed steps: **F1, F2, F3, F4, F5, F6**
 - Remaining foundation steps: **None**
-- Current quality gate snapshot: `ruff check .` and `mypy libs/core --strict` passing locally; `pytest -q` passes with DuckDB-dependent storage integration tests auto-skipped when `duckdb` is not installed
+- Current quality gate snapshot: `ruff check .` and `mypy libs/core apps --strict` passing locally; `pytest -q` is green (`252 passed, 11 skipped`)
+- Foundation artifact lock added: `data/schemas/canonical_event_v1.json` and `tests/unit/test_foundation_requirements.py`
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 
 ---

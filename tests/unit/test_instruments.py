@@ -170,6 +170,35 @@ def test_market_master_register_market_replaces_stale_outcomes() -> None:
     assert master.snapshot()["outcome_count"] == 1
 
 
+def test_market_master_register_market_preserves_first_seen_and_latest_last_updated() -> None:
+    master = instruments_master.MarketMaster()
+    original_market = _load_market_specs()[0].model_copy(
+        update={
+            "first_seen": datetime(2026, 2, 1, tzinfo=UTC),
+            "last_updated": datetime(2026, 2, 2, tzinfo=UTC),
+        }
+    )
+    master.register_market(original_market)
+
+    refreshed_market = original_market.model_copy(
+        update={
+            "first_seen": datetime(2026, 2, 10, tzinfo=UTC),
+            "last_updated": datetime(2026, 2, 11, tzinfo=UTC),
+        }
+    )
+    master.register_market(refreshed_market)
+
+    older_refresh = original_market.model_copy(
+        update={"last_updated": datetime(2026, 2, 5, tzinfo=UTC)}
+    )
+    master.register_market(older_refresh)
+
+    stored = master.get_market("polymarket:us-pres-2028-winner")
+    assert stored is not None
+    assert stored.first_seen == datetime(2026, 2, 1, tzinfo=UTC)
+    assert stored.last_updated == datetime(2026, 2, 11, tzinfo=UTC)
+
+
 def test_market_master_search_filters_by_venue_category_and_lifecycle() -> None:
     master = instruments_master.MarketMaster()
     asyncio.run(master.load_from_exchange(_MockAdapter(_load_market_specs())))

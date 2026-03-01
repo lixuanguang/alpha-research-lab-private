@@ -1,10 +1,12 @@
 # Alpha Research Lab — Data Plane MVP Implementation Plan
 
 > **Stage:** 2 of 8 · Entrypoint A: Data Collector  
-> **Prerequisite:** Foundation Stage (complete — 138 tests, all quality gates green)  
+> **Prerequisite:** Foundation Stage (complete — F1–F6 closed, quality gates green)  
 > **Focus:** Prediction market data collection via `pmxt` — polling + streaming connectors, bronze/silver storage, data quality automation, backfill/replay tooling  
 > **Estimated Effort:** 180–320 hours (single engineer)  
-> **Environment:** Python 3.11 (conda `py311`)
+> **Environment:** Python 3.11 (conda `py311`)  
+> **Implementation Status (as of March 1, 2026):** D1, D2, and D3 complete; D4–D6 pending  
+> **Current quality gate snapshot:** `ruff check .`, `mypy libs/core apps --strict`, `pytest -q` (`252 passed, 11 skipped`)
 
 ---
 

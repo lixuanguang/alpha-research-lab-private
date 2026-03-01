@@ -200,6 +200,43 @@ def test_trade_schema_matches_expected_columns_and_types(tmp_path: Path) -> None
     assert table.schema.field("ts_event").type == pa.timestamp("us", tz="UTC")
 
 
+def test_book_schema_matches_expected_columns_and_types(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    book = _make_book(
+        book_index=1,
+        venue="kalshi",
+        ts_event=datetime(2026, 2, 28, 12, 0, tzinfo=UTC),
+    )
+    writer.write_books([book])
+
+    table = reader.read_books(venue=None, start=None, end=None)
+
+    assert table.schema == storage_conventions.BOOK_PARQUET_SCHEMA
+    assert table.schema.field("bids_json").type == pa.string()
+    assert table.schema.field("ts_event").type == pa.timestamp("us", tz="UTC")
+
+
+def test_ohlcv_schema_matches_expected_columns_and_types(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    candle = _make_ohlcv(
+        candle_index=1,
+        venue="kalshi",
+        ts_event=datetime(2026, 2, 28, 12, 0, tzinfo=UTC),
+        resolution="1h",
+    )
+    writer.write_ohlcv([candle])
+
+    table = reader.read_ohlcv(venue=None, resolution=None, start=None, end=None)
+
+    assert table.schema == storage_conventions.OHLCV_PARQUET_SCHEMA
+    assert table.schema.field("open").type == pa.decimal128(20, 10)
+    assert table.schema.field("resolution").type == pa.string()
+
+
 def test_read_trades_returns_empty_table_when_dataset_missing(tmp_path: Path) -> None:
     reader = parquet_reader.ParquetEventReader(tmp_path)
 

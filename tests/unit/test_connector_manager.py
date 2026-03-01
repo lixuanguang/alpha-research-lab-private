@@ -86,6 +86,16 @@ def test_connector_manager_register_rejects_duplicates() -> None:
         manager.register(connector)
 
 
+def test_connector_manager_noop_start_stop_with_no_registered_connectors() -> None:
+    manager = connector_manager.ConnectorManager()
+
+    asyncio.run(manager.start_all())
+    asyncio.run(manager.stop_all())
+
+    assert manager.status() == {}
+    assert manager.metrics() == {}
+
+
 def test_connector_manager_start_and_stop_all() -> None:
     manager = connector_manager.ConnectorManager()
     first = _StubConnector("kalshi", "first")

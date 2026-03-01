@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime
 
 import apps.data_collector.connectors.market_refresh as connector_market_refresh
+import pytest
 
 import alpha_core.events.models as event_models
 import alpha_core.instruments.master as instrument_master
@@ -47,14 +49,28 @@ def _market(
 
 
 class _MockAdapter:
-    def __init__(self, markets: list[instrument_models.MarketSpec]) -> None:
+    def __init__(
+        self,
+        markets: list[instrument_models.MarketSpec],
+        *,
+        delay_seconds: float = 0.0,
+    ) -> None:
         self._markets = markets
+        self._delay_seconds = delay_seconds
 
     def venue_name(self) -> str:
         return "kalshi"
 
     async def fetch_markets(self) -> list[instrument_models.MarketSpec]:
+        if self._delay_seconds:
+            await asyncio.sleep(self._delay_seconds)
         return self._markets
+
+    async def fetch_markets_with_raw(
+        self,
+    ) -> tuple[list[instrument_models.MarketSpec], list[object]]:
+        markets = await self.fetch_markets()
+        return markets, [market.model_dump(mode="json") for market in markets]
 
 
 def test_market_refresh_registers_new_markets_and_emits_metadata_events() -> None:
@@ -63,7 +79,7 @@ def test_market_refresh_registers_new_markets_and_emits_metadata_events() -> Non
         _MockAdapter([_market("market-a")]), master, interval_seconds=60.0
     )
 
-    events = asyncio.run(poller.poll_once())
+    events = asyncio.run(poller.poll_once()).events
 
     stored = master.get_market("kalshi:market-a")
     assert stored is not None
@@ -77,7 +93,7 @@ def test_market_refresh_marks_new_markets_in_metadata_payload() -> None:
         _MockAdapter([_market("market-a")]), master, interval_seconds=60.0
     )
 
-    events = asyncio.run(poller.poll_once())
+    events = asyncio.run(poller.poll_once()).events
 
     assert len(events) == 1
     assert isinstance(events[0], event_models.CanonicalMetadataUpdate)
@@ -91,8 +107,8 @@ def test_market_refresh_ignores_unchanged_markets() -> None:
         _MockAdapter([market]), master, interval_seconds=60.0
     )
 
-    first_events = asyncio.run(poller.poll_once())
-    second_events = asyncio.run(poller.poll_once())
+    first_events = asyncio.run(poller.poll_once()).events
+    second_events = asyncio.run(poller.poll_once()).events
 
     assert len(first_events) == 1
     assert second_events == []
@@ -111,7 +127,7 @@ def test_market_refresh_emits_event_for_changed_market() -> None:
     )
 
     asyncio.run(first_poller.poll_once())
-    events = asyncio.run(second_poller.poll_once())
+    events = asyncio.run(second_poller.poll_once()).events
 
     assert len(events) == 1
     changed = events[0]
@@ -141,6 +157,37 @@ def test_market_refresh_ignores_first_seen_and_last_updated_diff_only() -> None:
     )
 
     asyncio.run(first_poller.poll_once())
-    events = asyncio.run(second_poller.poll_once())
+    events = asyncio.run(second_poller.poll_once()).events
 
     assert events == []
+
+
+def test_market_refresh_times_out_slow_fetch_calls() -> None:
+    master = instrument_master.MarketMaster()
+    poller = connector_market_refresh.MarketRefreshPoller(
+        _MockAdapter([_market("market-a")], delay_seconds=0.05),
+        master,
+        interval_seconds=60.0,
+        request_timeout_seconds=0.01,
+    )
+
+    with pytest.raises(TimeoutError, match="fetch_markets"):
+        asyncio.run(poller.poll_once())
+
+
+@pytest.mark.perf
+def test_market_refresh_cycle_meets_d1_latency_target() -> None:
+    master = instrument_master.MarketMaster()
+    markets = [_market(f"market-{index}") for index in range(100)]
+    poller = connector_market_refresh.MarketRefreshPoller(
+        _MockAdapter(markets),
+        master,
+        interval_seconds=60.0,
+    )
+
+    started = time.perf_counter()
+    events = asyncio.run(poller.poll_once()).events
+    elapsed = time.perf_counter() - started
+
+    assert len(events) == 100
+    assert elapsed < 5.0

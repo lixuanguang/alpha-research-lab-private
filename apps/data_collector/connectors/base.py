@@ -8,14 +8,37 @@ import inspect
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import TypeVar
 
 import alpha_core.events.models as event_models
 import apps.data_collector.connectors.metrics as connector_metrics
 
 EmitCallback = Callable[[list[event_models.CanonicalMarketEvent]], Awaitable[None] | None]
+_ResultT = TypeVar("_ResultT")
+
+
+@dataclass(slots=True)
+class PollingBatch:
+    """One polling result: canonical events plus bronze-ready raw payloads."""
+
+    events: list[event_models.CanonicalMarketEvent]
+    raw_payloads: dict[str, list[dict[str, object]]]
+
+
+def normalize_outcome_ids(outcome_ids: list[str]) -> list[str]:
+    """Normalize and deduplicate outcome ids while preserving order."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for outcome_id in outcome_ids:
+        cleaned = outcome_id.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
 
 
 class ConnectorState(StrEnum):
@@ -84,6 +107,20 @@ class BaseConnector(ABC):
         self._metrics.events_rejected += 1
         self._metrics.errors.append(message)
 
+    def record_runtime_error(self, message: str) -> None:
+        """Record a runtime error and transition connector state to error."""
+        self._record_error(message)
+
+    def _record_poll_failure(
+        self,
+        *,
+        scope: str,
+        outcome_id: str,
+        error: BaseException,
+    ) -> None:
+        self._metrics.events_rejected += 1
+        self._metrics.errors.append(f"{scope} poll failed for {outcome_id}: {error}")
+
     def _freeze_uptime(self) -> None:
         if self._started_at_monotonic is None:
             return
@@ -119,17 +156,46 @@ class PollingConnector(BaseConnector):
         *,
         venue: str,
         interval_seconds: float,
+        request_timeout_seconds: float | None = 10.0,
         emit: EmitCallback | None = None,
     ) -> None:
         super().__init__(venue=venue)
         if interval_seconds <= 0:
             raise ValueError("`interval_seconds` must be > 0")
+        if request_timeout_seconds is not None and request_timeout_seconds <= 0:
+            raise ValueError("`request_timeout_seconds` must be > 0 when configured")
         self.interval_seconds = interval_seconds
+        self.request_timeout_seconds = request_timeout_seconds
         self._emit = emit
 
     @abstractmethod
-    async def poll_once(self) -> list[event_models.CanonicalMarketEvent]:
-        """Execute one polling cycle and return canonical events."""
+    async def poll_once(self) -> PollingBatch:
+        """Execute one polling cycle and return canonical + raw payload batch."""
+
+    def event_types(self) -> list[str]:
+        """Return event type dataset keys emitted by this connector."""
+        return []
+
+    async def execute_cycle(self) -> PollingBatch:
+        """Execute one cycle and update connector metrics/emit callback."""
+        batch = await self.poll_once()
+        self._record_events(batch.events)
+        await self._emit_events(batch.events, self._emit)
+        return batch
+
+    async def _await_with_timeout(
+        self,
+        awaitable: Awaitable[_ResultT],
+        *,
+        operation: str,
+    ) -> _ResultT:
+        timeout_seconds = self.request_timeout_seconds
+        if timeout_seconds is None:
+            return await awaitable
+        try:
+            return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+        except TimeoutError as exc:
+            raise TimeoutError(f"{operation} timed out after {timeout_seconds:.2f}s") from exc
 
     async def start(self) -> None:
         if self.state in {ConnectorState.RUNNING, ConnectorState.RECONNECTING}:
@@ -150,9 +216,7 @@ class PollingConnector(BaseConnector):
         """Poll → normalise → emit, with sleep between cycles."""
         try:
             while not self._stop_event.is_set():
-                events = await self.poll_once()
-                self._record_events(events)
-                await self._emit_events(events, self._emit)
+                await self.execute_cycle()
                 try:
                     await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
                 except TimeoutError:

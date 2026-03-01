@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import click
 
+import alpha_core.adapters.pmxt_adapter as adapters_pmxt
 import alpha_core.config.loader as config_loader
 import alpha_core.config.secrets as config_secrets
+import apps.data_collector.runtime as collector_runtime
 
 
 @click.group()
@@ -32,12 +36,47 @@ def main() -> None:
     show_default=True,
     help="Fail fast when enabled venues are missing required credentials.",
 )
+@click.option(
+    "--execute/--plan-only",
+    default=False,
+    show_default=True,
+    help="Execute polling pipelines instead of only validating runtime configuration.",
+)
+@click.option(
+    "--once/--continuous",
+    default=True,
+    show_default=True,
+    help="Run one ingestion cycle or continue polling indefinitely.",
+)
+@click.option(
+    "--max-outcomes-per-venue",
+    type=int,
+    default=50,
+    show_default=True,
+    help="Upper bound of outcomes to poll per venue when execution is enabled.",
+)
+@click.option(
+    "--request-timeout-seconds",
+    type=float,
+    default=10.0,
+    show_default=True,
+    help="Per-request timeout applied to venue polling calls.",
+)
 def run_command(
     environment: str | None,
     apply_user_settings: bool,
     validate_secrets: bool,
+    execute: bool,
+    once: bool,
+    max_outcomes_per_venue: int,
+    request_timeout_seconds: float,
 ) -> None:
-    """Validate runtime configuration and print the active collection scope."""
+    """Validate runtime configuration and optionally execute polling pipelines."""
+    if max_outcomes_per_venue <= 0:
+        raise click.ClickException("`--max-outcomes-per-venue` must be > 0.")
+    if request_timeout_seconds <= 0:
+        raise click.ClickException("`--request-timeout-seconds` must be > 0.")
+
     settings = config_loader.load_settings(
         environment=environment,
         apply_user_settings=apply_user_settings,
@@ -50,6 +89,28 @@ def run_command(
     click.echo(
         "Run configuration ready "
         f"(environment={environment or 'default'}, venues={','.join(enabled_venues)})"
+    )
+    if not execute:
+        click.echo("Execution mode: plan-only (pass --execute to start pipelines).")
+        return
+
+    try:
+        completed_runs = asyncio.run(
+            collector_runtime.run_polling_pipelines(
+                settings,
+                once=once,
+                max_outcomes_per_venue=max_outcomes_per_venue,
+                request_timeout_seconds=request_timeout_seconds,
+                adapter_factory=adapters_pmxt.PmxtAdapter,
+                emit=lambda message, is_error: click.echo(message, err=is_error),
+            )
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(
+        "Execution complete "
+        f"(mode={'once' if once else 'continuous'}, successful_runs={completed_runs})"
     )
 
 

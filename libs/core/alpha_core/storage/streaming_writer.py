@@ -63,8 +63,7 @@ class StreamingParquetWriter:
     def append(self, event: event_models.CanonicalMarketEvent) -> None:
         if not isinstance(event, _SUPPORTED_EVENT_TYPES):
             raise TypeError(
-                "Unsupported event type for streaming parquet writer: "
-                f"{type(event).__name__}"
+                f"Unsupported event type for streaming parquet writer: {type(event).__name__}"
             )
         self._raise_if_background_flush_failed()
         with self._lock:

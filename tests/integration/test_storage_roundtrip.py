@@ -53,7 +53,11 @@ def _make_book(*, ts_event: datetime) -> event_models.CanonicalBookSnapshot:
     return event_models.CanonicalBookSnapshot.model_validate(payload)
 
 
-def _make_ohlcv(*, ts_event: datetime) -> event_models.CanonicalOHLCV:
+def _make_ohlcv(
+    *,
+    ts_event: datetime,
+    resolution: str = "1h",
+) -> event_models.CanonicalOHLCV:
     payload: dict[str, object] = {
         "instrument_id": "kalshi:market-x:yes",
         "venue_id": "kalshi",
@@ -66,7 +70,7 @@ def _make_ohlcv(*, ts_event: datetime) -> event_models.CanonicalOHLCV:
         "low": Decimal("0.49"),
         "close": Decimal("0.55"),
         "volume": Decimal("200"),
-        "resolution": "1h",
+        "resolution": resolution,
     }
     payload["event_id"] = ids_utils.generate_event_id(payload)
     return event_models.CanonicalOHLCV.model_validate(payload)
@@ -162,6 +166,52 @@ def test_storage_roundtrip_books_and_ohlcv_reader_paths(tmp_path: Path) -> None:
 
     assert books.num_rows == 1
     assert candles.num_rows == 2
+
+
+def test_storage_roundtrip_books_duckdb_preserves_bitemporal_order(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    ts_base = datetime(2026, 2, 28, 12, 0, tzinfo=UTC)
+    writer.write_books(
+        [
+            _make_book(ts_event=ts_base),
+            _make_book(ts_event=ts_base + timedelta(minutes=1)),
+        ]
+    )
+
+    analytics.register_silver("books")
+    table = analytics.query("SELECT ts_event, ts_record FROM silver_books ORDER BY ts_event")
+
+    assert table.num_rows == 2
+    ts_events = table.column("ts_event").to_pylist()
+    ts_records = table.column("ts_record").to_pylist()
+    assert all(
+        ts_event <= ts_record for ts_event, ts_record in zip(ts_events, ts_records, strict=True)
+    )
+
+
+def test_storage_roundtrip_ohlcv_duckdb_filters_resolution(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+
+    ts_base = datetime(2026, 2, 28, 12, 0, tzinfo=UTC)
+    writer.write_ohlcv(
+        [
+            _make_ohlcv(ts_event=ts_base, resolution="1h"),
+            _make_ohlcv(ts_event=ts_base + timedelta(hours=1), resolution="1h"),
+            _make_ohlcv(ts_event=ts_base, resolution="5m"),
+        ]
+    )
+
+    analytics.register_silver("ohlcv")
+    table = analytics.query(
+        "SELECT resolution, COUNT(*) AS row_count "
+        "FROM silver_ohlcv GROUP BY resolution ORDER BY resolution"
+    )
+
+    assert table.column("resolution").to_pylist() == ["1h", "5m"]
+    assert table.column("row_count").to_pylist() == [2, 1]
 
 
 def test_duckdb_query_rejects_non_read_only_sql(tmp_path: Path) -> None:

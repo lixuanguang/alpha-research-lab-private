@@ -68,6 +68,12 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         self._rejection_counts.clear()
 
     async def fetch_markets(self) -> list[instrument_models.MarketSpec]:
+        markets, _ = await self.fetch_markets_with_raw()
+        return markets
+
+    async def fetch_markets_with_raw(
+        self,
+    ) -> tuple[list[instrument_models.MarketSpec], list[object]]:
         raw_markets = cast(list[object], await self._invoke_exchange("fetch_markets"))
         self._outcome_market_index.clear()
 
@@ -86,7 +92,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             mapped_markets.append(market)
 
         self._log_rejection_summary("markets", dropped)
-        return mapped_markets
+        return mapped_markets, raw_markets
 
     async def fetch_trades(
         self,
@@ -94,6 +100,19 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         since: datetime | None = None,
         limit: int = 100,
     ) -> list[event_models.CanonicalTrade]:
+        trades, _ = await self.fetch_trades_with_raw(
+            outcome_id,
+            since=since,
+            limit=limit,
+        )
+        return trades
+
+    async def fetch_trades_with_raw(
+        self,
+        outcome_id: str,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalTrade], list[object]]:
         instrument_id = self._instrument_id(outcome_id)
         raw_trades = cast(
             list[object],
@@ -122,9 +141,16 @@ class PmxtAdapter(adapters_base.VenueAdapter):
                 continue
 
         self._log_rejection_summary("trades", dropped)
-        return mapped
+        return mapped, raw_trades
 
     async def fetch_order_book(self, outcome_id: str) -> event_models.CanonicalBookSnapshot:
+        book, _ = await self.fetch_order_book_with_raw(outcome_id)
+        return book
+
+    async def fetch_order_book_with_raw(
+        self,
+        outcome_id: str,
+    ) -> tuple[event_models.CanonicalBookSnapshot, object]:
         instrument_id = self._instrument_id(outcome_id)
         raw_book = await self._invoke_exchange("fetch_order_book", outcome_id)
         dropped: Counter[str] = Counter()
@@ -175,11 +201,10 @@ class PmxtAdapter(adapters_base.VenueAdapter):
             self._record_rejection_count("book", "invalid_payload", 1, dropped)
             self._log_rejection_summary("book", dropped)
             raise ValueError(
-                "Invalid order book payload for "
-                f"venue `{self._venue}` and outcome `{outcome_id}`"
+                f"Invalid order book payload for venue `{self._venue}` and outcome `{outcome_id}`"
             ) from exc
         self._log_rejection_summary("book", dropped)
-        return book
+        return book, raw_book
 
     async def fetch_ohlcv(
         self,
@@ -187,6 +212,19 @@ class PmxtAdapter(adapters_base.VenueAdapter):
         resolution: str = "1h",
         limit: int = 100,
     ) -> list[event_models.CanonicalOHLCV]:
+        candles, _ = await self.fetch_ohlcv_with_raw(
+            outcome_id,
+            resolution=resolution,
+            limit=limit,
+        )
+        return candles
+
+    async def fetch_ohlcv_with_raw(
+        self,
+        outcome_id: str,
+        resolution: str = "1h",
+        limit: int = 100,
+    ) -> tuple[list[event_models.CanonicalOHLCV], list[object]]:
         raw_ohlcv = cast(
             list[object],
             await self._invoke_exchange(
@@ -230,7 +268,7 @@ class PmxtAdapter(adapters_base.VenueAdapter):
                 self._record_rejection_count("ohlcv", "invalid_event", 1, dropped)
 
         self._log_rejection_summary("ohlcv", dropped)
-        return mapped
+        return mapped, raw_ohlcv
 
     def _instrument_id(self, outcome_id: str) -> str:
         return pmxt_mapping.resolve_instrument_id(
