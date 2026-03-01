@@ -1,12 +1,12 @@
 # Alpha Research Lab — Data Plane MVP Implementation Plan
 
 > **Stage:** 2 of 8 · Entrypoint A: Data Collector  
-> **Prerequisite:** Foundation Stage (complete — F1–F6 closed, quality gates green)  
+> **Prerequisite:** Foundation Stage (complete — F1–F6 + microstructure foundation addendum 11.1-11.5 closed, quality gates green)  
 > **Focus:** Prediction market data collection via `pmxt` — polling + streaming connectors, bronze/silver storage, data quality automation, backfill/replay tooling  
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Implementation Status (as of March 2, 2026):** D1, D2, D3, D4, D5, and D6 complete  
-> **Current quality gate snapshot (validated March 2, 2026):** `ruff check .` (pass), `mypy libs/core --strict` (pass), `pytest tests/ -v` (`492 passed, 8 skipped`).
+> **Current quality gate snapshot (validated March 2, 2026):** `ruff check .` (pass), `mypy libs/core --strict` (pass), `pytest tests/ -v` (`495 passed, 8 skipped`).
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---

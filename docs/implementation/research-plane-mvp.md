@@ -1,7 +1,7 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete) + Data Plane MVP (complete — 460 tests, all quality gates green)  
+> **Prerequisites:** Foundation (complete, including microstructure foundation addendum 11.1-11.5) + Data Plane MVP (complete — 495 passed, 8 skipped; quality gates green)  
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)

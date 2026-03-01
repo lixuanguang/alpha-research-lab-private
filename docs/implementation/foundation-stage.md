@@ -22,7 +22,7 @@
 8. [Codebase Evolution Roadmap](#8-codebase-evolution-roadmap)
 9. [Dependencies & Environment](#9-dependencies--environment)
 10. [Conventions & Standards](#10-conventions--standards)
-11. [Microstructure Foundation Extension (Optional Addendum)](#11-microstructure-foundation-extension-optional-addendum)
+11. [Microstructure Foundation Extension (Completed Addendum)](#11-microstructure-foundation-extension-completed-addendum)
 
 ---
 
@@ -45,9 +45,9 @@ Deliver the **repo scaffold, canonical data model, instrument master, configurat
 ### Implementation Status (as of March 2, 2026)
 
 - Current stage: **Foundation complete and closed**
-- Completed steps: **F1, F2, F3, F4, F5, F6**
+- Completed steps: **F1, F2, F3, F4, F5, F6 + addendum 11.1-11.5**
 - Remaining foundation steps: **None**
-- Current quality gate snapshot: `ruff check .` and `mypy libs/core --strict` passing locally; `pytest tests/ -v` is green (`492 passed, 8 skipped`)
+- Current quality gate snapshot: `ruff check .` and `mypy libs/core --strict` passing locally; `pytest tests/ -v` is green (`495 passed, 8 skipped`)
 - Foundation artifact lock added: `data/schemas/canonical_event_v1.json` and `tests/unit/test_foundation_requirements.py`
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 - Post-foundation maintenance note: config loading internals are now split across `alpha_core.config._merge` and `alpha_core.config._overrides`, with `alpha_core.config.loader` kept as the public orchestration entrypoint
@@ -711,16 +711,16 @@ scripts/bootstrap.sh, scripts/validate_env.py
 
 The Foundation Stage is **complete** when all of the following are true:
 
-- [ ] `conda activate py311 && pip install -e ".[dev]"` succeeds
-- [ ] `ruff check . && mypy libs/ --strict` — 0 errors
-- [ ] `pytest tests/ -v` — all tests green, ≥ 85% coverage on `libs/core/`
-- [ ] All 7 `pmxt` venues have adapter stubs that map to canonical models
-- [ ] `MarketMaster` can load, search, persist, and restore market metadata
-- [ ] Parquet write → read → DuckDB query pipeline works end-to-end
-- [ ] Config system loads defaults + venue configs + env overrides
-- [ ] All 3 app entry points (`data_collector`, `live_system`, `research`) run `--help`
-- [ ] CI pipeline green on GitHub Actions
-- [ ] ADR docs explain key architectural decisions
+- [x] `conda activate py311 && pip install -e ".[dev]"` succeeds
+- [x] `ruff check . && mypy libs/ --strict` — 0 errors
+- [x] `pytest tests/ -v` — all tests green, ≥ 85% coverage on `libs/core/`
+- [x] All 7 `pmxt` venues have adapter stubs that map to canonical models
+- [x] `MarketMaster` can load, search, persist, and restore market metadata
+- [x] Parquet write → read → DuckDB query pipeline works end-to-end
+- [x] Config system loads defaults + venue configs + env overrides
+- [x] All 3 app entry points (`data_collector`, `live_system`, `research`) run `--help`
+- [x] CI pipeline green on GitHub Actions
+- [x] ADR docs explain key architectural decisions
 
 ---
 
@@ -1045,11 +1045,11 @@ All significant decisions are recorded in `docs/adr/` following the format:
 
 ---
 
-## 11. Microstructure Foundation Extension (Optional Addendum)
+## 11. Microstructure Foundation Extension (Completed Addendum)
 
-Foundation is complete; this addendum defines optional foundational upgrades needed for queue/OFI/Hawkes research quality.
+Foundation is complete; this completed addendum delivers foundational upgrades needed for queue/OFI/Hawkes research quality.
 
-Estimated additional effort: 20-40 hours.
+Delivered additional effort: ~20-40 hours.
 
 ### 11.1 F3 Extension: Canonical Event Model Enhancements
 
