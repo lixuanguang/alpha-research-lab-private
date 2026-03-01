@@ -119,6 +119,7 @@ Kalshi · KalshiDemo · Polymarket · Limitless · Baozi · Myriad · Probable
 |---|---|
 | [Research Signals Guide](docs/guides/research-signals-guide.md) | Signal lifecycle, PM signal taxonomy, stage-by-stage microstructure workflow |
 | [Notebook to Modules/CLI Migration Guide](docs/guides/notebook-to-modules-cli-migration-guide.md) | How to promote stable notebook logic into tested modules and CLI pipelines |
+| [Gold Dataset Collection And Streaming Guide](docs/guides/gold-dataset-collection-streaming-guide.md) | Current-architecture runbook for bronze/silver collection and practical gold materialization patterns |
 
 ---
 

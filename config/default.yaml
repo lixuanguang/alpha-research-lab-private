@@ -30,7 +30,7 @@ venues:
     enabled: true
     api_key_env: ALPHA_POLYMARKET_API_KEY
     private_key_env: ALPHA_POLYMARKET_PRIVATE_KEY
-    rate_limit_rpm: 120
+    rate_limit_rpm: 90000
   - name: limitless
     exchange_class: Limitless
     enabled: true

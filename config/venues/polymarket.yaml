@@ -1,6 +1,6 @@
 name: polymarket
 exchange_class: Polymarket
-rate_limit_rpm: 120
+rate_limit_rpm: 90000
 collection:
   mode: poll
   trade_poll_interval: 30
