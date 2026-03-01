@@ -6,7 +6,8 @@ import asyncio
 import time
 from datetime import UTC, datetime
 
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.rate_limiter as connector_rate_limiter
 import apps.data_collector.connectors.scheduler as connector_scheduler
 
@@ -26,7 +27,7 @@ def _metadata_event() -> event_models.CanonicalMetadataUpdate:
     )
 
 
-class _StubPollingConnector(connector_base.PollingConnector):
+class _StubPollingConnector(connector_polling.PollingConnector):
     def __init__(
         self,
         venue: str,
@@ -44,18 +45,18 @@ class _StubPollingConnector(connector_base.PollingConnector):
     def connector_id(self) -> str:
         return f"{self.venue}:{self._name}"
 
-    async def poll_once(self) -> connector_base.PollingBatch:
+    async def poll_once(self) -> connector_types.PollingBatch:
         self.poll_count += 1
         if self._delay_seconds:
             await asyncio.sleep(self._delay_seconds)
-        return connector_base.PollingBatch(
+        return connector_types.PollingBatch(
             events=[_metadata_event()],
             raw_payloads={},
         )
 
 
 class _FailingPollingConnector(_StubPollingConnector):
-    async def poll_once(self) -> connector_base.PollingBatch:
+    async def poll_once(self) -> connector_types.PollingBatch:
         raise RuntimeError("boom")
 
 
@@ -150,7 +151,7 @@ def test_scheduler_run_once_isolates_failures() -> None:
     results = asyncio.run(scheduler.run_once())
 
     assert set(results.keys()) == {"kalshi:good"}
-    assert connectors[0].state == connector_base.ConnectorState.ERROR
+    assert connectors[0].state == connector_types.ConnectorState.ERROR
     assert "scheduled poll failed" in connectors[0].metrics().errors[0]
 
 

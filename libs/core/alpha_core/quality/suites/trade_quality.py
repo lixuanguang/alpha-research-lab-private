@@ -7,10 +7,10 @@ from datetime import UTC, datetime
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 
-from alpha_core.quality.base import QualityExpectation, QualityResult, QualitySuite
+import alpha_core.quality.base as quality_base
 
 
-class NullRateExpectation(QualityExpectation):
+class NullRateExpectation(quality_base.QualityExpectation):
     """Fail if null rate exceeds threshold for any of the specified columns."""
 
     name = "null_rate"
@@ -26,9 +26,9 @@ class NullRateExpectation(QualityExpectation):
         self._threshold = threshold
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         if table.num_rows == 0:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -44,7 +44,7 @@ class NullRateExpectation(QualityExpectation):
             if rate > self._threshold:
                 violations[col] = rate
         passed = len(violations) == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -52,7 +52,7 @@ class NullRateExpectation(QualityExpectation):
         )
 
 
-class PriceBoundsExpectation(QualityExpectation):
+class PriceBoundsExpectation(quality_base.QualityExpectation):
     """All trade prices must be in [0.0, 1.0]."""
 
     name = "price_bounds"
@@ -60,9 +60,9 @@ class PriceBoundsExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "fail") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         if table.num_rows == 0 or "price" not in table.schema.names:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -70,11 +70,9 @@ class PriceBoundsExpectation(QualityExpectation):
             )
         # Cast to float64 for numeric comparison (decimal128 → float)
         prices = table.column("price").cast(pa.float64())
-        out_of_bounds = pc.sum(
-            pc.or_(pc.less(prices, 0.0), pc.greater(prices, 1.0))
-        ).as_py()
+        out_of_bounds = pc.sum(pc.or_(pc.less(prices, 0.0), pc.greater(prices, 1.0))).as_py()
         passed = out_of_bounds == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -82,7 +80,7 @@ class PriceBoundsExpectation(QualityExpectation):
         )
 
 
-class MonotonicTimestampExpectation(QualityExpectation):
+class MonotonicTimestampExpectation(quality_base.QualityExpectation):
     """ts_event must be non-decreasing within each instrument stream."""
 
     name = "monotonic_timestamp"
@@ -90,16 +88,16 @@ class MonotonicTimestampExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "warn") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         if table.num_rows < 2 or "ts_event" not in table.schema.names:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
                 details={"note": "insufficient rows"},
             )
         if "instrument_id" not in table.schema.names:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -115,7 +113,7 @@ class MonotonicTimestampExpectation(QualityExpectation):
                 if ts[i] < ts[i - 1]:
                     violations += 1
         passed = violations == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -123,7 +121,7 @@ class MonotonicTimestampExpectation(QualityExpectation):
         )
 
 
-class DuplicateTradeIdExpectation(QualityExpectation):
+class DuplicateTradeIdExpectation(quality_base.QualityExpectation):
     """No duplicate trade_ids within a partition."""
 
     name = "duplicate_trade_id"
@@ -131,9 +129,9 @@ class DuplicateTradeIdExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "fail") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         if table.num_rows == 0 or "trade_id" not in table.schema.names:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -143,7 +141,7 @@ class DuplicateTradeIdExpectation(QualityExpectation):
         unique = table.column("trade_id").unique().to_pylist()
         duplicates = total - len(unique)
         passed = duplicates == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -151,7 +149,7 @@ class DuplicateTradeIdExpectation(QualityExpectation):
         )
 
 
-class StaleDataExpectation(QualityExpectation):
+class StaleDataExpectation(quality_base.QualityExpectation):
     """Warn if latest ts_event is older than max_age_hours."""
 
     name = "stale_data"
@@ -160,9 +158,9 @@ class StaleDataExpectation(QualityExpectation):
         self._max_age_hours = max_age_hours
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         if table.num_rows == 0 or "ts_event" not in table.schema.names:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -175,7 +173,7 @@ class StaleDataExpectation(QualityExpectation):
         now = datetime.now(UTC)
         age_hours = (now - latest_raw).total_seconds() / 3600.0 if latest_raw else float("inf")
         passed = age_hours <= self._max_age_hours
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -183,7 +181,7 @@ class StaleDataExpectation(QualityExpectation):
         )
 
 
-class BitemporalOrderExpectation(QualityExpectation):
+class BitemporalOrderExpectation(quality_base.QualityExpectation):
     """ts_event <= ts_record for all rows."""
 
     name = "bitemporal_order"
@@ -191,20 +189,18 @@ class BitemporalOrderExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "fail") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         missing = {"ts_event", "ts_record"} - set(table.schema.names)
         if table.num_rows == 0 or missing:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
                 details={"note": "empty table or missing columns", "missing": list(missing)},
             )
-        violations = pc.sum(
-            pc.greater(table.column("ts_event"), table.column("ts_record"))
-        ).as_py()
+        violations = pc.sum(pc.greater(table.column("ts_event"), table.column("ts_record"))).as_py()
         passed = violations == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -212,7 +208,7 @@ class BitemporalOrderExpectation(QualityExpectation):
         )
 
 
-TRADE_SUITE = QualitySuite(
+TRADE_SUITE = quality_base.QualitySuite(
     "silver_trades",
     [
         NullRateExpectation(

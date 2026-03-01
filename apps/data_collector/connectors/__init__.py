@@ -1,6 +1,9 @@
 """Data collector connector framework."""
 
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._lifecycle as connector_lifecycle
+import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.connectors._streaming as connector_streaming
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.book_poller as connector_book_poller
 import apps.data_collector.connectors.book_stream as connector_book_stream
 import apps.data_collector.connectors.heartbeat as connector_heartbeat
@@ -17,19 +20,22 @@ import apps.data_collector.connectors.trade_poller as connector_trade_poller
 import apps.data_collector.connectors.trade_stream as connector_trade_stream
 
 __all__ = [
-    "connector_base",
     "connector_book_poller",
     "connector_book_stream",
     "connector_heartbeat",
+    "connector_lifecycle",
     "connector_manager",
     "connector_market_refresh",
     "connector_metrics",
     "connector_ohlcv_poller",
     "connector_outcome_selector",
+    "connector_polling",
     "connector_rate_limiter",
     "connector_raw_payloads",
     "connector_reconnection",
     "connector_scheduler",
+    "connector_streaming",
     "connector_trade_poller",
     "connector_trade_stream",
+    "connector_types",
 ]

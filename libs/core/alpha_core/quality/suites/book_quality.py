@@ -6,10 +6,10 @@ import json
 
 import pyarrow as pa  # type: ignore[import-untyped]
 
-from alpha_core.quality.base import QualityExpectation, QualityResult, QualitySuite
+import alpha_core.quality.base as quality_base
 
 
-class CrossedBookExpectation(QualityExpectation):
+class CrossedBookExpectation(quality_base.QualityExpectation):
     """Best bid must be strictly less than best ask; no crossed books."""
 
     name = "crossed_book"
@@ -17,10 +17,10 @@ class CrossedBookExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "fail") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         missing = {"bids_json", "asks_json"} - set(table.schema.names)
         if table.num_rows == 0 or missing:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -37,7 +37,7 @@ class CrossedBookExpectation(QualityExpectation):
             if best_bid >= best_ask:
                 crossed += 1
         passed = crossed == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -45,7 +45,7 @@ class CrossedBookExpectation(QualityExpectation):
         )
 
 
-class EmptyBookExpectation(QualityExpectation):
+class EmptyBookExpectation(quality_base.QualityExpectation):
     """Warn if both bids and asks are empty in any snapshot."""
 
     name = "empty_book"
@@ -53,10 +53,10 @@ class EmptyBookExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "warn") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         missing = {"bids_json", "asks_json"} - set(table.schema.names)
         if table.num_rows == 0 or missing:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -69,7 +69,7 @@ class EmptyBookExpectation(QualityExpectation):
             if not bids and not asks:
                 empty_count += 1
         passed = empty_count == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -77,7 +77,7 @@ class EmptyBookExpectation(QualityExpectation):
         )
 
 
-class PriceLevelOrderExpectation(QualityExpectation):
+class PriceLevelOrderExpectation(quality_base.QualityExpectation):
     """Bids must be descending; asks must be ascending by price."""
 
     name = "price_level_order"
@@ -85,10 +85,10 @@ class PriceLevelOrderExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "fail") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         missing = {"bids_json", "asks_json"} - set(table.schema.names)
         if table.num_rows == 0 or missing:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -105,7 +105,7 @@ class PriceLevelOrderExpectation(QualityExpectation):
             if any(asks[i] > asks[i + 1] for i in range(len(asks) - 1)):
                 violations += 1
         passed = violations == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -113,7 +113,7 @@ class PriceLevelOrderExpectation(QualityExpectation):
         )
 
 
-BOOK_SUITE = QualitySuite(
+BOOK_SUITE = quality_base.QualitySuite(
     "silver_books",
     [
         CrossedBookExpectation(severity="fail"),

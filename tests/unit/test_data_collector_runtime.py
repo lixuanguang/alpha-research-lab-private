@@ -6,7 +6,8 @@ import asyncio
 from datetime import UTC, datetime
 from typing import cast
 
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.rate_limiter as connector_rate_limiter
 import apps.data_collector.pipeline as collector_pipeline
 import apps.data_collector.runtime as collector_runtime
@@ -161,7 +162,7 @@ class _FakePipeline:
         )
 
 
-class _StubPollingConnector(connector_base.PollingConnector):
+class _StubPollingConnector(connector_polling.PollingConnector):
     def __init__(self, venue: str, connector_id: str, interval_seconds: float) -> None:
         super().__init__(venue=venue, interval_seconds=interval_seconds)
         self._connector_id = connector_id
@@ -170,7 +171,7 @@ class _StubPollingConnector(connector_base.PollingConnector):
     def connector_id(self) -> str:
         return self._connector_id
 
-    async def poll_once(self) -> connector_base.PollingBatch:
+    async def poll_once(self) -> connector_types.PollingBatch:
         raise AssertionError(
             "Runtime scheduler callback should execute pipeline, not poller directly"
         )

@@ -6,7 +6,8 @@ from collections.abc import AsyncIterator
 from typing import Protocol
 
 import alpha_core.events.models as event_models
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._lifecycle as connector_lifecycle
+import apps.data_collector.connectors._streaming as connector_streaming
 import apps.data_collector.connectors.heartbeat as connector_heartbeat
 import apps.data_collector.connectors.reconnection as connector_reconnection
 
@@ -21,7 +22,7 @@ class BookWatchAdapter(Protocol):
     ) -> AsyncIterator[event_models.CanonicalBookSnapshot]: ...
 
 
-class BookStreamConnector(connector_base.OutcomeStreamingConnector):
+class BookStreamConnector(connector_streaming.OutcomeStreamingConnector):
     """Streams order book snapshots via an adapter's ``watch_order_book``.
 
     Design mirrors :class:`TradeStreamConnector` — one task per outcome, with
@@ -46,7 +47,7 @@ class BookStreamConnector(connector_base.OutcomeStreamingConnector):
         reconnect_backoff_max: float = 60.0,
         heartbeat_timeout: float = 120.0,
         heartbeat_monitor: connector_heartbeat.HeartbeatMonitor | None = None,
-        emit: connector_base.EmitCallback | None = None,
+        emit: connector_lifecycle.EmitCallback | None = None,
     ) -> None:
         self._policy = connector_reconnection.ReconnectionPolicy(
             base=reconnect_backoff_base,

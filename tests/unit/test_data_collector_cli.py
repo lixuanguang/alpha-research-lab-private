@@ -8,6 +8,8 @@ import apps.data_collector.main as data_collector_main
 import click.testing as click_testing
 import pytest
 
+import alpha_core.storage.lineage as storage_lineage
+
 
 @pytest.fixture
 def temp_cli_repo(tmp_path: Path) -> Path:
@@ -109,10 +111,38 @@ def test_status_backfill_and_detect_gaps_commands_return_expected_output(
     assert status_result.exit_code == 0
     assert "Enabled venues (1): polymarket" in status_result.output
     assert "Disabled venues (1): kalshi" in status_result.output
+    assert "Runtime metrics (24h): no ingestion runs recorded." in status_result.output
     assert backfill_result.exit_code != 0
-    assert "not implemented in D4" in backfill_result.output
+    assert "not implemented yet (pending D6)" in backfill_result.output
     assert detect_gaps_result.exit_code != 0
-    assert "not implemented in D4" in detect_gaps_result.output
+    assert "not implemented yet (pending D6)" in detect_gaps_result.output
+
+
+def test_status_command_reports_recent_runtime_metrics(temp_cli_repo: Path) -> None:
+    lineage_store = storage_lineage.LineageStore(temp_cli_repo / "data")
+    run = lineage_store.start_run(
+        venue="polymarket",
+        connector_type="polling",
+        event_types=["trades"],
+    )
+    lineage_store.complete_run(
+        run.run_id,
+        counts={"events_raw": 12, "events_silver": 11, "rejected": 1},
+        errors=[],
+    )
+
+    runner = click_testing.CliRunner()
+    status_result = runner.invoke(
+        data_collector_main.main,
+        ["status"],
+        env=_cli_env(temp_cli_repo),
+    )
+
+    assert status_result.exit_code == 0
+    assert "Runtime metrics (24h): total_runs=1, completed=1, failed=0, running=0" in (
+        status_result.output
+    )
+    assert "Recent run: venue=polymarket, status=completed" in status_result.output
 
 
 def test_run_command_execute_path_reports_completion(

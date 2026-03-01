@@ -47,6 +47,9 @@ class GapDetector:
         max_gap_seconds: float = 3600.0,
     ) -> list[TimeGap]:
         """Return windows where no trades exist for longer than max_gap_seconds."""
+        _validate_window(start=start, end=end)
+        if max_gap_seconds <= 0:
+            raise ValueError("`max_gap_seconds` must be > 0")
         table = self._reader.read_trades(venue=venue, start=start, end=end)
         if "instrument_id" in table.schema.names:
             table = table.filter(pc.equal(table.column("instrument_id"), outcome_id))
@@ -90,12 +93,11 @@ class GapDetector:
         end: datetime,
     ) -> list[TimeGap]:
         """Return missing candle periods based on the expected resolution cadence."""
+        _validate_window(start=start, end=end)
         candle_seconds = _RESOLUTION_SECONDS.get(resolution)
         if candle_seconds is None:
             valid = list(_RESOLUTION_SECONDS)
-            raise ValueError(
-                f"Unknown resolution '{resolution}'. Expected one of {valid}"
-            )
+            raise ValueError(f"Unknown resolution '{resolution}'. Expected one of {valid}")
 
         table = self._reader.read_ohlcv(venue=venue, resolution=resolution, start=start, end=end)
         if "instrument_id" in table.schema.names:
@@ -131,10 +133,16 @@ class GapDetector:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ensure_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
-    return dt
+    return dt.astimezone(UTC)
+
+
+def _validate_window(*, start: datetime, end: datetime) -> None:
+    if _ensure_utc(end) <= _ensure_utc(start):
+        raise ValueError("`end` must be later than `start`")
 
 
 def _floor_to_resolution(dt: datetime, candle_seconds: float) -> datetime:

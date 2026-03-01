@@ -7,14 +7,14 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 
 import alpha_core.events.models as event_models
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
 import apps.data_collector.connectors.rate_limiter as connector_rate_limiter
 
 ExecuteConnector = Callable[
-    [connector_base.PollingConnector],
+    [connector_polling.PollingConnector],
     Awaitable[list[event_models.CanonicalMarketEvent]],
 ]
-ErrorHandler = Callable[[connector_base.PollingConnector, BaseException], None]
+ErrorHandler = Callable[[connector_polling.PollingConnector, BaseException], None]
 
 
 class PollingScheduler:
@@ -22,7 +22,7 @@ class PollingScheduler:
 
     def __init__(
         self,
-        connectors: Sequence[connector_base.PollingConnector],
+        connectors: Sequence[connector_polling.PollingConnector],
         rate_limiters: dict[str, connector_rate_limiter.TokenBucketRateLimiter],
         execute_connector: ExecuteConnector | None = None,
         on_error: ErrorHandler | None = None,
@@ -82,7 +82,7 @@ class PollingScheduler:
             venues = ", ".join(missing_venues)
             raise ValueError(f"Missing rate limiter(s) for venue(s): {venues}")
 
-    def _due_connectors(self, now_monotonic: float) -> list[connector_base.PollingConnector]:
+    def _due_connectors(self, now_monotonic: float) -> list[connector_polling.PollingConnector]:
         return [
             connector
             for connector in self._connectors
@@ -97,7 +97,7 @@ class PollingScheduler:
 
     def _schedule_next_runs(
         self,
-        connectors: Sequence[connector_base.PollingConnector],
+        connectors: Sequence[connector_polling.PollingConnector],
         *,
         base_monotonic: float,
     ) -> None:
@@ -108,7 +108,7 @@ class PollingScheduler:
 
     async def _run_connectors(
         self,
-        connectors: Sequence[connector_base.PollingConnector],
+        connectors: Sequence[connector_polling.PollingConnector],
     ) -> dict[str, list[event_models.CanonicalMarketEvent]]:
         runs = [self._run_single_connector(connector) for connector in connectors]
         settled = await asyncio.gather(*runs, return_exceptions=True)
@@ -126,14 +126,14 @@ class PollingScheduler:
 
     async def _execute_default(
         self,
-        connector: connector_base.PollingConnector,
+        connector: connector_polling.PollingConnector,
     ) -> list[event_models.CanonicalMarketEvent]:
         batch = await connector.execute_cycle()
         return batch.events
 
     async def _run_single_connector(
         self,
-        connector: connector_base.PollingConnector,
+        connector: connector_polling.PollingConnector,
     ) -> tuple[str, list[event_models.CanonicalMarketEvent]]:
         rate_limiter = self._rate_limiters[connector.venue]
         await rate_limiter.acquire()

@@ -5,10 +5,10 @@ from __future__ import annotations
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 
-from alpha_core.quality.base import QualityExpectation, QualityResult, QualitySuite
+import alpha_core.quality.base as quality_base
 
 
-class OHLCVRangeExpectation(QualityExpectation):
+class OHLCVRangeExpectation(quality_base.QualityExpectation):
     """low <= open, close <= high; all OHLC values in [0, 1]."""
 
     name = "ohlcv_range"
@@ -16,11 +16,11 @@ class OHLCVRangeExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "fail") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         required = {"open", "high", "low", "close"}
         missing = required - set(table.schema.names)
         if table.num_rows == 0 or missing:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -39,7 +39,7 @@ class OHLCVRangeExpectation(QualityExpectation):
         any_violation = pc.or_(pc.or_(out_of_range, bad_open), pc.or_(bad_close, low_gt_high))
         violations = pc.sum(any_violation).as_py()
         passed = violations == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -47,7 +47,7 @@ class OHLCVRangeExpectation(QualityExpectation):
         )
 
 
-class VolumeNonNegativeExpectation(QualityExpectation):
+class VolumeNonNegativeExpectation(quality_base.QualityExpectation):
     """volume >= 0 for all candles."""
 
     name = "volume_non_negative"
@@ -55,9 +55,9 @@ class VolumeNonNegativeExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "fail") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         if table.num_rows == 0 or "volume" not in table.schema.names:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -66,7 +66,7 @@ class VolumeNonNegativeExpectation(QualityExpectation):
         volume = table.column("volume").cast(pa.float64())
         negatives = pc.sum(pc.less(volume, 0.0)).as_py()
         passed = negatives == 0
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -74,7 +74,7 @@ class VolumeNonNegativeExpectation(QualityExpectation):
         )
 
 
-class ResolutionConsistencyExpectation(QualityExpectation):
+class ResolutionConsistencyExpectation(quality_base.QualityExpectation):
     """All rows in a partition must share the same resolution value."""
 
     name = "resolution_consistency"
@@ -82,9 +82,9 @@ class ResolutionConsistencyExpectation(QualityExpectation):
     def __init__(self, *, severity: str = "fail") -> None:
         self.severity = severity  # type: ignore[assignment]
 
-    def validate(self, table: pa.Table) -> QualityResult:
+    def validate(self, table: pa.Table) -> quality_base.QualityResult:
         if table.num_rows == 0 or "resolution" not in table.schema.names:
-            return QualityResult(
+            return quality_base.QualityResult(
                 expectation_name=self.name,
                 passed=True,
                 severity=self.severity,
@@ -92,7 +92,7 @@ class ResolutionConsistencyExpectation(QualityExpectation):
             )
         unique_resolutions: list[str] = table.column("resolution").unique().to_pylist()
         passed = len(unique_resolutions) <= 1
-        return QualityResult(
+        return quality_base.QualityResult(
             expectation_name=self.name,
             passed=passed,
             severity=self.severity,
@@ -100,7 +100,7 @@ class ResolutionConsistencyExpectation(QualityExpectation):
         )
 
 
-OHLCV_SUITE = QualitySuite(
+OHLCV_SUITE = quality_base.QualitySuite(
     "silver_ohlcv",
     [
         OHLCVRangeExpectation(severity="fail"),

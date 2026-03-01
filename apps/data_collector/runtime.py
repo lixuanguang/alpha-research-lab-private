@@ -18,7 +18,7 @@ import alpha_core.instruments.models as instrument_models
 import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_writer as storage_parquet
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
 import apps.data_collector.connectors.book_poller as connector_book_poller
 import apps.data_collector.connectors.market_refresh as connector_market_refresh
 import apps.data_collector.connectors.ohlcv_poller as connector_ohlcv_poller
@@ -51,7 +51,7 @@ class PipelineContext:
 
 async def execute_pipeline_connector(
     context_by_connector_id: dict[str, PipelineContext],
-    connector: connector_base.PollingConnector,
+    connector: connector_polling.PollingConnector,
 ) -> list[event_models.CanonicalMarketEvent]:
     """Execute one pipeline for scheduler callback wiring."""
     context = context_by_connector_id[connector.connector_id]
@@ -64,7 +64,7 @@ async def execute_pipeline_connector(
 
 def emit_pipeline_error(
     emit: EmitMessage,
-    connector: connector_base.PollingConnector,
+    connector: connector_polling.PollingConnector,
     error: BaseException,
 ) -> None:
     """Emit scheduler execution errors with connector context."""
@@ -137,7 +137,7 @@ async def build_pipeline_contexts(
         outcome_ids = collect_outcome_ids(markets, max_outcomes_per_venue=max_outcomes_per_venue)
         rate_limiter = connector_rate_limiter.TokenBucketRateLimiter(rpm=venue.rate_limit_rpm)
 
-        connectors: list[connector_base.PollingConnector] = [
+        connectors: list[connector_polling.PollingConnector] = [
             connector_market_refresh.MarketRefreshPoller(
                 adapter,
                 market_master,

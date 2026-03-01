@@ -12,7 +12,8 @@ import alpha_core.events.quality as event_quality
 import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.streaming_writer as storage_streaming
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._streaming as connector_streaming
+import apps.data_collector.connectors._types as connector_types
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ _LOGGER = logging.getLogger(__name__)
 class StreamingPipeline:
     """Continuous: stream → quality filter → store bronze → buffer silver → flush.
 
-    The pipeline wires a :class:`~connector_base.StreamingConnector` to storage.
+    The pipeline wires a :class:`~connector_streaming.StreamingConnector` to storage.
     Events flow through the connector's ``emit`` callback and are:
 
     1. Quality-filtered by :class:`~event_quality.EventQualityChecker`.
@@ -41,7 +42,7 @@ class StreamingPipeline:
 
     def __init__(
         self,
-        connector: connector_base.StreamingConnector,
+        connector: connector_streaming.StreamingConnector,
         bronze_writer: storage_bronze.BronzeWriter,
         streaming_writer: storage_streaming.StreamingParquetWriter,
         quality_checker: event_quality.EventQualityChecker,
@@ -96,7 +97,7 @@ class StreamingPipeline:
                 _LOGGER.error("Streaming writer close error: %s", exc)
                 self._errors.append(f"streaming writer close error: {exc}")
 
-        if self._connector.state is connector_base.ConnectorState.ERROR and not self._errors:
+        if self._connector.state is connector_types.ConnectorState.ERROR and not self._errors:
             connector_errors = self._connector.metrics().errors
             if connector_errors:
                 self._errors.append(connector_errors[-1])
@@ -152,7 +153,7 @@ class StreamingPipeline:
                 except Exception as exc:
                     message = f"bronze write error: {exc}"
                     self._errors.append(message)
-                    raise connector_base.FatalConnectorError(message) from exc
+                    raise connector_types.FatalConnectorError(message) from exc
 
         # Silver: buffer into streaming writer (auto-flush on size/time).
         for event in valid:
@@ -162,7 +163,7 @@ class StreamingPipeline:
             except Exception as exc:
                 message = f"streaming writer error: {exc}"
                 self._errors.append(message)
-                raise connector_base.FatalConnectorError(message) from exc
+                raise connector_types.FatalConnectorError(message) from exc
 
     def _finalize_failed_run(self, *, run_id: str) -> storage_lineage.IngestionRun:
         self._lineage_store.fail_run(run_id, self._errors)

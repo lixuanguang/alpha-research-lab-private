@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._lifecycle as connector_lifecycle
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.manager as connector_manager
 import apps.data_collector.connectors.metrics as connector_metrics
 import pytest
 
 
-class _StubConnector(connector_base.BaseConnector):
+class _StubConnector(connector_lifecycle.BaseConnector):
     def __init__(self, venue: str, name: str) -> None:
         super().__init__(venue=venue)
         self._name = name
@@ -23,11 +24,11 @@ class _StubConnector(connector_base.BaseConnector):
 
     async def start(self) -> None:
         self.started = True
-        self.state = connector_base.ConnectorState.RUNNING
+        self.state = connector_types.ConnectorState.RUNNING
 
     async def stop(self) -> None:
         self.stopped = True
-        self.state = connector_base.ConnectorState.STOPPED
+        self.state = connector_types.ConnectorState.STOPPED
 
     def metrics(self) -> connector_metrics.ConnectorMetrics:
         return connector_metrics.ConnectorMetrics(events_received=1, events_normalised=1)
@@ -66,7 +67,7 @@ async def _capture_status_and_metrics(
     manager: connector_manager.ConnectorManager,
     connector: _StubConnector,
 ) -> tuple[
-    dict[str, connector_base.ConnectorState],
+    dict[str, connector_types.ConnectorState],
     dict[str, connector_metrics.ConnectorMetrics],
 ]:
     manager.register(connector)
@@ -111,7 +112,7 @@ def test_connector_manager_reports_status_and_metrics() -> None:
     connector = _StubConnector("kalshi", "status")
     statuses, metrics = asyncio.run(_capture_status_and_metrics(manager, connector))
 
-    assert statuses["kalshi:status"] == connector_base.ConnectorState.RUNNING
+    assert statuses["kalshi:status"] == connector_types.ConnectorState.RUNNING
     assert metrics["kalshi:status"].events_received == 1
 
 

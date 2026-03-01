@@ -11,7 +11,7 @@
 | Stage | Status | Tests | Docs |
 |---|---|---|---|
 | **Foundation** (F1–F6) | **Complete (closed)** | Covered by repo-wide quality gates | [Foundation Plan](docs/implementation/foundation-stage.md) |
-| **Data Plane MVP** (D1–D6) | **In Progress (D1–D4 complete)** | 322 passing, 8 skipped | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
+| **Data Plane MVP** (D1–D6) | **In Progress (D1–D5 complete)** | 406 passing, 8 skipped | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
 | Research Plane MVP | Planned | — | — |
 | Live Plane MVP | Planned | — | — |
 | Observability Baseline | Planned | — | — |
@@ -20,7 +20,7 @@
 **Quality gates (as of March 1, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/ apps/ --strict` — passing
-- `pytest -q` — 322 passed, 8 skipped in ~4s
+- `pytest -q` — 406 passed, 8 skipped in ~4s
 - Test coverage: 91.34% (`libs/core/alpha_core` + `apps/data_collector`)
 
 **Maintenance updates (March 1, 2026):**
@@ -29,7 +29,7 @@
   - `apps/data_collector/connectors/_lifecycle.py`
   - `apps/data_collector/connectors/_polling.py`
   - `apps/data_collector/connectors/_streaming.py`
-  - `apps/data_collector/connectors/base.py` remains as a compatibility facade
+  - Call sites now import connector internals directly; compatibility facade removed
 - Config loading internals were decomposed for SRP:
   - `libs/core/alpha_core/config/_merge.py`
   - `libs/core/alpha_core/config/_overrides.py`

@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Coroutine
 
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._lifecycle as connector_lifecycle
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.metrics as connector_metrics
 
 
@@ -13,9 +14,9 @@ class ConnectorManager:
     """Manages lifecycle of all connectors for all venues."""
 
     def __init__(self) -> None:
-        self._connectors: dict[str, connector_base.BaseConnector] = {}
+        self._connectors: dict[str, connector_lifecycle.BaseConnector] = {}
 
-    def register(self, connector: connector_base.BaseConnector) -> None:
+    def register(self, connector: connector_lifecycle.BaseConnector) -> None:
         if connector.connector_id in self._connectors:
             raise ValueError(f"Connector already registered: {connector.connector_id}")
         self._connectors[connector.connector_id] = connector
@@ -26,7 +27,7 @@ class ConnectorManager:
     async def stop_all(self) -> None:
         await self._run_all("stop", lambda connector: connector.stop())
 
-    def status(self) -> dict[str, connector_base.ConnectorState]:
+    def status(self) -> dict[str, connector_types.ConnectorState]:
         return {name: connector.state for name, connector in self._connectors.items()}
 
     def metrics(self) -> dict[str, connector_metrics.ConnectorMetrics]:
@@ -36,7 +37,7 @@ class ConnectorManager:
         self,
         action: str,
         operation: Callable[
-            [connector_base.BaseConnector],
+            [connector_lifecycle.BaseConnector],
             Coroutine[object, object, None],
         ],
     ) -> None:

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+import alpha_core.config._merge as config_merge
 import alpha_core.config.loader as config_loader
 import alpha_core.config.secrets as config_secrets
 
@@ -295,30 +296,30 @@ def test_set_nested_value_rejects_non_numeric_list_index() -> None:
     target = {"venues": [{"name": "polymarket", "rate_limit_rpm": 60}]}
 
     with pytest.raises(ValueError, match="numeric indices or existing `name` values"):
-        config_loader._set_nested_value(target, ["venues", "first", "rate_limit_rpm"], 120)
+        config_merge.set_nested_value(target, ["venues", "first", "rate_limit_rpm"], 120)
 
 
 def test_set_nested_value_rejects_out_of_range_list_index() -> None:
     target = {"venues": [{"name": "polymarket", "rate_limit_rpm": 60}]}
 
     with pytest.raises(IndexError, match="out of range"):
-        config_loader._set_nested_value(target, ["venues", "1", "rate_limit_rpm"], 120)
+        config_merge.set_nested_value(target, ["venues", "1", "rate_limit_rpm"], 120)
 
 
 def test_set_nested_value_rejects_non_container_path() -> None:
     target = {"log_level": "INFO"}
 
     with pytest.raises(TypeError, match="non-container"):
-        config_loader._set_nested_value(target, ["log_level", "level"], "DEBUG")
+        config_merge.set_nested_value(target, ["log_level", "level"], "DEBUG")
 
 
 def test_path_exists_supports_list_indices() -> None:
     target = {"venues": [{"name": "polymarket", "enabled": True}]}
 
-    assert config_loader._path_exists(target, ["venues", "0", "enabled"])
-    assert config_loader._path_exists(target, ["venues", "polymarket", "enabled"])
-    assert not config_loader._path_exists(target, ["venues", "x", "enabled"])
-    assert not config_loader._path_exists(target, ["venues", "9", "enabled"])
+    assert config_merge.path_exists(target, ["venues", "0", "enabled"])
+    assert config_merge.path_exists(target, ["venues", "polymarket", "enabled"])
+    assert not config_merge.path_exists(target, ["venues", "x", "enabled"])
+    assert not config_merge.path_exists(target, ["venues", "9", "enabled"])
 
 
 def test_load_settings_discovers_project_root_from_cwd(

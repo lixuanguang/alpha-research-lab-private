@@ -8,15 +8,17 @@ from unittest.mock import MagicMock
 import pyarrow as pa
 import pytest
 
-from alpha_core.quality.gap_detector import GapDetector
-from alpha_core.storage.parquet_reader import ParquetEventReader
+import alpha_core.quality.gap_detector as quality_gap_detector
+import alpha_core.storage.parquet_reader as storage_parquet_reader
 
 _START = datetime(2026, 3, 1, 0, 0, 0, tzinfo=UTC)
 _END = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
 
 
-def _mock_reader(trades_table: pa.Table, ohlcv_table: pa.Table | None = None) -> ParquetEventReader:
-    reader = MagicMock(spec=ParquetEventReader)
+def _mock_reader(
+    trades_table: pa.Table, ohlcv_table: pa.Table | None = None
+) -> storage_parquet_reader.ParquetEventReader:
+    reader = MagicMock(spec=storage_parquet_reader.ParquetEventReader)
     reader.read_trades.return_value = trades_table
     reader.read_ohlcv.return_value = ohlcv_table or pa.table(
         {
@@ -47,7 +49,7 @@ def _empty_trades_tbl() -> pa.Table:
 
 
 def _detect_trades(
-    detector: GapDetector,
+    detector: quality_gap_detector.GapDetector,
     *,
     end: datetime = _END,
     max_gap_seconds: float = 3600.0,
@@ -57,7 +59,9 @@ def _detect_trades(
     )
 
 
-def _detect_ohlcv(detector: GapDetector, *, resolution: str = "1h") -> list[object]:
+def _detect_ohlcv(
+    detector: quality_gap_detector.GapDetector, *, resolution: str = "1h"
+) -> list[object]:
     return detector.detect_ohlcv_gaps(
         "kalshi", "kalshi:m1:yes", resolution=resolution, start=_START, end=_END
     )
@@ -73,7 +77,7 @@ def test_no_gaps_returns_empty() -> None:
     # One event every 30 minutes across 12 hours
     ts = [_START + timedelta(minutes=30 * i) for i in range(25)]
     reader = _mock_reader(_ts_table(ts))
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_trades(detector)
     assert gaps == []
 
@@ -85,7 +89,7 @@ def test_single_gap_detected() -> None:
     # Only 1 internal gap: 11 hours
     ts = [_START + timedelta(minutes=30), _END - timedelta(minutes=30)]
     reader = _mock_reader(_ts_table(ts))
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_trades(detector)
     assert len(gaps) == 1
     t0, t1 = _START + timedelta(minutes=30), _END - timedelta(minutes=30)
@@ -99,7 +103,7 @@ def test_multiple_gaps_detected() -> None:
     """Three events with two gaps."""
     ts = [_START + timedelta(hours=1), _START + timedelta(hours=5), _START + timedelta(hours=11)]
     reader = _mock_reader(_ts_table(ts))
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_trades(detector)
     assert len(gaps) == 2
 
@@ -113,7 +117,7 @@ def test_entire_window_is_gap_when_no_data() -> None:
         }
     )
     reader = _mock_reader(empty)
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_trades(detector)
     assert len(gaps) == 1
     assert gaps[0].gap_start == _START
@@ -124,7 +128,7 @@ def test_leading_gap_detected() -> None:
     """First event is many hours after window start."""
     ts = [_START + timedelta(hours=8)]
     reader = _mock_reader(_ts_table(ts))
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_trades(detector)
     # Leading gap: 8h before first event
     leading = [g for g in gaps if g.gap_start == _START]
@@ -136,7 +140,7 @@ def test_trailing_gap_detected() -> None:
     """Last event is long before window end."""
     ts = [_START + timedelta(minutes=5)]
     reader = _mock_reader(_ts_table(ts))
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_trades(detector)
     trailing = [g for g in gaps if g.gap_end == _END]
     assert len(trailing) == 1
@@ -146,9 +150,12 @@ def test_gap_below_threshold_not_reported() -> None:
     """A gap smaller than max_gap_seconds should not be reported."""
     ts = [_START, _START + timedelta(minutes=30)]
     reader = _mock_reader(_ts_table(ts))
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = detector.detect_trade_gaps(
-        "kalshi", "kalshi:m1:yes", start=_START, end=_START + timedelta(hours=1),
+        "kalshi",
+        "kalshi:m1:yes",
+        start=_START,
+        end=_START + timedelta(hours=1),
         max_gap_seconds=7200.0,
     )
     assert gaps == []
@@ -164,10 +171,35 @@ def test_gap_filters_by_outcome_id() -> None:
         }
     )
     reader = _mock_reader(tbl)
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_trades(detector)
     # All events belong to a different outcome_id → whole window is a gap
     assert len(gaps) == 1
+
+
+def test_trade_gap_invalid_window_raises() -> None:
+    reader = _mock_reader(_empty_trades_tbl())
+    detector = quality_gap_detector.GapDetector(reader)
+    with pytest.raises(ValueError, match="`end` must be later than `start`"):
+        detector.detect_trade_gaps(
+            "kalshi",
+            "kalshi:m1:yes",
+            start=_END,
+            end=_START,
+        )
+
+
+def test_trade_gap_non_positive_threshold_raises() -> None:
+    reader = _mock_reader(_empty_trades_tbl())
+    detector = quality_gap_detector.GapDetector(reader)
+    with pytest.raises(ValueError, match="`max_gap_seconds` must be > 0"):
+        detector.detect_trade_gaps(
+            "kalshi",
+            "kalshi:m1:yes",
+            start=_START,
+            end=_END,
+            max_gap_seconds=0.0,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +218,7 @@ def test_ohlcv_no_gaps() -> None:
         }
     )
     reader = _mock_reader(_empty_trades_tbl(), ohlcv_table=tbl)
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_ohlcv(detector)
     assert gaps == []
 
@@ -202,7 +234,7 @@ def test_ohlcv_missing_candle_detected() -> None:
         }
     )
     reader = _mock_reader(_empty_trades_tbl(), ohlcv_table=tbl)
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     gaps = _detect_ohlcv(detector)
     assert any(g.event_type == "ohlcv" for g in gaps)
     assert len(gaps) >= 1
@@ -210,6 +242,19 @@ def test_ohlcv_missing_candle_detected() -> None:
 
 def test_ohlcv_invalid_resolution_raises() -> None:
     reader = _mock_reader(_empty_trades_tbl())
-    detector = GapDetector(reader)
+    detector = quality_gap_detector.GapDetector(reader)
     with pytest.raises(ValueError, match="Unknown resolution"):
         _detect_ohlcv(detector, resolution="99x")
+
+
+def test_ohlcv_gap_invalid_window_raises() -> None:
+    reader = _mock_reader(_empty_trades_tbl())
+    detector = quality_gap_detector.GapDetector(reader)
+    with pytest.raises(ValueError, match="`end` must be later than `start`"):
+        detector.detect_ohlcv_gaps(
+            "kalshi",
+            "kalshi:m1:yes",
+            resolution="1h",
+            start=_END,
+            end=_START,
+        )

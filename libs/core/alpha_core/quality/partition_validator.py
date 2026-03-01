@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import alpha_core.quality.base as quality_base
 import alpha_core.storage.parquet_reader as parquet_reader_mod
-from alpha_core.quality.base import QualitySuite, SuiteReport
 
 
 class PartitionValidator:
@@ -14,7 +14,7 @@ class PartitionValidator:
     def __init__(
         self,
         reader: parquet_reader_mod.ParquetEventReader,
-        suites: dict[str, QualitySuite],
+        suites: dict[str, quality_base.QualitySuite],
     ) -> None:
         """
         Args:
@@ -31,7 +31,7 @@ class PartitionValidator:
         venue: str,
         date: str,
         **extra_partitions: str,
-    ) -> SuiteReport:
+    ) -> quality_base.SuiteReport:
         """
         Validate a single silver partition.
 
@@ -66,14 +66,14 @@ class PartitionValidator:
         partition_info: dict[str, str] = {"venue": venue, "date": date, **extra_partitions}
         return suite.validate(table, partition_info=partition_info)
 
-    def validate_all_recent(self, since: datetime) -> list[SuiteReport]:
+    def validate_all_recent(self, since: datetime) -> list[quality_base.SuiteReport]:
         """
         Validate all event_types for all venues with data since `since`.
 
         Iterates each registered suite, reads data for the date window,
         and runs validation.
         """
-        reports: list[SuiteReport] = []
+        reports: list[quality_base.SuiteReport] = []
         start = since
 
         # No upper-bound end filter — include all partitions written after `since`

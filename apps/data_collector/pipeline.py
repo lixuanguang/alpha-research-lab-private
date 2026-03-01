@@ -10,7 +10,7 @@ import alpha_core.events.quality as event_quality
 import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_writer as storage_parquet
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
 
 
 class PollingPipeline:
@@ -18,7 +18,7 @@ class PollingPipeline:
 
     def __init__(
         self,
-        connector: connector_base.PollingConnector,
+        connector: connector_polling.PollingConnector,
         bronze_writer: storage_bronze.BronzeWriter,
         silver_writer: storage_parquet.ParquetEventWriter,
         quality_checker: event_quality.EventQualityChecker,

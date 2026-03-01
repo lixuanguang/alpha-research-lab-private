@@ -8,7 +8,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.pipeline as collector_pipeline
 import pytest
 
@@ -51,13 +52,13 @@ def _metadata_update(ts_event: datetime) -> event_models.CanonicalMetadataUpdate
     return event_models.CanonicalMetadataUpdate.model_validate(payload)
 
 
-class _StubTradeConnector(connector_base.PollingConnector):
+class _StubTradeConnector(connector_polling.PollingConnector):
     def __init__(self, events: list[event_models.CanonicalMarketEvent]) -> None:
         super().__init__(venue="kalshi", interval_seconds=30.0)
         self._events = events
 
-    async def poll_once(self) -> connector_base.PollingBatch:
-        return connector_base.PollingBatch(
+    async def poll_once(self) -> connector_types.PollingBatch:
+        return connector_types.PollingBatch(
             events=list(self._events),
             raw_payloads={},
         )

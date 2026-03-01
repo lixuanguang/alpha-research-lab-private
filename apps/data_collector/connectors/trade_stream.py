@@ -6,7 +6,8 @@ from collections.abc import AsyncIterator
 from typing import Protocol, cast
 
 import alpha_core.events.models as event_models
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._lifecycle as connector_lifecycle
+import apps.data_collector.connectors._streaming as connector_streaming
 import apps.data_collector.connectors.heartbeat as connector_heartbeat
 import apps.data_collector.connectors.reconnection as connector_reconnection
 
@@ -19,7 +20,7 @@ class TradeWatchAdapter(Protocol):
     def watch_trades(self, outcome_id: str) -> AsyncIterator[list[event_models.CanonicalTrade]]: ...
 
 
-class TradeStreamConnector(connector_base.OutcomeStreamingConnector):
+class TradeStreamConnector(connector_streaming.OutcomeStreamingConnector):
     """Streams trades via an adapter's ``watch_trades`` with auto-reconnect.
 
     Each outcome_id is streamed in its own asyncio Task inside ``stream_loop``.
@@ -46,7 +47,7 @@ class TradeStreamConnector(connector_base.OutcomeStreamingConnector):
         reconnect_backoff_max: float = 60.0,
         heartbeat_timeout: float = 120.0,
         heartbeat_monitor: connector_heartbeat.HeartbeatMonitor | None = None,
-        emit: connector_base.EmitCallback | None = None,
+        emit: connector_lifecycle.EmitCallback | None = None,
     ) -> None:
         self._policy = connector_reconnection.ReconnectionPolicy(
             base=reconnect_backoff_base,

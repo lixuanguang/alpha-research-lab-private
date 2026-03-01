@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.heartbeat as heartbeat_mod
 import apps.data_collector.connectors.trade_stream as trade_stream_mod
 
@@ -194,7 +194,7 @@ def test_stop_event_exits_run_stream() -> None:
         await connector._run_stream()
 
     asyncio.run(_run())
-    assert connector.state == connector_base.ConnectorState.STOPPED
+    assert connector.state == connector_types.ConnectorState.STOPPED
 
 
 # ---------------------------------------------------------------------------
@@ -243,4 +243,4 @@ def test_start_and_stop() -> None:
         await connector.stop()
 
     asyncio.run(_run())
-    assert connector.state == connector_base.ConnectorState.STOPPED
+    assert connector.state == connector_types.ConnectorState.STOPPED

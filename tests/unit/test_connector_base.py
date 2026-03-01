@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._lifecycle as connector_lifecycle
+import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.connectors._streaming as connector_streaming
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.metrics as connector_metrics
 import pytest
 
@@ -25,29 +28,29 @@ def _metadata_event(instrument_id: str = "kalshi:market-a") -> event_models.Cano
     )
 
 
-class _FinitePollingConnector(connector_base.PollingConnector):
-    def __init__(self, emit: connector_base.EmitCallback | None = None) -> None:
+class _FinitePollingConnector(connector_polling.PollingConnector):
+    def __init__(self, emit: connector_lifecycle.EmitCallback | None = None) -> None:
         super().__init__(venue="kalshi", interval_seconds=0.01, emit=emit)
         self.poll_calls = 0
 
-    async def poll_once(self) -> connector_base.PollingBatch:
+    async def poll_once(self) -> connector_types.PollingBatch:
         self.poll_calls += 1
         self._stop_event.set()
-        return connector_base.PollingBatch(
+        return connector_types.PollingBatch(
             events=[_metadata_event()],
             raw_payloads={},
         )
 
 
-class _FailingPollingConnector(connector_base.PollingConnector):
+class _FailingPollingConnector(connector_polling.PollingConnector):
     def __init__(self) -> None:
         super().__init__(venue="kalshi", interval_seconds=0.01)
 
-    async def poll_once(self) -> connector_base.PollingBatch:
+    async def poll_once(self) -> connector_types.PollingBatch:
         raise RuntimeError("poll failed")
 
 
-class _ReconnectingStreamingConnector(connector_base.StreamingConnector):
+class _ReconnectingStreamingConnector(connector_streaming.StreamingConnector):
     def __init__(self) -> None:
         super().__init__(venue="kalshi")
         self.connect_attempts = 0
@@ -62,9 +65,9 @@ class _ReconnectingStreamingConnector(connector_base.StreamingConnector):
         self._stop_event.set()
 
 
-class _SimplePollingConnector(connector_base.PollingConnector):
-    async def poll_once(self) -> connector_base.PollingBatch:
-        return connector_base.PollingBatch(events=[], raw_payloads={})
+class _SimplePollingConnector(connector_polling.PollingConnector):
+    async def poll_once(self) -> connector_types.PollingBatch:
+        return connector_types.PollingBatch(events=[], raw_payloads={})
 
 
 class _SyncCollector:
@@ -85,7 +88,7 @@ class _AsyncCollector:
 
 
 async def _start_sleep_stop(
-    connector: connector_base.BaseConnector,
+    connector: connector_lifecycle.BaseConnector,
     *,
     sleep_seconds: float,
     start_calls: int = 1,

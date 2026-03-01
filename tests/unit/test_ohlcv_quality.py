@@ -4,12 +4,7 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from alpha_core.quality.suites.ohlcv_quality import (
-    OHLCV_SUITE,
-    OHLCVRangeExpectation,
-    ResolutionConsistencyExpectation,
-    VolumeNonNegativeExpectation,
-)
+import alpha_core.quality.suites.ohlcv_quality as quality_ohlcv
 
 
 def _ohlcv_table(
@@ -40,37 +35,37 @@ def _ohlcv_table(
 
 
 def test_ohlcv_range_pass_valid() -> None:
-    result = OHLCVRangeExpectation().validate(_ohlcv_table())
+    result = quality_ohlcv.OHLCVRangeExpectation().validate(_ohlcv_table())
     assert result.passed is True
 
 
 def test_ohlcv_range_fail_high_above_one() -> None:
     tbl = _ohlcv_table(high=1.1, open_=0.5, low=0.3, close=0.9)
-    result = OHLCVRangeExpectation().validate(tbl)
+    result = quality_ohlcv.OHLCVRangeExpectation().validate(tbl)
     assert result.passed is False
 
 
 def test_ohlcv_range_fail_low_below_zero() -> None:
     tbl = _ohlcv_table(low=-0.1, open_=0.5, high=0.8, close=0.5)
-    result = OHLCVRangeExpectation().validate(tbl)
+    result = quality_ohlcv.OHLCVRangeExpectation().validate(tbl)
     assert result.passed is False
 
 
 def test_ohlcv_range_fail_open_outside_low_high() -> None:
     tbl = _ohlcv_table(open_=0.9, high=0.8, low=0.3, close=0.5)
-    result = OHLCVRangeExpectation().validate(tbl)
+    result = quality_ohlcv.OHLCVRangeExpectation().validate(tbl)
     assert result.passed is False
 
 
 def test_ohlcv_range_fail_close_outside_low_high() -> None:
     tbl = _ohlcv_table(close=0.9, high=0.8, low=0.3, open_=0.5)
-    result = OHLCVRangeExpectation().validate(tbl)
+    result = quality_ohlcv.OHLCVRangeExpectation().validate(tbl)
     assert result.passed is False
 
 
 def test_ohlcv_range_pass_boundary_values() -> None:
     tbl = _ohlcv_table(open_=0.0, high=1.0, low=0.0, close=1.0)
-    result = OHLCVRangeExpectation().validate(tbl)
+    result = quality_ohlcv.OHLCVRangeExpectation().validate(tbl)
     assert result.passed is True
 
 
@@ -83,7 +78,7 @@ def test_ohlcv_range_pass_empty_table() -> None:
             "close": pa.array([], type=pa.float64()),
         }
     )
-    result = OHLCVRangeExpectation().validate(tbl)
+    result = quality_ohlcv.OHLCVRangeExpectation().validate(tbl)
     assert result.passed is True
 
 
@@ -93,25 +88,25 @@ def test_ohlcv_range_pass_empty_table() -> None:
 
 
 def test_volume_non_negative_pass() -> None:
-    result = VolumeNonNegativeExpectation().validate(_ohlcv_table(volume=50.0))
+    result = quality_ohlcv.VolumeNonNegativeExpectation().validate(_ohlcv_table(volume=50.0))
     assert result.passed is True
 
 
 def test_volume_non_negative_pass_zero_volume() -> None:
-    result = VolumeNonNegativeExpectation().validate(_ohlcv_table(volume=0.0))
+    result = quality_ohlcv.VolumeNonNegativeExpectation().validate(_ohlcv_table(volume=0.0))
     assert result.passed is True
 
 
 def test_volume_non_negative_fail_negative() -> None:
     tbl = pa.table({"volume": pa.array([-1.0], type=pa.float64())})
-    result = VolumeNonNegativeExpectation().validate(tbl)
+    result = quality_ohlcv.VolumeNonNegativeExpectation().validate(tbl)
     assert result.passed is False
     assert result.details["negative_volume_count"] == 1
 
 
 def test_volume_non_negative_pass_empty_table() -> None:
     tbl = pa.table({"volume": pa.array([], type=pa.float64())})
-    result = VolumeNonNegativeExpectation().validate(tbl)
+    result = quality_ohlcv.VolumeNonNegativeExpectation().validate(tbl)
     assert result.passed is True
 
 
@@ -121,20 +116,22 @@ def test_volume_non_negative_pass_empty_table() -> None:
 
 
 def test_resolution_consistency_pass_single() -> None:
-    result = ResolutionConsistencyExpectation().validate(_ohlcv_table(n=3, resolution="1h"))
+    result = quality_ohlcv.ResolutionConsistencyExpectation().validate(
+        _ohlcv_table(n=3, resolution="1h")
+    )
     assert result.passed is True
 
 
 def test_resolution_consistency_fail_mixed() -> None:
     tbl = pa.table({"resolution": pa.array(["1h", "1d"])})
-    result = ResolutionConsistencyExpectation().validate(tbl)
+    result = quality_ohlcv.ResolutionConsistencyExpectation().validate(tbl)
     assert result.passed is False
     assert len(result.details["unique_resolutions"]) == 2
 
 
 def test_resolution_consistency_pass_empty_table() -> None:
     tbl = pa.table({"resolution": pa.array([], type=pa.string())})
-    result = ResolutionConsistencyExpectation().validate(tbl)
+    result = quality_ohlcv.ResolutionConsistencyExpectation().validate(tbl)
     assert result.passed is True
 
 
@@ -144,12 +141,12 @@ def test_resolution_consistency_pass_empty_table() -> None:
 
 
 def test_ohlcv_suite_passes_clean_data() -> None:
-    report = OHLCV_SUITE.validate(_ohlcv_table(n=5))
+    report = quality_ohlcv.OHLCV_SUITE.validate(_ohlcv_table(n=5))
     assert report.passed is True
     assert report.suite_name == "silver_ohlcv"
 
 
 def test_ohlcv_suite_fails_invalid_range() -> None:
     tbl = _ohlcv_table(open_=1.5, high=1.8, low=1.2, close=1.5)
-    report = OHLCV_SUITE.validate(tbl)
+    report = quality_ohlcv.OHLCV_SUITE.validate(tbl)
     assert report.passed is False

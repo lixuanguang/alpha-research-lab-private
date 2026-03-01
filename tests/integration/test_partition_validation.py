@@ -9,13 +9,13 @@ from pathlib import Path
 import pytest
 
 import alpha_core.events.models as event_models
+import alpha_core.quality.partition_validator as quality_partition_validator
+import alpha_core.quality.suites.book_quality as quality_book
+import alpha_core.quality.suites.ohlcv_quality as quality_ohlcv
+import alpha_core.quality.suites.trade_quality as quality_trade
 import alpha_core.storage.parquet_reader as parquet_reader_mod
 import alpha_core.storage.parquet_writer as parquet_writer_mod
 import alpha_core.utils.ids as ids_utils
-from alpha_core.quality.partition_validator import PartitionValidator
-from alpha_core.quality.suites.book_quality import BOOK_SUITE
-from alpha_core.quality.suites.ohlcv_quality import OHLCV_SUITE
-from alpha_core.quality.suites.trade_quality import TRADE_SUITE
 
 _DATE = "2026-03-01"
 _TS_BASE = datetime(2026, 3, 1, 10, 0, 0, tzinfo=UTC)
@@ -81,10 +81,16 @@ def storage(
     return writer, reader
 
 
-def _make_validator(reader: parquet_reader_mod.ParquetEventReader) -> PartitionValidator:
-    return PartitionValidator(
+def _make_validator(
+    reader: parquet_reader_mod.ParquetEventReader,
+) -> quality_partition_validator.PartitionValidator:
+    return quality_partition_validator.PartitionValidator(
         reader=reader,
-        suites={"trades": TRADE_SUITE, "books": BOOK_SUITE, "ohlcv": OHLCV_SUITE},
+        suites={
+            "trades": quality_trade.TRADE_SUITE,
+            "books": quality_book.BOOK_SUITE,
+            "ohlcv": quality_ohlcv.OHLCV_SUITE,
+        },
     )
 
 
@@ -112,6 +118,7 @@ def test_trade_partition_fails_on_duplicate_trade_ids(storage: tuple) -> None:
     from datetime import timedelta
 
     import pyarrow as pa
+
     n = 3
     now = datetime.now(UTC)
     ts_type = pa.timestamp("us", tz="UTC")
@@ -126,7 +133,10 @@ def test_trade_partition_fails_on_duplicate_trade_ids(storage: tuple) -> None:
             "ts_record": pa.array([now - timedelta(minutes=4)] * n, type=ts_type),
         }
     )
-    report = TRADE_SUITE.validate(tbl, partition_info={"venue": "kalshi", "date": _DATE})
+    report = quality_trade.TRADE_SUITE.validate(
+        tbl,
+        partition_info={"venue": "kalshi", "date": _DATE},
+    )
     assert report.passed is False
 
 

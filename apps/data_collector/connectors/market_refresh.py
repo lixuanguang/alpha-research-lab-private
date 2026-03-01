@@ -10,11 +10,12 @@ import alpha_core.events.models as event_models
 import alpha_core.instruments.master as instrument_master
 import alpha_core.instruments.models as instrument_models
 import alpha_core.instruments.symbology as instrument_symbology
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.raw_payloads as connector_raw_payloads
 
 
-class MarketRefreshPoller(connector_base.PollingConnector):
+class MarketRefreshPoller(connector_polling.PollingConnector):
     """Periodically fetches all markets and updates the MarketMaster."""
 
     def __init__(
@@ -35,7 +36,7 @@ class MarketRefreshPoller(connector_base.PollingConnector):
     def event_types(self) -> list[str]:
         return ["metadata"]
 
-    async def poll_once(self) -> connector_base.PollingBatch:
+    async def poll_once(self) -> connector_types.PollingBatch:
         markets, raw_payloads = await self._await_with_timeout(
             self._adapter.fetch_markets_with_raw(),
             operation="fetch_markets",
@@ -69,7 +70,7 @@ class MarketRefreshPoller(connector_base.PollingConnector):
                     self._build_metadata_event(canonical_market_id, fields_changed=fields_changed)
                 )
 
-        return connector_base.PollingBatch(
+        return connector_types.PollingBatch(
             events=metadata_events,
             raw_payloads=({"metadata": normalized_raw_payloads} if normalized_raw_payloads else {}),
         )

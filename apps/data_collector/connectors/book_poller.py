@@ -6,11 +6,12 @@ from typing import cast
 
 import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.raw_payloads as connector_raw_payloads
 
 
-class BookSnapshotPoller(connector_base.PollingConnector):
+class BookSnapshotPoller(connector_polling.PollingConnector):
     """Polls fetch_order_book for configured outcomes."""
 
     def __init__(
@@ -22,7 +23,7 @@ class BookSnapshotPoller(connector_base.PollingConnector):
         request_timeout_seconds: float | None = 10.0,
     ) -> None:
         self._adapter = adapter
-        self._outcome_ids = connector_base.normalize_outcome_ids(outcome_ids)
+        self._outcome_ids = connector_types.normalize_outcome_ids(outcome_ids)
         super().__init__(
             venue=adapter.venue_name(),
             interval_seconds=interval_seconds,
@@ -32,9 +33,9 @@ class BookSnapshotPoller(connector_base.PollingConnector):
     def event_types(self) -> list[str]:
         return ["books"]
 
-    async def poll_once(self) -> connector_base.PollingBatch:
+    async def poll_once(self) -> connector_types.PollingBatch:
         if not self._outcome_ids:
-            return connector_base.PollingBatch(events=[], raw_payloads={})
+            return connector_types.PollingBatch(events=[], raw_payloads={})
 
         snapshots: list[event_models.CanonicalBookSnapshot] = []
         raw_payloads_accumulated: list[dict[str, object]] = []
@@ -57,7 +58,7 @@ class BookSnapshotPoller(connector_base.PollingConnector):
             )
 
         snapshots.sort(key=lambda snapshot: (snapshot.ts_event, snapshot.instrument_id))
-        return connector_base.PollingBatch(
+        return connector_types.PollingBatch(
             events=cast(list[event_models.CanonicalMarketEvent], snapshots),
             raw_payloads={"books": raw_payloads_accumulated} if raw_payloads_accumulated else {},
         )

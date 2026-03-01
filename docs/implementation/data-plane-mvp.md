@@ -5,9 +5,9 @@
 > **Focus:** Prediction market data collection via `pmxt` — polling + streaming connectors, bronze/silver storage, data quality automation, backfill/replay tooling  
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
-> **Implementation Status (as of March 1, 2026):** D1, D2, D3, and D4 complete; D5–D6 pending  
-> **Current quality gate snapshot:** `ruff check .`, `mypy libs/core apps --strict`, `pytest -q` (`322 passed, 8 skipped`)
-> **Post-D4 maintenance update (March 1, 2026):** connector internals were decomposed into `_types` / `_lifecycle` / `_polling` / `_streaming` modules, while `connectors/base.py` remains the compatibility/public facade; streaming pipeline now uses connector public lifecycle APIs instead of private attributes.
+> **Implementation Status (as of March 1, 2026):** D1, D2, D3, D4, and D5 complete; D6 pending  
+> **Current quality gate snapshot:** `ruff check .`, `mypy libs/core apps --strict`, `pytest -q` (`406 passed, 8 skipped`)
+> **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---
 
@@ -78,7 +78,7 @@ The Foundation Stage delivered these components that the Data Plane builds upon:
 | No streaming capabilities | Add `watch_*` connector wrappers with reconnection (Step D1) |
 | No scheduling / orchestration | Add polling scheduler with configurable intervals (Step D3) |
 | No data quality suites | Build expectation suites for trades, books, OHLCV (Step D4) |
-| No backfill tooling | CLI commands for historical window replay (Step D5) |
+| No backfill tooling | CLI commands for historical window replay (Step D6) |
 | No run/lineage tracking | Ingestion metadata per batch/session (Step D2) |
 | `PmxtAdapter` has duplicated helpers | Refactor to use `pmxt_mapping` / `pmxt_parsing` modules cleanly (Step D1) |
 
@@ -321,7 +321,7 @@ The Data Plane MVP is broken into **6 sequential sub-steps** (D1–D6). Each ste
 | Create | `apps/data_collector/connectors/_lifecycle.py` |
 | Create | `apps/data_collector/connectors/_polling.py` |
 | Create | `apps/data_collector/connectors/_streaming.py` |
-| Modify | `apps/data_collector/connectors/base.py` — re-export compatibility facade |
+| Delete | `apps/data_collector/connectors/base.py` — compatibility facade removed |
 | Modify | `apps/data_collector/streaming_pipeline.py` — use connector public APIs (`set_emit_callback`, `wait_until_stopped`, `cancel_run_task`) |
 
 **Tests Added:**
@@ -1212,7 +1212,6 @@ The Data Plane MVP is **complete** when all of the following are true:
 +   _polling.py                        # Maintenance refactor: PollingConnector lifecycle
 +   _streaming.py                      # Maintenance refactor: StreamingConnector/OutcomeStreamingConnector lifecycle
 + apps/data_collector/streaming_pipeline.py
-+~   base.py                           # Maintenance refactor: compatibility facade
 +
   tests/unit/
 +   test_trade_stream.py

@@ -27,8 +27,8 @@ class SuiteReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     suite_name: str
-    passed: bool          # True only if zero "fail"-severity results are failures
-    degraded: bool        # True if any "warn"-severity results are failures
+    passed: bool  # True only if zero "fail"-severity results are failures
+    degraded: bool  # True if any "warn"-severity results are failures
     results: list[QualityResult]
     validated_at: datetime
     row_count: int

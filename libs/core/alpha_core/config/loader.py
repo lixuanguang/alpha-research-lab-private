@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import alpha_core.config._merge as config_merge
 import alpha_core.config._overrides as config_overrides
@@ -12,16 +11,6 @@ import alpha_core.config.paths as config_paths
 import alpha_core.config.secrets as config_secrets
 
 _ENV_PREFIX = "ALPHA_"
-
-
-def _set_nested_value(target: dict[str, Any], keys: list[str], value: Any) -> None:
-    """Compatibility wrapper for tests and internal override logic."""
-    config_merge.set_nested_value(target, keys, value)
-
-
-def _path_exists(config: dict[str, Any], keys: list[str]) -> bool:
-    """Compatibility wrapper for tests and internal override logic."""
-    return config_merge.path_exists(config, keys)
 
 
 def load_settings(

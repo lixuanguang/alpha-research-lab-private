@@ -8,11 +8,12 @@ from typing import cast
 
 import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
-import apps.data_collector.connectors.base as connector_base
+import apps.data_collector.connectors._polling as connector_polling
+import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.raw_payloads as connector_raw_payloads
 
 
-class OHLCVPoller(connector_base.PollingConnector):
+class OHLCVPoller(connector_polling.PollingConnector):
     """Polls fetch_ohlcv for configured outcomes at regular intervals."""
 
     def __init__(
@@ -31,7 +32,7 @@ class OHLCVPoller(connector_base.PollingConnector):
         if max_seen_candle_keys <= 0:
             raise ValueError("`max_seen_candle_keys` must be > 0")
         self._adapter = adapter
-        self._outcome_ids = connector_base.normalize_outcome_ids(outcome_ids)
+        self._outcome_ids = connector_types.normalize_outcome_ids(outcome_ids)
         self._resolution = resolution
         self._limit_per_poll = limit_per_poll
         self._max_seen_candle_keys = max_seen_candle_keys
@@ -49,9 +50,9 @@ class OHLCVPoller(connector_base.PollingConnector):
     def event_types(self) -> list[str]:
         return ["ohlcv"]
 
-    async def poll_once(self) -> connector_base.PollingBatch:
+    async def poll_once(self) -> connector_types.PollingBatch:
         if not self._outcome_ids:
-            return connector_base.PollingBatch(events=[], raw_payloads={})
+            return connector_types.PollingBatch(events=[], raw_payloads={})
 
         aggregated: list[event_models.CanonicalOHLCV] = []
         raw_payloads_accumulated: list[dict[str, object]] = []
@@ -87,7 +88,7 @@ class OHLCVPoller(connector_base.PollingConnector):
                 raw_payloads_accumulated.extend(filtered_raw_payloads)
 
         aggregated.sort(key=lambda candle: (candle.ts_event, candle.instrument_id))
-        return connector_base.PollingBatch(
+        return connector_types.PollingBatch(
             events=cast(list[event_models.CanonicalMarketEvent], aggregated),
             raw_payloads={"ohlcv": raw_payloads_accumulated} if raw_payloads_accumulated else {},
         )
