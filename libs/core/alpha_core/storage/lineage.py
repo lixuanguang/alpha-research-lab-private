@@ -125,11 +125,17 @@ class LineageStore:
         )
         self._persist_run(completed)
 
-    def fail_run(self, run_id: str, error: str) -> None:
+    def fail_run(self, run_id: str, error: str | list[str]) -> None:
         run = self._require_run(run_id)
         self._assert_running(run, transition="fail")
         existing_errors = list(run.errors)
-        existing_errors.append(error)
+        if isinstance(error, str):
+            failure_errors = [error]
+        else:
+            failure_errors = [item for item in error if item]
+        if not failure_errors:
+            failure_errors = ["unknown failure"]
+        existing_errors.extend(failure_errors)
         failed = self._revalidated_run(
             run,
             completed_at=datetime.now(tz=UTC),

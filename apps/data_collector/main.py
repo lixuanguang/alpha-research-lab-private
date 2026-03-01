@@ -174,10 +174,10 @@ def status_command(apply_user_settings: bool) -> None:
 @click.option("--start", required=True, help="Inclusive UTC start timestamp.")
 @click.option("--end", required=True, help="Inclusive UTC end timestamp.")
 def backfill_command(venue: str, instrument_id: str, start: str, end: str) -> None:
-    """Submit a backfill request payload (execution engine is staged after D1)."""
-    click.echo(
-        "Backfill request captured "
-        f"(venue={venue}, instrument_id={instrument_id}, start={start}, end={end})"
+    """Backfill command shell (fully implemented in step D6)."""
+    raise click.ClickException(
+        "Command `backfill` is not implemented in D4. "
+        f"Received inputs: venue={venue}, instrument_id={instrument_id}, start={start}, end={end}"
     )
 
 
@@ -186,10 +186,10 @@ def backfill_command(venue: str, instrument_id: str, start: str, end: str) -> No
 @click.option("--start", default=None, help="Optional UTC start timestamp.")
 @click.option("--end", default=None, help="Optional UTC end timestamp.")
 def detect_gaps_command(venue: str | None, start: str | None, end: str | None) -> None:
-    """Run gap-detection command wiring (detector implementation follows in later steps)."""
-    click.echo(
-        "Gap detection inputs accepted "
-        f"(venue={venue or 'all'}, start={start or 'none'}, end={end or 'none'})"
+    """Gap-detection command shell (fully implemented in step D6)."""
+    raise click.ClickException(
+        "Command `detect-gaps` is not implemented in D4. "
+        f"Received inputs: venue={venue or 'all'}, start={start or 'none'}, end={end or 'none'}"
     )
 
 

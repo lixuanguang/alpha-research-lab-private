@@ -7,7 +7,7 @@ import contextlib
 import inspect
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -49,6 +49,10 @@ class ConnectorState(StrEnum):
     RECONNECTING = "reconnecting"
     STOPPED = "stopped"
     ERROR = "error"
+
+
+class FatalConnectorError(RuntimeError):
+    """Non-recoverable connector error that should not trigger reconnect loops."""
 
 
 class BaseConnector(ABC):
@@ -283,3 +287,113 @@ class StreamingConnector(BaseConnector):
         finally:
             if self.state is not ConnectorState.ERROR:
                 self._mark_stopped()
+
+
+class OutcomeStreamingConnector(StreamingConnector):
+    """Streaming connector base for one task per outcome id with reconnect support."""
+
+    def __init__(
+        self,
+        *,
+        venue: str,
+        outcome_ids: list[str],
+        heartbeat_timeout: float = 120.0,
+        next_reconnect_delay: Callable[[int], float],
+        on_reconnect_reset: Callable[[], None] | None = None,
+        emit: EmitCallback | None = None,
+    ) -> None:
+        super().__init__(venue=venue, emit=emit)
+        if heartbeat_timeout <= 0:
+            raise ValueError("`heartbeat_timeout` must be > 0")
+        self._outcome_ids = normalize_outcome_ids(outcome_ids)
+        self._heartbeat_timeout = heartbeat_timeout
+        self._next_reconnect_delay = next_reconnect_delay
+        self._on_reconnect_reset = on_reconnect_reset
+
+    @abstractmethod
+    async def _stream_outcome(self, outcome_id: str) -> None:
+        """Consume one outcome stream until stop, exhaustion, or error."""
+
+    async def stream_loop(self) -> None:
+        if not self._outcome_ids:
+            await self._stop_event.wait()
+            return
+
+        tasks = {
+            asyncio.create_task(
+                self._stream_outcome(outcome_id),
+                name=f"{self.connector_id}:{outcome_id}",
+            )
+            for outcome_id in self._outcome_ids
+        }
+        try:
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+            for task in pending:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+
+            for task in done:
+                if task.cancelled():
+                    if self._stop_event.is_set():
+                        continue
+                    raise RuntimeError(f"Outcome stream cancelled unexpectedly ({task.get_name()})")
+                error = task.exception()
+                if error is not None:
+                    raise error
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+            raise
+
+    async def _run_stream(self) -> None:
+        attempt = 0
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    await self.connect()
+                    self._mark_running()
+                    if self._on_reconnect_reset is not None:
+                        self._on_reconnect_reset()
+                    attempt = 0
+                    await self.stream_loop()
+                    if not self._stop_event.is_set():
+                        raise RuntimeError(
+                            "All outcome streams ended unexpectedly "
+                            f"for connector `{self.connector_id}`"
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except FatalConnectorError as error:
+                    self._record_error(str(error))
+                    break
+                except Exception as error:
+                    if self._stop_event.is_set():
+                        break
+                    delay = self._next_reconnect_delay(attempt)
+                    attempt += 1
+                    self._metrics.reconnect_count += 1
+                    self._metrics.errors.append(f"stream error (attempt {attempt}): {error}")
+                    self.state = ConnectorState.RECONNECTING
+                    await asyncio.sleep(max(0.0, delay))
+        finally:
+            if self.state is not ConnectorState.ERROR:
+                self._mark_stopped()
+
+    async def _next_stream_item(
+        self,
+        stream: AsyncIterator[_ResultT],
+        *,
+        outcome_id: str,
+    ) -> _ResultT:
+        try:
+            return await asyncio.wait_for(
+                anext(stream),
+                timeout=self._heartbeat_timeout,
+            )
+        except TimeoutError as error:
+            raise TimeoutError(
+                f"No data for outcome `{outcome_id}` within {self._heartbeat_timeout:.2f}s"
+            ) from error

@@ -46,7 +46,7 @@ Deliver the **repo scaffold, canonical data model, instrument master, configurat
 - Current stage: **Foundation complete and closed**
 - Completed steps: **F1, F2, F3, F4, F5, F6**
 - Remaining foundation steps: **None**
-- Current quality gate snapshot: `ruff check .` and `mypy libs/core apps --strict` passing locally; `pytest -q` is green (`252 passed, 11 skipped`)
+- Current quality gate snapshot: `ruff check .` and `mypy libs/core apps --strict` passing locally; `pytest -q` is green (`318 passed, 8 skipped`)
 - Foundation artifact lock added: `data/schemas/canonical_event_v1.json` and `tests/unit/test_foundation_requirements.py`
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 

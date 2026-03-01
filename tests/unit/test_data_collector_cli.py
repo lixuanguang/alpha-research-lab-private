@@ -109,10 +109,10 @@ def test_status_backfill_and_detect_gaps_commands_return_expected_output(
     assert status_result.exit_code == 0
     assert "Enabled venues (1): polymarket" in status_result.output
     assert "Disabled venues (1): kalshi" in status_result.output
-    assert backfill_result.exit_code == 0
-    assert "Backfill request captured" in backfill_result.output
-    assert detect_gaps_result.exit_code == 0
-    assert "Gap detection inputs accepted" in detect_gaps_result.output
+    assert backfill_result.exit_code != 0
+    assert "not implemented in D4" in backfill_result.output
+    assert detect_gaps_result.exit_code != 0
+    assert "not implemented in D4" in detect_gaps_result.output
 
 
 def test_run_command_execute_path_reports_completion(

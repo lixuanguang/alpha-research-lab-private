@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import functools
 import time
 from collections.abc import Callable
 from typing import Protocol
@@ -48,26 +49,26 @@ class PipelineContext:
     rate_limiter: connector_rate_limiter.TokenBucketRateLimiter
 
 
-@dataclasses.dataclass(slots=True)
-class _PipelineSchedulerExecutor:
-    """Adapter that executes pipelines via polling scheduler hooks."""
+async def execute_pipeline_connector(
+    context_by_connector_id: dict[str, PipelineContext],
+    connector: connector_base.PollingConnector,
+) -> list[event_models.CanonicalMarketEvent]:
+    """Execute one pipeline for scheduler callback wiring."""
+    context = context_by_connector_id[connector.connector_id]
+    run = await context.pipeline.execute()
+    if run.status != "completed":
+        error_text = run.errors[-1] if run.errors else "unknown error"
+        raise RuntimeError(error_text)
+    return []
 
-    context_by_connector_id: dict[str, PipelineContext]
-    emit: EmitMessage
 
-    async def execute_connector(
-        self,
-        connector: connector_base.PollingConnector,
-    ) -> list[event_models.CanonicalMarketEvent]:
-        context = self.context_by_connector_id[connector.connector_id]
-        run = await context.pipeline.execute()
-        if run.status != "completed":
-            error_text = run.errors[-1] if run.errors else "unknown error"
-            raise RuntimeError(error_text)
-        return []
-
-    def emit_error(self, connector: connector_base.PollingConnector, error: BaseException) -> None:
-        self.emit(f"Pipeline failed ({connector.connector_id}): {error}", True)
+def emit_pipeline_error(
+    emit: EmitMessage,
+    connector: connector_base.PollingConnector,
+    error: BaseException,
+) -> None:
+    """Emit scheduler execution errors with connector context."""
+    emit(f"Pipeline failed ({connector.connector_id}): {error}", True)
 
 
 async def run_polling_pipelines(
@@ -189,10 +190,6 @@ def build_polling_scheduler(
     context_by_connector_id = {
         context.pipeline.connector.connector_id: context for context in contexts
     }
-    scheduler_executor = _PipelineSchedulerExecutor(
-        context_by_connector_id=context_by_connector_id,
-        emit=emit,
-    )
     connectors = [context.pipeline.connector for context in contexts]
     rate_limiters: dict[str, connector_rate_limiter.TokenBucketRateLimiter] = {
         context.pipeline.connector.venue: context.rate_limiter for context in contexts
@@ -201,8 +198,11 @@ def build_polling_scheduler(
     return connector_scheduler.PollingScheduler(
         connectors=connectors,
         rate_limiters=rate_limiters,
-        execute_connector=scheduler_executor.execute_connector,
-        on_error=scheduler_executor.emit_error,
+        execute_connector=functools.partial(
+            execute_pipeline_connector,
+            context_by_connector_id,
+        ),
+        on_error=functools.partial(emit_pipeline_error, emit),
     )
 
 
@@ -230,5 +230,7 @@ __all__ = [
     "build_pipeline_contexts",
     "build_polling_scheduler",
     "collect_outcome_ids",
+    "emit_pipeline_error",
+    "execute_pipeline_connector",
     "run_polling_pipelines",
 ]

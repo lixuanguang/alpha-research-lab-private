@@ -5,8 +5,8 @@
 > **Focus:** Prediction market data collection via `pmxt` — polling + streaming connectors, bronze/silver storage, data quality automation, backfill/replay tooling  
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
-> **Implementation Status (as of March 1, 2026):** D1, D2, and D3 complete; D4–D6 pending  
-> **Current quality gate snapshot:** `ruff check .`, `mypy libs/core apps --strict`, `pytest -q` (`252 passed, 11 skipped`)
+> **Implementation Status (as of March 1, 2026):** D1, D2, D3, and D4 complete; D5–D6 pending  
+> **Current quality gate snapshot:** `ruff check .`, `mypy libs/core apps --strict`, `pytest -q` (`318 passed, 8 skipped`)
 
 ---
 
