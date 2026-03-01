@@ -113,8 +113,6 @@ class OHLCVPoller(connector_base.PollingConnector):
             if not self._should_emit_candle(candle, last_seen_ts=last_seen_ts):
                 continue
             accepted_candles.append(candle)
-        if accepted_candles:
-            accepted_raw_payloads = raw_payloads
         return accepted_candles, accepted_raw_payloads
 
     def _should_emit_candle(

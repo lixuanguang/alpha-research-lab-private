@@ -242,6 +242,11 @@ def test_unknown_environment_file_raises(temp_config_tree: Path) -> None:
         config_loader.load_settings(environment="does_not_exist", config_dir=temp_config_tree)
 
 
+def test_invalid_environment_name_rejected(temp_config_tree: Path) -> None:
+    with pytest.raises(ValueError, match="Invalid `environment` value"):
+        config_loader.load_settings(environment="../secrets", config_dir=temp_config_tree)
+
+
 def test_default_yaml_non_mapping_raises(tmp_path: Path) -> None:
     config_root = tmp_path / "bad_config"
     (config_root / "environments").mkdir(parents=True)

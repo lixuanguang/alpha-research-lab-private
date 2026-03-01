@@ -84,7 +84,7 @@ class TradeStreamConnector(connector_base.OutcomeStreamingConnector):
             self._record_events(events)
             if self._heartbeat_monitor is not None:
                 self._heartbeat_monitor.record_heartbeat(self.connector_id)
-            await self._emit_events(events, self._emit)
+            await self._emit_events(events)
 
 
 __all__ = ["TradeStreamConnector", "TradeWatchAdapter"]

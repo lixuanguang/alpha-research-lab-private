@@ -143,6 +143,13 @@ def test_collect_outcome_ids_deduplicates_and_caps() -> None:
     assert outcome_ids == ["kalshi:mkt-a:yes", "kalshi:mkt-a:no", "kalshi:mkt-b:yes"]
 
 
+def test_collect_outcome_ids_rejects_non_positive_cap() -> None:
+    markets = [_market("mkt-a", ["yes", "no"])]
+
+    with pytest.raises(ValueError, match="max_outcomes_per_venue"):
+        collector_runtime.collect_outcome_ids(markets, max_outcomes_per_venue=0)
+
+
 def test_build_pipeline_contexts_creates_connectors_for_enabled_venues() -> None:
     settings = _settings()
     messages: list[tuple[str, bool]] = []
@@ -222,6 +229,21 @@ def test_run_polling_pipelines_once_raises_when_no_contexts(
                 settings,
                 once=True,
                 max_outcomes_per_venue=10,
+                adapter_factory=lambda *_: _StubAdapter("kalshi"),
+                emit=lambda _message, _is_error: None,
+            )
+        )
+
+
+def test_run_polling_pipelines_rejects_non_positive_max_outcomes() -> None:
+    settings = _settings()
+
+    with pytest.raises(ValueError, match="max_outcomes_per_venue"):
+        asyncio.run(
+            collector_runtime.run_polling_pipelines(
+                settings,
+                once=True,
+                max_outcomes_per_venue=0,
                 adapter_factory=lambda *_: _StubAdapter("kalshi"),
                 emit=lambda _message, _is_error: None,
             )

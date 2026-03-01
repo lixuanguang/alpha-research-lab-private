@@ -46,9 +46,10 @@ Deliver the **repo scaffold, canonical data model, instrument master, configurat
 - Current stage: **Foundation complete and closed**
 - Completed steps: **F1, F2, F3, F4, F5, F6**
 - Remaining foundation steps: **None**
-- Current quality gate snapshot: `ruff check .` and `mypy libs/core apps --strict` passing locally; `pytest -q` is green (`318 passed, 8 skipped`)
+- Current quality gate snapshot: `ruff check .` and `mypy libs/core apps --strict` passing locally; `pytest -q` is green (`322 passed, 8 skipped`)
 - Foundation artifact lock added: `data/schemas/canonical_event_v1.json` and `tests/unit/test_foundation_requirements.py`
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
+- Post-foundation maintenance note: config loading internals are now split across `alpha_core.config._merge` and `alpha_core.config._overrides`, with `alpha_core.config.loader` kept as the public orchestration entrypoint
 
 ---
 
@@ -271,6 +272,7 @@ scripts/bootstrap.sh, scripts/validate_env.py
    - Keep venue credential env vars (`ALPHA_<VENUE>_API_KEY`, `ALPHA_<VENUE>_PRIVATE_KEY`) out of config-override parsing
    - Apply `config/user_settings.yaml` only when explicitly requested (`apply_user_settings=True`)
    - Return validated Pydantic `Settings` model
+   - Post-maintenance implementation detail: merge/path and override logic now live in `alpha_core.config._merge` and `alpha_core.config._overrides`
 4. Implement `alpha_core/config/models.py`:
    ```python
    class VenueConfig(BaseModel):

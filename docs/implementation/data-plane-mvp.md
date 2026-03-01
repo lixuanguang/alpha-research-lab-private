@@ -6,7 +6,8 @@
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Implementation Status (as of March 1, 2026):** D1, D2, D3, and D4 complete; D5–D6 pending  
-> **Current quality gate snapshot:** `ruff check .`, `mypy libs/core apps --strict`, `pytest -q` (`318 passed, 8 skipped`)
+> **Current quality gate snapshot:** `ruff check .`, `mypy libs/core apps --strict`, `pytest -q` (`322 passed, 8 skipped`)
+> **Post-D4 maintenance update (March 1, 2026):** connector internals were decomposed into `_types` / `_lifecycle` / `_polling` / `_streaming` modules, while `connectors/base.py` remains the compatibility/public facade; streaming pipeline now uses connector public lifecycle APIs instead of private attributes.
 
 ---
 
@@ -311,6 +312,17 @@ The Data Plane MVP is broken into **6 sequential sub-steps** (D1–D6). Each ste
 | Create | `apps/data_collector/connectors/market_refresh.py` |
 | Modify | `libs/core/alpha_core/adapters/pmxt_adapter.py` — remove duplicated helpers, delegate to mapping/parsing |
 | Modify | `libs/core/alpha_core/adapters/__init__.py` — update exports |
+
+**Post-D4 maintenance refactor (implemented):**
+
+| Action | Path |
+|---|---|
+| Create | `apps/data_collector/connectors/_types.py` |
+| Create | `apps/data_collector/connectors/_lifecycle.py` |
+| Create | `apps/data_collector/connectors/_polling.py` |
+| Create | `apps/data_collector/connectors/_streaming.py` |
+| Modify | `apps/data_collector/connectors/base.py` — re-export compatibility facade |
+| Modify | `apps/data_collector/streaming_pipeline.py` — use connector public APIs (`set_emit_callback`, `wait_until_stopped`, `cancel_run_task`) |
 
 **Tests Added:**
 
@@ -1195,7 +1207,12 @@ The Data Plane MVP is **complete** when all of the following are true:
 +   reconnection.py
 +   heartbeat.py
 +   outcome_selector.py
++   _types.py                          # Maintenance refactor: shared connector domain types
++   _lifecycle.py                      # Maintenance refactor: BaseConnector + callback/lifecycle primitives
++   _polling.py                        # Maintenance refactor: PollingConnector lifecycle
++   _streaming.py                      # Maintenance refactor: StreamingConnector/OutcomeStreamingConnector lifecycle
 + apps/data_collector/streaming_pipeline.py
++~   base.py                           # Maintenance refactor: compatibility facade
 +
   tests/unit/
 +   test_trade_stream.py

@@ -81,6 +81,8 @@ async def run_polling_pipelines(
     emit: EmitMessage,
 ) -> int:
     """Build and execute polling pipelines once or continuously."""
+    if max_outcomes_per_venue <= 0:
+        raise ValueError("`max_outcomes_per_venue` must be > 0.")
     if request_timeout_seconds <= 0:
         raise ValueError("`request_timeout_seconds` must be > 0.")
     contexts = await build_pipeline_contexts(
@@ -212,6 +214,8 @@ def collect_outcome_ids(
     max_outcomes_per_venue: int,
 ) -> list[str]:
     """Collect unique outcome ids up to a configured maximum."""
+    if max_outcomes_per_venue <= 0:
+        raise ValueError("`max_outcomes_per_venue` must be > 0.")
     seen: set[str] = set()
     outcome_ids: list[str] = []
     for market in markets:

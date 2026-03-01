@@ -109,6 +109,23 @@ def test_ohlcv_poller_deduplicates_outcomes_and_filters_old_candles() -> None:
     assert [call[0] for call in adapter.calls] == ["kalshi:market-a:yes", "kalshi:market-a:yes"]
 
 
+def test_ohlcv_filter_new_candles_drops_misaligned_raw_payloads() -> None:
+    adapter = _MockAdapter()
+    poller = connector_ohlcv_poller.OHLCVPoller(adapter, outcome_ids=["kalshi:market-a:yes"])
+    ts = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+    candles = [_candle(ts), _candle(ts + timedelta(hours=1))]
+    raw_payloads = [{"row": 1}]
+
+    filtered_candles, filtered_raw_payloads = poller._filter_new_candles(
+        candles,
+        raw_payloads,
+        last_seen_ts=None,
+    )
+
+    assert len(filtered_candles) == 2
+    assert filtered_raw_payloads == []
+
+
 def test_ohlcv_poller_marks_timeouts_as_rejections() -> None:
     adapter = _MockAdapter()
     adapter.delay_seconds = 0.05

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -60,7 +59,7 @@ class StreamingPipeline:
         self._run: storage_lineage.IngestionRun | None = None
 
         # Wire the emit callback.
-        self._connector._emit = self._on_events
+        self._connector.set_emit_callback(self._on_events)
 
     async def run(self) -> storage_lineage.IngestionRun:
         """Start the connector and run until it stops.
@@ -79,21 +78,18 @@ class StreamingPipeline:
             },
         )
         run_id = self._run.run_id
-        cancelled = False
 
         try:
             await self._connector.start()
             # Wait until the connector task finishes (e.g. stop() was called).
-            if self._connector._task is not None:
-                await self._connector._task
+            await self._connector.wait_until_stopped()
         except asyncio.CancelledError:
-            cancelled = True
             self._errors.append("streaming pipeline cancelled")
         except Exception as exc:
             _LOGGER.error("Streaming pipeline error: %s", exc)
             self._errors.append(str(exc))
         finally:
-            await self._cancel_connector_task()
+            await self._connector.cancel_run_task()
             try:
                 self._streaming_writer.close()
             except Exception as exc:
@@ -111,10 +107,6 @@ class StreamingPipeline:
                 self._errors.append("connector entered error state")
 
         if self._errors:
-            return self._finalize_failed_run(run_id=run_id)
-
-        if cancelled:
-            self._errors.append("streaming pipeline cancelled before completion")
             return self._finalize_failed_run(run_id=run_id)
 
         self._lineage_store.complete_run(
@@ -176,14 +168,6 @@ class StreamingPipeline:
                 message = f"streaming writer error: {exc}"
                 self._errors.append(message)
                 raise connector_base.FatalConnectorError(message) from exc
-
-    async def _cancel_connector_task(self) -> None:
-        task = self._connector._task
-        if task is None or task.done():
-            return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
 
     def _finalize_failed_run(self, *, run_id: str) -> storage_lineage.IngestionRun:
         self._lineage_store.fail_run(run_id, self._errors)

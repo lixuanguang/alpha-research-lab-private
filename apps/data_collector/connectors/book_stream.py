@@ -78,7 +78,7 @@ class BookStreamConnector(connector_base.OutcomeStreamingConnector):
             self._record_events([snapshot])
             if self._heartbeat_monitor is not None:
                 self._heartbeat_monitor.record_heartbeat(self.connector_id)
-            await self._emit_events([snapshot], self._emit)
+            await self._emit_events([snapshot])
 
 
 __all__ = ["BookStreamConnector", "BookWatchAdapter"]
