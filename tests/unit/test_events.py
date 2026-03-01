@@ -373,6 +373,23 @@ def test_book_delta_sequence_id_is_optional() -> None:
     assert delta.sequence_id == "seq-00042"
 
 
+def test_sequence_id_is_stripped_when_present() -> None:
+    fields = _trade_fields()
+    fields["sequence_id"] = "  seq-00042  "
+
+    trade = event_models.CanonicalTrade.model_validate(fields)
+
+    assert trade.sequence_id == "seq-00042"
+
+
+def test_sequence_id_blank_is_rejected() -> None:
+    fields = _trade_fields()
+    fields["sequence_id"] = "   "
+
+    with pytest.raises(ValidationError, match="sequence_id"):
+        event_models.CanonicalTrade.model_validate(fields)
+
+
 def test_optional_microstructure_fields_default_to_none() -> None:
     trade = event_models.CanonicalTrade.model_validate(_trade_fields())
 

@@ -96,6 +96,16 @@ def test_canonical_event_schema_declares_expected_variants_and_base_fields() -> 
     assert event_type_enum == _EXPECTED_EVENT_VARIANTS
 
 
+def test_canonical_event_schema_allows_null_for_optional_microstructure_fields() -> None:
+    schema = json.loads(_schema_path().read_text(encoding="utf-8"))
+    base_properties = schema["$defs"]["base"]["properties"]
+
+    for field_name in ("sequence_id", "ts_exchange", "ts_receive", "source_latency_ms"):
+        field_type = base_properties[field_name]["type"]
+        assert isinstance(field_type, list)
+        assert "null" in field_type
+
+
 def test_all_foundation_app_entrypoints_support_help() -> None:
     runner = click_testing.CliRunner()
     entrypoints = [

@@ -116,9 +116,7 @@ class MarketMaster:
             return None
         return outcome.model_copy(deep=True)
 
-    def get_markets_by_group(
-        self, group_id: str
-    ) -> list[instrument_models.MarketSpec]:
+    def get_markets_by_group(self, group_id: str) -> list[instrument_models.MarketSpec]:
         """Return all markets belonging to an outcome group, sorted by canonical market id.
 
         Outcome groups identify sets of markets whose outcome probabilities satisfy

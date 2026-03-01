@@ -59,19 +59,31 @@
           "minimum": 1
         },
         "sequence_id": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1
         },
         "ts_exchange": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "ts_receive": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "source_latency_ms": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0.0
         }
       },

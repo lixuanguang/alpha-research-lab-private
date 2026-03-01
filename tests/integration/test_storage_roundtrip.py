@@ -254,8 +254,7 @@ def test_storage_roundtrip_book_deltas_parquet_reader_and_duckdb(tmp_path: Path)
 
     ts_base = datetime(2026, 3, 3, 8, 0, tzinfo=UTC)
     deltas = [
-        _make_book_delta(delta_index=i, ts_event=ts_base + timedelta(seconds=i))
-        for i in range(3)
+        _make_book_delta(delta_index=i, ts_event=ts_base + timedelta(seconds=i)) for i in range(3)
     ]
     writer.write_book_deltas(deltas)
 

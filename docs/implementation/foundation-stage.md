@@ -1110,10 +1110,10 @@ Add or extend tests:
 
 ### 11.5 Addendum Completion Criteria
 
-- [ ] Canonical models can represent sequence-aware and latency-aware market events.
-- [ ] Outcome grouping is available for simplex-constrained basket logic.
-- [ ] Storage conventions and readers support optional `book_deltas`.
-- [ ] New foundation addendum tests pass without regressing baseline foundation guarantees.
+- [x] Canonical models can represent sequence-aware and latency-aware market events.
+- [x] Outcome grouping is available for simplex-constrained basket logic.
+- [x] Storage conventions and readers support optional `book_deltas`.
+- [x] New foundation addendum tests pass without regressing baseline foundation guarantees.
 
 ---
 

@@ -426,4 +426,3 @@ def test_market_master_persist_restore_roundtrip_preserves_outcome_group_id(
     results = restored.get_markets_by_group("eth-5k-simplex")
     assert len(results) == 2
     assert all(m.outcome_group_id == "eth-5k-simplex" for m in results)
-

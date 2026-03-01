@@ -117,8 +117,7 @@ class ParquetEventWriter:
             return dataset_root
 
         rows = [
-            self._book_delta_to_row(delta, is_reconstructed=is_reconstructed)
-            for delta in deltas
+            self._book_delta_to_row(delta, is_reconstructed=is_reconstructed) for delta in deltas
         ]
         self._write_partitioned_table(
             rows=rows,
@@ -224,7 +223,6 @@ class ParquetEventWriter:
             "venue": candle.venue_id,
             "date": ts_event.date().isoformat(),
         }
-
 
     @staticmethod
     def _book_delta_to_row(

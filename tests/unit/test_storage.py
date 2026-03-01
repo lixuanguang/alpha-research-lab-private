@@ -810,12 +810,8 @@ def test_read_book_deltas_filters_by_date_window(tmp_path: Path) -> None:
 
     ts_day1 = datetime(2026, 3, 3, 10, 0, tzinfo=UTC)
     ts_day2 = datetime(2026, 3, 5, 10, 0, tzinfo=UTC)
-    writer.write_book_deltas(
-        [_make_book_delta(delta_index=0, venue="kalshi", ts_event=ts_day1)]
-    )
-    writer.write_book_deltas(
-        [_make_book_delta(delta_index=1, venue="kalshi", ts_event=ts_day2)]
-    )
+    writer.write_book_deltas([_make_book_delta(delta_index=0, venue="kalshi", ts_event=ts_day1)])
+    writer.write_book_deltas([_make_book_delta(delta_index=1, venue="kalshi", ts_event=ts_day2)])
 
     # Request only the first day
     result = reader.read_book_deltas(

@@ -104,6 +104,16 @@ class CanonicalMarketEvent(BaseModel):
             raise ValueError("value cannot be empty")
         return cleaned
 
+    @field_validator("sequence_id")
+    @classmethod
+    def _normalize_optional_sequence_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("`sequence_id` must be non-empty when provided")
+        return cleaned
+
     @field_validator("venue_id")
     @classmethod
     def _normalize_venue_id(cls, value: str) -> str:
