@@ -112,6 +112,15 @@ Kalshi · KalshiDemo · Polymarket · Limitless · Baozi · Myriad · Probable
 | [Foundation Stage](docs/implementation/foundation-stage.md) | Repo scaffold, canonical models, instrument master, config, storage, CI |
 | [Data Plane MVP](docs/implementation/data-plane-mvp.md) | Live connectors, streaming/batch ingestion, data quality, backfill tools |
 | [Research Plane MVP](docs/implementation/research-plane-mvp.md) | Dataset builder, feature engineering, backtester, PM-specific evaluation |
+| [Lean Adoption Guide](README.LEAN_ADOPTION.md) | Cross-stage architecture contracts to improve research-to-production continuity |
+| [Lean Adoption Issue Backlog](docs/implementation/lean-adoption-issue-backlog.md) | Copy-paste issue templates and dependency order (`LA-001` through `LA-022`) |
+
+### Active Delivery Order (Recommended)
+
+1. Complete Research Plane R1-R2 with run manifests and artifact contracts.
+2. Add macro ingestion via OpenBB hybrid path (M0-M2 below).
+3. Implement backtester capability upgrades (B0-B4 below) using PM-native contracts.
+4. Promote only validated pieces into Live Plane MVP.
 
 ## Macro Data Ingestion Plan (OpenBB Hybrid)
 
@@ -195,6 +204,94 @@ Phase M3 (Selective first-party fallback, only if needed):
   - Control: include `release_ts`, `effective_ts`, and revision metadata where available.
 - Licensing and operational constraints:
   - Control: review provider terms before production promotion; keep fallback path available.
+
+## Backtester Enhancement Plan (Zipline-Informed, PM-Native)
+
+Decision:
+- Do not replace the core backtester with Zipline.
+- Port specific proven patterns from Zipline where they improve ergonomics and reproducibility.
+- Keep prediction-market microstructure, resolution logic, and PM metrics in native modules.
+
+### Why Not Full Zipline Adoption
+
+- Zipline is strongest for equity/futures bar workflows.
+- Current roadmap requires PM-specific execution behavior, resolution lifecycle handling, and microstructure diagnostics.
+- Existing stage plans already target event-driven + vectorized PM engines with shared contracts.
+
+### What to Port from Zipline
+
+- Scheduling rules (`schedule_function`-style time/date rules).
+- Trading-calendar abstraction and custom calendar registration.
+- Commission/slippage model interfaces and model registry.
+- Bundle-style deterministic data ingestion snapshots and version tags.
+- Metrics-set registry (selectable report packs, including lightweight dev mode).
+- Factor graph ergonomics for feature composition (`pipeline`-like execution graph).
+
+### What to Keep Native
+
+- Binary/multi-outcome market lifecycle and settlement rules.
+- Queue/latency/partial-fill simulation for PM microstructure.
+- PM evaluation metrics: Brier, log-loss, calibration, resolution decomposition.
+- Research run manifests and artifact lineage conventions in `data/runs/{run_id}/...`.
+
+### Implementation Phases
+
+Phase B0 (Interface extraction, 1-2 days):
+- Define scheduler, calendar, slippage, commission, metrics-registry interfaces.
+- Keep interfaces independent from any Zipline runtime internals.
+
+Suggested file targets:
+- `libs/core/alpha_core/research/scheduling.py`
+- `libs/core/alpha_core/research/calendars.py`
+- `libs/core/alpha_core/execution/cost_models.py`
+- `libs/core/alpha_core/evaluation/metrics_registry.py`
+
+Phase B1 (Scheduling + calendars, 2-4 days):
+- Add rule-based scheduling primitives for research/backtest tasks.
+- Add calendar adapters for deterministic session boundaries and event alignment.
+
+Suggested file targets:
+- `apps/research/backtester/engine.py`
+- `apps/research/main.py`
+- `libs/core/alpha_core/research/calendars.py`
+- `tests/unit/test_scheduling_rules.py`
+
+Phase B2 (Cost model registry, 2-3 days):
+- Implement pluggable commission and slippage models.
+- Add config-driven model selection and deterministic defaults.
+
+Suggested file targets:
+- `libs/core/alpha_core/execution/simulator.py`
+- `libs/core/alpha_core/execution/cost_models.py`
+- `config/research/backtest.example.yaml`
+- `tests/unit/test_cost_models.py`
+
+Phase B3 (Bundle snapshots + metrics sets, 3-5 days):
+- Add bundle-like data snapshot metadata for reproducible runs.
+- Add named metrics sets (`default`, `pm_core`, `microstructure`, `minimal`).
+
+Suggested file targets:
+- `libs/core/alpha_core/research/manifest.py`
+- `libs/core/alpha_core/research/dataset_builder.py`
+- `libs/core/alpha_core/evaluation/metrics_registry.py`
+- `tests/regression/test_metrics_report_schema.py`
+
+Phase B4 (Factor-graph ergonomics, 3-5 days):
+- Add graph-based feature/factor composition APIs while retaining existing feature registry.
+- Allow strategy recipes to reference factor graphs by version.
+
+Suggested file targets:
+- `libs/core/alpha_core/features/registry.py`
+- `libs/core/alpha_core/features/factor_pack.py`
+- `libs/core/alpha_core/research/strategy_recipe.py`
+- `tests/unit/test_factor_pack_registry.py`
+
+### Acceptance Criteria
+
+- Backtester keeps PM-specific correctness while gaining reusable scheduling/cost/calendar primitives.
+- New abstractions are selectable by config and covered by unit/integration tests.
+- Re-running same dataset/config/seed produces stable results within defined tolerance.
+- CLI contracts and run manifests remain backward compatible.
 
 ## Research Guides
 
