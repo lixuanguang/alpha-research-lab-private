@@ -6,7 +6,7 @@
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Implementation Status (as of March 2, 2026):** D1, D2, D3, D4, D5, and D6 complete  
-> **Current quality gate snapshot (validated March 2, 2026):** `ruff check .` (pass), `mypy libs/ apps/ --strict` (pass), `pytest tests/ -v` (`534 passed, 8 skipped`).
+> **Current quality gate snapshot (validated March 2, 2026):** `ruff check .` (pass), `mypy libs/ apps/ --strict` (pass), `pytest tests/ -v` (`593 passed, 8 skipped`).
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---
@@ -1065,7 +1065,7 @@ The Data Plane MVP is **complete** when all of the following are true:
 Validation snapshot (local, March 2, 2026):
 - `ruff check .` -> pass
 - `mypy libs/ apps/ --strict` -> pass
-- `pytest tests/ -v` -> `534 passed, 8 skipped`
+- `pytest tests/ -v` -> `593 passed, 8 skipped`
 - Remaining external check: GitHub Actions CI status
 
 ---

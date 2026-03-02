@@ -167,38 +167,3 @@ class MarketSpec(BaseModel):
                     f"`{expected_canonical_id}`"
                 )
         return self
-
-
-class EventGroupSpec(BaseModel):
-    """Group of related markets mapped to a higher-level event."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    event_id: str = Field(min_length=1)
-    title: str = Field(min_length=1)
-    description: str | None = None
-    markets: list[str] = Field(default_factory=list)
-    url: str | None = None
-
-    @field_validator("event_id", "title")
-    @classmethod
-    def _strip_required_text(cls, value: str) -> str:
-        return _clean_required_text(value)
-
-    @field_validator("description", "url")
-    @classmethod
-    def _strip_optional_text(cls, value: str | None) -> str | None:
-        return _clean_optional_text(value)
-
-    @field_validator("markets")
-    @classmethod
-    def _clean_markets(cls, value: list[str]) -> list[str]:
-        cleaned = [market.strip() for market in value if market.strip()]
-        unique: list[str] = []
-        seen: set[str] = set()
-        for market in cleaned:
-            if market in seen:
-                continue
-            seen.add(market)
-            unique.append(market)
-        return unique

@@ -34,8 +34,8 @@ class AdapterFactory(Protocol):
 
     def __call__(
         self,
-        exchange_name: str,
-        config: config_models.VenueConfig,
+        _exchange_name: str,
+        _config: config_models.VenueConfig,
     ) -> adapters_base.VenueAdapter:
         """Return a configured adapter instance for one venue."""
 
