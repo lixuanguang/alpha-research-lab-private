@@ -431,3 +431,72 @@ For this repo, the winning formula is:
 2. Add framework contracts to decouple strategy concerns.
 3. Make research/backtest/live workflows first-class CLIs with strict manifests.
 4. Enforce reproducibility and artifact traceability by default.
+
+---
+
+## 12. Complementary Lessons from QUANTAXIS (Lean-Compatible, Iteration 2)
+
+Lean remains the primary architecture reference. QUANTAXIS contributes practical patterns for research ergonomics and operations that can be added without importing its full stack.
+
+### 12.1 Protocol-First Boundaries (Keep Core Swappable)
+
+Add protocol boundaries in core for:
+
+- market/account state access
+- strategy context and clock
+- data bundle loading
+- order routing and execution acknowledgement
+
+Outcome:
+- strategy code and research runners stop depending on one concrete connector/runtime implementation.
+
+### 12.2 Research Session + Experiment Catalog
+
+Introduce two lightweight contracts:
+
+- `ResearchSession`: one object for dataset/feature/backtest/evaluate state for a user run
+- `ExperimentCatalog`: index of experiment metadata (`run_id`, tags, objective, promotion status)
+
+Outcome:
+- easier iteration loops and promotion of successful research runs to production candidates.
+
+### 12.3 Factor/Signal Pack Registry
+
+Add a registry pattern for grouped feature/signal definitions:
+
+- each pack declares version, dependencies, schema, and compute entrypoint
+- backtests/optimize consume pack IDs instead of ad-hoc notebook code
+
+Outcome:
+- clearer ownership and versioning of reusable alpha components.
+
+### 12.4 Optional Acceleration Boundary (Not Mandatory in MVP)
+
+Define an optional performance boundary now:
+
+- pure-Python default path
+- optional accelerated implementation behind same interface (Numba/Rust/C++)
+- strict parity tests between baseline and accelerated implementations
+
+Outcome:
+- performance improvements later without API churn.
+
+### 12.5 Ops Profile Standardization
+
+Standardize environment profiles for reproducible runs:
+
+- `dev`, `research`, `ci`, `paper`, `live`
+- each profile declares storage roots, log level, retention, and safety flags
+
+Outcome:
+- fewer environment-specific surprises when moving from notebook to CI/live.
+
+### 12.6 What Not to Bring Over
+
+Do not import heavy infra patterns unless a concrete bottleneck exists:
+
+- avoid adopting large service meshes or distributed schedulers preemptively
+- avoid parallel account/exchange model layers if protocol boundaries already cover the need
+
+Keep the adoption filter:
+- add only patterns that improve iteration speed, reproducibility, or production safety.

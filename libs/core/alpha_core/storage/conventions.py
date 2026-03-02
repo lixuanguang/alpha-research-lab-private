@@ -144,3 +144,47 @@ def resolve_partition_columns(dataset_key: str) -> list[str]:
 def dataset_root(storage_root: Path, tier: StorageTier, dataset_name: str) -> Path:
     """Return canonical dataset root path for a tier and dataset name."""
     return storage_root / tier.value / dataset_name
+
+
+# ---------------------------------------------------------------------------
+# Gold-tier schemas
+# ---------------------------------------------------------------------------
+
+GOLD_SCHEMA_VERSION = 1
+
+# Universe membership table — one row per (as_of, instrument_id) pair.
+GOLD_UNIVERSE_SCHEMA = pa.schema(
+    [
+        pa.field("as_of", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("instrument_id", pa.string(), nullable=False),
+        pa.field("market_id", pa.string(), nullable=False),
+        pa.field("venue", pa.string(), nullable=False),
+    ]
+)
+
+# Gold trades schema: silver trade columns + gold provenance fields.
+GOLD_TRADE_SCHEMA = pa.schema(
+    [
+        *TRADE_PARQUET_SCHEMA,
+        pa.field("dataset_id", pa.string(), nullable=False),
+        pa.field("gold_schema_version", pa.int32(), nullable=False),
+    ]
+)
+
+# Gold OHLCV schema: silver OHLCV columns + gold provenance fields.
+GOLD_OHLCV_SCHEMA = pa.schema(
+    [
+        *OHLCV_PARQUET_SCHEMA,
+        pa.field("dataset_id", pa.string(), nullable=False),
+        pa.field("gold_schema_version", pa.int32(), nullable=False),
+    ]
+)
+
+# Gold books schema: silver book columns + gold provenance fields.
+GOLD_BOOK_SCHEMA = pa.schema(
+    [
+        *BOOK_PARQUET_SCHEMA,
+        pa.field("dataset_id", pa.string(), nullable=False),
+        pa.field("gold_schema_version", pa.int32(), nullable=False),
+    ]
+)

@@ -157,7 +157,7 @@ def test_backfill_trades_succeeds_with_mocked_manager(
 
     monkeypatch.setattr(
         "apps.data_collector.main.adapters_pmxt.PmxtAdapter",
-        lambda *a, **kw: _FakeAdapter(),
+        lambda *_a, **_kw: _FakeAdapter(),
     )
 
     result = runner.invoke(
@@ -214,7 +214,7 @@ def test_backfill_ohlcv_event_type_reaches_correct_method(
 
     monkeypatch.setattr(
         "apps.data_collector.main.adapters_pmxt.PmxtAdapter",
-        lambda *a, **kw: _FakeAdapter(),
+        lambda *_a, **_kw: _FakeAdapter(),
     )
 
     result = runner.invoke(

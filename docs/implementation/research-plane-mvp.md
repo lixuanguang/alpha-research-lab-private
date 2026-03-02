@@ -4,7 +4,8 @@
 > **Prerequisites:** Foundation (complete, including microstructure foundation addendum 11.1-11.5) + Data Plane MVP (complete — 495 passed, 8 skipped; quality gates green)  
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
-> **Environment:** Python 3.11 (conda `py311`)
+> **Environment:** Python 3.11 (conda `py311`)  
+> **Lean adoption alignment (March 2, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
 
 ---
 
@@ -21,6 +22,7 @@
 9. [Dependencies & New Packages](#9-dependencies--new-packages)
 10. [Operational Runbook Stubs](#10-operational-runbook-stubs)
 11. [Microstructure Strategy Extension (Tick-Resolution)](#11-microstructure-strategy-extension-tick-resolution)
+12. [Lean + QUANTAXIS Research Ergonomics Extension (March 2026, Iteration 2)](#12-lean--quantaxis-research-ergonomics-extension-march-2026-iteration-2)
 
 ---
 
@@ -126,7 +128,11 @@ Gap Detector (completeness check)      ──╯
 | **Portfolio tracker** | Position state, cash balance, PnL breakdown (realised/unrealised), per-market attribution, resolution PnL |
 | **Evaluation metrics** | Sharpe, Sortino, max drawdown, win rate, profit factor + Brier score, log-loss, calibration error, resolution decomposition |
 | **Report generation** | Structured JSON/Parquet backtest reports, summary statistics, equity curve data |
-| **Research CLI** | `apps/research/main.py` with: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report` |
+| **Research CLI** | `apps/research/main.py` with: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize` |
+| **Strategy framework contracts** | Shared `UniverseModel`, `AlphaModel`, `PortfolioConstructionModel`, `RiskModel`, `ExecutionModel` contracts to keep backtest/live logic consistent |
+| **Run context + manifests** | Standard run metadata (`run_id`, `dataset_id`, `feature_set_version`, `strategy_version`, `config_hash`, `git_commit`) persisted for every stage |
+| **Artifact store abstraction** | Local filesystem-backed artifact interface so dataset/features/backtests/evaluations use one persistence contract |
+| **Optimization workflow** | First-class `optimize` workflow (grid/random sweep with constraints and leaderboard artifacts) |
 
 ### Explicitly Out of Scope
 
@@ -135,8 +141,23 @@ Gap Detector (completeness check)      ──╯
 - Purged/embargoed cross-validation (→ Robustness Hardening)
 - Deflated Sharpe ratio / multiple testing correction (→ Robustness Hardening)
 - Grafana dashboards / alerting (→ Observability Baseline)
-- Walk-forward optimisation (→ Robustness Hardening)
+- Advanced walk-forward optimisation and Bayesian/hyperband optimizers (→ Robustness Hardening)
 - Feature store / online feature serving (→ Live Plane MVP)
+
+### Lean Adoption Delta (March 2026)
+
+To keep this document as the implementation source of truth, Lean adoption deltas are in scope for Research Plane:
+
+- **R1 extension:** add run context and run manifest contracts while implementing dataset builder.
+- **R2 extension:** integrate feature outputs with run/artifact metadata.
+- **R3 extension:** align event backtester strategy interfaces with framework contracts.
+- **R4 extension:** add first-class optimize runner outputs and trial registry.
+- **R5 extension:** add report schema/version regression guardrails.
+- **R6 extension:** include `optimize` command and machine-readable CLI output conventions.
+
+Tracking reference:
+- `README.LEAN_ADOPTION.md`
+- `docs/implementation/lean-adoption-issue-backlog.md`
 
 ---
 
@@ -191,6 +212,26 @@ Gap Detector (completeness check)      ──╯
 │  • Equity curve, monthly/weekly PnL tables        │
 │  • Structured JSON + Parquet reports              │
 └──────────────────────────────────────────────────┘
+```
+
+### Lean Adoption Overlay (Architecture)
+
+The R1-R6 flow above is extended with cross-cutting contracts:
+
+```text
+RunContext + RunManifest (cross-cutting metadata)
+  -> Dataset build
+  -> Feature build
+  -> Backtest / Evaluate
+  -> Optimize
+  -> Report
+
+ArtifactStore (filesystem backend in MVP)
+  -> canonical write/read interface for all stage artifacts
+
+Strategy Framework Contracts
+  -> shared interfaces used by event engine first
+  -> reused by live-plane runtime later without strategy rewrites
 ```
 
 ### Dataset Builder — Point-in-Time Discipline
@@ -291,6 +332,12 @@ data/
 │       └── {feature_set_name}/
 │           ├── _meta.json              # Feature definitions, computation params
 │           └── features.parquet        # [timestamp × instrument × feature_columns]
+├── runs/
+│   └── {run_id}/
+│       ├── manifest.json               # RunContext + stage metadata
+│       ├── config.json                 # Frozen config for reproducibility
+│       ├── artifacts.json              # Logical -> physical artifact mapping
+│       └── stage_outputs/              # Dataset/feature/backtest/eval/optimize outputs
 ├── backtests/
 │   └── {backtest_id}/
 │       ├── config.json                 # Strategy + engine + params frozen
@@ -299,7 +346,7 @@ data/
 │       ├── equity.parquet              # Equity curve
 │       ├── metrics.json                # Summary metrics (Sharpe, Brier, etc.)
 │       └── report.json                 # Full structured report
-└── _lineage/   ... (unchanged from Data Plane)
+└── _lineage/   ... (unchanged from Data Plane ingestion; may link parent run IDs)
 ```
 
 ---
@@ -307,12 +354,22 @@ data/
 ## 5. Implementation Steps
 
 The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each step produces a testable, runnable increment.
+Lean-adoption tasks are embedded in each step so no second refactor pass is required.
+
+If you are currently implementing **R1**, prioritize the R1 extension items below first; they are intentionally low-disruption and unblock R2-R6 reproducibility.
 
 ---
 
 ### Step R1: Dataset Builder & Universe Manager (Est. 35–55 hrs)
 
 **Goal:** Assemble silver-tier data into gold-tier research datasets with strict point-in-time discipline and look-ahead bias protection.
+
+**Lean adoption extension for this step (LA-001/LA-002/LA-003):**
+
+- Add `RunContext`/`RunManifest` contracts immediately, even if initially minimal.
+- Persist R1 outputs under canonical run paths (`data/runs/{run_id}/...`) with artifact pointers.
+- Keep `DatasetManifest` as dataset-specific metadata, but always link it from a run manifest.
+- Define strategy-framework interfaces now (protocols only is sufficient in R1) so R3 can plug into stable contracts without churn.
 
 **Actions:**
 
@@ -428,6 +485,23 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
    GOLD_DATASET_SCHEMA = pa.schema([...])  # Extended with dataset_id, build metadata
    ```
 
+6. **Add run-level reproducibility contracts (R1 extension)**:
+   ```python
+   class RunContext(BaseModel):
+       run_id: str
+       run_type: Literal["dataset_build"]
+       config_hash: str
+       git_commit: str | None
+       started_at_utc: datetime
+       completed_at_utc: datetime | None
+
+   class RunManifest(BaseModel):
+       run: RunContext
+       dataset_id: str
+       artifacts: dict[str, str]         # Logical artifact name -> path
+       parent_run_id: str | None = None
+   ```
+
 **Files Created/Modified:**
 
 | Action | Path |
@@ -437,6 +511,9 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | Create | `libs/core/alpha_core/research/dataset_builder.py` |
 | Create | `libs/core/alpha_core/research/dataset.py` |
 | Create | `libs/core/alpha_core/research/as_of.py` |
+| Create | `libs/core/alpha_core/research/run_context.py` |
+| Create | `libs/core/alpha_core/research/manifest.py` |
+| Create | `libs/core/alpha_core/research/artifact_paths.py` |
 | Modify | `libs/core/alpha_core/storage/conventions.py` — add gold schemas |
 
 **Tests Added:**
@@ -447,6 +524,7 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | `tests/unit/test_dataset_builder.py` | Build from silver, look-ahead rejected, quality gate blocks bad data, gap check | 12–16 |
 | `tests/unit/test_gold_dataset.py` | Load dataset, query trades/books/ohlcv, universe at time, to_pandas | 8–10 |
 | `tests/unit/test_as_of.py` | as_of_filter removes future records, align_to_grid produces correct timestamps | 8–10 |
+| `tests/unit/test_research_manifest.py` | Run context/manifest schema, required fields, serialization round-trip | 8–10 |
 | `tests/integration/test_dataset_build_roundtrip.py` | Write silver → build gold → load → verify no look-ahead via ts_record check | 4–6 |
 
 **Targets:**
@@ -464,6 +542,12 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 ### Step R2: Feature Engine — Primitives & PM-Specific (Est. 40–65 hrs)
 
 **Goal:** Feature computation library with generic time-series primitives and prediction-market-specific signals, plus a declarative feature registry.
+
+**Lean adoption extension for this step (LA-006/LA-009):**
+
+- Ensure feature builds are run-scoped: every feature artifact must carry `run_id`, `dataset_id`, and `feature_set_version`.
+- Route feature persistence through an `ArtifactStore` interface (filesystem backend in MVP).
+- Make feature metadata deterministic and hashable to support optimize reproducibility in R4.
 
 **Actions:**
 
@@ -585,6 +669,16 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
        def load(self, feature_set_name: str) -> pa.Table: ...
    ```
 
+5. **Integrate feature-stage run manifests and artifact storage (R2 extension)**:
+   ```python
+   class FeatureRunManifest(BaseModel):
+       run_id: str
+       dataset_id: str
+       feature_set_version: str
+       config_hash: str
+       artifacts: dict[str, str]
+   ```
+
 **Files Created/Modified:**
 
 | Action | Path |
@@ -595,6 +689,7 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | Create | `libs/core/alpha_core/features/pm_specific.py` |
 | Create | `libs/core/alpha_core/features/registry.py` |
 | Create | `libs/core/alpha_core/features/feature_set.py` |
+| Create | `libs/core/alpha_core/research/artifact_store.py` |
 
 **Tests Added:**
 
@@ -604,6 +699,7 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | `tests/unit/test_pm_features.py` | Each PM feature: output range, cross-venue matching, TTR decay shape, empty category | 18–22 |
 | `tests/unit/test_feature_registry.py` | Register, dependency resolution, topological sort, compute_all, missing dependency error | 10–12 |
 | `tests/unit/test_feature_set.py` | Build from gold dataset, persist, reload, param overrides | 6–8 |
+| `tests/unit/test_artifact_store.py` | Put/get/list/exists semantics and deterministic path contracts | 8–10 |
 | `tests/integration/test_feature_pipeline.py` | Silver → gold → features pipeline, verify no NaN in required columns | 4–6 |
 
 **Targets:**
@@ -621,6 +717,12 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 ### Step R3: Event-Driven Backtester & Execution Simulator (Est. 45–70 hrs)
 
 **Goal:** High-fidelity tick-by-tick backtester with realistic execution simulation tailored to prediction market microstructure.
+
+**Lean adoption extension for this step (LA-001/LA-011/LA-012 prep):**
+
+- Implement event engine strategy entrypoints in terms of framework contracts (`Universe`, `Alpha`, `Portfolio`, `Risk`, `Execution`).
+- Keep order flow explicit (`OrderIntent -> simulated/validated execution result`) so live-plane reuse is direct.
+- Add deterministic reject reason codes for invalid intents now, even in research mode, to prevent contract drift later.
 
 **Actions:**
 
@@ -785,6 +887,15 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
        event_count: int
    ```
 
+4. **Align backtester strategy integration to framework contracts (R3 extension)**:
+   ```python
+   class UniverseModel(Protocol): ...
+   class AlphaModel(Protocol): ...
+   class PortfolioConstructionModel(Protocol): ...
+   class RiskModel(Protocol): ...
+   class ExecutionModel(Protocol): ...
+   ```
+
 **Files Created/Modified:**
 
 | Action | Path |
@@ -801,6 +912,8 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | Create | `apps/research/backtester/strategy.py` |
 | Create | `apps/research/backtester/engine.py` |
 | Create | `apps/research/backtester/result.py` |
+| Create | `libs/core/alpha_core/strategy_framework/interfaces.py` |
+| Create | `libs/core/alpha_core/strategy_framework/models.py` |
 
 **Tests Added:**
 
@@ -830,6 +943,12 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 ### Step R4: Vectorized Backtester & Parameter Sweep (Est. 35–55 hrs)
 
 **Goal:** Fast-path DataFrame-based backtester for rapid strategy iteration and parameter sweeps.
+
+**Lean adoption extension for this step (LA-010):**
+
+- Promote sweep execution to a first-class optimize workflow (not just helper loops).
+- Persist trial registry artifacts (params, objective, constraints, run links, seed) under run paths.
+- Add leaderboard output with stable sorting and explicit tie-break behavior.
 
 **Actions:**
 
@@ -931,6 +1050,11 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
        ...
    ```
 
+4. **Promote sweep to first-class optimize artifacts (R4 extension)**:
+   - Persist trial-level artifacts: params, objective, constraints, run links, seed.
+   - Emit leaderboard artifact sorted by primary metric with deterministic tie-break rules.
+   - Add optimize-run manifest schema to support CLI + CI automation.
+
 **Files Created/Modified:**
 
 | Action | Path |
@@ -939,6 +1063,7 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | Create | `apps/research/backtester/vec_strategy.py` |
 | Create | `apps/research/backtester/sweep.py` |
 | Create | `libs/core/alpha_core/portfolio/sizing.py` |
+| Create | `libs/core/alpha_core/research/optimize_runner.py` |
 
 **Tests Added:**
 
@@ -948,7 +1073,9 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | `tests/unit/test_vec_strategy.py` | Signal generation, position sizing, empty universe, all-flat signals | 6–8 |
 | `tests/unit/test_parameter_sweep.py` | Grid generation, sweep runs all combos, best params selected, empty grid | 8–10 |
 | `tests/unit/test_position_sizing.py` | Equal weight, Kelly for binary PM (known formula), fixed size, edge cases | 8–10 |
+| `tests/unit/test_optimize_runner.py` | Trial registry, leaderboard ranking, deterministic seed behavior | 6–8 |
 | `tests/integration/test_vec_backtest_e2e.py` | Feature set → vec strategy → run → result matches expected equity | 3–5 |
+| `tests/integration/test_research_optimize.py` | CLI/runner optimize flow persists trials and best-run metadata | 3–5 |
 
 **Targets:**
 
@@ -966,6 +1093,12 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 ### Step R5: Evaluation Metrics & Reporting (Est. 30–50 hrs)
 
 **Goal:** Comprehensive evaluation metrics suite including PM-specific metrics, and structured report generation.
+
+**Lean adoption extension for this step (LA-014 prep):**
+
+- Version report schemas explicitly and add compatibility notes in each report artifact.
+- Emit a standard run summary block shared by `evaluate`, `report`, and future live commands.
+- Capture run lineage links (`parent_run_id`, source dataset/feature run IDs) in evaluation artifacts.
 
 **Actions:**
 
@@ -1066,6 +1199,11 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
        """ECE = sum(|avg_predicted - avg_actual| * bin_weight)."""
    ```
 
+6. **Add schema-versioned reporting contracts (R5 extension)**:
+   - Add explicit report schema version fields.
+   - Add manifest/report schema regression tests to catch accidental contract drift.
+   - Persist lineage references to dataset/feature/backtest run manifests.
+
 **Files Created/Modified:**
 
 | Action | Path |
@@ -1078,6 +1216,8 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | Create | `apps/research/reporting/__init__.py` |
 | Create | `apps/research/reporting/writer.py` |
 | Create | `apps/research/reporting/comparisons.py` |
+| Create | `tests/regression/test_run_manifest_schema.py` |
+| Create | `tests/regression/test_metrics_report_schema.py` |
 
 **Tests Added:**
 
@@ -1107,6 +1247,13 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 ### Step R6: Research CLI & Integration Wiring (Est. 35–55 hrs)
 
 **Goal:** Complete the research CLI with subcommands, wire all components together, and deliver example strategies.
+
+**Lean adoption extension for this step (LA-004/LA-008/LA-010/LA-015):**
+
+- Include `optimize` in the core CLI surface for repeatable search workflows.
+- Standardize `--format json` output and non-zero exit behavior across all commands.
+- Require every command to emit a run manifest and artifact index.
+- Add CI smoke coverage for the command chain.
 
 **Actions:**
 
@@ -1153,7 +1300,14 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
    @click.option("--format", type=click.Choice(["json", "table"]), default="table")
    def report(backtest_ids, format):
        """Generate and display evaluation reports."""
-   
+
+   @cli.command()
+   @click.option("--config", required=True, help="Optimize config path")
+   @click.option("--primary-metric", default="sharpe_ratio")
+   @click.option("--max-trials", type=int, default=None)
+   def optimize(config, primary_metric, max_trials):
+       """Run parameter optimization and persist trial leaderboard artifacts."""
+
    @cli.command()
    def list_datasets():
        """List available gold datasets."""
@@ -1229,11 +1383,20 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | Action | Path |
 |---|---|
 | Modify | `apps/research/main.py` — replace stub with full CLI |
+| Create | `apps/research/commands/__init__.py` |
+| Create | `apps/research/commands/common.py` |
+| Create | `apps/research/commands/build_dataset.py` |
+| Create | `apps/research/commands/build_features.py` |
+| Create | `apps/research/commands/backtest.py` |
+| Create | `apps/research/commands/evaluate.py` |
+| Create | `apps/research/commands/report.py` |
+| Create | `apps/research/commands/optimize.py` |
 | Create | `apps/research/strategies/__init__.py` |
 | Create | `apps/research/strategies/probability_momentum.py` |
 | Create | `apps/research/strategies/cross_venue_arb.py` |
 | Create | `apps/research/strategies/mean_reversion.py` |
 | Create | `apps/research/strategies/loader.py` |
+| Create | `libs/core/alpha_core/research/optimize_runner.py` |
 | Modify | `libs/core/alpha_core/config/models.py` — add `ResearchConfig` |
 
 **Tests Added:**
@@ -1243,8 +1406,10 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | `tests/unit/test_research_cli.py` | CLI --help, build-dataset args, backtest args, list commands | 8–10 |
 | `tests/unit/test_example_strategies.py` | Each strategy: generate orders on sample data, handles empty universe, respects thresholds | 10–12 |
 | `tests/unit/test_strategy_loader.py` | Load valid module, invalid path error, wrong class type error | 4–6 |
+| `tests/unit/test_optimize_runner.py` | Grid/random search, objective ranking, constraints, seed reproducibility | 6–8 |
 | `tests/integration/test_research_pipeline_e2e.py` | Full pipeline: silver → dataset → features → backtest → evaluate → report | 4–6 |
 | `tests/integration/test_engine_congruence.py` | Event vs vec engine produce similar results on shared strategy | 2–3 |
+| `tests/integration/test_research_optimize.py` | End-to-end optimize run writes trial registry + leaderboard | 3–5 |
 
 **Targets:**
 
@@ -1289,6 +1454,11 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 | | Report generation (1K trades) | < 1s |
 | **Persistence** | Gold dataset round-trip | 100% fidelity |
 | | Backtest report round-trip | 100% fidelity |
+| | Run manifest completeness | 100% runs contain required fields (`run_id`, versions, config hash, git commit or fallback) |
+| **Optimization** | Trial registry persistence | 100% trials persisted with params + objective + run links |
+| | Reproducibility with fixed seed | Stable ranking within defined tolerance |
+| **CLI contracts** | `--format json` support | Available for all research commands |
+| | Exit behavior | Non-zero on validation/contract failure |
 | **Congruence** | Event vs vec engine | Within 1% on same data/strategy |
 
 ### Acceptance Criteria (Definition of Done)
@@ -1307,7 +1477,10 @@ The Research Plane MVP is **complete** when all of the following are true:
 - [ ] Evaluation suite produces Sharpe, Brier, log-loss, calibration, and resolution decomposition
 - [ ] Report writer persists and round-trips all metrics and equity curve data
 - [ ] 3 example strategies exist and produce non-trivial results on sample data
-- [ ] CLI works: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `list-*`
+- [ ] CLI works: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize`, `list-*`
+- [ ] All research CLI commands support `--format json` and deterministic exit codes
+- [ ] Every stage emits a run manifest and artifact index under `data/runs/{run_id}/`
+- [ ] Artifact persistence is routed through a stable store abstraction (filesystem backend for MVP)
 - [ ] All existing foundation + data plane tests still pass (0 regressions)
 - [ ] Config system extended for research settings (backward compatible)
 
@@ -1319,14 +1492,14 @@ The Research Plane MVP is **complete** when all of the following are true:
 
 ```
           ┌──────────┐
-          │  E2E /   │   6–11 tests
-          │  Pipeline │   Silver → gold → features → backtest → evaluate
+          │  E2E /   │   7–13 tests
+          │  Pipeline │   Silver → gold → features → backtest/evaluate/optimize
           ├──────────┤
-         │Integration│   13–20 tests
+         │Integration│   15–24 tests
          │  Component│   Dataset build, feature pipeline,
-         │  flows    │   backtest engine, evaluation
+         │  flows    │   backtest engine, evaluation, optimize, run manifests
          ├───────────┤
-        │    Unit     │   ~240 tests
+        │    Unit     │   ~255 tests
         │ Features,   │   Pure logic, no I/O
         │ portfolio,  │   Fast (< 15s total)
         │ metrics     │
@@ -1363,6 +1536,10 @@ The Research Plane MVP is **complete** when all of the following are true:
 | Research CLI | `test_research_cli.py` | Help, args for each command | 8 |
 | Example strategies | `test_example_strategies.py` | Each strategy on sample data | 10 |
 | Strategy loader | `test_strategy_loader.py` | Valid, invalid, wrong type | 4 |
+| Run manifests | `test_research_manifest.py` | Schema, required fields, round-trip, hash determinism | 8 |
+| Artifact store | `test_artifact_store.py` | Put/get/list/exists, overwrite semantics, path determinism | 8 |
+| Optimize runner | `test_optimize_runner.py` | Grid/random sweep, constraints, leaderboard ordering | 8 |
+| Schema regression | `tests/regression/test_run_manifest_schema.py`, `tests/regression/test_metrics_report_schema.py` | Contract stability across versions | 4 |
 
 ### Integration Test Summary
 
@@ -1375,6 +1552,8 @@ The Research Plane MVP is **complete** when all of the following are true:
 | `test_research_pipeline_e2e.py` | Full pipeline end-to-end | 4–6 |
 | `test_engine_congruence.py` | Event vs vec engines compared | 2–3 |
 | `test_vec_backtest_e2e.py` | Features → vec strategy → run | 3–5 |
+| `test_research_optimize.py` | Features/backtests → optimize → leaderboard artifacts | 3–5 |
+| `test_live_contract_reuse.py` | Shared strategy contracts usable by research + live runtime stubs | 2–4 |
 
 ### Test Fixtures — New
 
@@ -1400,6 +1579,9 @@ The Research Plane MVP is **complete** when all of the following are true:
 +   dataset_builder.py                   # DatasetBuilder, DatasetConfig, DatasetManifest
 +   dataset.py                           # GoldDataset handle
 +   as_of.py                             # as_of_filter, align_to_grid
++   run_context.py                       # RunContext model (shared across stages)
++   manifest.py                          # Run manifest schema + persistence helpers
++   artifact_paths.py                    # Deterministic run/artifact path helpers
 ~ libs/core/alpha_core/storage/conventions.py  # + gold-tier schemas
 +
   tests/unit/
@@ -1423,6 +1605,8 @@ The Research Plane MVP is **complete** when all of the following are true:
 +                                        #   ProbAcceleration
 +   registry.py                          # FeatureRegistry — declarative, dependency-resolved
 +   feature_set.py                       # FeatureSetBuilder, FeatureSetConfig
++ libs/core/alpha_core/research/
++   artifact_store.py                    # Shared artifact persistence abstraction (filesystem backend)
 +
   tests/unit/
 +   test_feature_primitives.py
@@ -1517,8 +1701,17 @@ The Research Plane MVP is **complete** when all of the following are true:
 
 ```diff
 ~ apps/research/main.py                  # Full CLI: build-dataset, build-features, backtest,
-~                                        #   evaluate, report, list-datasets, list-backtests,
+~                                        #   evaluate, report, optimize, list-datasets, list-backtests,
 ~                                        #   list-features
++ apps/research/commands/
++   __init__.py
++   common.py
++   build_dataset.py
++   build_features.py
++   backtest.py
++   evaluate.py
++   report.py
++   optimize.py
 + apps/research/strategies/
 +   __init__.py
 +   probability_momentum.py              # ProbabilityMomentumStrategy (event-driven)
@@ -1543,6 +1736,7 @@ alpha-research-lab-private/
 ├── apps/research/
 │   ├── __init__.py
 │   ├── main.py                          # Full CLI with subcommands
+│   ├── commands/                        # Command modules incl. optimize
 │   ├── backtester/
 │   │   ├── __init__.py
 │   │   ├── strategy.py                  # Strategy ABC, StrategyState
@@ -1567,7 +1761,11 @@ alpha-research-lab-private/
 │   │   ├── universe.py                  # UniverseManager, UniverseSnapshot
 │   │   ├── dataset_builder.py           # DatasetBuilder, DatasetConfig, DatasetManifest
 │   │   ├── dataset.py                   # GoldDataset
-│   │   └── as_of.py                     # Point-in-time join helpers
+│   │   ├── as_of.py                     # Point-in-time join helpers
+│   │   ├── run_context.py               # Cross-stage run metadata
+│   │   ├── manifest.py                  # Run manifest schema/persistence
+│   │   ├── artifact_paths.py            # Canonical run output paths
+│   │   └── artifact_store.py            # Artifact persistence abstraction
 │   ├── features/                        # NEW MODULE
 │   │   ├── __init__.py
 │   │   ├── base.py                      # Feature ABC, FeatureResult
@@ -1596,10 +1794,14 @@ alpha-research-lab-private/
 │   │   └── models.py                    # + ResearchConfig
 │   └── storage/
 │       └── conventions.py               # + gold-tier schemas
+├── data/
+│   └── runs/
+│       └── {run_id}/                    # Stage outputs + manifest + artifact index
 ├── tests/
 │   ├── unit/                            # +26 new test files
 │   ├── integration/                     # +7 new test files
-│   └── data/fixtures/                   # +6 new fixture files
+│   ├── regression/                      # + schema contract guards
+│   └── data/fixtures/                   # +6+ new fixture files
 └── docs/implementation/
     └── research-plane-mvp.md            # This document
 ```
@@ -1706,6 +1908,23 @@ python -m apps.research.main evaluate <backtest_id>
 # Compare multiple backtests side-by-side
 python -m apps.research.main report <backtest_id_1> <backtest_id_2> --format table
 ```
+
+### Optimization Workflow
+
+```bash
+# Run parameter optimization from config
+python -m apps.research.main optimize \
+    --config config/research/optimize/momentum_grid.yaml \
+    --primary-metric sharpe_ratio
+
+# Machine-readable output for automation
+python -m apps.research.main optimize \
+    --config config/research/optimize/momentum_grid.yaml \
+    --format json
+```
+
+Operational note:
+- Every command should write `data/runs/{run_id}/manifest.json` and `artifacts.json`.
 
 ---
 
@@ -1900,6 +2119,79 @@ Extension is complete when all are true:
 - [ ] Evaluation report includes microstructure metrics.
 - [ ] CLI exposes microstructure run configuration without code edits.
 - [ ] Extension tests are green with no regressions in base R1-R6 tests.
+
+---
+
+## 12. Lean + QUANTAXIS Research Ergonomics Extension (March 2026, Iteration 2)
+
+This extension keeps Lean contracts as the primary architecture while adding QUANTAXIS-style research ergonomics that reduce notebook friction and improve experiment governance.
+
+Reference documents:
+- `README.LEAN_ADOPTION.md`
+- `docs/implementation/lean-adoption-issue-backlog.md`
+
+### 12.1 R1 Extension B: ResearchSession Contract (Low-Churn for In-Flight R1)
+
+Because R1 is already in progress, add a thin session wrapper instead of reworking dataset internals:
+
+```python
+class ResearchSession(BaseModel):
+    session_id: str
+    run_id: str
+    dataset_id: str | None = None
+    feature_set_version: str | None = None
+    strategy_id: str | None = None
+    notes: str | None = None
+```
+
+Usage rule:
+- `DatasetBuilder.build(...)` updates `dataset_id`.
+- downstream runners attach feature/backtest/eval IDs to the same session lineage.
+
+This keeps R1 code stable while enabling cross-command continuity.
+
+### 12.2 R2/R3 Extension: Factor-Pack Registry and Strategy Recipe Manifest
+
+Add two contracts to improve module reuse:
+
+- `FactorPackManifest`: `pack_id`, `version`, `dependencies`, `output_schema`
+- `StrategyRecipeManifest`: references factor pack(s), strategy parameters, risk template, execution template
+
+Outcome:
+- CLI commands can consume `--factor-pack` and `--strategy-recipe` IDs rather than hardcoded notebook pipelines.
+
+### 12.3 R4/R5 Extension: Experiment Catalog + Promotion Gates
+
+For each optimize/backtest/evaluate run, register a catalog row:
+
+- identity: `run_id`, `session_id`, `dataset_id`, `strategy_version`
+- metrics: objective + key risk metrics
+- status: `candidate`, `needs_review`, `approved_for_paper`, `rejected`
+- reviewer metadata: `reviewed_by`, `reviewed_at_utc`, `reason`
+
+Promotion gate example:
+- block `approved_for_paper` unless liquidity threshold, max drawdown threshold, and min trade-count threshold are all satisfied.
+
+### 12.4 R6 Extension: CLI Ergonomics for Research Velocity
+
+Add optional CLI aliases over existing commands:
+
+- `research session start`
+- `research session status`
+- `research catalog list --status candidate`
+- `research promote --run-id ... --to approved_for_paper`
+
+All aliases should still emit standard run manifests and reuse existing runners.
+
+### 12.5 Acceptance Gates (Iteration 2)
+
+Extension is complete when:
+
+- [ ] `ResearchSession` schema is implemented and linked across R1-R5 artifacts.
+- [ ] Factor-pack and strategy-recipe manifests are versioned and validated by tests.
+- [ ] Optimize/evaluate runs register into a queryable experiment catalog.
+- [ ] Promotion workflow enforces objective/risk gates before paper/live promotion.
+- [ ] CLI aliases improve ergonomics without introducing a second artifact contract.
 
 ---
 

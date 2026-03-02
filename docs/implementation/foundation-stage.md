@@ -23,6 +23,8 @@
 9. [Dependencies & Environment](#9-dependencies--environment)
 10. [Conventions & Standards](#10-conventions--standards)
 11. [Microstructure Foundation Extension (Completed Addendum)](#11-microstructure-foundation-extension-completed-addendum)
+12. [Lean Adoption Foundation Extension (March 2026)](#12-lean-adoption-foundation-extension-march-2026)
+13. [Lean + QUANTAXIS Foundation Extension (March 2026, Iteration 2)](#13-lean--quantaxis-foundation-extension-march-2026-iteration-2)
 
 ---
 
@@ -1114,6 +1116,158 @@ Add or extend tests:
 - [x] Outcome grouping is available for simplex-constrained basket logic.
 - [x] Storage conventions and readers support optional `book_deltas`.
 - [x] New foundation addendum tests pass without regressing baseline foundation guarantees.
+
+---
+
+## 12. Lean Adoption Foundation Extension (March 2026)
+
+Foundation remains complete and closed. This extension does not reopen F1-F6; it adds cross-stage contracts needed for Lean-style research-to-production continuity.
+
+Reference documents:
+- `README.LEAN_ADOPTION.md`
+- `docs/implementation/lean-adoption-issue-backlog.md` (primarily LA-001, LA-002, LA-003, LA-014)
+
+### 12.1 Cross-Stage Run Contracts
+
+Define minimal shared contracts in core so downstream stages stop inventing per-stage metadata formats:
+
+- `RunContext` (run identity, type, timing, config hash, git commit/fallback)
+- `RunManifest` (links run context to stage outputs and parent lineage IDs)
+
+Recommended field minimum:
+
+```python
+class RunContext(BaseModel):
+    run_id: str
+    run_type: Literal["ingestion", "dataset_build", "feature_build", "backtest", "evaluate", "optimize", "live"]
+    config_hash: str
+    git_commit: str | None
+    started_at_utc: datetime
+    completed_at_utc: datetime | None
+
+class RunManifest(BaseModel):
+    run: RunContext
+    artifacts: dict[str, str]
+    parent_run_id: str | None = None
+```
+
+### 12.2 Artifact Path Conventions
+
+Define a canonical run-output layout once at Foundation level:
+
+```text
+data/runs/{run_id}/
+  manifest.json
+  config.json
+  artifacts.json
+  stage_outputs/
+```
+
+Rules:
+- Artifact paths must be deterministic for identical `(run_id, artifact_key)`.
+- Logical artifact key -> path mapping must be stored in `artifacts.json`.
+- Stage-specific outputs (dataset/features/backtests/reports) may keep existing layouts, but run manifests must point to them.
+
+### 12.3 Strategy Framework Contract Stubs
+
+Add shared protocol stubs in core (implementation deferred to Research/Live stages):
+
+- `UniverseModel`
+- `AlphaModel`
+- `PortfolioConstructionModel`
+- `RiskModel`
+- `ExecutionModel`
+
+These are contract-only at Foundation extension scope and are intended to prevent interface drift between research and live engines.
+
+### 12.4 Schema Regression Policy
+
+Introduce contract stability gates for manifests and reports:
+
+- Add regression test fixtures for run manifest schema.
+- Any schema change requires:
+  1. schema version bump
+  2. migration note in docs
+  3. updated regression snapshots
+
+This policy should be enforced in CI once Research CLI is wired.
+
+### 12.5 Foundation Extension Acceptance Gates
+
+Extension is complete when:
+
+- [ ] Shared run contract models exist in core and are importable by both data and research modules.
+- [ ] Canonical run artifact path helpers exist and are covered by unit tests.
+- [ ] Strategy framework protocol stubs are committed in core.
+- [ ] Manifest schema regression policy is documented and test scaffolding exists.
+
+---
+
+## 13. Lean + QUANTAXIS Foundation Extension (March 2026, Iteration 2)
+
+Foundation remains complete. This iteration adds protocol and operability guardrails so later stages can scale research development without redesigning core boundaries.
+
+Reference documents:
+- `README.LEAN_ADOPTION.md`
+- `docs/implementation/research-plane-mvp.md`
+
+### 13.1 Provider-Agnostic Runtime Protocols
+
+Add protocol stubs for account/routing surfaces in core:
+
+- `AccountStateProvider` (positions, balances, buying power)
+- `MarketStateProvider` (instrument status, top-of-book, lifecycle state)
+- `OrderRouter` (submit/cancel/query lifecycle)
+- `ExecutionAcknowledger` (acks/rejects/fills)
+
+These are contract-only in foundation scope and should not replace existing adapter implementations yet.
+
+### 13.2 Optional Performance Boundary Contract
+
+Define explicit interfaces for compute-heavy paths (feature transforms, simulation kernels):
+
+- baseline implementation: pure Python
+- optional accelerated implementation: same signature and outputs
+- parity test rule: accelerated path must match baseline within documented tolerance
+
+This avoids API churn when performance work starts later.
+
+### 13.3 Environment Profile Contract
+
+Standardize named runtime profiles:
+
+- `dev`
+- `research`
+- `ci`
+- `paper`
+- `live`
+
+Each profile should define:
+- storage roots
+- logging verbosity
+- safety flags (for example execution disabled in `research`)
+- retention policy defaults
+
+### 13.4 Documentation Modularity Rule
+
+Adopt a strict documentation split:
+
+- architecture contracts in implementation docs
+- operator procedures in runbooks
+- migration mappings in guides
+- breaking changes in ADRs
+
+Goal:
+- avoid one large document becoming the only source of truth.
+
+### 13.5 Iteration 2 Acceptance Gates
+
+Extension is complete when:
+
+- [ ] Runtime protocol stubs for account/market/router boundaries are present in core.
+- [ ] Performance boundary interfaces and parity-test policy are documented.
+- [ ] Profile contract (`dev/research/ci/paper/live`) is specified with required keys.
+- [ ] Documentation modularity rule is applied to new stage-level updates.
 
 ---
 

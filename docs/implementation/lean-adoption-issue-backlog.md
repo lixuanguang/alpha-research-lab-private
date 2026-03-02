@@ -15,6 +15,9 @@ Use these milestone names in GitHub:
 3. `Lean Adoption P2 - Optimize & Artifact Store` (target: May 1, 2026)
 4. `Lean Adoption P3 - Live Reuse & Pre-Trade Guards` (target: May 22, 2026)
 5. `Lean Adoption P4 - Observability & Hardening` (target: May 31, 2026)
+6. `Lean Adoption P5 - Research Ergonomics & Governance` (target: June 14, 2026)
+7. `Lean Adoption P6 - Data Bridge & Runtime Profiles` (target: June 28, 2026)
+8. `Lean Adoption P7 - Performance Boundary & Documentation Discipline` (target: July 10, 2026)
 
 Suggested labels:
 - `lean-adoption`
@@ -22,9 +25,12 @@ Suggested labels:
 - `area/live`
 - `area/core`
 - `area/cli`
+- `area/data-plane`
+- `area/ops`
 - `area/testing`
 - `type/architecture`
 - `type/feature`
+- `type/performance`
 - `type/docs`
 
 ---
@@ -46,6 +52,13 @@ Suggested labels:
 - [ ] LA-013: Add live dry-run integration tests (mock venue adapters) (P3)
 - [ ] LA-014: Add run observability summaries + manifest/report schema regression tests (P4)
 - [ ] LA-015: Add CI smoke job for research CLI pipeline (P4)
+- [ ] LA-016: Add `ResearchSession` + `ExperimentCatalog` contracts and persistence (P5)
+- [ ] LA-017: Add factor-pack registry and strategy recipe manifests (P5)
+- [ ] LA-018: Add promotion-gate workflow and research ergonomics CLI aliases (P5)
+- [ ] LA-019: Add provider-neutral data-bridge contract and capability declarations (P6)
+- [ ] LA-020: Add incremental cursor persistence and replay-package manifests (P6)
+- [ ] LA-021: Standardize runtime environment profiles across collector/research/live (P6)
+- [ ] LA-022: Add optional acceleration boundary and parity-test harness + docs modularity rule (P7)
 
 ---
 
@@ -665,6 +678,318 @@ Add CI job that validates minimal research lifecycle command chain on fixture da
 
 ---
 
+## LA-016
+
+**Title:** `Introduce ResearchSession and ExperimentCatalog contracts`  
+**Milestone:** `Lean Adoption P5 - Research Ergonomics & Governance`  
+**Labels:** `lean-adoption`, `area/research`, `area/core`, `type/architecture`
+
+### Summary
+
+Add session-level and experiment-level contracts so dataset/features/backtest/evaluate/optimize runs can be grouped and promoted with explicit metadata.
+
+### Dependencies
+
+- LA-002
+- LA-010
+
+### Files to create
+
+- `libs/core/alpha_core/research/session.py`
+- `libs/core/alpha_core/research/experiment_catalog.py`
+- `tests/unit/test_research_session.py`
+- `tests/unit/test_experiment_catalog.py`
+
+### Files to update
+
+- `libs/core/alpha_core/research/__init__.py`
+- `apps/research/main.py`
+- `docs/implementation/research-plane-mvp.md`
+
+### Checklist
+
+- [ ] Add `ResearchSession` schema with `session_id`, `run_id`, `dataset_id`, `feature_set_version`, `strategy_id`, `notes`
+- [ ] Add `ExperimentCatalog` schema/index with status fields (`candidate`, `needs_review`, `approved_for_paper`, `rejected`)
+- [ ] Add read/write/list helpers for catalog persistence
+- [ ] Link run manifests to `session_id`
+- [ ] Add unit tests for schema validation and catalog lifecycle operations
+
+### Acceptance criteria
+
+- Research runs can be queried by `session_id` and `status`.
+- Catalog updates are deterministic and serialized losslessly.
+- Existing run-manifest flows remain backward compatible.
+
+---
+
+## LA-017
+
+**Title:** `Add factor-pack registry and strategy recipe manifests`  
+**Milestone:** `Lean Adoption P5 - Research Ergonomics & Governance`  
+**Labels:** `lean-adoption`, `area/research`, `area/core`, `type/feature`
+
+### Summary
+
+Introduce reusable factor-pack and strategy-recipe contracts so feature/backtest pipelines depend on versioned manifests rather than notebook-defined logic.
+
+### Dependencies
+
+- LA-006
+- LA-016
+
+### Files to create
+
+- `libs/core/alpha_core/features/factor_pack.py`
+- `libs/core/alpha_core/research/strategy_recipe.py`
+- `config/research/factor_packs/example.yaml`
+- `config/research/recipes/example.yaml`
+- `tests/unit/test_factor_pack_registry.py`
+- `tests/unit/test_strategy_recipe_manifest.py`
+
+### Files to update
+
+- `apps/research/commands/build_features.py`
+- `apps/research/commands/backtest.py`
+- `apps/research/main.py`
+
+### Checklist
+
+- [ ] Add `FactorPackManifest` contract with `pack_id`, `version`, `dependencies`, `output_schema`
+- [ ] Add `StrategyRecipeManifest` contract with factor-pack refs, risk/execution templates, and parameter blocks
+- [ ] Add validation and dependency-resolution checks
+- [ ] Add CLI flags for `--factor-pack` and `--strategy-recipe`
+- [ ] Add unit tests for manifest validation and conflict paths
+
+### Acceptance criteria
+
+- Same factor-pack + recipe inputs produce deterministic feature/backtest metadata.
+- Missing dependencies fail with explicit validation errors.
+- Runs persist pack/recipe versions in manifests.
+
+---
+
+## LA-018
+
+**Title:** `Implement promotion-gate workflow and research ergonomics CLI aliases`  
+**Milestone:** `Lean Adoption P5 - Research Ergonomics & Governance`  
+**Labels:** `lean-adoption`, `area/research`, `area/cli`, `area/testing`, `type/feature`
+
+### Summary
+
+Add lightweight CLI ergonomics and approval gates so experiment promotion from research to paper/live uses explicit, testable criteria.
+
+### Dependencies
+
+- LA-016
+- LA-017
+- LA-010
+
+### Files to create
+
+- `apps/research/commands/session.py`
+- `apps/research/commands/catalog.py`
+- `apps/research/commands/promote.py`
+- `tests/integration/test_research_promotion_flow.py`
+
+### Files to update
+
+- `apps/research/main.py`
+- `docs/guides/notebook-to-modules-cli-migration-guide.md`
+- `docs/implementation/research-plane-mvp.md`
+
+### Checklist
+
+- [ ] Add alias command group: `research session start/status`, `research catalog list`, `research promote`
+- [ ] Implement promotion gates using objective/risk thresholds and minimum trade count
+- [ ] Record reviewer metadata (`reviewed_by`, `reviewed_at_utc`, `reason`) in catalog
+- [ ] Ensure aliases still emit standard run manifests and artifact links
+- [ ] Add integration tests for pass/fail promotion scenarios
+
+### Acceptance criteria
+
+- Promotion to `approved_for_paper` is blocked when gate conditions fail.
+- CLI aliases provide machine-readable output (`--format json`) and deterministic exit codes.
+- Promotion metadata is traceable to source runs and sessions.
+
+---
+
+## LA-019
+
+**Title:** `Add provider-neutral data-bridge contract and capability declarations`  
+**Milestone:** `Lean Adoption P6 - Data Bridge & Runtime Profiles`  
+**Labels:** `lean-adoption`, `area/data-plane`, `area/core`, `type/architecture`
+
+### Summary
+
+Define a data-bridge contract so downstream dataset/replay paths use a consistent provider interface independent of connector internals.
+
+### Dependencies
+
+- LA-003
+
+### Files to create
+
+- `apps/data_collector/connectors/data_bridge.py`
+- `apps/data_collector/connectors/capabilities.py`
+- `tests/unit/test_data_bridge_contract.py`
+
+### Files to update
+
+- `apps/data_collector/connectors/factory.py`
+- `apps/data_collector/pipeline.py`
+- `docs/implementation/data-plane-mvp.md`
+
+### Checklist
+
+- [ ] Define contract methods: `pull_snapshot(window)`, `pull_incremental(cursor)`, `stream_subscribe(topics)`, `capabilities()`
+- [ ] Add typed capability model (books, deltas, ohlcv resolutions, metadata cadence)
+- [ ] Implement bridge adapter(s) over current connector stack
+- [ ] Add deterministic error mapping for unsupported capabilities
+- [ ] Add unit tests for contract conformance and capability reporting
+
+### Acceptance criteria
+
+- Dataset/replay consumers can call one bridge interface across supported venues.
+- Capability declarations are explicit and test-verified.
+- Existing connector behavior remains backward compatible.
+
+---
+
+## LA-020
+
+**Title:** `Persist incremental cursors and replay-package manifests for deterministic resume`  
+**Milestone:** `Lean Adoption P6 - Data Bridge & Runtime Profiles`  
+**Labels:** `lean-adoption`, `area/data-plane`, `area/research`, `area/core`, `type/feature`
+
+### Summary
+
+Add cursor and replay-package contracts so ingestion can resume safely and research can replay deterministic event slices.
+
+### Dependencies
+
+- LA-019
+- LA-005
+
+### Files to create
+
+- `libs/core/alpha_core/storage/replay_package.py`
+- `tests/unit/test_replay_package.py`
+- `tests/integration/test_resume_replay_flow.py`
+
+### Files to update
+
+- `libs/core/alpha_core/storage/lineage.py`
+- `apps/data_collector/backfill.py`
+- `apps/data_collector/main.py`
+
+### Checklist
+
+- [ ] Add lineage cursor fields (`cursor_type`, `cursor_value`, `cursor_watermark_utc`, `resume_safe`)
+- [ ] Add replay-package manifest schema with source runs, partition refs, ordering policy, and integrity hash
+- [ ] Emit replay-package artifacts for eligible ingestion windows
+- [ ] Add resume logic that consumes stored cursor metadata
+- [ ] Add integration test for failure -> resume -> replay consistency
+
+### Acceptance criteria
+
+- Ingestion can resume from stored cursor state without duplicate window drift.
+- Replay packages are consumable by research runners with deterministic ordering.
+- Lineage and replay manifests round-trip without schema loss.
+
+---
+
+## LA-021
+
+**Title:** `Standardize runtime environment profiles across collector, research, and live`  
+**Milestone:** `Lean Adoption P6 - Data Bridge & Runtime Profiles`  
+**Labels:** `lean-adoption`, `area/ops`, `area/core`, `area/cli`, `type/docs`
+
+### Summary
+
+Define and enforce shared runtime profiles (`dev`, `research`, `ci`, `paper`, `live`) to make behavior predictable across commands and deployment contexts.
+
+### Dependencies
+
+- LA-004
+- LA-011
+- LA-019
+
+### Files to create
+
+- `config/environments/research.yaml`
+- `config/environments/paper.yaml`
+- `config/environments/live.yaml`
+- `tests/unit/test_runtime_profiles.py`
+
+### Files to update
+
+- `config/default.yaml`
+- `libs/core/alpha_core/config/models.py`
+- `libs/core/alpha_core/config/loader.py`
+- `apps/data_collector/main.py`
+- `apps/research/main.py`
+- `apps/live_system/main.py`
+
+### Checklist
+
+- [ ] Add profile schema with required keys: storage roots, log level, safety flags, retention policy
+- [ ] Add profile selection flag for entrypoints (`--profile`)
+- [ ] Enforce safety behavior (for example no live order submission in `research` profile)
+- [ ] Document profile semantics and defaults
+- [ ] Add tests for profile parsing and guard behavior
+
+### Acceptance criteria
+
+- All three entrypoints accept and validate the same profile model.
+- Misconfigured profiles fail fast with actionable errors.
+- Profile-specific safety gates are covered by tests.
+
+---
+
+## LA-022
+
+**Title:** `Introduce optional acceleration boundary with parity-test harness and docs modularity rule`  
+**Milestone:** `Lean Adoption P7 - Performance Boundary & Documentation Discipline`  
+**Labels:** `lean-adoption`, `area/core`, `area/testing`, `type/performance`, `type/docs`
+
+### Summary
+
+Create a formal boundary for optional accelerated compute backends and enforce parity and documentation discipline before enabling performance-specific paths.
+
+### Dependencies
+
+- LA-006
+- LA-007
+- LA-021
+
+### Files to create
+
+- `libs/core/alpha_core/perf/interfaces.py`
+- `tests/regression/test_acceleration_parity.py`
+- `docs/adr/00x-performance-boundary.md`
+
+### Files to update
+
+- `docs/implementation/foundation-stage.md`
+- `docs/implementation/research-plane-mvp.md`
+- `README.LEAN_ADOPTION.md`
+
+### Checklist
+
+- [ ] Define pure-Python baseline interface and optional accelerated interface contract
+- [ ] Add parity test harness and numerical tolerance policy
+- [ ] Add fallback policy when accelerated backend is unavailable
+- [ ] Add documentation modularity rule references (architecture vs runbook vs guide vs ADR)
+- [ ] Add regression tests for baseline/accelerated parity on representative workloads
+
+### Acceptance criteria
+
+- Baseline path remains default and unchanged in behavior.
+- Accelerated path cannot be enabled unless parity tests pass.
+- Documentation updates follow modularity rule and include ADR traceability.
+
+---
+
 ## 4. Suggested Creation Order
 
 Create issues in this order to preserve dependency flow:
@@ -684,4 +1009,10 @@ Create issues in this order to preserve dependency flow:
 13. LA-013
 14. LA-014
 15. LA-015
-
+16. LA-016
+17. LA-017
+18. LA-018
+19. LA-019
+20. LA-020
+21. LA-021
+22. LA-022

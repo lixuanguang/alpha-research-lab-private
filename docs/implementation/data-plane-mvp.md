@@ -24,6 +24,8 @@
 9. [Dependencies & New Packages](#9-dependencies--new-packages)
 10. [Operational Runbook Stubs](#10-operational-runbook-stubs)
 11. [Microstructure Data Extension (Queue/OFI Readiness)](#11-microstructure-data-extension-queueofi-readiness)
+12. [Lean Adoption Data-Plane Extension (March 2026)](#12-lean-adoption-data-plane-extension-march-2026)
+13. [Lean + QUANTAXIS Data-Bridge Extension (March 2026, Iteration 2)](#13-lean--quantaxis-data-bridge-extension-march-2026-iteration-2)
 
 ---
 
@@ -1510,6 +1512,138 @@ Validated implementation status (March 2, 2026):
 - [x] Quality suite catches sequence gaps and stale/cadence violations.
 - [x] `book_deltas` is queryable through reader and DuckDB view registration.
 - [x] Integration tests cover reconnect + gap markers + delta reconstruction consistency.
+
+---
+
+## 12. Lean Adoption Data-Plane Extension (March 2026)
+
+Data Plane MVP remains complete and closed. This extension defines contract-level additions so Data Plane outputs can be consumed by Research/Live workflows without custom glue code.
+
+Reference documents:
+- `README.LEAN_ADOPTION.md`
+- `docs/implementation/lean-adoption-issue-backlog.md` (primarily LA-003, LA-005, LA-008, LA-014)
+
+### 12.1 Ingestion Lineage -> Research Run Bridge
+
+Extend lineage metadata with optional downstream linkage fields:
+
+- `parent_run_id` (upstream run reference)
+- `child_run_ids` (optional fan-out references)
+- `dataset_ready` (boolean flag for handoff eligibility)
+- `handoff_manifest_path` (path to dataset-ready handoff contract)
+
+Goal:
+- Preserve existing ingestion behavior while allowing explicit traceability from ingestion runs to dataset/build/evaluate runs.
+
+### 12.2 Dataset-Ready Handoff Contract
+
+Define a deterministic handoff manifest for Research Plane dataset builds:
+
+```json
+{
+  "handoff_id": "20260302T120000Z_kalshi_trades",
+  "source_run_ids": ["run_..."],
+  "venue": "kalshi",
+  "window_start_utc": "2026-03-01T00:00:00Z",
+  "window_end_utc": "2026-03-02T00:00:00Z",
+  "event_types": ["trades", "books", "ohlcv"],
+  "quality_status": {"passed": true, "failed_suites": []},
+  "gap_status": {"gap_free": true, "max_gap_hours": 0.0},
+  "watermarks": {"max_ts_event": "...", "max_ts_record": "..."},
+  "partition_refs": ["..."],
+  "schema_version": 1
+}
+```
+
+Minimum gating rule for `dataset_ready=true`:
+
+- quality checks pass for required event types in target window
+- no disallowed gaps for declared policy
+- lineage run status is terminal `completed`
+
+### 12.3 Run Artifact Compatibility with Research CLI
+
+Data Plane should emit run artifacts compatible with `data/runs/{run_id}/...` conventions:
+
+- `manifest.json` with required run fields
+- `artifacts.json` logical->physical mapping
+- stable references to lineage and silver partitions
+
+This allows Research CLI commands to consume Data Plane outputs without custom path logic.
+
+### 12.4 Data-Plane Extension Acceptance Gates
+
+Extension is complete when:
+
+- [ ] Lineage models support optional parent/child run references without breaking existing runs.
+- [ ] Dataset-ready handoff manifest schema is implemented and validated by tests.
+- [ ] `dataset_ready` gating uses quality + gap + status checks.
+- [ ] Run artifact outputs are compatible with Research Plane run path conventions.
+- [ ] Integration tests cover end-to-end handoff: ingestion run -> handoff manifest -> dataset build consumption path.
+
+---
+
+## 13. Lean + QUANTAXIS Data-Bridge Extension (March 2026, Iteration 2)
+
+Data Plane remains complete. This iteration extends handoff ergonomics and replay readiness so research workflows can consume data outputs with less custom glue.
+
+Reference documents:
+- `README.LEAN_ADOPTION.md`
+- `docs/implementation/research-plane-mvp.md`
+
+### 13.1 Provider Data-Bridge Contract
+
+Add a provider-neutral bridge contract over current connectors:
+
+- `pull_snapshot(window)` for deterministic historical slices
+- `pull_incremental(cursor)` for resumable sync
+- `stream_subscribe(topics)` for live ingestion
+- `capabilities()` for explicit feature support (books, deltas, ohlcv resolutions, metadata cadence)
+
+This reduces connector-specific branching in dataset-build and replay tools.
+
+### 13.2 Incremental Sync Cursor Contract
+
+Standardize cursor metadata for every ingestion run:
+
+- `cursor_type` (`ts_event`, `sequence`, `trade_id`, mixed)
+- `cursor_value`
+- `cursor_watermark_utc`
+- `resume_safe` flag
+
+Persist cursor state in lineage manifests so backfill/replay can resume deterministically after failures.
+
+### 13.3 Replay-Ready Event Package
+
+Add a package contract for research replay:
+
+- package identity: `replay_package_id`
+- source references: lineage run IDs and partition refs
+- time coverage: start/end + watermark cutoffs
+- ordering policy: event-time, record-time, or hybrid with tie-breakers
+- integrity fields: event count hash and schema version
+
+Research CLI can consume this package directly for deterministic scenario replay.
+
+### 13.4 Operational Profiles for Data Collection
+
+Align Data Plane run modes with profile contract:
+
+- `collector-dev`: low cadence, debug logging, short retention
+- `collector-research`: complete metadata + replay package emission
+- `collector-live`: strict health gates, conservative restart policy, high durability
+
+This keeps ingestion behavior explicit across environments.
+
+### 13.5 Iteration 2 Acceptance Gates
+
+Extension is complete when:
+
+- [ ] Data-bridge contract is documented and represented by typed interfaces.
+- [ ] Cursor metadata is persisted and validated in lineage regression tests.
+- [ ] Replay package manifests are emitted and consumable by research runners.
+- [ ] Data collector profiles (`dev/research/live`) are documented and test-covered.
+- [ ] End-to-end test covers resume-after-failure using stored cursor + replay package.
 
 ---
 

@@ -489,12 +489,11 @@ def _update_trade_pagination_state(
     max_ts: datetime,
     new_rows: int,
 ) -> None:
-    cursor = state.cursor
-    if cursor is not None and max_ts < cursor:
+    if state.cursor is not None and max_ts < state.cursor:
         raise RuntimeError(
             "Trade pagination regressed cursor timestamp; aborting to avoid silent data loss."
         )
-    if cursor is not None and max_ts == cursor and new_rows == 0:
+    if state.cursor is not None and max_ts == state.cursor and new_rows == 0:
         state.stalled_iterations += 1
         if state.stalled_iterations >= 2:
             raise RuntimeError(

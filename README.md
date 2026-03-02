@@ -113,6 +113,89 @@ Kalshi · KalshiDemo · Polymarket · Limitless · Baozi · Myriad · Probable
 | [Data Plane MVP](docs/implementation/data-plane-mvp.md) | Live connectors, streaming/batch ingestion, data quality, backfill tools |
 | [Research Plane MVP](docs/implementation/research-plane-mvp.md) | Dataset builder, feature engineering, backtester, PM-specific evaluation |
 
+## Macro Data Ingestion Plan (OpenBB Hybrid)
+
+Decision:
+- Use OpenBB first for macro/public data sources (`FRED`, `BLS`, `IMF`, `Federal Reserve` data including FOMC-related series/calendars where available).
+- Keep Alpha Research Lab contracts as the system boundary.
+- Route all provider calls through internal adapters so OpenBB is replaceable.
+
+Why this plan:
+- Faster time-to-data for research.
+- Lower connector maintenance burden for public datasets.
+- Preserves production safety by keeping lineage, quality gates, and canonical schemas internal.
+
+### Scope
+
+In scope:
+- Daily/intraday macro enrichment for research datasets.
+- Historical pulls via OpenBB provider extensions.
+- Canonical storage in bronze/silver with lineage + manifests.
+
+Out of scope:
+- Replacing `pmxt` venue connectors.
+- Routing live trading decisions directly from unvalidated macro provider payloads.
+
+### Implementation Phases
+
+Phase M0 (Contracts + config, 1-2 days):
+- Add provider-agnostic macro connector contract.
+- Add config for enabled macro providers and datasets.
+- Define canonical macro event schema + partition convention.
+
+Suggested file targets:
+- `libs/core/alpha_core/adapters/macro_base.py`
+- `libs/core/alpha_core/events/models.py` (macro event model additions)
+- `libs/core/alpha_core/storage/conventions.py` (macro dataset schema/partitions)
+- `config/default.yaml` + `config/environments/*.yaml` (provider toggles, cadence)
+
+Phase M1 (OpenBB adapter + ingestion, 2-4 days):
+- Implement OpenBB-backed macro adapter wrappers for:
+  - `fred`
+  - `bls`
+  - `imf`
+  - `federal_reserve`
+- Add collector command(s) for macro sync windows.
+- Persist raw payloads to bronze, normalized macro records to silver.
+
+Suggested file targets:
+- `libs/core/alpha_core/adapters/openbb_macro.py`
+- `apps/data_collector/connectors/macro_poller.py`
+- `apps/data_collector/main.py` (add `macro-sync` command)
+- `libs/core/alpha_core/storage/bronze_writer.py` (macro payload support)
+- `libs/core/alpha_core/storage/parquet_writer.py` / `parquet_reader.py`
+
+Phase M2 (Quality + lineage + research handoff, 2-3 days):
+- Add macro quality suite (nulls, timestamp monotonicity, release-lag sanity, revision tracking fields).
+- Emit lineage links and dataset-ready handoff manifests for macro windows.
+- Join macro artifacts into research dataset builder via run manifests.
+
+Suggested file targets:
+- `libs/core/alpha_core/quality/suites/macro_quality.py`
+- `libs/core/alpha_core/storage/lineage.py`
+- `libs/core/alpha_core/research/dataset_builder.py`
+- `docs/implementation/data-plane-mvp.md` / `research-plane-mvp.md` (handoff notes)
+
+Phase M3 (Selective first-party fallback, only if needed):
+- Implement direct, first-party connectors only for critical series that need stricter SLA/control.
+- Keep adapter signatures identical so downstream code is unchanged.
+
+### Acceptance Criteria
+
+- `macro-sync` can fetch configured FRED/BLS/IMF/Fed datasets into bronze/silver deterministically.
+- Macro records pass quality suites and emit lineage metadata.
+- Research dataset build can include macro features without bypassing run manifests.
+- Provider adapter can be swapped without changing research/backtest CLI contracts.
+
+### Risks and Controls
+
+- Provider/API changes:
+  - Control: adapter boundary + contract tests.
+- Public dataset revisions:
+  - Control: include `release_ts`, `effective_ts`, and revision metadata where available.
+- Licensing and operational constraints:
+  - Control: review provider terms before production promotion; keep fallback path available.
+
 ## Research Guides
 
 | Guide | Scope |

@@ -69,10 +69,8 @@ class _StubAdapter(adapters_base.VenueAdapter):
 
 class _StreamStubAdapter(_StubAdapter):
     def watch_trades(self, outcome_id: str) -> AsyncIterator[list[event_models.CanonicalTrade]]:
-        del outcome_id
-
         async def _stream() -> AsyncIterator[list[event_models.CanonicalTrade]]:
-            if False:
+            if outcome_id == "__never__":
                 yield []
 
         return _stream()
@@ -80,10 +78,8 @@ class _StreamStubAdapter(_StubAdapter):
     def watch_order_book(
         self, outcome_id: str
     ) -> AsyncIterator[event_models.CanonicalBookSnapshot]:
-        del outcome_id
-
         async def _stream() -> AsyncIterator[event_models.CanonicalBookSnapshot]:
-            if False:
+            if outcome_id == "__never__":
                 yield event_models.CanonicalBookSnapshot.model_validate(
                     {
                         "event_id": "skip",
