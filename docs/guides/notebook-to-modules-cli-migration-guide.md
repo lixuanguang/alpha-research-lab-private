@@ -262,6 +262,70 @@ Recommended traceability fields per run:
 - `git_commit`
 - `run_timestamp_utc`
 
+### 9.1 Run Artifact Layout Convention
+
+Every CLI run produces a deterministic output tree under a shared root.  Use
+`alpha_core.research.artifact_paths` helpers — never construct these paths manually.
+
+```text
+{storage_root}/runs/{run_id}/
+    manifest.json       # RunManifest (run context + full artifact index)
+    config.json         # frozen config snapshot for this run
+    artifacts.json      # logical key → absolute path index
+    stage_outputs/      # default home for files produced by this run
+        <artifact_key>  # e.g. "features.parquet", "report/summary.json"
+```
+
+**How to use the helpers:**
+
+```python
+from alpha_core.research import (
+    artifact_key_path,       # deterministic path for a named output file
+    stage_outputs_path,      # root of the stage_outputs/ directory
+    write_artifacts_index,   # atomically write artifacts.json
+    read_artifacts_index,    # read artifacts.json (empty dict if missing)
+    run_manifest_path,       # path to manifest.json
+    run_config_path,         # path to config.json
+)
+
+# Get the canonical path for a named artifact (no I/O performed)
+out_path = artifact_key_path(storage_root, run_id, "features.parquet")
+
+# Or for a nested key:
+out_path = artifact_key_path(storage_root, run_id, "report/summary.json")
+
+# After writing outputs, register them:
+write_artifacts_index(storage_root, run_id, {
+    "features":       str(out_path),
+    "report_summary": str(artifact_key_path(storage_root, run_id, "report/summary.json")),
+})
+
+# Retrieve later (returns {} if not found — backward-compatible):
+index = read_artifacts_index(storage_root, run_id)
+```
+
+**Rules:**
+
+- `artifact_key_path` is the **only** sanctioned way to derive a default path for a
+  named output. It guarantees path determinism for identical `(run_id, artifact_key)`.
+- Stage-specific outputs (`gold/datasets/…`, `gold/features/…`) **may** live outside
+  `stage_outputs/` but **must** be registered in `artifacts.json` so `RunManifest` can
+  locate them.
+- `artifact_key` must be a relative path; no `..` traversal; forward-slash creates
+  sub-directories under `stage_outputs/`.
+
+**Linking ingestion runs to downstream research runs:**
+
+```python
+from alpha_core.storage.lineage import LineageStore
+
+store = LineageStore(storage_root)
+# After a dataset_build run that consumed ingestion run X:
+store.link_downstream_run(ingestion_run_id, dataset_build_run_id)
+# The downstream RunManifest.parent_run_id should also be set to ingestion_run_id
+# for bidirectional traceability.
+```
+
 ---
 
 ## 10. Common Migration Pitfalls

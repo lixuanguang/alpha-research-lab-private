@@ -31,6 +31,12 @@ class IngestionRun(BaseModel):
     errors: list[str] = Field(default_factory=list)
     schema_version: int = 1
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
+    # Bridge to downstream research/backtest runs that consumed this ingestion run.
+    # A downstream run (dataset_build, feature_build, etc.) should set
+    # ``RunManifest.parent_run_id`` to this ``run_id`` and then call
+    # ``LineageStore.link_downstream_run`` to register the linkage here too,
+    # giving bidirectional traceability at zero coupling cost.
+    downstream_run_ids: list[str] = Field(default_factory=list)
 
     @field_validator("venue")
     @classmethod
@@ -149,6 +155,23 @@ class LineageStore:
         if not run_path.exists():
             return None
         return IngestionRun.model_validate_json(run_path.read_text(encoding="utf-8"))
+
+    def link_downstream_run(self, ingestion_run_id: str, downstream_run_id: str) -> None:
+        """Register *downstream_run_id* as a consumer of *ingestion_run_id*.
+
+        Idempotent — calling with the same pair twice is safe.
+        This provides bidirectional traceability: the downstream
+        ``RunManifest.parent_run_id`` points forward to the ingestion run,
+        and the ingestion run's ``downstream_run_ids`` list points forward to
+        research/backtest runs that consumed it.
+        """
+        run = self._require_run(ingestion_run_id)
+        if downstream_run_id in run.downstream_run_ids:
+            return
+        updated = self._revalidated_run(
+            run, downstream_run_ids=[*run.downstream_run_ids, downstream_run_id]
+        )
+        self._persist_run(updated)
 
     def list_runs(
         self,

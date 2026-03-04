@@ -1,4 +1,4 @@
-"""Run manifest contracts for research-plane artifacts."""
+"""Cross-stage run manifest contracts for artifact lineage."""
 
 from __future__ import annotations
 
@@ -10,12 +10,16 @@ import alpha_core.research.run_context as run_context_mod
 
 
 class RunManifest(BaseModel):
-    """Persistent run manifest linking run context and artifacts."""
+    """Persistent run manifest linking a RunContext to its stage outputs.
+
+    Stage-specific metadata (dataset IDs, feature set versions, etc.) should be
+    stored as entries in *artifacts* rather than as top-level fields so that this
+    contract stays stable across all pipeline stages.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     run: run_context_mod.RunContext
-    dataset_id: str
     artifacts: dict[str, str]
     parent_run_id: str | None = None
 

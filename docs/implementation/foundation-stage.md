@@ -49,7 +49,7 @@ Deliver the **repo scaffold, canonical data model, instrument master, configurat
 - Current stage: **Foundation complete and closed**
 - Completed steps: **F1, F2, F3, F4, F5, F6 + addendum 11.1-11.5**
 - Remaining foundation steps: **None**
-- Current quality gate snapshot: `ruff check .` and `mypy libs/ apps/ --strict` passing locally; `pytest tests/ -v` is green (`593 passed, 8 skipped`)
+- Current quality gate snapshot: `ruff check .` and `mypy libs/ apps/ --strict` passing locally; `pytest tests/ -v` is green (`644 passed, 8 skipped`)
 - Foundation artifact lock added: `data/schemas/canonical_event_v1.json` and `tests/unit/test_foundation_requirements.py`
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 - Post-foundation maintenance note: config loading internals are now split across `alpha_core.config._merge` and `alpha_core.config._overrides`, with `alpha_core.config.loader` kept as the public orchestration entrypoint
@@ -1151,6 +1151,17 @@ class RunManifest(BaseModel):
     parent_run_id: str | None = None
 ```
 
+**Status Update (March 4, 2026):**
+
+- `RunType` exported as a named `Literal` type alias covering all seven pipeline stages; used as the single source of truth across modules.
+- `RunContext.run_type` broadened from `"dataset_build"`-only to the full `RunType` union.
+- `capture_git_commit()` added to `run_context.py` — wraps `git rev-parse --short HEAD` with a safe `None` fallback when outside a repo or when `git` is absent.
+- `make_run_context()` auto-calls `capture_git_commit()` when no commit is passed explicitly.
+- `RunManifest` aligned to the spec-minimal contract: the `dataset_id` top-level field was removed; stage-specific keys (dataset ID, feature-set version, etc.) are stored as entries in `artifacts` instead.
+- `DatasetBuilder` updated to write `dataset_id` into `artifact_map` rather than a top-level manifest field — backward-compatible for downstream consumers.
+- Flat convenience exports added to `alpha_core.research.__init__` so callers can do `from alpha_core.research import RunContext, RunManifest`.
+- `tests/unit/test_research_manifest.py` replaced and expanded: 23 tests covering parametrized `RunType` coverage, hash stability, `close_run_context`, `capture_git_commit` (happy path, `FileNotFoundError`, mock injection, explicit-override guard), manifest round-trip, `parent_run_id` linkage, `extra="forbid"` rejection, and per-`RunType` persistence. All 614 tests green; `mypy --strict` clean on changed files.
+
 ### 12.2 Artifact Path Conventions
 
 Define a canonical run-output layout once at Foundation level:
@@ -1167,6 +1178,19 @@ Rules:
 - Artifact paths must be deterministic for identical `(run_id, artifact_key)`.
 - Logical artifact key -> path mapping must be stored in `artifacts.json`.
 - Stage-specific outputs (dataset/features/backtests/reports) may keep existing layouts, but run manifests must point to them.
+
+**Status Update (March 4, 2026):**
+
+- `artifact_paths.py` fully expanded with the complete canonical layout contract:
+  - `run_root`, `run_manifest_path`, `run_config_path`, `run_artifacts_path` — existing fixed-file helpers (unchanged, backward-compatible).
+  - `stage_outputs_path` — new helper for the `stage_outputs/` subdirectory.
+  - `artifact_key_path(storage_root, run_id, artifact_key)` — the single source of truth for a deterministic per-artifact path under `stage_outputs/`; validates the key (non-empty, relative, no `..` traversal).
+  - `write_artifacts_index` / `read_artifacts_index` — atomic write and safe read of `artifacts.json`; `read_artifacts_index` returns `{}` when the file is absent for backward-compatible consumption.
+- `IngestionRun` in `storage/lineage.py` gains an optional `downstream_run_ids: list[str]` field (default `[]`) — fully backward-compatible with existing JSON on disk.
+- `LineageStore.link_downstream_run(ingestion_run_id, downstream_run_id)` — idempotent method to register bidirectional traceability between an ingestion run and a consuming research run. Pairs with `RunManifest.parent_run_id` on the downstream side.
+- All new helpers exported from `alpha_core.research.__init__` for flat import.
+- `docs/guides/notebook-to-modules-cli-migration-guide.md` updated with §9.1 Run Artifact Layout Convention: documents the directory structure, helper usage patterns, and the `link_downstream_run` bridging flow.
+- New `tests/unit/test_artifact_paths.py`: 25 tests covering fixed-path layout, `artifact_key_path` determinism and validation, `write/read_artifacts_index` round-trip and edge cases, lineage bridge CRUD (default, register, idempotency, accumulation, error case), and backward-compat loading of old JSON without `downstream_run_ids`. All 644 tests green; `mypy --strict` clean.
 
 ### 12.3 Strategy Framework Contract Stubs
 
@@ -1196,8 +1220,8 @@ This policy should be enforced in CI once Research CLI is wired.
 
 Extension is complete when:
 
-- [ ] Shared run contract models exist in core and are importable by both data and research modules.
-- [ ] Canonical run artifact path helpers exist and are covered by unit tests.
+- [x] Shared run contract models exist in core and are importable by both data and research modules.
+- [x] Canonical run artifact path helpers exist and are covered by unit tests.
 - [ ] Strategy framework protocol stubs are committed in core.
 - [ ] Manifest schema regression policy is documented and test scaffolding exists.
 

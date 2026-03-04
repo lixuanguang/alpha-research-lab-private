@@ -216,6 +216,7 @@ class DatasetBuilder:
         )
 
         artifact_map = {
+            "dataset_id": dataset_id,
             "dataset_meta": str(meta_path),
             "dataset_dir": str(dataset_dir),
             "universe": str(dataset_dir / "universe.parquet"),
@@ -230,7 +231,6 @@ class DatasetBuilder:
 
         run_manifest = manifest_mod.RunManifest(
             run=completed_context,
-            dataset_id=dataset_id,
             artifacts=artifact_map,
             parent_run_id=None,
         )
