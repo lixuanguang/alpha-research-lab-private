@@ -113,9 +113,7 @@ def align_to_grid(
             result[label] = pa.concat_tables(aligned_chunks)
         else:
             # Return empty table with grid_ts column added
-            extended_schema = table.schema.append(
-                pa.field("grid_ts", pa.timestamp("us", tz="UTC"))
-            )
+            extended_schema = table.schema.append(pa.field("grid_ts", pa.timestamp("us", tz="UTC")))
             result[label] = pa.Table.from_pylist([], schema=extended_schema)
 
     return result

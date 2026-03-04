@@ -20,10 +20,10 @@ class UniverseSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     as_of: datetime
-    instruments: list[str]             # Canonical outcome IDs
-    markets: list[str]                 # Canonical market IDs
-    venue_breakdown: dict[str, int]    # Count per venue
-    filters_applied: dict[str, Any]    # Lifecycle, volume, quality filters
+    instruments: list[str]  # Canonical outcome IDs
+    markets: list[str]  # Canonical market IDs
+    venue_breakdown: dict[str, int]  # Count per venue
+    filters_applied: dict[str, Any]  # Lifecycle, volume, quality filters
 
 
 class UniverseManager:
@@ -142,9 +142,7 @@ class UniverseManager:
                 return instrument_models.MarketLifecycle.ACTIVE
         return market.lifecycle
 
-    def _filter_markets(
-        self, as_of: datetime
-    ) -> list[tuple[str, instrument_models.MarketSpec]]:
+    def _filter_markets(self, as_of: datetime) -> list[tuple[str, instrument_models.MarketSpec]]:
         """Return (canonical_id, MarketSpec) pairs that pass all filters at *as_of*."""
         snapshot = self._master.snapshot()
         markets_raw: dict[str, Any] = snapshot.get("markets", {})  # type: ignore[assignment]

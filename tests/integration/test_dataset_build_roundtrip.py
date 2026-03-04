@@ -121,6 +121,7 @@ def setup(tmp_path: Path):  # type: ignore[no-untyped-def]  # pytest fixture
 # Tests
 # ---------------------------------------------------------------------------
 
+
 def test_build_and_load_roundtrip(setup) -> None:  # type: ignore[no-untyped-def]
     builder, config, _tmp_path = setup
     manifest = builder.build(config)

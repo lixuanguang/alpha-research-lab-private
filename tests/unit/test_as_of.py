@@ -13,6 +13,7 @@ import alpha_core.research.as_of as as_of_mod
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_table(ts_records: list[datetime], ts_events: list[datetime] | None = None) -> pa.Table:
     """Build a minimal table with ts_record (and optionally ts_event)."""
     schema_fields = [pa.field("ts_record", pa.timestamp("us", tz="UTC"), nullable=False)]
@@ -36,6 +37,7 @@ _T4 = _T0 + timedelta(hours=4)
 # ---------------------------------------------------------------------------
 # as_of_filter
 # ---------------------------------------------------------------------------
+
 
 class TestAsOfFilter:
     def test_removes_future_records(self) -> None:
@@ -87,6 +89,7 @@ class TestAsOfFilter:
 # align_to_grid
 # ---------------------------------------------------------------------------
 
+
 class TestAlignToGrid:
     def _trade_table(self, records: list[tuple[datetime, datetime, str]]) -> pa.Table:
         """Build a small table with ts_record, ts_event, instrument_id."""
@@ -107,9 +110,7 @@ class TestAlignToGrid:
         )
 
     def test_grid_timestamps_added(self) -> None:
-        table = self._trade_table(
-            [(_T1, _T1, "abc"), (_T2, _T2, "abc")]
-        )
+        table = self._trade_table([(_T1, _T1, "abc"), (_T2, _T2, "abc")])
         result = as_of_mod.align_to_grid(
             {"trades": table},
             spec=as_of_mod.GridAlignmentSpec(
@@ -122,9 +123,7 @@ class TestAlignToGrid:
 
     def test_no_future_leak_on_grid_boundary(self) -> None:
         # Row recorded at T3 should not appear on the T2 grid slice
-        table = self._trade_table(
-            [(_T1, _T1, "x"), (_T3, _T3, "x")]
-        )
+        table = self._trade_table([(_T1, _T1, "x"), (_T3, _T3, "x")])
         result = as_of_mod.align_to_grid(
             {"trades": table},
             spec=as_of_mod.GridAlignmentSpec(

@@ -13,6 +13,7 @@ import alpha_core.research.universe as universe_mod
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_master() -> master_mod.MarketMaster:
     return master_mod.MarketMaster()
 
@@ -59,13 +60,12 @@ _DAY = timedelta(days=1)
 # UniverseManager.snapshot_at
 # ---------------------------------------------------------------------------
 
+
 class TestSnapshotAt:
     def test_returns_markets_known_at_time(self) -> None:
         master = _make_master()
         master.register_market(_make_market("polymarket", "m1", ["yes", "no"], first_seen=_BASE))
-        master.register_market(
-            _make_market("polymarket", "m2", ["a"], first_seen=_BASE + 5 * _DAY)
-        )
+        master.register_market(_make_market("polymarket", "m2", ["a"], first_seen=_BASE + 5 * _DAY))
         mgr = universe_mod.UniverseManager(master)
         snap = mgr.snapshot_at(_BASE + 2 * _DAY)
         assert "polymarket:m1:yes" in snap.instruments
@@ -74,9 +74,7 @@ class TestSnapshotAt:
 
     def test_excludes_markets_not_yet_seen(self) -> None:
         master = _make_master()
-        master.register_market(
-            _make_market("kalshi", "m1", ["yes"], first_seen=_BASE + 10 * _DAY)
-        )
+        master.register_market(_make_market("kalshi", "m1", ["yes"], first_seen=_BASE + 10 * _DAY))
         mgr = universe_mod.UniverseManager(master)
         snap = mgr.snapshot_at(_BASE)
         assert snap.instruments == []
@@ -209,6 +207,7 @@ class TestSnapshotAt:
 # ---------------------------------------------------------------------------
 # UniverseManager.time_series
 # ---------------------------------------------------------------------------
+
 
 class TestTimeSeries:
     def test_returns_list_of_snapshots(self) -> None:
