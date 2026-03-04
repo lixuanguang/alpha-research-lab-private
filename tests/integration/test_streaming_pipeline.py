@@ -150,8 +150,10 @@ def _make_pipeline(
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=trade_stream_mod.TradeStreamOptions(
+            reconnect_backoff_base=0.01,
+            reconnect_backoff_max=0.05,
+        ),
     )
     adapter.connector = connector
 
@@ -163,10 +165,12 @@ def _make_pipeline(
     )
     pipeline = streaming_pipeline_mod.StreamingPipeline(
         connector=connector,
-        bronze_writer=storage_bronze.BronzeWriter(tmp_path),
-        streaming_writer=streaming_writer,
-        quality_checker=event_quality.EventQualityChecker(),
-        lineage_store=storage_lineage.LineageStore(tmp_path),
+        dependencies=streaming_pipeline_mod.StreamingPipelineDependencies(
+            bronze_writer=storage_bronze.BronzeWriter(tmp_path),
+            streaming_writer=streaming_writer,
+            quality_checker=event_quality.EventQualityChecker(),
+            lineage_store=storage_lineage.LineageStore(tmp_path),
+        ),
     )
     return connector, pipeline
 
@@ -208,8 +212,10 @@ def test_streaming_pipeline_buffer_rotation_on_large_batch(tmp_path: Path) -> No
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=trade_stream_mod.TradeStreamOptions(
+            reconnect_backoff_base=0.01,
+            reconnect_backoff_max=0.05,
+        ),
     )
     adapter.connector = connector
 
@@ -221,10 +227,12 @@ def test_streaming_pipeline_buffer_rotation_on_large_batch(tmp_path: Path) -> No
     )
     pipeline = streaming_pipeline_mod.StreamingPipeline(
         connector=connector,
-        bronze_writer=storage_bronze.BronzeWriter(tmp_path),
-        streaming_writer=streaming_writer,
-        quality_checker=event_quality.EventQualityChecker(),
-        lineage_store=storage_lineage.LineageStore(tmp_path),
+        dependencies=streaming_pipeline_mod.StreamingPipelineDependencies(
+            bronze_writer=storage_bronze.BronzeWriter(tmp_path),
+            streaming_writer=streaming_writer,
+            quality_checker=event_quality.EventQualityChecker(),
+            lineage_store=storage_lineage.LineageStore(tmp_path),
+        ),
     )
 
     run = asyncio.run(asyncio.wait_for(pipeline.run(), timeout=5.0))
@@ -253,17 +261,21 @@ def test_streaming_pipeline_fails_run_when_silver_append_fails(tmp_path: Path) -
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=trade_stream_mod.TradeStreamOptions(
+            reconnect_backoff_base=0.01,
+            reconnect_backoff_max=0.05,
+        ),
     )
     adapter.connector = connector
 
     pipeline = streaming_pipeline_mod.StreamingPipeline(
         connector=connector,
-        bronze_writer=storage_bronze.BronzeWriter(tmp_path),
-        streaming_writer=_FailingStreamingWriter(),  # type: ignore[arg-type]
-        quality_checker=event_quality.EventQualityChecker(),
-        lineage_store=storage_lineage.LineageStore(tmp_path),
+        dependencies=streaming_pipeline_mod.StreamingPipelineDependencies(
+            bronze_writer=storage_bronze.BronzeWriter(tmp_path),
+            streaming_writer=_FailingStreamingWriter(),  # type: ignore[arg-type]
+            quality_checker=event_quality.EventQualityChecker(),
+            lineage_store=storage_lineage.LineageStore(tmp_path),
+        ),
     )
 
     run = asyncio.run(asyncio.wait_for(pipeline.run(), timeout=5.0))
@@ -278,20 +290,24 @@ def test_streaming_pipeline_cancelled_run_is_marked_failed(tmp_path: Path) -> No
         connector = trade_stream_mod.TradeStreamConnector(
             adapter,
             outcome_ids=["kalshi:market-a:yes"],
-            reconnect_backoff_base=0.01,
-            reconnect_backoff_max=0.05,
-            heartbeat_timeout=120.0,
+            options=trade_stream_mod.TradeStreamOptions(
+                reconnect_backoff_base=0.01,
+                reconnect_backoff_max=0.05,
+                heartbeat_timeout=120.0,
+            ),
         )
         pipeline = streaming_pipeline_mod.StreamingPipeline(
             connector=connector,
-            bronze_writer=storage_bronze.BronzeWriter(tmp_path),
-            streaming_writer=storage_streaming.StreamingParquetWriter(
-                storage_parquet.ParquetEventWriter(tmp_path),
-                max_buffer_size=10_000,
-                max_buffer_age_seconds=60.0,
+            dependencies=streaming_pipeline_mod.StreamingPipelineDependencies(
+                bronze_writer=storage_bronze.BronzeWriter(tmp_path),
+                streaming_writer=storage_streaming.StreamingParquetWriter(
+                    storage_parquet.ParquetEventWriter(tmp_path),
+                    max_buffer_size=10_000,
+                    max_buffer_age_seconds=60.0,
+                ),
+                quality_checker=event_quality.EventQualityChecker(),
+                lineage_store=storage_lineage.LineageStore(tmp_path),
             ),
-            quality_checker=event_quality.EventQualityChecker(),
-            lineage_store=storage_lineage.LineageStore(tmp_path),
         )
         task = asyncio.create_task(pipeline.run())
         await asyncio.sleep(0.05)
@@ -309,20 +325,24 @@ def test_streaming_pipeline_book_reconnect_gap_and_delta_consistency(tmp_path: P
     book_connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=book_stream_mod.BookStreamOptions(
+            reconnect_backoff_base=0.01,
+            reconnect_backoff_max=0.05,
+        ),
     )
     adapter.connector = book_connector
     pipeline = streaming_pipeline_mod.StreamingPipeline(
         connector=book_connector,
-        bronze_writer=storage_bronze.BronzeWriter(tmp_path),
-        streaming_writer=storage_streaming.StreamingParquetWriter(
-            storage_parquet.ParquetEventWriter(tmp_path),
-            max_buffer_size=10_000,
-            max_buffer_age_seconds=60.0,
+        dependencies=streaming_pipeline_mod.StreamingPipelineDependencies(
+            bronze_writer=storage_bronze.BronzeWriter(tmp_path),
+            streaming_writer=storage_streaming.StreamingParquetWriter(
+                storage_parquet.ParquetEventWriter(tmp_path),
+                max_buffer_size=10_000,
+                max_buffer_age_seconds=60.0,
+            ),
+            quality_checker=event_quality.EventQualityChecker(),
+            lineage_store=storage_lineage.LineageStore(tmp_path),
         ),
-        quality_checker=event_quality.EventQualityChecker(),
-        lineage_store=storage_lineage.LineageStore(tmp_path),
     )
 
     run = asyncio.run(asyncio.wait_for(pipeline.run(), timeout=5.0))

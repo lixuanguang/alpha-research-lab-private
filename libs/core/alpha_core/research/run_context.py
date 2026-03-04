@@ -83,8 +83,8 @@ def capture_git_commit() -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip() or None
-    except Exception:  # noqa: BLE001 — intentional broad catch for safe fallback
-        pass
+    except (OSError, subprocess.SubprocessError):
+        return None
     return None
 
 

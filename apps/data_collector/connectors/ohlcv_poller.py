@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
 
@@ -13,6 +14,15 @@ import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.raw_payloads as connector_raw_payloads
 
 
+@dataclass(slots=True)
+class OHLCVPollerOptions:
+    resolution: str = "1h"
+    interval_seconds: float = 300.0
+    request_timeout_seconds: float | None = 10.0
+    limit_per_poll: int = 100
+    max_seen_candle_keys: int = 100_000
+
+
 class OHLCVPoller(connector_polling.PollingConnector):
     """Polls fetch_ohlcv for configured outcomes at regular intervals."""
 
@@ -21,30 +31,25 @@ class OHLCVPoller(connector_polling.PollingConnector):
         adapter: adapters_base.VenueAdapter,
         *,
         outcome_ids: list[str],
-        resolution: str = "1h",
-        interval_seconds: float = 300.0,
-        request_timeout_seconds: float | None = 10.0,
-        limit_per_poll: int = 100,
-        max_seen_candle_keys: int = 100_000,
+        options: OHLCVPollerOptions | None = None,
     ) -> None:
-        if limit_per_poll <= 0:
+        resolved_options = options or OHLCVPollerOptions()
+        if resolved_options.limit_per_poll <= 0:
             raise ValueError("`limit_per_poll` must be > 0")
-        if max_seen_candle_keys <= 0:
+        if resolved_options.max_seen_candle_keys <= 0:
             raise ValueError("`max_seen_candle_keys` must be > 0")
         self._adapter = adapter
         self._outcome_ids = connector_types.normalize_outcome_ids(outcome_ids)
-        self._resolution = resolution
-        self._limit_per_poll = limit_per_poll
-        self._max_seen_candle_keys = max_seen_candle_keys
-        self._last_ts_by_outcome: dict[str, datetime | None] = {
-            outcome_id: None for outcome_id in self._outcome_ids
-        }
+        self._resolution = resolved_options.resolution
+        self._limit_per_poll = resolved_options.limit_per_poll
+        self._max_seen_candle_keys = resolved_options.max_seen_candle_keys
+        self._last_ts_by_outcome: dict[str, datetime | None] = dict.fromkeys(self._outcome_ids)
         self._seen_candle_keys: set[tuple[str, str, datetime]] = set()
         self._seen_candle_order: deque[tuple[str, str, datetime]] = deque()
         super().__init__(
             venue=adapter.venue_name(),
-            interval_seconds=interval_seconds,
-            request_timeout_seconds=request_timeout_seconds,
+            interval_seconds=resolved_options.interval_seconds,
+            request_timeout_seconds=resolved_options.request_timeout_seconds,
         )
 
     def event_types(self) -> list[str]:
@@ -137,4 +142,4 @@ class OHLCVPoller(connector_polling.PollingConnector):
         return True
 
 
-__all__ = ["OHLCVPoller"]
+__all__ = ["OHLCVPoller", "OHLCVPollerOptions"]

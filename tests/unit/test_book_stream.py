@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -34,6 +34,17 @@ def _book(ts: datetime | None = None) -> event_models.CanonicalBookSnapshot:
     }
     payload["event_id"] = ids_utils.generate_event_id(payload)
     return event_models.CanonicalBookSnapshot.model_validate(payload)
+
+
+def _stream_options(
+    *,
+    emit: Callable[[list[event_models.CanonicalMarketEvent]], None] | None = None,
+) -> book_stream_mod.BookStreamOptions:
+    return book_stream_mod.BookStreamOptions(
+        reconnect_backoff_base=0.01,
+        reconnect_backoff_max=0.05,
+        emit=emit,
+    )
 
 
 class _MockAdapter:
@@ -78,9 +89,7 @@ def test_stream_emits_snapshots() -> None:
     connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
-        emit=collector,
+        options=_stream_options(emit=collector),
     )
     asyncio.run(connector.stream_loop())
     books = [e for e in collector.events if isinstance(e, event_models.CanonicalBookSnapshot)]
@@ -108,9 +117,7 @@ def test_stream_emits_reconstructed_deltas() -> None:
     connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
-        emit=collector,
+        options=_stream_options(emit=collector),
     )
 
     asyncio.run(connector.stream_loop())
@@ -128,9 +135,7 @@ def test_stream_stamps_capability_flags() -> None:
     connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
-        emit=collector,
+        options=_stream_options(emit=collector),
     )
     asyncio.run(connector.stream_loop())
 
@@ -144,8 +149,7 @@ def test_empty_outcome_ids_returns_after_stop() -> None:
     connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=[],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
 
     async def _run() -> None:
@@ -161,8 +165,7 @@ def test_metrics_updated_after_stream() -> None:
     connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
     asyncio.run(connector.stream_loop())
     assert connector.metrics().events_received == 2
@@ -194,8 +197,7 @@ def test_run_stream_reconnects_on_error() -> None:
     connector = book_stream_mod.BookStreamConnector(
         _FailOnceAdapter(),
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
     connector_ref.append(connector)
     asyncio.run(asyncio.wait_for(connector._run_stream(), timeout=2.0))
@@ -231,9 +233,7 @@ def test_reconnect_emits_gap_marker_with_capabilities() -> None:
     connector = book_stream_mod.BookStreamConnector(
         _FailOnceAdapter(),
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
-        emit=collector,
+        options=_stream_options(emit=collector),
     )
     connector_ref.append(connector)
 
@@ -249,8 +249,7 @@ def test_stop_event_exits_run_stream() -> None:
     connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=[],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
 
     async def _run() -> None:
@@ -271,8 +270,7 @@ def test_duplicate_outcome_ids_normalised() -> None:
     connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=["id-a", "id-a", "id-b"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
     assert connector._outcome_ids == ["id-a", "id-b"]
 
@@ -287,8 +285,7 @@ def test_start_and_stop() -> None:
     connector = book_stream_mod.BookStreamConnector(
         adapter,
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
 
     async def _run() -> None:

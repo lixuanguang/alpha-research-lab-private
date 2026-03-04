@@ -5,12 +5,23 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
 from typing import TypeVar
 
 import apps.data_collector.connectors._lifecycle as connector_lifecycle
 import apps.data_collector.connectors._types as connector_types
 
 _ResultT = TypeVar("_ResultT")
+
+
+@dataclass(slots=True)
+class OutcomeStreamOptions:
+    """Configuration shared by outcome-scoped streaming connectors."""
+
+    outcome_ids: list[str]
+    next_reconnect_delay: Callable[[int], float]
+    heartbeat_timeout: float = 120.0
+    on_reconnect_reset: Callable[[], None] | None = None
 
 
 class StreamingConnector(connector_lifecycle.BaseConnector):
@@ -83,19 +94,16 @@ class OutcomeStreamingConnector(StreamingConnector):
         self,
         *,
         venue: str,
-        outcome_ids: list[str],
-        heartbeat_timeout: float = 120.0,
-        next_reconnect_delay: Callable[[int], float],
-        on_reconnect_reset: Callable[[], None] | None = None,
+        options: OutcomeStreamOptions,
         emit: connector_lifecycle.EmitCallback | None = None,
     ) -> None:
         super().__init__(venue=venue, emit=emit)
-        if heartbeat_timeout <= 0:
+        if options.heartbeat_timeout <= 0:
             raise ValueError("`heartbeat_timeout` must be > 0")
-        self._outcome_ids = connector_types.normalize_outcome_ids(outcome_ids)
-        self._heartbeat_timeout = heartbeat_timeout
-        self._next_reconnect_delay = next_reconnect_delay
-        self._on_reconnect_reset = on_reconnect_reset
+        self._outcome_ids = connector_types.normalize_outcome_ids(options.outcome_ids)
+        self._heartbeat_timeout = options.heartbeat_timeout
+        self._next_reconnect_delay = options.next_reconnect_delay
+        self._on_reconnect_reset = options.on_reconnect_reset
 
     async def _stream_outcome(self, outcome_id: str) -> None:
         """Consume one outcome stream until stop, exhaustion, or error."""
@@ -186,4 +194,4 @@ class OutcomeStreamingConnector(StreamingConnector):
             ) from error
 
 
-__all__ = ["OutcomeStreamingConnector", "StreamingConnector"]
+__all__ = ["OutcomeStreamOptions", "OutcomeStreamingConnector", "StreamingConnector"]

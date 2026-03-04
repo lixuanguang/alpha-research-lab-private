@@ -152,10 +152,12 @@ def _make_manager(
 ) -> collector_backfill.BackfillManager:
     return collector_backfill.BackfillManager(
         adapter=adapter,
-        bronze_writer=storage_bronze.BronzeWriter(tmp_path),
-        silver_writer=storage_parquet.ParquetEventWriter(tmp_path),
-        quality_checker=event_quality.EventQualityChecker(),
-        lineage_store=storage_lineage.LineageStore(tmp_path),
+        dependencies=collector_backfill.BackfillDependencies(
+            bronze_writer=storage_bronze.BronzeWriter(tmp_path),
+            silver_writer=storage_parquet.ParquetEventWriter(tmp_path),
+            quality_checker=event_quality.EventQualityChecker(),
+            lineage_store=storage_lineage.LineageStore(tmp_path),
+        ),
     )
 
 

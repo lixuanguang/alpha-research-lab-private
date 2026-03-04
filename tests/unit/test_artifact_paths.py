@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 import alpha_core.research.artifact_paths as ap
 import alpha_core.storage.lineage as lineage_mod
-
 
 RUN_ID = "abc123def456"
 
@@ -25,28 +25,39 @@ class TestFixedPaths:
         assert root == tmp_path / "runs" / RUN_ID
 
     def test_manifest_path(self, tmp_path: Path) -> None:
-        assert ap.run_manifest_path(tmp_path, RUN_ID) == tmp_path / "runs" / RUN_ID / "manifest.json"
+        assert ap.run_manifest_path(tmp_path, RUN_ID) == (
+            tmp_path / "runs" / RUN_ID / "manifest.json"
+        )
 
     def test_config_path(self, tmp_path: Path) -> None:
         assert ap.run_config_path(tmp_path, RUN_ID) == tmp_path / "runs" / RUN_ID / "config.json"
 
     def test_artifacts_path(self, tmp_path: Path) -> None:
-        assert ap.run_artifacts_path(tmp_path, RUN_ID) == tmp_path / "runs" / RUN_ID / "artifacts.json"
+        assert ap.run_artifacts_path(tmp_path, RUN_ID) == (
+            tmp_path / "runs" / RUN_ID / "artifacts.json"
+        )
 
     def test_stage_outputs_path(self, tmp_path: Path) -> None:
-        assert ap.stage_outputs_path(tmp_path, RUN_ID) == tmp_path / "runs" / RUN_ID / "stage_outputs"
+        assert ap.stage_outputs_path(tmp_path, RUN_ID) == (
+            tmp_path / "runs" / RUN_ID / "stage_outputs"
+        )
 
-    @pytest.mark.parametrize("fn", [
-        ap.run_manifest_path,
-        ap.run_config_path,
-        ap.run_artifacts_path,
-        ap.stage_outputs_path,
-    ])
-    def test_all_helpers_are_deterministic(self, tmp_path: Path, fn: object) -> None:
+    @pytest.mark.parametrize(
+        "fn",
+        [
+            ap.run_manifest_path,
+            ap.run_config_path,
+            ap.run_artifacts_path,
+            ap.stage_outputs_path,
+        ],
+    )
+    def test_all_helpers_are_deterministic(
+        self,
+        tmp_path: Path,
+        fn: Callable[[Path, str], Path],
+    ) -> None:
         """Same inputs always produce the same path — no randomness."""
-        import typing
-        callable_fn = typing.cast(typing.Callable[[Path, str], Path], fn)
-        assert callable_fn(tmp_path, RUN_ID) == callable_fn(tmp_path, RUN_ID)
+        assert fn(tmp_path, RUN_ID) == fn(tmp_path, RUN_ID)
 
     def test_different_run_ids_produce_different_roots(self, tmp_path: Path) -> None:
         assert ap.run_root(tmp_path, "run_a") != ap.run_root(tmp_path, "run_b")
@@ -64,7 +75,9 @@ class TestArtifactKeyPath:
 
     def test_subdir_key(self, tmp_path: Path) -> None:
         path = ap.artifact_key_path(tmp_path, RUN_ID, "features/v2/out.parquet")
-        assert path == tmp_path / "runs" / RUN_ID / "stage_outputs" / "features" / "v2" / "out.parquet"
+        assert path == (
+            tmp_path / "runs" / RUN_ID / "stage_outputs" / "features" / "v2" / "out.parquet"
+        )
 
     def test_deterministic_for_same_inputs(self, tmp_path: Path) -> None:
         p1 = ap.artifact_key_path(tmp_path, RUN_ID, "metrics.json")
@@ -72,9 +85,8 @@ class TestArtifactKeyPath:
         assert p1 == p2
 
     def test_different_keys_produce_different_paths(self, tmp_path: Path) -> None:
-        assert (
-            ap.artifact_key_path(tmp_path, RUN_ID, "a.parquet")
-            != ap.artifact_key_path(tmp_path, RUN_ID, "b.parquet")
+        assert ap.artifact_key_path(tmp_path, RUN_ID, "a.parquet") != ap.artifact_key_path(
+            tmp_path, RUN_ID, "b.parquet"
         )
 
     def test_empty_key_raises(self, tmp_path: Path) -> None:

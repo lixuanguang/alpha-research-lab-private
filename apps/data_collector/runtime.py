@@ -64,6 +64,27 @@ class VenueRuntimeSeed:
     markets: list[instrument_models.MarketSpec]
 
 
+@dataclasses.dataclass(slots=True, frozen=True)
+class RuntimeOptions:
+    """Common runtime options for polling/streaming execution."""
+
+    once: bool
+    max_outcomes_per_venue: int
+    request_timeout_seconds: float = 10.0
+    venue_names: set[str] | None = None
+    stop_after_events: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_outcomes_per_venue <= 0:
+            raise ValueError("`max_outcomes_per_venue` must be > 0.")
+        if self.request_timeout_seconds <= 0:
+            raise ValueError("`request_timeout_seconds` must be > 0.")
+        if self.stop_after_events is not None and self.stop_after_events <= 0:
+            raise ValueError("`stop_after_events` must be > 0 when configured")
+        if self.venue_names is not None:
+            object.__setattr__(self, "venue_names", set(self.venue_names))
+
+
 async def execute_pipeline_connector(
     context_by_connector_id: dict[str, PipelineContext],
     connector: connector_polling.PollingConnector,
@@ -80,31 +101,22 @@ async def execute_pipeline_connector(
 async def run_polling_pipelines(
     settings: config_models.Settings,
     *,
-    once: bool,
-    max_outcomes_per_venue: int,
-    request_timeout_seconds: float = 10.0,
+    options: RuntimeOptions,
     adapter_factory: AdapterFactory,
     emit: EmitMessage,
-    venue_names: set[str] | None = None,
 ) -> int:
     """Build and execute polling pipelines once or continuously."""
-    if max_outcomes_per_venue <= 0:
-        raise ValueError("`max_outcomes_per_venue` must be > 0.")
-    if request_timeout_seconds <= 0:
-        raise ValueError("`request_timeout_seconds` must be > 0.")
     contexts = await build_pipeline_contexts(
         settings,
-        max_outcomes_per_venue=max_outcomes_per_venue,
-        request_timeout_seconds=request_timeout_seconds,
+        options=options,
         adapter_factory=adapter_factory,
         emit=emit,
-        venue_names=venue_names,
     )
     if not contexts:
         raise ValueError("No polling pipelines were created from enabled venue settings.")
 
     scheduler = build_polling_scheduler(contexts, emit=emit)
-    if once:
+    if options.once:
         return len(await scheduler.run_once())
 
     while True:
@@ -115,27 +127,21 @@ async def run_polling_pipelines(
 async def run_streaming_pipelines(
     settings: config_models.Settings,
     *,
-    once: bool,
-    max_outcomes_per_venue: int,
-    request_timeout_seconds: float = 10.0,
+    options: RuntimeOptions,
     adapter_factory: AdapterFactory,
     emit: EmitMessage,
-    venue_names: set[str] | None = None,
 ) -> int:
     """Build and execute streaming pipelines once or continuously."""
-    if max_outcomes_per_venue <= 0:
-        raise ValueError("`max_outcomes_per_venue` must be > 0.")
-    if request_timeout_seconds <= 0:
-        raise ValueError("`request_timeout_seconds` must be > 0.")
+    streaming_options = dataclasses.replace(
+        options,
+        stop_after_events=1 if options.once else None,
+    )
 
     contexts = await build_streaming_pipeline_contexts(
         settings,
-        max_outcomes_per_venue=max_outcomes_per_venue,
-        request_timeout_seconds=request_timeout_seconds,
+        options=streaming_options,
         adapter_factory=adapter_factory,
         emit=emit,
-        venue_names=venue_names,
-        stop_after_events=1 if once else None,
     )
     if not contexts:
         raise ValueError("No streaming pipelines were created from enabled venue settings.")
@@ -147,8 +153,8 @@ async def run_streaming_pipelines(
         )
         for context in contexts
     ]
-    if once:
-        timeout_seconds = max(5.0, request_timeout_seconds * 3.0)
+    if options.once:
+        timeout_seconds = max(5.0, options.request_timeout_seconds * 3.0)
         try:
             settled = await asyncio.wait_for(
                 asyncio.gather(*tasks, return_exceptions=True),
@@ -166,33 +172,24 @@ async def run_streaming_pipelines(
 async def run_polling_and_streaming(
     settings: config_models.Settings,
     *,
-    once: bool,
-    max_outcomes_per_venue: int,
-    request_timeout_seconds: float = 10.0,
+    options: RuntimeOptions,
     adapter_factory: AdapterFactory,
     emit: EmitMessage,
-    venue_names: set[str] | None = None,
 ) -> int:
     """Run polling and streaming pipelines for `mode=both`."""
-    if once:
+    if options.once:
         polling_runs, streaming_runs = await asyncio.gather(
             run_polling_pipelines(
                 settings,
-                once=True,
-                max_outcomes_per_venue=max_outcomes_per_venue,
-                request_timeout_seconds=request_timeout_seconds,
+                options=options,
                 adapter_factory=adapter_factory,
                 emit=emit,
-                venue_names=venue_names,
             ),
             run_streaming_pipelines(
                 settings,
-                once=True,
-                max_outcomes_per_venue=max_outcomes_per_venue,
-                request_timeout_seconds=request_timeout_seconds,
+                options=options,
                 adapter_factory=adapter_factory,
                 emit=emit,
-                venue_names=venue_names,
             ),
         )
         return polling_runs + streaming_runs
@@ -200,21 +197,15 @@ async def run_polling_and_streaming(
     await asyncio.gather(
         run_polling_pipelines(
             settings,
-            once=False,
-            max_outcomes_per_venue=max_outcomes_per_venue,
-            request_timeout_seconds=request_timeout_seconds,
+            options=options,
             adapter_factory=adapter_factory,
             emit=emit,
-            venue_names=venue_names,
         ),
         run_streaming_pipelines(
             settings,
-            once=False,
-            max_outcomes_per_venue=max_outcomes_per_venue,
-            request_timeout_seconds=request_timeout_seconds,
+            options=options,
             adapter_factory=adapter_factory,
             emit=emit,
-            venue_names=venue_names,
         ),
     )
     return 0
@@ -223,11 +214,9 @@ async def run_polling_and_streaming(
 async def build_pipeline_contexts(
     settings: config_models.Settings,
     *,
-    max_outcomes_per_venue: int,
-    request_timeout_seconds: float = 10.0,
+    options: RuntimeOptions,
     adapter_factory: AdapterFactory,
     emit: EmitMessage,
-    venue_names: set[str] | None = None,
 ) -> list[PipelineContext]:
     """Create polling pipelines for all enabled venues."""
     storage_root = settings.storage.base_path
@@ -238,16 +227,16 @@ async def build_pipeline_contexts(
     seeds = await _build_venue_runtime_seeds(
         settings,
         adapter_factory=adapter_factory,
-        request_timeout_seconds=request_timeout_seconds,
+        request_timeout_seconds=options.request_timeout_seconds,
         emit=emit,
-        venue_names=venue_names,
+        venue_names=options.venue_names,
     )
 
     contexts: list[PipelineContext] = []
     for seed in seeds:
         outcome_ids = collect_outcome_ids(
             seed.markets,
-            max_outcomes_per_venue=max_outcomes_per_venue,
+            max_outcomes_per_venue=options.max_outcomes_per_venue,
         )
         rate_limiter = connector_rate_limiter.TokenBucketRateLimiter(
             rpm=seed.venue_config.rate_limit_rpm
@@ -255,7 +244,7 @@ async def build_pipeline_contexts(
         connectors = factory.create_poll_connectors(
             seed.adapter,
             outcome_ids,
-            request_timeout_seconds=request_timeout_seconds,
+            request_timeout_seconds=options.request_timeout_seconds,
         )
         if not connectors:
             emit(
@@ -285,17 +274,11 @@ async def build_pipeline_contexts(
 async def build_streaming_pipeline_contexts(
     settings: config_models.Settings,
     *,
-    max_outcomes_per_venue: int,
-    request_timeout_seconds: float = 10.0,
+    options: RuntimeOptions,
     adapter_factory: AdapterFactory,
     emit: EmitMessage,
-    venue_names: set[str] | None = None,
-    stop_after_events: int | None = None,
 ) -> list[StreamingPipelineContext]:
     """Create streaming pipelines for all enabled venues."""
-    if stop_after_events is not None and stop_after_events <= 0:
-        raise ValueError("`stop_after_events` must be > 0 when configured")
-
     storage_root = settings.storage.base_path
     bronze_writer = storage_bronze.BronzeWriter(storage_root)
     lineage_store = storage_lineage.LineageStore(storage_root)
@@ -303,15 +286,15 @@ async def build_streaming_pipeline_contexts(
     seeds = await _build_venue_runtime_seeds(
         settings,
         adapter_factory=adapter_factory,
-        request_timeout_seconds=request_timeout_seconds,
+        request_timeout_seconds=options.request_timeout_seconds,
         emit=emit,
-        venue_names=venue_names,
+        venue_names=options.venue_names,
     )
 
     contexts: list[StreamingPipelineContext] = []
     for seed in seeds:
         stream_outcome_cap = min(
-            max_outcomes_per_venue,
+            options.max_outcomes_per_venue,
             seed.venue_config.collection.stream_outcomes_max,
         )
         outcome_ids = collect_outcome_ids(seed.markets, max_outcomes_per_venue=stream_outcome_cap)
@@ -326,13 +309,15 @@ async def build_streaming_pipeline_contexts(
         for connector in connectors:
             pipeline = collector_streaming_pipeline.StreamingPipeline(
                 connector=connector,
-                bronze_writer=bronze_writer,
-                streaming_writer=storage_streaming.StreamingParquetWriter(
-                    storage_parquet.ParquetEventWriter(storage_root)
+                dependencies=collector_streaming_pipeline.StreamingPipelineDependencies(
+                    bronze_writer=bronze_writer,
+                    streaming_writer=storage_streaming.StreamingParquetWriter(
+                        storage_parquet.ParquetEventWriter(storage_root)
+                    ),
+                    quality_checker=event_quality.EventQualityChecker(),
+                    lineage_store=lineage_store,
                 ),
-                quality_checker=event_quality.EventQualityChecker(),
-                lineage_store=lineage_store,
-                max_events=stop_after_events,
+                max_events=options.stop_after_events,
             )
             contexts.append(StreamingPipelineContext(pipeline=pipeline))
 
@@ -451,6 +436,7 @@ def _count_streaming_results(
 __all__ = [
     "CollectionMode",
     "PipelineContext",
+    "RuntimeOptions",
     "StreamingPipelineContext",
     "build_pipeline_contexts",
     "build_polling_scheduler",

@@ -10,7 +10,7 @@ import pandas as pd  # type: ignore[import-untyped]
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import alpha_core.research.as_of as as_of_mod
 import alpha_core.utils.time as time_utils
@@ -21,15 +21,27 @@ class DatasetConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    name: str = Field(min_length=1)
     start: datetime
     end: datetime
     venues: list[str] | None = None
-    event_types: list[str] = ["trades", "ohlcv"]
-    universe_filters: dict[str, Any] = {}
+    event_types: list[str] = Field(default_factory=lambda: ["trades", "ohlcv"])
+    universe_filters: dict[str, Any] = Field(default_factory=dict)
     require_quality_pass: bool = True
     require_gap_free: bool = False
     max_gap_hours: float = 24.0
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("dataset name cannot be empty")
+        if "/" in cleaned or "\\" in cleaned:
+            raise ValueError("dataset name must not contain path separators")
+        if ".." in cleaned:
+            raise ValueError("dataset name must not contain '..'")
+        return cleaned
 
 
 class DatasetManifest(BaseModel):
@@ -37,10 +49,10 @@ class DatasetManifest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    dataset_id: str                              # Deterministic hash of config
+    dataset_id: str  # Deterministic hash of config
     config: DatasetConfig
     built_at: datetime
-    row_counts: dict[str, int]                   # Per event type
+    row_counts: dict[str, int]  # Per event type
     instrument_count: int
     date_range: tuple[datetime, datetime]
     quality_summary: dict[str, Any]

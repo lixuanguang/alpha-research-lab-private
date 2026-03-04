@@ -8,6 +8,7 @@ import time
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 from typing import TypeVar
 
 from pydantic import BaseModel, ConfigDict
@@ -47,6 +48,45 @@ class _TradePaginationState:
     seen_trade_keys: set[tuple[str, str]] = field(default_factory=set)
 
 
+@dataclass(slots=True, frozen=True)
+class FetchRetryPolicy:
+    """Retry/backoff policy for adapter fetch calls."""
+
+    max_attempts: int = _FETCH_RETRY_ATTEMPTS
+    backoff_base_seconds: float = _FETCH_RETRY_BACKOFF_BASE_SECONDS
+    backoff_max_seconds: float = _FETCH_RETRY_BACKOFF_MAX_SECONDS
+
+    def __post_init__(self) -> None:
+        if self.max_attempts <= 0:
+            raise ValueError("`max_attempts` must be > 0")
+        if self.backoff_base_seconds <= 0:
+            raise ValueError("`backoff_base_seconds` must be > 0")
+        if self.backoff_max_seconds < self.backoff_base_seconds:
+            raise ValueError("`backoff_max_seconds` must be >= `backoff_base_seconds`")
+
+
+@dataclass(slots=True)
+class BackfillDependencies:
+    """Storage and validation dependencies required by BackfillManager."""
+
+    bronze_writer: storage_bronze.BronzeWriter
+    silver_writer: storage_parquet.ParquetEventWriter
+    quality_checker: event_quality.EventQualityChecker
+    lineage_store: storage_lineage.LineageStore
+
+
+@dataclass(slots=True, frozen=True)
+class _TimeWindow:
+    start: datetime
+    end: datetime
+
+
+@dataclass(slots=True)
+class _TradeBackfillSink:
+    trades: list[event_models.CanonicalTrade] = field(default_factory=list)
+    raw_payloads: list[dict[str, object]] = field(default_factory=list)
+
+
 class BackfillResult(BaseModel):
     """Result of one backfill operation."""
 
@@ -70,31 +110,17 @@ class BackfillManager:
     def __init__(
         self,
         adapter: adapters_base.VenueAdapter,
-        bronze_writer: storage_bronze.BronzeWriter,
-        silver_writer: storage_parquet.ParquetEventWriter,
-        quality_checker: event_quality.EventQualityChecker,
-        lineage_store: storage_lineage.LineageStore,
-        fetch_retry_attempts: int = _FETCH_RETRY_ATTEMPTS,
-        fetch_retry_backoff_base_seconds: float = _FETCH_RETRY_BACKOFF_BASE_SECONDS,
-        fetch_retry_backoff_max_seconds: float = _FETCH_RETRY_BACKOFF_MAX_SECONDS,
+        dependencies: BackfillDependencies,
+        *,
+        retry_policy: FetchRetryPolicy | None = None,
     ) -> None:
-        if fetch_retry_attempts <= 0:
-            raise ValueError("`fetch_retry_attempts` must be > 0")
-        if fetch_retry_backoff_base_seconds <= 0:
-            raise ValueError("`fetch_retry_backoff_base_seconds` must be > 0")
-        if fetch_retry_backoff_max_seconds < fetch_retry_backoff_base_seconds:
-            raise ValueError(
-                "`fetch_retry_backoff_max_seconds` must be >= `fetch_retry_backoff_base_seconds`"
-            )
         self._venue = adapter.venue_name()
         self._adapter = adapter
-        self._bronze_writer = bronze_writer
-        self._silver_writer = silver_writer
-        self._quality_checker = quality_checker
-        self._lineage_store = lineage_store
-        self._fetch_retry_attempts = fetch_retry_attempts
-        self._fetch_retry_backoff_base_seconds = fetch_retry_backoff_base_seconds
-        self._fetch_retry_backoff_max_seconds = fetch_retry_backoff_max_seconds
+        self._bronze_writer = dependencies.bronze_writer
+        self._silver_writer = dependencies.silver_writer
+        self._quality_checker = dependencies.quality_checker
+        self._lineage_store = dependencies.lineage_store
+        self._retry_policy = retry_policy or FetchRetryPolicy()
 
     async def backfill_trades(
         self,
@@ -117,12 +143,14 @@ class BackfillManager:
         run = self._lineage_store.start_run(
             venue=self._venue,
             connector_type="polling",
-            event_types=["trades"],
-            config_snapshot={
-                "window_start": start_utc.isoformat(),
-                "window_end": end_utc.isoformat(),
-                "batch_size": batch_size,
-            },
+            options=storage_lineage.StartRunOptions(
+                event_types=["trades"],
+                config_snapshot={
+                    "window_start": start_utc.isoformat(),
+                    "window_end": end_utc.isoformat(),
+                    "batch_size": batch_size,
+                },
+            ),
         )
         monotonic_start = time.monotonic()
         errors: list[str] = []
@@ -136,12 +164,9 @@ class BackfillManager:
                     trades, raw = await _fetch_trades_windowed(
                         self._adapter,
                         outcome_id,
-                        start=start_utc,
-                        end=end_utc,
+                        window=_TimeWindow(start=start_utc, end=end_utc),
                         batch_size=batch_size,
-                        fetch_retry_attempts=self._fetch_retry_attempts,
-                        fetch_retry_backoff_base_seconds=self._fetch_retry_backoff_base_seconds,
-                        fetch_retry_backoff_max_seconds=self._fetch_retry_backoff_max_seconds,
+                        retry_policy=self._retry_policy,
                     )
                 except Exception as exc:
                     errors.append(f"outcome={outcome_id}: {exc}")
@@ -217,12 +242,14 @@ class BackfillManager:
         run = self._lineage_store.start_run(
             venue=self._venue,
             connector_type="polling",
-            event_types=["ohlcv"],
-            config_snapshot={
-                "window_start": start_utc.isoformat(),
-                "window_end": end_utc.isoformat(),
-                "resolution": resolution,
-            },
+            options=storage_lineage.StartRunOptions(
+                event_types=["ohlcv"],
+                config_snapshot={
+                    "window_start": start_utc.isoformat(),
+                    "window_end": end_utc.isoformat(),
+                    "resolution": resolution,
+                },
+            ),
         )
         monotonic_start = time.monotonic()
         errors: list[str] = []
@@ -233,17 +260,16 @@ class BackfillManager:
         try:
             for outcome_id in outcome_ids:
                 try:
+                    fetch_ohlcv_with_raw = partial(
+                        self._adapter.fetch_ohlcv_with_raw,
+                        outcome_id,
+                        resolution=resolution,
+                        limit=limit,
+                    )
                     candles, raw = await _call_with_retries(
-                        lambda: self._adapter.fetch_ohlcv_with_raw(
-                            outcome_id,
-                            resolution=resolution,
-                            limit=limit,
-                        ),
-                        operation="fetch_ohlcv_with_raw",
-                        outcome_id=outcome_id,
-                        max_attempts=self._fetch_retry_attempts,
-                        backoff_base_seconds=self._fetch_retry_backoff_base_seconds,
-                        backoff_max_seconds=self._fetch_retry_backoff_max_seconds,
+                        fetch_ohlcv_with_raw,
+                        context=f"fetch_ohlcv_with_raw[{outcome_id}]",
+                        retry_policy=self._retry_policy,
                     )
                     normalized_raw = connector_raw_payloads.normalize_raw_payloads(
                         raw, outcome_id=outcome_id
@@ -334,17 +360,13 @@ async def _fetch_trades_windowed(
     adapter: adapters_base.VenueAdapter,
     outcome_id: str,
     *,
-    start: datetime,
-    end: datetime,
+    window: _TimeWindow,
     batch_size: int,
-    fetch_retry_attempts: int,
-    fetch_retry_backoff_base_seconds: float,
-    fetch_retry_backoff_max_seconds: float,
+    retry_policy: FetchRetryPolicy,
 ) -> tuple[list[event_models.CanonicalTrade], list[dict[str, object]]]:
     """Paginate fetch_trades_with_raw to collect all trades in [start, end]."""
-    all_trades: list[event_models.CanonicalTrade] = []
-    all_raw: list[dict[str, object]] = []
-    state = _TradePaginationState(cursor=start)
+    sink = _TradeBackfillSink()
+    state = _TradePaginationState(cursor=window.start)
 
     while True:
         trades, normalized_raw = await _fetch_trade_page(
@@ -352,9 +374,7 @@ async def _fetch_trades_windowed(
             outcome_id=outcome_id,
             cursor=state.cursor,
             batch_size=batch_size,
-            fetch_retry_attempts=fetch_retry_attempts,
-            fetch_retry_backoff_base_seconds=fetch_retry_backoff_base_seconds,
-            fetch_retry_backoff_max_seconds=fetch_retry_backoff_max_seconds,
+            retry_policy=retry_policy,
         )
         if not trades:
             break
@@ -362,23 +382,21 @@ async def _fetch_trades_windowed(
         new_rows = _append_windowed_unique_trades(
             trades=trades,
             normalized_raw=normalized_raw,
-            start=start,
-            end=end,
+            window=window,
             state=state,
-            all_trades=all_trades,
-            all_raw=all_raw,
+            sink=sink,
         )
         max_ts = max(t.ts_event for t in trades)
         if _should_stop_trade_pagination(
             max_ts=max_ts,
-            end=end,
+            end=window.end,
             page_size=len(trades),
             batch_size=batch_size,
         ):
             break
         _update_trade_pagination_state(state, max_ts=max_ts, new_rows=new_rows)
 
-    return all_trades, all_raw
+    return sink.trades, sink.raw_payloads
 
 
 async def _fetch_trade_page(
@@ -387,9 +405,7 @@ async def _fetch_trade_page(
     outcome_id: str,
     cursor: datetime | None,
     batch_size: int,
-    fetch_retry_attempts: int,
-    fetch_retry_backoff_base_seconds: float,
-    fetch_retry_backoff_max_seconds: float,
+    retry_policy: FetchRetryPolicy,
 ) -> tuple[list[event_models.CanonicalTrade], list[dict[str, object]]]:
     raw_result: list[object]
     trades, raw_result = await _call_with_retries(
@@ -398,11 +414,8 @@ async def _fetch_trade_page(
             since=cursor,
             limit=batch_size,
         ),
-        operation="fetch_trades_with_raw",
-        outcome_id=outcome_id,
-        max_attempts=fetch_retry_attempts,
-        backoff_base_seconds=fetch_retry_backoff_base_seconds,
-        backoff_max_seconds=fetch_retry_backoff_max_seconds,
+        context=f"fetch_trades_with_raw[{outcome_id}]",
+        retry_policy=retry_policy,
     )
     normalized_raw = connector_raw_payloads.normalize_raw_payloads(
         raw_result,
@@ -414,25 +427,24 @@ async def _fetch_trade_page(
 async def _call_with_retries(
     fn: Callable[[], Awaitable[_ResultT]],
     *,
-    operation: str,
-    outcome_id: str,
-    max_attempts: int,
-    backoff_base_seconds: float,
-    backoff_max_seconds: float,
+    context: str,
+    retry_policy: FetchRetryPolicy,
 ) -> _ResultT:
     last_error: Exception | None = None
-    for attempt in range(max_attempts):
+    for attempt in range(retry_policy.max_attempts):
         try:
             return await fn()
         except Exception as exc:
             last_error = exc
-            if attempt + 1 >= max_attempts:
+            if attempt + 1 >= retry_policy.max_attempts:
                 break
-            delay_seconds = min(backoff_max_seconds, backoff_base_seconds * (2**attempt))
+            delay_seconds = min(
+                retry_policy.backoff_max_seconds,
+                retry_policy.backoff_base_seconds * (2**attempt),
+            )
             await asyncio.sleep(delay_seconds)
     raise RuntimeError(
-        f"{operation} failed after {max_attempts} attempt(s) "
-        f"for outcome `{outcome_id}`: {last_error}"
+        f"{context} failed after {retry_policy.max_attempts} attempt(s): {last_error}"
     ) from last_error
 
 
@@ -440,24 +452,22 @@ def _append_windowed_unique_trades(
     *,
     trades: list[event_models.CanonicalTrade],
     normalized_raw: list[dict[str, object]],
-    start: datetime,
-    end: datetime,
+    window: _TimeWindow,
     state: _TradePaginationState,
-    all_trades: list[event_models.CanonicalTrade],
-    all_raw: list[dict[str, object]],
+    sink: _TradeBackfillSink,
 ) -> int:
     new_rows = 0
     for trade, raw_payload in _pair_trades_with_raw_payloads(trades, normalized_raw):
-        if not (start <= trade.ts_event <= end):
+        if not (window.start <= trade.ts_event <= window.end):
             continue
         trade_key = (trade.instrument_id, trade.trade_id)
         if trade_key in state.seen_trade_keys:
             continue
 
         state.seen_trade_keys.add(trade_key)
-        all_trades.append(trade)
+        sink.trades.append(trade)
         if raw_payload is not None:
-            all_raw.append(raw_payload)
+            sink.raw_payloads.append(raw_payload)
         new_rows += 1
     return new_rows
 
@@ -553,9 +563,7 @@ def _filter_ohlcv_window_with_raw(
             in_window_raw_payloads.append(raw_payload)
         return in_window_candles, in_window_raw_payloads
 
-    for candle in candles:
-        if start <= candle.ts_event <= end:
-            in_window_candles.append(candle)
+    in_window_candles.extend(candle for candle in candles if start <= candle.ts_event <= end)
     return in_window_candles, in_window_raw_payloads
 
 

@@ -105,6 +105,7 @@ def _make_builder(
 # DatasetConfig validation
 # ---------------------------------------------------------------------------
 
+
 class TestDatasetConfig:
     def test_default_event_types(self) -> None:
         config = dataset_mod.DatasetConfig(name="ds", start=_BASE, end=_END)
@@ -112,15 +113,19 @@ class TestDatasetConfig:
         assert "ohlcv" in config.event_types
 
     def test_custom_event_types(self) -> None:
-        config = dataset_mod.DatasetConfig(
-            name="ds", start=_BASE, end=_END, event_types=["trades"]
-        )
+        config = dataset_mod.DatasetConfig(name="ds", start=_BASE, end=_END, event_types=["trades"])
         assert config.event_types == ["trades"]
+
+    @pytest.mark.parametrize("name", ["../escape", "nested/path", "nested\\path"])
+    def test_name_rejects_path_like_values(self, name: str) -> None:
+        with pytest.raises(ValueError, match=r"path separators|\.\."):
+            dataset_mod.DatasetConfig(name=name, start=_BASE, end=_END)
 
 
 # ---------------------------------------------------------------------------
 # DatasetBuilder.build
 # ---------------------------------------------------------------------------
+
 
 class TestDatasetBuilderBuild:
     def test_build_creates_output_files(self, tmp_path: Path) -> None:
@@ -316,6 +321,7 @@ class TestDatasetBuilderBuild:
 # ---------------------------------------------------------------------------
 # DatasetBuilder.load / list_datasets
 # ---------------------------------------------------------------------------
+
 
 class TestDatasetBuilderLoadList:
     def _build_simple(self, tmp_path: Path, name: str) -> dataset_mod.DatasetManifest:

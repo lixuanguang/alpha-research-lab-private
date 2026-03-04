@@ -112,9 +112,11 @@ class TestAlignToGrid:
         )
         result = as_of_mod.align_to_grid(
             {"trades": table},
-            frequency="1h",
-            start=_T1,
-            end=_T3,
+            spec=as_of_mod.GridAlignmentSpec(
+                frequency="1h",
+                start=_T1,
+                end=_T3,
+            ),
         )
         assert "grid_ts" in result["trades"].schema.names
 
@@ -125,9 +127,11 @@ class TestAlignToGrid:
         )
         result = as_of_mod.align_to_grid(
             {"trades": table},
-            frequency="1h",
-            start=_T1,
-            end=_T2,
+            spec=as_of_mod.GridAlignmentSpec(
+                frequency="1h",
+                start=_T1,
+                end=_T2,
+            ),
         )
         # Rows with ts_record == T3 must not appear in aligned output (cutoff=T2)
         ts_records = result["trades"].column("ts_record").to_pylist()
@@ -142,9 +146,11 @@ class TestAlignToGrid:
         )
         result = as_of_mod.align_to_grid(
             {"trades": empty},
-            frequency="1h",
-            start=_T1,
-            end=_T2,
+            spec=as_of_mod.GridAlignmentSpec(
+                frequency="1h",
+                start=_T1,
+                end=_T2,
+            ),
         )
         assert result["trades"].num_rows == 0
 
@@ -153,9 +159,11 @@ class TestAlignToGrid:
         ohlcv_table = self._trade_table([(_T2, _T2, "b")])
         result = as_of_mod.align_to_grid(
             {"trades": trade_table, "ohlcv": ohlcv_table},
-            frequency="1h",
-            start=_T1,
-            end=_T3,
+            spec=as_of_mod.GridAlignmentSpec(
+                frequency="1h",
+                start=_T1,
+                end=_T3,
+            ),
         )
         assert set(result.keys()) == {"trades", "ohlcv"}
         assert "grid_ts" in result["trades"].schema.names

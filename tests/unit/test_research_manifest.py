@@ -10,14 +10,12 @@ import pytest
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
-from alpha_core.research.run_context import RunType
-
 
 # ---------------------------------------------------------------------------
 # RunType coverage
 # ---------------------------------------------------------------------------
 
-ALL_RUN_TYPES: list[RunType] = [
+ALL_RUN_TYPES: list[run_context_mod.RunType] = [
     "ingestion",
     "dataset_build",
     "feature_build",
@@ -29,7 +27,7 @@ ALL_RUN_TYPES: list[RunType] = [
 
 
 @pytest.mark.parametrize("run_type", ALL_RUN_TYPES)
-def test_make_run_context_all_types(run_type: RunType) -> None:
+def test_make_run_context_all_types(run_type: run_context_mod.RunType) -> None:
     """Every valid run_type produces a consistent, hash-stable RunContext."""
     payload = {"stage": run_type, "version": "1"}
     ctx_a = run_context_mod.make_run_context(run_type, config_payload=payload)
@@ -37,8 +35,8 @@ def test_make_run_context_all_types(run_type: RunType) -> None:
 
     assert ctx_a.run_type == run_type
     assert ctx_a.config_hash == ctx_b.config_hash  # deterministic hash
-    assert ctx_a.run_id != ctx_b.run_id             # unique IDs per call
-    assert ctx_a.completed_at_utc is None           # open on creation
+    assert ctx_a.run_id != ctx_b.run_id  # unique IDs per call
+    assert ctx_a.completed_at_utc is None  # open on creation
 
 
 def test_make_run_context_config_hash_stability() -> None:
@@ -60,6 +58,7 @@ def test_close_run_context_sets_completed_at() -> None:
 # ---------------------------------------------------------------------------
 # capture_git_commit
 # ---------------------------------------------------------------------------
+
 
 def test_capture_git_commit_returns_string_or_none() -> None:
     """Result is either a non-empty string or None — never raises."""
@@ -84,9 +83,7 @@ def test_make_run_context_auto_captures_git_commit() -> None:
 def test_make_run_context_explicit_git_commit_not_overridden() -> None:
     """An explicitly passed git_commit is used as-is without calling capture."""
     with patch("alpha_core.research.run_context.capture_git_commit") as mock_capture:
-        ctx = run_context_mod.make_run_context(
-            "optimize", config_payload={}, git_commit="deadbeef"
-        )
+        ctx = run_context_mod.make_run_context("optimize", config_payload={}, git_commit="deadbeef")
     mock_capture.assert_not_called()
     assert ctx.git_commit == "deadbeef"
 
@@ -94,6 +91,7 @@ def test_make_run_context_explicit_git_commit_not_overridden() -> None:
 # ---------------------------------------------------------------------------
 # RunManifest — spec-minimal contract
 # ---------------------------------------------------------------------------
+
 
 def test_run_manifest_roundtrip(tmp_path: Path) -> None:
     """RunManifest write → read round-trip preserves all fields exactly."""
@@ -154,7 +152,10 @@ def test_run_manifest_rejects_unknown_fields() -> None:
 
 
 @pytest.mark.parametrize("run_type", ALL_RUN_TYPES)
-def test_run_manifest_accepts_all_run_types(run_type: RunType, tmp_path: Path) -> None:
+def test_run_manifest_accepts_all_run_types(
+    run_type: run_context_mod.RunType,
+    tmp_path: Path,
+) -> None:
     """RunManifest is valid for every pipeline stage run_type."""
     ctx = run_context_mod.make_run_context(run_type, config_payload={"stage": run_type})
     completed = run_context_mod.close_run_context(ctx)

@@ -149,7 +149,7 @@ def test_status_command_reports_recent_runtime_metrics(temp_cli_repo: Path) -> N
     run = lineage_store.start_run(
         venue="polymarket",
         connector_type="polling",
-        event_types=["trades"],
+        options=storage_lineage.StartRunOptions(event_types=["trades"]),
     )
     lineage_store.complete_run(
         run.run_id,

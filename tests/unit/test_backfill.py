@@ -132,13 +132,16 @@ def _make_manager(
     tmp_path: Path,
     **manager_kwargs: object,
 ) -> collector_backfill.BackfillManager:
+    retry_policy = collector_backfill.FetchRetryPolicy(**manager_kwargs)
     return collector_backfill.BackfillManager(
         adapter=adapter,
-        bronze_writer=storage_bronze.BronzeWriter(tmp_path),
-        silver_writer=storage_parquet.ParquetEventWriter(tmp_path),
-        quality_checker=event_quality.EventQualityChecker(),
-        lineage_store=storage_lineage.LineageStore(tmp_path),
-        **manager_kwargs,
+        dependencies=collector_backfill.BackfillDependencies(
+            bronze_writer=storage_bronze.BronzeWriter(tmp_path),
+            silver_writer=storage_parquet.ParquetEventWriter(tmp_path),
+            quality_checker=event_quality.EventQualityChecker(),
+            lineage_store=storage_lineage.LineageStore(tmp_path),
+        ),
+        retry_policy=retry_policy,
     )
 
 
@@ -273,9 +276,9 @@ def test_backfill_trades_retries_transient_api_errors_with_backoff(
     manager = _make_manager(
         adapter,
         tmp_path,
-        fetch_retry_attempts=3,
-        fetch_retry_backoff_base_seconds=0.1,
-        fetch_retry_backoff_max_seconds=1.0,
+        max_attempts=3,
+        backoff_base_seconds=0.1,
+        backoff_max_seconds=1.0,
     )
     result = asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
 
@@ -305,9 +308,9 @@ def test_backfill_trades_reports_failure_after_retry_exhaustion(
     manager = _make_manager(
         adapter,
         tmp_path,
-        fetch_retry_attempts=3,
-        fetch_retry_backoff_base_seconds=0.1,
-        fetch_retry_backoff_max_seconds=1.0,
+        max_attempts=3,
+        backoff_base_seconds=0.1,
+        backoff_max_seconds=1.0,
     )
     result = asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
 
@@ -382,9 +385,9 @@ def test_backfill_ohlcv_retries_transient_api_errors_with_backoff(
     manager = _make_manager(
         adapter,
         tmp_path,
-        fetch_retry_attempts=3,
-        fetch_retry_backoff_base_seconds=0.05,
-        fetch_retry_backoff_max_seconds=1.0,
+        max_attempts=3,
+        backoff_base_seconds=0.05,
+        backoff_max_seconds=1.0,
     )
     result = asyncio.run(
         manager.backfill_ohlcv([outcome_id], resolution="1h", start=START, end=END)

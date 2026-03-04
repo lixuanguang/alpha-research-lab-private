@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -266,9 +267,7 @@ def _remove_from_group(
     members = index.get(group_id)
     if members is None:
         return
-    try:
+    with contextlib.suppress(ValueError):
         members.remove(canonical_market_id)
-    except ValueError:
-        pass
     if not members:
         del index[group_id]

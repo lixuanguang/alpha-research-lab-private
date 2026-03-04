@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pyarrow.compute as pc  # type: ignore[import-untyped]
@@ -28,6 +29,13 @@ class TimeGap(BaseModel):
     gap_start: datetime
     gap_end: datetime
     duration_seconds: float
+    event_type: str
+
+
+@dataclass(slots=True, frozen=True)
+class _GapIdentity:
+    venue: str
+    outcome_id: str
     event_type: str
 
 
@@ -78,9 +86,11 @@ class GapDetector:
             window_start=_ensure_utc(start),
             window_end=_ensure_utc(end),
             max_gap_seconds=max_gap_seconds,
-            venue=venue,
-            outcome_id=outcome_id,
-            event_type="trade",
+            identity=_GapIdentity(
+                venue=venue,
+                outcome_id=outcome_id,
+                event_type="trade",
+            ),
         )
 
     def detect_ohlcv_gaps(
@@ -158,9 +168,7 @@ def _find_gaps(
     window_start: datetime,
     window_end: datetime,
     max_gap_seconds: float,
-    venue: str,
-    outcome_id: str,
-    event_type: str,
+    identity: _GapIdentity,
 ) -> list[TimeGap]:
     """Find spans > max_gap_seconds with no events, including leading/trailing gaps."""
     gaps: list[TimeGap] = []
@@ -169,12 +177,12 @@ def _find_gaps(
     if (timestamps[0] - window_start).total_seconds() > max_gap_seconds:
         gaps.append(
             TimeGap(
-                venue=venue,
-                outcome_id=outcome_id,
+                venue=identity.venue,
+                outcome_id=identity.outcome_id,
                 gap_start=window_start,
                 gap_end=timestamps[0],
                 duration_seconds=(timestamps[0] - window_start).total_seconds(),
-                event_type=event_type,
+                event_type=identity.event_type,
             )
         )
 
@@ -184,12 +192,12 @@ def _find_gaps(
         if delta > max_gap_seconds:
             gaps.append(
                 TimeGap(
-                    venue=venue,
-                    outcome_id=outcome_id,
+                    venue=identity.venue,
+                    outcome_id=identity.outcome_id,
                     gap_start=timestamps[i - 1],
                     gap_end=timestamps[i],
                     duration_seconds=delta,
-                    event_type=event_type,
+                    event_type=identity.event_type,
                 )
             )
 
@@ -197,12 +205,12 @@ def _find_gaps(
     if (window_end - timestamps[-1]).total_seconds() > max_gap_seconds:
         gaps.append(
             TimeGap(
-                venue=venue,
-                outcome_id=outcome_id,
+                venue=identity.venue,
+                outcome_id=identity.outcome_id,
                 gap_start=timestamps[-1],
                 gap_end=window_end,
                 duration_seconds=(window_end - timestamps[-1]).total_seconds(),
-                event_type=event_type,
+                event_type=identity.event_type,
             )
         )
 

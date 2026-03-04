@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import alpha_core.events.models as event_models
@@ -17,6 +19,16 @@ import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.event_types as collector_event_types
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class StreamingPipelineDependencies:
+    """Storage and quality dependencies needed by StreamingPipeline."""
+
+    bronze_writer: storage_bronze.BronzeWriter
+    streaming_writer: storage_streaming.StreamingParquetWriter
+    quality_checker: event_quality.EventQualityChecker
+    lineage_store: storage_lineage.LineageStore
 
 
 class StreamingPipeline:
@@ -44,19 +56,16 @@ class StreamingPipeline:
     def __init__(
         self,
         connector: connector_streaming.StreamingConnector,
-        bronze_writer: storage_bronze.BronzeWriter,
-        streaming_writer: storage_streaming.StreamingParquetWriter,
-        quality_checker: event_quality.EventQualityChecker,
-        lineage_store: storage_lineage.LineageStore,
+        dependencies: StreamingPipelineDependencies,
         max_events: int | None = None,
     ) -> None:
         if max_events is not None and max_events <= 0:
             raise ValueError("`max_events` must be > 0 when configured")
         self._connector = connector
-        self._bronze_writer = bronze_writer
-        self._streaming_writer = streaming_writer
-        self._quality_checker = quality_checker
-        self._lineage_store = lineage_store
+        self._bronze_writer = dependencies.bronze_writer
+        self._streaming_writer = dependencies.streaming_writer
+        self._quality_checker = dependencies.quality_checker
+        self._lineage_store = dependencies.lineage_store
         self._max_events = max_events
 
         # Mutable counters accumulated during a run.
@@ -134,11 +143,13 @@ class StreamingPipeline:
         self._run = self._lineage_store.start_run(
             venue=self._connector.venue,
             connector_type="streaming",
-            event_types=["trades", "books"],
-            config_snapshot={
-                "connector_id": self._connector.connector_id,
-                "started_at": datetime.now(tz=UTC).isoformat(),
-            },
+            options=storage_lineage.StartRunOptions(
+                event_types=["trades", "books"],
+                config_snapshot={
+                    "connector_id": self._connector.connector_id,
+                    "started_at": datetime.now(tz=UTC).isoformat(),
+                },
+            ),
         )
         return self._run.run_id
 
@@ -232,10 +243,8 @@ class StreamingPipeline:
         ):
             return
         self._stop_requested = True
-        try:
+        with contextlib.suppress(RuntimeError):
             asyncio.get_running_loop().create_task(self._connector.stop())
-        except RuntimeError:
-            pass
 
     def _raise_fatal_error(self, message: str, *, cause: Exception) -> None:
         self._errors.append(message)
@@ -249,4 +258,4 @@ class StreamingPipeline:
         return failed
 
 
-__all__ = ["StreamingPipeline"]
+__all__ = ["StreamingPipeline", "StreamingPipelineDependencies"]

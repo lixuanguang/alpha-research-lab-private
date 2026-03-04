@@ -391,10 +391,12 @@ def test_scan_instrument_ids_ignores_null_and_blank_values() -> None:
 
     outcome_ids = data_collector_main._scan_instrument_ids(
         _ReaderStub(),
-        venue="polymarket",
-        start=datetime(2026, 3, 1, 0, tzinfo=UTC),
-        end=datetime(2026, 3, 1, 12, tzinfo=UTC),
-        event_type="trades",
+        scope=data_collector_main._GapScanScope(
+            venue="polymarket",
+            event_type="trades",
+            start_dt=datetime(2026, 3, 1, 0, tzinfo=UTC),
+            end_dt=datetime(2026, 3, 1, 12, tzinfo=UTC),
+        ),
     )
 
     assert outcome_ids == ["polymarket:market-a:yes"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -19,6 +20,15 @@ class TradeWatchAdapter(Protocol):
     def venue_name(self) -> str: ...
 
     def watch_trades(self, outcome_id: str) -> AsyncIterator[list[event_models.CanonicalTrade]]: ...
+
+
+@dataclass(slots=True)
+class TradeStreamOptions:
+    reconnect_backoff_base: float = 1.0
+    reconnect_backoff_max: float = 60.0
+    heartbeat_timeout: float = 120.0
+    heartbeat_monitor: connector_heartbeat.HeartbeatMonitor | None = None
+    emit: connector_lifecycle.EmitCallback | None = None
 
 
 def _make_gap_marker(
@@ -65,29 +75,28 @@ class TradeStreamConnector(connector_streaming.OutcomeStreamingConnector):
         adapter: TradeWatchAdapter,
         *,
         outcome_ids: list[str],
-        reconnect_backoff_base: float = 1.0,
-        reconnect_backoff_max: float = 60.0,
-        heartbeat_timeout: float = 120.0,
-        heartbeat_monitor: connector_heartbeat.HeartbeatMonitor | None = None,
-        emit: connector_lifecycle.EmitCallback | None = None,
+        options: TradeStreamOptions | None = None,
     ) -> None:
+        resolved_options = options or TradeStreamOptions()
         self._policy = connector_reconnection.ReconnectionPolicy(
-            base=reconnect_backoff_base,
-            max_delay=reconnect_backoff_max,
+            base=resolved_options.reconnect_backoff_base,
+            max_delay=resolved_options.reconnect_backoff_max,
         )
         self._adapter = adapter
-        self._heartbeat_monitor = heartbeat_monitor
+        self._heartbeat_monitor = resolved_options.heartbeat_monitor
         # Outcomes currently awaiting a gap-marker emit (set on reconnect).
         self._pending_gaps: set[str] = set()
         self._session_count: int = 0  # incremented each time _on_reset fires
 
         super().__init__(
             venue=adapter.venue_name(),
-            outcome_ids=outcome_ids,
-            heartbeat_timeout=heartbeat_timeout,
-            next_reconnect_delay=self._policy.next_delay,
-            on_reconnect_reset=self._on_reset,
-            emit=emit,
+            options=connector_streaming.OutcomeStreamOptions(
+                outcome_ids=outcome_ids,
+                heartbeat_timeout=resolved_options.heartbeat_timeout,
+                next_reconnect_delay=self._policy.next_delay,
+                on_reconnect_reset=self._on_reset,
+            ),
+            emit=resolved_options.emit,
         )
 
     def _on_reset(self) -> None:
@@ -128,4 +137,4 @@ class TradeStreamConnector(connector_streaming.OutcomeStreamingConnector):
             await self._emit_events(enriched)
 
 
-__all__ = ["TradeStreamConnector", "TradeWatchAdapter"]
+__all__ = ["TradeStreamConnector", "TradeStreamOptions", "TradeWatchAdapter"]

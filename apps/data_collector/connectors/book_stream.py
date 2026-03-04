@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
@@ -24,6 +25,16 @@ class BookWatchAdapter(Protocol):
     ) -> AsyncIterator[event_models.CanonicalBookSnapshot]: ...
 
     def book_stream_capabilities(self) -> dict[str, bool]: ...
+
+
+@dataclass(slots=True)
+class BookStreamOptions:
+    reconnect_backoff_base: float = 1.0
+    reconnect_backoff_max: float = 60.0
+    heartbeat_timeout: float = 120.0
+    heartbeat_monitor: connector_heartbeat.HeartbeatMonitor | None = None
+    emit_deltas: bool = True
+    emit: connector_lifecycle.EmitCallback | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -141,20 +152,16 @@ class BookStreamConnector(connector_streaming.OutcomeStreamingConnector):
         adapter: BookWatchAdapter,
         *,
         outcome_ids: list[str],
-        reconnect_backoff_base: float = 1.0,
-        reconnect_backoff_max: float = 60.0,
-        heartbeat_timeout: float = 120.0,
-        heartbeat_monitor: connector_heartbeat.HeartbeatMonitor | None = None,
-        emit_deltas: bool = True,
-        emit: connector_lifecycle.EmitCallback | None = None,
+        options: BookStreamOptions | None = None,
     ) -> None:
+        resolved_options = options or BookStreamOptions()
         self._policy = connector_reconnection.ReconnectionPolicy(
-            base=reconnect_backoff_base,
-            max_delay=reconnect_backoff_max,
+            base=resolved_options.reconnect_backoff_base,
+            max_delay=resolved_options.reconnect_backoff_max,
         )
         self._adapter = adapter
-        self._heartbeat_monitor = heartbeat_monitor
-        self._emit_deltas = emit_deltas
+        self._heartbeat_monitor = resolved_options.heartbeat_monitor
+        self._emit_deltas = resolved_options.emit_deltas
         self._stream_capabilities = _resolve_stream_capabilities(adapter)
         # Outcomes awaiting a gap-marker emit (populated on reconnect).
         self._pending_gaps: set[str] = set()
@@ -164,11 +171,13 @@ class BookStreamConnector(connector_streaming.OutcomeStreamingConnector):
 
         super().__init__(
             venue=adapter.venue_name(),
-            outcome_ids=outcome_ids,
-            heartbeat_timeout=heartbeat_timeout,
-            next_reconnect_delay=self._policy.next_delay,
-            on_reconnect_reset=self._on_reset,
-            emit=emit,
+            options=connector_streaming.OutcomeStreamOptions(
+                outcome_ids=outcome_ids,
+                heartbeat_timeout=resolved_options.heartbeat_timeout,
+                next_reconnect_delay=self._policy.next_delay,
+                on_reconnect_reset=self._on_reset,
+            ),
+            emit=resolved_options.emit,
         )
 
     def _on_reset(self) -> None:
@@ -236,12 +245,12 @@ class BookStreamConnector(connector_streaming.OutcomeStreamingConnector):
             await self._emit_events(batch)
 
 
-__all__ = ["BookStreamConnector", "BookWatchAdapter", "_compute_book_deltas"]
+__all__ = ["BookStreamConnector", "BookStreamOptions", "BookWatchAdapter", "_compute_book_deltas"]
 
 
 def _resolve_stream_capabilities(adapter: object) -> dict[str, bool]:
     if hasattr(adapter, "book_stream_capabilities"):
-        getter = getattr(adapter, "book_stream_capabilities")
+        getter = adapter.book_stream_capabilities
         if callable(getter):
             value = getter()
             if isinstance(value, dict):

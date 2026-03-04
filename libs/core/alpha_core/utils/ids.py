@@ -16,28 +16,35 @@ _JSONType = dict[str, Any] | list[Any] | str | int | float | bool | None
 
 
 def _to_canonical_json_value(value: Any) -> _JSONType:
-    if isinstance(value, datetime):
-        return time_utils.ensure_utc(value).isoformat(timespec="microseconds")
-    if isinstance(value, Decimal):
-        return str(value)
-    if isinstance(value, Enum):
-        return str(value.value)
-    if isinstance(value, Mapping):
-        return {
+    normalized_value = value
+    if isinstance(normalized_value, datetime):
+        normalized_value = time_utils.ensure_utc(normalized_value).isoformat(
+            timespec="microseconds"
+        )
+    elif isinstance(normalized_value, Decimal):
+        normalized_value = str(normalized_value)
+    elif isinstance(normalized_value, Enum):
+        normalized_value = str(normalized_value.value)
+
+    converted: _JSONType
+    if isinstance(normalized_value, Mapping):
+        converted = {
             str(key): _to_canonical_json_value(inner)
-            for key, inner in sorted(value.items(), key=lambda item: str(item[0]))
+            for key, inner in sorted(normalized_value.items(), key=lambda item: str(item[0]))
         }
-    if isinstance(value, (list, tuple)):
-        return [_to_canonical_json_value(inner) for inner in value]
-    if isinstance(value, set):
-        normalized = [_to_canonical_json_value(inner) for inner in value]
-        return sorted(
-            normalized,
+    elif isinstance(normalized_value, (list, tuple)):
+        converted = [_to_canonical_json_value(inner) for inner in normalized_value]
+    elif isinstance(normalized_value, set):
+        set_values = [_to_canonical_json_value(inner) for inner in normalized_value]
+        converted = sorted(
+            set_values,
             key=lambda inner: json.dumps(inner, sort_keys=True, separators=(",", ":")),
         )
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
+    elif isinstance(normalized_value, (str, int, float, bool)) or normalized_value is None:
+        converted = normalized_value
+    else:
+        converted = str(normalized_value)
+    return converted
 
 
 def stable_payload_json(payload: Mapping[str, Any], *, exclude_keys: set[str] | None = None) -> str:

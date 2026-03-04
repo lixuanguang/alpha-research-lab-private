@@ -37,12 +37,14 @@ class PollingPipeline:
         run = self._lineage_store.start_run(
             venue=self.connector.venue,
             connector_type="polling",
-            event_types=default_event_types,
-            config_snapshot={
-                "connector_id": self.connector.connector_id,
-                "interval_seconds": self.connector.interval_seconds,
-                "executed_at": datetime.now(tz=UTC).isoformat(),
-            },
+            options=storage_lineage.StartRunOptions(
+                event_types=default_event_types,
+                config_snapshot={
+                    "connector_id": self.connector.connector_id,
+                    "interval_seconds": self.connector.interval_seconds,
+                    "executed_at": datetime.now(tz=UTC).isoformat(),
+                },
+            ),
         )
 
         try:

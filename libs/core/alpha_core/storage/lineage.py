@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -80,6 +81,14 @@ class IngestionRun(BaseModel):
         return time_utils.ensure_utc(value)
 
 
+@dataclass(slots=True, frozen=True)
+class StartRunOptions:
+    event_types: list[str] | None = None
+    schema_version: int = 1
+    config_snapshot: dict[str, Any] | None = None
+    run_id: str | None = None
+
+
 class LineageStore:
     """Tracks ingestion runs for auditability."""
 
@@ -92,24 +101,22 @@ class LineageStore:
         venue: str,
         connector_type: Literal["polling", "streaming"],
         *,
-        event_types: list[str] | None = None,
-        schema_version: int = 1,
-        config_snapshot: dict[str, Any] | None = None,
-        run_id: str | None = None,
+        options: StartRunOptions | None = None,
     ) -> IngestionRun:
-        effective_run_id = _normalize_run_id(run_id or uuid.uuid4().hex)
+        resolved_options = options or StartRunOptions()
+        effective_run_id = _normalize_run_id(resolved_options.run_id or uuid.uuid4().hex)
         run = IngestionRun(
             run_id=effective_run_id,
             venue=venue,
             connector_type=connector_type,
-            event_types=list(event_types or []),
+            event_types=list(resolved_options.event_types or []),
             started_at=datetime.now(tz=UTC),
             completed_at=None,
             status="running",
             counts={},
             errors=[],
-            schema_version=schema_version,
-            config_snapshot=dict(config_snapshot or {}),
+            schema_version=resolved_options.schema_version,
+            config_snapshot=dict(resolved_options.config_snapshot or {}),
         )
         self._persist_run(run)
         return run
@@ -135,10 +142,7 @@ class LineageStore:
         run = self._require_run(run_id)
         self._assert_running(run, transition="fail")
         existing_errors = list(run.errors)
-        if isinstance(error, str):
-            failure_errors = [error]
-        else:
-            failure_errors = [item for item in error if item]
+        failure_errors = [error] if isinstance(error, str) else [item for item in error if item]
         if not failure_errors:
             failure_errors = ["unknown failure"]
         existing_errors.extend(failure_errors)
@@ -233,4 +237,4 @@ def _normalize_run_id(run_id: str) -> str:
     return cleaned
 
 
-__all__ = ["IngestionRun", "LineageStore"]
+__all__ = ["IngestionRun", "LineageStore", "StartRunOptions"]

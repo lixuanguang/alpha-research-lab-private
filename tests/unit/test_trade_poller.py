@@ -107,7 +107,7 @@ def test_trade_poller_polls_all_outcomes_and_uses_limit() -> None:
     poller = connector_trade_poller.TradePoller(
         adapter,
         outcome_ids=["kalshi:market-a:yes", "kalshi:market-b:yes"],
-        limit_per_poll=42,
+        options=connector_trade_poller.TradePollerOptions(limit_per_poll=42),
     )
 
     events = asyncio.run(poller.poll_once()).events
@@ -176,7 +176,7 @@ def test_trade_poller_marks_timeouts_as_rejections() -> None:
     poller = connector_trade_poller.TradePoller(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        request_timeout_seconds=0.01,
+        options=connector_trade_poller.TradePollerOptions(request_timeout_seconds=0.01),
     )
 
     batch = asyncio.run(poller.poll_once())
@@ -192,7 +192,7 @@ def test_trade_poller_bounded_dedup_cache_allows_old_ids_after_eviction() -> Non
     poller = connector_trade_poller.TradePoller(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        max_seen_trade_ids=1,
+        options=connector_trade_poller.TradePollerOptions(max_seen_trade_ids=1),
     )
 
     adapter.responses = {"kalshi:market-a:yes": [_trade("t1", ts)]}
@@ -220,5 +220,5 @@ def test_trade_poller_rejects_invalid_limit_per_poll() -> None:
         connector_trade_poller.TradePoller(
             adapter,
             outcome_ids=["kalshi:market-a:yes"],
-            limit_per_poll=0,
+            options=connector_trade_poller.TradePollerOptions(limit_per_poll=0),
         )

@@ -212,7 +212,10 @@ def test_build_pipeline_contexts_creates_connectors_for_enabled_venues() -> None
     contexts = asyncio.run(
         collector_runtime.build_pipeline_contexts(
             settings,
-            max_outcomes_per_venue=10,
+            options=collector_runtime.RuntimeOptions(
+                once=True,
+                max_outcomes_per_venue=10,
+            ),
             adapter_factory=_factory,
             emit=lambda message, is_error: _emit(messages, message, is_error),
         )
@@ -282,8 +285,10 @@ def test_run_polling_pipelines_once_raises_when_no_contexts(
         asyncio.run(
             collector_runtime.run_polling_pipelines(
                 settings,
-                once=True,
-                max_outcomes_per_venue=10,
+                options=collector_runtime.RuntimeOptions(
+                    once=True,
+                    max_outcomes_per_venue=10,
+                ),
                 adapter_factory=_adapter_factory,
                 emit=lambda _message, _is_error: None,
             )
@@ -304,8 +309,10 @@ def test_run_polling_pipelines_rejects_non_positive_max_outcomes() -> None:
         asyncio.run(
             collector_runtime.run_polling_pipelines(
                 settings,
-                once=True,
-                max_outcomes_per_venue=0,
+                options=collector_runtime.RuntimeOptions(
+                    once=True,
+                    max_outcomes_per_venue=0,
+                ),
                 adapter_factory=_adapter_factory,
                 emit=lambda _message, _is_error: None,
             )
@@ -340,8 +347,10 @@ def test_run_streaming_pipelines_once_raises_when_no_contexts(
         asyncio.run(
             collector_runtime.run_streaming_pipelines(
                 settings,
-                once=True,
-                max_outcomes_per_venue=10,
+                options=collector_runtime.RuntimeOptions(
+                    once=True,
+                    max_outcomes_per_venue=10,
+                ),
                 adapter_factory=_adapter_factory,
                 emit=lambda _message, _is_error: None,
             )
@@ -365,8 +374,10 @@ def test_run_polling_and_streaming_once_sums_run_counts(
     total = asyncio.run(
         collector_runtime.run_polling_and_streaming(
             settings,
-            once=True,
-            max_outcomes_per_venue=10,
+            options=collector_runtime.RuntimeOptions(
+                once=True,
+                max_outcomes_per_venue=10,
+            ),
             adapter_factory=lambda _exchange, _cfg: _StubAdapter("kalshi"),
             emit=lambda _message, _is_error: None,
         )

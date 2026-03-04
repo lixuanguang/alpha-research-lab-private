@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import collections
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TypedDict, cast
 
 import click
 
@@ -24,6 +26,91 @@ import alpha_core.storage.parquet_reader as parquet_reader_mod
 import alpha_core.storage.parquet_writer as storage_parquet
 import apps.data_collector.backfill as collector_backfill
 import apps.data_collector.runtime as collector_runtime
+
+
+class _RunCommandKwargs(TypedDict):
+    venues: tuple[str, ...]
+    mode: str
+    environment: str | None
+    apply_user_settings: bool
+    validate_secrets: bool
+    execute: bool
+    once: bool
+    max_outcomes_per_venue: int
+    request_timeout_seconds: float
+
+
+class _BackfillCommandKwargs(TypedDict):
+    venue: str
+    outcomes: tuple[str, ...]
+    start: str
+    end: str
+    event_type: str
+    resolution: str
+    batch_size: int
+    environment: str | None
+
+
+class _DetectGapsCommandKwargs(TypedDict):
+    venue: str
+    outcomes: tuple[str, ...]
+    event_type: str
+    start: str
+    end: str
+    max_gap_hours: float
+    resolution: str
+    environment: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class _CollectionModeRequest:
+    mode: str
+    settings: config_models.Settings
+    runtime_options: collector_runtime.RuntimeOptions
+
+
+@dataclass(slots=True, frozen=True)
+class _BackfillRequest:
+    venue: str
+    outcomes: list[str]
+    start_dt: datetime
+    end_dt: datetime
+    event_type: str
+    resolution: str
+    batch_size: int
+    environment: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class _GapScanScope:
+    venue: str
+    event_type: str
+    start_dt: datetime
+    end_dt: datetime
+    resolution: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class _OutcomeGapScanScope:
+    venue: str
+    outcome_id: str
+    event_type: str
+    start_dt: datetime
+    end_dt: datetime
+    max_gap_seconds: float
+    resolution: str
+
+
+@dataclass(slots=True, frozen=True)
+class _GapDetectionRequest:
+    venue: str
+    requested_outcomes: list[str]
+    event_type: str
+    start_dt: datetime
+    end_dt: datetime
+    max_gap_hours: float
+    resolution: str
+    environment: str | None
 
 
 @click.group()
@@ -88,52 +175,49 @@ def main() -> None:
     show_default=True,
     help="Per-request timeout applied to venue polling calls.",
 )
-def run_command(
-    venues: tuple[str, ...],
-    mode: str,
-    environment: str | None,
-    apply_user_settings: bool,
-    validate_secrets: bool,
-    execute: bool,
-    once: bool,
-    max_outcomes_per_venue: int,
-    request_timeout_seconds: float,
-) -> None:
+def run_command(**kwargs: object) -> None:
     """Validate runtime configuration and optionally execute polling pipelines."""
-    if max_outcomes_per_venue <= 0:
+    args = cast(_RunCommandKwargs, kwargs)
+    if args["max_outcomes_per_venue"] <= 0:
         raise click.ClickException("`--max-outcomes-per-venue` must be > 0.")
-    if request_timeout_seconds <= 0:
+    if args["request_timeout_seconds"] <= 0:
         raise click.ClickException("`--request-timeout-seconds` must be > 0.")
 
     settings, selected_venues = _prepare_run_settings(
-        environment=environment,
-        apply_user_settings=apply_user_settings,
-        validate_secrets=validate_secrets,
-        requested_venues=venues,
+        environment=args["environment"],
+        apply_user_settings=args["apply_user_settings"],
+        validate_secrets=args["validate_secrets"],
+        requested_venues=args["venues"],
     )
     if not selected_venues:
         raise click.ClickException("No enabled venues found for run command.")
 
     click.echo(
         "Run configuration ready "
-        f"(environment={environment or 'default'}, mode={mode}, venues={','.join(selected_venues)})"
+        f"(environment={args['environment'] or 'default'}, mode={args['mode']}, "
+        f"venues={','.join(selected_venues)})"
     )
-    if not execute:
+    if not args["execute"]:
         click.echo("Execution mode: plan-only (pass --execute to start pipelines).")
         return
 
     completed_runs = _run_collection_mode(
-        mode=mode,
-        settings=settings,
-        once=once,
-        max_outcomes_per_venue=max_outcomes_per_venue,
-        request_timeout_seconds=request_timeout_seconds,
-        selected_venues=selected_venues,
+        _CollectionModeRequest(
+            mode=args["mode"],
+            settings=settings,
+            runtime_options=collector_runtime.RuntimeOptions(
+                once=args["once"],
+                max_outcomes_per_venue=args["max_outcomes_per_venue"],
+                request_timeout_seconds=args["request_timeout_seconds"],
+                venue_names=set(selected_venues),
+            ),
+        )
     )
 
     click.echo(
         "Execution complete "
-        f"(collection_mode={mode}, run_mode={'once' if once else 'continuous'}, "
+        f"(collection_mode={args['mode']}, "
+        f"run_mode={'once' if args['once'] else 'continuous'}, "
         f"successful_runs={completed_runs})"
     )
 
@@ -274,30 +358,24 @@ def status_command(apply_user_settings: bool) -> None:
     default=None,
     help="Optional environment overlay (e.g. local).",
 )
-def backfill_command(
-    venue: str,
-    outcomes: tuple[str, ...],
-    start: str,
-    end: str,
-    event_type: str,
-    resolution: str,
-    batch_size: int,
-    environment: str | None,
-) -> None:
+def backfill_command(**kwargs: object) -> None:
     """Backfill historical data for a time window."""
-    start_dt, end_dt = _parse_window_datetimes(start, end)
-    if batch_size <= 0:
+    args = cast(_BackfillCommandKwargs, kwargs)
+    start_dt, end_dt = _parse_window_datetimes(args["start"], args["end"])
+    if args["batch_size"] <= 0:
         raise click.ClickException("`--batch-size` must be > 0.")
 
     result = _run_backfill(
-        venue=venue,
-        outcomes=list(outcomes),
-        start_dt=start_dt,
-        end_dt=end_dt,
-        event_type=event_type,
-        resolution=resolution,
-        batch_size=batch_size,
-        environment=environment,
+        _BackfillRequest(
+            venue=args["venue"],
+            outcomes=list(args["outcomes"]),
+            start_dt=start_dt,
+            end_dt=end_dt,
+            event_type=args["event_type"],
+            resolution=args["resolution"],
+            batch_size=args["batch_size"],
+            environment=args["environment"],
+        )
     )
 
     click.echo(
@@ -342,42 +420,38 @@ def backfill_command(
     default=None,
     help="Optional environment overlay (e.g. local).",
 )
-def detect_gaps_command(
-    venue: str,
-    outcomes: tuple[str, ...],
-    event_type: str,
-    start: str,
-    end: str,
-    max_gap_hours: float,
-    resolution: str,
-    environment: str | None,
-) -> None:
+def detect_gaps_command(**kwargs: object) -> None:
     """Detect gaps in collected data for a time window."""
-    start_dt, end_dt = _parse_window_datetimes(start, end)
-    if max_gap_hours <= 0:
+    args = cast(_DetectGapsCommandKwargs, kwargs)
+    start_dt, end_dt = _parse_window_datetimes(args["start"], args["end"])
+    if args["max_gap_hours"] <= 0:
         raise click.ClickException("`--max-gap-hours` must be > 0.")
 
-    outcome_ids, all_gaps = _detect_gaps(
-        venue=venue,
-        requested_outcomes=list(outcomes),
-        event_type=event_type,
+    request = _GapDetectionRequest(
+        venue=args["venue"],
+        requested_outcomes=list(args["outcomes"]),
+        event_type=args["event_type"],
         start_dt=start_dt,
         end_dt=end_dt,
-        max_gap_hours=max_gap_hours,
-        resolution=resolution,
-        environment=environment,
+        max_gap_hours=args["max_gap_hours"],
+        resolution=args["resolution"],
+        environment=args["environment"],
     )
+    outcome_ids, all_gaps = _detect_gaps(request)
     if outcome_ids is None:
-        click.echo(f"No data found for venue='{venue}' in the given window.")
+        click.echo(f"No data found for venue='{args['venue']}' in the given window.")
         return
     if not all_gaps:
         click.echo(
-            f"No gaps detected for venue={venue}, event_type={event_type}, "
+            f"No gaps detected for venue={args['venue']}, event_type={args['event_type']}, "
             f"outcomes={len(outcome_ids)}, window=[{start_dt.date()}, {end_dt.date()}]."
         )
         return
 
-    click.echo(f"Detected {len(all_gaps)} gap(s) for venue={venue}, event_type={event_type}:")
+    click.echo(
+        f"Detected {len(all_gaps)} gap(s) for venue={args['venue']}, "
+        f"event_type={args['event_type']}:"
+    )
     for gap in all_gaps:
         click.echo(
             f"  outcome={gap.outcome_id}, "
@@ -403,33 +477,22 @@ def _prepare_run_settings(
     return settings, selected_venues
 
 
-def _run_collection_mode(
-    *,
-    mode: str,
-    settings: config_models.Settings,
-    once: bool,
-    max_outcomes_per_venue: int,
-    request_timeout_seconds: float,
-    selected_venues: list[str],
-) -> int:
+def _run_collection_mode(request: _CollectionModeRequest) -> int:
     run_collectors: dict[str, Callable[..., Coroutine[object, object, int]]] = {
         "poll": collector_runtime.run_polling_pipelines,
         "stream": collector_runtime.run_streaming_pipelines,
         "both": collector_runtime.run_polling_and_streaming,
     }
-    run_collector = run_collectors.get(mode)
+    run_collector = run_collectors.get(request.mode)
     if run_collector is None:
-        raise click.ClickException(f"Unsupported mode: {mode}")
+        raise click.ClickException(f"Unsupported mode: {request.mode}")
     try:
         return asyncio.run(
             run_collector(
-                settings,
-                once=once,
-                max_outcomes_per_venue=max_outcomes_per_venue,
-                request_timeout_seconds=request_timeout_seconds,
+                request.settings,
+                options=request.runtime_options,
                 adapter_factory=adapters_pmxt.PmxtAdapter,
                 emit=_cli_emit,
-                venue_names=set(selected_venues),
             )
         )
     except ValueError as exc:
@@ -466,41 +529,33 @@ def _build_backfill_manager(
 
     return collector_backfill.BackfillManager(
         adapter=adapter,
-        bronze_writer=storage_bronze.BronzeWriter(storage_root),
-        silver_writer=storage_parquet.ParquetEventWriter(storage_root),
-        quality_checker=event_quality.EventQualityChecker(),
-        lineage_store=storage_lineage.LineageStore(storage_root),
+        dependencies=collector_backfill.BackfillDependencies(
+            bronze_writer=storage_bronze.BronzeWriter(storage_root),
+            silver_writer=storage_parquet.ParquetEventWriter(storage_root),
+            quality_checker=event_quality.EventQualityChecker(),
+            lineage_store=storage_lineage.LineageStore(storage_root),
+        ),
     )
 
 
-def _run_backfill(
-    *,
-    venue: str,
-    outcomes: list[str],
-    start_dt: datetime,
-    end_dt: datetime,
-    event_type: str,
-    resolution: str,
-    batch_size: int,
-    environment: str | None,
-) -> collector_backfill.BackfillResult:
-    manager = _build_backfill_manager(venue=venue, environment=environment)
+def _run_backfill(request: _BackfillRequest) -> collector_backfill.BackfillResult:
+    manager = _build_backfill_manager(venue=request.venue, environment=request.environment)
     try:
-        if event_type == "trades":
+        if request.event_type == "trades":
             return asyncio.run(
                 manager.backfill_trades(
-                    outcomes,
-                    start=start_dt,
-                    end=end_dt,
-                    batch_size=batch_size,
+                    request.outcomes,
+                    start=request.start_dt,
+                    end=request.end_dt,
+                    batch_size=request.batch_size,
                 )
             )
         return asyncio.run(
             manager.backfill_ohlcv(
-                outcomes,
-                resolution=resolution,
-                start=start_dt,
-                end=end_dt,
+                request.outcomes,
+                resolution=request.resolution,
+                start=request.start_dt,
+                end=request.end_dt,
             )
         )
     except Exception as exc:
@@ -508,47 +563,44 @@ def _run_backfill(
 
 
 def _detect_gaps(
-    *,
-    venue: str,
-    requested_outcomes: list[str],
-    event_type: str,
-    start_dt: datetime,
-    end_dt: datetime,
-    max_gap_hours: float,
-    resolution: str,
-    environment: str | None,
+    request: _GapDetectionRequest,
 ) -> tuple[list[str] | None, list[gap_detector_mod.TimeGap]]:
     settings = config_loader.load_settings(
-        environment=environment,
+        environment=request.environment,
         apply_user_settings=False,
         validate_secrets=False,
     )
     reader = parquet_reader_mod.ParquetEventReader(settings.storage.base_path)
     detector = gap_detector_mod.GapDetector(reader)
-    outcome_ids = requested_outcomes or _scan_instrument_ids(
+    scope = _GapScanScope(
+        venue=request.venue,
+        event_type=request.event_type,
+        start_dt=request.start_dt,
+        end_dt=request.end_dt,
+        resolution=request.resolution if request.event_type == "ohlcv" else None,
+    )
+    outcome_ids = request.requested_outcomes or _scan_instrument_ids(
         reader,
-        venue=venue,
-        start=start_dt,
-        end=end_dt,
-        event_type=event_type,
-        resolution=resolution if event_type == "ohlcv" else None,
+        scope=scope,
     )
     if not outcome_ids:
         return None, []
 
-    max_gap_seconds = max_gap_hours * 3600.0
+    max_gap_seconds = request.max_gap_hours * 3600.0
     all_gaps: list[gap_detector_mod.TimeGap] = []
     for outcome_id in outcome_ids:
         all_gaps.extend(
             _detect_outcome_gaps(
                 detector,
-                venue=venue,
-                outcome_id=outcome_id,
-                event_type=event_type,
-                start_dt=start_dt,
-                end_dt=end_dt,
-                max_gap_seconds=max_gap_seconds,
-                resolution=resolution,
+                scope=_OutcomeGapScanScope(
+                    venue=request.venue,
+                    outcome_id=outcome_id,
+                    event_type=request.event_type,
+                    start_dt=request.start_dt,
+                    end_dt=request.end_dt,
+                    max_gap_seconds=max_gap_seconds,
+                    resolution=request.resolution,
+                ),
             )
         )
     return outcome_ids, all_gaps
@@ -626,19 +678,20 @@ def _require_venue(settings: config_models.Settings, venue: str) -> config_model
 def _scan_instrument_ids(
     reader: parquet_reader_mod.ParquetEventReader,
     *,
-    venue: str,
-    start: datetime,
-    end: datetime,
-    event_type: str,
-    resolution: str | None = None,
+    scope: _GapScanScope,
 ) -> list[str]:
     """Return distinct instrument_ids present in silver data for the window/event type."""
-    if event_type == "trades":
-        table = reader.read_trades(venue=venue, start=start, end=end)
-    elif event_type == "ohlcv":
-        table = reader.read_ohlcv(venue=venue, resolution=resolution, start=start, end=end)
+    if scope.event_type == "trades":
+        table = reader.read_trades(venue=scope.venue, start=scope.start_dt, end=scope.end_dt)
+    elif scope.event_type == "ohlcv":
+        table = reader.read_ohlcv(
+            venue=scope.venue,
+            resolution=scope.resolution,
+            start=scope.start_dt,
+            end=scope.end_dt,
+        )
     else:
-        raise ValueError(f"Unsupported event_type for instrument scan: {event_type}")
+        raise ValueError(f"Unsupported event_type for instrument scan: {scope.event_type}")
     if table.num_rows == 0 or "instrument_id" not in table.schema.names:
         return []
     outcome_ids = {
@@ -652,28 +705,22 @@ def _scan_instrument_ids(
 def _detect_outcome_gaps(
     detector: gap_detector_mod.GapDetector,
     *,
-    venue: str,
-    outcome_id: str,
-    event_type: str,
-    start_dt: datetime,
-    end_dt: datetime,
-    max_gap_seconds: float,
-    resolution: str,
+    scope: _OutcomeGapScanScope,
 ) -> list[gap_detector_mod.TimeGap]:
-    if event_type == "trades":
+    if scope.event_type == "trades":
         return detector.detect_trade_gaps(
-            venue,
-            outcome_id,
-            start=start_dt,
-            end=end_dt,
-            max_gap_seconds=max_gap_seconds,
+            scope.venue,
+            scope.outcome_id,
+            start=scope.start_dt,
+            end=scope.end_dt,
+            max_gap_seconds=scope.max_gap_seconds,
         )
     return detector.detect_ohlcv_gaps(
-        venue,
-        outcome_id,
-        resolution=resolution,
-        start=start_dt,
-        end=end_dt,
+        scope.venue,
+        scope.outcome_id,
+        resolution=scope.resolution,
+        start=scope.start_dt,
+        end=scope.end_dt,
     )
 
 

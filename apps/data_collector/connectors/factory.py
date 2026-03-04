@@ -68,14 +68,18 @@ class VenueConnectorFactory:
                     connector_trade_poller.TradePoller(
                         adapter,
                         outcome_ids=outcome_ids,
-                        interval_seconds=collection.trade_poll_interval,
-                        request_timeout_seconds=request_timeout_seconds,
+                        options=connector_trade_poller.TradePollerOptions(
+                            interval_seconds=collection.trade_poll_interval,
+                            request_timeout_seconds=request_timeout_seconds,
+                        ),
                     ),
                     connector_ohlcv_poller.OHLCVPoller(
                         adapter,
                         outcome_ids=outcome_ids,
-                        interval_seconds=collection.ohlcv_poll_interval,
-                        request_timeout_seconds=request_timeout_seconds,
+                        options=connector_ohlcv_poller.OHLCVPollerOptions(
+                            interval_seconds=collection.ohlcv_poll_interval,
+                            request_timeout_seconds=request_timeout_seconds,
+                        ),
                     ),
                     connector_book_poller.BookSnapshotPoller(
                         adapter,
@@ -122,10 +126,12 @@ class VenueConnectorFactory:
                 connector_trade_stream.TradeStreamConnector(
                     trade_adapter,
                     outcome_ids=selected_outcomes,
-                    reconnect_backoff_base=collection.reconnect_backoff_base,
-                    reconnect_backoff_max=collection.reconnect_backoff_max,
-                    heartbeat_timeout=collection.heartbeat_timeout,
-                    heartbeat_monitor=heartbeat_monitor,
+                    options=connector_trade_stream.TradeStreamOptions(
+                        reconnect_backoff_base=collection.reconnect_backoff_base,
+                        reconnect_backoff_max=collection.reconnect_backoff_max,
+                        heartbeat_timeout=collection.heartbeat_timeout,
+                        heartbeat_monitor=heartbeat_monitor,
+                    ),
                 )
             )
         if hasattr(adapter, "watch_order_book"):
@@ -138,11 +144,13 @@ class VenueConnectorFactory:
                 connector_book_stream.BookStreamConnector(
                     book_adapter,
                     outcome_ids=selected_outcomes,
-                    reconnect_backoff_base=collection.reconnect_backoff_base,
-                    reconnect_backoff_max=collection.reconnect_backoff_max,
-                    heartbeat_timeout=collection.heartbeat_timeout,
-                    heartbeat_monitor=heartbeat_monitor,
-                    emit_deltas=emit_reconstructed_deltas,
+                    options=connector_book_stream.BookStreamOptions(
+                        reconnect_backoff_base=collection.reconnect_backoff_base,
+                        reconnect_backoff_max=collection.reconnect_backoff_max,
+                        heartbeat_timeout=collection.heartbeat_timeout,
+                        heartbeat_monitor=heartbeat_monitor,
+                        emit_deltas=emit_reconstructed_deltas,
+                    ),
                 )
             )
 

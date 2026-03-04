@@ -86,8 +86,7 @@ class UniverseManager:
         for canonical_market_id, market in sorted(markets_in_scope):
             market_ids.append(canonical_market_id)
             venue_counts[market.venue] += len(market.outcomes)
-            for outcome in market.outcomes:
-                instrument_ids.append(outcome.canonical_id)
+            instrument_ids.extend(outcome.canonical_id for outcome in market.outcomes)
 
         return UniverseSnapshot(
             as_of=as_of_utc,
@@ -171,14 +170,16 @@ class UniverseManager:
                 continue
 
             # --- Volume filter ---
-            if self._min_volume is not None:
-                if market.volume is None or market.volume < self._min_volume:
-                    continue
+            if self._min_volume is not None and (
+                market.volume is None or market.volume < self._min_volume
+            ):
+                continue
 
             # --- Liquidity filter ---
-            if self._min_liquidity is not None:
-                if market.liquidity is None or market.liquidity < self._min_liquidity:
-                    continue
+            if self._min_liquidity is not None and (
+                market.liquidity is None or market.liquidity < self._min_liquidity
+            ):
+                continue
 
             results.append((canonical_id, market))
 

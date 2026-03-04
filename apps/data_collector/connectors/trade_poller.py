@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
 
@@ -13,6 +14,14 @@ import apps.data_collector.connectors._types as connector_types
 import apps.data_collector.connectors.raw_payloads as connector_raw_payloads
 
 
+@dataclass(slots=True)
+class TradePollerOptions:
+    interval_seconds: float = 30.0
+    request_timeout_seconds: float | None = 10.0
+    limit_per_poll: int = 100
+    max_seen_trade_ids: int = 100_000
+
+
 class TradePoller(connector_polling.PollingConnector):
     """Polls fetch_trades for configured outcomes at regular intervals."""
 
@@ -21,28 +30,24 @@ class TradePoller(connector_polling.PollingConnector):
         adapter: adapters_base.VenueAdapter,
         *,
         outcome_ids: list[str],
-        interval_seconds: float = 30.0,
-        request_timeout_seconds: float | None = 10.0,
-        limit_per_poll: int = 100,
-        max_seen_trade_ids: int = 100_000,
+        options: TradePollerOptions | None = None,
     ) -> None:
-        if limit_per_poll <= 0:
+        resolved_options = options or TradePollerOptions()
+        if resolved_options.limit_per_poll <= 0:
             raise ValueError("`limit_per_poll` must be > 0")
-        if max_seen_trade_ids <= 0:
+        if resolved_options.max_seen_trade_ids <= 0:
             raise ValueError("`max_seen_trade_ids` must be > 0")
         self._adapter = adapter
         self._outcome_ids = connector_types.normalize_outcome_ids(outcome_ids)
-        self._limit_per_poll = limit_per_poll
-        self._max_seen_trade_ids = max_seen_trade_ids
-        self._since_by_outcome: dict[str, datetime | None] = {
-            outcome_id: None for outcome_id in self._outcome_ids
-        }
+        self._limit_per_poll = resolved_options.limit_per_poll
+        self._max_seen_trade_ids = resolved_options.max_seen_trade_ids
+        self._since_by_outcome: dict[str, datetime | None] = dict.fromkeys(self._outcome_ids)
         self._seen_trade_keys: set[tuple[str, str]] = set()
         self._seen_trade_order: deque[tuple[str, str]] = deque()
         super().__init__(
             venue=adapter.venue_name(),
-            interval_seconds=interval_seconds,
-            request_timeout_seconds=request_timeout_seconds,
+            interval_seconds=resolved_options.interval_seconds,
+            request_timeout_seconds=resolved_options.request_timeout_seconds,
         )
 
     def event_types(self) -> list[str]:
@@ -102,4 +107,4 @@ class TradePoller(connector_polling.PollingConnector):
         return True
 
 
-__all__ = ["TradePoller"]
+__all__ = ["TradePoller", "TradePollerOptions"]

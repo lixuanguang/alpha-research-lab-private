@@ -437,9 +437,7 @@ def _matches_keyword_at(statement: str, index: int, keyword: str) -> bool:
         return False
     if index > 0 and (statement[index - 1].isalnum() or statement[index - 1] == "_"):
         return False
-    if end < len(statement) and (statement[end].isalnum() or statement[end] == "_"):
-        return False
-    return True
+    return not (end < len(statement) and (statement[end].isalnum() or statement[end] == "_"))
 
 
 def _last_identifier_component(relation: str) -> str:

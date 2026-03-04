@@ -17,8 +17,10 @@ def test_start_run_persists_running_run(tmp_path: Path) -> None:
     run = store.start_run(
         venue="Kalshi",
         connector_type="polling",
-        event_types=["trades", "ohlcv"],
-        config_snapshot={"mode": "poll"},
+        options=lineage.StartRunOptions(
+            event_types=["trades", "ohlcv"],
+            config_snapshot={"mode": "poll"},
+        ),
     )
 
     persisted = store.get_run(run.run_id)
@@ -56,8 +58,16 @@ def test_fail_run_appends_error_and_marks_failed(tmp_path: Path) -> None:
 
 def test_list_runs_filters_by_venue_and_since(tmp_path: Path) -> None:
     store = lineage.LineageStore(tmp_path)
-    old_run = store.start_run("kalshi", "polling", run_id="old-run")
-    store.start_run("polymarket", "polling", run_id="pm-run")
+    old_run = store.start_run(
+        "kalshi",
+        "polling",
+        options=lineage.StartRunOptions(run_id="old-run"),
+    )
+    store.start_run(
+        "polymarket",
+        "polling",
+        options=lineage.StartRunOptions(run_id="pm-run"),
+    )
 
     old_loaded = store.get_run(old_run.run_id)
     assert old_loaded is not None
@@ -69,7 +79,11 @@ def test_list_runs_filters_by_venue_and_since(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    recent = store.start_run("kalshi", "polling", run_id="recent-run")
+    recent = store.start_run(
+        "kalshi",
+        "polling",
+        options=lineage.StartRunOptions(run_id="recent-run"),
+    )
 
     filtered = store.list_runs(venue="kalshi", since=datetime.now(tz=UTC) - timedelta(days=1))
 
@@ -89,12 +103,20 @@ def test_unknown_run_transitions_raise_key_error(tmp_path: Path) -> None:
 def test_terminal_runs_reject_additional_state_transitions(tmp_path: Path) -> None:
     store = lineage.LineageStore(tmp_path)
 
-    completed = store.start_run("kalshi", "polling", run_id="completed")
+    completed = store.start_run(
+        "kalshi",
+        "polling",
+        options=lineage.StartRunOptions(run_id="completed"),
+    )
     store.complete_run(completed.run_id, counts={"trades_raw": 1}, errors=[])
     with pytest.raises(ValueError, match="terminal status"):
         store.fail_run(completed.run_id, "late error")
 
-    failed = store.start_run("kalshi", "polling", run_id="failed")
+    failed = store.start_run(
+        "kalshi",
+        "polling",
+        options=lineage.StartRunOptions(run_id="failed"),
+    )
     store.fail_run(failed.run_id, "first error")
     with pytest.raises(ValueError, match="terminal status"):
         store.complete_run(failed.run_id, counts={"trades_raw": 2}, errors=[])
@@ -104,7 +126,11 @@ def test_lineage_store_rejects_invalid_run_id_tokens(tmp_path: Path) -> None:
     store = lineage.LineageStore(tmp_path)
 
     with pytest.raises(ValueError, match="unsupported characters"):
-        store.start_run("kalshi", "polling", run_id="../escape")
+        store.start_run(
+            "kalshi",
+            "polling",
+            options=lineage.StartRunOptions(run_id="../escape"),
+        )
 
     with pytest.raises(ValueError, match="unsupported characters"):
         store.get_run("../escape")
@@ -126,8 +152,10 @@ def test_start_run_copies_mutable_inputs(tmp_path: Path) -> None:
     run = store.start_run(
         venue="kalshi",
         connector_type="polling",
-        event_types=event_types,
-        config_snapshot=config_snapshot,
+        options=lineage.StartRunOptions(
+            event_types=event_types,
+            config_snapshot=config_snapshot,
+        ),
     )
 
     event_types.append("ohlcv")
@@ -148,8 +176,10 @@ def test_lineage_store_meets_d2_persist_and_query_target(tmp_path: Path) -> None
         run = store.start_run(
             venue="kalshi",
             connector_type="polling",
-            event_types=["trades"],
-            run_id=f"perf-{index}",
+            options=lineage.StartRunOptions(
+                event_types=["trades"],
+                run_id=f"perf-{index}",
+            ),
         )
         store.complete_run(run.run_id, counts={"trades_raw": 1}, errors=[])
     runs = store.list_runs()

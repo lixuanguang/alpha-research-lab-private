@@ -25,4 +25,10 @@ def _extract_commit_hash(version_str: str) -> str | None:
 __version__ = _resolve_version()
 __commit_hash__ = _extract_commit_hash(__version__)
 
-__all__ = ["__commit_hash__", "__version__"]
+__all__ = [
+    "__commit_hash__",
+    "__version__",
+    # sub-packages (accessible as alpha_core.<name>)
+    "research",
+    "strategy_framework",
+]

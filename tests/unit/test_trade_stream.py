@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -37,6 +37,21 @@ def _trade(trade_id: str = "t1", ts: datetime | None = None) -> event_models.Can
     }
     payload["event_id"] = ids_utils.generate_event_id(payload)
     return event_models.CanonicalTrade.model_validate(payload)
+
+
+def _stream_options(
+    *,
+    heartbeat_monitor: heartbeat_mod.HeartbeatMonitor | None = None,
+    heartbeat_timeout: float = 120.0,
+    emit: Callable[[list[event_models.CanonicalMarketEvent]], None] | None = None,
+) -> trade_stream_mod.TradeStreamOptions:
+    return trade_stream_mod.TradeStreamOptions(
+        reconnect_backoff_base=0.01,
+        reconnect_backoff_max=0.05,
+        heartbeat_timeout=heartbeat_timeout,
+        heartbeat_monitor=heartbeat_monitor,
+        emit=emit,
+    )
 
 
 class _MockAdapter:
@@ -83,9 +98,7 @@ def test_stream_yields_batches_to_emit() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
-        emit=collector,
+        options=_stream_options(emit=collector),
     )
 
     asyncio.run(connector.stream_loop())
@@ -99,8 +112,7 @@ def test_empty_outcome_ids_stream_loop_waits_for_stop() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=[],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
 
     async def _run() -> None:
@@ -116,8 +128,7 @@ def test_metrics_updated_after_stream() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
     asyncio.run(connector.stream_loop())
     assert connector.metrics().events_received == 2
@@ -136,9 +147,7 @@ def test_heartbeat_recorded_per_batch() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["kalshi:m:yes"],
-        heartbeat_monitor=monitor,
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(heartbeat_monitor=monitor),
     )
     asyncio.run(connector.stream_loop())
     assert connector.connector_id in monitor.tracked()
@@ -172,8 +181,7 @@ def test_run_stream_reconnects_on_error() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         _FailOnceAdapter(),
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
     connector_ref.append(connector)
     asyncio.run(asyncio.wait_for(connector._run_stream(), timeout=2.0))
@@ -185,8 +193,7 @@ def test_stop_event_exits_run_stream() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=[],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
 
     async def _run() -> None:
@@ -207,8 +214,7 @@ def test_duplicate_outcome_ids_normalised() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["  id-a  ", "id-a", "id-b"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
     assert connector._outcome_ids == ["id-a", "id-b"]
 
@@ -218,8 +224,7 @@ def test_empty_strings_stripped_from_outcome_ids() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["  ", "", "id-a"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
     assert connector._outcome_ids == ["id-a"]
 
@@ -234,8 +239,7 @@ def test_start_and_stop() -> None:
     connector = trade_stream_mod.TradeStreamConnector(
         adapter,
         outcome_ids=["kalshi:m:yes"],
-        reconnect_backoff_base=0.01,
-        reconnect_backoff_max=0.05,
+        options=_stream_options(),
     )
 
     async def _run() -> None:

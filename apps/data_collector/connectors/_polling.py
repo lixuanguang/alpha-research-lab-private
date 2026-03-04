@@ -86,10 +86,8 @@ class PollingConnector(connector_lifecycle.BaseConnector):
         try:
             while not self._stop_event.is_set():
                 await self.execute_cycle()
-                try:
+                with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self._stop_event.wait(), timeout=self.interval_seconds)
-                except TimeoutError:
-                    pass
         except asyncio.CancelledError:
             raise
         except Exception as exc:

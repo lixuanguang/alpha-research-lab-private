@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 
 import alpha_core.utils.time as time_utils
+
+
+@dataclass(slots=True, frozen=True)
+class GridAlignmentSpec:
+    frequency: str
+    start: datetime
+    end: datetime
+    as_of_column: str = "ts_record"
+    ts_column: str = "ts_event"
 
 
 def as_of_filter(
@@ -45,11 +55,7 @@ def as_of_filter(
 def align_to_grid(
     tables: dict[str, pa.Table],
     *,
-    frequency: str,
-    start: datetime,
-    end: datetime,
-    as_of_column: str = "ts_record",
-    ts_column: str = "ts_event",
+    spec: GridAlignmentSpec,
 ) -> dict[str, pa.Table]:
     """Align multiple tables to a uniform time grid via an as-of join.
 
@@ -76,9 +82,9 @@ def align_to_grid(
     """
     import pandas as pd  # type: ignore[import-untyped]  # lazy import — pandas not always needed
 
-    start_utc = time_utils.ensure_utc(start)
-    end_utc = time_utils.ensure_utc(end)
-    grid = pd.date_range(start=start_utc, end=end_utc, freq=frequency, tz="UTC")
+    start_utc = time_utils.ensure_utc(spec.start)
+    end_utc = time_utils.ensure_utc(spec.end)
+    grid = pd.date_range(start=start_utc, end=end_utc, freq=spec.frequency, tz="UTC")
 
     result: dict[str, pa.Table] = {}
     for label, table in tables.items():
@@ -90,9 +96,9 @@ def align_to_grid(
         for grid_ts in grid:
             grid_dt: datetime = grid_ts.to_pydatetime()
             # Apply both as-of dimensions
-            snapshot = as_of_filter(table, as_of_column=as_of_column, cutoff=grid_dt)
-            if as_of_column != ts_column and ts_column in table.schema.names:
-                snapshot = as_of_filter(snapshot, as_of_column=ts_column, cutoff=grid_dt)
+            snapshot = as_of_filter(table, as_of_column=spec.as_of_column, cutoff=grid_dt)
+            if spec.as_of_column != spec.ts_column and spec.ts_column in table.schema.names:
+                snapshot = as_of_filter(snapshot, as_of_column=spec.ts_column, cutoff=grid_dt)
             if snapshot.num_rows > 0:
                 grid_col = pa.array(
                     [grid_dt] * snapshot.num_rows,
@@ -115,4 +121,4 @@ def align_to_grid(
     return result
 
 
-__all__ = ["align_to_grid", "as_of_filter"]
+__all__ = ["GridAlignmentSpec", "align_to_grid", "as_of_filter"]

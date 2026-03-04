@@ -4,14 +4,14 @@ Every research-plane run (ingestion, dataset build, feature build, backtest,
 evaluate, optimize, live) produces output under a single deterministic root::
 
     {storage_root}/runs/{run_id}/
-        manifest.json       – RunManifest (run context + artifact index)
-        config.json         – frozen run config snapshot
-        artifacts.json      – logical artifact key → absolute path index
-        stage_outputs/      – default home for run-scoped output files
+        manifest.json       - RunManifest (run context + artifact index)
+        config.json         - frozen run config snapshot
+        artifacts.json      - logical artifact key -> absolute path index
+        stage_outputs/      - default home for run-scoped output files
 
 Rules
 -----
-- All helper functions are **pure** — no filesystem I/O.
+- All helper functions are **pure** - no filesystem I/O.
 - :func:`artifact_key_path` is the single source of truth for default per-key
   paths so callers never construct paths ad-hoc.
 - Stage-specific outputs (datasets, features, backtests, reports) may live
@@ -45,7 +45,7 @@ def run_config_path(storage_root: Path, run_id: str) -> Path:
 
 
 def run_artifacts_path(storage_root: Path, run_id: str) -> Path:
-    """Path to ``artifacts.json`` (logical key → absolute path index) inside the run directory."""
+    """Path to ``artifacts.json`` (logical key -> absolute path index) inside the run directory."""
     return run_root(storage_root, run_id) / "artifacts.json"
 
 
@@ -63,7 +63,7 @@ def artifact_key_path(storage_root: Path, run_id: str, artifact_key: str) -> Pat
     """Return the **deterministic** path for *artifact_key* under *stage_outputs/*.
 
     For identical ``(storage_root, run_id, artifact_key)`` inputs this function
-    always returns the same :class:`~pathlib.Path` — no I/O is performed.
+    always returns the same :class:`~pathlib.Path` - no I/O is performed.
 
     *artifact_key* rules:
 
@@ -94,7 +94,7 @@ def write_artifacts_index(
     run_id: str,
     artifacts: dict[str, str],
 ) -> None:
-    """Atomically write the logical artifact key→path index to ``artifacts.json``.
+    """Atomically write the logical artifact key->path index to ``artifacts.json``.
 
     Creates the run directory if it does not already exist.
     """
@@ -106,7 +106,7 @@ def write_artifacts_index(
 
 
 def read_artifacts_index(storage_root: Path, run_id: str) -> dict[str, str]:
-    """Read the artifact key→path index from ``artifacts.json``.
+    """Read the artifact key->path index from ``artifacts.json``.
 
     Returns an empty ``dict`` when the file does not exist so callers can
     treat a missing index the same as an empty one.

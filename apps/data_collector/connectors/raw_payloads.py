@@ -27,24 +27,25 @@ def normalize_raw_payloads(
 
 def _to_json_compatible(value: object) -> object:
     if hasattr(value, "model_dump"):
-        model_dump = getattr(value, "model_dump")
+        model_dump = value.model_dump
         if callable(model_dump):
-            dumped = model_dump(mode="json")
-            return _to_json_compatible(dumped)
+            value = model_dump(mode="json")
+
+    converted: object
     if isinstance(value, Decimal):
-        return str(value)
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    if isinstance(value, list):
-        return [_to_json_compatible(item) for item in value]
-    if isinstance(value, tuple):
-        return [_to_json_compatible(item) for item in value]
-    if isinstance(value, dict):
-        return {str(key): _to_json_compatible(item) for key, item in value.items()}
-    serialized = json.dumps(value, default=str, separators=(",", ":"))
-    return json.loads(serialized)
+        converted = str(value)
+    elif isinstance(value, datetime):
+        converted = value.isoformat()
+    elif isinstance(value, (str, int, float, bool)) or value is None:
+        converted = value
+    elif isinstance(value, (list, tuple)):
+        converted = [_to_json_compatible(item) for item in value]
+    elif isinstance(value, dict):
+        converted = {str(key): _to_json_compatible(item) for key, item in value.items()}
+    else:
+        serialized = json.dumps(value, default=str, separators=(",", ":"))
+        converted = json.loads(serialized)
+    return converted
 
 
 __all__ = ["normalize_raw_payloads"]

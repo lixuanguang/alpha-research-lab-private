@@ -266,8 +266,7 @@ class SnapshotCadenceExpectation(quality_base.QualityExpectation):
                 gap = t2 - t1
                 if gap > self.max_gap_seconds:
                     cadence_violations += 1
-                if gap > max_observed_gap:
-                    max_observed_gap = gap
+                max_observed_gap = max(max_observed_gap, gap)
 
         return quality_base.QualityResult(
             expectation_name=self.name,
@@ -331,9 +330,13 @@ class TopOfBookStabilityExpectation(quality_base.QualityExpectation):
                     asks_col[row_idx].as_py() or "[]",
                 )
                 for prev_val, curr_val in ((prev_bb, curr_bb), (prev_ba, curr_ba)):
-                    if prev_val and curr_val and prev_val > 0:
-                        if abs(curr_val - prev_val) / prev_val > self.max_move_frac:
-                            violations += 1
+                    if (
+                        prev_val
+                        and curr_val
+                        and prev_val > 0
+                        and abs(curr_val - prev_val) / prev_val > self.max_move_frac
+                    ):
+                        violations += 1
                 prev_bb, prev_ba = curr_bb, curr_ba
 
         return quality_base.QualityResult(

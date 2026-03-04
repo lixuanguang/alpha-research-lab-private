@@ -108,8 +108,10 @@ def test_ohlcv_poller_polls_outcomes_with_resolution() -> None:
     poller = connector_ohlcv_poller.OHLCVPoller(
         adapter,
         outcome_ids=["kalshi:market-a:yes", "kalshi:market-b:yes"],
-        resolution="5m",
-        limit_per_poll=55,
+        options=connector_ohlcv_poller.OHLCVPollerOptions(
+            resolution="5m",
+            limit_per_poll=55,
+        ),
     )
 
     events = asyncio.run(poller.poll_once()).events
@@ -169,7 +171,7 @@ def test_ohlcv_poller_marks_timeouts_as_rejections() -> None:
     poller = connector_ohlcv_poller.OHLCVPoller(
         adapter,
         outcome_ids=["kalshi:market-a:yes"],
-        request_timeout_seconds=0.01,
+        options=connector_ohlcv_poller.OHLCVPollerOptions(request_timeout_seconds=0.01),
     )
 
     batch = asyncio.run(poller.poll_once())
@@ -183,7 +185,11 @@ def test_ohlcv_poller_rejects_invalid_limit() -> None:
     adapter = _MockAdapter()
 
     try:
-        connector_ohlcv_poller.OHLCVPoller(adapter, outcome_ids=["x"], limit_per_poll=0)
+        connector_ohlcv_poller.OHLCVPoller(
+            adapter,
+            outcome_ids=["x"],
+            options=connector_ohlcv_poller.OHLCVPollerOptions(limit_per_poll=0),
+        )
         raise AssertionError("Expected ValueError for invalid limit")
     except ValueError:
         pass

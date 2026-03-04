@@ -1159,7 +1159,7 @@ class RunManifest(BaseModel):
 - `make_run_context()` auto-calls `capture_git_commit()` when no commit is passed explicitly.
 - `RunManifest` aligned to the spec-minimal contract: the `dataset_id` top-level field was removed; stage-specific keys (dataset ID, feature-set version, etc.) are stored as entries in `artifacts` instead.
 - `DatasetBuilder` updated to write `dataset_id` into `artifact_map` rather than a top-level manifest field — backward-compatible for downstream consumers.
-- Flat convenience exports added to `alpha_core.research.__init__` so callers can do `from alpha_core.research import RunContext, RunManifest`.
+- `alpha_core.research.__init__` now exports module namespaces only (`artifact_paths`, `manifest`, `run_context`, etc.) to avoid flat-symbol re-export indirection.
 - `tests/unit/test_research_manifest.py` replaced and expanded: 23 tests covering parametrized `RunType` coverage, hash stability, `close_run_context`, `capture_git_commit` (happy path, `FileNotFoundError`, mock injection, explicit-override guard), manifest round-trip, `parent_run_id` linkage, `extra="forbid"` rejection, and per-`RunType` persistence. All 614 tests green; `mypy --strict` clean on changed files.
 
 ### 12.2 Artifact Path Conventions
@@ -1188,7 +1188,7 @@ Rules:
   - `write_artifacts_index` / `read_artifacts_index` — atomic write and safe read of `artifacts.json`; `read_artifacts_index` returns `{}` when the file is absent for backward-compatible consumption.
 - `IngestionRun` in `storage/lineage.py` gains an optional `downstream_run_ids: list[str]` field (default `[]`) — fully backward-compatible with existing JSON on disk.
 - `LineageStore.link_downstream_run(ingestion_run_id, downstream_run_id)` — idempotent method to register bidirectional traceability between an ingestion run and a consuming research run. Pairs with `RunManifest.parent_run_id` on the downstream side.
-- All new helpers exported from `alpha_core.research.__init__` for flat import.
+- Helpers remain available via module namespaces (for example `alpha_core.research.artifact_paths.*`) instead of flat re-exports.
 - `docs/guides/notebook-to-modules-cli-migration-guide.md` updated with §9.1 Run Artifact Layout Convention: documents the directory structure, helper usage patterns, and the `link_downstream_run` bridging flow.
 - New `tests/unit/test_artifact_paths.py`: 25 tests covering fixed-path layout, `artifact_key_path` determinism and validation, `write/read_artifacts_index` round-trip and edge cases, lineage bridge CRUD (default, register, idempotency, accumulation, error case), and backward-compat loading of old JSON without `downstream_run_ids`. All 644 tests green; `mypy --strict` clean.
 
@@ -1204,6 +1204,16 @@ Add shared protocol stubs in core (implementation deferred to Research/Live stag
 
 These are contract-only at Foundation extension scope and are intended to prevent interface drift between research and live engines.
 
+**Status Update (March 4, 2026):**
+
+- `libs/core/alpha_core/strategy_framework/` package introduced with four modules:
+  - `interfaces.py` — five `typing.Protocol` stubs (`UniverseModel`, `AlphaModel`, `PortfolioConstructionModel`, `RiskModel`, `ExecutionModel`) all decorated `@runtime_checkable`, matching the contracts specified in `README.LEAN_ADOPTION.md §6.1`.
+  - `models.py` — typed Pydantic v2 datamodels covering the full pipeline data flow: `InstrumentState`, `MarketState` (entry point, `extra="allow"` for runtime extensibility), `Signal` (with `SignalDirection` enum and bounded `strength`/`confidence` fields), `Target` (weighted or absolute sizing), `OrderIntent` (with `OrderType` enum and PM price bounds).
+  - `engine.py` — `StrategyEngine` dataclass wiring all five protocols into a single `step(state) -> list[OrderIntent]` cycle with a `cycle_count` counter; no order submission logic (deferred to Research/Live stages).
+  - `__init__.py` — module-namespace exports (`engine`, `interfaces`, `models`) so callers import symbols from explicit modules.
+- `alpha_core/__init__.py` `__all__` updated to document `strategy_framework` as a top-level sub-package alongside `research`.
+- `tests/unit/test_strategy_framework.py` added: 33 tests covering protocol conformance (`isinstance` checks), model validation and field-bound rejection, serialization round-trips for `Signal` and `OrderIntent`, parametrized `SignalDirection` coverage, and `StrategyEngine` orchestration (universe filtering, risk dropping, cycle counting, empty universe). All 677 tests green; `mypy --strict` clean on `libs/core/alpha_core/strategy_framework`.
+
 ### 12.4 Schema Regression Policy
 
 Introduce contract stability gates for manifests and reports:
@@ -1216,14 +1226,30 @@ Introduce contract stability gates for manifests and reports:
 
 This policy should be enforced in CI once Research CLI is wired.
 
+**Status Update (March 4, 2026):**
+
+- `RUN_MANIFEST_SCHEMA_VERSION: int = 1` constant added to `manifest.py` as the single source of truth; must be bumped whenever any `RunManifest` field changes.
+- `schema_version: int = Field(default=RUN_MANIFEST_SCHEMA_VERSION)` added to `RunManifest` — backward-compatible (existing code constructing the model without this field gets the default; existing JSON without the field parses cleanly via the default too). `RUN_MANIFEST_SCHEMA_VERSION` is exported by `alpha_core.research.manifest`.
+- Regression snapshot fixtures created:
+  - `tests/data/fixtures/schema_snapshots/run_manifest_v1.json` — frozen canonical JSON for `RunManifest` v1 (all 4 top-level fields).
+  - `tests/data/fixtures/schema_snapshots/run_context_v1.json` — frozen canonical JSON for the embedded `RunContext` (all 6 fields).
+- JSON Schema document `data/schemas/run_manifest_v1.json` added (draft/2020-12), defining the full structure of `RunManifest` v1 with `schema_version` constrained to `1`, `run_type` as an enum, and `additionalProperties: false` for both the top-level object and the nested `run_context` definition.
+- `tests/unit/test_schema_regression.py` added: 19 tests across four test classes:
+  - `TestRunManifestRegression` — snapshot existence, parse, field-set equality, constant/fixture agreement, round-trip stability, run_type validity, non-empty artifacts.
+  - `TestRunContextRegression` — parse, field-set equality, round-trip stability against the separate `RunContext` fixture.
+  - `TestRunManifestJsonSchema` — JSON Schema file existence, valid JSON, `const` matches constant, required-field agreement.
+  - `TestSchemaRegressionGuards` — self-tests proving the gates fire: extra field rejection, missing required field rejection, invalid run_type rejection, simulated field-drift detection.
+- Snapshot update instructions are inlined at the top of `test_schema_regression.py` as a copy-pasteable shell snippet.
+- All 696 tests green; `mypy --strict` clean on changed files.
+
 ### 12.5 Foundation Extension Acceptance Gates
 
 Extension is complete when:
 
 - [x] Shared run contract models exist in core and are importable by both data and research modules.
 - [x] Canonical run artifact path helpers exist and are covered by unit tests.
-- [ ] Strategy framework protocol stubs are committed in core.
-- [ ] Manifest schema regression policy is documented and test scaffolding exists.
+- [x] Strategy framework protocol stubs are committed in core.
+- [x] Manifest schema regression policy is documented and test scaffolding exists.
 
 ---
 
