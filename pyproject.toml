@@ -46,8 +46,15 @@ dependencies = [
 
 # Optional dependency groups installed via extras, e.g. `.[dev]`.
 [project.optional-dependencies]
+# Research-plane dependencies (dataset handle, notebook work, signal development).
+research = [
+    # DataFrame library used by the gold-dataset handle and research notebooks.
+    "pandas>=2.0",
+]
 # Tooling required for local development, CI, and tests.
 dev = [
+    # Research-plane extras are needed to run the full test suite.
+    "pandas>=2.0",
     # Test runner.
     "pytest>=7.0",
     # Coverage reporting plugin for pytest.
