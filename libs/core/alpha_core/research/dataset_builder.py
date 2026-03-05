@@ -38,6 +38,7 @@ _UNIVERSE_SCHEMA = pa.schema(
         pa.field("venue", pa.string(), nullable=False),
     ]
 )
+_KNOWN_EVENT_TABLES: frozenset[str] = frozenset({"trades", "ohlcv", "books"})
 
 
 class DatasetBuildError(RuntimeError):
@@ -174,7 +175,12 @@ class DatasetBuilder:
     ) -> dict[str, Any]:
         quality_summary: dict[str, Any] = {"checked": False}
         if config.require_quality_pass:
-            quality_summary = self._validate_quality(config, start_utc, end_utc)
+            quality_summary = self._validate_quality(
+                config=config,
+                start=start_utc,
+                end=end_utc,
+                all_instruments=all_instruments,
+            )
         if config.require_gap_free:
             self._check_gaps(config, all_instruments, start_utc, end_utc)
         return quality_summary
@@ -255,6 +261,10 @@ class DatasetBuilder:
         dataset_id = _make_dataset_id(spec.config)
         dataset_dir = self._gold_root / spec.config.name
         dataset_dir.mkdir(parents=True, exist_ok=True)
+        _remove_stale_event_tables(
+            dataset_dir=dataset_dir,
+            active_event_types=set(spec.gold_tables),
+        )
 
         row_counts = self._write_event_tables(dataset_dir=dataset_dir, gold_tables=spec.gold_tables)
         _write_universe_table(dataset_dir=dataset_dir, snapshots=spec.snapshots)
@@ -368,14 +378,19 @@ class DatasetBuilder:
 
     def _validate_quality(
         self,
+        *,
         config: dataset_mod.DatasetConfig,
         start: datetime,
         end: datetime,
+        all_instruments: set[str],
     ) -> dict[str, Any]:
         """Run quality suites over required partitions; raise on failure."""
         from datetime import timedelta
 
         summary: dict[str, Any] = {"checked": True, "partitions": [], "failed": []}
+        venues_to_check = _quality_venues(config=config, all_instruments=all_instruments)
+        if not venues_to_check:
+            return summary
 
         current = start.date()
         end_date = end.date()
@@ -386,12 +401,7 @@ class DatasetBuilder:
                 if event_type not in ("trades", "ohlcv", "books"):
                     continue
 
-                venues_to_check: list[str | None] = (
-                    [v.lower() for v in config.venues] if config.venues else [None]
-                )
                 for venue in venues_to_check:
-                    if venue is None:
-                        continue
                     try:
                         report = self._quality_validator.validate_partition(
                             event_type, venue, date_str
@@ -494,6 +504,35 @@ def _make_dataset_id(config: dataset_mod.DatasetConfig) -> str:
     """Deterministic SHA-256 hash of the serialised config."""
     payload = json.dumps(config.model_dump(mode="json"), sort_keys=True, default=str)
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _quality_venues(
+    *,
+    config: dataset_mod.DatasetConfig,
+    all_instruments: set[str],
+) -> list[str]:
+    if config.venues:
+        return [venue.lower() for venue in config.venues]
+
+    discovered_venues = {
+        instrument_id.split(":", 1)[0].strip().lower()
+        for instrument_id in all_instruments
+        if ":" in instrument_id
+    }
+    return sorted(venue for venue in discovered_venues if venue)
+
+
+def _remove_stale_event_tables(
+    *,
+    dataset_dir: Path,
+    active_event_types: set[str],
+) -> None:
+    active_files = {f"{event_type}.parquet" for event_type in active_event_types}
+    for known_event_type in _KNOWN_EVENT_TABLES:
+        event_file = dataset_dir / f"{known_event_type}.parquet"
+        if event_file.name in active_files:
+            continue
+        event_file.unlink(missing_ok=True)
 
 
 def _build_venue_map(snap: universe_mod.UniverseSnapshot) -> dict[str, str]:

@@ -134,6 +134,47 @@ class _FakeDuckDBConnection:
         self.calls.append((sql, parameters))
         return _FakeDuckDBResult(self._table)
 
+    def from_parquet(
+        self,
+        parquet_glob: str,
+        *,
+        hive_partitioning: bool,
+        union_by_name: bool,
+    ) -> _FakeDuckDBRelation:
+        return _FakeDuckDBRelation(
+            connection=self,
+            parquet_glob=parquet_glob,
+            hive_partitioning=hive_partitioning,
+            union_by_name=union_by_name,
+        )
+
+
+class _FakeDuckDBRelation:
+    def __init__(
+        self,
+        *,
+        connection: _FakeDuckDBConnection,
+        parquet_glob: str,
+        hive_partitioning: bool,
+        union_by_name: bool,
+    ) -> None:
+        self._connection = connection
+        self._parquet_glob = parquet_glob
+        self._hive_partitioning = hive_partitioning
+        self._union_by_name = union_by_name
+
+    def create_view(self, view_name: str, replace: bool = True) -> _FakeDuckDBRelation:
+        sql = (
+            f"CREATE OR REPLACE VIEW {view_name} AS SELECT * FROM "
+            f"read_parquet('{self._parquet_glob}', "
+            f"hive_partitioning={int(self._hive_partitioning)}, "
+            f"union_by_name={int(self._union_by_name)})"
+        )
+        if not replace:
+            sql = sql.replace("CREATE OR REPLACE", "CREATE")
+        self._connection.calls.append((sql, None))
+        return self
+
 
 class _FakeDuckDBModule:
     def __init__(self, table: pa.Table) -> None:

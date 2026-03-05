@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, cast
@@ -13,6 +14,24 @@ import alpha_core.events.schema_version as event_schema_version
 import alpha_core.instruments.models as instrument_models
 import alpha_core.instruments.symbology as instrument_symbology
 import alpha_core.utils.ids as id_utils
+
+
+@dataclass(slots=True, frozen=True)
+class _TradeTimingMetadata:
+    ts_record: datetime
+    ts_event: datetime
+    sequence_id: str | None
+    ts_exchange: datetime | None
+    source_latency_ms: float | None
+    sequence_id_capable: bool
+    latency_metadata_capable: bool
+
+
+@dataclass(slots=True, frozen=True)
+class _TradeFields:
+    price: Decimal
+    size: Decimal
+    side: event_models.TradeSide
 
 
 def map_market(raw: object, *, venue: str) -> instrument_models.MarketSpec:
@@ -62,15 +81,51 @@ def map_trade(
     quirks: venue_configs.VenueQuirks,
 ) -> event_models.CanonicalTrade:
     """Map one raw trade payload into a canonical trade event."""
-    ts_record = datetime.now(tz=UTC)
-    ts_event = (
-        pmxt_parsing.coerce_event_time(
-            pmxt_parsing.pick(raw, "timestamp", "ts", "time", "datetime", default=ts_record),
-            fallback=ts_record,
-        )
-        or ts_record
+    timing = _parse_trade_timing(raw, quirks=quirks)
+    fields = _parse_trade_fields(raw, quirks=quirks)
+    trade_id = _resolve_trade_id(
+        raw=raw,
+        venue=venue,
+        instrument_id=instrument_id,
+        ts_event=timing.ts_event,
+        price=fields.price,
+        size=fields.size,
+        side=fields.side,
     )
-    ts_event = pmxt_parsing.bound_event_time(ts_event=ts_event, ts_record=ts_record)
+
+    payload: dict[str, Any] = {
+        "instrument_id": instrument_id,
+        "venue_id": venue,
+        "event_type": event_models.EventType.TRADE,
+        "ts_event": timing.ts_event,
+        "ts_record": timing.ts_record,
+        "schema_version": event_schema_version.CANONICAL_EVENT_SCHEMA_VERSION,
+        "sequence_id": timing.sequence_id,
+        "ts_exchange": timing.ts_exchange,
+        "source_latency_ms": timing.source_latency_ms,
+        "sequence_id_capable": timing.sequence_id_capable,
+        "latency_metadata_capable": timing.latency_metadata_capable,
+        "price": normalize_price(fields.price, quirks=quirks),
+        "size": fields.size,
+        "side": fields.side,
+        "trade_id": trade_id,
+    }
+    return event_models.CanonicalTrade.model_validate(payload)
+
+
+def _parse_trade_timing(
+    raw: object,
+    *,
+    quirks: venue_configs.VenueQuirks,
+) -> _TradeTimingMetadata:
+    ts_record = datetime.now(tz=UTC)
+    parsed_ts_event = pmxt_parsing.coerce_event_time(
+        pmxt_parsing.pick(raw, "timestamp", "ts", "time", "datetime", default=ts_record),
+        fallback=ts_record,
+    )
+    ts_event = pmxt_parsing.bound_event_time(
+        ts_event=parsed_ts_event or ts_record, ts_record=ts_record
+    )
     sequence_id = pmxt_parsing.coerce_optional_text(
         pmxt_parsing.pick(raw, "sequence_id", "sequence", "seq", default=None)
     )
@@ -78,19 +133,34 @@ def map_trade(
         pmxt_parsing.pick(raw, "exchange_timestamp", "source_timestamp", default=None),
         fallback=None,
     )
-    sequence_capable = bool(getattr(quirks, "sequence_id_capable", False)) or (
+    sequence_id_capable = bool(getattr(quirks, "sequence_id_capable", False)) or (
         sequence_id is not None
     )
-    latency_capable = bool(getattr(quirks, "latency_metadata_capable", False)) or (
+    latency_metadata_capable = bool(getattr(quirks, "latency_metadata_capable", False)) or (
         parsed_ts_exchange is not None
     )
-    ts_exchange = parsed_ts_exchange if latency_capable else None
+    ts_exchange = parsed_ts_exchange if latency_metadata_capable else None
     source_latency_ms = (
         max((ts_record - ts_exchange).total_seconds() * 1000.0, 0.0)
         if ts_exchange is not None
         else None
     )
+    return _TradeTimingMetadata(
+        ts_record=ts_record,
+        ts_event=ts_event,
+        sequence_id=sequence_id,
+        ts_exchange=ts_exchange,
+        source_latency_ms=source_latency_ms,
+        sequence_id_capable=sequence_id_capable,
+        latency_metadata_capable=latency_metadata_capable,
+    )
 
+
+def _parse_trade_fields(
+    raw: object,
+    *,
+    quirks: venue_configs.VenueQuirks,
+) -> _TradeFields:
     price = pmxt_parsing.coerce_decimal(pmxt_parsing.pick(raw, "price", default=None))
     if price is None:
         raise ValueError("trade price is required")
@@ -105,39 +175,34 @@ def map_trade(
         pmxt_parsing.pick(raw, "side", "taker_side", default="buy"),
         quirks=quirks,
     )
+    return _TradeFields(price=price, size=size, side=side)
+
+
+def _resolve_trade_id(
+    *,
+    raw: object,
+    venue: str,
+    instrument_id: str,
+    ts_event: datetime,
+    price: Decimal,
+    size: Decimal,
+    side: event_models.TradeSide,
+) -> str:
     trade_id = pmxt_parsing.coerce_optional_text(
         pmxt_parsing.pick(raw, "id", "trade_id", default=None)
     )
-    if trade_id is None:
-        trade_id = id_utils.generate_event_id(
-            {
-                "venue": venue,
-                "instrument_id": instrument_id,
-                "ts_event": ts_event,
-                "price": price,
-                "size": size,
-                "side": side,
-            }
-        )
-
-    payload: dict[str, Any] = {
-        "instrument_id": instrument_id,
-        "venue_id": venue,
-        "event_type": event_models.EventType.TRADE,
-        "ts_event": ts_event,
-        "ts_record": ts_record,
-        "schema_version": event_schema_version.CANONICAL_EVENT_SCHEMA_VERSION,
-        "sequence_id": sequence_id,
-        "ts_exchange": ts_exchange,
-        "source_latency_ms": source_latency_ms,
-        "sequence_id_capable": sequence_capable,
-        "latency_metadata_capable": latency_capable,
-        "price": normalize_price(price, quirks=quirks),
-        "size": size,
-        "side": side,
-        "trade_id": trade_id,
-    }
-    return event_models.CanonicalTrade.model_validate(payload)
+    if trade_id is not None:
+        return trade_id
+    return id_utils.generate_event_id(
+        {
+            "venue": venue,
+            "instrument_id": instrument_id,
+            "ts_event": ts_event,
+            "price": price,
+            "size": size,
+            "side": side,
+        }
+    )
 
 
 def map_outcomes(market_id: str, raw_outcomes: list[object], *, venue: str) -> list[dict[str, str]]:

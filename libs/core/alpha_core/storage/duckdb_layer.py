@@ -115,11 +115,11 @@ class DuckDBAnalytics:
             self._register_empty_view(view_name, dataset_name)
             return
 
-        escaped_glob = str(parquet_glob).replace("'", "''")
-        self._con.execute(
-            f"CREATE OR REPLACE VIEW {_quote_identifier(view_name)} AS "
-            f"SELECT * FROM read_parquet('{escaped_glob}', hive_partitioning=1, union_by_name=1)"
-        )
+        self._con.from_parquet(
+            str(parquet_glob),
+            hive_partitioning=True,
+            union_by_name=True,
+        ).create_view(view_name)
         self._registered_views.add(view_name.lower())
 
     def _register_empty_view(self, view_name: str, dataset_name: str) -> None:

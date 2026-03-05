@@ -26,10 +26,9 @@ def normalize_raw_payloads(
 
 
 def _to_json_compatible(value: object) -> object:
-    if hasattr(value, "model_dump"):
-        model_dump = value.model_dump
-        if callable(model_dump):
-            value = model_dump(mode="json")
+    model_dump_fn = getattr(value, "model_dump", None)
+    if callable(model_dump_fn):
+        value = model_dump_fn(mode="json")
 
     converted: object
     if isinstance(value, Decimal):

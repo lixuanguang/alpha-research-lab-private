@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 import uuid
 from datetime import UTC, datetime
@@ -74,9 +75,12 @@ def capture_git_commit() -> str | None:
 
     Safe to call outside a Git repository or when the ``git`` binary is absent.
     """
+    git_executable = shutil.which("git")
+    if git_executable is None:
+        return None
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
+            [git_executable, "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
             timeout=2,

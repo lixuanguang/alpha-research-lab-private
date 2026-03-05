@@ -77,6 +77,44 @@ def _trade_table(instrument_ids: list[str], ts_events: list[datetime]) -> pa.Tab
     )
 
 
+def _ohlcv_table(instrument_ids: list[str], ts_events: list[datetime]) -> pa.Table:
+    n = len(instrument_ids)
+    assert len(ts_events) == n
+    schema = pa.schema(
+        [
+            pa.field("event_id", pa.string()),
+            pa.field("instrument_id", pa.string()),
+            pa.field("venue_id", pa.string()),
+            pa.field("event_type", pa.string()),
+            pa.field("ts_event", pa.timestamp("us", tz="UTC")),
+            pa.field("ts_record", pa.timestamp("us", tz="UTC")),
+            pa.field("open", pa.float64()),
+            pa.field("high", pa.float64()),
+            pa.field("low", pa.float64()),
+            pa.field("close", pa.float64()),
+            pa.field("volume", pa.float64()),
+            pa.field("resolution", pa.string()),
+        ]
+    )
+    return pa.table(
+        {
+            "event_id": [f"o{i}" for i in range(n)],
+            "instrument_id": instrument_ids,
+            "venue_id": [i.split(":")[0] for i in instrument_ids],
+            "event_type": ["ohlcv"] * n,
+            "ts_event": ts_events,
+            "ts_record": ts_events,
+            "open": [0.5] * n,
+            "high": [0.6] * n,
+            "low": [0.4] * n,
+            "close": [0.55] * n,
+            "volume": [100.0] * n,
+            "resolution": ["1h"] * n,
+        },
+        schema=schema,
+    )
+
+
 def _make_builder(
     tmp_path: Path,
     master: master_mod.MarketMaster,
@@ -278,6 +316,29 @@ class TestDatasetBuilderBuild:
         with pytest.raises(builder_mod.DatasetBuildError):
             builder.build(config)
 
+    def test_quality_gate_checks_discovered_venues_when_venues_are_unspecified(
+        self, tmp_path: Path
+    ) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+        builder = _make_builder(tmp_path, master)
+
+        mock_report = MagicMock()
+        mock_report.passed = False
+        builder._quality_validator.validate_partition.return_value = mock_report
+
+        config = dataset_mod.DatasetConfig(
+            name="quality_discovered_venues",
+            start=_BASE,
+            end=_END,
+            event_types=["trades"],
+            require_quality_pass=True,
+        )
+        with pytest.raises(builder_mod.DatasetBuildError):
+            builder.build(config)
+
+        assert builder._quality_validator.validate_partition.called
+
     def test_gap_check_raises_on_gaps(self, tmp_path: Path) -> None:
         master = master_mod.MarketMaster()
         master.register_market(_make_market("p", "m1", ["yes"]))
@@ -316,6 +377,41 @@ class TestDatasetBuilderBuild:
         )
         with pytest.raises(builder_mod.DatasetBuildError, match="Gap check failed"):
             bad_builder.build(config)
+
+    def test_rebuild_removes_stale_event_files(self, tmp_path: Path) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+        ts = [_BASE + timedelta(hours=1)]
+        builder = _make_builder(
+            tmp_path,
+            master,
+            trade_table=_trade_table(["p:m1:yes"], ts),
+        )
+        builder._reader.read_ohlcv.return_value = _ohlcv_table(["p:m1:yes"], ts)
+
+        initial_config = dataset_mod.DatasetConfig(
+            name="stale_cleanup",
+            start=_BASE,
+            end=_END,
+            event_types=["trades", "ohlcv"],
+            require_quality_pass=False,
+        )
+        builder.build(initial_config)
+
+        dataset_dir = tmp_path / "gold" / "datasets" / "stale_cleanup"
+        assert (dataset_dir / "ohlcv.parquet").exists()
+
+        rebuild_config = dataset_mod.DatasetConfig(
+            name="stale_cleanup",
+            start=_BASE,
+            end=_END,
+            event_types=["trades"],
+            require_quality_pass=False,
+        )
+        builder.build(rebuild_config)
+
+        assert not (dataset_dir / "ohlcv.parquet").exists()
+        assert (dataset_dir / "trades.parquet").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -65,6 +65,8 @@ dev = [
     "ruff>=0.1",
     # Static type checker.
     "mypy>=1.5",
+    # Security-focused static analysis.
+    "bandit[toml]>=1.7",
     # Git hook manager.
     "pre-commit>=3.0",
     # Type stubs for PyYAML.
@@ -155,3 +157,9 @@ source = ["alpha_core"]
 fail_under = 85
 # Show missing line info in reports.
 show_missing = true
+
+[tool.bandit]
+# Keep security scanning focused on production modules.
+targets = ["libs/core", "apps"]
+# Tests intentionally use patterns (e.g. assertions) that are not security findings.
+exclude_dirs = ["tests"]

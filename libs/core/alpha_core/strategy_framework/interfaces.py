@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from alpha_core.strategy_framework.models import MarketState, OrderIntent, Signal, Target
+    import alpha_core.strategy_framework.models as strategy_models
 
 
 @runtime_checkable
@@ -25,7 +25,7 @@ class UniverseModel(Protocol):
     that are eligible for signal generation this cycle.
     """
 
-    def select(self, state: MarketState) -> list[str]: ...
+    def select(self, state: strategy_models.MarketState) -> list[str]: ...
 
 
 @runtime_checkable
@@ -36,7 +36,7 @@ class AlphaModel(Protocol):
     and returns zero or more :class:`Signal` objects ranked by conviction.
     """
 
-    def generate(self, state: MarketState) -> list[Signal]: ...
+    def generate(self, state: strategy_models.MarketState) -> list[strategy_models.Signal]: ...
 
 
 @runtime_checkable
@@ -47,7 +47,11 @@ class PortfolioConstructionModel(Protocol):
     sizing, diversification, and position-count constraints.
     """
 
-    def targets(self, signals: list[Signal], state: MarketState) -> list[Target]: ...
+    def targets(
+        self,
+        signals: list[strategy_models.Signal],
+        state: strategy_models.MarketState,
+    ) -> list[strategy_models.Target]: ...
 
 
 @runtime_checkable
@@ -59,7 +63,11 @@ class RiskModel(Protocol):
     Returns the risk-adjusted target list (may be a strict subset).
     """
 
-    def apply(self, targets: list[Target], state: MarketState) -> list[Target]: ...
+    def apply(
+        self,
+        targets: list[strategy_models.Target],
+        state: strategy_models.MarketState,
+    ) -> list[strategy_models.Target]: ...
 
 
 @runtime_checkable
@@ -70,4 +78,8 @@ class ExecutionModel(Protocol):
     list of :class:`OrderIntent` objects ready for pre-trade validation.
     """
 
-    def create_orders(self, targets: list[Target], state: MarketState) -> list[OrderIntent]: ...
+    def create_orders(
+        self,
+        targets: list[strategy_models.Target],
+        state: strategy_models.MarketState,
+    ) -> list[strategy_models.OrderIntent]: ...

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -395,6 +396,48 @@ def test_backfill_ohlcv_retries_transient_api_errors_with_backoff(
 
     assert result.events_stored == 1
     assert delays == [0.05]
+
+
+@pytest.mark.perf
+def test_backfill_trades_1000_events_under_2000ms(tmp_path: Path) -> None:
+    adapter = _MockAdapter()
+    outcome_id = "polymarket:market-a:yes"
+    adapter.trade_pages[outcome_id] = [
+        [_trade(f"t{index}", START + timedelta(seconds=index)) for index in range(1000)]
+    ]
+
+    manager = _make_manager(adapter, tmp_path)
+    start_time = time.perf_counter()
+    result = asyncio.run(
+        manager.backfill_trades([outcome_id], start=START, end=END, batch_size=1000)
+    )
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+    assert result.events_fetched == 1000
+    assert result.events_stored == 1000
+    assert elapsed_ms < 2000
+
+
+@pytest.mark.perf
+def test_backfill_ohlcv_1000_events_under_2000ms(tmp_path: Path) -> None:
+    adapter = _MockAdapter()
+    outcome_id = "polymarket:market-a:yes"
+    start = datetime(2026, 3, 1, 0, 0, tzinfo=UTC)
+    end = start + timedelta(hours=1000)
+    adapter.ohlcv_responses[outcome_id] = [
+        _candle(start + timedelta(hours=index)) for index in range(1000)
+    ]
+
+    manager = _make_manager(adapter, tmp_path)
+    start_time = time.perf_counter()
+    result = asyncio.run(
+        manager.backfill_ohlcv([outcome_id], resolution="1h", start=start, end=end)
+    )
+    elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+    assert result.events_fetched == 1000
+    assert result.events_stored == 1000
+    assert elapsed_ms < 2000
 
 
 # ---------------------------------------------------------------------------

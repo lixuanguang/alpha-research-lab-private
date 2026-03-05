@@ -48,6 +48,9 @@ jobs:
       - name: Format check (ruff)
         run: ruff format --check .
 
+      - name: Security check (bandit)
+        run: bandit -q -c pyproject.toml -r libs/core apps
+
       - name: Type check (mypy)
         run: mypy libs/ apps/ --strict
 

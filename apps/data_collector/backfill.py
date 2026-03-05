@@ -87,6 +87,32 @@ class _TradeBackfillSink:
     raw_payloads: list[dict[str, object]] = field(default_factory=list)
 
 
+@dataclass(slots=True, frozen=True)
+class _OutcomeBackfillTotals:
+    fetched: int
+    stored: int
+    rejected: int
+
+
+@dataclass(slots=True)
+class _BackfillAccumulator:
+    fetched: int = 0
+    stored: int = 0
+    rejected: int = 0
+
+    def add(self, totals: _OutcomeBackfillTotals) -> None:
+        self.fetched += totals.fetched
+        self.stored += totals.stored
+        self.rejected += totals.rejected
+
+    def as_counts(self) -> dict[str, int]:
+        return {
+            "events_raw": self.fetched,
+            "events_silver": self.stored,
+            "rejected": self.rejected,
+        }
+
+
 class BackfillResult(BaseModel):
     """Result of one backfill operation."""
 
@@ -139,80 +165,21 @@ class BackfillManager:
         start_utc = time_utils.ensure_utc(start)
         end_utc = time_utils.ensure_utc(end)
         _validate_window(start_utc, end_utc)
-
-        run = self._lineage_store.start_run(
-            venue=self._venue,
-            connector_type="polling",
-            options=storage_lineage.StartRunOptions(
-                event_types=["trades"],
-                config_snapshot={
-                    "window_start": start_utc.isoformat(),
-                    "window_end": end_utc.isoformat(),
-                    "batch_size": batch_size,
-                },
-            ),
-        )
-        monotonic_start = time.monotonic()
-        errors: list[str] = []
-        fetched_total = 0
-        stored_total = 0
-        rejected_total = 0
-
-        try:
-            for outcome_id in outcome_ids:
-                try:
-                    trades, raw = await _fetch_trades_windowed(
-                        self._adapter,
-                        outcome_id,
-                        window=_TimeWindow(start=start_utc, end=end_utc),
-                        batch_size=batch_size,
-                        retry_policy=self._retry_policy,
-                    )
-                except Exception as exc:
-                    errors.append(f"outcome={outcome_id}: {exc}")
-                    continue
-
-                trades.sort(key=lambda trade: (trade.instrument_id, trade.ts_event, trade.trade_id))
-                valid_trades, rejected = _filter_quality_trades(self._quality_checker, trades)
-
-                fetched_total += len(trades)
-                stored_total += len(valid_trades)
-                rejected_total += rejected
-
-                if raw:
-                    self._bronze_writer.write_raw_events(
-                        raw,
-                        venue=self._venue,
-                        event_type="trades",
-                        run_id=run.run_id,
-                    )
-                if valid_trades:
-                    self._silver_writer.write_trades(valid_trades)
-
-            self._lineage_store.complete_run(
-                run.run_id,
-                counts={
-                    "events_raw": fetched_total,
-                    "events_silver": stored_total,
-                    "rejected": rejected_total,
-                },
-                errors=errors,
-            )
-        except Exception as exc:
-            self._lineage_store.fail_run(run.run_id, str(exc))
-            raise
-
-        return BackfillResult(
-            venue=self._venue,
+        window = _TimeWindow(start=start_utc, end=end_utc)
+        return await self._run_outcome_backfill(
             event_type="trades",
-            outcome_ids=list(outcome_ids),
-            window_start=start_utc,
-            window_end=end_utc,
-            events_fetched=fetched_total,
-            events_stored=stored_total,
-            events_rejected=rejected_total,
-            duration_seconds=time.monotonic() - monotonic_start,
-            run_id=run.run_id,
+            outcome_ids=outcome_ids,
+            window=window,
+            config_snapshot={
+                "window_start": start_utc.isoformat(),
+                "window_end": end_utc.isoformat(),
+                "batch_size": batch_size,
+            },
+            process_outcome=partial(
+                self._backfill_trades_for_outcome,
+                window=window,
+                batch_size=batch_size,
+            ),
         )
 
     async def backfill_ohlcv(
@@ -238,97 +205,22 @@ class BackfillManager:
         candle_seconds = _RESOLUTION_SECONDS[resolution]
         window_seconds = (end_utc - start_utc).total_seconds()
         limit = min(math.ceil(window_seconds / candle_seconds) + 5, _MAX_OHLCV_LIMIT)
-
-        run = self._lineage_store.start_run(
-            venue=self._venue,
-            connector_type="polling",
-            options=storage_lineage.StartRunOptions(
-                event_types=["ohlcv"],
-                config_snapshot={
-                    "window_start": start_utc.isoformat(),
-                    "window_end": end_utc.isoformat(),
-                    "resolution": resolution,
-                },
-            ),
-        )
-        monotonic_start = time.monotonic()
-        errors: list[str] = []
-        fetched_total = 0
-        stored_total = 0
-        rejected_total = 0
-
-        try:
-            for outcome_id in outcome_ids:
-                try:
-                    fetch_ohlcv_with_raw = partial(
-                        self._adapter.fetch_ohlcv_with_raw,
-                        outcome_id,
-                        resolution=resolution,
-                        limit=limit,
-                    )
-                    candles, raw = await _call_with_retries(
-                        fetch_ohlcv_with_raw,
-                        context=f"fetch_ohlcv_with_raw[{outcome_id}]",
-                        retry_policy=self._retry_policy,
-                    )
-                    normalized_raw = connector_raw_payloads.normalize_raw_payloads(
-                        raw, outcome_id=outcome_id
-                    )
-                    in_window_candles, in_window_raw = _filter_ohlcv_window_with_raw(
-                        candles,
-                        normalized_raw,
-                        start=start_utc,
-                        end=end_utc,
-                    )
-                except Exception as exc:
-                    errors.append(f"outcome={outcome_id}: {exc}")
-                    continue
-
-                in_window_candles.sort(
-                    key=lambda candle: (candle.instrument_id, candle.ts_event, candle.resolution)
-                )
-                valid_candles, rejected = _filter_quality_candles(
-                    self._quality_checker,
-                    in_window_candles,
-                )
-                fetched_total += len(in_window_candles)
-                stored_total += len(valid_candles)
-                rejected_total += rejected
-
-                if in_window_raw:
-                    self._bronze_writer.write_raw_events(
-                        in_window_raw,
-                        venue=self._venue,
-                        event_type="ohlcv",
-                        run_id=run.run_id,
-                    )
-                if valid_candles:
-                    self._silver_writer.write_ohlcv(valid_candles)
-
-            self._lineage_store.complete_run(
-                run.run_id,
-                counts={
-                    "events_raw": fetched_total,
-                    "events_silver": stored_total,
-                    "rejected": rejected_total,
-                },
-                errors=errors,
-            )
-        except Exception as exc:
-            self._lineage_store.fail_run(run.run_id, str(exc))
-            raise
-
-        return BackfillResult(
-            venue=self._venue,
+        window = _TimeWindow(start=start_utc, end=end_utc)
+        return await self._run_outcome_backfill(
             event_type="ohlcv",
-            outcome_ids=list(outcome_ids),
-            window_start=start_utc,
-            window_end=end_utc,
-            events_fetched=fetched_total,
-            events_stored=stored_total,
-            events_rejected=rejected_total,
-            duration_seconds=time.monotonic() - monotonic_start,
-            run_id=run.run_id,
+            outcome_ids=outcome_ids,
+            window=window,
+            config_snapshot={
+                "window_start": start_utc.isoformat(),
+                "window_end": end_utc.isoformat(),
+                "resolution": resolution,
+            },
+            process_outcome=partial(
+                self._backfill_ohlcv_for_outcome,
+                window=window,
+                resolution=resolution,
+                limit=limit,
+            ),
         )
 
     async def fill_gaps(self, gaps: list[quality_gap_detector.TimeGap]) -> list[BackfillResult]:
@@ -349,6 +241,139 @@ class BackfillManager:
                 )
             results.append(result)
         return results
+
+    async def _run_outcome_backfill(
+        self,
+        *,
+        event_type: str,
+        outcome_ids: list[str],
+        window: _TimeWindow,
+        config_snapshot: dict[str, object],
+        process_outcome: Callable[[str, str], Awaitable[_OutcomeBackfillTotals]],
+    ) -> BackfillResult:
+        run = self._lineage_store.start_run(
+            venue=self._venue,
+            connector_type="polling",
+            options=storage_lineage.StartRunOptions(
+                event_types=[event_type],
+                config_snapshot=config_snapshot,
+            ),
+        )
+        monotonic_start = time.monotonic()
+        errors: list[str] = []
+        totals = _BackfillAccumulator()
+
+        try:
+            for outcome_id in outcome_ids:
+                try:
+                    outcome_totals = await process_outcome(outcome_id, run.run_id)
+                except Exception as exc:
+                    errors.append(f"outcome={outcome_id}: {exc}")
+                    continue
+                totals.add(outcome_totals)
+
+            self._lineage_store.complete_run(run.run_id, counts=totals.as_counts(), errors=errors)
+        except Exception as exc:
+            self._lineage_store.fail_run(run.run_id, str(exc))
+            raise
+
+        return BackfillResult(
+            venue=self._venue,
+            event_type=event_type,
+            outcome_ids=list(outcome_ids),
+            window_start=window.start,
+            window_end=window.end,
+            events_fetched=totals.fetched,
+            events_stored=totals.stored,
+            events_rejected=totals.rejected,
+            duration_seconds=time.monotonic() - monotonic_start,
+            run_id=run.run_id,
+        )
+
+    async def _backfill_trades_for_outcome(
+        self,
+        outcome_id: str,
+        run_id: str,
+        *,
+        window: _TimeWindow,
+        batch_size: int,
+    ) -> _OutcomeBackfillTotals:
+        trades, raw_payloads = await _fetch_trades_windowed(
+            self._adapter,
+            outcome_id,
+            window=window,
+            batch_size=batch_size,
+            retry_policy=self._retry_policy,
+        )
+        trades.sort(key=lambda trade: (trade.instrument_id, trade.ts_event, trade.trade_id))
+        valid_trades, rejected = _filter_quality_trades(self._quality_checker, trades)
+
+        if raw_payloads:
+            self._bronze_writer.write_raw_events(
+                raw_payloads,
+                venue=self._venue,
+                event_type="trades",
+                run_id=run_id,
+            )
+        if valid_trades:
+            self._silver_writer.write_trades(valid_trades)
+
+        return _OutcomeBackfillTotals(
+            fetched=len(trades),
+            stored=len(valid_trades),
+            rejected=rejected,
+        )
+
+    async def _backfill_ohlcv_for_outcome(
+        self,
+        outcome_id: str,
+        run_id: str,
+        *,
+        window: _TimeWindow,
+        resolution: str,
+        limit: int,
+    ) -> _OutcomeBackfillTotals:
+        fetch_ohlcv_with_raw = partial(
+            self._adapter.fetch_ohlcv_with_raw,
+            outcome_id,
+            resolution=resolution,
+            limit=limit,
+        )
+        candles, raw_payloads = await _call_with_retries(
+            fetch_ohlcv_with_raw,
+            context=f"fetch_ohlcv_with_raw[{outcome_id}]",
+            retry_policy=self._retry_policy,
+        )
+        normalized_raw = connector_raw_payloads.normalize_raw_payloads(
+            raw_payloads,
+            outcome_id=outcome_id,
+        )
+        in_window_candles, in_window_raw = _filter_ohlcv_window_with_raw(
+            candles,
+            normalized_raw,
+            start=window.start,
+            end=window.end,
+        )
+        in_window_candles.sort(
+            key=lambda candle: (candle.instrument_id, candle.ts_event, candle.resolution)
+        )
+        valid_candles, rejected = _filter_quality_candles(self._quality_checker, in_window_candles)
+
+        if in_window_raw:
+            self._bronze_writer.write_raw_events(
+                in_window_raw,
+                venue=self._venue,
+                event_type="ohlcv",
+                run_id=run_id,
+            )
+        if valid_candles:
+            self._silver_writer.write_ohlcv(valid_candles)
+
+        return _OutcomeBackfillTotals(
+            fetched=len(in_window_candles),
+            stored=len(valid_candles),
+            rejected=rejected,
+        )
 
 
 # ---------------------------------------------------------------------------
