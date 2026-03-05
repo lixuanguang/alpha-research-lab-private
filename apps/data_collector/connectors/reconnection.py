@@ -47,7 +47,7 @@ class ReconnectionPolicy:
             return capped
         lo = capped * (1.0 - self.jitter)
         hi = capped * (1.0 + self.jitter)
-        return random.uniform(lo, hi)
+        return random.uniform(lo, hi)  # nosec B311 – jitter for backoff, not cryptography
 
     def reset(self) -> None:
         """No-op; policy is stateless — reset is a hook for subclasses."""
