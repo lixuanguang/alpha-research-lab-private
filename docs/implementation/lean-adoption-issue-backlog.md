@@ -37,10 +37,10 @@ Suggested labels:
 
 ## 2. Master Checklist
 
-- [ ] LA-001: Add strategy framework contracts and models (P0)
-- [ ] LA-002: Add run context + run manifest models/writer (P0)
-- [ ] LA-003: Add run manifest bridge + artifact path conventions (P0)
-- [ ] LA-004: Convert research CLI from stub to command group (P1)
+- [x] LA-001: Add strategy framework contracts and models (P0)
+- [x] LA-002: Add run context + run manifest models/writer (P0)
+- [x] LA-003: Add run manifest bridge + artifact path conventions (P0)
+- [x] LA-004: Convert research CLI from stub to command group (P1)
 - [ ] LA-005: Implement `build-dataset` command + runner (P1)
 - [ ] LA-006: Implement `build-features` command + runner (P1)
 - [ ] LA-007: Implement `backtest`, `evaluate`, `report` commands + runners (P1)
@@ -94,11 +94,11 @@ None.
 
 ### Checklist
 
-- [ ] Define protocol interfaces: `UniverseModel`, `AlphaModel`, `PortfolioConstructionModel`, `RiskModel`, `ExecutionModel`
-- [ ] Define core datamodels: market state, signal, target, order intent
-- [ ] Add minimal framework engine orchestration skeleton with typed boundaries
-- [ ] Export new module in package init
-- [ ] Add unit tests for contract and model invariants
+- [x] Define protocol interfaces: `UniverseModel`, `AlphaModel`, `PortfolioConstructionModel`, `RiskModel`, `ExecutionModel`
+- [x] Define core datamodels: market state, signal, target, order intent
+- [x] Add minimal framework engine orchestration skeleton with typed boundaries
+- [x] Export new module in package init
+- [x] Add unit tests for contract and model invariants
 
 ### Acceptance criteria
 
@@ -135,11 +135,11 @@ Create strongly typed run metadata contracts shared by dataset, feature, backtes
 
 ### Checklist
 
-- [ ] Add `RunContext` model with required fields
-- [ ] Add run manifest schema and JSON writer/reader helpers
-- [ ] Include deterministic config hashing helper
-- [ ] Include git commit capture hook (safe fallback when unavailable)
-- [ ] Add unit tests for serialization round-trip
+- [x] Add `RunContext` model with required fields
+- [x] Add run manifest schema and JSON writer/reader helpers
+- [x] Include deterministic config hashing helper
+- [x] Include git commit capture hook (safe fallback when unavailable)
+- [x] Add unit tests for serialization round-trip
 
 ### Acceptance criteria
 
@@ -174,11 +174,11 @@ Define and enforce canonical artifact layout for non-ingestion runs and add opti
 
 ### Checklist
 
-- [ ] Define canonical path helpers under `data/gold/runs/{run_id}/...`
-- [ ] Add optional metadata bridge fields for `parent_run_id` / lineage references
-- [ ] Keep ingestion behavior backward compatible
-- [ ] Document artifact path convention in migration guide
-- [ ] Add unit tests for path helpers and backward compatibility
+- [x] Define canonical path helpers under `data/gold/runs/{run_id}/...`
+- [x] Add optional metadata bridge fields for `parent_run_id` / lineage references
+- [x] Keep ingestion behavior backward compatible
+- [x] Document artifact path convention in migration guide
+- [x] Add unit tests for path helpers and backward compatibility
 
 ### Acceptance criteria
 
@@ -215,11 +215,11 @@ Replace stubbed research entrypoint with click group and base plumbing used by a
 
 ### Checklist
 
-- [ ] Convert `apps/research/main.py` to `@click.group()`
-- [ ] Add common options (`--config`, `--format`, `--output-dir`)
-- [ ] Standardize machine-readable JSON output mode
-- [ ] Standardize non-zero exit behavior on failures
-- [ ] Add CLI smoke tests
+- [x] Convert `apps/research/main.py` to `@click.group()`
+- [x] Add common options (`--config`, `--format`, `--output-dir`)
+- [x] Standardize machine-readable JSON output mode
+- [x] Standardize non-zero exit behavior on failures
+- [x] Add CLI smoke tests
 
 ### Acceptance criteria
 

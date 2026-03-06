@@ -9,12 +9,43 @@ import click
 
 import alpha_core.research.dataset as research_dataset
 import alpha_core.utils.time as time_utils
+import apps.research.commands.common as cmd_common
 import apps.research.runtime as research_runtime
 
 
 @click.group()
-def main() -> None:
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format: human-readable text or machine-readable JSON.",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=None, file_okay=False, dir_okay=True),
+    default=None,
+    help="Global default storage root (overrides per-command --storage-root).",
+)
+@click.option(
+    "--config",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=None),
+    default=None,
+    help="Path to an optional YAML config override file.",
+)
+@click.pass_context
+def main(
+    ctx: click.Context,
+    output_format: str,
+    output_dir: str | None,
+    config: str | None,
+) -> None:
     """Run research-plane scaffolding commands."""
+    ctx.ensure_object(dict)
+    ctx.obj["format"] = output_format
+    ctx.obj["output_dir"] = output_dir
+    ctx.obj["config"] = config
 
 
 @main.command("build-dataset")
@@ -67,7 +98,9 @@ def main() -> None:
     show_default=True,
     help="Materialize run artifacts or only emit a validated execution plan.",
 )
+@click.pass_context
 def build_dataset_command(
+    ctx: click.Context,
     name: str,
     start: str,
     end: str,
@@ -103,7 +136,7 @@ def build_dataset_command(
             execute=execute,
         )
     )
-    _echo_stage_outcome(outcome)
+    cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
 
 
 @main.command("build-features")
@@ -130,7 +163,9 @@ def build_dataset_command(
     show_default=True,
     help="Materialize run artifacts or only emit a validated execution plan.",
 )
+@click.pass_context
 def build_features_command(
+    ctx: click.Context,
     dataset_id: str,
     feature_set: str,
     lookback_bars: int,
@@ -155,7 +190,7 @@ def build_features_command(
             parent_run_id=parent_run_id,
         )
     )
-    _echo_stage_outcome(outcome)
+    cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
 
 
 @main.command("backtest")
@@ -190,7 +225,9 @@ def build_features_command(
     show_default=True,
     help="Materialize run artifacts or only emit a validated execution plan.",
 )
+@click.pass_context
 def backtest_command(
+    ctx: click.Context,
     dataset_id: str,
     feature_set: str,
     strategy_id: str,
@@ -219,7 +256,7 @@ def backtest_command(
             parent_run_id=parent_run_id,
         )
     )
-    _echo_stage_outcome(outcome)
+    cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
 
 
 @main.command("evaluate")
@@ -244,7 +281,9 @@ def backtest_command(
     show_default=True,
     help="Materialize run artifacts or only emit a validated execution plan.",
 )
+@click.pass_context
 def evaluate_command(
+    ctx: click.Context,
     backtest_run_id: str,
     metrics_profile: str,
     storage_root: Path,
@@ -264,7 +303,7 @@ def evaluate_command(
             parent_run_id=backtest_run_id,
         )
     )
-    _echo_stage_outcome(outcome)
+    cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
 
 
 @main.command("report")
@@ -290,7 +329,9 @@ def evaluate_command(
     show_default=True,
     help="Materialize run artifacts or only emit a validated execution plan.",
 )
+@click.pass_context
 def report_command(
+    ctx: click.Context,
     evaluation_run_id: str,
     report_format: str,
     storage_root: Path,
@@ -310,7 +351,7 @@ def report_command(
             parent_run_id=evaluation_run_id,
         )
     )
-    _echo_stage_outcome(outcome)
+    cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
 
 
 @main.command("optimize")
@@ -346,7 +387,9 @@ def report_command(
     show_default=True,
     help="Materialize run artifacts or only emit a validated execution plan.",
 )
+@click.pass_context
 def optimize_command(
+    ctx: click.Context,
     dataset_id: str,
     feature_set: str,
     strategy_id: str,
@@ -377,16 +420,7 @@ def optimize_command(
             parent_run_id=parent_run_id,
         )
     )
-    _echo_stage_outcome(outcome)
-
-
-def _echo_stage_outcome(outcome: research_runtime.ResearchStageOutcome) -> None:
-    click.echo(
-        f"run_type={outcome.run_type} status={outcome.status} "
-        f"run_id={outcome.run_id} config_hash={outcome.config_hash}"
-    )
-    if outcome.manifest_path is not None:
-        click.echo(f"manifest={outcome.manifest_path}")
+    cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
 
 
 def _parse_utc_datetime(value: str) -> datetime:

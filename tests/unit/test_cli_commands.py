@@ -401,3 +401,87 @@ def test_scan_instrument_ids_ignores_null_and_blank_values() -> None:
     )
 
     assert outcome_ids == ["polymarket:market-a:yes"]
+
+
+# ---------------------------------------------------------------------------
+# Research CLI smoke tests (LA-004)
+# ---------------------------------------------------------------------------
+
+import json  # noqa: E402 — kept local to avoid polluting the import block above
+
+import apps.research.main as research_main
+
+
+_research_runner = click.testing.CliRunner()
+
+_BUILD_DATASET_PLAN_ARGS = [
+    "build-dataset",
+    "--name", "smoke-ds",
+    "--start", "2024-01-01T00:00:00",
+    "--end", "2024-02-01T00:00:00",
+    "--venue", "polymarket",
+    "--event-type", "trades",
+    "--plan-only",
+]
+
+
+def test_research_help_exits_zero() -> None:
+    result = _research_runner.invoke(research_main.main, ["--help"])
+    assert result.exit_code == 0
+    assert "scaffolding" in result.output.lower()
+
+
+def test_research_build_dataset_help_exits_zero() -> None:
+    result = _research_runner.invoke(research_main.main, ["build-dataset", "--help"])
+    assert result.exit_code == 0
+    assert "dataset" in result.output.lower()
+
+
+def test_research_invalid_config_path_exits_nonzero(tmp_path: Path) -> None:
+    missing = str(tmp_path / "no-such-config.yaml")
+    result = _research_runner.invoke(
+        research_main.main,
+        ["--config", missing, "build-dataset", "--help"],
+    )
+    assert result.exit_code != 0
+
+
+def test_research_invalid_format_choice_exits_nonzero() -> None:
+    result = _research_runner.invoke(
+        research_main.main,
+        ["--format", "csv", "build-dataset", "--help"],
+    )
+    assert result.exit_code != 0
+
+
+def test_research_text_output_contains_key_value_pairs(tmp_path: Path) -> None:
+    result = _research_runner.invoke(
+        research_main.main,
+        _BUILD_DATASET_PLAN_ARGS + ["--storage-root", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "run_id=" in result.output
+    assert "status=" in result.output
+
+
+def test_research_json_output_is_valid_json(tmp_path: Path) -> None:
+    result = _research_runner.invoke(
+        research_main.main,
+        ["--format", "json"] + _BUILD_DATASET_PLAN_ARGS + ["--storage-root", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert "run_id" in payload
+    assert "status" in payload
+    assert "run_type" in payload
+    assert "config_hash" in payload
+
+
+def test_research_json_output_run_type_matches_command(tmp_path: Path) -> None:
+    result = _research_runner.invoke(
+        research_main.main,
+        ["--format", "json"] + _BUILD_DATASET_PLAN_ARGS + ["--storage-root", str(tmp_path)],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["run_type"] == "dataset_build"

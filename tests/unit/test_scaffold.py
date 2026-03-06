@@ -51,3 +51,29 @@ def test_resolve_version_uses_distribution_metadata(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(importlib_metadata, "version", lambda _: "1.2.3")
 
     assert alpha_core._resolve_version() == "1.2.3"
+
+
+# ---------------------------------------------------------------------------
+# LA-001: strategy_framework export checks
+# ---------------------------------------------------------------------------
+
+
+def test_strategy_framework_in_all() -> None:
+    """strategy_framework is declared in alpha_core.__all__."""
+    assert "strategy_framework" in alpha_core.__all__
+
+
+def test_strategy_framework_submodules_importable() -> None:
+    """All three strategy_framework sub-modules are importable via the package."""
+    from alpha_core.strategy_framework import engine, interfaces, models  # noqa: F401
+
+    assert hasattr(interfaces, "UniverseModel")
+    assert hasattr(interfaces, "AlphaModel")
+    assert hasattr(interfaces, "PortfolioConstructionModel")
+    assert hasattr(interfaces, "RiskModel")
+    assert hasattr(interfaces, "ExecutionModel")
+    assert hasattr(models, "MarketState")
+    assert hasattr(models, "Signal")
+    assert hasattr(models, "Target")
+    assert hasattr(models, "OrderIntent")
+    assert hasattr(engine, "StrategyEngine")

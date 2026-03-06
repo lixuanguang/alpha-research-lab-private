@@ -164,3 +164,110 @@ def test_run_manifest_accepts_all_run_types(
     manifest_mod.write_run_manifest(path, manifest)
     loaded = manifest_mod.read_run_manifest(path)
     assert loaded.run.run_type == run_type
+
+
+# ---------------------------------------------------------------------------
+# Missing required fields — acceptance criterion: clear error messages
+# ---------------------------------------------------------------------------
+
+
+class TestMissingRequiredFields:
+    """Pydantic must reject manifests and contexts with missing required fields."""
+
+    def test_run_context_missing_run_id_fails(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="run_id"):
+            run_context_mod.RunContext(  # type: ignore[call-arg]
+                run_type="backtest",
+                config_hash="abc",
+                started_at_utc="2024-01-01T00:00:00Z",
+            )
+
+    def test_run_context_missing_run_type_fails(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="run_type"):
+            run_context_mod.RunContext(  # type: ignore[call-arg]
+                run_id="abc123",
+                config_hash="abc",
+                started_at_utc="2024-01-01T00:00:00Z",
+            )
+
+    def test_run_context_missing_config_hash_fails(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="config_hash"):
+            run_context_mod.RunContext(  # type: ignore[call-arg]
+                run_id="abc123",
+                run_type="backtest",
+                started_at_utc="2024-01-01T00:00:00Z",
+            )
+
+    def test_run_manifest_missing_run_fails(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="run"):
+            manifest_mod.RunManifest(artifacts={})  # type: ignore[call-arg]
+
+    def test_run_manifest_missing_artifacts_fails(self) -> None:
+        from pydantic import ValidationError
+
+        ctx = run_context_mod.make_run_context("evaluate", config_payload={})
+        completed = run_context_mod.close_run_context(ctx)
+        with pytest.raises(ValidationError, match="artifacts"):
+            manifest_mod.RunManifest(run=completed)  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# Config hash — key-ordering stability
+# ---------------------------------------------------------------------------
+
+
+def test_config_hash_stable_across_key_ordering() -> None:
+    """config_hash is identical regardless of dict key insertion order."""
+    payload_a = {"z": 1, "a": 2, "m": 3}
+    payload_b = {"a": 2, "m": 3, "z": 1}
+    ctx_a = run_context_mod.make_run_context("optimize", config_payload=payload_a)
+    ctx_b = run_context_mod.make_run_context("optimize", config_payload=payload_b)
+    assert ctx_a.config_hash == ctx_b.config_hash
+
+
+def test_config_hash_differs_for_different_payloads() -> None:
+    """Different payloads always produce different hashes."""
+    ctx_a = run_context_mod.make_run_context("live", config_payload={"x": 1})
+    ctx_b = run_context_mod.make_run_context("live", config_payload={"x": 2})
+    assert ctx_a.config_hash != ctx_b.config_hash
+
+
+# ---------------------------------------------------------------------------
+# README.LEAN_ADOPTION required fields coverage
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_exposes_all_lean_adoption_required_fields() -> None:
+    """Every field listed in README.LEAN_ADOPTION §3.2 is reachable on the manifest."""
+    ctx = run_context_mod.make_run_context(
+        "backtest",
+        config_payload={"strategy_version": "v1", "dataset_id": "ds_abc"},
+    )
+    completed = run_context_mod.close_run_context(ctx)
+    m = manifest_mod.RunManifest(
+        run=completed,
+        artifacts={
+            "dataset_id": "ds_abc",
+            "feature_set_version": "fv1",
+            "strategy_version": "v1",
+        },
+    )
+
+    # Top-level RunContext fields
+    assert m.run.run_id
+    assert m.run.run_type == "backtest"
+    assert m.run.config_hash
+    assert m.run.started_at_utc is not None
+    assert m.run.completed_at_utc is not None
+    # Stage-specific fields surfaced via artifacts dict
+    assert m.artifacts["dataset_id"] == "ds_abc"
+    assert m.artifacts["feature_set_version"] == "fv1"
+    assert m.artifacts["strategy_version"] == "v1"
