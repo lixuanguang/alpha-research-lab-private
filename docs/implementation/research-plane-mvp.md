@@ -1,7 +1,7 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete, including microstructure foundation addendum 11.1-11.5) + Data Plane MVP (complete — 495 passed, 8 skipped; quality gates green)  
+> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 867 passed, 10 skipped; quality gates green)
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
@@ -21,8 +21,8 @@
 8. [Codebase Evolution — File-by-File](#8-codebase-evolution--file-by-file)
 9. [Dependencies & New Packages](#9-dependencies--new-packages)
 10. [Operational Runbook Stubs](#10-operational-runbook-stubs)
-11. [Microstructure Strategy Extension (Tick-Resolution)](#11-microstructure-strategy-extension-tick-resolution)
-12. [Lean + QUANTAXIS Research Ergonomics Extension (March 2026, Iteration 2)](#12-lean--quantaxis-research-ergonomics-extension-march-2026-iteration-2)
+11. [Future Microstructure Extension (Tick-Resolution)](#11-future-microstructure-extension-tick-resolution)
+12. [Future Research Ergonomics Extension (March 2026, Iteration 2)](#12-future-research-ergonomics-extension-march-2026-iteration-2)
 
 ---
 
@@ -106,8 +106,7 @@ Gap Detector (completeness check)      ──╯
 | No backtest engine | Event-driven + vectorized engines (Steps R3–R4) |
 | No execution simulation | Fill simulator with PM microstructure (Step R3) |
 | No evaluation metrics | Standard + PM-specific metric suite (Step R5) |
-| No research CLI | `apps/research/main.py` is a stub (Step R6) |
-| `apps/research/main.py` is a Click stub | Full CLI with subcommands (Step R6) |
+| Research CLI exists only as scaffold plumbing | Expand `apps/research/main.py` into the full R6 operator surface with concrete pipeline execution |
 
 ---
 
@@ -144,16 +143,16 @@ Gap Detector (completeness check)      ──╯
 - Advanced walk-forward optimisation and Bayesian/hyperband optimizers (→ Robustness Hardening)
 - Feature store / online feature serving (→ Live Plane MVP)
 
-### Lean Adoption Delta (March 2026)
+### Embedded Cross-Stage Contracts (March 2026)
 
-To keep this document as the implementation source of truth, Lean adoption deltas are in scope for Research Plane:
+To keep this document as the implementation source of truth, the remaining Lean-derived contracts are embedded directly in R1-R6 rather than tracked as a separate refactor pass:
 
-- **R1 extension:** add run context and run manifest contracts while implementing dataset builder.
-- **R2 extension:** integrate feature outputs with run/artifact metadata.
-- **R3 extension:** align event backtester strategy interfaces with framework contracts.
-- **R4 extension:** add first-class optimize runner outputs and trial registry.
-- **R5 extension:** add report schema/version regression guardrails.
-- **R6 extension:** include `optimize` command and machine-readable CLI output conventions.
+- **R1:** add run context and run manifest contracts while implementing dataset builder.
+- **R2:** integrate feature outputs with run/artifact metadata.
+- **R3:** align event backtester strategy interfaces with framework contracts.
+- **R4:** add first-class optimize runner outputs and trial registry.
+- **R5:** add report schema/version regression guardrails.
+- **R6:** include `optimize` command and machine-readable CLI output conventions.
 
 Tracking reference:
 - `README.LEAN_ADOPTION.md`
@@ -356,7 +355,7 @@ data/
 The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each step produces a testable, runnable increment.
 Lean-adoption tasks are embedded in each step so no second refactor pass is required.
 
-If you are currently implementing **R1**, prioritize the R1 extension items below first; they are intentionally low-disruption and unblock R2-R6 reproducibility.
+If you are currently implementing **R1**, prioritize the R1 contract items below first; they are intentionally low-disruption and unblock R2-R6 reproducibility.
 
 ---
 
@@ -364,7 +363,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
 
 **Goal:** Assemble silver-tier data into gold-tier research datasets with strict point-in-time discipline and look-ahead bias protection.
 
-**Lean adoption extension for this step (LA-001/LA-002/LA-003):**
+**Embedded cross-stage contract work for this step (LA-001/LA-002/LA-003):**
 
 - Add `RunContext`/`RunManifest` contracts immediately, even if initially minimal.
 - Persist R1 outputs under canonical run paths (`data/runs/{run_id}/...`) with artifact pointers.
@@ -485,7 +484,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
    GOLD_DATASET_SCHEMA = pa.schema([...])  # Extended with dataset_id, build metadata
    ```
 
-6. **Add run-level reproducibility contracts (R1 extension)**:
+6. **Add run-level reproducibility contracts (embedded in R1)**:
    ```python
    class RunContext(BaseModel):
        run_id: str
@@ -543,7 +542,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
 
 **Goal:** Feature computation library with generic time-series primitives and prediction-market-specific signals, plus a declarative feature registry.
 
-**Lean adoption extension for this step (LA-006/LA-009):**
+**Embedded cross-stage contract work for this step (LA-006/LA-009):**
 
 - Ensure feature builds are run-scoped: every feature artifact must carry `run_id`, `dataset_id`, and `feature_set_version`.
 - Route feature persistence through an `ArtifactStore` interface (filesystem backend in MVP).
@@ -669,7 +668,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
        def load(self, feature_set_name: str) -> pa.Table: ...
    ```
 
-5. **Integrate feature-stage run manifests and artifact storage (R2 extension)**:
+5. **Integrate feature-stage run manifests and artifact storage (embedded in R2)**:
    ```python
    class FeatureRunManifest(BaseModel):
        run_id: str
@@ -718,7 +717,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
 
 **Goal:** High-fidelity tick-by-tick backtester with realistic execution simulation tailored to prediction market microstructure.
 
-**Lean adoption extension for this step (LA-001/LA-011/LA-012 prep):**
+**Embedded cross-stage contract work for this step (LA-001/LA-011/LA-012 prep):**
 
 - Implement event engine strategy entrypoints in terms of framework contracts (`Universe`, `Alpha`, `Portfolio`, `Risk`, `Execution`).
 - Keep order flow explicit (`OrderIntent -> simulated/validated execution result`) so live-plane reuse is direct.
@@ -887,7 +886,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
        event_count: int
    ```
 
-4. **Align backtester strategy integration to framework contracts (R3 extension)**:
+4. **Align backtester strategy integration to framework contracts (embedded in R3)**:
    ```python
    class UniverseModel(Protocol): ...
    class AlphaModel(Protocol): ...
@@ -944,7 +943,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
 
 **Goal:** Fast-path DataFrame-based backtester for rapid strategy iteration and parameter sweeps.
 
-**Lean adoption extension for this step (LA-010):**
+**Embedded cross-stage contract work for this step (LA-010):**
 
 - Promote sweep execution to a first-class optimize workflow (not just helper loops).
 - Persist trial registry artifacts (params, objective, constraints, run links, seed) under run paths.
@@ -1050,7 +1049,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
        ...
    ```
 
-4. **Promote sweep to first-class optimize artifacts (R4 extension)**:
+4. **Promote sweep to first-class optimize artifacts (embedded in R4)**:
    - Persist trial-level artifacts: params, objective, constraints, run links, seed.
    - Emit leaderboard artifact sorted by primary metric with deterministic tie-break rules.
    - Add optimize-run manifest schema to support CLI + CI automation.
@@ -1094,7 +1093,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
 
 **Goal:** Comprehensive evaluation metrics suite including PM-specific metrics, and structured report generation.
 
-**Lean adoption extension for this step (LA-014 prep):**
+**Embedded cross-stage contract work for this step (LA-014 prep):**
 
 - Version report schemas explicitly and add compatibility notes in each report artifact.
 - Emit a standard run summary block shared by `evaluate`, `report`, and future live commands.
@@ -1199,7 +1198,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
        """ECE = sum(|avg_predicted - avg_actual| * bin_weight)."""
    ```
 
-6. **Add schema-versioned reporting contracts (R5 extension)**:
+6. **Add schema-versioned reporting contracts (embedded in R5)**:
    - Add explicit report schema version fields.
    - Add manifest/report schema regression tests to catch accidental contract drift.
    - Persist lineage references to dataset/feature/backtest run manifests.
@@ -1248,7 +1247,7 @@ If you are currently implementing **R1**, prioritize the R1 extension items belo
 
 **Goal:** Complete the research CLI with subcommands, wire all components together, and deliver example strategies.
 
-**Lean adoption extension for this step (LA-004/LA-008/LA-010/LA-015):**
+**Embedded cross-stage contract work for this step (LA-004/LA-008/LA-010/LA-015):**
 
 - Include `optimize` in the core CLI surface for repeatable search workflows.
 - Standardize `--format json` output and non-zero exit behavior across all commands.
@@ -1928,9 +1927,9 @@ Operational note:
 
 ---
 
-## 11. Microstructure Strategy Extension (Tick-Resolution)
+## 11. Future Microstructure Extension (Tick-Resolution)
 
-This addendum extends R1-R6 so you can implement queue-based market making, OFI prediction, latency-sensitive taking, queue position arbitrage, bounded-edge mean reversion, simplex basket arbitrage, resolution-proximity gamma control, Hawkes intensity models, spread-state models, and fee-structure exploitation.
+This remains forward-looking until the corresponding microstructure capabilities are implemented and folded into the main R1-R6 sections.
 
 Estimated additional effort: 80-140 hours.
 
@@ -2108,9 +2107,9 @@ Suggested tests:
 - extend `tests/unit/test_research_cli.py` for new options
 - add `tests/integration/test_microstructure_pipeline_e2e.py`
 
-### 11.8 Extension Acceptance Criteria
+### 11.8 Acceptance Criteria
 
-Extension is complete when all are true:
+This future section is complete when all are true:
 
 - [ ] Microstructure dataset profile produces book-aware tick panels.
 - [ ] Feature registry includes OFI/microprice/intensity/spread-state/simplex residual features.
@@ -2122,9 +2121,9 @@ Extension is complete when all are true:
 
 ---
 
-## 12. Lean + QUANTAXIS Research Ergonomics Extension (March 2026, Iteration 2)
+## 12. Future Research Ergonomics Extension (March 2026, Iteration 2)
 
-This extension keeps Lean contracts as the primary architecture while adding QUANTAXIS-style research ergonomics that reduce notebook friction and improve experiment governance.
+This remains forward-looking until the corresponding research-session and experiment-governance capabilities are implemented and folded into the main R1-R6 sections.
 
 Reference documents:
 - `README.LEAN_ADOPTION.md`
@@ -2185,7 +2184,7 @@ All aliases should still emit standard run manifests and reuse existing runners.
 
 ### 12.5 Acceptance Gates (Iteration 2)
 
-Extension is complete when:
+This future section is complete when:
 
 - [ ] `ResearchSession` schema is implemented and linked across R1-R5 artifacts.
 - [ ] Factor-pack and strategy-recipe manifests are versioned and validated by tests.

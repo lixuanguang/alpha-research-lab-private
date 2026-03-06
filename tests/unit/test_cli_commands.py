@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import apps.data_collector.backfill as collector_backfill
+import apps.data_collector.cli_support as collector_cli_support
 import apps.data_collector.main as data_collector_main
 import click.testing
 import pyarrow as pa
@@ -146,7 +147,7 @@ def test_backfill_trades_succeeds_with_mocked_manager(
         return dummy_result
 
     monkeypatch.setattr(
-        "apps.data_collector.main.collector_backfill.BackfillManager.backfill_trades",
+        "apps.data_collector.cli_support.collector_backfill.BackfillManager.backfill_trades",
         _fake_backfill,
     )
 
@@ -156,7 +157,7 @@ def test_backfill_trades_succeeds_with_mocked_manager(
             return "polymarket"
 
     monkeypatch.setattr(
-        "apps.data_collector.main.adapters_pmxt.PmxtAdapter",
+        "apps.data_collector.cli_support.adapters_pmxt.PmxtAdapter",
         lambda *_a, **_kw: _FakeAdapter(),
     )
 
@@ -204,7 +205,7 @@ def test_backfill_ohlcv_event_type_reaches_correct_method(
         return dummy_result
 
     monkeypatch.setattr(
-        "apps.data_collector.main.collector_backfill.BackfillManager.backfill_ohlcv",
+        "apps.data_collector.cli_support.collector_backfill.BackfillManager.backfill_ohlcv",
         _fake_backfill_ohlcv,
     )
 
@@ -213,7 +214,7 @@ def test_backfill_ohlcv_event_type_reaches_correct_method(
             return "polymarket"
 
     monkeypatch.setattr(
-        "apps.data_collector.main.adapters_pmxt.PmxtAdapter",
+        "apps.data_collector.cli_support.adapters_pmxt.PmxtAdapter",
         lambda *_a, **_kw: _FakeAdapter(),
     )
 
@@ -288,7 +289,7 @@ def test_detect_gaps_with_explicit_outcomes_and_no_gaps(
     runner = click.testing.CliRunner()
 
     monkeypatch.setattr(
-        "apps.data_collector.main.gap_detector_mod.GapDetector.detect_trade_gaps",
+        "apps.data_collector.cli_support.gap_detector_mod.GapDetector.detect_trade_gaps",
         lambda *_a, **_kw: [],
     )
 
@@ -317,7 +318,7 @@ def test_detect_gaps_ohlcv_scans_ohlcv_instrument_ids(
     runner = click.testing.CliRunner()
 
     monkeypatch.setattr(
-        "apps.data_collector.main.parquet_reader_mod.ParquetEventReader.read_trades",
+        "apps.data_collector.cli_support.parquet_reader_mod.ParquetEventReader.read_trades",
         lambda *_a, **_kw: pa.table(
             {
                 "instrument_id": pa.array([], type=pa.string()),
@@ -326,7 +327,7 @@ def test_detect_gaps_ohlcv_scans_ohlcv_instrument_ids(
         ),
     )
     monkeypatch.setattr(
-        "apps.data_collector.main.parquet_reader_mod.ParquetEventReader.read_ohlcv",
+        "apps.data_collector.cli_support.parquet_reader_mod.ParquetEventReader.read_ohlcv",
         lambda *_a, **_kw: pa.table(
             {
                 "instrument_id": pa.array(["polymarket:market-a:yes"]),
@@ -336,7 +337,7 @@ def test_detect_gaps_ohlcv_scans_ohlcv_instrument_ids(
         ),
     )
     monkeypatch.setattr(
-        "apps.data_collector.main.gap_detector_mod.GapDetector.detect_ohlcv_gaps",
+        "apps.data_collector.cli_support.gap_detector_mod.GapDetector.detect_ohlcv_gaps",
         lambda *_a, **_kw: [],
     )
 
@@ -389,9 +390,9 @@ def test_scan_instrument_ids_ignores_null_and_blank_values() -> None:
                 }
             )
 
-    outcome_ids = data_collector_main._scan_instrument_ids(
+    outcome_ids = collector_cli_support.scan_instrument_ids(
         _ReaderStub(),
-        scope=data_collector_main._GapScanScope(
+        scope=collector_cli_support.GapScanScope(
             venue="polymarket",
             event_type="trades",
             start_dt=datetime(2026, 3, 1, 0, tzinfo=UTC),

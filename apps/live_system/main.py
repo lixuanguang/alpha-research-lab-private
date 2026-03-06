@@ -96,7 +96,8 @@ def status_command(storage_root: Path, limit: int) -> None:
     for outcome in outcomes:
         click.echo(
             f"run_id={outcome.run_id} status={outcome.status} "
-            f"orders={outcome.orders_emitted} manifest={outcome.manifest_path}"
+            f"cycles={outcome.cycles} orders={outcome.orders_emitted} "
+            f"manifest={outcome.manifest_path}"
         )
 
 

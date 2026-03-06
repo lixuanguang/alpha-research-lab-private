@@ -1,12 +1,12 @@
 # Alpha Research Lab — Data Plane MVP Implementation Plan
 
 > **Stage:** 2 of 8 · Entrypoint A: Data Collector  
-> **Prerequisite:** Foundation Stage (complete — F1–F6 + microstructure foundation addendum 11.1-11.5 closed, quality gates green)  
+> **Prerequisite:** Foundation Stage (complete — all validated Foundation baseline work folded into the implementation steps, quality gates green)
 > **Focus:** Prediction market data collection via `pmxt` — polling + streaming connectors, bronze/silver storage, data quality automation, backfill/replay tooling  
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
-> **Implementation Status (as of March 2, 2026):** D1, D2, D3, D4, D5, and D6 complete  
-> **Current quality gate snapshot (validated March 2, 2026):** `ruff check .` (pass), `mypy libs/ apps/ --strict` (pass), `pytest tests/ -v` (`593 passed, 8 skipped`).
+> **Implementation Status (as of March 6, 2026):** D1, D2, D3, D4, D5, and D6 complete; section 11 is validated and folded into the closed Data Plane baseline
+> **Current quality gate snapshot (validated March 6, 2026):** `ruff check .` (pass), `mypy libs/ apps/ --strict` (pass), `pytest tests/ -v` (`867 passed, 10 skipped`).
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---
@@ -23,9 +23,9 @@
 8. [Codebase Evolution — File-by-File](#8-codebase-evolution--file-by-file)
 9. [Dependencies & New Packages](#9-dependencies--new-packages)
 10. [Operational Runbook Stubs](#10-operational-runbook-stubs)
-11. [Microstructure Data Extension (Queue/OFI Readiness)](#11-microstructure-data-extension-queueofi-readiness)
-12. [Lean Adoption Data-Plane Extension (March 2026)](#12-lean-adoption-data-plane-extension-march-2026)
-13. [Lean + QUANTAXIS Data-Bridge Extension (March 2026, Iteration 2)](#13-lean--quantaxis-data-bridge-extension-march-2026-iteration-2)
+11. [Microstructure Readiness](#11-microstructure-readiness)
+12. [Future Research Handoff Contracts (March 2026)](#12-future-research-handoff-contracts-march-2026)
+13. [Future Data-Bridge Contracts (March 2026, Iteration 2)](#13-future-data-bridge-contracts-march-2026-iteration-2)
 
 ---
 
@@ -1150,7 +1150,7 @@ Validation snapshot (local, March 2, 2026):
   apps/data_collector/
     __init__.py
 -   main.py                              # Was: stub
-+   main.py                              # Still stub (wired in D6)
++   main.py                              # Full CLI surface wired in D6
 +   connectors/
 +     __init__.py
 +     base.py                            # BaseConnector, PollingConnector, StreamingConnector, ConnectorState
@@ -1420,13 +1420,13 @@ python -m apps.data_collector.main status
 
 ---
 
-## 11. Microstructure Data Extension (Queue/OFI Readiness)
+## 11. Microstructure Readiness
 
-This addendum defines the additional data-plane work required for queue-based and event-time microstructure strategies.
+Microstructure readiness is part of the closed Data Plane baseline and captures the data-plane contract needed for queue-based and event-time microstructure strategies.
 
-Estimated additional effort: 50-90 hours.
+Implementation effort already absorbed: 50-90 hours.
 
-### 11.1 D4 Extension: Streaming/Event Fidelity
+### 11.1 Streaming/Event Fidelity
 
 Augment streaming connectors and normalized events with microstructure-critical metadata:
 
@@ -1447,7 +1447,7 @@ Suggested file deltas:
 - `apps/data_collector/streaming_pipeline.py`
 - `libs/core/alpha_core/events/models.py` (optional metadata fields)
 
-### 11.2 D5 Extension: Microstructure Quality Expectations
+### 11.2 Microstructure Quality Expectations
 
 Add dedicated quality expectations for microstructure usability:
 
@@ -1495,9 +1495,9 @@ Expose read path:
 - `ParquetEventReader.read_book_deltas(...)`
 - `DuckDBAnalytics.register_silver("book_deltas")`
 
-### 11.4 Data-Plane Acceptance Gates for Microstructure Readiness
+### 11.4 Acceptance Gates
 
-Extension is complete when all are true:
+This section is complete when all are true:
 
 - [ ] Books stream carries sequence/latency metadata (or explicit null + capability flag).
 - [ ] Reconstruction path for `book_deltas` exists for snapshot-only venues.
@@ -1505,7 +1505,7 @@ Extension is complete when all are true:
 - [ ] `book_deltas` is queryable through reader and DuckDB view registration.
 - [ ] Integration tests cover reconnect + gap markers + delta reconstruction consistency.
 
-Validated implementation status (March 2, 2026):
+Validated implementation status (March 6, 2026):
 
 - [x] Books stream carries sequence/latency metadata (or explicit null + capability flag).
 - [x] Reconstruction path for `book_deltas` exists for snapshot-only venues.
@@ -1515,9 +1515,9 @@ Validated implementation status (March 2, 2026):
 
 ---
 
-## 12. Lean Adoption Data-Plane Extension (March 2026)
+## 12. Future Research Handoff Contracts (March 2026)
 
-Data Plane MVP remains complete and closed. This extension defines contract-level additions so Data Plane outputs can be consumed by Research/Live workflows without custom glue code.
+This remains forward-looking until the corresponding handoff contracts are implemented and folded into the main Data Plane sections.
 
 Reference documents:
 - `README.LEAN_ADOPTION.md`
@@ -1571,9 +1571,9 @@ Data Plane should emit run artifacts compatible with `data/runs/{run_id}/...` co
 
 This allows Research CLI commands to consume Data Plane outputs without custom path logic.
 
-### 12.4 Data-Plane Extension Acceptance Gates
+### 12.4 Acceptance Gates
 
-Extension is complete when:
+This future section is complete when:
 
 - [ ] Lineage models support optional parent/child run references without breaking existing runs.
 - [ ] Dataset-ready handoff manifest schema is implemented and validated by tests.
@@ -1583,9 +1583,9 @@ Extension is complete when:
 
 ---
 
-## 13. Lean + QUANTAXIS Data-Bridge Extension (March 2026, Iteration 2)
+## 13. Future Data-Bridge Contracts (March 2026, Iteration 2)
 
-Data Plane remains complete. This iteration extends handoff ergonomics and replay readiness so research workflows can consume data outputs with less custom glue.
+This remains forward-looking until the data-bridge and replay contracts are implemented and folded into the main Data Plane sections.
 
 Reference documents:
 - `README.LEAN_ADOPTION.md`
@@ -1637,7 +1637,7 @@ This keeps ingestion behavior explicit across environments.
 
 ### 13.5 Iteration 2 Acceptance Gates
 
-Extension is complete when:
+This future section is complete when:
 
 - [ ] Data-bridge contract is documented and represented by typed interfaces.
 - [ ] Cursor metadata is persisted and validated in lineage regression tests.

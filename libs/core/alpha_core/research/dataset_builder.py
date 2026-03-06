@@ -2,66 +2,27 @@
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import json
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 import alpha_core.quality.gap_detector as gap_mod
 import alpha_core.quality.partition_validator as pv_mod
-import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.as_of as as_of_mod
 import alpha_core.research.dataset as dataset_mod
-import alpha_core.research.manifest as manifest_mod
+import alpha_core.research.dataset_builder_io as dataset_builder_io
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.research.universe as universe_mod
 import alpha_core.storage.conventions as storage_conventions
 import alpha_core.storage.parquet_reader as parquet_reader_mod
 import alpha_core.utils.time as time_utils
 
-# ---------------------------------------------------------------------------
-# Universe Parquet schema
-# ---------------------------------------------------------------------------
-
-_UNIVERSE_SCHEMA = pa.schema(
-    [
-        pa.field("as_of", pa.timestamp("us", tz="UTC"), nullable=False),
-        pa.field("instrument_id", pa.string(), nullable=False),
-        pa.field("market_id", pa.string(), nullable=False),
-        pa.field("venue", pa.string(), nullable=False),
-    ]
-)
-_KNOWN_EVENT_TABLES: frozenset[str] = frozenset({"trades", "ohlcv", "books"})
-
 
 class DatasetBuildError(RuntimeError):
     """Raised when a dataset build cannot proceed due to data quality issues."""
-
-
-@dataclass(slots=True)
-class _DatasetBuildOutputs:
-    manifest: dataset_mod.DatasetManifest
-    dataset_id: str
-    dataset_dir: Path
-    meta_path: Path
-
-
-@dataclass(slots=True)
-class _DatasetOutputSpec:
-    config: dataset_mod.DatasetConfig
-    start_utc: datetime
-    end_utc: datetime
-    snapshots: list[universe_mod.UniverseSnapshot]
-    gold_tables: dict[str, pa.Table]
-    quality_summary: dict[str, Any]
-    instrument_count: int
 
 
 class DatasetBuilder:
@@ -136,8 +97,9 @@ class DatasetBuilder:
             end_utc=end_utc,
             all_instruments=all_instruments,
         )
-        outputs = self._write_dataset_outputs(
-            _DatasetOutputSpec(
+        outputs = dataset_builder_io.write_dataset_outputs(
+            gold_root=self._gold_root,
+            spec=dataset_builder_io.DatasetOutputSpec(
                 config=config,
                 start_utc=start_utc,
                 end_utc=end_utc,
@@ -147,7 +109,8 @@ class DatasetBuilder:
                 instrument_count=len(all_instruments),
             )
         )
-        self._persist_build_artifacts(
+        dataset_builder_io.persist_build_artifacts(
+            storage_root=self._storage_root,
             config=config,
             run_context=run_context,
             outputs=outputs,
@@ -257,120 +220,17 @@ class DatasetBuilder:
             filtered[event_type] = table
         return filtered
 
-    def _write_dataset_outputs(self, spec: _DatasetOutputSpec) -> _DatasetBuildOutputs:
-        dataset_id = _make_dataset_id(spec.config)
-        dataset_dir = self._gold_root / spec.config.name
-        dataset_dir.mkdir(parents=True, exist_ok=True)
-        _remove_stale_event_tables(
-            dataset_dir=dataset_dir,
-            active_event_types=set(spec.gold_tables),
-        )
-
-        row_counts = self._write_event_tables(dataset_dir=dataset_dir, gold_tables=spec.gold_tables)
-        _write_universe_table(dataset_dir=dataset_dir, snapshots=spec.snapshots)
-
-        manifest = dataset_mod.DatasetManifest(
-            dataset_id=dataset_id,
-            config=spec.config,
-            built_at=datetime.now(tz=UTC),
-            row_counts=row_counts,
-            instrument_count=spec.instrument_count,
-            date_range=(spec.start_utc, spec.end_utc),
-            quality_summary=spec.quality_summary,
-            schema_version=1,
-        )
-        meta_path = dataset_dir / "_meta.json"
-        meta_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
-        return _DatasetBuildOutputs(
-            manifest=manifest,
-            dataset_id=dataset_id,
-            dataset_dir=dataset_dir,
-            meta_path=meta_path,
-        )
-
-    def _write_event_tables(
-        self,
-        *,
-        dataset_dir: Path,
-        gold_tables: dict[str, pa.Table],
-    ) -> dict[str, int]:
-        row_counts: dict[str, int] = {}
-        for event_type, table in gold_tables.items():
-            pq.write_table(table, dataset_dir / f"{event_type}.parquet", compression="zstd")
-            row_counts[event_type] = table.num_rows
-        return row_counts
-
-    def _persist_build_artifacts(
-        self,
-        *,
-        config: dataset_mod.DatasetConfig,
-        run_context: run_context_mod.RunContext,
-        outputs: _DatasetBuildOutputs,
-    ) -> None:
-        completed_context = run_context_mod.close_run_context(run_context)
-        artifact_paths.run_root(self._storage_root, completed_context.run_id).mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-        artifact_paths.run_config_path(self._storage_root, completed_context.run_id).write_text(
-            json.dumps(config.model_dump(mode="json"), indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        artifact_map = {
-            "dataset_id": outputs.dataset_id,
-            "dataset_meta": str(outputs.meta_path),
-            "dataset_dir": str(outputs.dataset_dir),
-            "universe": str(outputs.dataset_dir / "universe.parquet"),
-        }
-        artifact_paths.write_artifacts_index(
-            self._storage_root,
-            completed_context.run_id,
-            artifact_map,
-        )
-        run_manifest = manifest_mod.RunManifest(
-            run=completed_context,
-            artifacts=artifact_map,
-            parent_run_id=None,
-        )
-        manifest_mod.write_run_manifest(
-            artifact_paths.run_manifest_path(self._storage_root, completed_context.run_id),
-            run_manifest,
-        )
-
     def load(self, dataset_id: str) -> dataset_mod.GoldDataset:
         """Load a previously built gold dataset by *dataset_id* or name.
 
         *dataset_id* is matched against both the hash ID and the dataset
         directory name (``config.name``).
         """
-        if not self._gold_root.exists() or not self._gold_root.is_dir():
-            raise KeyError(f"No gold dataset found with id or name '{dataset_id}'")
-
-        for candidate_dir in sorted(self._gold_root.iterdir()):
-            meta_path = candidate_dir / "_meta.json"
-            if not meta_path.exists():
-                continue
-            manifest = dataset_mod.DatasetManifest.model_validate_json(meta_path.read_text())
-            if dataset_id in {manifest.dataset_id, manifest.config.name}:
-                return dataset_mod.GoldDataset(manifest=manifest, dataset_dir=candidate_dir)
-
-        raise KeyError(f"No gold dataset found with id or name '{dataset_id}'")
+        return dataset_builder_io.load_dataset(self._gold_root, dataset_id)
 
     def list_datasets(self) -> list[dataset_mod.DatasetManifest]:
         """Return metadata for all built gold datasets, sorted by build time."""
-        if not self._gold_root.exists() or not self._gold_root.is_dir():
-            return []
-
-        manifests: list[dataset_mod.DatasetManifest] = []
-        for candidate_dir in self._gold_root.iterdir():
-            meta_path = candidate_dir / "_meta.json"
-            if meta_path.exists():
-                with contextlib.suppress(OSError, ValueError):
-                    manifests.append(
-                        dataset_mod.DatasetManifest.model_validate_json(meta_path.read_text())
-                    )
-
-        return sorted(manifests, key=lambda m: m.built_at)
+        return dataset_builder_io.list_datasets(self._gold_root)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -385,8 +245,6 @@ class DatasetBuilder:
         all_instruments: set[str],
     ) -> dict[str, Any]:
         """Run quality suites over required partitions; raise on failure."""
-        from datetime import timedelta
-
         summary: dict[str, Any] = {"checked": True, "partitions": [], "failed": []}
         venues_to_check = _quality_venues(config=config, all_instruments=all_instruments)
         if not venues_to_check:
@@ -449,15 +307,34 @@ class DatasetBuilder:
         gaps_found: list[gap_mod.TimeGap] = []
         for venue in venues_to_check:
             venue_instruments = [instr for instr in instruments if instr.startswith(f"{venue}:")]
-            for instr_id in venue_instruments:
-                gaps = self._gap_detector.detect_trade_gaps(
-                    venue,
-                    instr_id,
+            if "trades" in config.event_types:
+                for instr_id in venue_instruments:
+                    gaps_found.extend(
+                        self._gap_detector.detect_trade_gaps(
+                            venue,
+                            instr_id,
+                            start=start,
+                            end=end,
+                            max_gap_seconds=max_gap_seconds,
+                        )
+                    )
+            if "ohlcv" in config.event_types:
+                for instr_id, resolution in _ohlcv_gap_targets(
+                    reader=self._reader,
+                    venue=venue,
+                    instruments=venue_instruments,
                     start=start,
                     end=end,
-                    max_gap_seconds=max_gap_seconds,
-                )
-                gaps_found.extend(gaps)
+                ):
+                    gaps_found.extend(
+                        self._gap_detector.detect_ohlcv_gaps(
+                            venue,
+                            instr_id,
+                            resolution=resolution,
+                            start=start,
+                            end=end,
+                        )
+                    )
 
         if gaps_found:
             raise DatasetBuildError(
@@ -466,44 +343,11 @@ class DatasetBuilder:
             )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _filter_table_by_venues(table: pa.Table, *, venues: list[str]) -> pa.Table:
     if not venues or "venue_id" not in table.schema.names:
         return table
     mask = pc.is_in(table.column("venue_id"), value_set=pa.array(venues))
     return table.filter(mask)
-
-
-def _write_universe_table(
-    *,
-    dataset_dir: Path,
-    snapshots: list[universe_mod.UniverseSnapshot],
-) -> None:
-    universe_rows: list[dict[str, object]] = []
-    for snapshot in snapshots:
-        venue_id_map = _build_venue_map(snapshot)
-        universe_rows.extend(
-            {
-                "as_of": snapshot.as_of,
-                "instrument_id": instrument_id,
-                "market_id": _market_for_instrument(instrument_id),
-                "venue": venue_id_map.get(instrument_id, "unknown"),
-            }
-            for instrument_id in snapshot.instruments
-        )
-
-    universe_table = pa.Table.from_pylist(universe_rows, schema=_UNIVERSE_SCHEMA)
-    pq.write_table(universe_table, dataset_dir / "universe.parquet", compression="zstd")
-
-
-def _make_dataset_id(config: dataset_mod.DatasetConfig) -> str:
-    """Deterministic SHA-256 hash of the serialised config."""
-    payload = json.dumps(config.model_dump(mode="json"), sort_keys=True, default=str)
-    return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
 def _quality_venues(
@@ -522,35 +366,36 @@ def _quality_venues(
     return sorted(venue for venue in discovered_venues if venue)
 
 
-def _remove_stale_event_tables(
+def _ohlcv_gap_targets(
     *,
-    dataset_dir: Path,
-    active_event_types: set[str],
-) -> None:
-    active_files = {f"{event_type}.parquet" for event_type in active_event_types}
-    for known_event_type in _KNOWN_EVENT_TABLES:
-        event_file = dataset_dir / f"{known_event_type}.parquet"
-        if event_file.name in active_files:
-            continue
-        event_file.unlink(missing_ok=True)
+    reader: parquet_reader_mod.ParquetEventReader,
+    venue: str,
+    instruments: list[str],
+    start: datetime,
+    end: datetime,
+) -> list[tuple[str, str]]:
+    if not instruments:
+        return []
+    table = reader.read_ohlcv(venue=venue, start=start, end=end)
+    required_columns = {"instrument_id", "resolution"}
+    if table.num_rows == 0 or not required_columns.issubset(table.schema.names):
+        return []
 
-
-def _build_venue_map(snap: universe_mod.UniverseSnapshot) -> dict[str, str]:
-    """Map instrument_id → venue using the first component of the canonical ID."""
-    result: dict[str, str] = {}
-    for instr_id in snap.instruments:
-        parts = instr_id.split(":")
-        result[instr_id] = parts[0] if parts else "unknown"
-    return result
-
-
-def _market_for_instrument(instrument_id: str) -> str:
-    """Derive the canonical market ID from a canonical outcome ID.
-
-    Canonical outcome IDs have the form ``{venue}:{market_id}:{outcome_id}``.
-    """
-    parts = instrument_id.rsplit(":", 1)
-    return parts[0] if len(parts) == 2 else instrument_id
+    instrument_set = set(instruments)
+    targets: set[tuple[str, str]] = set()
+    instrument_column = table.column("instrument_id")
+    resolution_column = table.column("resolution")
+    for row_index in range(table.num_rows):
+        instrument_id = instrument_column[row_index].as_py()
+        resolution = resolution_column[row_index].as_py()
+        if (
+            isinstance(instrument_id, str)
+            and instrument_id in instrument_set
+            and isinstance(resolution, str)
+            and resolution.strip()
+        ):
+            targets.add((instrument_id, resolution.strip()))
+    return sorted(targets)
 
 
 __all__ = ["DatasetBuildError", "DatasetBuilder"]

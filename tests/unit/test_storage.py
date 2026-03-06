@@ -10,6 +10,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pytest
 
 import alpha_core.events.models as event_models
+import alpha_core.storage._duckdb_validation as duckdb_validation
 import alpha_core.storage.conventions as storage_conventions
 import alpha_core.storage.duckdb_layer as duckdb_layer
 import alpha_core.storage.parquet_reader as parquet_reader
@@ -527,12 +528,12 @@ def test_duckdb_source_validation_allows_registered_view_and_cte() -> None:
         "WITH recent AS (SELECT * FROM silver_trades) "
         "SELECT * FROM recent JOIN silver_trades ON recent.trade_id = silver_trades.trade_id"
     )
-    duckdb_layer._validate_allowed_query_sources(statement, {"silver_trades"})
+    duckdb_validation.validate_allowed_query_sources(statement, {"silver_trades"})
 
 
 def test_duckdb_source_validation_rejects_unregistered_relation() -> None:
     with pytest.raises(ValueError, match="Unknown relation"):
-        duckdb_layer._validate_allowed_query_sources(
+        duckdb_validation.validate_allowed_query_sources(
             "SELECT * FROM ad_hoc_table",
             {"silver_trades"},
         )
@@ -540,14 +541,14 @@ def test_duckdb_source_validation_rejects_unregistered_relation() -> None:
 
 def test_duckdb_source_validation_rejects_quoted_unregistered_relation() -> None:
     with pytest.raises(ValueError, match="Unknown relation"):
-        duckdb_layer._validate_allowed_query_sources(
+        duckdb_validation.validate_allowed_query_sources(
             'SELECT * FROM "sqlite_master"',
             {"silver_trades"},
         )
 
 
 def test_duckdb_source_validation_allows_quoted_registered_relation() -> None:
-    duckdb_layer._validate_allowed_query_sources(
+    duckdb_validation.validate_allowed_query_sources(
         'SELECT * FROM "silver_trades"',
         {"silver_trades"},
     )
@@ -555,7 +556,7 @@ def test_duckdb_source_validation_allows_quoted_registered_relation() -> None:
 
 def test_duckdb_source_validation_rejects_table_function() -> None:
     with pytest.raises(ValueError, match="Table functions are not allowed"):
-        duckdb_layer._validate_allowed_query_sources(
+        duckdb_validation.validate_allowed_query_sources(
             "SELECT * FROM read_parquet('/tmp/any.parquet')",
             {"silver_trades"},
         )
@@ -563,8 +564,32 @@ def test_duckdb_source_validation_rejects_table_function() -> None:
 
 def test_duckdb_source_validation_rejects_table_function_in_comma_join() -> None:
     with pytest.raises(ValueError, match="Table functions are not allowed"):
-        duckdb_layer._validate_allowed_query_sources(
+        duckdb_validation.validate_allowed_query_sources(
             "SELECT * FROM silver_trades, read_parquet('/tmp/any.parquet')",
+            {"silver_trades"},
+        )
+
+
+def test_duckdb_source_validation_rejects_unregistered_relation_in_subquery() -> None:
+    with pytest.raises(ValueError, match="Unknown relation"):
+        duckdb_validation.validate_allowed_query_sources(
+            "SELECT * FROM (SELECT * FROM sqlite_master) nested_view",
+            {"silver_trades"},
+        )
+
+
+def test_duckdb_source_validation_rejects_unregistered_relation_in_cte_body() -> None:
+    with pytest.raises(ValueError, match="Unknown relation"):
+        duckdb_validation.validate_allowed_query_sources(
+            "WITH recent AS (SELECT * FROM sqlite_master) SELECT * FROM recent",
+            {"silver_trades"},
+        )
+
+
+def test_duckdb_source_validation_rejects_table_function_in_subquery() -> None:
+    with pytest.raises(ValueError, match="Table functions are not allowed"):
+        duckdb_validation.validate_allowed_query_sources(
+            "SELECT * FROM (SELECT * FROM read_parquet('/tmp/any.parquet')) nested_view",
             {"silver_trades"},
         )
 
@@ -718,30 +743,49 @@ def test_duckdb_query_rejects_table_function_in_comma_join_public_api(
         analytics.query("SELECT * FROM silver_trades, read_parquet('/tmp/path.parquet')")
 
 
-def test_duckdb_internal_helpers_cover_edge_cases() -> None:
-    assert duckdb_layer._quote_identifier('a"b') == '"a""b"'
-    assert duckdb_layer._is_read_only_statement(" EXPLAIN SELECT 1")
-    assert not duckdb_layer._is_read_only_statement("PRAGMA table_info('x')")
+def test_duckdb_query_rejects_unregistered_relation_in_subquery_public_api(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_duckdb = _FakeDuckDBModule(pa.table({"value": [1]}))
+    monkeypatch.setattr(duckdb_layer, "duckdb_module", fake_duckdb)
+    analytics = duckdb_layer.DuckDBAnalytics(tmp_path)
+    analytics._registered_views.add("silver_trades")
 
-    stripped = duckdb_layer._strip_comments("/* block */ SELECT 1 -- inline")
+    with pytest.raises(ValueError, match="Unknown relation"):
+        analytics.query("SELECT * FROM (SELECT * FROM sqlite_master) nested_view")
+
+
+def test_duckdb_internal_helpers_cover_edge_cases() -> None:
+    assert duckdb_validation.quote_identifier('a"b') == '"a""b"'
+    assert duckdb_validation.is_read_only_statement(" EXPLAIN SELECT 1")
+    assert not duckdb_validation.is_read_only_statement("PRAGMA table_info('x')")
+
+    stripped = duckdb_validation.strip_comments("/* block */ SELECT 1 -- inline")
     assert "block" not in stripped
     assert "--" not in stripped
+    preserved = duckdb_validation.strip_comments("SELECT '--not-comment', '/*still text*/'")
+    assert "'--not-comment'" in preserved
+    assert "'/*still text*/'" in preserved
 
     with pytest.raises(ValueError, match="Disallowed SQL keyword"):
-        duckdb_layer._raise_if_forbidden_sql("SELECT * FROM source INSERT INTO sink")
+        duckdb_validation.raise_if_forbidden_sql("SELECT * FROM source INSERT INTO sink")
 
-    assert duckdb_layer._arrow_type_to_duckdb_type(pa.string()) == "VARCHAR"
-    assert duckdb_layer._arrow_type_to_duckdb_type(pa.int32()) == "INTEGER"
-    assert duckdb_layer._arrow_type_to_duckdb_type(pa.decimal128(10, 2)) == "DECIMAL(10,2)"
-    assert duckdb_layer._arrow_type_to_duckdb_type(pa.timestamp("us", tz="UTC")) == "TIMESTAMPTZ"
-    assert duckdb_layer._arrow_type_to_duckdb_type(pa.bool_()) == "BOOLEAN"
-    assert duckdb_layer._arrow_type_to_duckdb_type(pa.float64()) == "DOUBLE"
+    assert duckdb_validation.arrow_type_to_duckdb_type(pa.string()) == "VARCHAR"
+    assert duckdb_validation.arrow_type_to_duckdb_type(pa.int32()) == "INTEGER"
+    assert duckdb_validation.arrow_type_to_duckdb_type(pa.decimal128(10, 2)) == "DECIMAL(10,2)"
+    assert (
+        duckdb_validation.arrow_type_to_duckdb_type(pa.timestamp("us", tz="UTC"))
+        == "TIMESTAMPTZ"
+    )
+    assert duckdb_validation.arrow_type_to_duckdb_type(pa.bool_()) == "BOOLEAN"
+    assert duckdb_validation.arrow_type_to_duckdb_type(pa.float64()) == "DOUBLE"
     with pytest.raises(TypeError, match="Unsupported Arrow type"):
-        duckdb_layer._arrow_type_to_duckdb_type(pa.date32())
+        duckdb_validation.arrow_type_to_duckdb_type(pa.date32())
 
-    assert duckdb_layer._last_identifier_component('"schema"."ta""ble"') == '"ta""ble"'
-    assert duckdb_layer._last_identifier_component("db.schema.table") == "table"
-    assert duckdb_layer._last_identifier_component("   ") == ""
+    assert duckdb_validation.last_identifier_component('"schema"."ta""ble"') == '"ta""ble"'
+    assert duckdb_validation.last_identifier_component("db.schema.table") == "table"
+    assert duckdb_validation.last_identifier_component("   ") == ""
 
 
 # ---------------------------------------------------------------------------

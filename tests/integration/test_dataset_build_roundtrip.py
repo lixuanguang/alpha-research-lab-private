@@ -16,6 +16,7 @@ import alpha_core.quality.gap_detector as gap_mod
 import alpha_core.quality.partition_validator as pv_mod
 import alpha_core.research.dataset as dataset_mod
 import alpha_core.research.dataset_builder as builder_mod
+import alpha_core.research.dataset_builder_io as builder_io
 import alpha_core.research.universe as universe_mod
 import alpha_core.storage.parquet_reader as reader_mod
 
@@ -135,9 +136,12 @@ def test_build_and_load_roundtrip(setup) -> None:  # type: ignore[no-untyped-def
 def test_no_look_ahead_via_ts_record(setup) -> None:  # type: ignore[no-untyped-def]
     """Gold trades must contain zero rows where ts_record > config.end."""
     builder, config, tmp_path = setup
-    builder.build(config)
+    manifest = builder.build(config)
 
-    gold_path = tmp_path / "gold" / "datasets" / "silver_to_gold" / "trades.parquet"
+    gold_path = builder_io.dataset_directory(
+        tmp_path / "gold" / "datasets",
+        manifest.dataset_id,
+    ) / "trades.parquet"
     assert gold_path.exists()
     result = pq.read_table(gold_path)
 
@@ -176,7 +180,10 @@ def test_manifest_json_roundtrip(setup) -> None:  # type: ignore[no-untyped-def]
     builder, config, tmp_path = setup
     manifest = builder.build(config)
 
-    meta_path = tmp_path / "gold" / "datasets" / "silver_to_gold" / "_meta.json"
+    meta_path = (
+        builder_io.dataset_directory(tmp_path / "gold" / "datasets", manifest.dataset_id)
+        / "_meta.json"
+    )
     reloaded = dataset_mod.DatasetManifest.model_validate_json(meta_path.read_text())
 
     assert reloaded.dataset_id == manifest.dataset_id

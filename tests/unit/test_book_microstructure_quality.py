@@ -6,8 +6,9 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pyarrow as pa
+import pytest
 
-import alpha_core.quality.suites.book_quality as quality_book
+import alpha_core.quality.suites.book_microstructure_quality as quality_book
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -184,8 +185,6 @@ def test_snapshot_cadence_different_instruments_checked_separately() -> None:
 
 
 def test_snapshot_cadence_invalid_threshold() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="max_gap_seconds"):
         quality_book.SnapshotCadenceExpectation(max_gap_seconds=0.0)
 
@@ -235,8 +234,6 @@ def test_top_of_book_stability_pass_empty_table() -> None:
 
 
 def test_top_of_book_stability_invalid_threshold() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="max_move_frac"):
         quality_book.TopOfBookStabilityExpectation(max_move_frac=1.5)
 
@@ -334,14 +331,12 @@ def test_stale_book_age_pass_empty_table() -> None:
 
 
 def test_stale_book_age_invalid_threshold() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="max_age_seconds"):
         quality_book.StaleBookAgeExpectation(max_age_seconds=0.0)
 
 
 # ---------------------------------------------------------------------------
-# MICROSTRUCTURE_BOOK_SUITE
+# BOOK_MICROSTRUCTURE_SUITE
 # ---------------------------------------------------------------------------
 
 
@@ -363,13 +358,13 @@ def test_microstructure_suite_all_pass_on_clean_data() -> None:
         ],
         sequence_ids=["1", "2", "3"],
     )
-    report = quality_book.MICROSTRUCTURE_BOOK_SUITE.validate(tbl)
+    report = quality_book.BOOK_MICROSTRUCTURE_SUITE.validate(tbl)
     assert report.passed is True
     assert report.degraded is False
 
 
 def test_microstructure_suite_has_correct_name() -> None:
-    assert quality_book.MICROSTRUCTURE_BOOK_SUITE.name == "silver_books_microstructure"
+    assert quality_book.BOOK_MICROSTRUCTURE_SUITE.name == "silver_books_microstructure"
 
 
 def test_microstructure_suite_detects_sequence_gap() -> None:
@@ -378,7 +373,7 @@ def test_microstructure_suite_detects_sequence_gap() -> None:
         ts_events=[now - timedelta(seconds=20), now - timedelta(seconds=10), now],
         sequence_ids=["1", "2", "10"],  # gap at the end
     )
-    report = quality_book.MICROSTRUCTURE_BOOK_SUITE.validate(tbl)
+    report = quality_book.BOOK_MICROSTRUCTURE_SUITE.validate(tbl)
     assert report.degraded is True  # sequence_continuity is "warn"
     seq_result = next(r for r in report.results if r.expectation_name == "sequence_continuity")
     assert seq_result.passed is False

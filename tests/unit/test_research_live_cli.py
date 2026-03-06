@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import apps.live_system.main as live_main
 import apps.research.main as research_main
 import click.testing
+
+import alpha_core.research.manifest as manifest_mod
 
 
 def test_research_cli_help_lists_stage_commands() -> None:
@@ -128,4 +131,79 @@ def test_live_status_reports_materialized_run(tmp_path: Path) -> None:
     )
     assert status_result.exit_code == 0, status_result.output
     assert "status=materialized" in status_result.output
+    assert "cycles=2" in status_result.output
     assert "orders=2" in status_result.output
+
+
+def test_live_status_ignores_summary_paths_outside_run_root(tmp_path: Path) -> None:
+    runner = click.testing.CliRunner()
+    run_result = runner.invoke(
+        live_main.main,
+        [
+            "run",
+            "--instrument",
+            "polymarket:market-a:yes",
+            "--cycles",
+            "2",
+            "--storage-root",
+            str(tmp_path),
+            "--execute",
+        ],
+    )
+    assert run_result.exit_code == 0, run_result.output
+
+    manifest_line = next(
+        line for line in run_result.output.splitlines() if line.startswith("manifest=")
+    )
+    manifest_path = Path(manifest_line.split("=", maxsplit=1)[1].strip())
+    manifest = manifest_mod.read_run_manifest(manifest_path)
+
+    rogue_summary_path = tmp_path / "rogue_summary.json"
+    rogue_summary_path.write_text(
+        json.dumps({"cycles": 99, "orders_emitted": 99}, indent=2),
+        encoding="utf-8",
+    )
+    manifest.artifacts["live_summary"] = str(rogue_summary_path)
+    manifest_mod.write_run_manifest(manifest_path, manifest)
+
+    status_result = runner.invoke(
+        live_main.main,
+        ["status", "--storage-root", str(tmp_path), "--limit", "1"],
+    )
+    assert status_result.exit_code == 0, status_result.output
+    assert "cycles=0" in status_result.output
+    assert "orders=0" in status_result.output
+
+
+def test_live_status_tolerates_invalid_summary_json(tmp_path: Path) -> None:
+    runner = click.testing.CliRunner()
+    run_result = runner.invoke(
+        live_main.main,
+        [
+            "run",
+            "--instrument",
+            "polymarket:market-a:yes",
+            "--cycles",
+            "2",
+            "--storage-root",
+            str(tmp_path),
+            "--execute",
+        ],
+    )
+    assert run_result.exit_code == 0, run_result.output
+
+    manifest_line = next(
+        line for line in run_result.output.splitlines() if line.startswith("manifest=")
+    )
+    manifest_path = Path(manifest_line.split("=", maxsplit=1)[1].strip())
+    manifest = manifest_mod.read_run_manifest(manifest_path)
+    summary_path = Path(manifest.artifacts["live_summary"])
+    summary_path.write_text("{not valid json", encoding="utf-8")
+
+    status_result = runner.invoke(
+        live_main.main,
+        ["status", "--storage-root", str(tmp_path), "--limit", "1"],
+    )
+    assert status_result.exit_code == 0, status_result.output
+    assert "cycles=0" in status_result.output
+    assert "orders=0" in status_result.output

@@ -29,6 +29,8 @@ __all__ = [
     "__commit_hash__",
     "__version__",
     # sub-packages (accessible as alpha_core.<name>)
+    "performance",
     "research",
+    "runtime_protocols",
     "strategy_framework",
 ]

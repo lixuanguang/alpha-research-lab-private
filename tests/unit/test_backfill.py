@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import apps.data_collector.backfill as collector_backfill
+import apps.data_collector.backfill_support as collector_backfill_support
 import pytest
 
 import alpha_core.adapters.base as adapters_base
@@ -133,7 +134,7 @@ def _make_manager(
     tmp_path: Path,
     **manager_kwargs: object,
 ) -> collector_backfill.BackfillManager:
-    retry_policy = collector_backfill.FetchRetryPolicy(**manager_kwargs)
+    retry_policy = collector_backfill_support.FetchRetryPolicy(**manager_kwargs)
     return collector_backfill.BackfillManager(
         adapter=adapter,
         dependencies=collector_backfill.BackfillDependencies(
@@ -272,7 +273,7 @@ def test_backfill_trades_retries_transient_api_errors_with_backoff(
     async def _fake_sleep(delay: float) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr(collector_backfill.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)
 
     manager = _make_manager(
         adapter,
@@ -304,7 +305,7 @@ def test_backfill_trades_reports_failure_after_retry_exhaustion(
     async def _fake_sleep(delay: float) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr(collector_backfill.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)
 
     manager = _make_manager(
         adapter,
@@ -381,7 +382,7 @@ def test_backfill_ohlcv_retries_transient_api_errors_with_backoff(
     async def _fake_sleep(delay: float) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr(collector_backfill.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)
 
     manager = _make_manager(
         adapter,

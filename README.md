@@ -10,17 +10,17 @@
 
 | Stage | Status | Tests | Docs |
 |---|---|---|---|
-| **Foundation** (F1–F6 + 11.x addendum) | **Complete (closed)** | Covered by repo-wide quality gates | [Foundation Plan](docs/implementation/foundation-stage.md) |
-| **Data Plane MVP** (D1–D6) | **Complete (D1–D6 closed)** | Covered by repo-wide quality gates | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
-| **Research Plane MVP** (R1–R6) | **Next** | — | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
+| **Foundation** | **Complete (F1-F6 closed; all validated baseline work folded into implementation steps)** | Covered by repo-wide quality gates | [Foundation Plan](docs/implementation/foundation-stage.md) |
+| **Data Plane MVP** | **Complete (D1-D6 closed; section 11 integrated)** | Covered by repo-wide quality gates | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
+| **Research Plane MVP** (R1–R6) | **In Progress (R1 foundations + CLI/runtime scaffolding)** | Covered by repo-wide quality gates | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
 | Live Plane MVP | Planned | — | — |
 | Observability Baseline | Planned | — | — |
 | Robustness Hardening | Planned | — | — |
 
-**Quality gates (as of March 4, 2026):**
+**Quality gates (as of March 6, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/ apps/ --strict` — 0 errors
-- `pytest tests/` — 701 passed, 8 skipped in ~4.7s
+- `pytest tests/` — 867 passed, 10 skipped in ~5.1s
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:
@@ -107,12 +107,14 @@ Kalshi · KalshiDemo · Polymarket · Limitless · Baozi · Myriad · Probable
 
 ## Implementation Stage Plans
 
+Completed follow-on contracts are folded into the relevant stage plans below. Separate reference docs now cover only still-open or cross-stage work that has not yet been promoted into the main implementation structure.
+
 | Document | Scope |
 |---|---|
 | [Foundation Stage](docs/implementation/foundation-stage.md) | Repo scaffold, canonical models, instrument master, config, storage, CI |
 | [Data Plane MVP](docs/implementation/data-plane-mvp.md) | Live connectors, streaming/batch ingestion, data quality, backfill tools |
 | [Research Plane MVP](docs/implementation/research-plane-mvp.md) | Dataset builder, feature engineering, backtester, PM-specific evaluation |
-| [Lean Adoption Guide](README.LEAN_ADOPTION.md) | Cross-stage architecture contracts to improve research-to-production continuity |
+| [Lean Adoption Guide](README.LEAN_ADOPTION.md) | Reference for remaining cross-stage patterns and backlog items not yet folded into the stage plans |
 | [Lean Adoption Issue Backlog](docs/implementation/lean-adoption-issue-backlog.md) | Copy-paste issue templates and dependency order (`LA-001` through `LA-022`) |
 
 ### Active Delivery Order (Recommended)

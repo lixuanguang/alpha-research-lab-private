@@ -1,7 +1,7 @@
 # Lean Lessons Adoption Guide for Alpha Research Lab
 
-> Last updated: March 2, 2026  
-> Scope: Practical implementation plan for importing high-leverage architecture patterns from QuantConnect Lean into this repo.
+> Last updated: March 6, 2026
+> Scope: Practical implementation reference for Lean-derived patterns that are not yet fully folded into the stage implementation plans.
 > Issue backlog: `docs/implementation/lean-adoption-issue-backlog.md`
 
 ---
@@ -15,6 +15,14 @@ Use Lean's best architectural ideas to improve:
 
 This guide focuses on patterns that fit your current codebase and roadmap, not a full Lean clone.
 
+Several Foundation and Data Plane contracts from this guide are already documented directly in the stage plans as first-class sections. This file should now be treated as a forward-looking reference for the remaining cross-stage patterns and backlog sequencing.
+
+## 1.1 Current Role of This Guide
+
+- Treat `docs/implementation/foundation-stage.md`, `docs/implementation/data-plane-mvp.md`, and `docs/implementation/research-plane-mvp.md` as the primary implementation sources of truth.
+- Use this guide for patterns that are still open, still cross-stage, or still too early to promote into one stage plan without creating duplication.
+- When a contract is implemented and validated, it should be folded into the relevant stage plan and removed as a standalone dependency here.
+
 ---
 
 ## 2. Current Baseline in This Repo
@@ -24,8 +32,8 @@ As of today:
 - Data plane is operational and tested (`apps/data_collector`, `alpha_core/storage`, `alpha_core/quality`).
 - Canonical PM event modeling is strict and reproducible (`alpha_core/events/models.py`).
 - Ingestion lineage exists (`alpha_core/storage/lineage.py`).
-- Research and live entrypoints are still stubs (`apps/research/main.py`, `apps/live_system/main.py`).
-- Gold dataset materialization is documented as scripts/patterns, not first-class CLI.
+- Research and live entrypoints now expose scaffolded Click command groups (`apps/research/main.py`, `apps/live_system/main.py`), but the full production research/live workflows are still in progress.
+- Gold dataset materialization is now available through first-class research modules and CLI scaffolding, with broader feature/backtest/runtime coverage still planned.
 
 Implication: the largest leverage is in **research/live orchestration and shared strategy contracts**.
 
@@ -219,7 +227,7 @@ apps/live_system/
 
 ### Tasks
 
-1. Convert `apps/research/main.py` from stub to click group.
+1. Expand the existing `apps/research/main.py` click group into the full research operator surface.
 2. Implement:
    - `build-dataset`
    - `build-features`
@@ -270,7 +278,7 @@ apps/live_system/
 
 ### Deliverables
 
-- `apps/live_system` no longer stubbed.
+- `apps/live_system` moves beyond the current scaffold runtime into a production-grade shared-contract path.
 - One paper/live-safe end-to-end path.
 
 ### Definition of Done

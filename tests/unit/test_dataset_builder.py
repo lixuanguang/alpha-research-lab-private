@@ -16,6 +16,7 @@ import alpha_core.quality.gap_detector as gap_mod
 import alpha_core.quality.partition_validator as pv_mod
 import alpha_core.research.dataset as dataset_mod
 import alpha_core.research.dataset_builder as builder_mod
+import alpha_core.research.dataset_builder_io as builder_io
 import alpha_core.research.universe as universe_mod
 import alpha_core.storage.parquet_reader as reader_mod
 
@@ -178,8 +179,11 @@ class TestDatasetBuilderBuild:
             end=_END,
             require_quality_pass=False,
         )
-        builder.build(config)
-        dataset_dir = tmp_path / "gold" / "datasets" / "test_build"
+        manifest = builder.build(config)
+        dataset_dir = builder_io.dataset_directory(
+            tmp_path / "gold" / "datasets",
+            manifest.dataset_id,
+        )
         assert (dataset_dir / "_meta.json").exists()
         assert (dataset_dir / "trades.parquet").exists()
         assert (dataset_dir / "universe.parquet").exists()
@@ -228,8 +232,8 @@ class TestDatasetBuilderBuild:
             end=_END,
             require_quality_pass=False,
         )
-        id1 = builder_mod._make_dataset_id(config)
-        id2 = builder_mod._make_dataset_id(config)
+        id1 = builder_io.make_dataset_id(config)
+        id2 = builder_io.make_dataset_id(config)
         assert id1 == id2
 
     def test_as_of_filter_applied_to_trades(self, tmp_path: Path) -> None:
@@ -272,9 +276,12 @@ class TestDatasetBuilderBuild:
             end=_END,
             require_quality_pass=False,
         )
-        builder.build(config)
+        manifest = builder.build(config)
         # Verify only 1 row in output
-        gold_path = tmp_path / "gold" / "datasets" / "aof_test" / "trades.parquet"
+        gold_path = (
+            builder_io.dataset_directory(tmp_path / "gold" / "datasets", manifest.dataset_id)
+            / "trades.parquet"
+        )
         result = pq.read_table(gold_path)
         assert result.num_rows == 1, "Future-recorded rows must be excluded by as-of filter"
 
@@ -292,8 +299,11 @@ class TestDatasetBuilderBuild:
             end=_END,
             require_quality_pass=False,
         )
-        builder.build(config)
-        gold_path = tmp_path / "gold" / "datasets" / "universe_filter" / "trades.parquet"
+        manifest = builder.build(config)
+        gold_path = (
+            builder_io.dataset_directory(tmp_path / "gold" / "datasets", manifest.dataset_id)
+            / "trades.parquet"
+        )
         result = pq.read_table(gold_path)
         ids = result.column("instrument_id").to_pylist()
         assert "unknown:x:y" not in ids
@@ -378,7 +388,55 @@ class TestDatasetBuilderBuild:
         with pytest.raises(builder_mod.DatasetBuildError, match="Gap check failed"):
             bad_builder.build(config)
 
-    def test_rebuild_removes_stale_event_files(self, tmp_path: Path) -> None:
+    def test_gap_check_uses_observed_ohlcv_resolutions(self, tmp_path: Path) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+
+        mock_reader = MagicMock(spec=reader_mod.ParquetEventReader)
+        mock_reader.read_trades.return_value = pa.table({})
+        mock_reader.read_ohlcv.return_value = pa.table(
+            {
+                "instrument_id": ["p:m1:yes", "p:m1:yes"],
+                "resolution": ["1h", "1d"],
+            }
+        )
+        mock_validator = MagicMock(spec=pv_mod.PartitionValidator)
+        mock_gap = MagicMock(spec=gap_mod.GapDetector)
+        mock_gap.detect_trade_gaps.return_value = []
+        mock_gap.detect_ohlcv_gaps.return_value = []
+
+        builder = builder_mod.DatasetBuilder(
+            reader=mock_reader,
+            universe_mgr=universe_mod.UniverseManager(master),
+            quality_validator=mock_validator,
+            gap_detector=mock_gap,
+            storage_root=tmp_path,
+        )
+        config = dataset_mod.DatasetConfig(
+            name="ohlcv_gap_scan",
+            start=_BASE,
+            end=_END,
+            event_types=["ohlcv"],
+            require_quality_pass=False,
+            require_gap_free=True,
+        )
+        builder.build(config)
+
+        expected_calls = {
+            ("p", "p:m1:yes", "1h"),
+            ("p", "p:m1:yes", "1d"),
+        }
+        observed_calls = {
+            (
+                call.args[0],
+                call.args[1],
+                call.kwargs["resolution"],
+            )
+            for call in mock_gap.detect_ohlcv_gaps.call_args_list
+        }
+        assert observed_calls == expected_calls
+
+    def test_distinct_dataset_ids_preserve_prior_snapshot_contents(self, tmp_path: Path) -> None:
         master = master_mod.MarketMaster()
         master.register_market(_make_market("p", "m1", ["yes"]))
         ts = [_BASE + timedelta(hours=1)]
@@ -396,10 +454,13 @@ class TestDatasetBuilderBuild:
             event_types=["trades", "ohlcv"],
             require_quality_pass=False,
         )
-        builder.build(initial_config)
+        initial_manifest = builder.build(initial_config)
 
-        dataset_dir = tmp_path / "gold" / "datasets" / "stale_cleanup"
-        assert (dataset_dir / "ohlcv.parquet").exists()
+        initial_dir = builder_io.dataset_directory(
+            tmp_path / "gold" / "datasets",
+            initial_manifest.dataset_id,
+        )
+        assert (initial_dir / "ohlcv.parquet").exists()
 
         rebuild_config = dataset_mod.DatasetConfig(
             name="stale_cleanup",
@@ -408,10 +469,16 @@ class TestDatasetBuilderBuild:
             event_types=["trades"],
             require_quality_pass=False,
         )
-        builder.build(rebuild_config)
+        rebuilt_manifest = builder.build(rebuild_config)
+        rebuilt_dir = builder_io.dataset_directory(
+            tmp_path / "gold" / "datasets",
+            rebuilt_manifest.dataset_id,
+        )
 
-        assert not (dataset_dir / "ohlcv.parquet").exists()
-        assert (dataset_dir / "trades.parquet").exists()
+        assert initial_manifest.dataset_id != rebuilt_manifest.dataset_id
+        assert (initial_dir / "ohlcv.parquet").exists()
+        assert (rebuilt_dir / "trades.parquet").exists()
+        assert not (rebuilt_dir / "ohlcv.parquet").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +507,24 @@ class TestDatasetBuilderLoadList:
         builder = _make_builder(tmp_path, master_mod.MarketMaster())
         loaded = builder.load(manifest.dataset_id)
         assert loaded.manifest.config.name == "id_ds"
+
+    def test_load_by_name_raises_when_multiple_datasets_share_name(self, tmp_path: Path) -> None:
+        self._build_simple(tmp_path, "shared_name")
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+        builder = _make_builder(tmp_path, master)
+        builder.build(
+            dataset_mod.DatasetConfig(
+                name="shared_name",
+                start=_BASE,
+                end=_END,
+                event_types=["trades"],
+                require_quality_pass=False,
+            )
+        )
+        builder = _make_builder(tmp_path, master_mod.MarketMaster())
+        with pytest.raises(ValueError, match="ambiguous"):
+            builder.load("shared_name")
 
     def test_load_unknown_raises_key_error(self, tmp_path: Path) -> None:
         builder = _make_builder(tmp_path, master_mod.MarketMaster())

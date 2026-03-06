@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import pyarrow as pa  # type: ignore[import-untyped]
 
 import alpha_core.quality.base as quality_base
+import alpha_core.quality.suites.book_microstructure_quality as book_microstructure_quality_suites
 import alpha_core.quality.suites.book_quality as book_quality_suites
 import alpha_core.quality.suites.ohlcv_quality as ohlcv_quality_suites
 import alpha_core.quality.suites.trade_quality as trade_quality_suites
@@ -48,14 +49,16 @@ class PartitionValidator:
         suites: dict[str, quality_base.QualitySuite] = {
             "trades": trade_quality_suites.TRADE_SUITE,
             "books": (
-                book_quality_suites.BOOK_WITH_MICROSTRUCTURE_SUITE
+                book_microstructure_quality_suites.BOOK_WITH_MICROSTRUCTURE_SUITE
                 if include_microstructure
                 else book_quality_suites.BOOK_SUITE
             ),
             "ohlcv": ohlcv_quality_suites.OHLCV_SUITE,
         }
         if include_microstructure:
-            suites["book_deltas"] = book_quality_suites.BOOK_DELTA_MICROSTRUCTURE_SUITE
+            suites["book_deltas"] = (
+                book_microstructure_quality_suites.BOOK_DELTA_MICROSTRUCTURE_SUITE
+            )
         return cls(reader=reader, suites=suites)
 
     def validate_partition(

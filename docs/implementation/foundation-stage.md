@@ -22,9 +22,6 @@
 8. [Codebase Evolution Roadmap](#8-codebase-evolution-roadmap)
 9. [Dependencies & Environment](#9-dependencies--environment)
 10. [Conventions & Standards](#10-conventions--standards)
-11. [Microstructure Foundation Extension (Completed Addendum)](#11-microstructure-foundation-extension-completed-addendum)
-12. [Lean Adoption Foundation Extension (March 2026)](#12-lean-adoption-foundation-extension-march-2026)
-13. [Lean + QUANTAXIS Foundation Extension (March 2026, Iteration 2)](#13-lean--quantaxis-foundation-extension-march-2026-iteration-2)
 
 ---
 
@@ -44,12 +41,13 @@ Prediction markets (Kalshi, Polymarket, Limitless, Baozi, Myriad, Probable) offe
 
 Deliver the **repo scaffold, canonical data model, instrument master, configuration system, CI baseline, and local development environment** — the bedrock that every subsequent stage (Data Plane MVP, Research Plane MVP, Live Plane MVP) builds upon.
 
-### Implementation Status (as of March 2, 2026)
+### Implementation Status (as of March 6, 2026)
 
 - Current stage: **Foundation complete and closed**
-- Completed steps: **F1, F2, F3, F4, F5, F6 + addendum 11.1-11.5**
+- Completed steps: **F1, F2, F3, F4, F5, F6**
+- Integrated baseline work: **microstructure, contract, and operability items folded into section 5**
 - Remaining foundation steps: **None**
-- Current quality gate snapshot: `ruff check .` and `mypy libs/ apps/ --strict` passing locally; `pytest tests/ -v` is green (`644 passed, 8 skipped`)
+- Current quality gate snapshot: `ruff check .` and `mypy libs/ apps/ --strict` passing locally; `pytest tests/ -v` is green (`867 passed, 10 skipped`)
 - Foundation artifact lock added: `data/schemas/canonical_event_v1.json` and `tests/unit/test_foundation_requirements.py`
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 - Post-foundation maintenance note: config loading internals are now split across `alpha_core.config._merge` and `alpha_core.config._overrides`, with `alpha_core.config.loader` kept as the public orchestration entrypoint
@@ -227,6 +225,7 @@ alpha-research-lab-private/
 ## 5. Implementation Steps
 
 The Foundation Stage is broken into **6 sequential sub-steps**. Each step produces a runnable, testable increment.
+Cross-stage contracts and operability guardrails that were previously tracked separately are folded into the relevant steps below.
 
 ---
 
@@ -252,6 +251,12 @@ libs/core/alpha_core/__init__.py (version only)
 tests/unit/test_scaffold.py
 scripts/bootstrap.sh, scripts/validate_env.py
 ```
+
+**Integrated closeout item (March 6, 2026): Documentation modularity baseline**
+
+- `docs/adr/004-documentation-modularity-rule.md` formalizes the documentation split.
+- `docs/runbooks/README.md` and `docs/runbooks/template-runbook.md` establish the operator-procedure home.
+- New-document routing is now explicit: architecture contracts in `docs/implementation/`, operator procedures in `docs/runbooks/`, migration mappings in `docs/guides/`, and breaking changes in `docs/adr/`.
 
 **Targets:**
 | Metric | Target |
@@ -316,6 +321,13 @@ scripts/bootstrap.sh, scripts/validate_env.py
 + libs/core/alpha_core/config/{__init__, loader, models, secrets}.py
 + tests/unit/test_config.py
 ```
+
+**Integrated closeout item (March 6, 2026): Environment profiles**
+
+- `alpha_core.config.profiles` adds `ProfileName`, `EnvironmentProfile`, `BUILTIN_PROFILES`, and `get_profile(...)`.
+- Built-in profiles are standardized as `dev`, `research`, `ci`, `paper`, and `live`.
+- Safety defaults are now explicit: execution is disabled in `dev`, `research`, and `ci`; only `live` allows real money.
+- Coverage lives in `tests/unit/test_profiles.py` with local strict typing and test gates green at the current snapshot.
 
 **Targets:**
 | Metric | Target |
@@ -401,6 +413,19 @@ scripts/bootstrap.sh, scripts/validate_env.py
 + libs/core/alpha_core/utils/{time, ids}.py
 + tests/unit/test_events.py, tests/unit/test_utils.py
 ```
+
+**Integrated closeout item (March 4, 2026): Strategy framework contracts**
+
+- `alpha_core.strategy_framework.interfaces` defines runtime-checkable `UniverseModel`, `AlphaModel`, `PortfolioConstructionModel`, `RiskModel`, and `ExecutionModel` protocols.
+- `alpha_core.strategy_framework.models` provides the shared data contracts used by those protocols, including `InstrumentState`, `MarketState`, `Signal`, `Target`, and `OrderIntent`.
+- `alpha_core.strategy_framework.engine` adds a minimal `StrategyEngine.step(...)` wiring layer so research and live systems converge on the same core contract surface.
+- Coverage lives in `tests/unit/test_strategy_framework.py` with local strict typing and test gates green at the current snapshot.
+
+**Integrated baseline item (March 6, 2026): Microstructure event fidelity**
+
+- Canonical events now support optional sequence and latency metadata required for microstructure reconstruction: `sequence_id`, `ts_exchange`, `ts_receive`, and `source_latency_ms`.
+- `BOOK_DELTA` is part of the canonical event surface when venue payloads support delta semantics.
+- Validation coverage in `tests/unit/test_events.py` keeps the microstructure fields and event variants under the same Foundation model gate as the base event types.
 
 **Targets:**
 | Metric | Target |
@@ -506,6 +531,12 @@ scripts/bootstrap.sh, scripts/validate_env.py
   - `MarketSpec` now enforces that each `OutcomeSpec.canonical_id` matches `{venue}:{market_id}:{outcome_id}`.
 - Added regression tests for stale-outcome cleanup, defensive-copy behavior, and canonical-id mismatch rejection.
 
+**Integrated baseline item (March 6, 2026): Simplex outcome grouping**
+
+- Instrument metadata and symbology now support optional `outcome_group_id` grouping so mutually exclusive outcome sets can be retrieved deterministically.
+- This keeps simplex-style basket logic in the Foundation surface instead of leaving it as a later research-only convention.
+- Coverage lives in the Foundation instrument test suite alongside the canonical ID and lifecycle checks.
+
 **Targets:**
 | Metric | Target |
 |---|---|
@@ -587,6 +618,13 @@ scripts/bootstrap.sh, scripts/validate_env.py
 + tests/integration/test_adapter_mock.py
 + tests/data/fixtures/{sample_trades.json, sample_orderbook.json}
 ```
+
+**Integrated closeout item (March 5, 2026): Provider-agnostic runtime protocols**
+
+- `alpha_core.runtime_protocols.interfaces` defines the account, market-state, order-routing, and execution-acknowledgement boundaries used later by research and live runtimes.
+- `alpha_core.runtime_protocols.models` provides the shared snapshots, status objects, and execution lifecycle models for those interfaces.
+- These contracts remain interface-only at Foundation scope and do not replace venue adapters or execution implementations yet.
+- Coverage lives in `tests/unit/test_runtime_protocols.py` with local strict typing and test gates green at the current snapshot.
 
 **Targets:**
 | Metric | Target |
@@ -674,6 +712,20 @@ scripts/bootstrap.sh, scripts/validate_env.py
   - Empty dataset handling (no crash)
   - `register_silver("books")` and `register_silver("ohlcv")` expose queryable views
 
+**Integrated closeout items (March 4-6, 2026): Run contracts, artifact layout, schema gates, and performance boundaries**
+
+- `alpha_core.research.run_context` and `alpha_core.research.manifest` now define the shared `RunType`, `RunContext`, `RunManifest`, `capture_git_commit()`, and manifest schema-version boundary used across ingestion, research, and live pipelines.
+- `alpha_core.research.artifact_paths` defines the deterministic `data/runs/{run_id}/...` layout, while `alpha_core.storage.lineage` now supports optional downstream run linkage.
+- Schema regression enforcement is now part of the baseline via `RUN_MANIFEST_SCHEMA_VERSION`, `data/schemas/run_manifest_v1.json`, and snapshot fixtures under `tests/data/fixtures/schema_snapshots/`.
+- `alpha_core.performance.interfaces` and `alpha_core.performance.parity` define the optional acceleration boundary for feature transforms and simulation kernels, including parity checks and tolerance policies.
+- Coverage lives in `tests/unit/test_research_manifest.py`, `tests/unit/test_artifact_paths.py`, `tests/unit/test_schema_regression.py`, and `tests/unit/test_performance_boundary.py`, with local strict typing and test gates green at the current snapshot.
+
+**Integrated baseline item (March 6, 2026): Microstructure storage and validation**
+
+- Storage conventions include optional `book_deltas` support with `venue/date/hour` partitioning and schema fields for `reason`, `delta_size`, `sequence_id`, and `is_reconstructed`.
+- Reader, writer, and DuckDB registration paths now treat `book_deltas` as a first-class optional Foundation dataset.
+- Coverage lives in `tests/unit/test_storage.py` and `tests/integration/test_storage_roundtrip.py`, keeping the microstructure storage path under the same regression gates as the base trade/book/OHLCV flows.
+
 **Codebase After F6:** Full foundation structure as shown in Section 4.
 
 **Targets:**
@@ -723,6 +775,11 @@ The Foundation Stage is **complete** when all of the following are true:
 - [x] All 3 app entry points (`data_collector`, `live_system`, `research`) run `--help`
 - [x] CI pipeline green on GitHub Actions
 - [x] ADR docs explain key architectural decisions
+- [x] Canonical events, instrument grouping, and storage conventions cover optional microstructure delta workflows
+- [x] Shared run-contract models and deterministic run-artifact path helpers exist in core
+- [x] Strategy framework and runtime protocol stubs are committed and importable
+- [x] Profile contracts and performance parity boundaries are specified and test-covered
+- [x] Manifest schema regression policy and documentation modularity rules are part of the baseline
 
 ---
 
@@ -1044,280 +1101,6 @@ All significant decisions are recorded in `docs/adr/` following the format:
 - **Context:** Why the decision is needed
 - **Decision:** What was decided
 - **Consequences:** Trade-offs and implications
-
----
-
-## 11. Microstructure Foundation Extension (Completed Addendum)
-
-Foundation is complete; this completed addendum delivers foundational upgrades needed for queue/OFI/Hawkes research quality.
-
-Delivered additional effort: ~20-40 hours.
-
-### 11.1 F3 Extension: Canonical Event Model Enhancements
-
-Add optional event metadata fields that improve microstructure reconstruction:
-
-- `sequence_id: str | None`
-- `ts_exchange: datetime | None`
-- `ts_receive: datetime | None`
-- `source_latency_ms: float | None`
-
-Add optional event type for delta semantics when available:
-
-- `BOOK_DELTA`
-
-Proposed model (if supported by venue payloads):
-
-```python
-class CanonicalBookDelta(CanonicalMarketEvent):
-    event_type: Literal[EventType.BOOK_DELTA] = EventType.BOOK_DELTA
-    side: Literal["bid", "ask"]
-    price: Decimal
-    delta_size: Decimal
-    reason: Literal["add", "cancel", "trade"]
-    sequence_id: str | None = None
-```
-
-### 11.2 F4 Extension: Outcome Grouping for Simplex Constraints
-
-For cross-contract arbitrage (`sum_i p_i = 1`) ensure instrument metadata can identify outcome sets cleanly.
-
-Add optional grouping field:
-
-- `outcome_group_id: str | None` on `MarketSpec` or derived mapping in symbology
-
-This enables fast retrieval of all mutually exclusive outcomes for one event.
-
-### 11.3 F6 Extension: Storage Conventions for Delta Data
-
-Add optional storage and schema conventions:
-
-- dataset name: `book_deltas`
-- partitioning: `venue/date/hour`
-- schema includes `reason`, `delta_size`, `sequence_id`, `is_reconstructed`
-
-Expose through:
-
-- `storage/conventions.py`
-- `parquet_writer.py` and `parquet_reader.py`
-- `duckdb_layer.py` registration map
-
-### 11.4 Foundation Addendum Tests
-
-Add or extend tests:
-
-- `tests/unit/test_events.py`: optional metadata serialization, `BOOK_DELTA` model validation
-- `tests/unit/test_storage.py`: `book_deltas` partition/schema round-trip
-- `tests/integration/test_storage_roundtrip.py`: delta dataset query via DuckDB
-
-### 11.5 Addendum Completion Criteria
-
-- [x] Canonical models can represent sequence-aware and latency-aware market events.
-- [x] Outcome grouping is available for simplex-constrained basket logic.
-- [x] Storage conventions and readers support optional `book_deltas`.
-- [x] New foundation addendum tests pass without regressing baseline foundation guarantees.
-
----
-
-## 12. Lean Adoption Foundation Extension (March 2026)
-
-Foundation remains complete and closed. This extension does not reopen F1-F6; it adds cross-stage contracts needed for Lean-style research-to-production continuity.
-
-Reference documents:
-- `README.LEAN_ADOPTION.md`
-- `docs/implementation/lean-adoption-issue-backlog.md` (primarily LA-001, LA-002, LA-003, LA-014)
-
-### 12.1 Cross-Stage Run Contracts
-
-Define minimal shared contracts in core so downstream stages stop inventing per-stage metadata formats:
-
-- `RunContext` (run identity, type, timing, config hash, git commit/fallback)
-- `RunManifest` (links run context to stage outputs and parent lineage IDs)
-
-Recommended field minimum:
-
-```python
-class RunContext(BaseModel):
-    run_id: str
-    run_type: Literal["ingestion", "dataset_build", "feature_build", "backtest", "evaluate", "optimize", "live"]
-    config_hash: str
-    git_commit: str | None
-    started_at_utc: datetime
-    completed_at_utc: datetime | None
-
-class RunManifest(BaseModel):
-    run: RunContext
-    artifacts: dict[str, str]
-    parent_run_id: str | None = None
-```
-
-**Status Update (March 4, 2026):**
-
-- `RunType` exported as a named `Literal` type alias covering all seven pipeline stages; used as the single source of truth across modules.
-- `RunContext.run_type` broadened from `"dataset_build"`-only to the full `RunType` union.
-- `capture_git_commit()` added to `run_context.py` — wraps `git rev-parse --short HEAD` with a safe `None` fallback when outside a repo or when `git` is absent.
-- `make_run_context()` auto-calls `capture_git_commit()` when no commit is passed explicitly.
-- `RunManifest` aligned to the spec-minimal contract: the `dataset_id` top-level field was removed; stage-specific keys (dataset ID, feature-set version, etc.) are stored as entries in `artifacts` instead.
-- `DatasetBuilder` updated to write `dataset_id` into `artifact_map` rather than a top-level manifest field — backward-compatible for downstream consumers.
-- `alpha_core.research.__init__` now exports module namespaces only (`artifact_paths`, `manifest`, `run_context`, etc.) to avoid flat-symbol re-export indirection.
-- `tests/unit/test_research_manifest.py` replaced and expanded: 23 tests covering parametrized `RunType` coverage, hash stability, `close_run_context`, `capture_git_commit` (happy path, `FileNotFoundError`, mock injection, explicit-override guard), manifest round-trip, `parent_run_id` linkage, `extra="forbid"` rejection, and per-`RunType` persistence. All 614 tests green; `mypy --strict` clean on changed files.
-
-### 12.2 Artifact Path Conventions
-
-Define a canonical run-output layout once at Foundation level:
-
-```text
-data/runs/{run_id}/
-  manifest.json
-  config.json
-  artifacts.json
-  stage_outputs/
-```
-
-Rules:
-- Artifact paths must be deterministic for identical `(run_id, artifact_key)`.
-- Logical artifact key -> path mapping must be stored in `artifacts.json`.
-- Stage-specific outputs (dataset/features/backtests/reports) may keep existing layouts, but run manifests must point to them.
-
-**Status Update (March 4, 2026):**
-
-- `artifact_paths.py` fully expanded with the complete canonical layout contract:
-  - `run_root`, `run_manifest_path`, `run_config_path`, `run_artifacts_path` — existing fixed-file helpers (unchanged, backward-compatible).
-  - `stage_outputs_path` — new helper for the `stage_outputs/` subdirectory.
-  - `artifact_key_path(storage_root, run_id, artifact_key)` — the single source of truth for a deterministic per-artifact path under `stage_outputs/`; validates the key (non-empty, relative, no `..` traversal).
-  - `write_artifacts_index` / `read_artifacts_index` — atomic write and safe read of `artifacts.json`; `read_artifacts_index` returns `{}` when the file is absent for backward-compatible consumption.
-- `IngestionRun` in `storage/lineage.py` gains an optional `downstream_run_ids: list[str]` field (default `[]`) — fully backward-compatible with existing JSON on disk.
-- `LineageStore.link_downstream_run(ingestion_run_id, downstream_run_id)` — idempotent method to register bidirectional traceability between an ingestion run and a consuming research run. Pairs with `RunManifest.parent_run_id` on the downstream side.
-- Helpers remain available via module namespaces (for example `alpha_core.research.artifact_paths.*`) instead of flat re-exports.
-- `docs/guides/notebook-to-modules-cli-migration-guide.md` updated with §9.1 Run Artifact Layout Convention: documents the directory structure, helper usage patterns, and the `link_downstream_run` bridging flow.
-- New `tests/unit/test_artifact_paths.py`: 25 tests covering fixed-path layout, `artifact_key_path` determinism and validation, `write/read_artifacts_index` round-trip and edge cases, lineage bridge CRUD (default, register, idempotency, accumulation, error case), and backward-compat loading of old JSON without `downstream_run_ids`. All 644 tests green; `mypy --strict` clean.
-
-### 12.3 Strategy Framework Contract Stubs
-
-Add shared protocol stubs in core (implementation deferred to Research/Live stages):
-
-- `UniverseModel`
-- `AlphaModel`
-- `PortfolioConstructionModel`
-- `RiskModel`
-- `ExecutionModel`
-
-These are contract-only at Foundation extension scope and are intended to prevent interface drift between research and live engines.
-
-**Status Update (March 4, 2026):**
-
-- `libs/core/alpha_core/strategy_framework/` package introduced with four modules:
-  - `interfaces.py` — five `typing.Protocol` stubs (`UniverseModel`, `AlphaModel`, `PortfolioConstructionModel`, `RiskModel`, `ExecutionModel`) all decorated `@runtime_checkable`, matching the contracts specified in `README.LEAN_ADOPTION.md §6.1`.
-  - `models.py` — typed Pydantic v2 datamodels covering the full pipeline data flow: `InstrumentState`, `MarketState` (entry point, `extra="allow"` for runtime extensibility), `Signal` (with `SignalDirection` enum and bounded `strength`/`confidence` fields), `Target` (weighted or absolute sizing), `OrderIntent` (with `OrderType` enum and PM price bounds).
-  - `engine.py` — `StrategyEngine` dataclass wiring all five protocols into a single `step(state) -> list[OrderIntent]` cycle with a `cycle_count` counter; no order submission logic (deferred to Research/Live stages).
-  - `__init__.py` — module-namespace exports (`engine`, `interfaces`, `models`) so callers import symbols from explicit modules.
-- `alpha_core/__init__.py` `__all__` updated to document `strategy_framework` as a top-level sub-package alongside `research`.
-- `tests/unit/test_strategy_framework.py` added: 33 tests covering protocol conformance (`isinstance` checks), model validation and field-bound rejection, serialization round-trips for `Signal` and `OrderIntent`, parametrized `SignalDirection` coverage, and `StrategyEngine` orchestration (universe filtering, risk dropping, cycle counting, empty universe). All 677 tests green; `mypy --strict` clean on `libs/core/alpha_core/strategy_framework`.
-
-### 12.4 Schema Regression Policy
-
-Introduce contract stability gates for manifests and reports:
-
-- Add regression test fixtures for run manifest schema.
-- Any schema change requires:
-  1. schema version bump
-  2. migration note in docs
-  3. updated regression snapshots
-
-This policy should be enforced in CI once Research CLI is wired.
-
-**Status Update (March 4, 2026):**
-
-- `RUN_MANIFEST_SCHEMA_VERSION: int = 1` constant added to `manifest.py` as the single source of truth; must be bumped whenever any `RunManifest` field changes.
-- `schema_version: int = Field(default=RUN_MANIFEST_SCHEMA_VERSION)` added to `RunManifest` — backward-compatible (existing code constructing the model without this field gets the default; existing JSON without the field parses cleanly via the default too). `RUN_MANIFEST_SCHEMA_VERSION` is exported by `alpha_core.research.manifest`.
-- Regression snapshot fixtures created:
-  - `tests/data/fixtures/schema_snapshots/run_manifest_v1.json` — frozen canonical JSON for `RunManifest` v1 (all 4 top-level fields).
-  - `tests/data/fixtures/schema_snapshots/run_context_v1.json` — frozen canonical JSON for the embedded `RunContext` (all 6 fields).
-- JSON Schema document `data/schemas/run_manifest_v1.json` added (draft/2020-12), defining the full structure of `RunManifest` v1 with `schema_version` constrained to `1`, `run_type` as an enum, and `additionalProperties: false` for both the top-level object and the nested `run_context` definition.
-- `tests/unit/test_schema_regression.py` added: 19 tests across four test classes:
-  - `TestRunManifestRegression` — snapshot existence, parse, field-set equality, constant/fixture agreement, round-trip stability, run_type validity, non-empty artifacts.
-  - `TestRunContextRegression` — parse, field-set equality, round-trip stability against the separate `RunContext` fixture.
-  - `TestRunManifestJsonSchema` — JSON Schema file existence, valid JSON, `const` matches constant, required-field agreement.
-  - `TestSchemaRegressionGuards` — self-tests proving the gates fire: extra field rejection, missing required field rejection, invalid run_type rejection, simulated field-drift detection.
-- Snapshot update instructions are inlined at the top of `test_schema_regression.py` as a copy-pasteable shell snippet.
-- All 696 tests green; `mypy --strict` clean on changed files.
-
-### 12.5 Foundation Extension Acceptance Gates
-
-Extension is complete when:
-
-- [x] Shared run contract models exist in core and are importable by both data and research modules.
-- [x] Canonical run artifact path helpers exist and are covered by unit tests.
-- [x] Strategy framework protocol stubs are committed in core.
-- [x] Manifest schema regression policy is documented and test scaffolding exists.
-
----
-
-## 13. Lean + QUANTAXIS Foundation Extension (March 2026, Iteration 2)
-
-Foundation remains complete. This iteration adds protocol and operability guardrails so later stages can scale research development without redesigning core boundaries.
-
-Reference documents:
-- `README.LEAN_ADOPTION.md`
-- `docs/implementation/research-plane-mvp.md`
-
-### 13.1 Provider-Agnostic Runtime Protocols
-
-Add protocol stubs for account/routing surfaces in core:
-
-- `AccountStateProvider` (positions, balances, buying power)
-- `MarketStateProvider` (instrument status, top-of-book, lifecycle state)
-- `OrderRouter` (submit/cancel/query lifecycle)
-- `ExecutionAcknowledger` (acks/rejects/fills)
-
-These are contract-only in foundation scope and should not replace existing adapter implementations yet.
-
-### 13.2 Optional Performance Boundary Contract
-
-Define explicit interfaces for compute-heavy paths (feature transforms, simulation kernels):
-
-- baseline implementation: pure Python
-- optional accelerated implementation: same signature and outputs
-- parity test rule: accelerated path must match baseline within documented tolerance
-
-This avoids API churn when performance work starts later.
-
-### 13.3 Environment Profile Contract
-
-Standardize named runtime profiles:
-
-- `dev`
-- `research`
-- `ci`
-- `paper`
-- `live`
-
-Each profile should define:
-- storage roots
-- logging verbosity
-- safety flags (for example execution disabled in `research`)
-- retention policy defaults
-
-### 13.4 Documentation Modularity Rule
-
-Adopt a strict documentation split:
-
-- architecture contracts in implementation docs
-- operator procedures in runbooks
-- migration mappings in guides
-- breaking changes in ADRs
-
-Goal:
-- avoid one large document becoming the only source of truth.
-
-### 13.5 Iteration 2 Acceptance Gates
-
-Extension is complete when:
-
-- [ ] Runtime protocol stubs for account/market/router boundaries are present in core.
-- [ ] Performance boundary interfaces and parity-test policy are documented.
-- [ ] Profile contract (`dev/research/ci/paper/live`) is specified with required keys.
-- [ ] Documentation modularity rule is applied to new stage-level updates.
 
 ---
 

@@ -169,12 +169,16 @@ def list_recent_live_runs(storage_root: Path, *, limit: int = 5) -> list[LiveRun
         manifest = manifest_mod.read_run_manifest(manifest_path)
         if manifest.run.run_type != "live":
             continue
-        orders_emitted = _read_orders_emitted(manifest.artifacts.get("live_summary"))
+        cycles, orders_emitted = _read_live_summary(
+            manifest.artifacts.get("live_summary"),
+            storage_root=storage_root,
+            run_id=manifest.run.run_id,
+        )
         outcomes.append(
             LiveRunOutcome(
                 run_id=manifest.run.run_id,
                 status="materialized",
-                cycles=0,
+                cycles=cycles,
                 orders_emitted=orders_emitted,
                 config_hash=manifest.run.config_hash,
                 manifest_path=manifest_path,
@@ -207,17 +211,36 @@ def _normalize_instruments(instruments: list[str]) -> list[str]:
     return sorted(dict.fromkeys(normalized))
 
 
-def _read_orders_emitted(summary_path_raw: str | None) -> int:
+def _read_live_summary(
+    summary_path_raw: str | None,
+    *,
+    storage_root: Path,
+    run_id: str,
+) -> tuple[int, int]:
     if summary_path_raw is None:
-        return 0
+        return (0, 0)
     summary_path = Path(summary_path_raw)
     if not summary_path.exists():
-        return 0
-    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        return (0, 0)
+
+    allowed_root = artifact_paths.run_root(storage_root, run_id).resolve()
+    try:
+        resolved_summary_path = summary_path.resolve()
+        resolved_summary_path.relative_to(allowed_root)
+    except (OSError, ValueError):
+        return (0, 0)
+
+    try:
+        payload = json.loads(resolved_summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return (0, 0)
+    if not isinstance(payload, dict):
+        return (0, 0)
+    cycles = payload.get("cycles", 0)
     orders = payload.get("orders_emitted", 0)
-    if isinstance(orders, int):
-        return orders
-    return 0
+    if not isinstance(cycles, int) or not isinstance(orders, int):
+        return (0, 0)
+    return (cycles, orders)
 
 
 __all__ = ["LiveRunOutcome", "LiveRunRequest", "list_recent_live_runs", "run_live_scaffold"]
