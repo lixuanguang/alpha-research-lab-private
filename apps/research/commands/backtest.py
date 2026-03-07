@@ -48,6 +48,12 @@ import apps.research.commands.common as cmd_common
     help="Feature-build run id whose features.parquet is consumed. Required with --execute.",
 )
 @click.option(
+    "--strategy-recipe",
+    "strategy_recipe_id",
+    default=None,
+    help="Strategy-recipe ID to record in the backtest manifest (e.g. 'zscore_momentum').",
+)
+@click.option(
     "--storage-root",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
     default=Path("data"),
@@ -69,6 +75,7 @@ def backtest_command(
     engine: str,
     starting_cash: float,
     parent_run_id: str | None,
+    strategy_recipe_id: str | None,
     storage_root: Path,
     execute: bool,
 ) -> None:
@@ -95,6 +102,7 @@ def backtest_command(
             strategy_id=strategy_id,
             engine=cast(backtest_runner_mod.EngineType, engine),
             starting_cash=starting_cash,
+            strategy_recipe_id=strategy_recipe_id,
         )
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc

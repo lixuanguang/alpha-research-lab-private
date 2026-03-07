@@ -66,6 +66,10 @@ class BacktestConfig(BaseModel):
             "(threshold, target_weight)."
         ),
     )
+    strategy_recipe_id: str | None = Field(
+        default=None,
+        description="Optional strategy-recipe ID whose manifest drives configuration.",
+    )
 
     @field_validator("dataset_id", "feature_set_version", "strategy_id")
     @classmethod
@@ -94,6 +98,7 @@ class BacktestManifest(BaseModel):
     total_return: float
     artifacts: dict[str, str]
     parent_run_id: str | None = None
+    strategy_recipe_id: str | None = None
 
 
 class BacktestRunError(RuntimeError):
@@ -286,6 +291,7 @@ class BacktestRunner:
             total_return=(final_equity - config.starting_cash) / config.starting_cash,
             artifacts=artifact_map,
             parent_run_id=parent_run_id,
+            strategy_recipe_id=config.strategy_recipe_id,
         )
 
         manifest_path = self._store.prepare_path(run_id, "backtest_manifest.json")

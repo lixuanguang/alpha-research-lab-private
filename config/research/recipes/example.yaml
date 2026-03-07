@@ -1,0 +1,33 @@
+# Example strategy-recipe manifest composing factor packs with risk/execution
+# parameters.
+#
+# Load this with:
+#   import alpha_core.research.strategy_recipe as recipe_mod
+#   recipe = recipe_mod.load_strategy_recipe(Path("config/research/recipes/example.yaml"))
+
+recipe_id: zscore_momentum
+version: "1.0.0"
+description: >
+  Z-score mean-reversion strategy using the momentum factor pack.
+  Enters long when z-score < -threshold, short (or exits) when > +threshold.
+
+# Factor packs required by this recipe (resolved in order).
+factor_pack_ids:
+  - momentum
+
+# Default risk guard parameters (overridable at run time).
+risk_template:
+  max_position_pct: 0.10
+  max_drawdown_pct: 0.20
+  min_trade_count: 5
+
+# Default execution/fill model parameters.
+execution_template:
+  fee_bps: 5.0
+  slippage_bps: 2.0
+  fill_model: immediate
+
+# Strategy-level parameter block passed directly to the backtest runner.
+strategy_params:
+  zscore_threshold: 1.5
+  target_weight: 0.05

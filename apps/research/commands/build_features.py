@@ -35,6 +35,12 @@ import apps.research.commands.common as cmd_common
 )
 @click.option("--parent-run-id", default=None, help="Optional upstream dataset run id for lineage.")
 @click.option(
+    "--factor-pack",
+    "factor_pack_id",
+    default=None,
+    help="Factor-pack ID to record in the feature manifest (e.g. 'momentum').",
+)
+@click.option(
     "--storage-root",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
     default=Path("data"),
@@ -54,6 +60,7 @@ def build_features_command(
     feature_set_version: str,
     lookback_bars: int,
     parent_run_id: str | None,
+    factor_pack_id: str | None,
     storage_root: Path,
     execute: bool,
 ) -> None:
@@ -80,6 +87,7 @@ def build_features_command(
             dataset_id=dataset_id,
             feature_set_version=feature_set_version,
             lookback_bars=lookback_bars,
+            factor_pack_id=factor_pack_id,
         )
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc

@@ -140,6 +140,7 @@ addopts = "-v --tb=short"
 # Custom markers used by this repository.
 markers = [
     "perf: performance-sensitive benchmark-style tests",
+    "smoke: fast CI smoke tests covering the critical research pipeline path",
 ]
 # Add libs/core so tests can import alpha_core without extra env setup.
 pythonpath = [".", "libs/core"]

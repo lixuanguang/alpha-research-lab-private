@@ -49,6 +49,29 @@ pytest tests/ -v --cov=alpha_core --cov=apps/data_collector
 
 ---
 
+## Research CLI Command Chain
+
+The research plane exposes a first-class CLI pipeline. All commands are run from the repo root with `conda activate py311`.
+
+| Step | Command | Key output |
+|---|---|---|
+| 1 | `python -m apps.research.main build-dataset --storage-root data/ --execute` | `data/gold/datasets/<dataset_id>/trades.parquet` |
+| 2 | `python -m apps.research.main build-features --dataset-id <id> --storage-root data/ --execute` | `data/gold/runs/<run_id>/features.parquet` |
+| 3 | `python -m apps.research.main backtest --dataset-id <id> --strategy-id <id> --parent-run-id <feature_run_id> --storage-root data/ --execute` | `trades.parquet`, `equity.parquet`, `run_manifest.json` |
+| 4 | `python -m apps.research.main evaluate --backtest-run-id <id> --storage-root data/ --execute` | `metrics.json`, `metrics.parquet` |
+| 5 | `python -m apps.research.main report --evaluate-run-id <id> --storage-root data/ --execute` | `report.json` |
+| 6 | `python -m apps.research.main optimize --config config/research/optimize.example.yaml --storage-root data/ --execute` | `trial_registry.jsonl`, `leaderboard.parquet` |
+
+Run the full smoke path against fixture data (matches CI):
+
+```bash
+pytest -m smoke tests/integration/test_research_pipeline_e2e.py -v
+```
+
+Each stage writes a `run_manifest.json` under `data/gold/runs/<run_id>/` linking the run to its parent for full lineage traceability.
+
+---
+
 ## Architecture
 
 Three entrypoints on a shared core, specialised for prediction markets via [`pmxt`](https://github.com/pmxt-dev/pmxt):

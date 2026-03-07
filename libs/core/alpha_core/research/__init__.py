@@ -5,6 +5,8 @@ This package exports module namespaces only:
 - as-of join helpers
 - dataset contracts and builder
 - run-context and manifest contracts
+- session and experiment-catalog governance contracts
+- strategy recipe manifests
 - universe management
 """
 
@@ -15,11 +17,14 @@ import alpha_core.research.backtest_runner as backtest_runner
 import alpha_core.research.dataset as dataset
 import alpha_core.research.dataset_builder as dataset_builder
 import alpha_core.research.evaluate_runner as evaluate_runner
+import alpha_core.research.experiment_catalog as experiment_catalog
 import alpha_core.research.feature_runner as feature_runner
 import alpha_core.research.manifest as manifest
 import alpha_core.research.optimize_runner as optimize_runner
 import alpha_core.research.run_context as run_context
 import alpha_core.research.run_summary as run_summary
+import alpha_core.research.session as session
+import alpha_core.research.strategy_recipe as strategy_recipe
 import alpha_core.research.universe as universe
 
 __all__ = [
@@ -30,10 +35,13 @@ __all__ = [
     "dataset",
     "dataset_builder",
     "evaluate_runner",
+    "experiment_catalog",
     "feature_runner",
     "manifest",
     "optimize_runner",
     "run_context",
     "run_summary",
+    "session",
+    "strategy_recipe",
     "universe",
 ]

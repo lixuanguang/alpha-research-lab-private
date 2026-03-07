@@ -51,6 +51,10 @@ class FeatureConfig(BaseModel):
         gt=0,
         description="Rolling window size used by all time-series feature primitives.",
     )
+    factor_pack_id: str | None = Field(
+        default=None,
+        description="Optional factor-pack ID whose manifest drives feature computation.",
+    )
 
     @field_validator("dataset_id", "feature_set_version")
     @classmethod
@@ -82,6 +86,7 @@ class FeatureManifest(BaseModel):
     feature_names: list[str]
     artifacts: dict[str, str]
     parent_run_id: str | None = None
+    factor_pack_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +209,7 @@ class FeatureRunner:
             feature_names=feature_names,
             artifacts={"features": str(features_path)},
             parent_run_id=parent_run_id,
+            factor_pack_id=config.factor_pack_id,
         )
 
         # 5. Write feature manifest JSON.

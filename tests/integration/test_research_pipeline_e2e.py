@@ -318,6 +318,7 @@ class TestEvaluateStage:
 # ===========================================================================
 
 
+@pytest.mark.smoke
 def test_full_research_command_chain(storage_root: Path) -> None:
     """Single test covering the complete implemented research command chain.
 
@@ -378,6 +379,7 @@ def test_full_research_command_chain(storage_root: Path) -> None:
     assert isinstance(metrics["total_return"], float)
 
 
+@pytest.mark.smoke
 def test_lineage_chain_is_complete(storage_root: Path) -> None:
     """Assert that run_id lineage is traceable from evaluate back to build-features."""
     feature_run_id = _run_build_features(storage_root, _DATASET_ID)

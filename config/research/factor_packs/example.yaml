@@ -1,0 +1,27 @@
+# Example factor-pack manifest for a momentum-based feature set.
+#
+# Load this with:
+#   import alpha_core.features.factor_pack as fp_mod
+#   pack = fp_mod.load_factor_pack(Path("config/research/factor_packs/example.yaml"))
+
+pack_id: momentum
+version: "1.0.0"
+description: >
+  Rolling z-score and return-based momentum features computed over
+  a configurable lookback window.
+
+# Factor packs this pack depends on (must be resolved first).
+dependencies: []
+
+# Authoritative list of columns this pack adds to the feature matrix.
+output_schema:
+  price_zscore_20: float64
+  price_zscore_50: float64
+  rolling_return_10: float64
+  rolling_return_20: float64
+
+# Default parameters (overridable at run time via strategy_params).
+parameters:
+  short_lookback: 20
+  long_lookback: 50
+  return_window: 10

@@ -51,9 +51,9 @@ Suggested labels:
 - [x] LA-012: Implement pre-trade validator and execution report pipeline (P3)
 - [x] LA-013: Add live dry-run integration tests (mock venue adapters) (P3)
 - [x] LA-014: Add run observability summaries + manifest/report schema regression tests (P4)
-- [ ] LA-015: Add CI smoke job for research CLI pipeline (P4)
-- [ ] LA-016: Add `ResearchSession` + `ExperimentCatalog` contracts and persistence (P5)
-- [ ] LA-017: Add factor-pack registry and strategy recipe manifests (P5)
+- [x] LA-015: Add CI smoke job for research CLI pipeline (P4)
+- [x] LA-016: Add `ResearchSession` + `ExperimentCatalog` contracts and persistence (P5)
+- [x] LA-017: Add factor-pack registry and strategy recipe manifests (P5)
 - [ ] LA-018: Add promotion-gate workflow and research ergonomics CLI aliases (P5)
 - [ ] LA-019: Add provider-neutral data-bridge contract and capability declarations (P6)
 - [ ] LA-020: Add incremental cursor persistence and replay-package manifests (P6)
@@ -665,10 +665,10 @@ Add CI job that validates minimal research lifecycle command chain on fixture da
 
 ### Checklist
 
-- [ ] Add CI stage executing minimal command chain
-- [ ] Add artifact upload for failed run diagnostics
-- [ ] Keep runtime bounded for CI (< 5 minutes target)
-- [ ] Document command chain in root README
+- [x] Add CI stage executing minimal command chain
+- [x] Add artifact upload for failed run diagnostics
+- [x] Keep runtime bounded for CI (< 5 minutes target)
+- [x] Document command chain in root README
 
 ### Acceptance criteria
 
@@ -708,11 +708,11 @@ Add session-level and experiment-level contracts so dataset/features/backtest/ev
 
 ### Checklist
 
-- [ ] Add `ResearchSession` schema with `session_id`, `run_id`, `dataset_id`, `feature_set_version`, `strategy_id`, `notes`
-- [ ] Add `ExperimentCatalog` schema/index with status fields (`candidate`, `needs_review`, `approved_for_paper`, `rejected`)
-- [ ] Add read/write/list helpers for catalog persistence
-- [ ] Link run manifests to `session_id`
-- [ ] Add unit tests for schema validation and catalog lifecycle operations
+- [x] Add `ResearchSession` schema with `session_id`, `run_id`, `dataset_id`, `feature_set_version`, `strategy_id`, `notes`
+- [x] Add `ExperimentCatalog` schema/index with status fields (`candidate`, `needs_review`, `approved_for_paper`, `rejected`)
+- [x] Add read/write/list helpers for catalog persistence
+- [x] Link run manifests to `session_id`
+- [x] Add unit tests for schema validation and catalog lifecycle operations
 
 ### Acceptance criteria
 
@@ -754,11 +754,11 @@ Introduce reusable factor-pack and strategy-recipe contracts so feature/backtest
 
 ### Checklist
 
-- [ ] Add `FactorPackManifest` contract with `pack_id`, `version`, `dependencies`, `output_schema`
-- [ ] Add `StrategyRecipeManifest` contract with factor-pack refs, risk/execution templates, and parameter blocks
-- [ ] Add validation and dependency-resolution checks
-- [ ] Add CLI flags for `--factor-pack` and `--strategy-recipe`
-- [ ] Add unit tests for manifest validation and conflict paths
+- [x] Add `FactorPackManifest` contract with `pack_id`, `version`, `dependencies`, `output_schema`
+- [x] Add `StrategyRecipeManifest` contract with factor-pack refs, risk/execution templates, and parameter blocks
+- [x] Add validation and dependency-resolution checks
+- [x] Add CLI flags for `--factor-pack` and `--strategy-recipe`
+- [x] Add unit tests for manifest validation and conflict paths
 
 ### Acceptance criteria
 

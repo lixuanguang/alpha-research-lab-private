@@ -2249,9 +2249,9 @@ All aliases should still emit standard run manifests and reuse existing runners.
 
 This future section is complete when:
 
-- [ ] `ResearchSession` schema is implemented and linked across R1-R5 artifacts.
+- [x] `ResearchSession` schema is implemented and linked across R1-R5 artifacts (`libs/core/alpha_core/research/session.py`).
+- [x] Optimize/evaluate runs register into a queryable experiment catalog (`libs/core/alpha_core/research/experiment_catalog.py`).
 - [ ] Factor-pack and strategy-recipe manifests are versioned and validated by tests.
-- [ ] Optimize/evaluate runs register into a queryable experiment catalog.
 - [ ] Promotion workflow enforces objective/risk gates before paper/live promotion.
 - [ ] CLI aliases improve ergonomics without introducing a second artifact contract.
 

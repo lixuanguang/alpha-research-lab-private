@@ -1,4 +1,8 @@
-"""Research CLI commands aligned with the R1-R6 stage contract."""
+"""Research CLI commands aligned with the R1-R6 stage contract.
+
+Governance commands (``session``, ``catalog``, ``promote``) are wired in
+LA-018 once the promotion-gate workflow is implemented.
+"""
 
 from __future__ import annotations
 
