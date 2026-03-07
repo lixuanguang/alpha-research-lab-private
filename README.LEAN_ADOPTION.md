@@ -1,8 +1,10 @@
 # Lean Lessons Adoption Guide for Alpha Research Lab
 
 > Last updated: March 7, 2026
-> Scope: Practical implementation reference for Lean-derived patterns that are not yet fully folded into the stage implementation plans.
+> Scope: Practical implementation reference for Lean-derived patterns, including
+> delivered contracts and the remaining cross-stage hardening work.
 > Issue backlog: `docs/implementation/lean-adoption-issue-backlog.md`
+> Backlog status: `LA-001` through `LA-022` are delivered.
 
 ---
 
@@ -20,8 +22,15 @@ Several Foundation and Data Plane contracts from this guide are already document
 ## 1.1 Current Role of This Guide
 
 - Treat `docs/implementation/foundation-stage.md`, `docs/implementation/data-plane-mvp.md`, and `docs/implementation/research-plane-mvp.md` as the primary implementation sources of truth.
-- Use this guide for patterns that are still open, still cross-stage, or still too early to promote into one stage plan without creating duplication.
+- Use this guide for patterns that remain cross-stage, historical delivery context, and the small set of open hardening items that are not worth duplicating across stage plans.
 - When a contract is implemented and validated, it should be folded into the relevant stage plan and removed as a standalone dependency here.
+
+## 1.2 What Is Still Outstanding
+
+- Harmonize materialized research CLI JSON/text payloads so they sit on top of the shared run-summary/stage-outcome contract rather than hand-built per command.
+- Decide whether the optional research `run-pipeline` alias is worth adding, or remove it from the design references entirely.
+- Reuse `ArtifactStore` more broadly in live/runtime paths instead of mixing the abstraction with direct artifact-path writes.
+- Continue product hardening in the stage plans: richer PM-native execution realism, deeper PM-specific evaluation metrics, and stronger promotion/live readiness workflows.
 
 ---
 
@@ -32,10 +41,12 @@ As of today:
 - Data plane is operational and tested (`apps/data_collector`, `alpha_core/storage`, `alpha_core/quality`).
 - Canonical PM event modeling is strict and reproducible (`alpha_core/events/models.py`).
 - Ingestion lineage exists (`alpha_core/storage/lineage.py`).
-- Research and live entrypoints now expose first-class Click command groups (`apps/research/main.py`, `apps/live_system/main.py`), but the full production research/live workflows are still in progress.
-- Gold dataset materialization, feature builds, backtest/evaluate/report, filesystem-backed artifact storage, optimize workflows, and live dry-run/runtime scaffolds are now available through first-class modules; richer PM-native execution, deeper evaluation metrics, and governance workflows remain open.
+- Research and live entrypoints expose first-class Click command groups (`apps/research/main.py`, `apps/live_system/main.py`), including governance and promotion commands (`session`, `catalog`, `promote`).
+- Gold dataset materialization, feature builds, backtest/evaluate/report, filesystem-backed artifact storage, optimize workflows, runtime profiles, and live dry-run/runtime scaffolds are available through first-class modules.
+- CI smoke coverage for the research command chain is in place, and the optional acceleration boundary/parity harness is delivered.
+- The main open areas are now PM-native execution realism, deeper evaluation metrics, broader live artifact-store reuse, and CLI payload consistency.
 
-Implication: the largest leverage is now in **execution realism, research governance, and cross-stage promotion workflows**.
+Implication: the largest leverage is now in **execution realism, evaluation hardening, and cross-stage contract cleanup**.
 
 ---
 
@@ -44,6 +55,8 @@ Implication: the largest leverage is now in **execution realism, research govern
 ### 3.1 Strategy Framework Contracts (Highest ROI)
 
 **Lean lesson:** Separate strategy concerns into pluggable modules instead of one monolithic algorithm script.
+
+**Status in this repo:** Implemented in `alpha_core.strategy_framework` and reused by the live/runtime scaffolds. Remaining work is improving the PM-native behavior sitting on top of those interfaces.
 
 **Bring over:**
 - `UniverseModel`
@@ -86,7 +99,7 @@ Implication: the largest leverage is now in **execution realism, research govern
 
 **Lean lesson:** CLI is the main interface for repeatable workflows.
 
-**Status in this repo:** Implemented for `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, and `optimize`. Remaining ergonomics are optional pipeline aliases and CI smoke coverage.
+**Status in this repo:** Implemented for `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize`, `session`, `catalog`, and `promote`. Remaining ergonomics are the optional `run-pipeline` alias and harmonized materialized payloads.
 
 **Bring over:**
 - Implement `apps/research/main.py` group commands:
@@ -145,6 +158,8 @@ Implication: the largest leverage is now in **execution realism, research govern
 
 **Lean lesson:** Orders pass explicit brokerage/risk checks before execution.
 
+**Status in this repo:** Implemented for `OrderIntent -> ValidatedOrder -> ExecutionReport`, pre-trade validation, and live dry-run/runtime guardrails. Remaining work is deeper venue-specific execution realism and broader production adoption.
+
 **Bring over:**
 - `PreTradeValidator` for PM constraints:
   - market lifecycle active check
@@ -160,7 +175,7 @@ Implication: the largest leverage is now in **execution realism, research govern
 
 ## 4. Repository Implementation Blueprint
 
-### 4.1 New Modules to Add
+### 4.1 Implemented Module Blueprint
 
 ```text
 libs/core/alpha_core/
@@ -209,7 +224,9 @@ apps/live_system/
 
 ---
 
-## 5. Detailed Build Plan
+## 5. Delivered Build Plan (Historical Sequencing)
+
+Phases P0-P4 below are retained as the delivery sequence that closed the Lean adoption backlog. They are no longer an open checklist; use section 1.2 for the current outstanding work.
 
 ## Phase P0: Contracts and Metadata (1-2 weeks)
 
@@ -418,7 +435,9 @@ CLI output rule:
 
 ---
 
-## 10. 30/60/90-Day Rollout Targets
+## 10. Historical 30/60/90-Day Targets
+
+These milestones were the original rollout targets for the Lean adoption backlog and are retained for traceability. They are all effectively delivered at this point.
 
 ### Day 30
 
@@ -545,9 +564,11 @@ Add protocol boundaries in core for:
 Outcome:
 - strategy code and research runners stop depending on one concrete connector/runtime implementation.
 
-### 12.2 Research Session + Experiment Catalog
+### 12.2 Research Session + Experiment Catalog — **Implemented**
 
-Introduce two lightweight contracts:
+> Delivered: `alpha_core.research.session`, `alpha_core.research.experiment_catalog`, and the `research session` / `research catalog` / `research promote` CLI surfaces.
+
+Introduced two lightweight contracts:
 
 - `ResearchSession`: one object for dataset/feature/backtest/evaluate state for a user run
 - `ExperimentCatalog`: index of experiment metadata (`run_id`, tags, objective, promotion status)
@@ -555,9 +576,11 @@ Introduce two lightweight contracts:
 Outcome:
 - easier iteration loops and promotion of successful research runs to production candidates.
 
-### 12.3 Factor/Signal Pack Registry
+### 12.3 Factor/Signal Pack Registry — **Implemented**
 
-Add a registry pattern for grouped feature/signal definitions:
+> Delivered: `alpha_core.features.factor_pack`, factor-pack loading/validation, factor-pack-aware feature builds, and recipe-to-factor-pack checks in backtests.
+
+Implemented a registry pattern for grouped feature/signal definitions:
 
 - each pack declares version, dependencies, schema, and compute entrypoint
 - backtests/optimize consume pack IDs instead of ad-hoc notebook code
@@ -578,9 +601,11 @@ Design:
 Outcome:
 - performance improvements later without API churn.
 
-### 12.5 Ops Profile Standardization
+### 12.5 Ops Profile Standardization — **Implemented**
 
-Standardize environment profiles for reproducible runs:
+> Delivered: shared `dev` / `research` / `ci` / `paper` / `live` profiles, authoritative loader wiring, storage-root and retention defaults, and execution/real-money safety guards across collector, research, and live CLIs.
+
+Standardized environment profiles for reproducible runs:
 
 - `dev`, `research`, `ci`, `paper`, `live`
 - each profile declares storage roots, log level, retention, and safety flags

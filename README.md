@@ -137,17 +137,39 @@ Completed follow-on contracts are folded into the relevant stage plans below. Se
 | [Foundation Stage](docs/implementation/foundation-stage.md) | Repo scaffold, canonical models, instrument master, config, storage, CI |
 | [Data Plane MVP](docs/implementation/data-plane-mvp.md) | Live connectors, streaming/batch ingestion, data quality, backfill tools |
 | [Research Plane MVP](docs/implementation/research-plane-mvp.md) | Dataset builder, feature engineering, backtester, PM-specific evaluation |
-| [Lean Adoption Guide](README.LEAN_ADOPTION.md) | Reference for remaining cross-stage patterns and backlog items not yet folded into the stage plans |
-| [Lean Adoption Issue Backlog](docs/implementation/lean-adoption-issue-backlog.md) | Copy-paste issue templates and dependency order (`LA-001` through `LA-022`) |
+| [Lean Adoption Guide](README.LEAN_ADOPTION.md) | Reference for delivered Lean-derived contracts and remaining cross-stage hardening work |
+| [Lean Adoption Issue Backlog](docs/implementation/lean-adoption-issue-backlog.md) | Historical issue templates and dependency order for `LA-001` through `LA-022` (all delivered) |
+
+### Status Snapshot
+
+Closed:
+- Foundation Stage (`F1`-`F6`)
+- Data Plane MVP (`D1`-`D6`)
+- Lean adoption backlog (`LA-001` through `LA-022`)
+- Research CLI baseline: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize`
+- Research governance baseline: `session`, `catalog`, `promote`
+- Filesystem `ArtifactStore`, optimize trial registry, runtime profiles, and acceleration parity boundary
+
+Still open:
+- Research Plane MVP hardening: PM-specific features, richer execution simulation, vectorized fast path, deeper PM-native evaluation metrics, example strategies
+- Cross-stage contract cleanup: harmonized materialized CLI payloads, optional `run-pipeline` decision, broader `ArtifactStore` reuse in live/runtime
+- Data Plane -> Research handoff contract: lineage bridge fields, `dataset_ready` gating, handoff manifests, ingestion-to-dataset integration coverage
+- PM-native backtester enhancement plan (`B0`-`B4`)
+- Live Plane MVP
+- Observability Baseline
+- Robustness Hardening
+- Macro/OpenBB ingestion plan (`M0`-`M3`) if strategy-driven
 
 ### Active Delivery Order (Recommended)
 
-1. Harden the current research CLI scaffold and implement `ArtifactStore` + `optimize` (LA-009, LA-010).
-2. Add CI smoke coverage for the research CLI pipeline (LA-015).
-3. Add macro ingestion via OpenBB hybrid path (M0-M2 below).
-4. Replace the current backtest scaffold with richer PM-native execution and resolution handling (B0-B4 below).
-5. Add research-session / experiment-catalog governance (LA-016 through LA-018).
-6. Promote only validated pieces into Live Plane MVP.
+1. Finish the open **Research Plane MVP** gaps: PM-specific features, richer execution simulation, vectorized fast path, deeper PM-native evaluation metrics, and example strategies.
+2. Clean up remaining **cross-stage contracts**: harmonize materialized research CLI payloads, decide on the optional `run-pipeline` alias, and extend `ArtifactStore` reuse into live/runtime paths.
+3. Implement the **Data Plane -> Research handoff contract**: lineage bridge fields, `dataset_ready` gating, handoff manifests, and ingestion-to-dataset integration coverage.
+4. Apply the **PM-native backtester enhancement plan** (`B0`-`B4` below): scheduling/calendars, pluggable cost models, deterministic bundle snapshots, metrics-set registry, and factor-graph ergonomics.
+5. Build **Live Plane MVP** on top of the validated research contracts: paper/live-safe routing, real-time feature/signal services, and production risk gates.
+6. Add the **Observability Baseline**: telemetry, dashboards, alerts, and operator runbooks for the now-meaningful live/runtime surface.
+7. Finish **Robustness Hardening**: purged/embargoed CV, multiple-testing controls, survivorship/bias enforcement, and research validation workflows.
+8. Treat **macro/OpenBB ingestion** (`M0`-`M3` below) as an optional, thesis-driven extension unless it is directly required by the current alpha roadmap.
 
 ## Macro Data Ingestion Plan (OpenBB Hybrid)
 
