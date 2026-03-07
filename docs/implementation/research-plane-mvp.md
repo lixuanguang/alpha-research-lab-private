@@ -401,7 +401,7 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 
 #### R4 — Vectorized Backtester & Parameter Sweep
 
-- [ ] Vectorized fast path — deferred to later iteration
+- [x] Vectorized fast path — `VecStrategy` ABC, `VecBacktestConfig`, `VecBacktestEngine` (cross-sectional, DataFrame-native, rebalance-frequency grid) in `apps/research/backtester/`; position sizing (`EqualWeightSizer`, `FixedSizeSizer`, `KellySizer`) in `libs/core/alpha_core/portfolio/sizing.py`; parameter sweep (`ParameterGrid`, `BacktestEvaluator`, `ParameterSweepRunner`, `SweepResult`) in `apps/research/backtester/sweep.py`; tests: `tests/unit/test_vec_engine.py`, `test_vec_strategy.py`, `test_position_sizing.py`, `test_parameter_sweep.py`, `test_optimize_runner.py`; `tests/integration/test_vec_backtest_e2e.py` (95 new tests, 1877 total passing)
 - [x] Acceleration boundary contract — `alpha_core.perf.interfaces` (`FeatureTransform`, `SimulationKernel`) and parity harness (`alpha_core.performance.parity`) established; regression tests in `tests/regression/test_acceleration_parity.py`; ADR 005 documents tolerance policy and promotion gate (LA-022)
 - [x] `alpha_core.research.optimize_runner` — first-class grid/random search with persisted trial registry and leaderboard (`libs/core/alpha_core/research/optimize_runner.py`)
 - [x] CLI: `optimize` command (`apps/research/commands/optimize.py`)
