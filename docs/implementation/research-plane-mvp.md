@@ -382,8 +382,11 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 - [x] CLI: `build-features` command (`apps/research/commands/build_features.py`)
 - [x] Config example: `config/research/features.example.yaml`
 - [x] Integration tests: `tests/integration/test_research_build_features.py`
-- [ ] `alpha_core.features.pm_specific` — prediction-market microstructure features (deferred to later iteration)
-- [ ] `FeatureRegistry` — versioned feature catalogue (deferred to LA-017)
+- [x] `alpha_core.features.pm_specific` — prediction-market microstructure features (`libs/core/alpha_core/features/pm_specific.py`)
+- [x] `FeatureRegistry` — versioned feature catalogue (`libs/core/alpha_core/features/registry.py`; LA-017)
+- [x] `alpha_core.features.base/primitives/feature_set` — Feature ABC, 9 primitives, FeatureSetBuilder (`libs/core/alpha_core/features/`)
+- [x] Unit tests: `tests/unit/test_feature_primitives.py`, `test_pm_features.py`, `test_feature_registry.py`, `test_feature_set.py`
+- [x] Integration tests: `tests/integration/test_feature_pipeline.py`
 
 #### R3 — Event-Driven Backtester & Execution Simulator
 
