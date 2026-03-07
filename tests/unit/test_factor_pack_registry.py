@@ -214,7 +214,7 @@ class TestResolveDependencyOrder:
     def test_cycle_raises(self) -> None:
         a = _make_pack(pack_id="a", dependencies=["b"])
         b = _make_pack(pack_id="b", dependencies=["a"])
-        with pytest.raises(ValueError, match="[Cc]ircular"):
+        with pytest.raises(ValueError, match=r"[Cc]ircular"):
             resolve_dependency_order([a, b])
 
     def test_self_loop_raises(self) -> None:

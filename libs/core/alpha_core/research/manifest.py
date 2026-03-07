@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.run_context as run_context_mod
+import alpha_core.research.session as session_mod
 import alpha_core.storage.lineage as lineage_mod
 
 # ---------------------------------------------------------------------------
@@ -21,7 +22,7 @@ import alpha_core.storage.lineage as lineage_mod
 #: ``tests/data/fixtures/schema_snapshots/run_manifest_v{N}.json`` and the JSON
 #: Schema at ``data/schemas/run_manifest_v{N}.json`` must be updated together
 #: with every bump.
-RUN_MANIFEST_SCHEMA_VERSION: int = 1
+RUN_MANIFEST_SCHEMA_VERSION: int = 2
 
 
 class RunManifest(BaseModel):
@@ -88,6 +89,13 @@ def persist_run_record(
             parent_run_id=parent_run_id,
         ),
     )
+    if run_context.session_id is not None:
+        session_mod.ensure_session(storage_root, run_context.session_id)
+        session_mod.add_run(
+            storage_root,
+            run_context.session_id,
+            run_id=run_context.run_id,
+        )
     if parent_run_id is None:
         return
     try:

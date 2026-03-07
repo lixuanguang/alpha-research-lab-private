@@ -23,6 +23,7 @@ from click.testing import CliRunner
 
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
+import alpha_core.research.session as session_mod
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -615,3 +616,100 @@ def test_late_recorded_events_are_ordered_by_availability(tmp_path: Path) -> Non
     assert ts_events[0] == ontime_event
     assert price_mean[0] is None
     assert price_mean[1] == pytest.approx(0.55)
+
+
+def test_execute_with_factor_pack_materializes_manifest_driven_columns(
+    storage_root_with_dataset: Path,
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        research_main.main,
+        [
+            "--format",
+            "json",
+            "build-features",
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--factor-pack",
+            "momentum",
+            "--storage-root",
+            str(storage_root_with_dataset),
+            "--execute",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    run_id = json.loads(result.output)["run_id"]
+
+    features = pq.read_table(
+        artifact_paths.artifact_key_path(
+            storage_root_with_dataset,
+            run_id,
+            "features.parquet",
+        )
+    )
+    assert "price_zscore_20" in features.schema.names
+    assert "price_zscore_50" in features.schema.names
+    assert "rolling_return_10" in features.schema.names
+    assert "rolling_return_20" in features.schema.names
+
+    run_manifest = manifest_mod.read_run_manifest(
+        artifact_paths.run_manifest_path(storage_root_with_dataset, run_id)
+    )
+    assert run_manifest.artifacts["factor_pack_id"] == "momentum"
+    assert run_manifest.artifacts["factor_pack_version"] == "1.0.0"
+
+
+def test_missing_factor_pack_exits_nonzero(storage_root_with_dataset: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        research_main.main,
+        [
+            "build-features",
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--factor-pack",
+            "missing_pack",
+            "--storage-root",
+            str(storage_root_with_dataset),
+            "--execute",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "missing_pack" in result.output
+
+
+def test_execute_records_session_id_in_manifest_and_session_file(
+    storage_root_with_dataset: Path,
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        research_main.main,
+        [
+            "--session-id",
+            "session_123",
+            "--format",
+            "json",
+            "build-features",
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_dataset),
+            "--execute",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    run_id = json.loads(result.output)["run_id"]
+
+    run_manifest = manifest_mod.read_run_manifest(
+        artifact_paths.run_manifest_path(storage_root_with_dataset, run_id)
+    )
+    assert run_manifest.run.session_id == "session_123"
+
+    session = session_mod.load_session(storage_root_with_dataset, "session_123")
+    assert session.run_ids == [run_id]

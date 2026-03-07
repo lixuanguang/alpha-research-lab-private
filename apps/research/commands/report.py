@@ -93,7 +93,11 @@ def report_command(
     report_payload["report_format"] = report_format
 
     # Persist the report artifact under a new report run.
-    run_context = run_context_mod.make_run_context("report", config_payload=payload)
+    run_context = run_context_mod.make_run_context(
+        "report",
+        config_payload=payload,
+        session_id=cmd_common.get_session_id(ctx),
+    )
     run_id = run_context.run_id
 
     report_suffix = "json" if report_format == "json" else "md"

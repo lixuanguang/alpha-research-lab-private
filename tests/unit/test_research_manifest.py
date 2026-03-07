@@ -10,6 +10,7 @@ import pytest
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
+import alpha_core.research.session as session_mod
 import alpha_core.storage.lineage as lineage_mod
 
 # ---------------------------------------------------------------------------
@@ -55,6 +56,15 @@ def test_close_run_context_sets_completed_at() -> None:
     assert completed.completed_at_utc is not None
     assert completed.run_id == ctx.run_id
     assert completed.run_type == ctx.run_type
+
+
+def test_make_run_context_records_session_id() -> None:
+    ctx = run_context_mod.make_run_context(
+        "backtest",
+        config_payload={"v": 1},
+        session_id=" session_001 ",
+    )
+    assert ctx.session_id == "session_001"
 
 
 # ---------------------------------------------------------------------------
@@ -293,3 +303,43 @@ def test_persist_run_record_links_parent_ingestion_run(tmp_path: Path) -> None:
     updated_ingestion = store.get_run(ingestion.run_id)
     assert updated_ingestion is not None
     assert run_context.run_id in updated_ingestion.downstream_run_ids
+
+
+def test_persist_run_record_links_run_into_session(tmp_path: Path) -> None:
+    run_context = run_context_mod.close_run_context(
+        run_context_mod.make_run_context(
+            "feature_build",
+            config_payload={"dataset_id": "ds_001"},
+            session_id="session_123",
+        )
+    )
+
+    manifest_mod.persist_run_record(
+        storage_root=tmp_path,
+        run_context=run_context,
+        config_payload={"dataset_id": "ds_001"},
+        artifacts={"features": "data/runs/r1/stage_outputs/features.parquet"},
+        parent_run_id=None,
+    )
+
+    stored_session = session_mod.load_session(tmp_path, "session_123")
+    assert stored_session.run_ids == [run_context.run_id]
+
+
+def test_run_manifest_roundtrip_preserves_session_id(tmp_path: Path) -> None:
+    run = run_context_mod.make_run_context(
+        "evaluate",
+        config_payload={"metric": "sharpe_ratio"},
+        session_id="session_abc",
+    )
+    completed = run_context_mod.close_run_context(run)
+    manifest = manifest_mod.RunManifest(
+        run=completed,
+        artifacts={"metrics_json": "data/runs/r1/stage_outputs/metrics.json"},
+    )
+
+    path = artifact_paths.run_manifest_path(tmp_path, completed.run_id)
+    manifest_mod.write_run_manifest(path, manifest)
+
+    loaded = manifest_mod.read_run_manifest(path)
+    assert loaded.run.session_id == "session_abc"

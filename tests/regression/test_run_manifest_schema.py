@@ -45,10 +45,10 @@ from alpha_core.research.run_summary import RUN_SUMMARY_SCHEMA_VERSION, RunSumma
 # Edit ONLY when you intentionally change the corresponding source model.
 # ---------------------------------------------------------------------------
 
-_EXPECTED_RUN_MANIFEST_VERSION: int = 1
-_EXPECTED_BACKTEST_MANIFEST_VERSION: int = 1
+_EXPECTED_RUN_MANIFEST_VERSION: int = 2
+_EXPECTED_BACKTEST_MANIFEST_VERSION: int = 2
 _EXPECTED_EVALUATE_MANIFEST_VERSION: int = 1
-_EXPECTED_FEATURE_MANIFEST_VERSION: int = 1
+_EXPECTED_FEATURE_MANIFEST_VERSION: int = 2
 _EXPECTED_OPTIMIZE_MANIFEST_VERSION: int = 1
 _EXPECTED_TRIAL_RECORD_VERSION: int = 1
 _EXPECTED_RUN_SUMMARY_VERSION: int = 1
@@ -64,6 +64,7 @@ _EXPECTED_RUN_CONTEXT_KEYS: frozenset[str] = frozenset(
         "run_id",
         "run_type",
         "config_hash",
+        "session_id",
         "git_commit",
         "started_at_utc",
         "completed_at_utc",
@@ -94,6 +95,8 @@ _EXPECTED_BACKTEST_MANIFEST_KEYS: frozenset[str] = frozenset(
         "total_return",
         "artifacts",
         "parent_run_id",
+        "strategy_recipe_id",
+        "strategy_recipe_version",
     }
 )
 
@@ -123,6 +126,8 @@ _EXPECTED_FEATURE_MANIFEST_KEYS: frozenset[str] = frozenset(
         "feature_names",
         "artifacts",
         "parent_run_id",
+        "factor_pack_id",
+        "factor_pack_version",
     }
 )
 
@@ -218,6 +223,7 @@ class TestRunContextSchema:
             run_id="abc123",
             run_type="backtest",
             config_hash="deadbeef",
+            session_id="session_001",
             git_commit="a1b2c3d",
             started_at_utc=datetime(2026, 3, 7, 10, 0, 0, tzinfo=UTC),
         )
@@ -226,6 +232,7 @@ class TestRunContextSchema:
         restored = RunContext.model_validate_json(raw)
         assert restored.run_id == ctx.run_id
         assert restored.config_hash == ctx.config_hash
+        assert restored.session_id == "session_001"
 
 
 # ---------------------------------------------------------------------------
@@ -336,6 +343,8 @@ class TestBacktestManifestSchema:
             final_equity=11_200.0,
             total_return=0.12,
             artifacts={"trades": "/data/bt1/trades.parquet"},
+            strategy_recipe_id="zscore_momentum",
+            strategy_recipe_version="1.0.0",
         )
         payload = m.model_dump(mode="json")
         restored = BacktestManifest.model_validate(payload)
@@ -422,10 +431,13 @@ class TestFeatureManifestSchema:
             feature_count=4,
             feature_names=["midprice_ema20", "spread_ma5", "vol_ratio", "momentum"],
             artifacts={"features": "/data/ft1/features.parquet"},
+            factor_pack_id="momentum",
+            factor_pack_version="1.0.0",
         )
         payload = m.model_dump(mode="json")
         restored = FeatureManifest.model_validate(payload)
         assert restored.run_id == "ft1"
+        assert restored.schema_version == _EXPECTED_FEATURE_MANIFEST_VERSION
 
 
 # ---------------------------------------------------------------------------

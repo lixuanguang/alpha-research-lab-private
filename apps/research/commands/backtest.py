@@ -51,7 +51,7 @@ import apps.research.commands.common as cmd_common
     "--strategy-recipe",
     "strategy_recipe_id",
     default=None,
-    help="Strategy-recipe ID to record in the backtest manifest (e.g. 'zscore_momentum').",
+    help="Strategy-recipe ID to resolve, validate, and apply during simulation.",
 )
 @click.option(
     "--storage-root",
@@ -95,6 +95,24 @@ def backtest_command(
     if starting_cash <= 0:
         raise click.ClickException("`--starting-cash` must be > 0.")
 
+    resolved_recipe = None
+    strategy_params: dict[str, float] = {}
+    fee_bps = 0.0
+    slippage_bps = 0.0
+    max_position_pct = None
+    if strategy_recipe_id is not None:
+        try:
+            resolved_recipe = backtest_runner_mod.resolve_strategy_recipe(strategy_recipe_id)
+        except backtest_runner_mod.BacktestRunError as exc:
+            raise click.ClickException(str(exc)) from exc
+        assert resolved_recipe is not None
+        strategy_params = backtest_runner_mod.normalize_recipe_strategy_params(
+            resolved_recipe.strategy_params
+        )
+        fee_bps = resolved_recipe.execution_template.fee_bps
+        slippage_bps = resolved_recipe.execution_template.slippage_bps
+        max_position_pct = resolved_recipe.risk_template.max_position_pct
+
     try:
         config = backtest_runner_mod.BacktestConfig(
             dataset_id=dataset_id,
@@ -103,6 +121,13 @@ def backtest_command(
             engine=cast(backtest_runner_mod.EngineType, engine),
             starting_cash=starting_cash,
             strategy_recipe_id=strategy_recipe_id,
+            strategy_recipe_version=(
+                resolved_recipe.version if resolved_recipe is not None else None
+            ),
+            strategy_params=strategy_params,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+            max_position_pct=max_position_pct,
         )
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -121,7 +146,12 @@ def backtest_command(
     fmt = cmd_common.get_output_format(ctx)
     try:
         runner = backtest_runner_mod.BacktestRunner(resolved_root)
-        manifest = runner.build(config, config_payload=payload, parent_run_id=parent_run_id)
+        manifest = runner.build(
+            config,
+            config_payload=payload,
+            parent_run_id=parent_run_id,
+            session_id=cmd_common.get_session_id(ctx),
+        )
     except backtest_runner_mod.BacktestRunError as exc:
         raise click.ClickException(str(exc)) from exc
 

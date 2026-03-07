@@ -177,6 +177,7 @@ def build_dataset_command(
             config,
             config_payload=payload,
             parent_run_id=parent_run_id,
+            session_id=cmd_common.get_session_id(ctx),
         )
     except builder_mod.DatasetBuildError as exc:
         raise click.ClickException(str(exc)) from exc

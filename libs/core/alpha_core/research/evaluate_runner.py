@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -22,6 +23,10 @@ MetricsProfile = Literal["default", "pm_core", "microstructure", "minimal"]
 
 _EPSILON = 1e-12
 _SECONDS_PER_YEAR = 365.25 * 24.0 * 60.0 * 60.0
+_RISK_METRICS_FREQUENCY = "1h"
+_RISK_METRICS_PERIODS_PER_YEAR = 365.25 * 24.0
+_RISK_METRICS_STEP = pd.to_timedelta(_RISK_METRICS_FREQUENCY)
+_MAX_ANNUAL_LOG_RETURN = math.log(sys.float_info.max)
 
 
 class EvaluateManifest(BaseModel):
@@ -65,6 +70,7 @@ class EvaluateRunner:
         *,
         config_payload: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
+        session_id: str | None = None,
     ) -> EvaluateManifest:
         try:
             trades_path = self._store.path_for(backtest_run_id, "trades.parquet")
@@ -83,7 +89,11 @@ class EvaluateRunner:
                 "metrics_profile": metrics_profile,
             }
         )
-        run_context = run_context_mod.make_run_context("evaluate", config_payload=effective_payload)
+        run_context = run_context_mod.make_run_context(
+            "evaluate",
+            config_payload=effective_payload,
+            session_id=session_id,
+        )
         run_id = run_context.run_id
 
         metrics = _compute_metrics(
@@ -186,6 +196,7 @@ def _compute_metrics(
     sharpe_ratio = 0.0
     max_drawdown = 0.0
     equity_series = pd.Series([starting_cash, *equity_frame["equity"].tolist()], dtype=float)
+    resampled_equity = _resample_equity(equity_frame=equity_frame, starting_cash=starting_cash)
     if len(equity_series) >= 2:
         rolling_max = equity_series.cummax()
         drawdowns = (equity_series - rolling_max) / rolling_max.replace(0, float("nan"))
@@ -199,17 +210,19 @@ def _compute_metrics(
         if equity_ratio == 0.0:
             annualized_return = -1.0
         elif elapsed_seconds > 0:
-            annualized_return = float(equity_ratio ** (_SECONDS_PER_YEAR / elapsed_seconds) - 1.0)
+            annualized_return = _annualize_return(
+                equity_ratio=equity_ratio,
+                elapsed_seconds=elapsed_seconds,
+            )
 
-        period_returns = equity_series.pct_change().dropna()
-        deltas = equity_frame["ts_event"].diff().dropna().dt.total_seconds()
-        positive_deltas = deltas[deltas > 0]
-        if len(period_returns) >= 2 and not positive_deltas.empty:
-            periods_per_year = _SECONDS_PER_YEAR / float(positive_deltas.median())
+        period_returns = resampled_equity.pct_change().dropna()
+        if len(period_returns) >= 2:
             std_return = float(period_returns.std(ddof=1))
             if std_return > _EPSILON:
                 sharpe_ratio = float(
-                    period_returns.mean() / std_return * math.sqrt(periods_per_year)
+                    period_returns.mean()
+                    / std_return
+                    * math.sqrt(_RISK_METRICS_PERIODS_PER_YEAR)
                 )
 
     metrics.update(
@@ -223,6 +236,37 @@ def _compute_metrics(
     if profile == "microstructure":
         metrics["avg_spread_cost_bps"] = 0.0
     return metrics
+
+
+def _resample_equity(
+    *,
+    equity_frame: pd.DataFrame,
+    starting_cash: float,
+) -> pd.Series:
+    if equity_frame.empty:
+        return pd.Series([starting_cash], dtype=float)
+
+    indexed = equity_frame.set_index("ts_event")["equity"].sort_index(kind="stable")
+    resampled = indexed.resample(_RISK_METRICS_FREQUENCY).last().ffill()
+    if resampled.empty:
+        return pd.Series([starting_cash], dtype=float)
+
+    first_timestamp = resampled.index[0]
+    if float(resampled.iloc[0]) != float(starting_cash):
+        seed = pd.Series(
+            [starting_cash],
+            index=[first_timestamp - _RISK_METRICS_STEP],
+            dtype=float,
+        )
+        resampled = pd.concat([seed, resampled]).sort_index(kind="stable")
+    return resampled.astype(float)
+
+
+def _annualize_return(*, equity_ratio: float, elapsed_seconds: float) -> float:
+    annual_log_return = math.log(equity_ratio) * (_SECONDS_PER_YEAR / elapsed_seconds)
+    if annual_log_return >= _MAX_ANNUAL_LOG_RETURN:
+        return sys.float_info.max
+    return math.exp(annual_log_return) - 1.0
 
 
 def _trade_statistics(

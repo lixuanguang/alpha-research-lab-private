@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -13,9 +14,13 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+import alpha_core.config.paths as config_paths
+import alpha_core.features.factor_pack as factor_pack_mod
 import alpha_core.research.artifact_store as artifact_store_mod
+import alpha_core.research.feature_runner as feature_runner_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
+import alpha_core.research.strategy_recipe as strategy_recipe_mod
 import alpha_core.strategy_framework.models as strategy_models
 import alpha_core.utils.time as time_utils
 
@@ -70,10 +75,27 @@ class BacktestConfig(BaseModel):
         default=None,
         description="Optional strategy-recipe ID whose manifest drives configuration.",
     )
+    strategy_recipe_version: str | None = Field(
+        default=None,
+        description="Resolved strategy-recipe version recorded in the backtest manifest.",
+    )
+    fee_bps: float = Field(default=0.0, ge=0.0)
+    slippage_bps: float = Field(default=0.0, ge=0.0)
+    max_position_pct: float | None = Field(default=None, gt=0.0, le=1.0)
 
     @field_validator("dataset_id", "feature_set_version", "strategy_id")
     @classmethod
     def _strip(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("field must not be blank")
+        return cleaned
+
+    @field_validator("strategy_recipe_id", "strategy_recipe_version")
+    @classmethod
+    def _strip_optional(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         cleaned = value.strip()
         if not cleaned:
             raise ValueError("field must not be blank")
@@ -85,7 +107,7 @@ class BacktestManifest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: int = Field(default=1)
+    schema_version: int = Field(default=2)
     run_id: str
     dataset_id: str
     feature_set_version: str
@@ -99,6 +121,7 @@ class BacktestManifest(BaseModel):
     artifacts: dict[str, str]
     parent_run_id: str | None = None
     strategy_recipe_id: str | None = None
+    strategy_recipe_version: str | None = None
 
 
 class BacktestRunError(RuntimeError):
@@ -111,12 +134,20 @@ class StrategySpec:
     family: Literal["zscore_mean_reversion", "zscore_momentum"]
     threshold: float
     target_weight: float
+    fee_bps: float = 0.0
+    slippage_bps: float = 0.0
 
 
 @dataclass(slots=True, frozen=True)
 class PendingTarget:
     direction: strategy_models.SignalDirection
     signal_ts: datetime
+
+
+@dataclass(slots=True, frozen=True)
+class FeatureArtifactRecipeMetadata:
+    factor_pack_id: str
+    factor_pack_version: str
 
 
 class _FeatureMarketState(strategy_models.MarketState):
@@ -232,6 +263,7 @@ class BacktestRunner:
         *,
         config_payload: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
+        session_id: str | None = None,
     ) -> BacktestManifest:
         if parent_run_id is None:
             raise BacktestRunError(
@@ -250,14 +282,51 @@ class BacktestRunner:
         effective_payload = (
             config_payload if config_payload is not None else config.model_dump(mode="json")
         )
-        run_context = run_context_mod.make_run_context("backtest", config_payload=effective_payload)
+        resolved_recipe = resolve_strategy_recipe(
+            config.strategy_recipe_id,
+            expected_version=config.strategy_recipe_version,
+        )
+        features_df = pq.read_table(features_path).to_pandas()
+        effective_strategy_params = dict(config.strategy_params)
+        effective_fee_bps = config.fee_bps
+        effective_slippage_bps = config.slippage_bps
+        effective_max_position_pct = config.max_position_pct
+        recipe_zscore_column = None
+        if resolved_recipe is not None:
+            (
+                effective_strategy_params,
+                effective_fee_bps,
+                effective_slippage_bps,
+                effective_max_position_pct,
+            ) = _merge_recipe_defaults(
+                config=config,
+                recipe=resolved_recipe,
+            )
+            recipe_zscore_column = _validate_recipe_feature_contract(
+                store=self._store,
+                parent_run_id=parent_run_id,
+                recipe=resolved_recipe,
+                features_df=features_df,
+            )
+        run_context = run_context_mod.make_run_context(
+            "backtest",
+            config_payload=effective_payload,
+            session_id=session_id,
+        )
         run_id = run_context.run_id
-        strategy_spec = _resolve_strategy_spec(config.strategy_id, config.strategy_params)
+        strategy_spec = _resolve_strategy_spec(
+            config.strategy_id,
+            effective_strategy_params,
+            max_position_pct=effective_max_position_pct,
+            fee_bps=effective_fee_bps,
+            slippage_bps=effective_slippage_bps,
+        )
         strategy = _ZScoreStrategy(strategy_spec)
         trades_table, equity_table = _simulate(
-            features_df=pq.read_table(features_path).to_pandas(),
+            features_df=features_df,
             config=config,
             strategy=strategy,
+            zscore_column=recipe_zscore_column,
         )
 
         trades_path = self._store.prepare_path(run_id, "trades.parquet")
@@ -278,6 +347,9 @@ class BacktestRunner:
             "feature_set_version": config.feature_set_version,
             "strategy_id": config.strategy_id,
         }
+        if resolved_recipe is not None:
+            artifact_map["strategy_recipe_id"] = resolved_recipe.recipe_id
+            artifact_map["strategy_recipe_version"] = resolved_recipe.version
         backtest_manifest = BacktestManifest(
             run_id=run_id,
             dataset_id=config.dataset_id,
@@ -291,7 +363,16 @@ class BacktestRunner:
             total_return=(final_equity - config.starting_cash) / config.starting_cash,
             artifacts=artifact_map,
             parent_run_id=parent_run_id,
-            strategy_recipe_id=config.strategy_recipe_id,
+            strategy_recipe_id=(
+                resolved_recipe.recipe_id
+                if resolved_recipe is not None
+                else config.strategy_recipe_id
+            ),
+            strategy_recipe_version=(
+                resolved_recipe.version
+                if resolved_recipe is not None
+                else config.strategy_recipe_version
+            ),
         )
 
         manifest_path = self._store.prepare_path(run_id, "backtest_manifest.json")
@@ -313,11 +394,13 @@ def _simulate(
     features_df: pd.DataFrame,
     config: BacktestConfig,
     strategy: _ZScoreStrategy,
+    zscore_column: str | None = None,
 ) -> tuple[pa.Table, pa.Table]:
     frame = _prepare_features(
         features_df=features_df,
         engine=config.engine,
         strategy_spec=strategy._spec,
+        zscore_column=zscore_column,
     )
     if frame is None:
         return _empty_simulation()
@@ -345,6 +428,8 @@ def _simulate(
                 direction=pending.direction,
                 target_weight=strategy._spec.target_weight,
                 price=price,
+                fee_bps=strategy._spec.fee_bps,
+                slippage_bps=strategy._spec.slippage_bps,
                 cash=cash,
                 positions=positions,
                 average_costs=average_costs,
@@ -387,11 +472,17 @@ def _prepare_features(
     features_df: pd.DataFrame,
     engine: EngineType,
     strategy_spec: StrategySpec,
+    zscore_column: str | None = None,
 ) -> pd.DataFrame | None:
     if features_df.empty:
         return None
 
-    zscore_col = next((col for col in features_df.columns if col.startswith("price_zscore_")), None)
+    zscore_col = zscore_column
+    if zscore_col is None:
+        zscore_col = next(
+            (col for col in features_df.columns if col.startswith("price_zscore_")),
+            None,
+        )
     price_col = (
         "price"
         if "price" in features_df.columns
@@ -400,7 +491,12 @@ def _prepare_features(
             None,
         )
     )
-    if zscore_col is None or price_col is None or "instrument_id" not in features_df.columns:
+    if (
+        zscore_col is None
+        or zscore_col not in features_df.columns
+        or price_col is None
+        or "instrument_id" not in features_df.columns
+    ):
         return None
 
     sequence_col = "ts_available" if "ts_available" in features_df.columns else "ts_event"
@@ -441,6 +537,8 @@ def _rebalance_to_target(
     direction: strategy_models.SignalDirection,
     target_weight: float,
     price: float,
+    fee_bps: float,
+    slippage_bps: float,
     cash: float,
     positions: dict[str, float],
     average_costs: dict[str, float],
@@ -456,11 +554,16 @@ def _rebalance_to_target(
     if abs(quantity_delta) <= _EPSILON:
         return cash, None
 
+    execution_price = _apply_slippage(
+        price,
+        quantity_delta=quantity_delta,
+        slippage_bps=slippage_bps,
+    )
     realized_pnl, trade_return, updated_quantity, updated_avg_cost = _apply_fill(
         current_quantity=current_quantity,
         current_avg_cost=average_costs.get(instrument_id, price),
         trade_quantity=quantity_delta,
-        execution_price=price,
+        execution_price=execution_price,
     )
     if abs(updated_quantity) <= _EPSILON:
         positions.pop(instrument_id, None)
@@ -469,7 +572,8 @@ def _rebalance_to_target(
         positions[instrument_id] = updated_quantity
         average_costs[instrument_id] = updated_avg_cost
 
-    cash_impact = -(quantity_delta * price)
+    fee = abs(quantity_delta) * execution_price * (fee_bps / 10_000.0)
+    cash_impact = -(quantity_delta * execution_price) - fee
     cash += cash_impact
     trade_direction = (
         strategy_models.SignalDirection.LONG
@@ -482,7 +586,7 @@ def _rebalance_to_target(
         "instrument_id": instrument_id,
         "direction": trade_direction.value,
         "size": abs(quantity_delta),
-        "price": price,
+        "price": execution_price,
         "cash_impact": cash_impact,
         "realized_pnl": realized_pnl,
         "trade_return": trade_return,
@@ -526,17 +630,25 @@ def _apply_fill(
 def _resolve_strategy_spec(
     strategy_id: str,
     params: dict[str, float] | None = None,
+    *,
+    max_position_pct: float | None = None,
+    fee_bps: float = 0.0,
+    slippage_bps: float = 0.0,
 ) -> StrategySpec:
     normalized = strategy_id.strip().lower()
     params = params or {}
     threshold = float(params.get("threshold", 1.5))
     target_weight = float(params.get("target_weight", 0.02))
+    if max_position_pct is not None:
+        target_weight = min(target_weight, max_position_pct)
     if normalized.startswith("zscore") and "momentum" in normalized:
         return StrategySpec(
             strategy_id=strategy_id,
             family="zscore_momentum",
             threshold=threshold,
             target_weight=target_weight,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
         )
     if normalized.startswith("zscore"):
         return StrategySpec(
@@ -544,11 +656,27 @@ def _resolve_strategy_spec(
             family="zscore_mean_reversion",
             threshold=threshold,
             target_weight=target_weight,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
         )
     raise BacktestRunError(
         f"Unsupported strategy_id '{strategy_id}'. "
         "Built-in support currently covers the zscore_* strategy family."
     )
+
+
+def _apply_slippage(
+    price: float,
+    *,
+    quantity_delta: float,
+    slippage_bps: float,
+) -> float:
+    if slippage_bps <= 0:
+        return price
+
+    slip_fraction = slippage_bps / 10_000.0
+    adjusted = price * (1.0 + slip_fraction if quantity_delta > 0 else 1.0 - slip_fraction)
+    return min(max(adjusted, _EPSILON), 1.0)
 
 
 def _direction_from_zscore(
@@ -668,6 +796,225 @@ def _coerce_timestamp(value: object) -> datetime:
     if isinstance(value, datetime):
         return time_utils.ensure_utc(value)
     raise BacktestRunError(f"Backtest encountered a non-datetime timestamp value: {value!r}")
+
+
+def resolve_strategy_recipe(
+    strategy_recipe_id: str | None,
+    *,
+    expected_version: str | None = None,
+) -> strategy_recipe_mod.StrategyRecipeManifest | None:
+    if strategy_recipe_id is None:
+        return None
+
+    recipe_dir = config_paths.find_project_root(__file__) / "config" / "research" / "recipes"
+    available_recipes = _discover_strategy_recipes(recipe_dir)
+    recipe = _resolve_recipe(
+        strategy_recipe_id,
+        available=available_recipes,
+        expected_version=expected_version,
+    )
+    available_packs = _discover_factor_pack_ids()
+    try:
+        strategy_recipe_mod.validate_recipe(recipe, available_pack_ids=available_packs)
+    except ValueError as exc:
+        raise BacktestRunError(str(exc)) from exc
+    return recipe
+
+
+def _discover_strategy_recipes(
+    recipe_dir: Path,
+) -> list[strategy_recipe_mod.StrategyRecipeManifest]:
+    if not recipe_dir.exists():
+        raise BacktestRunError(f"Strategy-recipe config directory does not exist: {recipe_dir}")
+
+    recipes: list[strategy_recipe_mod.StrategyRecipeManifest] = []
+    for path in sorted(recipe_dir.glob("*.yaml")) + sorted(recipe_dir.glob("*.yml")):
+        recipes.append(strategy_recipe_mod.load_strategy_recipe(path))
+    for path in sorted(recipe_dir.glob("*.json")):
+        recipes.append(strategy_recipe_mod.load_strategy_recipe(path))
+    return recipes
+
+
+def _resolve_recipe(
+    recipe_id: str,
+    *,
+    available: list[strategy_recipe_mod.StrategyRecipeManifest],
+    expected_version: str | None,
+) -> strategy_recipe_mod.StrategyRecipeManifest:
+    matches = [recipe for recipe in available if recipe.recipe_id == recipe_id]
+    if expected_version is not None:
+        matches = [recipe for recipe in matches if recipe.version == expected_version]
+    if not matches:
+        version_msg = (
+            f" version '{expected_version}'" if expected_version is not None else ""
+        )
+        raise BacktestRunError(f"Strategy recipe '{recipe_id}'{version_msg} was not found.")
+    if len(matches) > 1:
+        versions = sorted(recipe.version for recipe in matches)
+        raise BacktestRunError(
+            f"Strategy recipe '{recipe_id}' is ambiguous across versions {versions}. "
+            "Pass an explicit strategy_recipe_version."
+        )
+    return matches[0]
+
+
+def _discover_factor_pack_ids() -> set[str]:
+    packs_dir = config_paths.find_project_root(__file__) / "config" / "research" / "factor_packs"
+    if not packs_dir.exists():
+        return set()
+
+    pack_ids: set[str] = set()
+    for path in sorted(packs_dir.glob("*.yaml")) + sorted(packs_dir.glob("*.yml")):
+        pack_ids.add(factor_pack_mod.load_factor_pack(path).pack_id)
+    for path in sorted(packs_dir.glob("*.json")):
+        pack_ids.add(factor_pack_mod.load_factor_pack(path).pack_id)
+    return pack_ids
+
+
+def normalize_recipe_strategy_params(params: dict[str, Any]) -> dict[str, float]:
+    normalized: dict[str, float] = {}
+    for key, value in params.items():
+        if not isinstance(value, int | float):
+            continue
+        normalized[str(key)] = float(value)
+    if "threshold" not in normalized and "zscore_threshold" in normalized:
+        normalized["threshold"] = normalized["zscore_threshold"]
+    return normalized
+
+
+def _merge_recipe_defaults(
+    *,
+    config: BacktestConfig,
+    recipe: strategy_recipe_mod.StrategyRecipeManifest,
+) -> tuple[dict[str, float], float, float, float | None]:
+    provided_fields = config.model_fields_set
+    strategy_params = normalize_recipe_strategy_params(recipe.strategy_params)
+    strategy_params.update(config.strategy_params)
+
+    fee_bps = (
+        config.fee_bps
+        if "fee_bps" in provided_fields
+        else recipe.execution_template.fee_bps
+    )
+    slippage_bps = (
+        config.slippage_bps
+        if "slippage_bps" in provided_fields
+        else recipe.execution_template.slippage_bps
+    )
+    max_position_pct = (
+        config.max_position_pct
+        if "max_position_pct" in provided_fields
+        else recipe.risk_template.max_position_pct
+    )
+    return strategy_params, fee_bps, slippage_bps, max_position_pct
+
+
+def _validate_recipe_feature_contract(
+    *,
+    store: artifact_store_mod.FilesystemArtifactStore,
+    parent_run_id: str,
+    recipe: strategy_recipe_mod.StrategyRecipeManifest,
+    features_df: pd.DataFrame,
+) -> str | None:
+    if not recipe.factor_pack_ids:
+        return None
+    if len(recipe.factor_pack_ids) != 1:
+        raise BacktestRunError(
+            "BacktestRunner currently supports strategy recipes with exactly one "
+            "top-level factor pack."
+        )
+
+    feature_metadata = _load_feature_recipe_metadata(store=store, run_id=parent_run_id)
+    required_pack_id = recipe.factor_pack_ids[0]
+    if feature_metadata.factor_pack_id != required_pack_id:
+        raise BacktestRunError(
+            f"Feature run '{parent_run_id}' was built with factor pack "
+            f"'{feature_metadata.factor_pack_id}', but strategy recipe "
+            f"'{recipe.recipe_id}' requires '{required_pack_id}'."
+        )
+
+    factor_packs = feature_runner_mod.resolve_factor_pack_chain(
+        feature_metadata.factor_pack_id,
+        expected_version=feature_metadata.factor_pack_version,
+    )
+    required_columns = {
+        column_name
+        for pack in factor_packs
+        for column_name in pack.output_schema
+    }
+    feature_columns = set(features_df.columns)
+    missing_columns = sorted(required_columns - feature_columns)
+    if missing_columns:
+        raise BacktestRunError(
+            f"Feature run '{parent_run_id}' is missing strategy-recipe columns: "
+            f"{missing_columns}."
+        )
+    zscore_column = _select_recipe_zscore_column(
+        factor_packs=factor_packs,
+        feature_columns=feature_columns,
+    )
+    if zscore_column is None:
+        raise BacktestRunError(
+            f"Strategy recipe '{recipe.recipe_id}' does not expose a "
+            "'price_zscore_*' feature required by the built-in zscore strategies."
+        )
+    return zscore_column
+
+
+def _load_feature_recipe_metadata(
+    *,
+    store: artifact_store_mod.FilesystemArtifactStore,
+    run_id: str,
+) -> FeatureArtifactRecipeMetadata:
+    try:
+        manifest_path = store.path_for(run_id, "feature_manifest.json")
+    except artifact_store_mod.ArtifactNotFoundError as exc:
+        raise BacktestRunError(
+            f"Feature run '{run_id}' is missing 'feature_manifest.json'. "
+            "Strategy recipes require upstream factor-pack metadata."
+        ) from exc
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    factor_pack_id = payload.get("factor_pack_id")
+    factor_pack_version = payload.get("factor_pack_version")
+    if not isinstance(factor_pack_id, str) or not factor_pack_id.strip():
+        raise BacktestRunError(
+            f"Feature run '{run_id}' does not declare a factor_pack_id in "
+            "'feature_manifest.json'."
+        )
+    if not isinstance(factor_pack_version, str) or not factor_pack_version.strip():
+        raise BacktestRunError(
+            f"Feature run '{run_id}' does not declare a factor_pack_version in "
+            "'feature_manifest.json'."
+        )
+    return FeatureArtifactRecipeMetadata(
+        factor_pack_id=factor_pack_id.strip(),
+        factor_pack_version=factor_pack_version.strip(),
+    )
+
+
+def _select_recipe_zscore_column(
+    *,
+    factor_packs: list[factor_pack_mod.FactorPackManifest],
+    feature_columns: set[str],
+) -> str | None:
+    for pack in reversed(factor_packs):
+        for param_name in ("short_lookback", "lookback", "zscore_window"):
+            raw_window = pack.parameters.get(param_name)
+            if isinstance(raw_window, int | float):
+                candidate = f"price_zscore_{int(raw_window)}"
+                if candidate in feature_columns:
+                    return candidate
+
+    manifest_columns = [
+        column_name
+        for pack in factor_packs
+        for column_name in pack.output_schema
+        if column_name.startswith("price_zscore_") and column_name in feature_columns
+    ]
+    if manifest_columns:
+        return manifest_columns[0]
+    return None
 
 
 __all__ = ["BacktestConfig", "BacktestManifest", "BacktestRunError", "BacktestRunner"]

@@ -235,6 +235,7 @@ def optimize_command(
             feature_run_id=feature_run_id,
             config_payload=payload,
             parent_run_id=feature_run_id,
+            session_id=cmd_common.get_session_id(ctx),
         )
     except optimize_runner_mod.OptimizeRunError as exc:
         raise click.ClickException(str(exc)) from exc

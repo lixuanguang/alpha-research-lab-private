@@ -44,6 +44,9 @@ class StrategyEngine:
     risk: strategy_interfaces.RiskModel
     execution: strategy_interfaces.ExecutionModel
     _cycle_count: int = field(default=0, init=False, repr=False)
+    _last_signal_count: int = field(default=0, init=False, repr=False)
+    _last_target_count: int = field(default=0, init=False, repr=False)
+    _last_order_count: int = field(default=0, init=False, repr=False)
 
     def step(self, state: strategy_models.MarketState) -> list[strategy_models.OrderIntent]:
         """Run one full strategy cycle and return the resulting order intents.
@@ -57,9 +60,12 @@ class StrategyEngine:
         """
         state.universe = self.universe.select(state)
         signals = self.alpha.generate(state)
+        self._last_signal_count = len(signals)
         targets = self.portfolio.targets(signals, state)
         targets = self.risk.apply(targets, state)
+        self._last_target_count = len(targets)
         orders = self.execution.create_orders(targets, state)
+        self._last_order_count = len(orders)
         self._cycle_count += 1
         return orders
 
@@ -67,3 +73,18 @@ class StrategyEngine:
     def cycle_count(self) -> int:
         """Number of completed pipeline cycles since engine creation."""
         return self._cycle_count
+
+    @property
+    def last_signal_count(self) -> int:
+        """Number of signals produced during the most recent cycle."""
+        return self._last_signal_count
+
+    @property
+    def last_target_count(self) -> int:
+        """Number of targets produced during the most recent cycle."""
+        return self._last_target_count
+
+    @property
+    def last_order_count(self) -> int:
+        """Number of orders produced during the most recent cycle."""
+        return self._last_order_count

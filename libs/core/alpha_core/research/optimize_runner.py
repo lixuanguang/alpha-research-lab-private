@@ -229,6 +229,7 @@ class OptimizeRunner:
         feature_run_id: str,
         config_payload: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
+        session_id: str | None = None,
     ) -> OptimizeManifest:
         """Execute the optimization sweep and persist all artifacts.
 
@@ -253,7 +254,9 @@ class OptimizeRunner:
             config_payload if config_payload is not None else config.model_dump(mode="json")
         )
         run_context = run_context_mod.make_run_context(
-            "optimize", config_payload=effective_payload
+            "optimize",
+            config_payload=effective_payload,
+            session_id=session_id,
         )
         optimize_run_id = run_context.run_id
         resolved_parent_run_id = parent_run_id or feature_run_id

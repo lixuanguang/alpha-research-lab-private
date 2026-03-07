@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 import alpha_core.utils.time as time_utils
 
@@ -35,6 +35,7 @@ class RunContext(BaseModel):
     run_id: str
     run_type: RunType
     config_hash: str
+    session_id: str | None = Field(default=None, min_length=1)
     git_commit: str | None = None
     started_at_utc: datetime
     completed_at_utc: datetime | None = None
@@ -45,6 +46,7 @@ def make_run_context(
     *,
     config_payload: dict[str, Any],
     git_commit: str | None = None,
+    session_id: str | None = None,
 ) -> RunContext:
     """Create a normalized run context from a config payload.
 
@@ -57,6 +59,7 @@ def make_run_context(
         run_id=uuid.uuid4().hex,
         run_type=run_type,
         config_hash=_hash_payload(config_payload),
+        session_id=_normalize_optional_string(session_id),
         git_commit=git_commit,
         started_at_utc=datetime.now(tz=UTC),
         completed_at_utc=None,
@@ -96,6 +99,13 @@ def capture_git_commit() -> str | None:
 def _hash_payload(payload: dict[str, Any]) -> str:
     serial = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(serial.encode()).hexdigest()
+
+
+def _normalize_optional_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 
 __all__ = [

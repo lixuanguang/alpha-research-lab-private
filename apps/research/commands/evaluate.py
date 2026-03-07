@@ -82,6 +82,7 @@ def evaluate_command(
             metrics_profile=cast(evaluate_runner_mod.MetricsProfile, metrics_profile),
             config_payload=payload,
             parent_run_id=backtest_run_id,
+            session_id=cmd_common.get_session_id(ctx),
         )
     except evaluate_runner_mod.EvaluateRunError as exc:
         raise click.ClickException(str(exc)) from exc

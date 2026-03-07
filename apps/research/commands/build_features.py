@@ -38,7 +38,7 @@ import apps.research.commands.common as cmd_common
     "--factor-pack",
     "factor_pack_id",
     default=None,
-    help="Factor-pack ID to record in the feature manifest (e.g. 'momentum').",
+    help="Factor-pack ID to resolve, validate, and apply during feature computation.",
 )
 @click.option(
     "--storage-root",
@@ -82,12 +82,23 @@ def build_features_command(
     if lookback_bars <= 0:
         raise click.ClickException("`--lookback-bars` must be > 0.")
 
+    resolved_factor_pack = None
+    if factor_pack_id is not None:
+        try:
+            resolved_factor_packs = feature_runner_mod.resolve_factor_pack_chain(factor_pack_id)
+        except feature_runner_mod.FeatureRunError as exc:
+            raise click.ClickException(str(exc)) from exc
+        resolved_factor_pack = resolved_factor_packs[-1]
+
     try:
         config = feature_runner_mod.FeatureConfig(
             dataset_id=dataset_id,
             feature_set_version=feature_set_version,
             lookback_bars=lookback_bars,
             factor_pack_id=factor_pack_id,
+            factor_pack_version=(
+                resolved_factor_pack.version if resolved_factor_pack is not None else None
+            ),
         )
     except ValidationError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -106,7 +117,12 @@ def build_features_command(
     fmt = cmd_common.get_output_format(ctx)
     try:
         runner = feature_runner_mod.FeatureRunner(resolved_root)
-        manifest = runner.build(config, config_payload=payload, parent_run_id=parent_run_id)
+        manifest = runner.build(
+            config,
+            config_payload=payload,
+            parent_run_id=parent_run_id,
+            session_id=cmd_common.get_session_id(ctx),
+        )
     except feature_runner_mod.FeatureRunError as exc:
         raise click.ClickException(str(exc)) from exc
 

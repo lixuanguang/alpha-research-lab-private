@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import apps.research.main as research_main
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -31,6 +32,48 @@ import alpha_core.research.manifest as manifest_mod
 
 _BASE = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
 _N_ROWS = 30
+
+
+def _write_feature_manifest(
+    storage_root: Path,
+    run_id: str,
+    *,
+    feature_names: list[str],
+    row_count: int,
+    factor_pack_id: str | None = None,
+    factor_pack_version: str | None = None,
+) -> None:
+    manifest_path = artifact_paths.artifact_key_path(storage_root, run_id, "feature_manifest.json")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "run_id": run_id,
+                "dataset_id": "deadbeef01234567",
+                "feature_set_version": "v1",
+                "built_at": _BASE.isoformat(),
+                "lookback_bars": 200,
+                "row_count": row_count,
+                "feature_count": len(feature_names),
+                "feature_names": feature_names,
+                "artifacts": {
+                    "features": str(
+                        artifact_paths.artifact_key_path(
+                            storage_root,
+                            run_id,
+                            "features.parquet",
+                        )
+                    )
+                },
+                "parent_run_id": None,
+                "factor_pack_id": factor_pack_id,
+                "factor_pack_version": factor_pack_version,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _write_features_parquet(storage_root: Path, run_id: str, n: int = _N_ROWS) -> Path:
@@ -61,10 +104,57 @@ def _write_features_parquet(storage_root: Path, run_id: str, n: int = _N_ROWS) -
             pa.field("volume_mean_200", pa.float64()),
         ]
     )
-    import pandas as pd
-
     table = pa.Table.from_pandas(pd.DataFrame(df_data), schema=schema, preserve_index=False)
     pq.write_table(table, path, compression="zstd")
+    _write_feature_manifest(
+        storage_root,
+        run_id,
+        feature_names=[
+            "price_mean_200",
+            "price_std_200",
+            "price_zscore_200",
+            "volume_mean_200",
+        ],
+        row_count=n,
+    )
+    return path
+
+
+def _write_recipe_features_parquet(storage_root: Path, run_id: str, n: int = _N_ROWS) -> Path:
+    path = artifact_paths.artifact_key_path(storage_root, run_id, "features.parquet")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    step = timedelta(hours=1)
+    ts_events = [_BASE + step * i for i in range(n)]
+    zscores = [2.0 if i % 2 == 0 else -2.0 for i in range(n)]
+    prices = [0.48 + 0.01 * (i % 5) for i in range(n)]
+    table = pa.Table.from_pandas(
+        pd.DataFrame(
+            {
+                "instrument_id": ["p:m1:yes"] * n,
+                "ts_event": ts_events,
+                "price": prices,
+                "price_zscore_20": zscores,
+                "price_zscore_50": zscores,
+                "rolling_return_10": [0.01] * n,
+                "rolling_return_20": [0.02] * n,
+            }
+        ),
+        preserve_index=False,
+    )
+    pq.write_table(table, path, compression="zstd")
+    _write_feature_manifest(
+        storage_root,
+        run_id,
+        feature_names=[
+            "price_zscore_20",
+            "price_zscore_50",
+            "rolling_return_10",
+            "rolling_return_20",
+        ],
+        row_count=n,
+        factor_pack_id="momentum",
+        factor_pack_version="1.0.0",
+    )
     return path
 
 
@@ -103,6 +193,12 @@ def storage_with_features(tmp_path: Path) -> Path:
 @pytest.fixture()
 def storage_with_empty_features(tmp_path: Path) -> Path:
     _write_empty_features_parquet(tmp_path, _FEATURE_RUN_ID)
+    return tmp_path
+
+
+@pytest.fixture()
+def storage_with_recipe_features(tmp_path: Path) -> Path:
+    _write_recipe_features_parquet(tmp_path, _FEATURE_RUN_ID)
     return tmp_path
 
 
@@ -427,6 +523,136 @@ class TestBacktest:
             ],
         )
         assert result.exit_code != 0
+
+    def test_strategy_recipe_applies_manifest_parameters_and_costs(
+        self,
+        storage_with_recipe_features: Path,
+    ) -> None:
+        runner = CliRunner()
+        plain_result = runner.invoke(
+            research_main.main,
+            [
+                "--format",
+                "json",
+                "backtest",
+                "--dataset-id",
+                "deadbeef01234567",
+                "--feature-set-version",
+                "v1",
+                "--strategy-id",
+                "zscore_momentum_v1",
+                "--parent-run-id",
+                _FEATURE_RUN_ID,
+                "--storage-root",
+                str(storage_with_recipe_features),
+                "--execute",
+            ],
+        )
+        assert plain_result.exit_code == 0, plain_result.output
+        plain_run_id = json.loads(plain_result.output)["run_id"]
+
+        result = runner.invoke(
+            research_main.main,
+            [
+                "--format",
+                "json",
+                "backtest",
+                "--dataset-id",
+                "deadbeef01234567",
+                "--feature-set-version",
+                "v1",
+                "--strategy-id",
+                "zscore_momentum_v1",
+                "--strategy-recipe",
+                "zscore_momentum",
+                "--parent-run-id",
+                _FEATURE_RUN_ID,
+                "--storage-root",
+                str(storage_with_recipe_features),
+                "--execute",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        recipe_run_id = json.loads(result.output)["run_id"]
+
+        plain_trades = pq.read_table(
+            artifact_paths.artifact_key_path(
+                storage_with_recipe_features,
+                plain_run_id,
+                "trades.parquet",
+            )
+        )
+        recipe_trades = pq.read_table(
+            artifact_paths.artifact_key_path(
+                storage_with_recipe_features,
+                recipe_run_id,
+                "trades.parquet",
+            )
+        )
+        assert plain_trades.num_rows > 0
+        assert recipe_trades.num_rows > 0
+        assert recipe_trades.column("size")[0].as_py() > plain_trades.column("size")[0].as_py()
+        assert recipe_trades.column("price")[0].as_py() != plain_trades.column("price")[0].as_py()
+
+        run_manifest = manifest_mod.read_run_manifest(
+            artifact_paths.run_manifest_path(storage_with_recipe_features, recipe_run_id)
+        )
+        assert run_manifest.artifacts["strategy_recipe_id"] == "zscore_momentum"
+        assert run_manifest.artifacts["strategy_recipe_version"] == "1.0.0"
+
+    def test_missing_strategy_recipe_exits_nonzero(
+        self,
+        storage_with_recipe_features: Path,
+    ) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            research_main.main,
+            [
+                "backtest",
+                "--dataset-id",
+                "deadbeef01234567",
+                "--feature-set-version",
+                "v1",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--strategy-recipe",
+                "missing_recipe",
+                "--parent-run-id",
+                _FEATURE_RUN_ID,
+                "--storage-root",
+                str(storage_with_recipe_features),
+                "--execute",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "missing_recipe" in result.output
+
+    def test_strategy_recipe_rejects_generic_feature_artifacts(
+        self,
+        storage_with_features: Path,
+    ) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            research_main.main,
+            [
+                "backtest",
+                "--dataset-id",
+                "deadbeef01234567",
+                "--feature-set-version",
+                "v1",
+                "--strategy-id",
+                "zscore_momentum_v1",
+                "--strategy-recipe",
+                "zscore_momentum",
+                "--parent-run-id",
+                _FEATURE_RUN_ID,
+                "--storage-root",
+                str(storage_with_features),
+                "--execute",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "factor_pack_id" in result.output
 
 
 # ===========================================================================

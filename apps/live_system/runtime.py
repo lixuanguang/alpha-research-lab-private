@@ -296,6 +296,8 @@ class LiveRuntime:
 
         self._metrics.cycles_completed += 1
         self._metrics.last_cycle_at = datetime.now(tz=UTC)
+        self._metrics.total_signals += self._engine.last_signal_count
+        self._metrics.total_targets += self._engine.last_target_count
         self._metrics.total_orders += len(orders)
 
         log.debug(

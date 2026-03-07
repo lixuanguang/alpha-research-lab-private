@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 
 import alpha_core.research.session as session_mod
-from alpha_core.research.session import ResearchSession
-
 
 # ---------------------------------------------------------------------------
 # Schema validation tests
@@ -19,13 +17,13 @@ class TestResearchSessionSchema:
     def test_required_fields_missing_raises(self) -> None:
         """Both created_at_utc and updated_at_utc are required."""
         with pytest.raises(Exception):
-            ResearchSession.model_validate({"session_id": "abc"})
+            session_mod.ResearchSession.model_validate({"session_id": "abc"})
 
     def test_extra_fields_forbidden(self) -> None:
         from datetime import UTC, datetime
 
         with pytest.raises(Exception):
-            ResearchSession.model_validate(
+            session_mod.ResearchSession.model_validate(
                 {
                     "session_id": "abc",
                     "created_at_utc": datetime.now(tz=UTC),
@@ -38,7 +36,11 @@ class TestResearchSessionSchema:
         from datetime import UTC, datetime
 
         now = datetime.now(tz=UTC)
-        sess = ResearchSession(session_id="x", created_at_utc=now, updated_at_utc=now)
+        sess = session_mod.ResearchSession(
+            session_id="x",
+            created_at_utc=now,
+            updated_at_utc=now,
+        )
         assert sess.dataset_id is None
         assert sess.feature_set_version is None
         assert sess.strategy_id is None
@@ -54,7 +56,7 @@ class TestResearchSessionSchema:
             notes="first experiment",
         )
         raw = sess.model_dump_json()
-        restored = ResearchSession.model_validate_json(raw)
+        restored = session_mod.ResearchSession.model_validate_json(raw)
         assert restored == sess
 
 
@@ -76,6 +78,16 @@ class TestSessionLifecycle:
     def test_load_missing_session_raises_key_error(self, tmp_path: Path) -> None:
         with pytest.raises(KeyError, match="nonexistent"):
             session_mod.load_session(tmp_path, "nonexistent")
+
+    def test_ensure_session_returns_existing_session(self, tmp_path: Path) -> None:
+        sess = session_mod.create_session(tmp_path, session_id="session_001")
+        ensured = session_mod.ensure_session(tmp_path, "session_001")
+        assert ensured == sess
+
+    def test_ensure_session_creates_missing_session(self, tmp_path: Path) -> None:
+        ensured = session_mod.ensure_session(tmp_path, "session_002")
+        assert ensured.session_id == "session_002"
+        assert (tmp_path / "sessions" / "session_002.json").exists()
 
     def test_add_run_appends(self, tmp_path: Path) -> None:
         sess = session_mod.create_session(tmp_path)

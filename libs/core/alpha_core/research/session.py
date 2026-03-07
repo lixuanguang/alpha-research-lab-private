@@ -97,6 +97,7 @@ def create_session(
     feature_set_version: str | None = None,
     strategy_id: str | None = None,
     notes: str | None = None,
+    session_id: str | None = None,
 ) -> ResearchSession:
     """Create and persist a new :class:`ResearchSession`.
 
@@ -104,7 +105,7 @@ def create_session(
     """
     now = datetime.now(tz=UTC)
     session = ResearchSession(
-        session_id=uuid.uuid4().hex,
+        session_id=session_id or uuid.uuid4().hex,
         dataset_id=dataset_id,
         feature_set_version=feature_set_version,
         strategy_id=strategy_id,
@@ -122,6 +123,14 @@ def load_session(storage_root: Path, session_id: str) -> ResearchSession:
     if not path.exists():
         raise KeyError(f"Session not found: {session_id!r}")
     return ResearchSession.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def ensure_session(storage_root: Path, session_id: str) -> ResearchSession:
+    """Return an existing session or create an empty one with *session_id*."""
+    try:
+        return load_session(storage_root, session_id)
+    except KeyError:
+        return create_session(storage_root, session_id=session_id)
 
 
 def add_run(storage_root: Path, session_id: str, *, run_id: str) -> ResearchSession:

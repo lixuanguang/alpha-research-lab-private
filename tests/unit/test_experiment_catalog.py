@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 
 import alpha_core.research.experiment_catalog as catalog_mod
-from alpha_core.research.experiment_catalog import CatalogEntry
-
 
 # ---------------------------------------------------------------------------
 # Schema validation tests
@@ -18,14 +16,14 @@ from alpha_core.research.experiment_catalog import CatalogEntry
 class TestCatalogEntrySchema:
     def test_required_fields_missing_raises(self) -> None:
         with pytest.raises(Exception):
-            CatalogEntry.model_validate({"entry_id": "abc"})
+            catalog_mod.CatalogEntry.model_validate({"entry_id": "abc"})
 
     def test_extra_fields_forbidden(self) -> None:
         from datetime import UTC, datetime
 
         now = datetime.now(tz=UTC)
         with pytest.raises(Exception):
-            CatalogEntry.model_validate(
+            catalog_mod.CatalogEntry.model_validate(
                 {
                     "entry_id": "abc",
                     "run_id": "r1",
@@ -39,7 +37,7 @@ class TestCatalogEntrySchema:
         from datetime import UTC, datetime
 
         now = datetime.now(tz=UTC)
-        entry = CatalogEntry(
+        entry = catalog_mod.CatalogEntry(
             entry_id="e1", run_id="r1", created_at_utc=now, updated_at_utc=now
         )
         assert entry.status == "candidate"
@@ -49,7 +47,7 @@ class TestCatalogEntrySchema:
 
         now = datetime.now(tz=UTC)
         with pytest.raises(Exception):
-            CatalogEntry.model_validate(
+            catalog_mod.CatalogEntry.model_validate(
                 {
                     "entry_id": "e1",
                     "run_id": "r1",
@@ -62,7 +60,7 @@ class TestCatalogEntrySchema:
     def test_round_trip_json(self, tmp_path: Path) -> None:
         entry = catalog_mod.add_entry(tmp_path, run_id="r1", strategy_id="zscore")
         raw = entry.model_dump_json()
-        restored = CatalogEntry.model_validate_json(raw)
+        restored = catalog_mod.CatalogEntry.model_validate_json(raw)
         assert restored == entry
 
 

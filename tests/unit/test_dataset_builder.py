@@ -294,6 +294,45 @@ class TestDatasetBuilderBuild:
         result = pq.read_table(gold_path)
         assert result.num_rows == 1, "Future-recorded rows must be excluded by as-of filter"
 
+    def test_late_arriving_rows_are_reordered_by_availability(self, tmp_path: Path) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+
+        late_event = _BASE + timedelta(hours=1)
+        ontime_event = _BASE + timedelta(hours=2)
+        table = pa.table(
+            {
+                "event_id": ["late", "ontime"],
+                "instrument_id": ["p:m1:yes", "p:m1:yes"],
+                "venue_id": ["p", "p"],
+                "event_type": ["trade", "trade"],
+                "ts_event": [late_event, ontime_event],
+                "ts_record": [_BASE + timedelta(hours=3), ontime_event],
+                "price": [0.10, 0.55],
+                "size": [10.0, 11.0],
+            }
+        )
+        builder = _make_builder(tmp_path, master, trade_table=table)
+        config = dataset_mod.DatasetConfig(
+            name="availability_ordering",
+            start=_BASE,
+            end=_END,
+            require_quality_pass=False,
+        )
+
+        manifest = builder.build(config)
+        gold_path = (
+            builder_io.dataset_directory(tmp_path / "gold" / "datasets", manifest.dataset_id)
+            / "trades.parquet"
+        )
+        result = pq.read_table(gold_path)
+
+        assert "ts_available" in result.schema.names
+        assert result.column("ts_available").to_pylist() == sorted(
+            result.column("ts_available").to_pylist()
+        )
+        assert result.column("ts_event").to_pylist() == [ontime_event, late_event]
+
     def test_rows_before_first_seen_are_excluded_point_in_time(self, tmp_path: Path) -> None:
         """Rows from before a market enters the universe must be excluded."""
         first_seen = _BASE + timedelta(days=1)

@@ -354,6 +354,15 @@ class TestRuntimeMetrics:
         assert m.cycles_completed == 2
         assert m.total_orders == 4  # 2 per cycle
 
+    def test_metrics_count_signals_and_targets(self) -> None:
+        rt = LiveRuntime(LiveRuntimeConfig(instruments=[_INSTRUMENT_A, _INSTRUMENT_B]))
+        rt.startup()
+        rt.step(_make_state(_INSTRUMENT_A, _INSTRUMENT_B))
+        rt.shutdown()
+        m = rt.metrics
+        assert m.total_signals == 2
+        assert m.total_targets == 2
+
     def test_metrics_started_at_set_on_startup(self) -> None:
         rt = LiveRuntime()
         before = datetime.now(tz=UTC)

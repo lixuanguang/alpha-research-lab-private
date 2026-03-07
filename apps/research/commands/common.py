@@ -52,6 +52,12 @@ def resolve_storage_root(ctx: click.Context, storage_root: Path) -> Path:
     return output_dir if isinstance(output_dir, Path) else storage_root
 
 
+def get_session_id(ctx: click.Context) -> str | None:
+    """Return the optional session id attached at the root CLI level."""
+    value = (ctx.obj or {}).get("session_id")
+    return value if isinstance(value, str) else None
+
+
 def emit_outcome(outcome: runtime_mod.ResearchStageOutcome, fmt: OutputFormat) -> None:
     """Write a :class:`~apps.research.runtime.ResearchStageOutcome` to stdout."""
     if fmt == "json":
@@ -89,6 +95,7 @@ def emit_planned_outcome(
         runtime_mod.plan_stage(
             run_type=run_type,
             payload=payload,
+            session_id=get_session_id(ctx),
         ),
         get_output_format(ctx),
     )
@@ -100,6 +107,7 @@ __all__ = [
     "emit_outcome",
     "emit_planned_outcome",
     "get_output_format",
+    "get_session_id",
     "load_config_reference",
     "resolve_storage_root",
 ]

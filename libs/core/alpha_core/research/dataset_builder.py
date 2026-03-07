@@ -76,6 +76,7 @@ class DatasetBuilder:
         *,
         config_payload: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
+        session_id: str | None = None,
     ) -> dataset_mod.DatasetManifest:
         """Build a gold dataset from silver data.
 
@@ -105,6 +106,7 @@ class DatasetBuilder:
         run_context = run_context_mod.make_run_context(
             "dataset_build",
             config_payload=effective_config_payload,
+            session_id=session_id,
         )
         dataset_id = dataset_builder_io.make_dataset_id(config)
         dataset_dir = dataset_builder_io.dataset_directory(self._gold_root, dataset_id)
@@ -224,11 +226,13 @@ class DatasetBuilder:
         gold_tables: dict[str, pa.Table] = {}
         for event_type, table in raw_tables.items():
             if "ts_record" in table.schema.names and "ts_event" in table.schema.names:
+                table = _with_availability_time(table)
                 table = as_of_mod.as_of_filter(
                     table,
                     as_of_column="ts_record",
                     cutoff=end_utc,
                 )
+                table = _sort_table_for_point_in_time(table)
             gold_tables[event_type] = _filter_table_by_universe_snapshots(
                 table,
                 snapshots=snapshots,
@@ -413,14 +417,15 @@ def _filter_table_by_universe_snapshots(
     *,
     snapshots: list[universe_mod.UniverseSnapshot],
 ) -> pa.Table:
-    required_columns = {"instrument_id", "ts_event"}
+    time_column = "ts_available" if "ts_available" in table.schema.names else "ts_event"
+    required_columns = {"instrument_id", time_column}
     if table.num_rows == 0 or not required_columns.issubset(table.schema.names):
         return table
 
     snapshot_times = [snapshot.as_of for snapshot in snapshots]
     memberships = [frozenset(snapshot.instruments) for snapshot in snapshots]
     instrument_column = table.column("instrument_id")
-    event_time_column = table.column("ts_event")
+    event_time_column = table.column(time_column)
 
     mask_values: list[bool] = []
     for row_index in range(table.num_rows):
@@ -438,6 +443,36 @@ def _filter_table_by_universe_snapshots(
         mask_values.append(instrument_id in memberships[snapshot_index])
 
     return table.filter(pa.array(mask_values, type=pa.bool_()))
+
+
+def _with_availability_time(table: pa.Table) -> pa.Table:
+    if (
+        "ts_available" in table.schema.names
+        or "ts_event" not in table.schema.names
+        or "ts_record" not in table.schema.names
+    ):
+        return table
+
+    event_time = table.column("ts_event")
+    recorded = pc.coalesce(table.column("ts_record"), event_time)
+    available = pc.if_else(pc.greater_equal(recorded, event_time), recorded, event_time)
+    return table.append_column(
+        pa.field("ts_available", pa.timestamp("us", tz="UTC")),
+        available,
+    )
+
+
+def _sort_table_for_point_in_time(table: pa.Table) -> pa.Table:
+    sort_keys: list[tuple[str, str]] = []
+    if "ts_available" in table.schema.names:
+        sort_keys.append(("ts_available", "ascending"))
+    elif "ts_event" in table.schema.names:
+        sort_keys.append(("ts_event", "ascending"))
+    if "instrument_id" in table.schema.names:
+        sort_keys.append(("instrument_id", "ascending"))
+    if "ts_event" in table.schema.names and "ts_event" not in {key for key, _ in sort_keys}:
+        sort_keys.append(("ts_event", "ascending"))
+    return table.sort_by(sort_keys) if sort_keys else table
 
 
 def _snapshots_have_instruments(snapshots: list[universe_mod.UniverseSnapshot]) -> bool:

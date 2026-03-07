@@ -22,10 +22,12 @@ def plan_stage(
     *,
     run_type: run_context_mod.RunType,
     payload: dict[str, Any],
+    session_id: str | None = None,
 ) -> ResearchStageOutcome:
     run_context = run_context_mod.make_run_context(
         run_type,
         config_payload=payload,
+        session_id=session_id,
     )
     return ResearchStageOutcome(
         run_id=run_context.run_id,

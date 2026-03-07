@@ -337,6 +337,13 @@ class TestStrategyEngine:
         engine.step(state)
         assert engine.cycle_count == 2
 
+    def test_step_records_last_pipeline_counts(self) -> None:
+        engine = _make_engine()
+        engine.step(_make_state("k:m:yes", "k:m:no"))
+        assert engine.last_signal_count == 2
+        assert engine.last_target_count == 2
+        assert engine.last_order_count == 2
+
     def test_empty_universe_produces_no_orders(self) -> None:
         engine = _make_engine()
         state = _make_state()  # no instruments
