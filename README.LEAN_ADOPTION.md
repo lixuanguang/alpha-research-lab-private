@@ -429,7 +429,81 @@ CLI output rule:
 
 ---
 
-## 11. Adoption Rule of Thumb
+## 11. Schema Versioning Policy (LA-014)
+
+All Pydantic manifest and summary models in this codebase carry an explicit
+integer `schema_version` field (defaulting to `1`).  The policy below applies
+to any model that contains this field, including:
+
+| Model | Source module | Version constant |
+|---|---|---|
+| `RunManifest` | `alpha_core.research.manifest` | `RUN_MANIFEST_SCHEMA_VERSION` |
+| `RunSummary` | `alpha_core.research.run_summary` | `RUN_SUMMARY_SCHEMA_VERSION` |
+| `BacktestManifest` | `alpha_core.research.backtest_runner` | field default |
+| `EvaluateManifest` | `alpha_core.research.evaluate_runner` | field default |
+| `FeatureManifest` | `alpha_core.research.feature_runner` | `_FEATURE_MANIFEST_SCHEMA_VERSION` |
+| `DatasetManifest` | `alpha_core.research.dataset` | field default |
+| `OptimizeManifest` | `alpha_core.research.optimize_runner` | field default |
+| `TrialRecord` | `alpha_core.research.optimize_runner` | `_REGISTRY_SCHEMA_VERSION` |
+| `ExecutionReport` | `alpha_core.execution.order_models` | — (no version field) |
+
+### 11.1 When to bump
+
+Bump **any time** a field change is made to a versioned model:
+
+- **Add** a required field → bump
+- **Remove** a field → bump
+- **Rename** a field → bump (equivalent to add + remove)
+- **Change a field type** → bump
+- Adding an **optional field with a default** is technically a backward-compatible
+  change, but bump anyway so consumers can detect the producer version.
+
+### 11.2 How to bump
+
+1. Increment the module-level version constant (e.g. `RUN_MANIFEST_SCHEMA_VERSION += 1`).
+2. Update the corresponding `_EXPECTED_*_VERSION` constant in
+   `tests/regression/test_run_manifest_schema.py` to match.
+3. Update the `_EXPECTED_*_KEYS` frozenset in the same file to reflect the new
+   field set.
+4. For `EvaluateRunner` metrics profiles, update `_EXPECTED_METRICS_*_KEYS` in
+   `tests/regression/test_metrics_report_schema.py` if metrics keys change.
+5. Run the full regression suite (`pytest tests/regression/`) and confirm
+   all tests pass before merging.
+
+### 11.3 Regression snapshots
+
+The regression snapshots live **entirely inside the test files** as frozen
+Python sets — no external JSON snapshot files are required.  This ensures:
+
+- Snapshots are always version-controlled alongside the code they protect.
+- Reviewers see exactly which fields were added/removed in the same diff as the
+  model change.
+- CI fails deterministically (no flaky file-based snapshot loading).
+
+The canonical test files are:
+
+- `tests/regression/test_run_manifest_schema.py`
+- `tests/regression/test_metrics_report_schema.py`
+
+### 11.4 Run summary observability
+
+Every research and live CLI command emits a `RunSummary` block after completion.
+The block is a JSON object (with `--format json`) or a single line (with
+`--format text`) that always contains:
+
+```
+run_id, run_type, status, config_hash, git_commit,
+started_at_utc, completed_at_utc, artifact_keys, extra
+```
+
+The `extra` dict carries stage-specific fields (e.g. `strategy_id`,
+`trade_count`).  Consumers should not rely on `extra` being stable across
+versions — only top-level `RunSummary` fields are subject to the versioning
+policy above.
+
+---
+
+## 12. Adoption Rule of Thumb
 
 Copy **Lean's architecture patterns**, not Lean's full complexity.
 

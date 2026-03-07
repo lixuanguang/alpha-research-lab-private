@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import click
@@ -11,8 +12,9 @@ import apps.research.commands.build_dataset as build_dataset_cmd
 import apps.research.commands.build_features as build_features_cmd
 import apps.research.commands.common as cmd_common
 import apps.research.commands.evaluate as evaluate_cmd
+import apps.research.commands.optimize as optimize_cmd
 import apps.research.commands.report as report_cmd
-import apps.research.runtime as research_runtime
+from alpha_core.research.run_summary import RunSummary
 
 
 @click.group()
@@ -50,80 +52,35 @@ def main(
     ctx.obj["config"] = cmd_common.load_config_reference(config) if config is not None else None
 
 
+@main.result_callback()
+@click.pass_context
+def _emit_run_summary(ctx: click.Context, _result: object, **_kwargs: object) -> None:
+    """Emit a standardized :class:`~alpha_core.research.run_summary.RunSummary` block.
+
+    Subcommands store a :class:`RunSummary` instance at
+    ``ctx.obj["_run_summary"]`` when they want to emit one.  This callback
+    reads that key after every subcommand exits, formatting the summary
+    according to the active ``--format`` option (``text`` or ``json``).
+    Nothing is emitted if the key is absent (e.g. plan-only or failed runs
+    that already raised :class:`~click.ClickException`).
+    """
+    obj = ctx.obj or {}
+    summary: RunSummary | None = obj.get("_run_summary")
+    if summary is None:
+        return
+    fmt = obj.get("format", "text")
+    if fmt == "json":
+        click.echo(summary.as_json_str())
+    else:
+        click.echo(summary.as_text())
+
+
 main.add_command(build_dataset_cmd.build_dataset_command)
 main.add_command(build_features_cmd.build_features_command)
 main.add_command(backtest_cmd.backtest_command)
 main.add_command(evaluate_cmd.evaluate_command)
 main.add_command(report_cmd.report_command)
-
-
-@main.command("optimize")
-@click.option("--dataset-id", required=True, help="Dataset id or dataset name.")
-@click.option("--feature-set", required=True, help="Feature set identifier.")
-@click.option("--strategy-id", required=True, help="Strategy identifier.")
-@click.option(
-    "--search",
-    type=click.Choice(["grid", "random"]),
-    default="grid",
-    show_default=True,
-    help="Optimization search mode.",
-)
-@click.option(
-    "--max-trials",
-    type=int,
-    default=20,
-    show_default=True,
-    help="Maximum optimization trials.",
-)
-@click.option("--objective", default="sharpe", show_default=True, help="Optimization objective.")
-@click.option("--parent-run-id", default=None, help="Optional upstream run id.")
-@click.option(
-    "--storage-root",
-    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    default=Path("data"),
-    show_default=True,
-    help="Root directory for run artifacts.",
-)
-@click.option(
-    "--execute/--plan-only",
-    default=False,
-    show_default=True,
-    help="Materialize run artifacts or only emit a validated execution plan.",
-)
-@click.pass_context
-def optimize_command(
-    ctx: click.Context,
-    dataset_id: str,
-    feature_set: str,
-    strategy_id: str,
-    search: str,
-    max_trials: int,
-    objective: str,
-    parent_run_id: str | None,
-    storage_root: Path,
-    execute: bool,
-) -> None:
-    """Plan or materialize an optimization run scaffold."""
-    if max_trials <= 0:
-        raise click.ClickException("`--max-trials` must be > 0.")
-    payload: dict[str, object] = {
-        "dataset_id": dataset_id,
-        "feature_set": feature_set,
-        "strategy_id": strategy_id,
-        "search": search,
-        "max_trials": max_trials,
-        "objective": objective,
-    }
-    cmd_common.emit_outcome(
-        research_runtime.run_stage(
-            run_type="optimize",
-            payload=cmd_common.build_run_payload(ctx, payload),
-            storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
-            execute=execute,
-            parent_run_id=parent_run_id,
-        ),
-        cmd_common.get_output_format(ctx),
-    )
+main.add_command(optimize_cmd.optimize_command)
 
 
 if __name__ == "__main__":

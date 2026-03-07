@@ -25,6 +25,7 @@ import alpha_core.research.dataset_builder_io as dataset_builder_io
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.storage.conventions as storage_conventions
+from alpha_core.research.artifact_store import FilesystemArtifactStore
 
 # ---------------------------------------------------------------------------
 # Config
@@ -107,9 +108,14 @@ class FeatureRunner:
         Root directory shared with dataset builders and the run manifest store.
     """
 
-    def __init__(self, storage_root: Path) -> None:
+    def __init__(
+        self,
+        storage_root: Path,
+        store: FilesystemArtifactStore | None = None,
+    ) -> None:
         self._storage_root = storage_root
         self._gold_root = storage_root / storage_conventions.StorageTier.GOLD / "datasets"
+        self._store = store if store is not None else FilesystemArtifactStore(storage_root)
 
     # ------------------------------------------------------------------
     # Public API
@@ -177,10 +183,7 @@ class FeatureRunner:
 
         # 3. Persist feature matrix.
         run_id = run_context.run_id
-        features_path = artifact_paths.artifact_key_path(
-            self._storage_root, run_id, "features.parquet"
-        )
-        features_path.parent.mkdir(parents=True, exist_ok=True)
+        features_path = self._store.prepare_path(run_id, "features.parquet")
         pq.write_table(features_table, features_path, compression="zstd")
 
         # 4. Finalize run context and assemble manifest.
@@ -201,9 +204,7 @@ class FeatureRunner:
         )
 
         # 5. Write feature manifest JSON.
-        feature_manifest_path = artifact_paths.artifact_key_path(
-            self._storage_root, run_id, "feature_manifest.json"
-        )
+        feature_manifest_path = self._store.prepare_path(run_id, "feature_manifest.json")
         feature_manifest_path.write_text(
             feature_manifest.model_dump_json(indent=2), encoding="utf-8"
         )

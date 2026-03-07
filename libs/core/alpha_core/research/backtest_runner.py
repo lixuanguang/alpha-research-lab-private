@@ -18,6 +18,7 @@ import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.strategy_framework.models as strategy_models
 import alpha_core.utils.time as time_utils
+from alpha_core.research.artifact_store import ArtifactNotFoundError, FilesystemArtifactStore
 
 _EPSILON = 1e-9
 _DEFAULT_PRICE = 0.5
@@ -59,6 +60,10 @@ class BacktestConfig(BaseModel):
     strategy_id: str = Field(min_length=1)
     engine: EngineType = "event"
     starting_cash: float = Field(default=100_000.0, gt=0)
+    strategy_params: dict[str, float] = Field(
+        default_factory=dict,
+        description="Optional per-trial overrides for strategy parameters (threshold, target_weight).",
+    )
 
     @field_validator("dataset_id", "feature_set_version", "strategy_id")
     @classmethod
@@ -202,8 +207,13 @@ class _ZScoreStrategy:
 class BacktestRunner:
     """Simulates a strategy over feature artifacts from a prior feature-build run."""
 
-    def __init__(self, storage_root: Path) -> None:
+    def __init__(
+        self,
+        storage_root: Path,
+        store: FilesystemArtifactStore | None = None,
+    ) -> None:
         self._storage_root = storage_root
+        self._store = store if store is not None else FilesystemArtifactStore(storage_root)
 
     def build(
         self,
@@ -218,32 +228,28 @@ class BacktestRunner:
                 "Pass --parent-run-id pointing to a completed build-features run."
             )
 
-        features_path = artifact_paths.artifact_key_path(
-            self._storage_root,
-            parent_run_id,
-            "features.parquet",
-        )
-        if not features_path.exists():
+        try:
+            features_path = self._store.path_for(parent_run_id, "features.parquet")
+        except ArtifactNotFoundError as exc:
             raise BacktestRunError(
-                f"Feature artifact not found at '{features_path}'. "
-                f"Ensure run '{parent_run_id}' completed successfully."
-            )
+                f"Feature artifact not found for run '{parent_run_id}': {exc}. "
+                "Ensure the feature-build run completed successfully."
+            ) from exc
 
         effective_payload = (
             config_payload if config_payload is not None else config.model_dump(mode="json")
         )
         run_context = run_context_mod.make_run_context("backtest", config_payload=effective_payload)
         run_id = run_context.run_id
-        strategy = _ZScoreStrategy(_resolve_strategy_spec(config.strategy_id))
+        strategy = _ZScoreStrategy(_resolve_strategy_spec(config.strategy_id, config.strategy_params))
         trades_table, equity_table = _simulate(
             features_df=pq.read_table(features_path).to_pandas(),
             config=config,
             strategy=strategy,
         )
 
-        trades_path = artifact_paths.artifact_key_path(self._storage_root, run_id, "trades.parquet")
-        equity_path = artifact_paths.artifact_key_path(self._storage_root, run_id, "equity.parquet")
-        trades_path.parent.mkdir(parents=True, exist_ok=True)
+        trades_path = self._store.prepare_path(run_id, "trades.parquet")
+        equity_path = self._store.prepare_path(run_id, "equity.parquet")
         pq.write_table(trades_table, trades_path, compression="zstd")
         pq.write_table(equity_table, equity_path, compression="zstd")
 
@@ -275,11 +281,7 @@ class BacktestRunner:
             parent_run_id=parent_run_id,
         )
 
-        manifest_path = artifact_paths.artifact_key_path(
-            self._storage_root,
-            run_id,
-            "backtest_manifest.json",
-        )
+        manifest_path = self._store.prepare_path(run_id, "backtest_manifest.json")
         manifest_path.write_text(backtest_manifest.model_dump_json(indent=2), encoding="utf-8")
         artifact_map["backtest_manifest"] = str(manifest_path)
 
@@ -508,21 +510,24 @@ def _apply_fill(
     return realized_pnl, trade_return, new_quantity, execution_price
 
 
-def _resolve_strategy_spec(strategy_id: str) -> StrategySpec:
+def _resolve_strategy_spec(strategy_id: str, params: dict[str, float] | None = None) -> StrategySpec:
     normalized = strategy_id.strip().lower()
+    params = params or {}
+    threshold = float(params.get("threshold", 1.5))
+    target_weight = float(params.get("target_weight", 0.02))
     if normalized.startswith("zscore") and "momentum" in normalized:
         return StrategySpec(
             strategy_id=strategy_id,
             family="zscore_momentum",
-            threshold=1.5,
-            target_weight=0.02,
+            threshold=threshold,
+            target_weight=target_weight,
         )
     if normalized.startswith("zscore"):
         return StrategySpec(
             strategy_id=strategy_id,
             family="zscore_mean_reversion",
-            threshold=1.5,
-            target_weight=0.02,
+            threshold=threshold,
+            target_weight=target_weight,
         )
     raise BacktestRunError(
         f"Unsupported strategy_id '{strategy_id}'. "

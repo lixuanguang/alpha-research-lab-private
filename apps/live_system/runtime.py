@@ -1,18 +1,40 @@
-"""Live runtime scaffolding built on strategy-framework contracts."""
+"""Live runtime built on strategy-framework contracts.
+
+Public surface:
+- ``LiveRuntime`` — startup/shutdown lifecycle; per-cycle event processing.
+- ``LiveRuntimeConfig`` — typed configuration injected at construction time.
+- ``CycleResult`` — per-cycle output (orders + metrics snapshot).
+- ``RuntimeMetrics`` — monotonically-accumulating counters emitted by the runtime.
+- ``run_live_scaffold`` / ``list_recent_live_runs`` — retained for backward compat
+  with the existing CLI; internally delegate to ``LiveRuntime``.
+
+Default strategy components (``_Static*`` / ``_Constant*``) ship with the
+module so the CLI can run without external configuration.  Production usage
+should inject custom implementations via ``LiveRuntimeConfig``.
+"""
 
 from __future__ import annotations
 
+import logging
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.strategy_framework.engine as strategy_engine
+import alpha_core.strategy_framework.interfaces as strategy_interfaces
 import alpha_core.strategy_framework.models as strategy_models
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Request / outcome dataclasses (preserved for backward compat)
+# ---------------------------------------------------------------------------
 
 
 @dataclass(slots=True, frozen=True)
@@ -31,6 +53,73 @@ class LiveRunOutcome:
     orders_emitted: int
     config_hash: str
     manifest_path: Path | None = None
+
+
+# ---------------------------------------------------------------------------
+# Runtime metrics + per-cycle output
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RuntimeMetrics:
+    """Monotonically-accumulating counters maintained by :class:`LiveRuntime`."""
+
+    cycles_completed: int = 0
+    total_signals: int = 0
+    total_targets: int = 0
+    total_orders: int = 0
+    total_errors: int = 0
+    started_at: datetime | None = None
+    last_cycle_at: datetime | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "cycles_completed": self.cycles_completed,
+            "total_signals": self.total_signals,
+            "total_targets": self.total_targets,
+            "total_orders": self.total_orders,
+            "total_errors": self.total_errors,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "last_cycle_at": self.last_cycle_at.isoformat() if self.last_cycle_at else None,
+        }
+
+
+@dataclass(frozen=True)
+class CycleResult:
+    """Output produced by one :meth:`LiveRuntime.step` call."""
+
+    cycle_index: int
+    as_of_utc: datetime
+    orders: list[strategy_models.OrderIntent]
+    metrics_snapshot: dict[str, Any]
+
+
+# ---------------------------------------------------------------------------
+# LiveRuntimeConfig — typed injection surface
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LiveRuntimeConfig:
+    """Configuration for :class:`LiveRuntime`.
+
+    Every strategy component is optional; defaults are the simple stub
+    implementations bundled in this module.
+    """
+
+    instruments: list[str] = field(default_factory=list)
+    universe_model: strategy_interfaces.UniverseModel | None = None
+    alpha_model: strategy_interfaces.AlphaModel | None = None
+    portfolio_model: strategy_interfaces.PortfolioConstructionModel | None = None
+    risk_model: strategy_interfaces.RiskModel | None = None
+    execution_model: strategy_interfaces.ExecutionModel | None = None
+    strategy_id: str = "default"
+    log_level: int = logging.INFO
+
+
+# ---------------------------------------------------------------------------
+# Default strategy component stubs
+# ---------------------------------------------------------------------------
 
 
 class _StaticUniverseModel:
@@ -103,7 +192,143 @@ class _MarketExecutionModel:
         ]
 
 
+# ---------------------------------------------------------------------------
+# LiveRuntime — primary class
+# ---------------------------------------------------------------------------
+
+
+class LiveRuntime:
+    """Live strategy runtime wired on strategy-framework protocol contracts.
+
+    Lifecycle::
+
+        runtime = LiveRuntime(config)
+        runtime.startup()
+        try:
+            for state in event_feed:
+                result = runtime.step(state)
+                # hand result.orders to router / venue adapter
+        finally:
+            runtime.shutdown()
+
+    All strategy components are pluggable via :class:`LiveRuntimeConfig`.
+    Defaults are provided so the runtime is runnable without custom code.
+    """
+
+    def __init__(self, config: LiveRuntimeConfig | None = None) -> None:
+        self._config = config or LiveRuntimeConfig()
+        self._metrics = RuntimeMetrics()
+        self._engine: strategy_engine.StrategyEngine | None = None
+        self._running = False
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def startup(self) -> None:
+        """Initialise components and mark the runtime as running.
+
+        Idempotent — calling twice is a no-op (logs a warning).
+        """
+        if self._running:
+            log.warning("LiveRuntime.startup() called on already-running runtime; ignoring.")
+            return
+
+        instruments = self._config.instruments or []
+        self._engine = strategy_engine.StrategyEngine(
+            universe=self._config.universe_model or _StaticUniverseModel(instruments),
+            alpha=self._config.alpha_model or _ConstantAlphaModel(),
+            portfolio=self._config.portfolio_model or _EqualWeightPortfolioModel(),
+            risk=self._config.risk_model or _PassThroughRiskModel(),
+            execution=self._config.execution_model or _MarketExecutionModel(),
+        )
+        self._metrics.started_at = datetime.now(tz=UTC)
+        self._running = True
+        log.info(
+            "LiveRuntime started: strategy_id=%s instruments=%d",
+            self._config.strategy_id,
+            len(instruments),
+        )
+
+    def shutdown(self) -> None:
+        """Tear down components and mark the runtime as stopped.
+
+        Idempotent — calling on a stopped runtime logs a debug message.
+        """
+        if not self._running:
+            log.debug("LiveRuntime.shutdown() called on already-stopped runtime; ignoring.")
+            return
+        self._running = False
+        self._engine = None
+        log.info(
+            "LiveRuntime stopped: cycles=%d orders=%d errors=%d",
+            self._metrics.cycles_completed,
+            self._metrics.total_orders,
+            self._metrics.total_errors,
+        )
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    # ------------------------------------------------------------------
+    # Per-cycle processing
+    # ------------------------------------------------------------------
+
+    def step(self, state: strategy_models.MarketState) -> CycleResult:
+        """Process one market-state snapshot and return order intents.
+
+        Raises :class:`RuntimeError` if the runtime has not been started.
+        Exceptions raised by strategy components are caught, counted in
+        ``metrics.total_errors``, and re-raised so callers can decide whether
+        to abort or continue cycling.
+        """
+        if not self._running or self._engine is None:
+            raise RuntimeError("LiveRuntime must be started before calling step()")
+
+        cycle_index = self._metrics.cycles_completed
+        try:
+            orders = self._engine.step(state)
+        except Exception:
+            self._metrics.total_errors += 1
+            log.exception("Error in strategy engine step (cycle=%d)", cycle_index)
+            raise
+
+        self._metrics.cycles_completed += 1
+        self._metrics.last_cycle_at = datetime.now(tz=UTC)
+        self._metrics.total_orders += len(orders)
+
+        log.debug(
+            "cycle=%d orders=%d as_of=%s",
+            cycle_index,
+            len(orders),
+            state.as_of_utc.isoformat(),
+        )
+
+        return CycleResult(
+            cycle_index=cycle_index,
+            as_of_utc=state.as_of_utc,
+            orders=orders,
+            metrics_snapshot=self._metrics.as_dict(),
+        )
+
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
+
+    @property
+    def metrics(self) -> RuntimeMetrics:
+        """Read-only view of accumulated runtime metrics."""
+        return self._metrics
+
+
+# ---------------------------------------------------------------------------
+# Scaffold helpers (backward-compat CLI helpers)
+# ---------------------------------------------------------------------------
+
+
 def run_live_scaffold(request: LiveRunRequest) -> LiveRunOutcome:
+    """Run the live scaffold using :class:`LiveRuntime` and persist artifacts when executing."""
     if request.cycles <= 0:
         raise ValueError("`cycles` must be > 0")
     instruments = _normalize_instruments(request.instruments)
@@ -190,20 +415,20 @@ def list_recent_live_runs(storage_root: Path, *, limit: int = 5) -> list[LiveRun
 
 
 def _simulate_orders(*, instruments: list[str], cycles: int) -> int:
-    engine = strategy_engine.StrategyEngine(
-        universe=_StaticUniverseModel(instruments),
-        alpha=_ConstantAlphaModel(),
-        portfolio=_EqualWeightPortfolioModel(),
-        risk=_PassThroughRiskModel(),
-        execution=_MarketExecutionModel(),
-    )
-    orders_emitted = 0
-    for _ in range(cycles):
-        state = strategy_models.MarketState(
-            as_of_utc=datetime.now(tz=UTC), universe=list(instruments)
-        )
-        orders_emitted += len(engine.step(state))
-    return orders_emitted
+    """Run N strategy cycles via LiveRuntime and return total orders emitted."""
+    runtime = LiveRuntime(LiveRuntimeConfig(instruments=instruments))
+    runtime.startup()
+    orders_total = 0
+    try:
+        for _ in range(cycles):
+            state = strategy_models.MarketState(
+                as_of_utc=datetime.now(tz=UTC), universe=list(instruments)
+            )
+            result = runtime.step(state)
+            orders_total += len(result.orders)
+    finally:
+        runtime.shutdown()
+    return orders_total
 
 
 def _normalize_instruments(instruments: list[str]) -> list[str]:
@@ -243,4 +468,13 @@ def _read_live_summary(
     return (cycles, orders)
 
 
-__all__ = ["LiveRunOutcome", "LiveRunRequest", "list_recent_live_runs", "run_live_scaffold"]
+__all__ = [
+    "CycleResult",
+    "LiveRunOutcome",
+    "LiveRunRequest",
+    "LiveRuntime",
+    "LiveRuntimeConfig",
+    "RuntimeMetrics",
+    "list_recent_live_runs",
+    "run_live_scaffold",
+]

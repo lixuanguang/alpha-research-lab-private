@@ -1,0 +1,89 @@
+# Example optimization configuration.
+#
+# Pass this file with:
+#   python -m apps.research.main --config config/research/optimize.example.yaml \
+#       optimize \
+#       --dataset-id <dataset_id> \
+#       --strategy-id zscore_v1 \
+#       --feature-run-id <feature_run_id> \
+#       --threshold 1.0 --threshold 1.5 --threshold 2.0 \
+#       --target-weight 0.01 --target-weight 0.02 \
+#       --search grid \
+#       --objective sharpe_ratio \
+#       --max-trials 20 \
+#       --execute
+#
+# The file is hashed and stored in the run manifest for full reproducibility.
+# All CLI flags override or extend the values here.
+
+research:
+  optimize:
+    # Base strategy to sweep over. Must match a supported strategy family
+    # (e.g. zscore_*, zscore_momentum_*).
+    strategy_id: "zscore_v1"
+
+    # Feature set version produced by a prior build-features run.
+    feature_set_version: "v1"
+
+    # ----------------------------------------------------------------
+    # Search configuration
+    # ----------------------------------------------------------------
+
+    # 'grid'   — cartesian product of all parameter_space values (capped to max_trials).
+    # 'random' — uniform sample using seed (reproducible).
+    search_mode: "grid"
+
+    # Maximum number of trials to evaluate.
+    max_trials: 20
+
+    # RNG seed for random search mode.
+    seed: 42
+
+    # ----------------------------------------------------------------
+    # Parameter space
+    # ----------------------------------------------------------------
+    # Each key maps to a list of candidate values for the sweep.
+    # Supported keys:
+    #   threshold      — z-score entry threshold (strategy parameter)
+    #   target_weight  — fractional portfolio weight per position (strategy parameter)
+    #   starting_cash  — initial notional cash for the simulation
+    #
+    # Grid example: 3 thresholds × 2 weights = 6 trials.
+    parameter_space:
+      threshold:     [1.0, 1.5, 2.0]
+      target_weight: [0.01, 0.02]
+
+    # ----------------------------------------------------------------
+    # Objective and constraints
+    # ----------------------------------------------------------------
+
+    # Metric to optimise. Must match a key in the EvaluateManifest metrics dict.
+    # Common options: sharpe_ratio, total_return, win_rate, profit_factor,
+    #                 annualized_return, max_drawdown (use --objective-minimize for drawdown)
+    objective: "sharpe_ratio"
+
+    # Set to true to minimise instead of maximise the objective.
+    objective_minimize: false
+
+    # Minimum acceptable metric values. Trials violating any constraint are
+    # excluded from the leaderboard (tagged 'constraint_violation').
+    constraints:
+      trade_count: 3.0     # at least 3 completed trades
+      win_rate: 0.0        # any win rate is acceptable by default
+
+    # ----------------------------------------------------------------
+    # Leaderboard
+    # ----------------------------------------------------------------
+
+    # Number of top feasible trials to include in the leaderboard artifact.
+    top_n: 5
+
+    # ----------------------------------------------------------------
+    # Simulation defaults (overridable per-trial via parameter_space)
+    # ----------------------------------------------------------------
+    starting_cash: 100000.0
+    engine: "event"
+
+  storage:
+    # Default storage root (overridable via --storage-root flag).
+    root: data

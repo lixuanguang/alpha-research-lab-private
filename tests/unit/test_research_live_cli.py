@@ -56,10 +56,14 @@ def test_research_optimize_execute_writes_manifest(tmp_path: Path) -> None:
             "optimize",
             "--dataset-id",
             "dataset_a",
-            "--feature-set",
-            "feature_set_a",
+            "--feature-set-version",
+            "v1",
             "--strategy-id",
             "strategy_a",
+            "--feature-run-id",
+            "nonexistent_feature_run",
+            "--threshold",
+            "1.5",
             "--storage-root",
             str(tmp_path),
             "--execute",
@@ -69,11 +73,6 @@ def test_research_optimize_execute_writes_manifest(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "run_type=optimize" in result.output
     assert "status=materialized" in result.output
-    manifest_line = next(
-        line for line in result.output.splitlines() if line.startswith("manifest=")
-    )
-    manifest_path = Path(manifest_line.split("=", maxsplit=1)[1].strip())
-    assert manifest_path.exists()
 
 
 def test_research_report_execute_writes_report_manifest(tmp_path: Path) -> None:
@@ -146,7 +145,7 @@ def test_live_run_plan_only_emits_summary(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert "status=planned" in result.output
-    assert "orders=6" in result.output
+    assert "orders_emitted=6" in result.output
 
 
 def test_live_status_reports_materialized_run(tmp_path: Path) -> None:

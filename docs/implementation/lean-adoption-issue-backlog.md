@@ -45,12 +45,12 @@ Suggested labels:
 - [x] LA-006: Implement `build-features` command + runner (P1)
 - [x] LA-007: Implement `backtest`, `evaluate`, `report` commands + runners (P1)
 - [x] LA-008: Add research end-to-end integration tests and docs wiring (P1)
-- [ ] LA-009: Add `ArtifactStore` abstraction and filesystem backend (P2)
-- [ ] LA-010: Implement `optimize` command + trial registry persistence (P2)
-- [ ] LA-011: Implement live runtime using shared strategy framework contracts (P3)
-- [ ] LA-012: Implement pre-trade validator and execution report pipeline (P3)
-- [ ] LA-013: Add live dry-run integration tests (mock venue adapters) (P3)
-- [ ] LA-014: Add run observability summaries + manifest/report schema regression tests (P4)
+- [x] LA-009: Add `ArtifactStore` abstraction and filesystem backend (P2)
+- [x] LA-010: Implement `optimize` command + trial registry persistence (P2)
+- [x] LA-011: Implement live runtime using shared strategy framework contracts (P3)
+- [x] LA-012: Implement pre-trade validator and execution report pipeline (P3)
+- [x] LA-013: Add live dry-run integration tests (mock venue adapters) (P3)
+- [x] LA-014: Add run observability summaries + manifest/report schema regression tests (P4)
 - [ ] LA-015: Add CI smoke job for research CLI pipeline (P4)
 - [ ] LA-016: Add `ResearchSession` + `ExperimentCatalog` contracts and persistence (P5)
 - [ ] LA-017: Add factor-pack registry and strategy recipe manifests (P5)
@@ -424,10 +424,10 @@ Create object-store-style abstraction for shared artifacts across research/backt
 
 ### Checklist
 
-- [ ] Define store interface (`put`, `get`, `exists`, `list`)
-- [ ] Add filesystem implementation with deterministic paths
-- [ ] Migrate runners to use store interface
-- [ ] Add idempotency and overwrite semantics tests
+- [x] Define store interface (`put`, `get`, `exists`, `list`)
+- [x] Add filesystem implementation with deterministic paths
+- [x] Migrate runners to use store interface
+- [x] Add idempotency and overwrite semantics tests
 
 ### Acceptance criteria
 
@@ -465,11 +465,11 @@ Add first-class optimization workflow to replace notebook-only parameter sweeps.
 
 ### Checklist
 
-- [ ] Add grid/random search modes
-- [ ] Add objective metric and constraints config support
-- [ ] Persist trial registry (jsonl/parquet) and leaderboard artifact
-- [ ] Persist best-run manifest reference
-- [ ] Add deterministic-seed test path
+- [x] Add grid/random search modes
+- [x] Add objective metric and constraints config support
+- [x] Persist trial registry (jsonl/parquet) and leaderboard artifact
+- [x] Persist best-run manifest reference
+- [x] Add deterministic-seed test path
 
 ### Acceptance criteria
 
@@ -506,11 +506,11 @@ Replace live stub with runtime that executes the same strategy component contrac
 
 ### Checklist
 
-- [ ] Add live command group and runtime startup/shutdown path
-- [ ] Wire strategy framework components into live event loop
-- [ ] Add order routing boundary (adapter-facing)
-- [ ] Add basic runtime metrics/logging hooks
-- [ ] Add unit tests with mocked adapters
+- [x] Add live command group and runtime startup/shutdown path
+- [x] Wire strategy framework components into live event loop
+- [x] Add order routing boundary (adapter-facing)
+- [x] Add basic runtime metrics/logging hooks
+- [x] Add unit tests with mocked adapters
 
 ### Acceptance criteria
 
@@ -548,11 +548,11 @@ Add explicit guardrails and status reporting before order submission.
 
 ### Checklist
 
-- [ ] Define order lifecycle models (`OrderIntent`, `ValidatedOrder`, `ExecutionReport`)
-- [ ] Add PM-specific validator checks (market state, limits, fee/slippage sanity)
-- [ ] Add structured reject reason codes
-- [ ] Integrate validator before routing/submission
-- [ ] Add tests for accept/reject paths
+- [x] Define order lifecycle models (`OrderIntent`, `ValidatedOrder`, `ExecutionReport`)
+- [x] Add PM-specific validator checks (market state, limits, fee/slippage sanity)
+- [x] Add structured reject reason codes
+- [x] Integrate validator before routing/submission
+- [x] Add tests for accept/reject paths
 
 ### Acceptance criteria
 
@@ -587,10 +587,10 @@ Add integration coverage for live strategy flow without external network calls.
 
 ### Checklist
 
-- [ ] Build mock adapter fixture for event feed + order ack
-- [ ] Test signal -> intent -> validation -> execution report path
-- [ ] Assert no network dependency in CI
-- [ ] Assert deterministic output artifacts/log summaries
+- [x] Build mock adapter fixture for event feed + order ack
+- [x] Test signal -> intent -> validation -> execution report path
+- [x] Assert no network dependency in CI
+- [x] Assert deterministic output artifacts/log summaries
 
 ### Acceptance criteria
 
@@ -629,10 +629,10 @@ Strengthen long-term stability through run summary outputs and schema regression
 
 ### Checklist
 
-- [ ] Emit standardized run summary blocks for research/live commands
-- [ ] Add regression snapshots for manifest schema
-- [ ] Add regression snapshots for metrics/report schema
-- [ ] Document schema versioning policy in adoption README
+- [x] Emit standardized run summary blocks for research/live commands
+- [x] Add regression snapshots for manifest schema
+- [x] Add regression snapshots for metrics/report schema
+- [x] Document schema versioning policy in adoption README
 
 ### Acceptance criteria
 

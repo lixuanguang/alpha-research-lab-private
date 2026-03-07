@@ -9,6 +9,7 @@ This package exports module namespaces only:
 """
 
 import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.artifact_store as artifact_store
 import alpha_core.research.as_of as as_of
 import alpha_core.research.backtest_runner as backtest_runner
 import alpha_core.research.dataset as dataset
@@ -21,6 +22,7 @@ import alpha_core.research.universe as universe
 
 __all__ = [
     "artifact_paths",
+    "artifact_store",
     "as_of",
     "backtest_runner",
     "dataset",

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
+from alpha_core.research.artifact_store import ArtifactNotFoundError, FilesystemArtifactStore
 
 MetricsProfile = Literal["default", "pm_core", "microstructure", "minimal"]
 
@@ -45,8 +46,13 @@ class EvaluateRunError(RuntimeError):
 class EvaluateRunner:
     """Computes metrics from backtest artifacts."""
 
-    def __init__(self, storage_root: Path) -> None:
+    def __init__(
+        self,
+        storage_root: Path,
+        store: FilesystemArtifactStore | None = None,
+    ) -> None:
         self._storage_root = storage_root
+        self._store = store if store is not None else FilesystemArtifactStore(storage_root)
 
     def build(
         self,
@@ -56,26 +62,14 @@ class EvaluateRunner:
         config_payload: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
     ) -> EvaluateManifest:
-        trades_path = artifact_paths.artifact_key_path(
-            self._storage_root,
-            backtest_run_id,
-            "trades.parquet",
-        )
-        equity_path = artifact_paths.artifact_key_path(
-            self._storage_root,
-            backtest_run_id,
-            "equity.parquet",
-        )
-        if not trades_path.exists():
+        try:
+            trades_path = self._store.path_for(backtest_run_id, "trades.parquet")
+            equity_path = self._store.path_for(backtest_run_id, "equity.parquet")
+        except ArtifactNotFoundError as exc:
             raise EvaluateRunError(
-                f"Backtest trades artifact not found at '{trades_path}'. "
-                f"Ensure run '{backtest_run_id}' completed successfully."
-            )
-        if not equity_path.exists():
-            raise EvaluateRunError(
-                f"Backtest equity artifact not found at '{equity_path}'. "
-                f"Ensure run '{backtest_run_id}' completed successfully."
-            )
+                f"Backtest artifact not found for run '{backtest_run_id}': {exc}. "
+                "Ensure the backtest run completed successfully."
+            ) from exc
 
         effective_payload = (
             config_payload
@@ -95,17 +89,8 @@ class EvaluateRunner:
             starting_cash=_load_starting_cash(self._storage_root, backtest_run_id),
         )
 
-        metrics_json_path = artifact_paths.artifact_key_path(
-            self._storage_root,
-            run_id,
-            "metrics.json",
-        )
-        metrics_parquet_path = artifact_paths.artifact_key_path(
-            self._storage_root,
-            run_id,
-            "metrics.parquet",
-        )
-        metrics_json_path.parent.mkdir(parents=True, exist_ok=True)
+        metrics_json_path = self._store.prepare_path(run_id, "metrics.json")
+        metrics_parquet_path = self._store.prepare_path(run_id, "metrics.parquet")
         metrics_json_path.write_text(
             json.dumps(
                 {"metrics_profile": metrics_profile, "metrics": metrics},
@@ -142,11 +127,7 @@ class EvaluateRunner:
             parent_run_id=parent_run_id or backtest_run_id,
         )
 
-        manifest_path = artifact_paths.artifact_key_path(
-            self._storage_root,
-            run_id,
-            "evaluate_manifest.json",
-        )
+        manifest_path = self._store.prepare_path(run_id, "evaluate_manifest.json")
         manifest_path.write_text(evaluate_manifest.model_dump_json(indent=2), encoding="utf-8")
         artifact_map["evaluate_manifest"] = str(manifest_path)
 
