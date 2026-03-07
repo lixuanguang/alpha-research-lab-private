@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 import alpha_core.strategy_framework.engine as strategy_engine
 import alpha_core.strategy_framework.interfaces as strategy_interfaces
@@ -167,11 +168,11 @@ class TestMarketState:
         assert state.model_extra == {"custom_field": "value"}
 
     def test_instrument_state_rejects_price_above_one(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.InstrumentState(instrument_id="k:m:o", mid_price=Decimal("1.01"))
 
     def test_instrument_state_extra_forbid(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.InstrumentState(instrument_id="k:m:o", unknown_field="x")  # type: ignore[call-arg]
 
 
@@ -191,7 +192,7 @@ class TestSignal:
         assert sig.direction is strategy_models.SignalDirection.LONG
 
     def test_strength_below_zero_rejected(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.Signal(
                 instrument_id="k:m:o",
                 direction=strategy_models.SignalDirection.LONG,
@@ -200,7 +201,7 @@ class TestSignal:
             )
 
     def test_confidence_above_one_rejected(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.Signal(
                 instrument_id="k:m:o",
                 direction=strategy_models.SignalDirection.SHORT,
@@ -209,7 +210,7 @@ class TestSignal:
             )
 
     def test_extra_fields_rejected(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.Signal(
                 instrument_id="k:m:o",
                 direction=strategy_models.SignalDirection.FLAT,
@@ -257,11 +258,11 @@ class TestTarget:
         assert t.target_weight == Decimal("-0.5")
 
     def test_weight_above_one_rejected(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.Target(instrument_id="k:m:o", target_weight=Decimal("1.01"))
 
     def test_size_negative_rejected(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.Target(instrument_id="k:m:o", target_size=Decimal("-1"))
 
     def test_default_direction_is_flat(self) -> None:
@@ -287,7 +288,7 @@ class TestOrderIntent:
         assert oi.price_limit == Decimal("0.62")
 
     def test_size_must_be_positive(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.OrderIntent(
                 instrument_id="k:m:o",
                 direction=strategy_models.SignalDirection.LONG,
@@ -295,7 +296,7 @@ class TestOrderIntent:
             )
 
     def test_price_limit_above_one_rejected(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             strategy_models.OrderIntent(
                 instrument_id="k:m:o",
                 direction=strategy_models.SignalDirection.LONG,

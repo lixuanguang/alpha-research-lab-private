@@ -249,16 +249,15 @@ __all__ = ["BookStreamConnector", "BookStreamOptions", "BookWatchAdapter", "_com
 
 
 def _resolve_stream_capabilities(adapter: object) -> dict[str, bool]:
-    if hasattr(adapter, "book_stream_capabilities"):
-        getter = adapter.book_stream_capabilities
-        if callable(getter):
-            value = getter()
-            if isinstance(value, dict):
-                return {
-                    "sequence_id": bool(value.get("sequence_id", False)),
-                    "latency_metadata": bool(value.get("latency_metadata", False)),
-                    "native_book_deltas": bool(value.get("native_book_deltas", False)),
-                }
+    capabilities_fn = getattr(adapter, "book_stream_capabilities", None)
+    if callable(capabilities_fn):
+        value = capabilities_fn()
+        if isinstance(value, dict):
+            return {
+                "sequence_id": bool(value.get("sequence_id", False)),
+                "latency_metadata": bool(value.get("latency_metadata", False)),
+                "native_book_deltas": bool(value.get("native_book_deltas", False)),
+            }
     return {
         "sequence_id": False,
         "latency_metadata": False,

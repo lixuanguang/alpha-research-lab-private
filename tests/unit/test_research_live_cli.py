@@ -76,6 +76,31 @@ def test_research_optimize_execute_writes_manifest(tmp_path: Path) -> None:
     assert manifest_path.exists()
 
 
+def test_research_report_execute_writes_report_manifest(tmp_path: Path) -> None:
+    runner = click.testing.CliRunner()
+    result = runner.invoke(
+        research_main.main,
+        [
+            "report",
+            "--evaluation-run-id",
+            "eval_run_a",
+            "--storage-root",
+            str(tmp_path),
+            "--execute",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "run_type=report" in result.output
+    manifest_line = next(
+        line for line in result.output.splitlines() if line.startswith("manifest=")
+    )
+    manifest_path = Path(manifest_line.split("=", maxsplit=1)[1].strip())
+    manifest = manifest_mod.read_run_manifest(manifest_path)
+    assert manifest.run.run_type == "report"
+    assert manifest.parent_run_id == "eval_run_a"
+
+
 def test_live_cli_help_lists_runtime_commands() -> None:
     runner = click.testing.CliRunner()
     result = runner.invoke(live_main.main, ["--help"])

@@ -221,7 +221,7 @@ class BackfillManager:
             retry_policy=self._retry_policy,
         )
         trades.sort(key=lambda trade: (trade.instrument_id, trade.ts_event, trade.trade_id))
-        valid_trades, rejected = backfill_support.filter_quality_trades(
+        valid_trades, rejected = backfill_support.filter_quality_events(
             self._quality_checker,
             trades,
         )
@@ -274,7 +274,7 @@ class BackfillManager:
         in_window_candles.sort(
             key=lambda candle: (candle.instrument_id, candle.ts_event, candle.resolution)
         )
-        valid_candles, rejected = backfill_support.filter_quality_candles(
+        valid_candles, rejected = backfill_support.filter_quality_events(
             self._quality_checker,
             in_window_candles,
         )

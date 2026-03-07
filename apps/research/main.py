@@ -24,28 +24,32 @@ import apps.research.runtime as research_runtime
 )
 @click.option(
     "--output-dir",
-    type=click.Path(path_type=None, file_okay=False, dir_okay=True),
+    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
     default=None,
     help="Global default storage root (overrides per-command --storage-root).",
 )
 @click.option(
     "--config",
-    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=None),
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, path_type=Path),
     default=None,
-    help="Path to an optional YAML config override file.",
+    help="Path to an optional YAML config override file used for validation and run hashing.",
 )
 @click.pass_context
 def main(
     ctx: click.Context,
     output_format: str,
-    output_dir: str | None,
-    config: str | None,
+    output_dir: Path | None,
+    config: Path | None,
 ) -> None:
     """Run research-plane scaffolding commands."""
     ctx.ensure_object(dict)
     ctx.obj["format"] = output_format
-    ctx.obj["output_dir"] = output_dir
-    ctx.obj["config"] = config
+    ctx.obj["output_dir"] = output_dir.resolve() if output_dir is not None else None
+    ctx.obj["config"] = (
+        cmd_common.load_config_reference(config)
+        if config is not None
+        else None
+    )
 
 
 @main.command("build-dataset")
@@ -128,11 +132,12 @@ def build_dataset_command(
         require_gap_free=require_gap_free,
         max_gap_hours=max_gap_hours,
     )
+    payload = cmd_common.build_run_payload(ctx, config.model_dump(mode="json"))
     outcome = research_runtime.run_stage(
         research_runtime.ResearchStageRequest(
             run_type="dataset_build",
-            payload=config.model_dump(mode="json"),
-            storage_root=storage_root,
+            payload=payload,
+            storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
             execute=execute,
         )
     )
@@ -181,11 +186,12 @@ def build_features_command(
         "feature_set": feature_set,
         "lookback_bars": lookback_bars,
     }
+    runtime_payload = cmd_common.build_run_payload(ctx, payload)
     outcome = research_runtime.run_stage(
         research_runtime.ResearchStageRequest(
             run_type="feature_build",
-            payload=payload,
-            storage_root=storage_root,
+            payload=runtime_payload,
+            storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
             execute=execute,
             parent_run_id=parent_run_id,
         )
@@ -247,11 +253,12 @@ def backtest_command(
         "engine": engine,
         "starting_cash": starting_cash,
     }
+    runtime_payload = cmd_common.build_run_payload(ctx, payload)
     outcome = research_runtime.run_stage(
         research_runtime.ResearchStageRequest(
             run_type="backtest",
-            payload=payload,
-            storage_root=storage_root,
+            payload=runtime_payload,
+            storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
             execute=execute,
             parent_run_id=parent_run_id,
         )
@@ -294,11 +301,12 @@ def evaluate_command(
         "backtest_run_id": backtest_run_id,
         "metrics_profile": metrics_profile,
     }
+    runtime_payload = cmd_common.build_run_payload(ctx, payload)
     outcome = research_runtime.run_stage(
         research_runtime.ResearchStageRequest(
             run_type="evaluate",
-            payload=payload,
-            storage_root=storage_root,
+            payload=runtime_payload,
+            storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
             execute=execute,
             parent_run_id=backtest_run_id,
         )
@@ -309,7 +317,7 @@ def evaluate_command(
 @main.command("report")
 @click.option("--evaluation-run-id", required=True, help="Evaluation run id to report.")
 @click.option(
-    "--format",
+    "--report-format",
     "report_format",
     type=click.Choice(["json", "markdown"]),
     default="json",
@@ -342,11 +350,12 @@ def report_command(
         "evaluation_run_id": evaluation_run_id,
         "report_format": report_format,
     }
+    runtime_payload = cmd_common.build_run_payload(ctx, payload)
     outcome = research_runtime.run_stage(
         research_runtime.ResearchStageRequest(
-            run_type="evaluate",
-            payload=payload,
-            storage_root=storage_root,
+            run_type="report",
+            payload=runtime_payload,
+            storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
             execute=execute,
             parent_run_id=evaluation_run_id,
         )
@@ -411,11 +420,12 @@ def optimize_command(
         "max_trials": max_trials,
         "objective": objective,
     }
+    runtime_payload = cmd_common.build_run_payload(ctx, payload)
     outcome = research_runtime.run_stage(
         research_runtime.ResearchStageRequest(
             run_type="optimize",
-            payload=payload,
-            storage_root=storage_root,
+            payload=runtime_payload,
+            storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
             execute=execute,
             parent_run_id=parent_run_id,
         )

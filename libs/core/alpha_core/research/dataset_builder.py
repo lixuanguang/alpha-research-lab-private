@@ -34,8 +34,8 @@ class DatasetBuilder:
     2. Optionally validate quality of required silver partitions.
     3. Optionally check for gaps in required time windows.
     4. Load silver data for *[start, end]*.
-    5. Apply as-of join discipline — filter by ``ts_record <= ts_event``
-       so only information available at record time is retained.
+    5. Apply as-of join discipline — filter by ``ts_record <= build_end``
+       so only information recorded by the dataset cutoff is retained.
     6. Write gold Parquet files + ``universe.parquet`` + ``_meta.json``.
     """
 
@@ -67,7 +67,7 @@ class DatasetBuilder:
         2. Validate quality if ``config.require_quality_pass`` is True.
         3. Check gaps if ``config.require_gap_free`` is True.
         4. Load silver event tables within the date range.
-        5. Filter each table by ``ts_record <= ts_event`` (as-of discipline).
+        5. Filter each table by ``ts_record <= config.end`` (as-of discipline).
         6. Filter to instruments present in the union of universe snapshots.
         7. Write `trades.parquet`, `ohlcv.parquet`, `books.parquet`,
            `universe.parquet`, and `_meta.json` under the dataset directory.

@@ -66,7 +66,7 @@ Implication: the largest leverage is in **research/live orchestration and shared
 - `RunContext` object passed through dataset/feature/backtest/eval/live stages
 - Standard run manifest fields:
   - `run_id`
-  - `run_type` (`research`, `backtest`, `optimize`, `live`)
+  - `run_type` (`ingestion`, `dataset_build`, `feature_build`, `backtest`, `evaluate`, `report`, `optimize`, `live`)
   - `dataset_id`
   - `feature_set_version`
   - `strategy_version`

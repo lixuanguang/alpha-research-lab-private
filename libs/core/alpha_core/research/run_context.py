@@ -21,6 +21,7 @@ RunType = Literal[
     "feature_build",
     "backtest",
     "evaluate",
+    "report",
     "optimize",
     "live",
 ]

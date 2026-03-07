@@ -21,6 +21,7 @@ ALL_RUN_TYPES: list[run_context_mod.RunType] = [
     "feature_build",
     "backtest",
     "evaluate",
+    "report",
     "optimize",
     "live",
 ]

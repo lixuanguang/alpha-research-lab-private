@@ -25,6 +25,7 @@ _FETCH_RETRY_ATTEMPTS = 3
 _FETCH_RETRY_BACKOFF_BASE_SECONDS = 0.25
 _FETCH_RETRY_BACKOFF_MAX_SECONDS = 2.0
 _ResultT = TypeVar("_ResultT")
+_EventT = TypeVar("_EventT", bound=event_models.CanonicalMarketEvent)
 
 
 @dataclass(slots=True)
@@ -169,31 +170,16 @@ async def call_with_retries(
     ) from last_error
 
 
-def filter_quality_trades(
+def filter_quality_events(
     checker: event_quality.EventQualityChecker,
-    trades: list[event_models.CanonicalTrade],
-) -> tuple[list[event_models.CanonicalTrade], int]:
-    """Return (valid_trades, rejected_count)."""
-    valid: list[event_models.CanonicalTrade] = []
+    events: list[_EventT],
+) -> tuple[list[_EventT], int]:
+    """Return (valid_events, rejected_count)."""
+    valid: list[_EventT] = []
     rejected = 0
-    for trade in trades:
-        if checker.check(trade).is_valid:
-            valid.append(trade)
-        else:
-            rejected += 1
-    return valid, rejected
-
-
-def filter_quality_candles(
-    checker: event_quality.EventQualityChecker,
-    candles: list[event_models.CanonicalOHLCV],
-) -> tuple[list[event_models.CanonicalOHLCV], int]:
-    """Return (valid_candles, rejected_count)."""
-    valid: list[event_models.CanonicalOHLCV] = []
-    rejected = 0
-    for candle in candles:
-        if checker.check(candle).is_valid:
-            valid.append(candle)
+    for event in events:
+        if checker.check(event).is_valid:
+            valid.append(event)
         else:
             rejected += 1
     return valid, rejected

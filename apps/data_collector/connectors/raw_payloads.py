@@ -30,21 +30,18 @@ def _to_json_compatible(value: object) -> object:
     if callable(model_dump_fn):
         value = model_dump_fn(mode="json")
 
-    converted: object
     if isinstance(value, Decimal):
-        converted = str(value)
-    elif isinstance(value, datetime):
-        converted = value.isoformat()
-    elif isinstance(value, (str, int, float, bool)) or value is None:
-        converted = value
-    elif isinstance(value, (list, tuple)):
-        converted = [_to_json_compatible(item) for item in value]
-    elif isinstance(value, dict):
-        converted = {str(key): _to_json_compatible(item) for key, item in value.items()}
-    else:
-        serialized = json.dumps(value, default=str, separators=(",", ":"))
-        converted = json.loads(serialized)
-    return converted
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_to_json_compatible(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _to_json_compatible(item) for key, item in value.items()}
+    serialized = json.dumps(value, default=str, separators=(",", ":"))
+    return json.loads(serialized)
 
 
 __all__ = ["normalize_raw_payloads"]

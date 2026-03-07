@@ -53,6 +53,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
@@ -158,6 +159,7 @@ class TestRunManifestRegression:
             "feature_build",
             "backtest",
             "evaluate",
+            "report",
             "optimize",
             "live",
         )
@@ -276,21 +278,21 @@ class TestSchemaRegressionGuards:
         """RunManifest rejects JSON with an unknown field (extra='forbid')."""
         data = _load_snapshot(_RUN_MANIFEST_SNAPSHOT)
         data["undeclared_field"] = "should_be_rejected"
-        with pytest.raises(Exception, match="undeclared_field"):
+        with pytest.raises(ValidationError, match="undeclared_field"):
             manifest_mod.RunManifest.model_validate(data)
 
     def test_missing_required_field_is_rejected(self) -> None:
         """RunManifest rejects JSON missing the required 'run' field."""
         data = _load_snapshot(_RUN_MANIFEST_SNAPSHOT)
         del data["run"]
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             manifest_mod.RunManifest.model_validate(data)
 
     def test_invalid_run_type_is_rejected(self) -> None:
         """RunContext rejects an unrecognised run_type string."""
         data = _load_snapshot(_RUN_MANIFEST_SNAPSHOT)
         data["run"]["run_type"] = "not_a_real_stage"
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             manifest_mod.RunManifest.model_validate(data)
 
     def test_field_set_mismatch_is_detected(self) -> None:

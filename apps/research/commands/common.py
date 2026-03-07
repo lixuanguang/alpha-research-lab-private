@@ -1,64 +1,62 @@
-"""Shared output helpers and context utilities for research CLI commands.
-
-Every research subcommand should:
-1. Decorate with ``@click.pass_context`` so the group context is forwarded.
-2. Call :func:`emit_outcome` (or :func:`emit_json` / :func:`emit_text`) using
-   the format stored in ``ctx.obj["format"]`` by the root ``main`` group.
-3. Raise :class:`click.ClickException` on validation failures so the runner
-   exits non-zero with a structured error message.
-
-Usage example::
-
-    @main.command("my-cmd")
-    @click.option("--foo", required=True)
-    @click.pass_context
-    def my_cmd(ctx: click.Context, foo: str) -> None:
-        outcome = run_something(foo)
-        emit_outcome(outcome, get_output_format(ctx))
-"""
+"""Shared output and context helpers for the research CLI."""
 
 from __future__ import annotations
 
+import hashlib
 import json
+from pathlib import Path
 from typing import Any, Literal
 
 import click
+import yaml
 
+import alpha_core.config._merge as config_merge
 import apps.research.runtime as runtime_mod
-
-# Sentinel key used to store shared options in click's ctx.obj dict.
-_CTX_KEY = "research"
 
 OutputFormat = Literal["text", "json"]
 
 
-# ---------------------------------------------------------------------------
-# Context helpers
-# ---------------------------------------------------------------------------
-
-
 def get_output_format(ctx: click.Context) -> OutputFormat:
-    """Return the output format stored by the root command group.
-
-    Falls back to ``"text"`` when the context object is absent (e.g. when a
-    command is invoked directly in tests without the group context).
-    """
+    """Return the output format stored by the root command group."""
     obj: dict[str, Any] = ctx.obj or {}
     fmt = obj.get("format", "text")
     return "json" if fmt == "json" else "text"
 
 
-# ---------------------------------------------------------------------------
-# Output
-# ---------------------------------------------------------------------------
+def load_config_reference(config_path: Path) -> dict[str, str]:
+    """Validate a YAML config override and return reproducible file metadata."""
+    resolved_path = config_path.resolve()
+    try:
+        config_merge.load_yaml(resolved_path)
+        digest = hashlib.sha256(resolved_path.read_bytes()).hexdigest()
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise click.ClickException(
+            f"Invalid research config override '{resolved_path}': {exc}"
+        ) from exc
+    return {"path": str(resolved_path), "sha256": digest}
+
+
+def build_run_payload(ctx: click.Context, stage_payload: dict[str, Any]) -> dict[str, Any]:
+    """Attach shared CLI metadata to a stage payload when present."""
+    obj: dict[str, Any] = ctx.obj or {}
+    config_reference = obj.get("config")
+    if not isinstance(config_reference, dict):
+        return dict(stage_payload)
+    return {
+        "command": dict(stage_payload),
+        "config_override": config_reference,
+    }
+
+
+def resolve_storage_root(ctx: click.Context, storage_root: Path) -> Path:
+    """Resolve the effective storage root for a command invocation."""
+    obj: dict[str, Any] = ctx.obj or {}
+    output_dir = obj.get("output_dir")
+    return output_dir if isinstance(output_dir, Path) else storage_root
 
 
 def emit_outcome(outcome: runtime_mod.ResearchStageOutcome, fmt: OutputFormat) -> None:
-    """Write a :class:`~apps.research.runtime.ResearchStageOutcome` to stdout.
-
-    - ``"text"`` — human-readable key=value pairs (default)
-    - ``"json"`` — machine-readable JSON object; parseable by downstream tools
-    """
+    """Write a :class:`~apps.research.runtime.ResearchStageOutcome` to stdout."""
     if fmt == "json":
         data: dict[str, Any] = {
             "run_id": outcome.run_id,
@@ -79,4 +77,11 @@ def emit_outcome(outcome: runtime_mod.ResearchStageOutcome, fmt: OutputFormat) -
             click.echo(f"manifest={outcome.manifest_path}")
 
 
-__all__ = ["OutputFormat", "_CTX_KEY", "emit_outcome", "get_output_format"]
+__all__ = [
+    "OutputFormat",
+    "build_run_payload",
+    "emit_outcome",
+    "get_output_format",
+    "load_config_reference",
+    "resolve_storage_root",
+]

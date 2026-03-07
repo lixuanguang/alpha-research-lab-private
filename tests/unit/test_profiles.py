@@ -22,12 +22,7 @@ import pytest
 from pydantic import ValidationError
 
 import alpha_core.config as config_pkg
-from alpha_core.config.profiles import (
-    BUILTIN_PROFILES,
-    EnvironmentProfile,
-    ProfileName,
-    get_profile,
-)
+import alpha_core.config.profiles as config_profiles
 
 # ---------------------------------------------------------------------------
 # 1. ProfileName enum
@@ -36,7 +31,7 @@ from alpha_core.config.profiles import (
 
 class TestProfileName:
     def test_all_five_names_present(self) -> None:
-        names = {p.value for p in ProfileName}
+        names = {p.value for p in config_profiles.ProfileName}
         assert names == {"dev", "research", "ci", "paper", "live"}
 
     @pytest.mark.parametrize(
@@ -44,11 +39,11 @@ class TestProfileName:
         ["dev", "research", "ci", "paper", "live"],
     )
     def test_string_construction(self, value: str) -> None:
-        assert ProfileName(value).value == value
+        assert config_profiles.ProfileName(value).value == value
 
     def test_invalid_name_raises(self) -> None:
         with pytest.raises(ValueError):
-            ProfileName("staging")
+            config_profiles.ProfileName("staging")
 
 
 # ---------------------------------------------------------------------------
@@ -58,24 +53,30 @@ class TestProfileName:
 
 class TestBuiltinProfiles:
     def test_all_profiles_registered(self) -> None:
-        assert set(BUILTIN_PROFILES.keys()) == set(ProfileName)
+        assert set(config_profiles.BUILTIN_PROFILES.keys()) == set(config_profiles.ProfileName)
 
-    @pytest.mark.parametrize("profile_name", list(ProfileName))
-    def test_profile_has_correct_name_field(self, profile_name: ProfileName) -> None:
-        assert BUILTIN_PROFILES[profile_name].name == profile_name
+    @pytest.mark.parametrize("profile_name", list(config_profiles.ProfileName))
+    def test_profile_has_correct_name_field(
+        self,
+        profile_name: config_profiles.ProfileName,
+    ) -> None:
+        assert config_profiles.BUILTIN_PROFILES[profile_name].name == profile_name
 
-    @pytest.mark.parametrize("profile_name", list(ProfileName))
-    def test_storage_root_is_path(self, profile_name: ProfileName) -> None:
-        assert isinstance(BUILTIN_PROFILES[profile_name].storage_root, Path)
+    @pytest.mark.parametrize("profile_name", list(config_profiles.ProfileName))
+    def test_storage_root_is_path(self, profile_name: config_profiles.ProfileName) -> None:
+        assert isinstance(config_profiles.BUILTIN_PROFILES[profile_name].storage_root, Path)
 
-    @pytest.mark.parametrize("profile_name", list(ProfileName))
-    def test_log_level_is_valid(self, profile_name: ProfileName) -> None:
+    @pytest.mark.parametrize("profile_name", list(config_profiles.ProfileName))
+    def test_log_level_is_valid(self, profile_name: config_profiles.ProfileName) -> None:
         valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-        assert BUILTIN_PROFILES[profile_name].log_level in valid
+        assert config_profiles.BUILTIN_PROFILES[profile_name].log_level in valid
 
-    @pytest.mark.parametrize("profile_name", list(ProfileName))
-    def test_storage_root_contains_profile_name(self, profile_name: ProfileName) -> None:
-        root = str(BUILTIN_PROFILES[profile_name].storage_root)
+    @pytest.mark.parametrize("profile_name", list(config_profiles.ProfileName))
+    def test_storage_root_contains_profile_name(
+        self,
+        profile_name: config_profiles.ProfileName,
+    ) -> None:
+        root = str(config_profiles.BUILTIN_PROFILES[profile_name].storage_root)
         assert profile_name.value in root
 
 
@@ -90,67 +91,105 @@ class TestSafetyInvariants:
     # Non-trading profiles: execution disabled
     @pytest.mark.parametrize(
         "profile_name",
-        [ProfileName.DEV, ProfileName.RESEARCH, ProfileName.CI],
+        [
+            config_profiles.ProfileName.DEV,
+            config_profiles.ProfileName.RESEARCH,
+            config_profiles.ProfileName.CI,
+        ],
     )
-    def test_non_trading_profiles_execution_disabled(self, profile_name: ProfileName) -> None:
-        assert not BUILTIN_PROFILES[profile_name].execution_enabled
+    def test_non_trading_profiles_execution_disabled(
+        self,
+        profile_name: config_profiles.ProfileName,
+    ) -> None:
+        assert not config_profiles.BUILTIN_PROFILES[profile_name].execution_enabled
 
     # Non-trading profiles: dry_run on
     @pytest.mark.parametrize(
         "profile_name",
-        [ProfileName.DEV, ProfileName.RESEARCH, ProfileName.CI],
+        [
+            config_profiles.ProfileName.DEV,
+            config_profiles.ProfileName.RESEARCH,
+            config_profiles.ProfileName.CI,
+        ],
     )
-    def test_non_trading_profiles_dry_run(self, profile_name: ProfileName) -> None:
-        assert BUILTIN_PROFILES[profile_name].dry_run
+    def test_non_trading_profiles_dry_run(
+        self,
+        profile_name: config_profiles.ProfileName,
+    ) -> None:
+        assert config_profiles.BUILTIN_PROFILES[profile_name].dry_run
 
     # Trading profiles: execution enabled
-    @pytest.mark.parametrize("profile_name", [ProfileName.PAPER, ProfileName.LIVE])
-    def test_trading_profiles_execution_enabled(self, profile_name: ProfileName) -> None:
-        assert BUILTIN_PROFILES[profile_name].execution_enabled
+    @pytest.mark.parametrize(
+        "profile_name",
+        [config_profiles.ProfileName.PAPER, config_profiles.ProfileName.LIVE],
+    )
+    def test_trading_profiles_execution_enabled(
+        self,
+        profile_name: config_profiles.ProfileName,
+    ) -> None:
+        assert config_profiles.BUILTIN_PROFILES[profile_name].execution_enabled
 
     # Trading profiles: dry_run off
-    @pytest.mark.parametrize("profile_name", [ProfileName.PAPER, ProfileName.LIVE])
-    def test_trading_profiles_dry_run_off(self, profile_name: ProfileName) -> None:
-        assert not BUILTIN_PROFILES[profile_name].dry_run
+    @pytest.mark.parametrize(
+        "profile_name",
+        [config_profiles.ProfileName.PAPER, config_profiles.ProfileName.LIVE],
+    )
+    def test_trading_profiles_dry_run_off(
+        self,
+        profile_name: config_profiles.ProfileName,
+    ) -> None:
+        assert not config_profiles.BUILTIN_PROFILES[profile_name].dry_run
 
     # Only LIVE allows real money
     def test_only_live_allows_real_money(self) -> None:
-        for name, profile in BUILTIN_PROFILES.items():
-            if name is ProfileName.LIVE:
+        for name, profile in config_profiles.BUILTIN_PROFILES.items():
+            if name is config_profiles.ProfileName.LIVE:
                 assert profile.allow_real_money, "live must allow real money"
             else:
                 assert not profile.allow_real_money, f"{name} must NOT allow real money"
 
     # RESEARCH explicitly disables execution (key contract from spec)
     def test_research_execution_disabled(self) -> None:
-        assert not BUILTIN_PROFILES[ProfileName.RESEARCH].execution_enabled
+        assert not config_profiles.BUILTIN_PROFILES[
+            config_profiles.ProfileName.RESEARCH
+        ].execution_enabled
 
     # CI retention is finite
     def test_ci_has_finite_retention(self) -> None:
-        ret = BUILTIN_PROFILES[ProfileName.CI].data_retention_days
+        ret = config_profiles.BUILTIN_PROFILES[config_profiles.ProfileName.CI].data_retention_days
         assert ret is not None
         assert ret > 0
 
     # DEV/RESEARCH/LIVE have no retention limit
     @pytest.mark.parametrize(
         "profile_name",
-        [ProfileName.DEV, ProfileName.RESEARCH, ProfileName.LIVE],
+        [
+            config_profiles.ProfileName.DEV,
+            config_profiles.ProfileName.RESEARCH,
+            config_profiles.ProfileName.LIVE,
+        ],
     )
-    def test_indefinite_retention_profiles(self, profile_name: ProfileName) -> None:
-        assert BUILTIN_PROFILES[profile_name].data_retention_days is None
+    def test_indefinite_retention_profiles(
+        self,
+        profile_name: config_profiles.ProfileName,
+    ) -> None:
+        assert config_profiles.BUILTIN_PROFILES[profile_name].data_retention_days is None
 
     # PAPER has positive finite retention
     def test_paper_has_positive_retention(self) -> None:
-        ret = BUILTIN_PROFILES[ProfileName.PAPER].data_retention_days
+        ret = config_profiles.BUILTIN_PROFILES[
+            config_profiles.ProfileName.PAPER
+        ].data_retention_days
         assert ret is not None and ret > 0
 
     # DEV has DEBUG logging
     def test_dev_debug_logging(self) -> None:
-        assert BUILTIN_PROFILES[ProfileName.DEV].log_level == "DEBUG"
+        profile = config_profiles.BUILTIN_PROFILES[config_profiles.ProfileName.DEV]
+        assert profile.log_level == "DEBUG"
 
     # CI has WARNING+ logging (keep CI output clean)
     def test_ci_warning_logging(self) -> None:
-        level = BUILTIN_PROFILES[ProfileName.CI].log_level
+        level = config_profiles.BUILTIN_PROFILES[config_profiles.ProfileName.CI].log_level
         assert level in {"WARNING", "ERROR", "CRITICAL"}
 
 
@@ -160,9 +199,9 @@ class TestSafetyInvariants:
 
 
 class TestGetProfile:
-    @pytest.mark.parametrize("profile_name", list(ProfileName))
-    def test_lookup_by_enum(self, profile_name: ProfileName) -> None:
-        profile = get_profile(profile_name)
+    @pytest.mark.parametrize("profile_name", list(config_profiles.ProfileName))
+    def test_lookup_by_enum(self, profile_name: config_profiles.ProfileName) -> None:
+        profile = config_profiles.get_profile(profile_name)
         assert profile.name == profile_name
 
     @pytest.mark.parametrize(
@@ -170,24 +209,24 @@ class TestGetProfile:
         ["dev", "research", "ci", "paper", "live"],
     )
     def test_lookup_by_string(self, value: str) -> None:
-        profile = get_profile(value)
+        profile = config_profiles.get_profile(value)
         assert profile.name.value == value
 
     def test_unknown_name_raises_value_error(self) -> None:
         with pytest.raises(ValueError, match="Unknown profile"):
-            get_profile("staging")
+            config_profiles.get_profile("staging")
 
     def test_error_message_lists_valid_profiles(self) -> None:
         with pytest.raises(ValueError) as exc_info:
-            get_profile("unknown_xyz")
+            config_profiles.get_profile("unknown_xyz")
         msg = str(exc_info.value)
-        for name in ProfileName:
+        for name in config_profiles.ProfileName:
             assert name.value in msg
 
     def test_returns_same_object_as_builtin_profiles(self) -> None:
         # get_profile must return the canonical registry entry (identity check)
-        for name in ProfileName:
-            assert get_profile(name) is BUILTIN_PROFILES[name]
+        for name in config_profiles.ProfileName:
+            assert config_profiles.get_profile(name) is config_profiles.BUILTIN_PROFILES[name]
 
 
 # ---------------------------------------------------------------------------
@@ -197,8 +236,8 @@ class TestGetProfile:
 
 class TestEnvironmentProfileModel:
     def test_construct_minimal(self) -> None:
-        p = EnvironmentProfile(
-            name=ProfileName.DEV,
+        p = config_profiles.EnvironmentProfile(
+            name=config_profiles.ProfileName.DEV,
             storage_root=Path("data/custom_dev"),
             log_level="DEBUG",
             execution_enabled=False,
@@ -209,8 +248,8 @@ class TestEnvironmentProfileModel:
 
     def test_extra_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            EnvironmentProfile(  # type: ignore[call-arg]
-                name=ProfileName.DEV,
+            config_profiles.EnvironmentProfile(  # type: ignore[call-arg]
+                name=config_profiles.ProfileName.DEV,
                 storage_root=Path("data/dev"),
                 log_level="DEBUG",
                 execution_enabled=False,
@@ -221,8 +260,8 @@ class TestEnvironmentProfileModel:
 
     def test_zero_retention_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            EnvironmentProfile(
-                name=ProfileName.CI,
+            config_profiles.EnvironmentProfile(
+                name=config_profiles.ProfileName.CI,
                 storage_root=Path("data/ci"),
                 log_level="WARNING",
                 execution_enabled=False,
@@ -233,8 +272,8 @@ class TestEnvironmentProfileModel:
 
     def test_negative_retention_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            EnvironmentProfile(
-                name=ProfileName.CI,
+            config_profiles.EnvironmentProfile(
+                name=config_profiles.ProfileName.CI,
                 storage_root=Path("data/ci"),
                 log_level="WARNING",
                 execution_enabled=False,
@@ -244,15 +283,15 @@ class TestEnvironmentProfileModel:
             )
 
     def test_frozen_prevents_mutation(self) -> None:
-        profile = BUILTIN_PROFILES[ProfileName.DEV]
+        profile = config_profiles.BUILTIN_PROFILES[config_profiles.ProfileName.DEV]
         with pytest.raises(ValidationError):
             profile.execution_enabled = True  # type: ignore[misc]
 
     def test_round_trip_serialization(self) -> None:
-        profile = BUILTIN_PROFILES[ProfileName.PAPER]
-        restored = EnvironmentProfile.model_validate(profile.model_dump())
+        profile = config_profiles.BUILTIN_PROFILES[config_profiles.ProfileName.PAPER]
+        restored = config_profiles.EnvironmentProfile.model_validate(profile.model_dump())
         assert restored == profile
-        assert restored.name == ProfileName.PAPER
+        assert restored.name == config_profiles.ProfileName.PAPER
         assert restored.execution_enabled is True
 
 
@@ -266,4 +305,4 @@ def test_profiles_importable_from_config_package() -> None:
 
 
 def test_get_profile_importable_directly() -> None:
-    assert callable(get_profile)
+    assert callable(config_profiles.get_profile)

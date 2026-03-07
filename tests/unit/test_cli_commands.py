@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 import apps.data_collector.backfill as collector_backfill
 import apps.data_collector.cli_support as collector_cli_support
 import apps.data_collector.main as data_collector_main
+import apps.research.main as research_main
 import click.testing
 import pyarrow as pa
 import pytest
@@ -407,10 +409,6 @@ def test_scan_instrument_ids_ignores_null_and_blank_values() -> None:
 # Research CLI smoke tests (LA-004)
 # ---------------------------------------------------------------------------
 
-import json  # noqa: E402 — kept local to avoid polluting the import block above
-
-import apps.research.main as research_main
-
 
 _research_runner = click.testing.CliRunner()
 
@@ -457,7 +455,7 @@ def test_research_invalid_format_choice_exits_nonzero() -> None:
 def test_research_text_output_contains_key_value_pairs(tmp_path: Path) -> None:
     result = _research_runner.invoke(
         research_main.main,
-        _BUILD_DATASET_PLAN_ARGS + ["--storage-root", str(tmp_path)],
+        [*_BUILD_DATASET_PLAN_ARGS, "--storage-root", str(tmp_path)],
     )
     assert result.exit_code == 0, result.output
     assert "run_id=" in result.output
@@ -467,7 +465,7 @@ def test_research_text_output_contains_key_value_pairs(tmp_path: Path) -> None:
 def test_research_json_output_is_valid_json(tmp_path: Path) -> None:
     result = _research_runner.invoke(
         research_main.main,
-        ["--format", "json"] + _BUILD_DATASET_PLAN_ARGS + ["--storage-root", str(tmp_path)],
+        ["--format", "json", *_BUILD_DATASET_PLAN_ARGS, "--storage-root", str(tmp_path)],
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
@@ -480,8 +478,122 @@ def test_research_json_output_is_valid_json(tmp_path: Path) -> None:
 def test_research_json_output_run_type_matches_command(tmp_path: Path) -> None:
     result = _research_runner.invoke(
         research_main.main,
-        ["--format", "json"] + _BUILD_DATASET_PLAN_ARGS + ["--storage-root", str(tmp_path)],
+        ["--format", "json", *_BUILD_DATASET_PLAN_ARGS, "--storage-root", str(tmp_path)],
     )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["run_type"] == "dataset_build"
+
+
+def test_research_output_dir_overrides_storage_root(tmp_path: Path) -> None:
+    output_root = tmp_path / "global-root"
+    command_root = tmp_path / "command-root"
+    result = _research_runner.invoke(
+        research_main.main,
+        [
+            "--output-dir",
+            str(output_root),
+            "build-dataset",
+            "--name",
+            "scaffold-ds",
+            "--start",
+            "2024-01-01T00:00:00",
+            "--end",
+            "2024-02-01T00:00:00",
+            "--storage-root",
+            str(command_root),
+            "--execute",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert (output_root / "runs").exists()
+    assert not (command_root / "runs").exists()
+
+
+def test_research_invalid_yaml_config_exits_nonzero(tmp_path: Path) -> None:
+    invalid_config = tmp_path / "broken.yaml"
+    invalid_config.write_text("venues: [", encoding="utf-8")
+    result = _research_runner.invoke(
+        research_main.main,
+        [
+            "--config",
+            str(invalid_config),
+            "build-dataset",
+            "--name",
+            "broken-config",
+            "--start",
+            "2024-01-01T00:00:00",
+            "--end",
+            "2024-02-01T00:00:00",
+            "--plan-only",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "Invalid research config override" in result.output
+
+
+def test_research_config_override_changes_config_hash(tmp_path: Path) -> None:
+    config_a = tmp_path / "config_a.yaml"
+    config_b = tmp_path / "config_b.yaml"
+    config_a.write_text("research:\n  mode: a\n", encoding="utf-8")
+    config_b.write_text("research:\n  mode: b\n", encoding="utf-8")
+
+    result_a = _research_runner.invoke(
+        research_main.main,
+        [
+            "--format",
+            "json",
+            "--config",
+            str(config_a),
+            "build-dataset",
+            "--name",
+            "cfg-a",
+            "--start",
+            "2024-01-01T00:00:00",
+            "--end",
+            "2024-02-01T00:00:00",
+            "--plan-only",
+        ],
+    )
+    result_b = _research_runner.invoke(
+        research_main.main,
+        [
+            "--format",
+            "json",
+            "--config",
+            str(config_b),
+            "build-dataset",
+            "--name",
+            "cfg-a",
+            "--start",
+            "2024-01-01T00:00:00",
+            "--end",
+            "2024-02-01T00:00:00",
+            "--plan-only",
+        ],
+    )
+
+    assert result_a.exit_code == 0, result_a.output
+    assert result_b.exit_code == 0, result_b.output
+    payload_a = json.loads(result_a.output)
+    payload_b = json.loads(result_b.output)
+    assert payload_a["config_hash"] != payload_b["config_hash"]
+
+
+def test_research_report_json_output_run_type_matches_command(tmp_path: Path) -> None:
+    result = _research_runner.invoke(
+        research_main.main,
+        [
+            "--format",
+            "json",
+            "report",
+            "--evaluation-run-id",
+            "eval-run-001",
+            "--storage-root",
+            str(tmp_path),
+            "--plan-only",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["run_type"] == "report"

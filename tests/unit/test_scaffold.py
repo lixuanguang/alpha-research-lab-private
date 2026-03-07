@@ -65,15 +65,17 @@ def test_strategy_framework_in_all() -> None:
 
 def test_strategy_framework_submodules_importable() -> None:
     """All three strategy_framework sub-modules are importable via the package."""
-    from alpha_core.strategy_framework import engine, interfaces, models  # noqa: F401
+    import alpha_core.strategy_framework.engine as strategy_engine
+    import alpha_core.strategy_framework.interfaces as strategy_interfaces
+    import alpha_core.strategy_framework.models as strategy_models
 
-    assert hasattr(interfaces, "UniverseModel")
-    assert hasattr(interfaces, "AlphaModel")
-    assert hasattr(interfaces, "PortfolioConstructionModel")
-    assert hasattr(interfaces, "RiskModel")
-    assert hasattr(interfaces, "ExecutionModel")
-    assert hasattr(models, "MarketState")
-    assert hasattr(models, "Signal")
-    assert hasattr(models, "Target")
-    assert hasattr(models, "OrderIntent")
-    assert hasattr(engine, "StrategyEngine")
+    assert hasattr(strategy_interfaces, "UniverseModel")
+    assert hasattr(strategy_interfaces, "AlphaModel")
+    assert hasattr(strategy_interfaces, "PortfolioConstructionModel")
+    assert hasattr(strategy_interfaces, "RiskModel")
+    assert hasattr(strategy_interfaces, "ExecutionModel")
+    assert hasattr(strategy_models, "MarketState")
+    assert hasattr(strategy_models, "Signal")
+    assert hasattr(strategy_models, "Target")
+    assert hasattr(strategy_models, "OrderIntent")
+    assert hasattr(strategy_engine, "StrategyEngine")

@@ -1,9 +1,4 @@
-"""Research CLI shared command helpers.
-
-Re-exports from :mod:`common` so callers can import directly from this package:
-
-    from apps.research.commands.common import emit_outcome, OutputFormat
-"""
+"""Research CLI command helper modules."""
 
 from __future__ import annotations
 

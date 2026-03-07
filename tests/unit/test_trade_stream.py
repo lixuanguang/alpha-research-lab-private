@@ -70,12 +70,10 @@ class _MockAdapter:
         self, outcome_id: str
     ) -> AsyncIterator[list[event_models.CanonicalTrade]]:
         self.call_counts[outcome_id] = self.call_counts.get(outcome_id, 0) + 1
-        yielded = 0
-        for batch in self.batches.get(outcome_id, []):
+        for yielded, batch in enumerate(self.batches.get(outcome_id, [])):
             if outcome_id in self.raise_on and yielded >= self.raise_on[outcome_id]:
                 raise ConnectionError("stream dropped")
             yield batch
-            yielded += 1
 
 
 class _EventCollector:
