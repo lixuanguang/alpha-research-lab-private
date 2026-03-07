@@ -193,7 +193,7 @@ class TestMissingRequiredFields:
             run_context_mod.RunContext(  # type: ignore[call-arg]
                 run_type="backtest",
                 config_hash="abc",
-                started_at_utc="2024-01-01T00:00:00Z",
+                started_at_utc="2024-01-01T00:00:00Z",  # type: ignore[arg-type]
             )
 
     def test_run_context_missing_run_type_fails(self) -> None:
@@ -203,7 +203,7 @@ class TestMissingRequiredFields:
             run_context_mod.RunContext(  # type: ignore[call-arg]
                 run_id="abc123",
                 config_hash="abc",
-                started_at_utc="2024-01-01T00:00:00Z",
+                started_at_utc="2024-01-01T00:00:00Z",  # type: ignore[arg-type]
             )
 
     def test_run_context_missing_config_hash_fails(self) -> None:
@@ -213,7 +213,7 @@ class TestMissingRequiredFields:
             run_context_mod.RunContext(  # type: ignore[call-arg]
                 run_id="abc123",
                 run_type="backtest",
-                started_at_utc="2024-01-01T00:00:00Z",
+                started_at_utc="2024-01-01T00:00:00Z",  # type: ignore[arg-type]
             )
 
     def test_run_manifest_missing_run_fails(self) -> None:

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from apps.live_system.runtime import RuntimeMetrics
@@ -131,7 +132,7 @@ def _make_run_summary(**overrides: object) -> RunSummary:
     return RunSummary(**defaults)  # type: ignore[arg-type]
 
 
-def _limit_order():  # type: ignore[return]
+def _limit_order() -> Any:
     import alpha_core.strategy_framework.models as sm
     return sm.OrderIntent(
         instrument_id="p:m1:yes",
@@ -207,7 +208,7 @@ class TestEvaluateMetricsSchema:
         import pandas as pd
 
         from alpha_core.research.evaluate_runner import (
-            _compute_metrics,  # type: ignore[attr-defined]
+            _compute_metrics,
         )
 
         trades_df = pd.DataFrame(columns=["realized_pnl"])
@@ -282,7 +283,7 @@ class TestExecutionReportSchema:
 
     def test_extra_field_forbidden(self) -> None:
         with pytest.raises(Exception):
-            ExecutionReport(
+            ExecutionReport(  # type: ignore[call-arg]
                 order_id="x",
                 instrument_id="p:m:yes",
                 status=OrderLifecycleStatus.FILLED,

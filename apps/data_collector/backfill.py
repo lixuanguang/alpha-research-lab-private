@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
@@ -16,6 +17,7 @@ import alpha_core.quality.gap_detector as quality_gap_detector
 import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_writer as storage_parquet
+import alpha_core.storage.replay_package as storage_replay
 import alpha_core.utils.time as time_utils
 import apps.data_collector.backfill_support as backfill_support
 import apps.data_collector.connectors.raw_payloads as connector_raw_payloads
@@ -29,6 +31,11 @@ class BackfillDependencies:
     silver_writer: storage_parquet.ParquetEventWriter
     quality_checker: event_quality.EventQualityChecker
     lineage_store: storage_lineage.LineageStore
+    replay_package_store: storage_replay.ReplayPackageStore | None = field(default=None)
+    # Storage root used for partition discovery when emitting replay packages.
+    # If None, partition discovery is skipped and replay packages have empty
+    # partition_refs (useful when storage layout is not yet established).
+    storage_root: Path | None = field(default=None)
 
 
 class BackfillResult(BaseModel):
@@ -46,6 +53,19 @@ class BackfillResult(BaseModel):
     events_rejected: int
     duration_seconds: float
     run_id: str
+    # Cursor persisted after a successful run (LA-020).
+    cursor_watermark_utc: datetime | None = None
+    # ID of the replay package emitted for this run (None when not emitted).
+    replay_package_id: str | None = None
+
+
+class BackfillRunError(RuntimeError):
+    """Raised when a backfill run cannot complete safely."""
+
+    def __init__(self, errors: list[str]) -> None:
+        self.errors = [error for error in errors if error]
+        message = "; ".join(self.errors) if self.errors else "unknown backfill failure"
+        super().__init__(message)
 
 
 class BackfillManager:
@@ -64,6 +84,8 @@ class BackfillManager:
         self._silver_writer = dependencies.silver_writer
         self._quality_checker = dependencies.quality_checker
         self._lineage_store = dependencies.lineage_store
+        self._replay_package_store = dependencies.replay_package_store
+        self._storage_root = dependencies.storage_root
         self._retry_policy = retry_policy or backfill_support.FetchRetryPolicy()
 
     async def backfill_trades(
@@ -177,6 +199,8 @@ class BackfillManager:
         monotonic_start = time.monotonic()
         errors: list[str] = []
         totals = backfill_support.BackfillAccumulator()
+        cursor_watermark: datetime | None = None
+        replay_package_id: str | None = None
 
         try:
             for outcome_id in outcome_ids:
@@ -187,7 +211,50 @@ class BackfillManager:
                     continue
                 totals.add(outcome_totals)
 
-            self._lineage_store.complete_run(run.run_id, counts=totals.as_counts(), errors=errors)
+            if errors:
+                raise BackfillRunError(errors)
+
+            cursor_watermark = window.end
+
+            if self._replay_package_store is not None:
+                partition_refs: list[storage_replay.ReplayPartitionRef] = []
+                if self._storage_root is not None:
+                    partition_refs = storage_replay.derive_partition_refs(
+                        self._storage_root,
+                        venue=self._venue,
+                        event_types=[event_type],
+                        window_start=window.start,
+                        window_end=window.end,
+                    )
+                manifest = storage_replay.build_replay_package(
+                    venue=self._venue,
+                    source_run_ids=[run.run_id],
+                    window_start=window.start,
+                    window_end=window.end,
+                    event_types=[event_type],
+                    instrument_ids=list(outcome_ids),
+                    partition_refs=partition_refs,
+                    cursor_watermark_utc=cursor_watermark,
+                )
+                try:
+                    self._replay_package_store.save(manifest)
+                    replay_package_id = manifest.package_id
+                except Exception as exc:
+                    raise BackfillRunError([f"replay_package_emit_failed: {exc}"]) from exc
+
+            self._lineage_store.complete_run(
+                run.run_id,
+                counts=totals.as_counts(),
+                errors=[],
+                cursor_type="ts_event",
+                cursor_value=window.end.isoformat(),
+                cursor_watermark_utc=cursor_watermark,
+                resume_safe=True,
+                replay_package_id=replay_package_id,
+            )
+        except BackfillRunError as exc:
+            self._lineage_store.fail_run(run.run_id, exc.errors)
+            raise
         except Exception as exc:
             self._lineage_store.fail_run(run.run_id, str(exc))
             raise
@@ -203,6 +270,8 @@ class BackfillManager:
             events_rejected=totals.rejected,
             duration_seconds=time.monotonic() - monotonic_start,
             run_id=run.run_id,
+            cursor_watermark_utc=cursor_watermark,
+            replay_package_id=replay_package_id,
         )
 
     async def _backfill_trades_for_outcome(

@@ -17,7 +17,12 @@ _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 class IngestionRun(BaseModel):
-    """Run-level ingestion metadata for audit and lineage."""
+    """Run-level ingestion metadata for audit and lineage.
+
+    Cursor fields (``cursor_type`` - ``resume_safe``) are populated when a
+    run completes successfully.  They allow subsequent runs to resume from the
+    last watermark without duplicate window drift.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -30,7 +35,7 @@ class IngestionRun(BaseModel):
     status: Literal["running", "completed", "failed"] = "running"
     counts: dict[str, int] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
-    schema_version: int = 1
+    schema_version: int = 2
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
     # Bridge to downstream research/backtest runs that consumed this ingestion run.
     # A downstream run (dataset_build, feature_build, etc.) should set
@@ -38,6 +43,24 @@ class IngestionRun(BaseModel):
     # ``LineageStore.link_downstream_run`` to register the linkage here too,
     # giving bidirectional traceability at zero coupling cost.
     downstream_run_ids: list[str] = Field(default_factory=list)
+
+    # ------------------------------------------------------------------
+    # Incremental-sync cursor (LA-020)
+    # ------------------------------------------------------------------
+    # Populated when the run completes successfully.  Consumers can call
+    # ``LineageStore.get_latest_cursor`` to retrieve the most recent
+    # watermark and pass it to ``DataBridge.pull_incremental`` for
+    # deterministic resume.
+    cursor_type: str | None = None
+    """Semantics of ``cursor_value``: ``ts_event``, ``trade_id``, or ``sequence``."""
+    cursor_value: str | None = None
+    """Opaque string representation of the cursor position."""
+    cursor_watermark_utc: datetime | None = None
+    """Authoritative UTC timestamp of the last event included in this run."""
+    resume_safe: bool | None = None
+    """``True`` when the cursor was persisted cleanly and resume is safe."""
+    # Optional reference to the replay package emitted for this run.
+    replay_package_id: str | None = None
 
     @field_validator("venue")
     @classmethod
@@ -84,9 +107,13 @@ class IngestionRun(BaseModel):
 @dataclass(slots=True, frozen=True)
 class StartRunOptions:
     event_types: list[str] | None = None
-    schema_version: int = 1
+    schema_version: int = 2
     config_snapshot: dict[str, Any] | None = None
     run_id: str | None = None
+    # Initial cursor to carry forward from a previous run (used for resume).
+    cursor_type: str | None = None
+    cursor_value: str | None = None
+    cursor_watermark_utc: datetime | None = None
 
 
 class LineageStore:
@@ -126,16 +153,44 @@ class LineageStore:
         run_id: str,
         counts: dict[str, int],
         errors: list[str] | None = None,
+        *,
+        cursor_type: str | None = None,
+        cursor_value: str | None = None,
+        cursor_watermark_utc: datetime | None = None,
+        resume_safe: bool | None = None,
+        replay_package_id: str | None = None,
     ) -> None:
+        """Mark a run as completed, optionally persisting cursor and replay-package metadata.
+
+        Args:
+            run_id: Run to complete.  Must be in ``running`` status.
+            counts: Event counts by category (e.g. ``{"trades": 500}``).
+            errors: Non-fatal error messages accumulated during the run.
+            cursor_type: Cursor semantics (``ts_event``, ``trade_id``, ``sequence``).
+            cursor_value: Opaque string cursor position.
+            cursor_watermark_utc: Authoritative UTC watermark of the last event seen.
+            resume_safe: Whether the cursor is safe to use as a resume point.
+            replay_package_id: ID of the replay package emitted for this run.
+        """
         run = self._require_run(run_id)
         self._assert_running(run, transition="complete")
-        completed = self._revalidated_run(
-            run,
-            completed_at=datetime.now(tz=UTC),
-            status="completed",
-            counts=dict(counts),
-            errors=list(errors or []),
-        )
+        updates: dict[str, object] = {
+            "completed_at": datetime.now(tz=UTC),
+            "status": "completed",
+            "counts": dict(counts),
+            "errors": list(errors or []),
+        }
+        if cursor_type is not None:
+            updates["cursor_type"] = cursor_type
+        if cursor_value is not None:
+            updates["cursor_value"] = cursor_value
+        if cursor_watermark_utc is not None:
+            updates["cursor_watermark_utc"] = cursor_watermark_utc
+        if resume_safe is not None:
+            updates["resume_safe"] = resume_safe
+        if replay_package_id is not None:
+            updates["replay_package_id"] = replay_package_id
+        completed = self._revalidated_run(run, **updates)
         self._persist_run(completed)
 
     def fail_run(self, run_id: str, error: str | list[str]) -> None:
@@ -176,6 +231,46 @@ class LineageStore:
             run, downstream_run_ids=[*run.downstream_run_ids, downstream_run_id]
         )
         self._persist_run(updated)
+
+    def get_latest_cursor(
+        self,
+        venue: str,
+        event_type: str | None = None,
+    ) -> IngestionRun | None:
+        """Return the most recent completed run for *venue* that has cursor metadata.
+
+        If *event_type* is provided, only runs that include that event type
+        are considered.  Returns ``None`` when no such run exists.
+
+        This is the primary entry-point for resume logic:
+
+        .. code-block:: python
+
+            prior_run = lineage_store.get_latest_cursor("polymarket", "trades")
+            if prior_run and prior_run.resume_safe:
+                cursor = IncrementalCursor(
+                    venue_name=prior_run.venue,
+                    instrument_ids=[...],
+                    cursor_watermark_utc=prior_run.cursor_watermark_utc,
+                )
+        """
+        normalized_venue = venue.strip().lower()
+        normalized_event_type = event_type.strip().lower() if event_type is not None else None
+        candidates: list[IngestionRun] = []
+        for run_path in sorted(self._runs_root.glob("run_*.json")):
+            run = IngestionRun.model_validate_json(run_path.read_text(encoding="utf-8"))
+            if run.venue != normalized_venue:
+                continue
+            if run.status != "completed":
+                continue
+            if run.cursor_watermark_utc is None:
+                continue
+            if normalized_event_type is not None and normalized_event_type not in run.event_types:
+                continue
+            candidates.append(run)
+        if not candidates:
+            return None
+        return max(candidates, key=_cursor_watermark_key)
 
     def list_runs(
         self,
@@ -237,4 +332,13 @@ def _normalize_run_id(run_id: str) -> str:
     return cleaned
 
 
+def _cursor_watermark_key(run: IngestionRun) -> datetime:
+    if run.cursor_watermark_utc is None:
+        raise ValueError("cursor watermark is required for latest-cursor comparisons")
+    return run.cursor_watermark_utc
+
+
 __all__ = ["IngestionRun", "LineageStore", "StartRunOptions"]
+
+# Re-exported for callers that want the cursor shape without importing data_bridge.
+# IngestionRun.cursor_* fields mirror IncrementalCursor from data_bridge.py.

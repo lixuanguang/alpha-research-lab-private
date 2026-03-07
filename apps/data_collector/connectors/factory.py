@@ -11,6 +11,8 @@ import apps.data_collector.connectors._polling as connector_polling
 import apps.data_collector.connectors._streaming as connector_streaming
 import apps.data_collector.connectors.book_poller as connector_book_poller
 import apps.data_collector.connectors.book_stream as connector_book_stream
+import apps.data_collector.connectors.capabilities as connector_capabilities
+import apps.data_collector.connectors.data_bridge as connector_data_bridge
 import apps.data_collector.connectors.heartbeat as connector_heartbeat
 import apps.data_collector.connectors.market_refresh as connector_market_refresh
 import apps.data_collector.connectors.ohlcv_poller as connector_ohlcv_poller
@@ -159,6 +161,67 @@ class VenueConnectorFactory:
             )
 
         return connectors
+
+    def create_data_bridge(
+        self,
+        adapter: adapters_base.VenueAdapter,
+        *,
+        capabilities_override: connector_capabilities.VenueCapabilities | None = None,
+    ) -> connector_data_bridge.ConnectorDataBridge:
+        """Create a :class:`~apps.data_collector.connectors.data_bridge.ConnectorDataBridge`
+        for *adapter*.
+
+        Capabilities are inferred from the adapter (duck-typing ``watch_trades``
+        / ``watch_order_book``) and the venue collection config.  Pass
+        *capabilities_override* to supply a fully explicit capability declaration
+        when the adapter's method signatures do not reflect all supported modes.
+
+        Args:
+            adapter: Authenticated venue adapter.
+            capabilities_override: Optional explicit capability declaration.
+                When ``None`` (default), capabilities are inferred automatically.
+
+        Returns:
+            A ready-to-use :class:`ConnectorDataBridge` that wraps *adapter*.
+        """
+        if capabilities_override is not None:
+            return connector_data_bridge.ConnectorDataBridge(
+                adapter, capabilities_override=capabilities_override
+            )
+
+        venue_name = adapter.venue_name()
+        venue_config = self._venue_map.get(venue_name)
+        collection = (
+            venue_config.collection
+            if venue_config is not None
+            else config_models.CollectionConfig()
+        )
+
+        streaming_trades = (
+            hasattr(adapter, "watch_trades")
+            and collection.mode in {"stream", "both"}
+        )
+        streaming_books = (
+            hasattr(adapter, "watch_order_book")
+            and collection.mode in {"stream", "both"}
+        )
+
+        caps = connector_capabilities.VenueCapabilities(
+            venue_name=venue_name,
+            trades=True,
+            book_snapshots=callable(getattr(adapter, "fetch_order_book_snapshot_at", None)),
+            book_deltas=False,
+            ohlcv_resolutions=(
+                ["1m", "5m", "15m", "1h", "4h", "1d"]
+                if callable(getattr(adapter, "fetch_ohlcv_window", None))
+                else []
+            ),
+            streaming_trades=streaming_trades,
+            streaming_books=streaming_books,
+            sequence_id_capable=False,
+            latency_metadata_capable=False,
+        )
+        return connector_data_bridge.ConnectorDataBridge(adapter, capabilities_override=caps)
 
 
 __all__ = ["VenueConnectorFactory"]

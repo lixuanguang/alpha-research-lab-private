@@ -150,3 +150,11 @@ class TestSessionLifecycle:
         s2_loaded = session_mod.load_session(tmp_path, s2.session_id)
         assert s1_loaded.run_ids == ["r1"]
         assert s2_loaded.run_ids == []
+
+    def test_create_session_rejects_path_traversal_session_id(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="unsupported characters"):
+            session_mod.create_session(tmp_path, session_id="../../tmp/x")
+
+    def test_load_session_rejects_invalid_session_id(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="unsupported characters"):
+            session_mod.load_session(tmp_path, "../outside")

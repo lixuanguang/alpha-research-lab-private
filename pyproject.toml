@@ -131,6 +131,11 @@ packages = ["alpha_core"]
 # Add libs/core to module search path for local package layout.
 mypy_path = "libs/core"
 
+# Suppress import-untyped errors for third-party libraries without stubs.
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*", "pandas", "pandas.*"]
+ignore_missing_imports = true
+
 # Pytest configuration.
 [tool.pytest.ini_options]
 # Directory roots where pytest discovers tests.

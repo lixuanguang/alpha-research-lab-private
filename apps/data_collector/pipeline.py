@@ -1,4 +1,23 @@
-"""End-to-end polling ingestion pipeline."""
+"""End-to-end polling ingestion pipeline.
+
+:class:`PollingPipeline` drives the classic poll → normalise → store bronze
+→ store silver → validate loop.
+
+For provider-neutral data access (historical pulls, incremental sync, or
+live streaming) use the data-bridge layer instead::
+
+    from apps.data_collector.connectors.data_bridge import (
+        ConnectorDataBridge,
+        SnapshotWindow,
+        IncrementalCursor,
+        StreamTopic,
+    )
+
+    bridge = ConnectorDataBridge(adapter)
+    events, cursor = await bridge.pull_incremental(cursor)
+
+See :mod:`apps.data_collector.connectors.data_bridge` for the full contract.
+"""
 
 from __future__ import annotations
 

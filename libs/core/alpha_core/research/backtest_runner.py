@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -12,7 +11,7 @@ from typing import Any, Literal
 import pandas as pd  # type: ignore[import-untyped]
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 import alpha_core.config.paths as config_paths
 import alpha_core.features.factor_pack as factor_pack_mod
@@ -142,12 +141,6 @@ class StrategySpec:
 class PendingTarget:
     direction: strategy_models.SignalDirection
     signal_ts: datetime
-
-
-@dataclass(slots=True, frozen=True)
-class FeatureArtifactRecipeMetadata:
-    factor_pack_id: str
-    factor_pack_version: str
 
 
 class _FeatureMarketState(strategy_models.MarketState):
@@ -282,6 +275,12 @@ class BacktestRunner:
         effective_payload = (
             config_payload if config_payload is not None else config.model_dump(mode="json")
         )
+        feature_manifest = _load_feature_manifest(store=self._store, run_id=parent_run_id)
+        _validate_feature_manifest_contract(
+            config=config,
+            parent_run_id=parent_run_id,
+            feature_manifest=feature_manifest,
+        )
         resolved_recipe = resolve_strategy_recipe(
             config.strategy_recipe_id,
             expected_version=config.strategy_recipe_version,
@@ -303,9 +302,9 @@ class BacktestRunner:
                 recipe=resolved_recipe,
             )
             recipe_zscore_column = _validate_recipe_feature_contract(
-                store=self._store,
                 parent_run_id=parent_run_id,
                 recipe=resolved_recipe,
+                feature_manifest=feature_manifest,
                 features_df=features_df,
             )
         run_context = run_context_mod.make_run_context(
@@ -402,7 +401,7 @@ def _simulate(
         strategy_spec=strategy._spec,
         zscore_column=zscore_column,
     )
-    if frame is None:
+    if frame.empty:
         return _empty_simulation()
 
     cash = config.starting_cash
@@ -473,9 +472,12 @@ def _prepare_features(
     engine: EngineType,
     strategy_spec: StrategySpec,
     zscore_column: str | None = None,
-) -> pd.DataFrame | None:
+) -> pd.DataFrame:
     if features_df.empty:
-        return None
+        columns = ["instrument_id", "execution_ts", "zscore", "execution_price"]
+        if engine == "vectorized":
+            columns.append("planned_direction")
+        return pd.DataFrame(columns=columns)
 
     zscore_col = zscore_column
     if zscore_col is None:
@@ -491,17 +493,24 @@ def _prepare_features(
             None,
         )
     )
-    if (
-        zscore_col is None
-        or zscore_col not in features_df.columns
-        or price_col is None
-        or "instrument_id" not in features_df.columns
-    ):
-        return None
 
     sequence_col = "ts_available" if "ts_available" in features_df.columns else "ts_event"
+    missing_columns: list[str] = []
+    if zscore_col is None:
+        missing_columns.append("price_zscore_*")
+    elif zscore_col not in features_df.columns:
+        missing_columns.append(zscore_col)
+    if price_col is None:
+        missing_columns.append("price|price_mean_*")
+    if "instrument_id" not in features_df.columns:
+        missing_columns.append("instrument_id")
     if sequence_col not in features_df.columns:
-        return None
+        missing_columns.append("ts_available|ts_event")
+    if missing_columns:
+        raise BacktestRunError(
+            "Feature artifact does not satisfy the backtest input contract. "
+            f"Missing columns: {missing_columns}."
+        )
 
     prepared = features_df.copy()
     prepared["instrument_id"] = prepared["instrument_id"].astype(str)
@@ -911,9 +920,9 @@ def _merge_recipe_defaults(
 
 def _validate_recipe_feature_contract(
     *,
-    store: artifact_store_mod.FilesystemArtifactStore,
     parent_run_id: str,
     recipe: strategy_recipe_mod.StrategyRecipeManifest,
+    feature_manifest: feature_runner_mod.FeatureManifest,
     features_df: pd.DataFrame,
 ) -> str | None:
     if not recipe.factor_pack_ids:
@@ -924,18 +933,22 @@ def _validate_recipe_feature_contract(
             "top-level factor pack."
         )
 
-    feature_metadata = _load_feature_recipe_metadata(store=store, run_id=parent_run_id)
     required_pack_id = recipe.factor_pack_ids[0]
-    if feature_metadata.factor_pack_id != required_pack_id:
+    if feature_manifest.factor_pack_id != required_pack_id:
         raise BacktestRunError(
             f"Feature run '{parent_run_id}' was built with factor pack "
-            f"'{feature_metadata.factor_pack_id}', but strategy recipe "
+            f"'{feature_manifest.factor_pack_id}', but strategy recipe "
             f"'{recipe.recipe_id}' requires '{required_pack_id}'."
+        )
+    if feature_manifest.factor_pack_version is None:
+        raise BacktestRunError(
+            f"Feature run '{parent_run_id}' does not declare a factor_pack_version in "
+            "'feature_manifest.json'."
         )
 
     factor_packs = feature_runner_mod.resolve_factor_pack_chain(
-        feature_metadata.factor_pack_id,
-        expected_version=feature_metadata.factor_pack_version,
+        feature_manifest.factor_pack_id,
+        expected_version=feature_manifest.factor_pack_version,
     )
     required_columns = {
         column_name
@@ -961,11 +974,11 @@ def _validate_recipe_feature_contract(
     return zscore_column
 
 
-def _load_feature_recipe_metadata(
+def _load_feature_manifest(
     *,
     store: artifact_store_mod.FilesystemArtifactStore,
     run_id: str,
-) -> FeatureArtifactRecipeMetadata:
+) -> feature_runner_mod.FeatureManifest:
     try:
         manifest_path = store.path_for(run_id, "feature_manifest.json")
     except artifact_store_mod.ArtifactNotFoundError as exc:
@@ -974,23 +987,32 @@ def _load_feature_recipe_metadata(
             "Strategy recipes require upstream factor-pack metadata."
         ) from exc
 
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    factor_pack_id = payload.get("factor_pack_id")
-    factor_pack_version = payload.get("factor_pack_version")
-    if not isinstance(factor_pack_id, str) or not factor_pack_id.strip():
-        raise BacktestRunError(
-            f"Feature run '{run_id}' does not declare a factor_pack_id in "
-            "'feature_manifest.json'."
+    try:
+        return feature_runner_mod.FeatureManifest.model_validate_json(
+            manifest_path.read_text(encoding="utf-8")
         )
-    if not isinstance(factor_pack_version, str) or not factor_pack_version.strip():
+    except ValidationError as exc:
         raise BacktestRunError(
-            f"Feature run '{run_id}' does not declare a factor_pack_version in "
-            "'feature_manifest.json'."
+            f"Feature run '{run_id}' has an invalid 'feature_manifest.json': {exc}."
+        ) from exc
+
+
+def _validate_feature_manifest_contract(
+    *,
+    config: BacktestConfig,
+    parent_run_id: str,
+    feature_manifest: feature_runner_mod.FeatureManifest,
+) -> None:
+    if feature_manifest.dataset_id != config.dataset_id:
+        raise BacktestRunError(
+            f"Feature run '{parent_run_id}' was built for dataset_id "
+            f"'{feature_manifest.dataset_id}', not '{config.dataset_id}'."
         )
-    return FeatureArtifactRecipeMetadata(
-        factor_pack_id=factor_pack_id.strip(),
-        factor_pack_version=factor_pack_version.strip(),
-    )
+    if feature_manifest.feature_set_version != config.feature_set_version:
+        raise BacktestRunError(
+            f"Feature run '{parent_run_id}' was built for feature_set_version "
+            f"'{feature_manifest.feature_set_version}', not '{config.feature_set_version}'."
+        )
 
 
 def _select_recipe_zscore_column(

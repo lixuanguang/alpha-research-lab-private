@@ -17,7 +17,7 @@ import alpha_core.research.as_of as as_of_mod
 def _make_table(ts_records: list[datetime], ts_events: list[datetime] | None = None) -> pa.Table:
     """Build a minimal table with ts_record (and optionally ts_event)."""
     schema_fields = [pa.field("ts_record", pa.timestamp("us", tz="UTC"), nullable=False)]
-    data: dict[str, list[object]] = {"ts_record": ts_records}
+    data: dict[str, list[datetime]] = {"ts_record": ts_records}
 
     if ts_events is not None:
         schema_fields.append(pa.field("ts_event", pa.timestamp("us", tz="UTC"), nullable=False))

@@ -237,7 +237,12 @@ def status_command(apply_user_settings: bool) -> None:
     required=True,
     help="Canonical outcome ids to backfill (repeat flag for multiple).",
 )
-@click.option("--start", required=True, help="Inclusive UTC start timestamp (ISO 8601).")
+@click.option(
+    "--start",
+    required=False,
+    default=None,
+    help="Inclusive UTC start timestamp (ISO 8601). Required unless --resume is set.",
+)
 @click.option("--end", required=True, help="Inclusive UTC end timestamp (ISO 8601).")
 @click.option(
     "--event-type",
@@ -265,20 +270,81 @@ def status_command(apply_user_settings: bool) -> None:
     default=None,
     help="Optional environment overlay (e.g. local).",
 )
+@click.option(
+    "--resume/--no-resume",
+    default=False,
+    show_default=True,
+    help=(
+        "When set, reads the cursor watermark from the most recent completed "
+        "run for this venue and uses it as the start of the backfill window.  "
+        "Overrides --start when a valid cursor is found."
+    ),
+)
 def backfill_command(
     venue: str,
     outcomes: tuple[str, ...],
-    start: str,
+    start: str | None,
     end: str,
     event_type: str,
     resolution: str,
     batch_size: int,
     environment: str | None,
+    resume: bool,
 ) -> None:
-    """Backfill historical data for a time window."""
-    start_dt, end_dt = cli_support.parse_window_datetimes(start, end)
+    """Backfill historical data for a time window.
+
+    Use ``--resume`` to continue from the watermark of the last completed run
+    instead of providing an explicit ``--start`` timestamp:
+
+    \\b
+        data-collector backfill \\
+            --venue polymarket \\
+            --outcomes p:mkt1:yes \\
+            --end 2026-02-01T00:00:00Z \\
+            --resume
+    """
+    if start is None and not resume:
+        raise click.ClickException(
+            "--start is required unless --resume is set.  "
+            "Pass --resume to start from the last cursor watermark."
+        )
+
+    end_dt = cli_support.parse_utc_datetime(end)
     if batch_size <= 0:
         raise click.ClickException("`--batch-size` must be > 0.")
+
+    # Resolve start datetime — either explicit or from last cursor.
+    if resume:
+        last_run = cli_support.get_last_cursor(
+            venue=venue,
+            event_type=event_type,
+            environment=environment,
+        )
+        if last_run is not None and last_run.cursor_watermark_utc is not None:
+            start_dt = last_run.cursor_watermark_utc
+            if not last_run.resume_safe:
+                click.echo(
+                    f"Warning: last cursor for venue={venue} is marked resume_safe=False. "
+                    "The previous run may have been interrupted; consider adding window overlap.",
+                    err=True,
+                )
+            click.echo(
+                f"Resume mode: using cursor watermark {start_dt.isoformat()} "
+                f"from run {last_run.run_id} as window start."
+            )
+        elif start is not None:
+            click.echo(
+                f"Resume mode: no cursor found for venue={venue}, "
+                "falling back to explicit --start value."
+            )
+            start_dt = cli_support.parse_utc_datetime(start)
+        else:
+            raise click.ClickException(
+                f"--resume was set but no cursor found for venue='{venue}' "
+                f"event_type='{event_type}' and no --start fallback was provided."
+            )
+    else:
+        start_dt = cli_support.parse_utc_datetime(start)  # type: ignore[arg-type]
 
     result = cli_support.run_backfill(
         cli_support.BackfillRequest(
@@ -293,10 +359,21 @@ def backfill_command(
         )
     )
 
+    cursor_info = (
+        f", cursor_watermark={result.cursor_watermark_utc.isoformat()}"
+        if result.cursor_watermark_utc is not None
+        else ""
+    )
+    replay_info = (
+        f", replay_package_id={result.replay_package_id}"
+        if result.replay_package_id is not None
+        else ""
+    )
     click.echo(
         f"Backfill complete: venue={result.venue}, event_type={result.event_type}, "
         f"fetched={result.events_fetched}, stored={result.events_stored}, "
         f"rejected={result.events_rejected}, duration={result.duration_seconds:.2f}s"
+        f"{cursor_info}{replay_info}"
     )
 
 
@@ -378,6 +455,52 @@ def detect_gaps_command(
             f"start={gap.gap_start.isoformat()}, "
             f"end={gap.gap_end.isoformat()}, "
             f"duration={gap.duration_seconds / 3600:.2f}h"
+        )
+
+
+@main.command("list-packages")
+@click.option("--venue", default=None, help="Filter by venue name.")
+@click.option(
+    "--since",
+    default=None,
+    help="Only show packages whose window_end is on or after this ISO 8601 timestamp.",
+)
+@click.option(
+    "--environment",
+    type=str,
+    default=None,
+    help="Optional environment overlay.",
+)
+def list_packages_command(
+    venue: str | None,
+    since: str | None,
+    environment: str | None,
+) -> None:
+    """List replay packages available in the store."""
+    since_dt = cli_support.parse_utc_datetime(since) if since is not None else None
+    packages = cli_support.list_replay_packages(
+        venue=venue,
+        since=since_dt,
+        environment=environment,
+    )
+    if not packages:
+        click.echo("No replay packages found.")
+        return
+
+    click.echo(f"Replay packages ({len(packages)}):")
+    for pkg in packages:
+        cursor_info = (
+            f", cursor_watermark={pkg.cursor_watermark_utc.isoformat()}"
+            if pkg.cursor_watermark_utc is not None
+            else ""
+        )
+        click.echo(
+            f"  package_id={pkg.package_id}, venue={pkg.venue}, "
+            f"window=[{pkg.window_start.date()}, {pkg.window_end.date()}], "
+            f"event_types={','.join(pkg.event_types)}, "
+            f"total_events={pkg.total_event_count}, "
+            f"partitions={len(pkg.partitions)}"
+            f"{cursor_info}"
         )
 
 

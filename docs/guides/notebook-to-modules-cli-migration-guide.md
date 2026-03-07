@@ -413,7 +413,81 @@ store.link_downstream_run(ingestion_run_id, dataset_build_run_id)
 
 ---
 
-## 11. PR Checklist Template
+## 11. Experiment Governance: Session, Catalog, and Promotion (LA-018)
+
+Once an experiment has been migrated to CLI-driven commands, use the
+governance workflow to track, review, and promote experiments to paper/live:
+
+### 11.1 Start a Session
+
+Group all pipeline runs for one idea under a session:
+
+```bash
+# Create a session and capture the session_id for subsequent commands
+python -m apps.research.main --format json session start \
+    --strategy-id zscore_v1 \
+    --notes "Initial threshold sweep"
+```
+
+Pass `--session-id <id>` to the root CLI to attach run manifests to the session:
+
+```bash
+python -m apps.research.main --session-id <session_id> \
+    evaluate --backtest-run-id <backtest_id> --execute
+```
+
+### 11.2 Register into the Experiment Catalog
+
+After an evaluate run, add a catalog entry:
+
+```bash
+python -m apps.research.main catalog add \
+    --run-id <evaluate_run_id> \
+    --strategy-id zscore_v1
+```
+
+List all candidates:
+
+```bash
+python -m apps.research.main --format json catalog list --status candidate
+```
+
+### 11.3 Promote or Reject
+
+Promote passing experiments to `approved_for_paper`:
+
+```bash
+python -m apps.research.main promote \
+    --entry-id <entry_id> \
+    --target-status approved_for_paper \
+    --reviewed-by alice \
+    --reason "Sharpe 1.8, drawdown 8%, 30 trades"
+```
+
+Promotion gates for `approved_for_paper` (configurable via CLI flags):
+
+| Gate | Default | Flag |
+|---|---|---|
+| `sharpe_ratio` ≥ threshold | 1.0 | `--min-sharpe` |
+| `max_drawdown` ≥ floor | -0.20 | `--max-drawdown` |
+| `trade_count` ≥ minimum | 10 | `--min-trades` |
+
+Failed gates exit non-zero with a machine-readable violations payload.
+Use `--force --reason "..."` to override with explicit justification.
+
+Reject an entry:
+
+```bash
+python -m apps.research.main promote \
+    --entry-id <entry_id> \
+    --target-status rejected \
+    --reviewed-by bob \
+    --reason "Sharpe below threshold in out-of-sample"
+```
+
+---
+
+## 12. PR Checklist Template
 
 Use this checklist in migration PRs:
 
@@ -426,3 +500,4 @@ Use this checklist in migration PRs:
 - [ ] Parity validation documented with tolerances
 - [ ] Artifacts/report schema documented
 - [ ] Research journal entry updated with migration decision
+- [ ] Experiment registered in catalog and promotion status set

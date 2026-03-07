@@ -7,6 +7,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import apps.data_collector.backfill as collector_backfill
 import apps.data_collector.backfill_support as collector_backfill_support
@@ -132,7 +133,7 @@ class _MockAdapter(adapters_base.VenueAdapter):
 def _make_manager(
     adapter: _MockAdapter,
     tmp_path: Path,
-    **manager_kwargs: object,
+    **manager_kwargs: Any,
 ) -> collector_backfill.BackfillManager:
     retry_policy = collector_backfill_support.FetchRetryPolicy(**manager_kwargs)
     return collector_backfill.BackfillManager(
@@ -273,7 +274,7 @@ def test_backfill_trades_retries_transient_api_errors_with_backoff(
     async def _fake_sleep(delay: float) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)  # type: ignore[attr-defined]
 
     manager = _make_manager(
         adapter,
@@ -305,7 +306,7 @@ def test_backfill_trades_reports_failure_after_retry_exhaustion(
     async def _fake_sleep(delay: float) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)  # type: ignore[attr-defined]
 
     manager = _make_manager(
         adapter,
@@ -314,14 +315,15 @@ def test_backfill_trades_reports_failure_after_retry_exhaustion(
         backoff_base_seconds=0.1,
         backoff_max_seconds=1.0,
     )
-    result = asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
+    with pytest.raises(collector_backfill.BackfillRunError, match="failed after 3 attempt\\(s\\)"):
+        asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
 
-    assert result.events_fetched == 0
-    assert result.events_stored == 0
     assert delays == [0.1, 0.2]
-    lineage_run = storage_lineage.LineageStore(tmp_path).get_run(result.run_id)
-    assert lineage_run is not None
-    assert lineage_run.status == "completed"
+    lineage_runs = storage_lineage.LineageStore(tmp_path).list_runs("polymarket")
+    assert len(lineage_runs) == 1
+    lineage_run = lineage_runs[0]
+    assert lineage_run.status == "failed"
+    assert lineage_run.cursor_watermark_utc is None
     assert any("failed after 3 attempt(s)" in error for error in lineage_run.errors)
 
 
@@ -382,7 +384,7 @@ def test_backfill_ohlcv_retries_transient_api_errors_with_backoff(
     async def _fake_sleep(delay: float) -> None:
         delays.append(delay)
 
-    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)
+    monkeypatch.setattr(collector_backfill_support.asyncio, "sleep", _fake_sleep)  # type: ignore[attr-defined]
 
     manager = _make_manager(
         adapter,

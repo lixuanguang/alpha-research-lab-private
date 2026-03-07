@@ -210,7 +210,7 @@ class TestRunContextSchema:
 
     def test_extra_field_forbidden(self) -> None:
         with pytest.raises(Exception):
-            RunContext(
+            RunContext(  # type: ignore[call-arg]
                 run_id="x",
                 run_type="backtest",
                 config_hash="abc",
@@ -258,7 +258,7 @@ class TestRunManifestSchema:
 
     def test_extra_field_forbidden(self) -> None:
         with pytest.raises(Exception):
-            RunManifest(
+            RunManifest(  # type: ignore[call-arg]
                 run=RunContext(
                     run_id="x",
                     run_type="backtest",
@@ -315,7 +315,7 @@ class TestBacktestManifestSchema:
 
     def test_extra_field_forbidden(self) -> None:
         with pytest.raises(Exception):
-            BacktestManifest(
+            BacktestManifest(  # type: ignore[call-arg]
                 run_id="x",
                 dataset_id="d",
                 feature_set_version="v1",
@@ -532,7 +532,7 @@ class TestRunSummarySchema:
 
     def test_extra_field_forbidden(self) -> None:
         with pytest.raises(Exception):
-            RunSummary(
+            RunSummary(  # type: ignore[call-arg]
                 run_id="x",
                 run_type="backtest",
                 status="completed",
@@ -637,7 +637,7 @@ class TestCrossSchemaInvariants:
             TrialRecord,
             RunSummary,
         ]:
-            config = model_cls.model_config
+            config = model_cls.model_config  # type: ignore[attr-defined]
             assert config.get("extra") == "forbid", (
                 f"{model_cls.__name__}.model_config must set extra='forbid'"
             )

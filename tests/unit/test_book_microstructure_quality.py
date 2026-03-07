@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pyarrow as pa
 import pytest
@@ -25,8 +26,8 @@ def _book_snapshot_table(
     *,
     instrument_ids: list[str] | None = None,
     ts_events: list[datetime] | None = None,
-    bids_list: list[list[dict]] | None = None,
-    asks_list: list[list[dict]] | None = None,
+    bids_list: list[list[dict[str, Any]]] | None = None,
+    asks_list: list[list[dict[str, Any]]] | None = None,
     sequence_ids: list[str | None] | None = None,
 ) -> pa.Table:
     """Build a minimal snapshot table for microstructure expectation tests."""

@@ -1,7 +1,8 @@
 """Research CLI commands aligned with the R1-R6 stage contract.
 
-Governance commands (``session``, ``catalog``, ``promote``) are wired in
-LA-018 once the promotion-gate workflow is implemented.
+Governance commands (``session``, ``catalog``, ``promote``) are implemented in
+LA-018 and wired here.  Use ``--session-id`` on the root group to attach run
+manifests to a specific session.
 """
 
 from __future__ import annotations
@@ -13,10 +14,13 @@ import click
 import apps.research.commands.backtest as backtest_cmd
 import apps.research.commands.build_dataset as build_dataset_cmd
 import apps.research.commands.build_features as build_features_cmd
+import apps.research.commands.catalog as catalog_cmd
 import apps.research.commands.common as cmd_common
 import apps.research.commands.evaluate as evaluate_cmd
 import apps.research.commands.optimize as optimize_cmd
+import apps.research.commands.promote as promote_cmd
 import apps.research.commands.report as report_cmd
+import apps.research.commands.session as session_cmd
 
 
 @click.group()
@@ -69,6 +73,10 @@ main.add_command(backtest_cmd.backtest_command)
 main.add_command(evaluate_cmd.evaluate_command)
 main.add_command(report_cmd.report_command)
 main.add_command(optimize_cmd.optimize_command)
+# LA-018: governance & promotion
+main.add_command(session_cmd.session_group)
+main.add_command(catalog_cmd.catalog_group)
+main.add_command(promote_cmd.promote_command)
 
 
 if __name__ == "__main__":

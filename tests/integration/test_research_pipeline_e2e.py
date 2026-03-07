@@ -390,9 +390,11 @@ def test_lineage_chain_is_complete(storage_root: Path) -> None:
     ev_manifest = manifest_mod.read_run_manifest(
         artifact_paths.run_manifest_path(storage_root, evaluate_run_id)
     )
+    assert ev_manifest.parent_run_id is not None
     bt_manifest = manifest_mod.read_run_manifest(
         artifact_paths.run_manifest_path(storage_root, ev_manifest.parent_run_id)
     )
+    assert bt_manifest.parent_run_id is not None
     feat_manifest = manifest_mod.read_run_manifest(
         artifact_paths.run_manifest_path(storage_root, bt_manifest.parent_run_id)
     )

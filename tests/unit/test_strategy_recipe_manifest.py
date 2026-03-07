@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -29,9 +30,9 @@ def _make_recipe(
     recipe_id: str = "test_recipe",
     version: str = "1.0.0",
     factor_pack_ids: list[str] | None = None,
-    strategy_params: dict | None = None,
-    risk_kwargs: dict | None = None,
-    exec_kwargs: dict | None = None,
+    strategy_params: dict[str, Any] | None = None,
+    risk_kwargs: dict[str, Any] | None = None,
+    exec_kwargs: dict[str, Any] | None = None,
 ) -> StrategyRecipeManifest:
     return StrategyRecipeManifest(
         recipe_id=recipe_id,

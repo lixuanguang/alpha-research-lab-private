@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -29,7 +30,7 @@ def _make_pack(
     version: str = "1.0.0",
     dependencies: list[str] | None = None,
     output_schema: dict[str, str] | None = None,
-    parameters: dict | None = None,
+    parameters: dict[str, Any] | None = None,
 ) -> FactorPackManifest:
     return FactorPackManifest(
         pack_id=pack_id,

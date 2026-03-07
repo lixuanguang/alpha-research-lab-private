@@ -12,6 +12,7 @@ No external resources are required; tests are safe to run in CI / offline mode.
 from __future__ import annotations
 
 import json
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -187,7 +188,7 @@ def recording_adapter() -> RecordingAdapter:
 
 
 @pytest.fixture()
-def limit_runtime() -> LiveRuntime:
+def limit_runtime() -> Generator[LiveRuntime, None, None]:
     """Runtime that emits LIMIT orders at 0.60 — always passes default pre-trade config."""
     cfg = LiveRuntimeConfig(
         instruments=_INSTRUMENTS,
@@ -200,7 +201,7 @@ def limit_runtime() -> LiveRuntime:
 
 
 @pytest.fixture()
-def market_runtime() -> LiveRuntime:
+def market_runtime() -> Generator[LiveRuntime, None, None]:
     """Runtime that emits MARKET orders — blocked by pre-trade when allow_market_orders=False."""
     cfg = LiveRuntimeConfig(
         instruments=_INSTRUMENTS,
@@ -645,7 +646,7 @@ class TestAdapterErrorHandling:
                 return "explode_first"
 
         adapter = _ExplodeFirstAdapter()
-        router = OrderRouter(adapter)  # type: ignore[arg-type]
+        router = OrderRouter(adapter)
         orders = [
             strategy_models.OrderIntent(
                 instrument_id=_INST_YES,

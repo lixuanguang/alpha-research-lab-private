@@ -285,7 +285,7 @@ class TestEnvironmentProfileModel:
     def test_frozen_prevents_mutation(self) -> None:
         profile = config_profiles.BUILTIN_PROFILES[config_profiles.ProfileName.DEV]
         with pytest.raises(ValidationError):
-            profile.execution_enabled = True  # type: ignore[misc]
+            profile.execution_enabled = True
 
     def test_round_trip_serialization(self) -> None:
         profile = config_profiles.BUILTIN_PROFILES[config_profiles.ProfileName.PAPER]

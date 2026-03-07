@@ -30,6 +30,11 @@ Typical usage::
     catalog_mod.update_status(
         storage_root,
         entry.entry_id,
+        status="needs_review",
+    )
+    catalog_mod.update_status(
+        storage_root,
+        entry.entry_id,
         status="approved_for_paper",
         reviewed_by="alice",
         reason="Sharpe > 1.5, drawdown < 10%",
@@ -59,6 +64,12 @@ _ALL_STATUSES: tuple[ExperimentStatus, ...] = (
     "approved_for_paper",
     "rejected",
 )
+_ALLOWED_STATUS_TRANSITIONS: dict[ExperimentStatus, frozenset[ExperimentStatus]] = {
+    "candidate": frozenset({"candidate", "needs_review"}),
+    "needs_review": frozenset({"needs_review", "approved_for_paper", "rejected"}),
+    "approved_for_paper": frozenset({"approved_for_paper"}),
+    "rejected": frozenset({"rejected"}),
+}
 
 # ---------------------------------------------------------------------------
 # Storage path helpers
@@ -184,6 +195,7 @@ def update_status(
     if status not in _ALL_STATUSES:
         raise ValueError(f"Invalid status {status!r}. Must be one of {_ALL_STATUSES}.")
     current = get_entry(storage_root, entry_id)
+    _validate_transition(current.status, status)
     now = datetime.now(tz=UTC)
     payload = current.model_dump(mode="python")
     payload["status"] = status
@@ -261,6 +273,21 @@ def _latest_by_id(storage_root: Path) -> dict[str, CatalogEntry]:
         entry = CatalogEntry.model_validate_json(raw)
         latest[entry.entry_id] = entry
     return latest
+
+
+def _validate_transition(
+    current_status: ExperimentStatus,
+    target_status: ExperimentStatus,
+) -> None:
+    allowed_targets = _ALLOWED_STATUS_TRANSITIONS[current_status]
+    if target_status in allowed_targets:
+        return
+    allowed_repr = ", ".join(sorted(allowed_targets))
+    raise ValueError(
+        "Invalid status transition "
+        f"{current_status!r} -> {target_status!r}. "
+        f"Allowed targets from {current_status!r}: {allowed_repr}."
+    )
 
 
 def _to_serialisable(entry: CatalogEntry) -> dict[str, Any]:

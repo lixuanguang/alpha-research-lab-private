@@ -1585,20 +1585,29 @@ This future section is complete when:
 
 ## 13. Future Data-Bridge Contracts (March 2026, Iteration 2)
 
-This remains forward-looking until the data-bridge and replay contracts are implemented and folded into the main Data Plane sections.
+> **LA-019 status:** The data-bridge contract and capability declarations are implemented (see
+> `apps/data_collector/connectors/data_bridge.py` and
+> `apps/data_collector/connectors/capabilities.py`).
+> The remaining items in §13.5 are tracked by LA-020 and beyond.
+
+The data-bridge and replay contracts are being folded into the main Data Plane sections as they are delivered.
 
 Reference documents:
 - `README.LEAN_ADOPTION.md`
 - `docs/implementation/research-plane-mvp.md`
 
-### 13.1 Provider Data-Bridge Contract
+### 13.1 Provider Data-Bridge Contract ✅ (LA-019)
 
-Add a provider-neutral bridge contract over current connectors:
+**Implemented.** The provider-neutral bridge contract is in
+`apps/data_collector/connectors/data_bridge.py`:
 
-- `pull_snapshot(window)` for deterministic historical slices
-- `pull_incremental(cursor)` for resumable sync
-- `stream_subscribe(topics)` for live ingestion
-- `capabilities()` for explicit feature support (books, deltas, ohlcv resolutions, metadata cadence)
+- `pull_snapshot(window: SnapshotWindow) → list[CanonicalMarketEvent]` — deterministic historical slices
+- `pull_incremental(cursor: IncrementalCursor) → (events, cursor)` — resumable sync with watermark cursor
+- `stream_subscribe(topics: list[StreamTopic]) → AsyncIterator[CanonicalMarketEvent]` — live ingestion
+- `capabilities() → VenueCapabilities` — explicit feature declarations (books, deltas, ohlcv resolutions, streaming)
+
+`VenueConnectorFactory.create_data_bridge(adapter)` builds a wired bridge with
+capabilities inferred from venue config + adapter duck-typing.
 
 This reduces connector-specific branching in dataset-build and replay tools.
 
@@ -1613,6 +1622,10 @@ Standardize cursor metadata for every ingestion run:
 
 Persist cursor state in lineage manifests so backfill/replay can resume deterministically after failures.
 
+**Status (LA-020):** ✅ Implemented. `IngestionRun` carries all cursor fields;
+`LineageStore.complete_run()` accepts cursor kwargs; `LineageStore.get_latest_cursor()`
+returns the most-recent completed run with a watermark for resume logic.
+
 ### 13.3 Replay-Ready Event Package
 
 Add a package contract for research replay:
@@ -1624,6 +1637,11 @@ Add a package contract for research replay:
 - integrity fields: event count hash and schema version
 
 Research CLI can consume this package directly for deterministic scenario replay.
+
+**Status (LA-020):** ✅ Implemented. `ReplayPackageManifest` / `ReplayPackageStore` /
+`build_replay_package()` / `derive_partition_refs()` delivered in
+`alpha_core/storage/replay_package.py`.  `BackfillManager` emits a manifest on every
+successful run and links it to the lineage record via `replay_package_id`.
 
 ### 13.4 Operational Profiles for Data Collection
 
@@ -1639,11 +1657,11 @@ This keeps ingestion behavior explicit across environments.
 
 This future section is complete when:
 
-- [ ] Data-bridge contract is documented and represented by typed interfaces.
-- [ ] Cursor metadata is persisted and validated in lineage regression tests.
-- [ ] Replay package manifests are emitted and consumable by research runners.
+- [x] Data-bridge contract is documented and represented by typed interfaces. *(LA-019)*
+- [x] Cursor metadata is persisted and validated in lineage regression tests. *(LA-020)*
+- [x] Replay package manifests are emitted and consumable by research runners. *(LA-020)*
 - [ ] Data collector profiles (`dev/research/live`) are documented and test-covered.
-- [ ] End-to-end test covers resume-after-failure using stored cursor + replay package.
+- [x] End-to-end test covers resume-after-failure using stored cursor + replay package. *(LA-020)*
 
 ---
 

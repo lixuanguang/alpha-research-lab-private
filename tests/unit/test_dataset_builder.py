@@ -426,7 +426,7 @@ class TestDatasetBuilderBuild:
         # Manually inject a quality violation into mock validator
         mock_report = MagicMock()
         mock_report.passed = False
-        builder._quality_validator.validate_partition.return_value = mock_report
+        builder._quality_validator.validate_partition.return_value = mock_report  # type: ignore[attr-defined]
 
         config = dataset_mod.DatasetConfig(
             name="quality_gate",
@@ -447,7 +447,7 @@ class TestDatasetBuilderBuild:
 
         mock_report = MagicMock()
         mock_report.passed = False
-        builder._quality_validator.validate_partition.return_value = mock_report
+        builder._quality_validator.validate_partition.return_value = mock_report  # type: ignore[attr-defined]
 
         config = dataset_mod.DatasetConfig(
             name="quality_discovered_venues",
@@ -459,7 +459,7 @@ class TestDatasetBuilderBuild:
         with pytest.raises(builder_mod.DatasetBuildError):
             builder.build(config)
 
-        assert builder._quality_validator.validate_partition.called
+        assert builder._quality_validator.validate_partition.called  # type: ignore[attr-defined]
 
     def test_gap_check_raises_on_gaps(self, tmp_path: Path) -> None:
         master = master_mod.MarketMaster()
@@ -601,7 +601,7 @@ class TestDatasetBuilderBuild:
             master,
             trade_table=_trade_table(["p:m1:yes"], ts),
         )
-        builder._reader.read_ohlcv.return_value = _ohlcv_table(["p:m1:yes"], ts)
+        builder._reader.read_ohlcv.return_value = _ohlcv_table(["p:m1:yes"], ts)  # type: ignore[attr-defined]
 
         initial_config = dataset_mod.DatasetConfig(
             name="stale_cleanup",

@@ -184,6 +184,9 @@ def test_run_stream_reconnects_on_error() -> None:
         def venue_name(self) -> str:
             return "kalshi"
 
+        def book_stream_capabilities(self) -> dict[str, bool]:
+            return {}
+
         async def watch_order_book(
             self, outcome_id: str
         ) -> AsyncIterator[event_models.CanonicalBookSnapshot]:

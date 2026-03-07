@@ -23,18 +23,20 @@ Typical usage::
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Storage path helpers
 # ---------------------------------------------------------------------------
 
 _SESSIONS_DIR = "sessions"
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def _sessions_dir(storage_root: Path) -> Path:
@@ -42,7 +44,8 @@ def _sessions_dir(storage_root: Path) -> Path:
 
 
 def _session_path(storage_root: Path, session_id: str) -> Path:
-    return _sessions_dir(storage_root) / f"{session_id}.json"
+    safe_session_id = _normalize_session_id(session_id)
+    return _sessions_dir(storage_root) / f"{safe_session_id}.json"
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +86,11 @@ class ResearchSession(BaseModel):
     notes: str | None = None
     created_at_utc: datetime
     updated_at_utc: datetime
+
+    @field_validator("session_id")
+    @classmethod
+    def _validate_session_id(cls, value: str) -> str:
+        return _normalize_session_id(value)
 
 
 # ---------------------------------------------------------------------------
@@ -195,3 +203,12 @@ def _write(storage_root: Path, session: ResearchSession) -> None:
 
 def _to_serialisable(session: ResearchSession) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads(session.model_dump_json()))
+
+
+def _normalize_session_id(session_id: str) -> str:
+    cleaned = session_id.strip()
+    if not cleaned:
+        raise ValueError("`session_id` must be non-empty")
+    if _SESSION_ID_RE.fullmatch(cleaned) is None:
+        raise ValueError("`session_id` contains unsupported characters; use [A-Za-z0-9._-]")
+    return cleaned

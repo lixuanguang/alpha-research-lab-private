@@ -356,4 +356,4 @@ def test_performance_package_importable() -> None:
 
 
 def test_alpha_core_all_includes_performance() -> None:
-    assert "performance" in alpha_core.__all__  # type: ignore[attr-defined]
+    assert "performance" in alpha_core.__all__

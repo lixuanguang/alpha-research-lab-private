@@ -20,6 +20,8 @@ import alpha_core.utils.ids as ids_utils
 _DATE = "2026-03-01"
 _TS_BASE = datetime(2026, 3, 1, 10, 0, 0, tzinfo=UTC)
 
+_StoragePair = tuple[parquet_writer_mod.ParquetEventWriter, parquet_reader_mod.ParquetEventReader]
+
 
 def _make_trade(i: int) -> event_models.CanonicalTrade:
     payload: dict[str, object] = {
@@ -99,7 +101,7 @@ def _make_validator(
 # ---------------------------------------------------------------------------
 
 
-def test_trade_partition_passes_validation(storage: tuple) -> None:
+def test_trade_partition_passes_validation(storage: _StoragePair) -> None:
     writer, reader = storage
     trades = [_make_trade(i) for i in range(10)]
     writer.write_trades(trades)
@@ -111,7 +113,7 @@ def test_trade_partition_passes_validation(storage: tuple) -> None:
     assert report.partition_info["venue"] == "kalshi"
 
 
-def test_trade_partition_fails_on_duplicate_trade_ids(storage: tuple) -> None:
+def test_trade_partition_fails_on_duplicate_trade_ids(storage: _StoragePair) -> None:
     """Write trades, then validate a synthetic table with duplicates."""
     _, _reader = storage
     # Use the TRADE_SUITE directly with a bad table (no writer involvement)
@@ -145,7 +147,7 @@ def test_trade_partition_fails_on_duplicate_trade_ids(storage: tuple) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_book_partition_passes_validation(storage: tuple) -> None:
+def test_book_partition_passes_validation(storage: _StoragePair) -> None:
     writer, reader = storage
     books = [_make_book(i) for i in range(5)]
     writer.write_books(books)
@@ -160,7 +162,7 @@ def test_book_partition_passes_validation(storage: tuple) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_ohlcv_partition_passes_validation(storage: tuple) -> None:
+def test_ohlcv_partition_passes_validation(storage: _StoragePair) -> None:
     writer, reader = storage
     candles = [_make_ohlcv(i) for i in range(3)]
     writer.write_ohlcv(candles)
@@ -176,7 +178,7 @@ def test_ohlcv_partition_passes_validation(storage: tuple) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_validate_all_recent(storage: tuple) -> None:
+def test_validate_all_recent(storage: _StoragePair) -> None:
     writer, reader = storage
     writer.write_trades([_make_trade(i) for i in range(3)])
     writer.write_ohlcv([_make_ohlcv(i) for i in range(2)])
@@ -189,7 +191,7 @@ def test_validate_all_recent(storage: tuple) -> None:
     assert "silver_ohlcv" in event_types
 
 
-def test_validate_partition_unknown_event_type_raises(storage: tuple) -> None:
+def test_validate_partition_unknown_event_type_raises(storage: _StoragePair) -> None:
     _, reader = storage
     validator = _make_validator(reader)
     with pytest.raises(KeyError, match="unknown_type"):

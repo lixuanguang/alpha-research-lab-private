@@ -22,6 +22,7 @@ import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_reader as parquet_reader_mod
 import alpha_core.storage.parquet_writer as storage_parquet
+import alpha_core.storage.replay_package as storage_replay
 import apps.data_collector.backfill as collector_backfill
 import apps.data_collector.runtime as collector_runtime
 
@@ -150,6 +151,8 @@ def build_backfill_manager(
             silver_writer=storage_parquet.ParquetEventWriter(storage_root),
             quality_checker=event_quality.EventQualityChecker(),
             lineage_store=storage_lineage.LineageStore(storage_root),
+            replay_package_store=storage_replay.ReplayPackageStore(storage_root),
+            storage_root=storage_root,
         ),
     )
 
@@ -337,6 +340,41 @@ def detect_outcome_gaps(
     )
 
 
+def get_last_cursor(
+    *,
+    venue: str,
+    event_type: str | None = None,
+    environment: str | None = None,
+) -> storage_lineage.IngestionRun | None:
+    """Return the most recent completed ingestion run that has cursor metadata.
+
+    Returns ``None`` when no matching run exists or none has a cursor yet.
+    """
+    settings = config_loader.load_settings(
+        environment=environment,
+        apply_user_settings=False,
+        validate_secrets=False,
+    )
+    lineage_store = storage_lineage.LineageStore(settings.storage.base_path)
+    return lineage_store.get_latest_cursor(venue, event_type=event_type)
+
+
+def list_replay_packages(
+    *,
+    venue: str | None = None,
+    since: datetime | None = None,
+    environment: str | None = None,
+) -> list[storage_replay.ReplayPackageManifest]:
+    """Return replay packages from the store, optionally filtered."""
+    settings = config_loader.load_settings(
+        environment=environment,
+        apply_user_settings=False,
+        validate_secrets=False,
+    )
+    pkg_store = storage_replay.ReplayPackageStore(settings.storage.base_path)
+    return pkg_store.list_packages(venue=venue, since=since)
+
+
 def resolve_target_venues(
     settings: config_models.Settings,
     *,
@@ -371,6 +409,8 @@ __all__ = [
     "detect_gaps",
     "detect_outcome_gaps",
     "echo_recent_runtime_metrics",
+    "get_last_cursor",
+    "list_replay_packages",
     "parse_utc_datetime",
     "parse_window_datetimes",
     "prepare_run_settings",

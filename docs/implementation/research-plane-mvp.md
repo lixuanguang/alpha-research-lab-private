@@ -2236,14 +2236,19 @@ Promotion gate example:
 
 ### 12.4 R6 Extension: CLI Ergonomics for Research Velocity
 
-Add optional CLI aliases over existing commands:
+Implemented in LA-018 (`apps/research/commands/session.py`, `catalog.py`, `promote.py`):
 
-- `research session start`
-- `research session status`
-- `research catalog list --status candidate`
-- `research promote --run-id ... --to approved_for_paper`
+- `research session start [--strategy-id STR] [--notes STR]`
+- `research session status <session_id>`
+- `research session list`
+- `research catalog add --run-id <eval_run_id> [--strategy-id STR]`
+- `research catalog list [--status candidate|needs_review|approved_for_paper|rejected]`
+- `research catalog show <entry_id>`
+- `research promote --entry-id <entry_id> --target-status approved_for_paper --reviewed-by <reviewer> [--reason STR]`
 
-All aliases should still emit standard run manifests and reuse existing runners.
+All commands emit standard `--format json` output with deterministic exit codes.
+`promote` enforces configurable objective/risk/trade-count gates before
+`approved_for_paper` transitions; use `--force` with explicit `--reason` to override.
 
 ### 12.5 Acceptance Gates (Iteration 2)
 
@@ -2251,9 +2256,9 @@ This future section is complete when:
 
 - [x] `ResearchSession` schema is implemented and linked across R1-R5 artifacts (`libs/core/alpha_core/research/session.py`).
 - [x] Optimize/evaluate runs register into a queryable experiment catalog (`libs/core/alpha_core/research/experiment_catalog.py`).
-- [ ] Factor-pack and strategy-recipe manifests are versioned and validated by tests.
-- [ ] Promotion workflow enforces objective/risk gates before paper/live promotion.
-- [ ] CLI aliases improve ergonomics without introducing a second artifact contract.
+- [x] Factor-pack and strategy-recipe manifests are versioned and validated by tests (LA-017).
+- [x] Promotion workflow enforces objective/risk gates before paper/live promotion (`apps/research/commands/promote.py`).
+- [x] CLI aliases improve ergonomics without introducing a second artifact contract (`apps/research/commands/session.py`, `catalog.py`).
 
 ---
 

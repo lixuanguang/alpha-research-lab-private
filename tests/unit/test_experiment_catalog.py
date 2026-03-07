@@ -130,6 +130,7 @@ class TestCatalogLifecycle:
     def test_list_by_status_filters(self, tmp_path: Path) -> None:
         e1 = catalog_mod.add_entry(tmp_path, run_id="r1")
         e2 = catalog_mod.add_entry(tmp_path, run_id="r2")
+        catalog_mod.update_status(tmp_path, e1.entry_id, status="needs_review")
         catalog_mod.update_status(tmp_path, e1.entry_id, status="approved_for_paper")
         approved = catalog_mod.list_by_status(tmp_path, "approved_for_paper")
         candidates = catalog_mod.list_by_status(tmp_path, "candidate")
@@ -174,12 +175,19 @@ class TestCatalogLifecycle:
     def test_multiple_entries_independent(self, tmp_path: Path) -> None:
         e1 = catalog_mod.add_entry(tmp_path, run_id="r1")
         e2 = catalog_mod.add_entry(tmp_path, run_id="r2")
+        catalog_mod.update_status(tmp_path, e1.entry_id, status="needs_review")
         catalog_mod.update_status(tmp_path, e1.entry_id, status="rejected")
         e2_loaded = catalog_mod.get_entry(tmp_path, e2.entry_id)
         assert e2_loaded.status == "candidate"
 
-    def test_all_status_values_accepted(self, tmp_path: Path) -> None:
-        for status in ("candidate", "needs_review", "approved_for_paper", "rejected"):
-            entry = catalog_mod.add_entry(tmp_path, run_id=f"run_{status}")
-            updated = catalog_mod.update_status(tmp_path, entry.entry_id, status=status)  # type: ignore[arg-type]
-            assert updated.status == status
+    def test_invalid_direct_candidate_to_approved_transition_raises(self, tmp_path: Path) -> None:
+        entry = catalog_mod.add_entry(tmp_path, run_id="r1")
+        with pytest.raises(ValueError, match="Invalid status transition"):
+            catalog_mod.update_status(tmp_path, entry.entry_id, status="approved_for_paper")
+
+    def test_terminal_statuses_cannot_reenter_review_flow(self, tmp_path: Path) -> None:
+        entry = catalog_mod.add_entry(tmp_path, run_id="r1")
+        catalog_mod.update_status(tmp_path, entry.entry_id, status="needs_review")
+        catalog_mod.update_status(tmp_path, entry.entry_id, status="rejected")
+        with pytest.raises(ValueError, match="Invalid status transition"):
+            catalog_mod.update_status(tmp_path, entry.entry_id, status="approved_for_paper")

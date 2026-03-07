@@ -54,9 +54,9 @@ Suggested labels:
 - [x] LA-015: Add CI smoke job for research CLI pipeline (P4)
 - [x] LA-016: Add `ResearchSession` + `ExperimentCatalog` contracts and persistence (P5)
 - [x] LA-017: Add factor-pack registry and strategy recipe manifests (P5)
-- [ ] LA-018: Add promotion-gate workflow and research ergonomics CLI aliases (P5)
-- [ ] LA-019: Add provider-neutral data-bridge contract and capability declarations (P6)
-- [ ] LA-020: Add incremental cursor persistence and replay-package manifests (P6)
+- [x] LA-018: Add promotion-gate workflow and research ergonomics CLI aliases (P5)
+- [x] LA-019: Add provider-neutral data-bridge contract and capability declarations (P6)
+- [x] LA-020: Add incremental cursor persistence and replay-package manifests (P6)
 - [ ] LA-021: Standardize runtime environment profiles across collector/research/live (P6)
 - [ ] LA-022: Add optional acceleration boundary and parity-test harness + docs modularity rule (P7)
 
@@ -799,11 +799,11 @@ Add lightweight CLI ergonomics and approval gates so experiment promotion from r
 
 ### Checklist
 
-- [ ] Add alias command group: `research session start/status`, `research catalog list`, `research promote`
-- [ ] Implement promotion gates using objective/risk thresholds and minimum trade count
-- [ ] Record reviewer metadata (`reviewed_by`, `reviewed_at_utc`, `reason`) in catalog
-- [ ] Ensure aliases still emit standard run manifests and artifact links
-- [ ] Add integration tests for pass/fail promotion scenarios
+- [x] Add alias command group: `research session start/status`, `research catalog list`, `research promote`
+- [x] Implement promotion gates using objective/risk thresholds and minimum trade count
+- [x] Record reviewer metadata (`reviewed_by`, `reviewed_at_utc`, `reason`) in catalog
+- [x] Ensure aliases still emit standard run manifests and artifact links
+- [x] Add integration tests for pass/fail promotion scenarios
 
 ### Acceptance criteria
 
@@ -841,17 +841,17 @@ Define a data-bridge contract so downstream dataset/replay paths use a consisten
 
 ### Checklist
 
-- [ ] Define contract methods: `pull_snapshot(window)`, `pull_incremental(cursor)`, `stream_subscribe(topics)`, `capabilities()`
-- [ ] Add typed capability model (books, deltas, ohlcv resolutions, metadata cadence)
-- [ ] Implement bridge adapter(s) over current connector stack
-- [ ] Add deterministic error mapping for unsupported capabilities
-- [ ] Add unit tests for contract conformance and capability reporting
+- [x] Define contract methods: `pull_snapshot(window)`, `pull_incremental(cursor)`, `stream_subscribe(topics)`, `capabilities()`
+- [x] Add typed capability model (books, deltas, ohlcv resolutions, metadata cadence)
+- [x] Implement bridge adapter(s) over current connector stack
+- [x] Add deterministic error mapping for unsupported capabilities
+- [x] Add unit tests for contract conformance and capability reporting
 
 ### Acceptance criteria
 
-- Dataset/replay consumers can call one bridge interface across supported venues.
-- Capability declarations are explicit and test-verified.
-- Existing connector behavior remains backward compatible.
+- [x] Dataset/replay consumers can call one bridge interface across supported venues.
+- [x] Capability declarations are explicit and test-verified.
+- [x] Existing connector behavior remains backward compatible.
 
 ---
 
@@ -884,11 +884,11 @@ Add cursor and replay-package contracts so ingestion can resume safely and resea
 
 ### Checklist
 
-- [ ] Add lineage cursor fields (`cursor_type`, `cursor_value`, `cursor_watermark_utc`, `resume_safe`)
-- [ ] Add replay-package manifest schema with source runs, partition refs, ordering policy, and integrity hash
-- [ ] Emit replay-package artifacts for eligible ingestion windows
-- [ ] Add resume logic that consumes stored cursor metadata
-- [ ] Add integration test for failure -> resume -> replay consistency
+- [x] Add lineage cursor fields (`cursor_type`, `cursor_value`, `cursor_watermark_utc`, `resume_safe`)
+- [x] Add replay-package manifest schema with source runs, partition refs, ordering policy, and integrity hash
+- [x] Emit replay-package artifacts for eligible ingestion windows
+- [x] Add resume logic that consumes stored cursor metadata
+- [x] Add integration test for failure -> resume -> replay consistency
 
 ### Acceptance criteria
 

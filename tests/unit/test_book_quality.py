@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pyarrow as pa
 
@@ -11,8 +12,8 @@ import alpha_core.quality.suites.book_quality as quality_book
 
 def _book_table(
     *,
-    bids: list[list[dict]] | None = None,
-    asks: list[list[dict]] | None = None,
+    bids: list[list[dict[str, Any]]] | None = None,
+    asks: list[list[dict[str, Any]]] | None = None,
 ) -> pa.Table:
     if bids is None:
         bids = [[{"price": "0.48", "size": "10"}, {"price": "0.45", "size": "5"}]]

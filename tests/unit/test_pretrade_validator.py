@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from apps.live_system.order_router import OrderRouter
+from apps.live_system.order_router import OrderRouter, SubmissionResult
 
 import alpha_core.strategy_framework.models as strategy_models
 from alpha_core.execution.order_models import (
@@ -148,7 +148,7 @@ class TestValidatedOrder:
 
     def test_extra_field_forbidden(self) -> None:
         with pytest.raises(Exception):
-            ValidatedOrder(
+            ValidatedOrder(  # type: ignore[call-arg]
                 intent=_limit_order(),
                 status=OrderLifecycleStatus.VALIDATED,
                 unknown_field="oops",
@@ -515,8 +515,7 @@ class _AlwaysAcceptAdapter:
     def __init__(self) -> None:
         self.submitted: list[strategy_models.OrderIntent] = []
 
-    def submit(self, order: strategy_models.OrderIntent):  # type: ignore[override]
-        from apps.live_system.order_router import SubmissionResult
+    def submit(self, order: strategy_models.OrderIntent) -> SubmissionResult:
         self.submitted.append(order)
         return SubmissionResult(order_id=f"ord_{order.instrument_id}", accepted=True)
 

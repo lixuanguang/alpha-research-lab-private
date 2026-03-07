@@ -53,7 +53,7 @@ def _detect_trades(
     *,
     end: datetime = _END,
     max_gap_seconds: float = 3600.0,
-) -> list[object]:
+) -> list[quality_gap_detector.TimeGap]:
     return detector.detect_trade_gaps(
         "kalshi", "kalshi:m1:yes", start=_START, end=end, max_gap_seconds=max_gap_seconds
     )
@@ -61,7 +61,7 @@ def _detect_trades(
 
 def _detect_ohlcv(
     detector: quality_gap_detector.GapDetector, *, resolution: str = "1h"
-) -> list[object]:
+) -> list[quality_gap_detector.TimeGap]:
     return detector.detect_ohlcv_gaps(
         "kalshi", "kalshi:m1:yes", resolution=resolution, start=_START, end=_END
     )

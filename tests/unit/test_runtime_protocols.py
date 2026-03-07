@@ -370,7 +370,7 @@ class TestOrderRouterStub:
     def test_submit_returns_id(self) -> None:
         router = _StubOrderRouter()
         # pass any object; stub ignores contents
-        result = router.submit_order(object())  # type: ignore[arg-type]
+        result = router.submit_order(object())
         assert isinstance(result, str)
 
     def test_cancel_returns_bool(self) -> None:
@@ -396,7 +396,7 @@ def test_runtime_protocols_importable() -> None:
 def test_alpha_core_all_includes_runtime_protocols() -> None:
     import alpha_core
 
-    assert "runtime_protocols" in alpha_core.__all__  # type: ignore[attr-defined]
+    assert "runtime_protocols" in alpha_core.__all__
 
 
 # ---------------------------------------------------------------------------
