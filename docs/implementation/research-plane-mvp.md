@@ -396,8 +396,8 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 - [x] `alpha_core.research.backtest_runner` — `BacktestConfig`, `BacktestManifest`, `BacktestRunner.build()`, zscore-threshold simulation (`libs/core/alpha_core/research/backtest_runner.py`)
 - [x] CLI: `backtest` command (`apps/research/commands/backtest.py`)
 - [x] Integration tests: `tests/integration/test_research_backtest_evaluate_report.py`
-- [ ] Full execution simulator (fills, slippage, fees, binary payoffs) — deferred to later iteration
-- [ ] PM microstructure engine path — deferred to later iteration
+- [x] Full execution simulator (fills, slippage, fees, binary payoffs) — `alpha_core.execution.models` (`BacktestOrderIntent`, `SimulatedFill`, `FeeSchedule`), `alpha_core.execution.slippage` (`FixedSlippage`, `BookDepthSlippage`), `alpha_core.execution.fees`, `alpha_core.execution.simulator.ExecutionSimulator` (`libs/core/alpha_core/execution/`)
+- [x] PM microstructure engine path — `alpha_core.portfolio.models` (`Side`, `PositionState`, `PortfolioState`), `alpha_core.portfolio.tracker` (`PortfolioTracker` with VWAP, binary resolution, mark-to-market) (`libs/core/alpha_core/portfolio/`); `apps.research.backtester` — `Strategy` ABC, `EventBacktestConfig`, `EventBacktestEngine`, `BacktestResult` (`apps/research/backtester/`); tests: `tests/unit/test_portfolio_models.py`, `test_portfolio_tracker.py`, `test_execution_models.py`, `test_execution_simulator.py`, `test_slippage.py`, `test_event_engine.py`; `tests/integration/test_backtest_e2e.py` (94 tests, 1782 total passing)
 
 #### R4 — Vectorized Backtester & Parameter Sweep
 

@@ -222,7 +222,114 @@ class FillSimulator:
         return base_price - slip_delta
 
 
+# ---------------------------------------------------------------------------
+# ExecutionSimulator — R3 backtester execution model
+# ---------------------------------------------------------------------------
+
+import alpha_core.execution.fees as fees_mod
+import alpha_core.execution.models as exec_models
+import alpha_core.execution.slippage as slippage_mod
+from alpha_core.portfolio.models import Side as _Side
+
+
+class ExecutionSimulator:
+    """Simulates order execution for the event-driven backtester.
+
+    Unlike :class:`FillSimulator` (which works with the live-plane
+    ``ValidatedOrder`` lifecycle), this simulator operates directly on
+    :class:`~alpha_core.execution.models.BacktestOrderIntent` objects using
+    the R3 fee and slippage conventions.
+
+    Args:
+        fee_schedule: Per-venue fee model.  Defaults to zero fees.
+        slippage_model: Pluggable slippage estimator.  Defaults to
+            :class:`~alpha_core.execution.slippage.FixedSlippage` at 10 bps.
+    """
+
+    def __init__(
+        self,
+        fee_schedule: exec_models.FeeSchedule | None = None,
+        slippage_model: slippage_mod.SlippageModel | None = None,
+    ) -> None:
+        self._fees = fee_schedule or exec_models.FeeSchedule()
+        self._slippage = slippage_model or slippage_mod.FixedSlippage(bps=Decimal("10"))
+
+    @property
+    def fee_schedule(self) -> exec_models.FeeSchedule:
+        return self._fees
+
+    def simulate_fill(
+        self,
+        order: exec_models.BacktestOrderIntent,
+        *,
+        book: object | None = None,
+        last_trade_price: Decimal | None = None,
+        timestamp: datetime | None = None,
+    ) -> exec_models.SimulatedFill | None:
+        """Simulate execution of a :class:`~alpha_core.execution.models.BacktestOrderIntent`.
+
+        Returns ``None`` if the order cannot be filled (e.g., LIMIT order whose
+        limit_price is not reachable given the reference price).
+
+        Args:
+            order: The order intent to simulate.
+            book: Optional order-book snapshot for :class:`~alpha_core.execution.slippage.BookDepthSlippage`.
+            last_trade_price: Reference price for MARKET orders.  If ``None``,
+                falls back to ``Decimal("0.5")``.
+            timestamp: Fill timestamp.  Defaults to ``datetime.now(UTC)``.
+
+        Returns:
+            :class:`~alpha_core.execution.models.SimulatedFill` or ``None``.
+        """
+        ts = timestamp or datetime.now(tz=UTC)
+        ref_price = self._reference_price(order, last_trade_price)
+
+        # For LIMIT orders, check if the price is reachable.
+        if order.order_type == "limit" and order.limit_price is not None:
+            if order.side == _Side.LONG and ref_price > order.limit_price:
+                return None   # Market is above limit — won't fill.
+            if order.side == _Side.SHORT and ref_price < order.limit_price:
+                return None   # Market is below limit — won't fill.
+
+        # Compute slippage delta.
+        slip = self._slippage.estimate_slippage(order, book)
+
+        # Apply slippage adversely.
+        if order.side == _Side.LONG:
+            fill_price = ref_price + slip
+        else:
+            fill_price = ref_price - slip
+
+        # Clamp to probability space.
+        fill_price = max(_ZERO, min(_ONE, fill_price)).quantize(_PRICE_PREC)
+
+        # Compute fee on notional.
+        notional = order.size * fill_price
+        fee = fees_mod.total_fill_fee(self._fees, order.size, fill_price)
+
+        return exec_models.SimulatedFill(
+            order=order,
+            fill_price=fill_price,
+            fill_size=order.size,
+            fee=fee,
+            timestamp=ts,
+            slippage=fill_price - ref_price,
+        )
+
+    @staticmethod
+    def _reference_price(
+        order: exec_models.BacktestOrderIntent,
+        last_trade_price: Decimal | None,
+    ) -> Decimal:
+        if order.limit_price is not None:
+            return order.limit_price
+        if last_trade_price is not None:
+            return last_trade_price
+        return Decimal("0.5")
+
+
 __all__ = [
+    "ExecutionSimulator",
     "FillConfig",
     "FillSimulator",
 ]
