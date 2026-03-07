@@ -232,9 +232,7 @@ def build_replay_package(
     """
     refs = list(partition_refs or [])
     effective_package_id = package_id or uuid.uuid4().hex
-    total_count = (
-        sum(r.row_count for r in refs if r.row_count >= 0) if refs else -1
-    )
+    total_count = sum(r.row_count for r in refs if r.row_count >= 0) if refs else -1
     hash_payload = json.dumps(
         {
             "venue": venue.strip().lower(),
@@ -315,6 +313,7 @@ def derive_partition_refs(
             date_str = date_dir.name.removeprefix("date=")
             try:
                 import datetime as _dt
+
                 date_val = _dt.date.fromisoformat(date_str)
             except ValueError:
                 continue
@@ -368,9 +367,7 @@ class ReplayPackageStore:
         self._packages_root = storage_root / "_replay_packages"
         self._packages_root.mkdir(parents=True, exist_ok=True)
 
-    def save(
-        self, manifest: ReplayPackageManifest, *, overwrite: bool = False
-    ) -> Path:
+    def save(self, manifest: ReplayPackageManifest, *, overwrite: bool = False) -> Path:
         """Persist *manifest* to disk.
 
         Args:

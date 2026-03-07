@@ -58,9 +58,7 @@ class EvaluateRunner:
     ) -> None:
         self._storage_root = storage_root
         self._store = (
-            store
-            if store is not None
-            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+            store if store is not None else artifact_store_mod.FilesystemArtifactStore(storage_root)
         )
 
     def build(
@@ -220,9 +218,7 @@ def _compute_metrics(
             std_return = float(period_returns.std(ddof=1))
             if std_return > _EPSILON:
                 sharpe_ratio = float(
-                    period_returns.mean()
-                    / std_return
-                    * math.sqrt(_RISK_METRICS_PERIODS_PER_YEAR)
+                    period_returns.mean() / std_return * math.sqrt(_RISK_METRICS_PERIODS_PER_YEAR)
                 )
 
     metrics.update(

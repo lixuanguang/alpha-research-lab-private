@@ -110,4 +110,5 @@ def evaluate_command(
     for key, value in manifest.metrics.items():
         click.echo(f"  {key}={value}")
 
+
 __all__ = ["evaluate_command"]

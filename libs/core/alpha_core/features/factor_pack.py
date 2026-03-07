@@ -161,9 +161,7 @@ def resolve_dependency_order(packs: list[FactorPackManifest]) -> list[FactorPack
 
     if len(ordered) != len(packs):
         cycle_ids = sorted(pid for pid, deg in in_degree.items() if deg > 0)
-        raise ValueError(
-            f"Circular dependency detected among factor packs: {cycle_ids}"
-        )
+        raise ValueError(f"Circular dependency detected among factor packs: {cycle_ids}")
     return ordered
 
 
@@ -178,6 +176,4 @@ def validate_dependencies(
     available_ids = {p.pack_id for p in available_packs}
     missing = [dep for dep in pack.dependencies if dep not in available_ids]
     if missing:
-        raise ValueError(
-            f"Factor pack {pack.pack_id!r} has unresolved dependencies: {missing}"
-        )
+        raise ValueError(f"Factor pack {pack.pack_id!r} has unresolved dependencies: {missing}")

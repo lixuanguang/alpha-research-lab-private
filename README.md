@@ -17,6 +17,16 @@
 | Observability Baseline | Planned | — | — |
 | Robustness Hardening | Planned | — | — |
 
+### Possible Extensions
+
+| Extension | Status | Tests | Docs |
+|---|---|---|---|
+| Research Ergonomics Extension | **Partially delivered (sessions, catalog, promotion gates, factor packs, and strategy recipes are landed; remaining work is mostly doc folding and workflow hardening)** | Covered by repo-wide quality gates | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
+| Data Plane -> Research Handoff Contract | Planned | — | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
+| PM-Native Backtester Enhancement Plan (`B0`-`B4`) | Planned | — | [README Backtester Plan](README.md#backtester-enhancement-plan-zipline-informed-pm-native) |
+| Research Microstructure Extension (Tick-Resolution) | Planned | — | [Research Plane Extension](docs/implementation/research-plane-mvp.md#11-future-microstructure-extension-tick-resolution) |
+| Macro/OpenBB Ingestion (`M0`-`M3`) | Optional / Planned | — | [README Macro Plan](README.md#macro-data-ingestion-plan-openbb-hybrid) |
+
 **Quality gates (as of March 7, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/core apps tests --strict` — 0 errors

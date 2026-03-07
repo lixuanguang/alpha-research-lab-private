@@ -197,14 +197,14 @@ class VenueConnectorFactory:
             else config_models.CollectionConfig()
         )
 
-        streaming_trades = (
-            hasattr(adapter, "watch_trades")
-            and collection.mode in {"stream", "both"}
-        )
-        streaming_books = (
-            hasattr(adapter, "watch_order_book")
-            and collection.mode in {"stream", "both"}
-        )
+        streaming_trades = hasattr(adapter, "watch_trades") and collection.mode in {
+            "stream",
+            "both",
+        }
+        streaming_books = hasattr(adapter, "watch_order_book") and collection.mode in {
+            "stream",
+            "both",
+        }
 
         caps = connector_capabilities.VenueCapabilities(
             venue_name=venue_name,

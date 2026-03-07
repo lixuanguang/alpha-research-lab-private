@@ -66,8 +66,7 @@ class BacktestConfig(BaseModel):
     strategy_params: dict[str, float] = Field(
         default_factory=dict,
         description=(
-            "Optional per-trial overrides for strategy parameters "
-            "(threshold, target_weight)."
+            "Optional per-trial overrides for strategy parameters (threshold, target_weight)."
         ),
     )
     strategy_recipe_id: str | None = Field(
@@ -245,9 +244,7 @@ class BacktestRunner:
     ) -> None:
         self._storage_root = storage_root
         self._store = (
-            store
-            if store is not None
-            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+            store if store is not None else artifact_store_mod.FilesystemArtifactStore(storage_root)
         )
 
     def build(
@@ -855,9 +852,7 @@ def _resolve_recipe(
     if expected_version is not None:
         matches = [recipe for recipe in matches if recipe.version == expected_version]
     if not matches:
-        version_msg = (
-            f" version '{expected_version}'" if expected_version is not None else ""
-        )
+        version_msg = f" version '{expected_version}'" if expected_version is not None else ""
         raise BacktestRunError(f"Strategy recipe '{recipe_id}'{version_msg} was not found.")
     if len(matches) > 1:
         versions = sorted(recipe.version for recipe in matches)
@@ -901,11 +896,7 @@ def _merge_recipe_defaults(
     strategy_params = normalize_recipe_strategy_params(recipe.strategy_params)
     strategy_params.update(config.strategy_params)
 
-    fee_bps = (
-        config.fee_bps
-        if "fee_bps" in provided_fields
-        else recipe.execution_template.fee_bps
-    )
+    fee_bps = config.fee_bps if "fee_bps" in provided_fields else recipe.execution_template.fee_bps
     slippage_bps = (
         config.slippage_bps
         if "slippage_bps" in provided_fields
@@ -951,17 +942,12 @@ def _validate_recipe_feature_contract(
         feature_manifest.factor_pack_id,
         expected_version=feature_manifest.factor_pack_version,
     )
-    required_columns = {
-        column_name
-        for pack in factor_packs
-        for column_name in pack.output_schema
-    }
+    required_columns = {column_name for pack in factor_packs for column_name in pack.output_schema}
     feature_columns = set(features_df.columns)
     missing_columns = sorted(required_columns - feature_columns)
     if missing_columns:
         raise BacktestRunError(
-            f"Feature run '{parent_run_id}' is missing strategy-recipe columns: "
-            f"{missing_columns}."
+            f"Feature run '{parent_run_id}' is missing strategy-recipe columns: {missing_columns}."
         )
     zscore_column = _select_recipe_zscore_column(
         factor_packs=factor_packs,

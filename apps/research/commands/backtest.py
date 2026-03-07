@@ -189,4 +189,5 @@ def backtest_command(
         f"built_at={manifest.built_at.isoformat()}"
     )
 
+
 __all__ = ["backtest_command"]

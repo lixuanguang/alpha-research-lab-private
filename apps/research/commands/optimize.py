@@ -263,9 +263,7 @@ def optimize_command(
         )
         return
 
-    click.echo(
-        f"run_type=optimize  status=materialized  run_id={manifest.run_id}"
-    )
+    click.echo(f"run_type=optimize  status=materialized  run_id={manifest.run_id}")
     click.echo(
         f"trials={manifest.total_trials}  feasible={manifest.feasible_trials}  "
         f"objective={manifest.objective}"
@@ -275,5 +273,6 @@ def optimize_command(
             f"best_value={manifest.best_objective_value:.4f}  "
             f"best_run={manifest.best_backtest_run_id}"
         )
+
 
 __all__ = ["optimize_command"]

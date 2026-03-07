@@ -566,8 +566,10 @@ class TestLiveCliSurface:
             live_main.main,
             [
                 "run",
-                "--instrument", _INSTRUMENT_A,
-                "--storage-root", str(tmp_path),
+                "--instrument",
+                _INSTRUMENT_A,
+                "--storage-root",
+                str(tmp_path),
                 "--plan-only",
             ],
         )
@@ -580,8 +582,10 @@ class TestLiveCliSurface:
             live_main.main,
             [
                 "run",
-                "--instrument", _INSTRUMENT_A,
-                "--storage-root", str(tmp_path),
+                "--instrument",
+                _INSTRUMENT_A,
+                "--storage-root",
+                str(tmp_path),
                 "--execute",
             ],
         )
@@ -617,9 +621,12 @@ class TestLiveCliSurface:
             live_main.main,
             [
                 "run",
-                "--instrument", _INSTRUMENT_A,
-                "--strategy-id", "zscore_v1",
-                "--storage-root", str(tmp_path),
+                "--instrument",
+                _INSTRUMENT_A,
+                "--strategy-id",
+                "zscore_v1",
+                "--storage-root",
+                str(tmp_path),
                 "--plan-only",
             ],
         )

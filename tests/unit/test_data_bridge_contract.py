@@ -482,9 +482,7 @@ class TestPullIncremental:
             instrument_ids=[iid],
             cursor_watermark_utc=_BASE_TIME,  # only ts_event >= _BASE_TIME kept
         )
-        events, _new_cursor = asyncio.run(
-            bridge.pull_incremental(cursor)
-        )
+        events, _new_cursor = asyncio.run(bridge.pull_incremental(cursor))
         assert len(events) == 1
         assert events[0].ts_event == _BASE_TIME + timedelta(seconds=60)
 
@@ -497,9 +495,7 @@ class TestPullIncremental:
             instrument_ids=[iid],
             cursor_watermark_utc=_BASE_TIME - timedelta(seconds=1),
         )
-        _, new_cursor = asyncio.run(
-            bridge.pull_incremental(cursor)
-        )
+        _, new_cursor = asyncio.run(bridge.pull_incremental(cursor))
         expected = _BASE_TIME + timedelta(seconds=60)
         assert new_cursor.cursor_watermark_utc == expected
         assert new_cursor.resume_safe is True
@@ -512,9 +508,7 @@ class TestPullIncremental:
             instrument_ids=[iid],
             cursor_watermark_utc=_BASE_TIME,
         )
-        events, returned_cursor = asyncio.run(
-            bridge.pull_incremental(cursor)
-        )
+        events, returned_cursor = asyncio.run(bridge.pull_incremental(cursor))
         assert events == []
         assert returned_cursor is cursor
 
@@ -534,9 +528,7 @@ class TestPullIncremental:
             instrument_ids=[iid],
             cursor_watermark_utc=_BASE_TIME - timedelta(seconds=1),
         )
-        _, new_cursor = asyncio.run(
-            bridge.pull_incremental(cursor)
-        )
+        _, new_cursor = asyncio.run(bridge.pull_incremental(cursor))
         # cursor_value should be a parseable ISO-8601 timestamp
         parsed = datetime.fromisoformat(new_cursor.cursor_value)
         assert parsed.tzinfo is not None

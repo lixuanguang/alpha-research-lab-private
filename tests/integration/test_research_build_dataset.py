@@ -216,7 +216,7 @@ def test_execute_run_manifest_uses_same_config_hash_as_plan(tmp_path: Path) -> N
 
 
 def test_execute_emits_materialized_status(
-    wired_builder: tuple[builder_mod.DatasetBuilder, Path]
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
 ) -> None:
     """Execute mode must build the dataset and print a materialized outcome."""
     builder, storage_root = wired_builder
@@ -243,7 +243,7 @@ def test_execute_emits_materialized_status(
 
 
 def test_execute_json_output_has_dataset_id(
-    wired_builder: tuple[builder_mod.DatasetBuilder, Path]
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
 ) -> None:
     """JSON execute output must include dataset_id and window metadata."""
     import json
@@ -280,7 +280,7 @@ def test_execute_json_output_has_dataset_id(
 
 
 def test_execute_writes_gold_parquet(
-    wired_builder: tuple[builder_mod.DatasetBuilder, Path]
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
 ) -> None:
     """Gold trades.parquet must exist after a successful execute."""
     builder, storage_root = wired_builder
@@ -312,7 +312,7 @@ def test_execute_writes_gold_parquet(
 
 
 def test_execute_manifest_counts_match_silver(
-    wired_builder: tuple[builder_mod.DatasetBuilder, Path]
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
 ) -> None:
     """Manifest row_counts must reflect rows written to gold parquet."""
     import json
@@ -348,7 +348,7 @@ def test_execute_manifest_counts_match_silver(
 
 
 def test_execute_json_output_has_run_id(
-    wired_builder: tuple[builder_mod.DatasetBuilder, Path]
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
 ) -> None:
     import json
 
@@ -379,7 +379,7 @@ def test_execute_json_output_has_run_id(
 
 
 def test_execute_manifest_parent_run_id_is_set(
-    wired_builder: tuple[builder_mod.DatasetBuilder, Path]
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
 ) -> None:
     builder, storage_root = wired_builder
     runner = CliRunner()
@@ -450,7 +450,7 @@ def test_invalid_start_datetime_exits_nonzero() -> None:
 
 
 def test_dataset_build_error_exits_nonzero(
-    wired_builder: tuple[builder_mod.DatasetBuilder, Path]
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
 ) -> None:
     """DatasetBuildError (e.g. quality gate failure) must exit non-zero."""
     _builder, storage_root = wired_builder

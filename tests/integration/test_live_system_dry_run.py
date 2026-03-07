@@ -282,9 +282,7 @@ class TestLiveRuntimeLifecycle:
         r2 = limit_runtime.step(_market_state())
         assert r2.cycle_index == r1.cycle_index + 1
 
-    def test_step_emits_orders_for_every_instrument(
-        self, limit_runtime: LiveRuntime
-    ) -> None:
+    def test_step_emits_orders_for_every_instrument(self, limit_runtime: LiveRuntime) -> None:
         result = limit_runtime.step(_market_state())
         assert len(result.orders) == len(_INSTRUMENTS)
         instrument_ids = {o.instrument_id for o in result.orders}
@@ -326,9 +324,7 @@ class TestOrderRouterDryRun:
         assert result.accepted == 2
         assert result.rejected == 0
 
-    def test_dry_run_does_not_reach_adapter(
-        self, recording_adapter: RecordingAdapter
-    ) -> None:
+    def test_dry_run_does_not_reach_adapter(self, recording_adapter: RecordingAdapter) -> None:
         router = OrderRouter(recording_adapter, dry_run=True)
         order = strategy_models.OrderIntent(
             instrument_id=_INST_YES,
@@ -479,9 +475,7 @@ class TestLiveRuntimeToRouterRejected:
         cycle = market_runtime.step(state)
         result = router.route(cycle.orders, state)
         for detail in result.details:
-            assert RejectReasonCode.MARKET_ORDER_NOT_ALLOWED.value in (
-                detail.reject_reason or ""
-            )
+            assert RejectReasonCode.MARKET_ORDER_NOT_ALLOWED.value in (detail.reject_reason or "")
 
     def test_cumulative_pretrade_counter_across_cycles(
         self,
@@ -704,9 +698,7 @@ class TestDeterministicSummary:
         assert parsed["cycles_completed"] == 1
         assert parsed["total_orders"] == len(_INSTRUMENTS)
 
-    def test_same_config_same_order_count_across_cycles(
-        self, limit_runtime: LiveRuntime
-    ) -> None:
+    def test_same_config_same_order_count_across_cycles(self, limit_runtime: LiveRuntime) -> None:
         """Determinism check: every cycle with the same state emits the same number
         of orders for the same universe."""
         counts = set()
@@ -761,9 +753,7 @@ class TestDeterministicSummary:
 
 
 class TestNoNetworkDependency:
-    def test_live_runtime_step_opens_no_sockets(
-        self, limit_runtime: LiveRuntime
-    ) -> None:
+    def test_live_runtime_step_opens_no_sockets(self, limit_runtime: LiveRuntime) -> None:
         """Smoke-test: if this passes offline the runtime is network-free.
 
         There is no explicit socket patching — this test simply exercises the

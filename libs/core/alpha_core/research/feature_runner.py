@@ -138,9 +138,7 @@ class FeatureRunner:
         self._storage_root = storage_root
         self._gold_root = storage_root / storage_conventions.StorageTier.GOLD / "datasets"
         self._store = (
-            store
-            if store is not None
-            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+            store if store is not None else artifact_store_mod.FilesystemArtifactStore(storage_root)
         )
 
     # ------------------------------------------------------------------
@@ -479,9 +477,7 @@ def _resolve_factor_pack(
     if expected_version is not None:
         matches = [pack for pack in matches if pack.version == expected_version]
     if not matches:
-        version_msg = (
-            f" version '{expected_version}'" if expected_version is not None else ""
-        )
+        version_msg = f" version '{expected_version}'" if expected_version is not None else ""
         raise FeatureRunError(f"Factor pack '{factor_pack_id}'{version_msg} was not found.")
     if len(matches) > 1:
         versions = sorted(pack.version for pack in matches)

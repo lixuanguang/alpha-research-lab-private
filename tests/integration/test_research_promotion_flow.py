@@ -344,13 +344,19 @@ class TestPromoteCommand:
         _, entry_id = _seed_evaluate_manifest(tmp_path, _PASSING_METRICS)
         result = _invoke(
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "approved_for_paper",
-                "--reviewed-by", "alice",
-                "--reason", "Meets all thresholds",
-                "--storage-root", str(tmp_path),
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "approved_for_paper",
+                "--reviewed-by",
+                "alice",
+                "--reason",
+                "Meets all thresholds",
+                "--storage-root",
+                str(tmp_path),
             ],
             tmp_path,
         )
@@ -368,13 +374,19 @@ class TestPromoteCommand:
         result = runner.invoke(
             research_main.main,
             [
-                "--output-dir", str(tmp_path),
-                "--format", "json",
+                "--output-dir",
+                str(tmp_path),
+                "--format",
+                "json",
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "approved_for_paper",
-                "--reviewed-by", "alice",
-                "--storage-root", str(tmp_path),
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "approved_for_paper",
+                "--reviewed-by",
+                "alice",
+                "--storage-root",
+                str(tmp_path),
             ],
         )
         assert result.exit_code != 0
@@ -386,13 +398,19 @@ class TestPromoteCommand:
         result = runner.invoke(
             research_main.main,
             [
-                "--output-dir", str(tmp_path),
-                "--format", "json",
+                "--output-dir",
+                str(tmp_path),
+                "--format",
+                "json",
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "approved_for_paper",
-                "--reviewed-by", "alice",
-                "--storage-root", str(tmp_path),
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "approved_for_paper",
+                "--reviewed-by",
+                "alice",
+                "--storage-root",
+                str(tmp_path),
             ],
         )
         # stderr is mixed into output by default; parse the JSON block
@@ -404,14 +422,20 @@ class TestPromoteCommand:
         _, entry_id = _seed_evaluate_manifest(tmp_path, _FAILING_METRICS)
         result = _invoke(
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "approved_for_paper",
-                "--reviewed-by", "alice",
-                "--reason", "Manual override approved by team",
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "approved_for_paper",
+                "--reviewed-by",
+                "alice",
+                "--reason",
+                "Manual override approved by team",
                 "--force",
-                "--storage-root", str(tmp_path),
+                "--storage-root",
+                str(tmp_path),
             ],
             tmp_path,
         )
@@ -425,9 +449,12 @@ class TestPromoteCommand:
         result = _invoke(
             [
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "needs_review",
-                "--storage-root", str(tmp_path),
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "needs_review",
+                "--storage-root",
+                str(tmp_path),
             ],
             tmp_path,
         )
@@ -437,13 +464,19 @@ class TestPromoteCommand:
         _, entry_id = _seed_evaluate_manifest(tmp_path, _FAILING_METRICS)
         result = _invoke(
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "rejected",
-                "--reviewed-by", "charlie",
-                "--reason", "Below threshold",
-                "--storage-root", str(tmp_path),
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "rejected",
+                "--reviewed-by",
+                "charlie",
+                "--reason",
+                "Below threshold",
+                "--storage-root",
+                str(tmp_path),
             ],
             tmp_path,
         )
@@ -459,11 +492,15 @@ class TestPromoteCommand:
         result = runner.invoke(
             research_main.main,
             [
-                "--output-dir", str(tmp_path),
+                "--output-dir",
+                str(tmp_path),
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "approved_for_paper",
-                "--storage-root", str(tmp_path),
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "approved_for_paper",
+                "--storage-root",
+                str(tmp_path),
             ],
         )
         assert result.exit_code != 0
@@ -476,14 +513,21 @@ class TestPromoteCommand:
         result = runner.invoke(
             research_main.main,
             [
-                "--output-dir", str(tmp_path),
-                "--format", "json",
+                "--output-dir",
+                str(tmp_path),
+                "--format",
+                "json",
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "approved_for_paper",
-                "--reviewed-by", "alice",
-                "--min-sharpe", "2.0",
-                "--storage-root", str(tmp_path),
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "approved_for_paper",
+                "--reviewed-by",
+                "alice",
+                "--min-sharpe",
+                "2.0",
+                "--storage-root",
+                str(tmp_path),
             ],
         )
         assert result.exit_code != 0
@@ -493,12 +537,17 @@ class TestPromoteCommand:
         run_id, entry_id = _seed_evaluate_manifest(tmp_path, _PASSING_METRICS)
         _invoke(
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "promote",
-                "--entry-id", entry_id,
-                "--target-status", "approved_for_paper",
-                "--reviewed-by", "alice",
-                "--storage-root", str(tmp_path),
+                "--entry-id",
+                entry_id,
+                "--target-status",
+                "approved_for_paper",
+                "--reviewed-by",
+                "alice",
+                "--storage-root",
+                str(tmp_path),
             ],
             tmp_path,
         )

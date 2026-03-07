@@ -173,9 +173,7 @@ class FilesystemArtifactStore:
         if not stage_outputs.exists():
             return []
         return sorted(
-            str(p.relative_to(stage_outputs))
-            for p in stage_outputs.rglob("*")
-            if p.is_file()
+            str(p.relative_to(stage_outputs)) for p in stage_outputs.rglob("*") if p.is_file()
         )
 
     # ------------------------------------------------------------------

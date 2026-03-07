@@ -188,6 +188,5 @@ def validate_recipe(
     missing = [pid for pid in recipe.factor_pack_ids if pid not in available_pack_ids]
     if missing:
         raise ValueError(
-            f"Strategy recipe {recipe.recipe_id!r} references unknown "
-            f"factor pack(s): {missing}"
+            f"Strategy recipe {recipe.recipe_id!r} references unknown factor pack(s): {missing}"
         )

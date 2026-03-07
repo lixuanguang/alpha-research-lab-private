@@ -154,4 +154,5 @@ def build_features_command(
         f"built_at={manifest.built_at.isoformat()}"
     )
 
+
 __all__ = ["build_features_command"]

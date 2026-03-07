@@ -79,8 +79,7 @@ class OptimizeConfig(BaseModel):
     )
     parameter_space: dict[str, list[float]] = Field(
         description=(
-            "Maps parameter name to candidate values. "
-            f"Supported keys: {sorted(_SUPPORTED_PARAMS)}."
+            f"Maps parameter name to candidate values. Supported keys: {sorted(_SUPPORTED_PARAMS)}."
         ),
     )
     objective: str = Field(
@@ -216,9 +215,7 @@ class OptimizeRunner:
     ) -> None:
         self._storage_root = storage_root
         self._store = (
-            store
-            if store is not None
-            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+            store if store is not None else artifact_store_mod.FilesystemArtifactStore(storage_root)
         )
 
     # ------------------------------------------------------------------

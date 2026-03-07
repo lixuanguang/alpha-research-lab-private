@@ -61,8 +61,7 @@ class FillConfig(BaseModel):
         default=Decimal("2"),
         ge=_ZERO,
         description=(
-            "Basis points of fee applied to gross notional (size x fill_price).  "
-            "1 bps = 0.01%."
+            "Basis points of fee applied to gross notional (size x fill_price).  1 bps = 0.01%."
         ),
     )
     fill_ratio: Decimal = Field(

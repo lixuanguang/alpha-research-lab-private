@@ -434,14 +434,10 @@ def test_two_sequential_backfills_emit_two_distinct_packages(tmp_path: Path) -> 
     t2_end = t1_end + timedelta(days=1)
 
     m1 = _make_manager(tmp_path, _StubAdapter(trades))
-    r1 = asyncio.run(
-        m1.backfill_trades(["polymarket:mkt-a:yes"], start=_WINDOW_START, end=t1_end)
-    )
+    r1 = asyncio.run(m1.backfill_trades(["polymarket:mkt-a:yes"], start=_WINDOW_START, end=t1_end))
 
     m2 = _make_manager(tmp_path, _StubAdapter(trades))
-    r2 = asyncio.run(
-        m2.backfill_trades(["polymarket:mkt-a:yes"], start=t1_end, end=t2_end)
-    )
+    r2 = asyncio.run(m2.backfill_trades(["polymarket:mkt-a:yes"], start=t1_end, end=t2_end))
 
     assert r1.replay_package_id != r2.replay_package_id
 

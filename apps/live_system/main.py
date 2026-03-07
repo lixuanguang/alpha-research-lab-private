@@ -100,9 +100,7 @@ def run_command(
       python -m apps.live_system.main run --instrument p:abc:yes --cycles 2 --execute
     """
     profile_name = (ctx.obj or {}).get("profile")
-    active_profile = (
-        config_profiles.get_profile(profile_name) if profile_name is not None else None
-    )
+    active_profile = config_profiles.get_profile(profile_name) if profile_name is not None else None
     resolved_storage_root = (
         active_profile.storage_root
         if active_profile is not None and storage_root == Path("data")
@@ -114,9 +112,7 @@ def run_command(
             config_profiles.guard_execution(active_profile, context="live order submission")
             if real_money:
                 if active_profile is None:
-                    raise PermissionError(
-                        "Real-money routing requires '--profile live'."
-                    )
+                    raise PermissionError("Real-money routing requires '--profile live'.")
                 config_profiles.guard_real_money(
                     active_profile,
                     context="live real-money routing",
@@ -137,9 +133,7 @@ def run_command(
         raise click.ClickException(str(exc)) from exc
 
     artifact_keys = (
-        sorted(["config", "live_summary", "manifest"])
-        if outcome.manifest_path is not None
-        else []
+        sorted(["config", "live_summary", "manifest"]) if outcome.manifest_path is not None else []
     )
     summary = run_summary_mod.RunSummary(
         run_id=outcome.run_id,

@@ -113,9 +113,7 @@ class IncrementalCursor:
     instrument_ids: list[str]
     cursor_type: str = "ts_event"  # "ts_event" | "trade_id" | "sequence"
     cursor_value: str = ""
-    cursor_watermark_utc: datetime = field(
-        default_factory=lambda: datetime(1970, 1, 1, tzinfo=UTC)
-    )
+    cursor_watermark_utc: datetime = field(default_factory=lambda: datetime(1970, 1, 1, tzinfo=UTC))
     resume_safe: bool = True
 
 
@@ -410,9 +408,7 @@ def _infer_capabilities(adapter: adapters_base.VenueAdapter) -> VenueCapabilitie
         trades=True,
         book_snapshots=isinstance(adapter, HistoricalBookSnapshotAdapter),
         book_deltas=False,
-        ohlcv_resolutions=(
-            ["1m", "5m", "15m", "1h", "4h", "1d"] if historical_ohlcv else []
-        ),
+        ohlcv_resolutions=(["1m", "5m", "15m", "1h", "4h", "1d"] if historical_ohlcv else []),
         streaming_trades=callable(getattr(adapter, "watch_trades", None)),
         streaming_books=callable(getattr(adapter, "watch_order_book", None)),
         sequence_id_capable=False,

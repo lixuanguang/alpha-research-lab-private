@@ -61,9 +61,7 @@ class DatasetBuilder:
         # dataset_builder_io (backward-compatible location). The store manages
         # run-scoped stage_outputs/ artifacts (manifests, configs, indexes).
         self._store = (
-            store
-            if store is not None
-            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+            store if store is not None else artifact_store_mod.FilesystemArtifactStore(storage_root)
         )
 
     # ------------------------------------------------------------------

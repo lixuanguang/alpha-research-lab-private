@@ -101,8 +101,16 @@ class TestRejectReasonCode:
 
 class TestOrderLifecycleStatus:
     def test_terminal_statuses_present(self) -> None:
-        for value in ("new", "validated", "rejected", "submitted", "filled",
-                      "partial_fill", "cancelled", "expired"):
+        for value in (
+            "new",
+            "validated",
+            "rejected",
+            "submitted",
+            "filled",
+            "partial_fill",
+            "cancelled",
+            "expired",
+        ):
             assert OrderLifecycleStatus(value) is not None
 
 
@@ -312,9 +320,7 @@ class TestPreTradeValidatorReject:
         assert result.reject_reason_code == RejectReasonCode.NOTIONAL_TOO_LARGE
 
     def test_instrument_not_allowed(self) -> None:
-        v = PreTradeValidator(
-            PreTradeConfig(allowed_instruments=frozenset([_INST_B]))
-        )
+        v = PreTradeValidator(PreTradeConfig(allowed_instruments=frozenset([_INST_B])))
         result = v.validate(_limit_order(instrument_id=_INST))
         assert not result.is_valid
         assert result.reject_reason_code == RejectReasonCode.INSTRUMENT_NOT_ALLOWED
@@ -385,8 +391,9 @@ class TestFillSimulatorAccepted:
     def test_short_limit_fill_price_below_limit(self) -> None:
         """SHORT LIMIT: fill price < limit price (adverse slippage)."""
         sim = FillSimulator(FillConfig(slippage_bps=Decimal("100"), fee_bps=Decimal("0")))
-        order = _limit_order(price="0.50", size="1",
-                             direction=strategy_models.SignalDirection.SHORT)
+        order = _limit_order(
+            price="0.50", size="1", direction=strategy_models.SignalDirection.SHORT
+        )
         report = sim.simulate(self._accept(order))
         assert report.fill_price is not None
         assert report.fill_price < Decimal("0.50")
@@ -501,8 +508,16 @@ class TestFillSimulatorSerialisation:
         ).simulate(vo)
         payload = report.model_dump(mode="json")
         _ = json.dumps(payload)  # must not raise
-        for key in ("order_id", "instrument_id", "status", "fill_price", "fill_size",
-                    "fee", "slippage", "source_intent"):
+        for key in (
+            "order_id",
+            "instrument_id",
+            "status",
+            "fill_price",
+            "fill_size",
+            "fee",
+            "slippage",
+            "source_intent",
+        ):
             assert key in payload, f"missing key: {key}"
 
 

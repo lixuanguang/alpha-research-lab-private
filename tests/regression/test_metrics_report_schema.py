@@ -72,8 +72,8 @@ _EXPECTED_METRICS_PM_CORE_KEYS: frozenset[str] = frozenset(
 )
 
 # Microstructure adds one additional key on top of pm_core
-_EXPECTED_METRICS_MICROSTRUCTURE_KEYS: frozenset[str] = (
-    _EXPECTED_METRICS_PM_CORE_KEYS | frozenset({"avg_spread_cost_bps"})
+_EXPECTED_METRICS_MICROSTRUCTURE_KEYS: frozenset[str] = _EXPECTED_METRICS_PM_CORE_KEYS | frozenset(
+    {"avg_spread_cost_bps"}
 )
 
 # ExecutionReport serialised field keys
@@ -134,6 +134,7 @@ def _make_run_summary(**overrides: object) -> RunSummary:
 
 def _limit_order() -> Any:
     import alpha_core.strategy_framework.models as sm
+
     return sm.OrderIntent(
         instrument_id="p:m1:yes",
         order_type=sm.OrderType.LIMIT,
@@ -224,16 +225,14 @@ class TestEvaluateMetricsSchema:
         metrics = self._run_metrics("minimal")
         actual = frozenset(metrics.keys())
         assert actual == _EXPECTED_METRICS_MINIMAL_KEYS, (
-            "minimal profile metrics keys changed. "
-            "Update _EXPECTED_METRICS_MINIMAL_KEYS."
+            "minimal profile metrics keys changed. Update _EXPECTED_METRICS_MINIMAL_KEYS."
         )
 
     def test_pm_core_profile_key_set_stable(self) -> None:
         metrics = self._run_metrics("pm_core")
         actual = frozenset(metrics.keys())
         assert actual == _EXPECTED_METRICS_PM_CORE_KEYS, (
-            "pm_core profile metrics keys changed. "
-            "Update _EXPECTED_METRICS_PM_CORE_KEYS."
+            "pm_core profile metrics keys changed. Update _EXPECTED_METRICS_PM_CORE_KEYS."
         )
 
     def test_default_profile_same_keys_as_pm_core(self) -> None:
@@ -255,6 +254,7 @@ class TestEvaluateMetricsSchema:
 
     def test_all_metrics_values_are_finite_floats(self) -> None:
         import math
+
         for profile in ("minimal", "pm_core", "default", "microstructure"):
             metrics = self._run_metrics(profile)
             for k, v in metrics.items():
@@ -305,8 +305,7 @@ class TestExecutionReportSchema:
         payload = report.model_dump(mode="json")
         actual_keys = frozenset(payload.keys())
         assert actual_keys == _EXPECTED_EXECUTION_REPORT_KEYS, (
-            "ExecutionReport serialised keys changed. "
-            "Update _EXPECTED_EXECUTION_REPORT_KEYS."
+            "ExecutionReport serialised keys changed. Update _EXPECTED_EXECUTION_REPORT_KEYS."
         )
 
     def test_report_json_serialisable(self) -> None:
@@ -333,8 +332,7 @@ class TestRunSummaryPayloadSchema:
         payload = s.model_dump(mode="json")
         actual_keys = frozenset(payload.keys())
         assert actual_keys == _EXPECTED_RUN_SUMMARY_PAYLOAD_KEYS, (
-            "RunSummary serialised keys changed. "
-            "Update _EXPECTED_RUN_SUMMARY_PAYLOAD_KEYS."
+            "RunSummary serialised keys changed. Update _EXPECTED_RUN_SUMMARY_PAYLOAD_KEYS."
         )
 
     def test_traceability_fields_populated(self) -> None:

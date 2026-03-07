@@ -78,7 +78,6 @@ class Settings(BaseModel):
     profile: ProfileName | None = Field(
         default=None,
         description=(
-            "Active runtime profile. None means no profile-level safety guards are "
-            "applied."
+            "Active runtime profile. None means no profile-level safety guards are applied."
         ),
     )

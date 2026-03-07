@@ -223,10 +223,7 @@ class PreTradeValidator:
             )
 
         # 3. LIMIT order requires price_limit
-        if (
-            intent.order_type == strategy_models.OrderType.LIMIT
-            and intent.price_limit is None
-        ):
+        if intent.order_type == strategy_models.OrderType.LIMIT and intent.price_limit is None:
             return (
                 order_models_mod.RejectReasonCode.LIMIT_ORDER_NO_PRICE,
                 "LIMIT order must have price_limit set",
