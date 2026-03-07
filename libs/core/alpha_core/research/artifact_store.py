@@ -36,7 +36,6 @@ from typing import Protocol, runtime_checkable
 
 import alpha_core.research.artifact_paths as artifact_paths
 
-
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------

@@ -15,15 +15,6 @@ from pydantic import ValidationError
 
 import alpha_core.research.optimize_runner as optimize_runner_mod
 import apps.research.commands.common as cmd_common
-import apps.research.runtime as research_runtime
-
-
-def make_optimize_runner(storage_root: Path) -> optimize_runner_mod.OptimizeRunner:
-    """Construct an :class:`OptimizeRunner` wired to *storage_root*.
-
-    Callers in tests can monkeypatch this function.
-    """
-    return optimize_runner_mod.OptimizeRunner(storage_root)
 
 
 @click.command("optimize")
@@ -136,7 +127,7 @@ def make_optimize_runner(storage_root: Path) -> optimize_runner_mod.OptimizeRunn
     help="Materialise optimization artifacts or only emit a validated execution plan.",
 )
 @click.pass_context
-def optimize_command(  # noqa: PLR0913
+def optimize_command(
     ctx: click.Context,
     dataset_id: str,
     feature_set_version: str,
@@ -220,22 +211,17 @@ def optimize_command(  # noqa: PLR0913
         raise click.ClickException(str(exc)) from exc
 
     resolved_root = cmd_common.resolve_storage_root(ctx, storage_root)
-    fmt = cmd_common.get_output_format(ctx)
     payload = cmd_common.build_run_payload(ctx, config.model_dump(mode="json"))
 
     if not execute:
-        cmd_common.emit_outcome(
-            research_runtime.run_stage(
-                run_type="optimize",
-                payload=payload,
-                storage_root=resolved_root,
-                execute=False,
-                parent_run_id=feature_run_id,
-            ),
-            fmt,
+        cmd_common.emit_planned_outcome(
+            ctx,
+            run_type="optimize",
+            payload=payload,
         )
         return
 
+    fmt = cmd_common.get_output_format(ctx)
     if feature_run_id is None:
         raise click.ClickException(
             "`--feature-run-id` is required in --execute mode. "
@@ -243,11 +229,12 @@ def optimize_command(  # noqa: PLR0913
         )
 
     try:
-        runner = make_optimize_runner(resolved_root)
+        runner = optimize_runner_mod.OptimizeRunner(resolved_root)
         manifest = runner.run(
             config,
             feature_run_id=feature_run_id,
             config_payload=payload,
+            parent_run_id=feature_run_id,
         )
     except optimize_runner_mod.OptimizeRunError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -288,5 +275,4 @@ def optimize_command(  # noqa: PLR0913
             f"best_run={manifest.best_backtest_run_id}"
         )
 
-
-__all__ = ["make_optimize_runner", "optimize_command"]
+__all__ = ["optimize_command"]

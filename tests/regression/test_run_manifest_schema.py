@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from decimal import Decimal
 
 import pytest
 
@@ -296,7 +295,10 @@ class TestRunManifestSchema:
 
 class TestBacktestManifestSchema:
     def test_schema_version_pinned(self) -> None:
-        assert BacktestManifest.model_fields["schema_version"].default == _EXPECTED_BACKTEST_MANIFEST_VERSION
+        assert (
+            BacktestManifest.model_fields["schema_version"].default
+            == _EXPECTED_BACKTEST_MANIFEST_VERSION
+        )
 
     def test_field_set_stable(self) -> None:
         actual = frozenset(BacktestManifest.model_fields.keys())
@@ -365,7 +367,10 @@ class TestBacktestManifestSchema:
 
 class TestEvaluateManifestSchema:
     def test_schema_version_pinned(self) -> None:
-        assert EvaluateManifest.model_fields["schema_version"].default == _EXPECTED_EVALUATE_MANIFEST_VERSION
+        assert (
+            EvaluateManifest.model_fields["schema_version"].default
+            == _EXPECTED_EVALUATE_MANIFEST_VERSION
+        )
 
     def test_field_set_stable(self) -> None:
         actual = frozenset(EvaluateManifest.model_fields.keys())
@@ -395,7 +400,10 @@ class TestEvaluateManifestSchema:
 
 class TestFeatureManifestSchema:
     def test_schema_version_pinned(self) -> None:
-        assert FeatureManifest.model_fields["schema_version"].default == _EXPECTED_FEATURE_MANIFEST_VERSION
+        assert (
+            FeatureManifest.model_fields["schema_version"].default
+            == _EXPECTED_FEATURE_MANIFEST_VERSION
+        )
 
     def test_field_set_stable(self) -> None:
         actual = frozenset(FeatureManifest.model_fields.keys())
@@ -443,7 +451,10 @@ class TestDatasetManifestSchema:
 
 class TestOptimizeManifestSchema:
     def test_schema_version_pinned(self) -> None:
-        assert OptimizeManifest.model_fields["schema_version"].default == _EXPECTED_OPTIMIZE_MANIFEST_VERSION
+        assert (
+            OptimizeManifest.model_fields["schema_version"].default
+            == _EXPECTED_OPTIMIZE_MANIFEST_VERSION
+        )
 
     def test_field_set_stable(self) -> None:
         actual = frozenset(OptimizeManifest.model_fields.keys())

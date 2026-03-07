@@ -20,12 +20,11 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.dataset_builder_io as dataset_builder_io
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.storage.conventions as storage_conventions
-from alpha_core.research.artifact_store import FilesystemArtifactStore
 
 # ---------------------------------------------------------------------------
 # Config
@@ -111,11 +110,15 @@ class FeatureRunner:
     def __init__(
         self,
         storage_root: Path,
-        store: FilesystemArtifactStore | None = None,
+        store: artifact_store_mod.FilesystemArtifactStore | None = None,
     ) -> None:
         self._storage_root = storage_root
         self._gold_root = storage_root / storage_conventions.StorageTier.GOLD / "datasets"
-        self._store = store if store is not None else FilesystemArtifactStore(storage_root)
+        self._store = (
+            store
+            if store is not None
+            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+        )
 
     # ------------------------------------------------------------------
     # Public API

@@ -34,17 +34,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pandas as pd  # type: ignore[import-untyped]
+import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.backtest_runner as backtest_runner_mod
 import alpha_core.research.evaluate_runner as evaluate_runner_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
-from alpha_core.research.artifact_store import FilesystemArtifactStore
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -100,7 +100,11 @@ class OptimizeConfig(BaseModel):
         ),
     )
     max_trials: int = Field(default=20, gt=0, description="Maximum trials to evaluate.")
-    top_n: int = Field(default=5, gt=0, description="Number of top trials to include in leaderboard.")
+    top_n: int = Field(
+        default=5,
+        gt=0,
+        description="Number of top trials to include in leaderboard.",
+    )
     seed: int = Field(default=42, description="RNG seed for reproducible random search.")
     starting_cash: float = Field(default=100_000.0, gt=0)
     engine: backtest_runner_mod.EngineType = "event"
@@ -114,7 +118,7 @@ class OptimizeConfig(BaseModel):
         return cleaned
 
     @model_validator(mode="after")
-    def _validate_parameter_space(self) -> "OptimizeConfig":
+    def _validate_parameter_space(self) -> OptimizeConfig:
         unknown = set(self.parameter_space) - _SUPPORTED_PARAMS
         if unknown:
             raise ValueError(
@@ -205,10 +209,14 @@ class OptimizeRunner:
     def __init__(
         self,
         storage_root: Path,
-        store: FilesystemArtifactStore | None = None,
+        store: artifact_store_mod.FilesystemArtifactStore | None = None,
     ) -> None:
         self._storage_root = storage_root
-        self._store = store if store is not None else FilesystemArtifactStore(storage_root)
+        self._store = (
+            store
+            if store is not None
+            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -248,6 +256,15 @@ class OptimizeRunner:
             "optimize", config_payload=effective_payload
         )
         optimize_run_id = run_context.run_id
+        resolved_parent_run_id = parent_run_id or feature_run_id
+
+        try:
+            self._store.path_for(feature_run_id, "features.parquet")
+        except artifact_store_mod.ArtifactNotFoundError as exc:
+            raise OptimizeRunError(
+                f"Feature artifact not found for run '{feature_run_id}': {exc}. "
+                "Ensure the feature-build run completed successfully."
+            ) from exc
 
         trial_params = _expand_parameter_space(config)
 
@@ -256,15 +273,20 @@ class OptimizeRunner:
 
         records: list[TrialRecord] = []
         for index, params in enumerate(trial_params):
-            record = _run_trial(
-                index=index,
-                params=params,
-                config=config,
-                feature_run_id=feature_run_id,
-                optimize_run_id=optimize_run_id,
-                bt_runner=bt_runner,
-                ev_runner=ev_runner,
-            )
+            try:
+                record = _run_trial(
+                    index=index,
+                    params=params,
+                    config=config,
+                    feature_run_id=feature_run_id,
+                    optimize_run_id=optimize_run_id,
+                    bt_runner=bt_runner,
+                    ev_runner=ev_runner,
+                )
+            except Exception as exc:
+                raise OptimizeRunError(
+                    f"Optimize trial {index} failed for params={params}: {exc}"
+                ) from exc
             records.append(record)
 
         feasible = [r for r in records if r.constraint_pass and r.status == "ok"]
@@ -301,7 +323,7 @@ class OptimizeRunner:
             best_objective_value=best.objective_value if best else None,
             built_at=built_at,
             artifacts=artifact_map,
-            parent_run_id=parent_run_id,
+            parent_run_id=resolved_parent_run_id,
         )
 
         manifest_path = self._store.prepare_path(optimize_run_id, "optimize_manifest.json")
@@ -313,7 +335,7 @@ class OptimizeRunner:
             run_context=completed_context,
             config_payload=effective_payload,
             artifacts=artifact_map,
-            parent_run_id=parent_run_id,
+            parent_run_id=resolved_parent_run_id,
         )
         return manifest
 
@@ -410,46 +432,19 @@ def _run_trial(
         strategy_params=strategy_params,
     )
 
-    try:
-        bt_manifest = bt_runner.build(
-            bt_config,
-            config_payload={
-                "optimize_run_id": optimize_run_id,
-                "trial_index": index,
-                **bt_config.model_dump(mode="json"),
-            },
-            parent_run_id=feature_run_id,
-        )
-    except Exception:  # noqa: BLE001
-        return TrialRecord(
-            optimize_run_id=optimize_run_id,
-            trial_index=index,
-            backtest_run_id="",
-            evaluate_run_id="",
-            params=params,
-            metrics={},
-            objective_value=float("-inf"),
-            constraint_pass=False,
-            status="failed",
-        )
-
-    try:
-        ev_manifest = ev_runner.build(
-            bt_manifest.run_id,
-            parent_run_id=optimize_run_id,
-        )
-    except Exception:  # noqa: BLE001
-        return TrialRecord(
-            optimize_run_id=optimize_run_id,
-            trial_index=index,
-            backtest_run_id=bt_manifest.run_id,
-            evaluate_run_id="",
-            params=params,
-            metrics={},
-            objective_value=float("-inf"),
-            constraint_pass=False,
-            status="failed",
-        )
+    bt_manifest = bt_runner.build(
+        bt_config,
+        config_payload={
+            "optimize_run_id": optimize_run_id,
+            "trial_index": index,
+            **bt_config.model_dump(mode="json"),
+        },
+        parent_run_id=feature_run_id,
+    )
+    ev_manifest = ev_runner.build(
+        bt_manifest.run_id,
+        parent_run_id=bt_manifest.run_id,
+    )
 
     metrics = ev_manifest.metrics
     objective_value = float(metrics.get(config.objective, float("-inf")))
@@ -493,7 +488,7 @@ def _expand_parameter_space(config: OptimizeConfig) -> list[dict[str, float]]:
         return all_combos[: config.max_trials]
 
     # Random: shuffle with seed, then take max_trials.
-    rng = random.Random(config.seed)
+    rng = random.Random(config.seed)  # nosec B311 - deterministic research sweep, not crypto
     rng.shuffle(all_combos)
     return all_combos[: config.max_trials]
 

@@ -13,12 +13,11 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.strategy_framework.models as strategy_models
 import alpha_core.utils.time as time_utils
-from alpha_core.research.artifact_store import ArtifactNotFoundError, FilesystemArtifactStore
 
 _EPSILON = 1e-9
 _DEFAULT_PRICE = 0.5
@@ -62,7 +61,10 @@ class BacktestConfig(BaseModel):
     starting_cash: float = Field(default=100_000.0, gt=0)
     strategy_params: dict[str, float] = Field(
         default_factory=dict,
-        description="Optional per-trial overrides for strategy parameters (threshold, target_weight).",
+        description=(
+            "Optional per-trial overrides for strategy parameters "
+            "(threshold, target_weight)."
+        ),
     )
 
     @field_validator("dataset_id", "feature_set_version", "strategy_id")
@@ -210,10 +212,14 @@ class BacktestRunner:
     def __init__(
         self,
         storage_root: Path,
-        store: FilesystemArtifactStore | None = None,
+        store: artifact_store_mod.FilesystemArtifactStore | None = None,
     ) -> None:
         self._storage_root = storage_root
-        self._store = store if store is not None else FilesystemArtifactStore(storage_root)
+        self._store = (
+            store
+            if store is not None
+            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+        )
 
     def build(
         self,
@@ -230,7 +236,7 @@ class BacktestRunner:
 
         try:
             features_path = self._store.path_for(parent_run_id, "features.parquet")
-        except ArtifactNotFoundError as exc:
+        except artifact_store_mod.ArtifactNotFoundError as exc:
             raise BacktestRunError(
                 f"Feature artifact not found for run '{parent_run_id}': {exc}. "
                 "Ensure the feature-build run completed successfully."
@@ -241,7 +247,8 @@ class BacktestRunner:
         )
         run_context = run_context_mod.make_run_context("backtest", config_payload=effective_payload)
         run_id = run_context.run_id
-        strategy = _ZScoreStrategy(_resolve_strategy_spec(config.strategy_id, config.strategy_params))
+        strategy_spec = _resolve_strategy_spec(config.strategy_id, config.strategy_params)
+        strategy = _ZScoreStrategy(strategy_spec)
         trades_table, equity_table = _simulate(
             features_df=pq.read_table(features_path).to_pandas(),
             config=config,
@@ -510,7 +517,10 @@ def _apply_fill(
     return realized_pnl, trade_return, new_quantity, execution_price
 
 
-def _resolve_strategy_spec(strategy_id: str, params: dict[str, float] | None = None) -> StrategySpec:
+def _resolve_strategy_spec(
+    strategy_id: str,
+    params: dict[str, float] | None = None,
+) -> StrategySpec:
     normalized = strategy_id.strip().lower()
     params = params or {}
     threshold = float(params.get("threshold", 1.5))

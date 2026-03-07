@@ -89,7 +89,10 @@ def align_to_grid(
     result: dict[str, pa.Table] = {}
     for label, table in tables.items():
         if table.num_rows == 0:
-            result[label] = table
+            result[label] = pa.Table.from_pylist(
+                [],
+                schema=table.schema.append(pa.field("grid_ts", pa.timestamp("us", tz="UTC"))),
+            )
             continue
 
         aligned_chunks: list[pa.Table] = []
@@ -100,6 +103,11 @@ def align_to_grid(
             if spec.as_of_column != spec.ts_column and spec.ts_column in table.schema.names:
                 snapshot = as_of_filter(snapshot, as_of_column=spec.ts_column, cutoff=grid_dt)
             if snapshot.num_rows > 0:
+                snapshot = _latest_rows_per_instrument(
+                    snapshot,
+                    ts_column=spec.ts_column,
+                    as_of_column=spec.as_of_column,
+                )
                 grid_col = pa.array(
                     [grid_dt] * snapshot.num_rows,
                     type=pa.timestamp("us", tz="UTC"),
@@ -117,6 +125,32 @@ def align_to_grid(
             result[label] = pa.Table.from_pylist([], schema=extended_schema)
 
     return result
+
+
+def _latest_rows_per_instrument(
+    table: pa.Table,
+    *,
+    ts_column: str,
+    as_of_column: str,
+) -> pa.Table:
+    """Retain only the latest row per instrument inside one as-of snapshot."""
+    if table.num_rows <= 1 or "instrument_id" not in table.schema.names:
+        return table
+
+    frame = table.to_pandas()
+    sort_columns = ["instrument_id"]
+    if ts_column in frame.columns:
+        sort_columns.append(ts_column)
+    if as_of_column in frame.columns and as_of_column not in sort_columns:
+        sort_columns.append(as_of_column)
+
+    latest = (
+        frame.sort_values(sort_columns, kind="stable")
+        .groupby("instrument_id", sort=False, dropna=False)
+        .tail(1)
+        .reset_index(drop=True)
+    )
+    return pa.Table.from_pandas(latest, schema=table.schema, preserve_index=False)
 
 
 __all__ = ["GridAlignmentSpec", "align_to_grid", "as_of_filter"]

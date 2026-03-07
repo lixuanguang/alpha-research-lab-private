@@ -16,15 +16,6 @@ from pydantic import ValidationError
 
 import alpha_core.research.backtest_runner as backtest_runner_mod
 import apps.research.commands.common as cmd_common
-import apps.research.runtime as research_runtime
-
-
-def make_backtest_runner(storage_root: Path) -> backtest_runner_mod.BacktestRunner:
-    """Construct a :class:`BacktestRunner` wired to *storage_root*.
-
-    Callers in tests can monkeypatch this function.
-    """
-    return backtest_runner_mod.BacktestRunner(storage_root)
 
 
 @click.command("backtest")
@@ -109,24 +100,19 @@ def backtest_command(
         raise click.ClickException(str(exc)) from exc
 
     resolved_root = cmd_common.resolve_storage_root(ctx, storage_root)
-    fmt = cmd_common.get_output_format(ctx)
     payload = cmd_common.build_run_payload(ctx, config.model_dump(mode="json"))
 
     if not execute:
-        cmd_common.emit_outcome(
-            research_runtime.run_stage(
-                run_type="backtest",
-                payload=payload,
-                storage_root=resolved_root,
-                execute=False,
-                parent_run_id=parent_run_id,
-            ),
-            fmt,
+        cmd_common.emit_planned_outcome(
+            ctx,
+            run_type="backtest",
+            payload=payload,
         )
         return
 
+    fmt = cmd_common.get_output_format(ctx)
     try:
-        runner = make_backtest_runner(resolved_root)
+        runner = backtest_runner_mod.BacktestRunner(resolved_root)
         manifest = runner.build(config, config_payload=payload, parent_run_id=parent_run_id)
     except backtest_runner_mod.BacktestRunError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -162,5 +148,4 @@ def backtest_command(
         f"built_at={manifest.built_at.isoformat()}"
     )
 
-
-__all__ = ["backtest_command", "make_backtest_runner"]
+__all__ = ["backtest_command"]

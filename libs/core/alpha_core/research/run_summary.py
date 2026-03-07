@@ -100,7 +100,7 @@ class RunSummary(BaseModel):
         artifact_keys: list[str] | None = None,
         extra: dict[str, Any] | None = None,
     ) -> RunSummary:
-        """Build a :class:`RunSummary` from any completed :class:`~alpha_core.research.run_context.RunContext`.
+        """Build a summary from a completed research run context.
 
         Args:
             run_context: The closed run context to summarise.

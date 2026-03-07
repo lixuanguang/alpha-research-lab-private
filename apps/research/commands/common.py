@@ -11,6 +11,7 @@ import click
 import yaml
 
 import alpha_core.config._merge as config_merge
+import alpha_core.research.run_context as run_context_mod
 import apps.research.runtime as runtime_mod
 
 OutputFormat = Literal["text", "json"]
@@ -77,10 +78,27 @@ def emit_outcome(outcome: runtime_mod.ResearchStageOutcome, fmt: OutputFormat) -
         click.echo(f"manifest={outcome.manifest_path}")
 
 
+def emit_planned_outcome(
+    ctx: click.Context,
+    *,
+    run_type: run_context_mod.RunType,
+    payload: dict[str, Any],
+) -> None:
+    """Emit the shared plan-only payload for a research command."""
+    emit_outcome(
+        runtime_mod.plan_stage(
+            run_type=run_type,
+            payload=payload,
+        ),
+        get_output_format(ctx),
+    )
+
+
 __all__ = [
     "OutputFormat",
     "build_run_payload",
     "emit_outcome",
+    "emit_planned_outcome",
     "get_output_format",
     "load_config_reference",
     "resolve_storage_root",

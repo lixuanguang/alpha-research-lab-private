@@ -17,17 +17,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+import apps.live_system.main as live_main
 import click.testing
 import pytest
-
-import apps.live_system.main as live_main
-import apps.live_system.order_router as order_router_mod
-import apps.live_system.runtime as live_runtime_mod
-from alpha_core.strategy_framework import interfaces as strategy_interfaces
-from alpha_core.strategy_framework import models as strategy_models
 from apps.live_system.order_router import (
     OrderRouter,
-    RoutingResult,
     SubmissionResult,
     VenueAdapter,
 )
@@ -35,8 +29,9 @@ from apps.live_system.runtime import (
     CycleResult,
     LiveRuntime,
     LiveRuntimeConfig,
-    RuntimeMetrics,
 )
+
+from alpha_core.strategy_framework import models as strategy_models
 
 # ---------------------------------------------------------------------------
 # Test fixtures / helpers
@@ -333,10 +328,8 @@ class TestLiveRuntimeInjection:
         """Components used in backtest also satisfy live protocol interfaces."""
         from alpha_core.strategy_framework.interfaces import (
             AlphaModel,
-            ExecutionModel,
             PortfolioConstructionModel,
             RiskModel,
-            UniverseModel,
         )
 
         assert isinstance(FixedSignalAlpha(), AlphaModel)

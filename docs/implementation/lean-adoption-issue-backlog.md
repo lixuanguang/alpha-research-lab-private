@@ -608,7 +608,7 @@ Add integration coverage for live strategy flow without external network calls.
 
 ### Summary
 
-Strengthen long-term stability through run summary outputs and schema regression tests.
+Strengthen long-term stability through versioned observability payloads and schema regression tests.
 
 ### Dependencies
 
@@ -629,7 +629,7 @@ Strengthen long-term stability through run summary outputs and schema regression
 
 ### Checklist
 
-- [x] Emit standardized run summary blocks for research/live commands
+- [x] Add a standardized `RunSummary` schema and emit it from live commands while keeping research plan outputs machine-readable
 - [x] Add regression snapshots for manifest schema
 - [x] Add regression snapshots for metrics/report schema
 - [x] Document schema versioning policy in adoption README
@@ -637,7 +637,7 @@ Strengthen long-term stability through run summary outputs and schema regression
 ### Acceptance criteria
 
 - Schema changes fail tests unless explicitly updated.
-- Run summaries include core traceability fields.
+- `RunSummary` schema includes core traceability fields, and research/live CLIs expose machine-readable run metadata.
 - Docs define schema change process.
 
 ---

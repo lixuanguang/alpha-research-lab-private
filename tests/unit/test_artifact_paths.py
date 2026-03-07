@@ -146,6 +146,32 @@ class TestArtifactsIndex:
         assert ap.read_artifacts_index(tmp_path, RUN_ID) == {}
 
 
+class TestRegisteredArtifactResolution:
+    def test_resolves_existing_artifact_within_run_root(self, tmp_path: Path) -> None:
+        artifact_path = ap.artifact_key_path(tmp_path, RUN_ID, "metrics.json")
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact_path.write_text("{}", encoding="utf-8")
+
+        resolved = ap.resolve_registered_artifact_path(tmp_path, RUN_ID, str(artifact_path))
+
+        assert resolved == artifact_path.resolve()
+
+    def test_rejects_paths_outside_run_root(self, tmp_path: Path) -> None:
+        rogue_path = tmp_path / "rogue.json"
+        rogue_path.write_text("{}", encoding="utf-8")
+
+        resolved = ap.resolve_registered_artifact_path(tmp_path, RUN_ID, str(rogue_path))
+
+        assert resolved is None
+
+    def test_rejects_missing_artifact(self, tmp_path: Path) -> None:
+        missing_path = tmp_path / "missing.json"
+
+        resolved = ap.resolve_registered_artifact_path(tmp_path, RUN_ID, str(missing_path))
+
+        assert resolved is None
+
+
 # ---------------------------------------------------------------------------
 # Lineage bridge — downstream_run_ids + link_downstream_run
 # ---------------------------------------------------------------------------

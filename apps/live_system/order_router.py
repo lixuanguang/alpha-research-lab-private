@@ -68,7 +68,7 @@ class VenueAdapter(Protocol):
                 return "noop"
     """
 
-    def submit(self, order: strategy_models.OrderIntent) -> "SubmissionResult":
+    def submit(self, order: strategy_models.OrderIntent) -> SubmissionResult:
         """Submit a single order intent to the venue.
 
         Should raise on unrecoverable infrastructure errors.  Logical rejects

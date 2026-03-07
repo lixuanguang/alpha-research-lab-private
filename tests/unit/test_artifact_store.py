@@ -144,12 +144,12 @@ class TestIdempotencyAndOverwrite:
 class TestErrorPaths:
     def test_get_raises_artifact_not_found(self, tmp_path: Path) -> None:
         store = make_store(tmp_path)
-        with pytest.raises(ArtifactNotFoundError, match="missing.parquet"):
+        with pytest.raises(ArtifactNotFoundError, match=r"missing\.parquet"):
             store.get(RUN_ID, "missing.parquet")
 
     def test_path_for_raises_artifact_not_found(self, tmp_path: Path) -> None:
         store = make_store(tmp_path)
-        with pytest.raises(ArtifactNotFoundError, match="missing.json"):
+        with pytest.raises(ArtifactNotFoundError, match=r"missing\.json"):
             store.path_for(RUN_ID, "missing.json")
 
     def test_path_for_returns_path_when_exists(self, tmp_path: Path) -> None:

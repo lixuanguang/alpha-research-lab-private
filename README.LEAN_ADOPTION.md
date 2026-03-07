@@ -1,6 +1,6 @@
 # Lean Lessons Adoption Guide for Alpha Research Lab
 
-> Last updated: March 6, 2026
+> Last updated: March 7, 2026
 > Scope: Practical implementation reference for Lean-derived patterns that are not yet fully folded into the stage implementation plans.
 > Issue backlog: `docs/implementation/lean-adoption-issue-backlog.md`
 
@@ -32,10 +32,10 @@ As of today:
 - Data plane is operational and tested (`apps/data_collector`, `alpha_core/storage`, `alpha_core/quality`).
 - Canonical PM event modeling is strict and reproducible (`alpha_core/events/models.py`).
 - Ingestion lineage exists (`alpha_core/storage/lineage.py`).
-- Research and live entrypoints now expose scaffolded Click command groups (`apps/research/main.py`, `apps/live_system/main.py`), but the full production research/live workflows are still in progress.
-- Gold dataset materialization, feature builds, backtest/evaluate/report scaffolds, and end-to-end CLI coverage are now available through first-class research modules; artifact store, optimize, and live reuse remain planned.
+- Research and live entrypoints now expose first-class Click command groups (`apps/research/main.py`, `apps/live_system/main.py`), but the full production research/live workflows are still in progress.
+- Gold dataset materialization, feature builds, backtest/evaluate/report, filesystem-backed artifact storage, optimize workflows, and live dry-run/runtime scaffolds are now available through first-class modules; richer PM-native execution, deeper evaluation metrics, and governance workflows remain open.
 
-Implication: the largest leverage is in **research/live orchestration and shared strategy contracts**.
+Implication: the largest leverage is now in **execution realism, research governance, and cross-stage promotion workflows**.
 
 ---
 
@@ -62,6 +62,8 @@ Implication: the largest leverage is in **research/live orchestration and shared
 
 **Lean lesson:** Every run carries strong metadata and standardized outputs.
 
+**Status in this repo:** Implemented for dataset, feature, backtest, evaluate, report, optimize, and live manifests. Remaining work is harmonizing all emitted CLI payloads on top of those contracts.
+
 **Bring over:**
 - `RunContext` object passed through dataset/feature/backtest/eval/live stages
 - Standard run manifest fields:
@@ -84,6 +86,8 @@ Implication: the largest leverage is in **research/live orchestration and shared
 
 **Lean lesson:** CLI is the main interface for repeatable workflows.
 
+**Status in this repo:** Implemented for `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, and `optimize`. Remaining ergonomics are optional pipeline aliases and CI smoke coverage.
+
 **Bring over:**
 - Implement `apps/research/main.py` group commands:
   - `build-dataset`
@@ -103,6 +107,8 @@ Implication: the largest leverage is in **research/live orchestration and shared
 
 **Lean lesson:** Parameter search should be a built-in workflow, not ad-hoc notebook loops.
 
+**Status in this repo:** Implemented with grid/random search, deterministic seeding, persisted trial registry, leaderboard artifacts, and best-run metadata.
+
 **Bring over:**
 - `optimize` command with:
   - search space declaration
@@ -118,6 +124,8 @@ Implication: the largest leverage is in **research/live orchestration and shared
 ### 3.5 Lightweight Object Store for Shared Artifacts
 
 **Lean lesson:** Research/backtest/live should share persisted objects through one abstraction.
+
+**Status in this repo:** Implemented with a filesystem-backed `ArtifactStore`. Remaining work is broader live reuse and any future non-filesystem backends.
 
 **Bring over:**
 - `ArtifactStore` interface over local filesystem first
@@ -487,9 +495,14 @@ The canonical test files are:
 
 ### 11.4 Run summary observability
 
-Every research and live CLI command emits a `RunSummary` block after completion.
-The block is a JSON object (with `--format json`) or a single line (with
-`--format text`) that always contains:
+`RunSummary` is the versioned observability payload for live-command output and
+shared schema regression coverage. Research plan-only commands emit a stable
+stage-outcome payload (`run_id`, `run_type`, `status`, `config_hash`,
+`manifest_path`), while materialized research commands still emit
+command-specific payloads.
+
+When a command serializes `RunSummary`, the block is a JSON object (with
+`--format json`) or a single line (with `--format text`) that always contains:
 
 ```
 run_id, run_type, status, config_hash, git_commit,
@@ -497,8 +510,8 @@ started_at_utc, completed_at_utc, artifact_keys, extra
 ```
 
 The `extra` dict carries stage-specific fields (e.g. `strategy_id`,
-`trade_count`).  Consumers should not rely on `extra` being stable across
-versions — only top-level `RunSummary` fields are subject to the versioning
+`trade_count`). Consumers should not rely on `extra` being stable across
+versions; only top-level `RunSummary` fields are subject to the versioning
 policy above.
 
 ---

@@ -14,9 +14,9 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field
 
 import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
-from alpha_core.research.artifact_store import ArtifactNotFoundError, FilesystemArtifactStore
 
 MetricsProfile = Literal["default", "pm_core", "microstructure", "minimal"]
 
@@ -49,10 +49,14 @@ class EvaluateRunner:
     def __init__(
         self,
         storage_root: Path,
-        store: FilesystemArtifactStore | None = None,
+        store: artifact_store_mod.FilesystemArtifactStore | None = None,
     ) -> None:
         self._storage_root = storage_root
-        self._store = store if store is not None else FilesystemArtifactStore(storage_root)
+        self._store = (
+            store
+            if store is not None
+            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+        )
 
     def build(
         self,
@@ -65,7 +69,7 @@ class EvaluateRunner:
         try:
             trades_path = self._store.path_for(backtest_run_id, "trades.parquet")
             equity_path = self._store.path_for(backtest_run_id, "equity.parquet")
-        except ArtifactNotFoundError as exc:
+        except artifact_store_mod.ArtifactNotFoundError as exc:
             raise EvaluateRunError(
                 f"Backtest artifact not found for run '{backtest_run_id}': {exc}. "
                 "Ensure the backtest run completed successfully."

@@ -21,7 +21,6 @@ import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import apps.research.commands.common as cmd_common
-import apps.research.runtime as research_runtime
 
 
 class ReportError(RuntimeError):
@@ -70,7 +69,6 @@ def report_command(
             --execute
     """
     resolved_root = cmd_common.resolve_storage_root(ctx, storage_root)
-    fmt = cmd_common.get_output_format(ctx)
     payload = cmd_common.build_run_payload(
         ctx,
         {
@@ -80,18 +78,14 @@ def report_command(
     )
 
     if not execute:
-        cmd_common.emit_outcome(
-            research_runtime.run_stage(
-                run_type="report",
-                payload=payload,
-                storage_root=resolved_root,
-                execute=False,
-                parent_run_id=evaluation_run_id,
-            ),
-            fmt,
+        cmd_common.emit_planned_outcome(
+            ctx,
+            run_type="report",
+            payload=payload,
         )
         return
 
+    fmt = cmd_common.get_output_format(ctx)
     try:
         report_payload = _build_report(resolved_root, evaluation_run_id)
     except ReportError as exc:
@@ -180,7 +174,17 @@ def _build_report(
                 "'metrics_json' artifact. "
                 "Re-run the evaluate command."
             )
-        metrics_json_path = Path(run_manifest.artifacts["metrics_json"])
+        resolved_metrics_path = artifact_paths.resolve_registered_artifact_path(
+            storage_root,
+            evaluation_run_id,
+            run_manifest.artifacts["metrics_json"],
+        )
+        if resolved_metrics_path is None:
+            raise ReportError(
+                f"Evaluation run '{evaluation_run_id}' manifest references an invalid "
+                "or out-of-root metrics_json artifact."
+            )
+        metrics_json_path = resolved_metrics_path
 
     if not metrics_json_path.exists():
         raise ReportError(

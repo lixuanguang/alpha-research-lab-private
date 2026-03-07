@@ -24,7 +24,6 @@ import alpha_core.research.universe as universe_mod
 import alpha_core.storage.parquet_reader as parquet_reader_mod
 import alpha_core.utils.time as time_utils
 import apps.research.commands.common as cmd_common
-import apps.research.runtime as research_runtime
 
 # Conventional path for the persisted instrument master within a storage root.
 _INSTRUMENTS_PARQUET = "instruments.parquet"
@@ -161,22 +160,17 @@ def build_dataset_command(
         raise click.ClickException(str(exc)) from exc
 
     resolved_root = cmd_common.resolve_storage_root(ctx, storage_root)
-    fmt = cmd_common.get_output_format(ctx)
     payload = cmd_common.build_run_payload(ctx, config.model_dump(mode="json"))
 
     if not execute:
-        cmd_common.emit_outcome(
-            research_runtime.run_stage(
-                run_type="dataset_build",
-                payload=payload,
-                storage_root=resolved_root,
-                execute=False,
-                parent_run_id=parent_run_id,
-            ),
-            fmt,
+        cmd_common.emit_planned_outcome(
+            ctx,
+            run_type="dataset_build",
+            payload=payload,
         )
         return
 
+    fmt = cmd_common.get_output_format(ctx)
     try:
         builder = make_dataset_builder(resolved_root)
         manifest = builder.build(
@@ -229,6 +223,5 @@ def _parse_utc_dt(value: str) -> datetime:
             f"Invalid datetime '{value}' — expected ISO 8601 (e.g. 2026-01-01T00:00:00Z)."
         ) from exc
     return time_utils.ensure_utc(parsed)
-
 
 __all__ = ["build_dataset_command", "make_dataset_builder"]

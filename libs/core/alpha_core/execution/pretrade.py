@@ -33,18 +33,13 @@ Public API::
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from collections.abc import Sequence
 from decimal import Decimal
-from typing import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
+import alpha_core.execution.order_models as order_models_mod
 import alpha_core.strategy_framework.models as strategy_models
-from alpha_core.execution.order_models import (
-    OrderLifecycleStatus,
-    RejectReasonCode,
-    ValidatedOrder,
-)
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +88,7 @@ class PreTradeConfig(BaseModel):
     max_notional_per_order: Decimal = Field(
         default=_DEFAULT_MAX_NOTIONAL,
         gt=Decimal("0"),
-        description="Maximum implied notional (size × price_limit) in dollars.",
+        description="Maximum implied notional (size x price_limit) in dollars.",
     )
     allowed_instruments: frozenset[str] | None = Field(
         default=None,
@@ -144,7 +139,7 @@ class PreTradeValidator:
         intent: strategy_models.OrderIntent,
         *,
         state: strategy_models.MarketState | None = None,
-    ) -> ValidatedOrder:
+    ) -> order_models_mod.ValidatedOrder:
         """Validate a single :class:`~alpha_core.strategy_framework.models.OrderIntent`.
 
         Args:
@@ -166,17 +161,17 @@ class PreTradeValidator:
                 code,
                 detail,
             )
-            return ValidatedOrder(
+            return order_models_mod.ValidatedOrder(
                 intent=intent,
-                status=OrderLifecycleStatus.REJECTED,
+                status=order_models_mod.OrderLifecycleStatus.REJECTED,
                 reject_reason_code=code,
                 reject_reason_detail=detail,
             )
 
         log.debug("pre-trade accept instrument=%s", intent.instrument_id)
-        return ValidatedOrder(
+        return order_models_mod.ValidatedOrder(
             intent=intent,
-            status=OrderLifecycleStatus.VALIDATED,
+            status=order_models_mod.OrderLifecycleStatus.VALIDATED,
         )
 
     def validate_batch(
@@ -184,7 +179,7 @@ class PreTradeValidator:
         intents: Sequence[strategy_models.OrderIntent],
         *,
         state: strategy_models.MarketState | None = None,
-    ) -> list[ValidatedOrder]:
+    ) -> list[order_models_mod.ValidatedOrder]:
         """Validate a batch of intents and return one result per intent.
 
         Processing is sequential; no intent is skipped even if earlier ones fail.
@@ -198,19 +193,17 @@ class PreTradeValidator:
     def _run_checks(
         self,
         intent: strategy_models.OrderIntent,
-    ) -> tuple[RejectReasonCode | None, str | None]:
+    ) -> tuple[order_models_mod.RejectReasonCode | None, str | None]:
         """Return ``(reason_code, detail)`` for the first failing check, or
         ``(None, None)`` if all checks pass."""
 
-        cfg = self._config
-
         # 1. Instrument allow-list
         if (
-            cfg.allowed_instruments is not None
-            and intent.instrument_id not in cfg.allowed_instruments
+            self._config.allowed_instruments is not None
+            and intent.instrument_id not in self._config.allowed_instruments
         ):
             return (
-                RejectReasonCode.INSTRUMENT_NOT_ALLOWED,
+                order_models_mod.RejectReasonCode.INSTRUMENT_NOT_ALLOWED,
                 f"instrument_id={intent.instrument_id!r} not in allowed_instruments",
             )
 
@@ -221,11 +214,11 @@ class PreTradeValidator:
 
         # 2. MARKET order policy
         if (
-            not cfg.allow_market_orders
+            not self._config.allow_market_orders
             and intent.order_type == strategy_models.OrderType.MARKET
         ):
             return (
-                RejectReasonCode.MARKET_ORDER_NOT_ALLOWED,
+                order_models_mod.RejectReasonCode.MARKET_ORDER_NOT_ALLOWED,
                 "MARKET orders are disabled by pre-trade config (allow_market_orders=False)",
             )
 
@@ -235,38 +228,44 @@ class PreTradeValidator:
             and intent.price_limit is None
         ):
             return (
-                RejectReasonCode.LIMIT_ORDER_NO_PRICE,
+                order_models_mod.RejectReasonCode.LIMIT_ORDER_NO_PRICE,
                 "LIMIT order must have price_limit set",
             )
 
         # 4. price_limit range check (only when price is present)
         if intent.price_limit is not None:
-            if intent.price_limit < cfg.min_price or intent.price_limit > cfg.max_price:
+            if (
+                intent.price_limit < self._config.min_price
+                or intent.price_limit > self._config.max_price
+            ):
                 return (
-                    RejectReasonCode.PRICE_OUT_OF_RANGE,
+                    order_models_mod.RejectReasonCode.PRICE_OUT_OF_RANGE,
                     (
                         f"price_limit={intent.price_limit} outside "
-                        f"[{cfg.min_price}, {cfg.max_price}]"
+                        f"[{self._config.min_price}, {self._config.max_price}]"
                     ),
                 )
 
         # 5. Size cap
-        if intent.size > cfg.max_size_per_order:
+        if intent.size > self._config.max_size_per_order:
             return (
-                RejectReasonCode.SIZE_TOO_LARGE,
-                f"size={intent.size} exceeds max_size_per_order={cfg.max_size_per_order}",
+                order_models_mod.RejectReasonCode.SIZE_TOO_LARGE,
+                (
+                    f"size={intent.size} exceeds "
+                    f"max_size_per_order={self._config.max_size_per_order}"
+                ),
             )
 
         # 6. Notional cap (only for LIMIT orders where price is known)
         if intent.price_limit is not None:
             notional = intent.size * intent.price_limit
-            if notional > cfg.max_notional_per_order:
+            if notional > self._config.max_notional_per_order:
                 return (
-                    RejectReasonCode.NOTIONAL_TOO_LARGE,
+                    order_models_mod.RejectReasonCode.NOTIONAL_TOO_LARGE,
                     (
-                        f"notional={notional} (size={intent.size} × "
+                        f"notional={notional} (size={intent.size} x "
                         f"price={intent.price_limit}) exceeds "
-                        f"max_notional_per_order={cfg.max_notional_per_order}"
+                        f"max_notional_per_order={self._config.max_notional_per_order}"
                     ),
                 )
 

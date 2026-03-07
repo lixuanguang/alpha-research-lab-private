@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from apps.live_system.order_router import OrderRouter
 
 import alpha_core.strategy_framework.models as strategy_models
 from alpha_core.execution.order_models import (
@@ -24,7 +25,6 @@ from alpha_core.execution.order_models import (
 )
 from alpha_core.execution.pretrade import PreTradeConfig, PreTradeValidator
 from alpha_core.execution.simulator import FillConfig, FillSimulator
-from apps.live_system.order_router import OrderRouter, RoutingRecord, RoutingResult
 
 # ---------------------------------------------------------------------------
 # Helpers

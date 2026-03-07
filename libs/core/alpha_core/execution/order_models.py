@@ -32,7 +32,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import alpha_core.strategy_framework.models as strategy_models
 
-
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------

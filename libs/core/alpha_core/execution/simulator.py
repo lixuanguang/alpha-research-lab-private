@@ -28,16 +28,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+import alpha_core.execution.order_models as order_models_mod
 import alpha_core.strategy_framework.models as strategy_models
-from alpha_core.execution.order_models import (
-    ExecutionReport,
-    OrderLifecycleStatus,
-    ValidatedOrder,
-)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -65,7 +61,7 @@ class FillConfig(BaseModel):
         default=Decimal("2"),
         ge=_ZERO,
         description=(
-            "Basis points of fee applied to gross notional (size × fill_price).  "
+            "Basis points of fee applied to gross notional (size x fill_price).  "
             "1 bps = 0.01%."
         ),
     )
@@ -108,12 +104,12 @@ class FillSimulator:
 
     def simulate(
         self,
-        validated_order: ValidatedOrder,
+        validated_order: order_models_mod.ValidatedOrder,
         *,
         market_price: Decimal | None = None,
         order_id: str | None = None,
         fill_ts: datetime | None = None,
-    ) -> ExecutionReport:
+    ) -> order_models_mod.ExecutionReport:
         """Simulate order execution and return an :class:`ExecutionReport`.
 
         Args:
@@ -137,10 +133,10 @@ class FillSimulator:
 
         # Rejected intents short-circuit — report them as CANCELLED
         if not validated_order.is_valid:
-            return ExecutionReport(
+            return order_models_mod.ExecutionReport(
                 order_id=oid,
                 instrument_id=intent.instrument_id,
-                status=OrderLifecycleStatus.CANCELLED,
+                status=order_models_mod.OrderLifecycleStatus.CANCELLED,
                 fill_ts=ts,
                 notes=(
                     f"pre-trade rejected: {validated_order.reject_reason_code} — "
@@ -159,12 +155,11 @@ class FillSimulator:
         fill_price = max(_ZERO, min(_ONE, fill_price)).quantize(_PRICE_PREC)
 
         # Fill size (respects partial-fill ratio)
-        requested_size = intent.size
-        fill_size = (requested_size * self._config.fill_ratio).quantize(
+        fill_size = (intent.size * self._config.fill_ratio).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
 
-        # Fee = bps × notional
+        # Fee = bps x notional
         notional = fill_size * fill_price
         fee = (notional * self._config.fee_bps / self._BPS).quantize(
             _PRICE_PREC, rounding=ROUND_HALF_UP
@@ -175,12 +170,12 @@ class FillSimulator:
 
         # Determine terminal status
         status = (
-            OrderLifecycleStatus.FILLED
+            order_models_mod.OrderLifecycleStatus.FILLED
             if self._config.fill_ratio >= _ONE
-            else OrderLifecycleStatus.PARTIAL_FILL
+            else order_models_mod.OrderLifecycleStatus.PARTIAL_FILL
         )
 
-        return ExecutionReport(
+        return order_models_mod.ExecutionReport(
             order_id=oid,
             instrument_id=intent.instrument_id,
             status=status,

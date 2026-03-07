@@ -20,9 +20,9 @@ live       Production trading.  Execution and real-money both enabled;
 
 Usage::
 
-    from alpha_core.config.profiles import ProfileName, get_profile
+    import alpha_core.config.profiles as config_profiles
 
-    profile = get_profile(ProfileName.RESEARCH)
+    profile = config_profiles.get_profile(config_profiles.ProfileName.RESEARCH)
     assert not profile.execution_enabled   # safely True by contract
 """
 

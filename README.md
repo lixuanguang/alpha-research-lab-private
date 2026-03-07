@@ -12,7 +12,7 @@
 |---|---|---|---|
 | **Foundation** | **Complete (F1-F6 closed; all validated baseline work folded into implementation steps)** | Covered by repo-wide quality gates | [Foundation Plan](docs/implementation/foundation-stage.md) |
 | **Data Plane MVP** | **Complete (D1-D6 closed; section 11 integrated)** | Covered by repo-wide quality gates | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
-| **Research Plane MVP** (R1–R6) | **In Progress (R1 delivered; LA-006 through LA-008 landed feature/backtest/evaluate/report scaffolds and end-to-end coverage; artifact store, optimize, PM-native execution, and hardening remain open)** | Covered by repo-wide quality gates | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
+| **Research Plane MVP** (R1–R6) | **In Progress (dataset/feature/backtest/evaluate/report/artifact-store/optimize workflows are landed; richer PM-native execution, vectorized parity, and evaluation hardening remain open)** | Covered by repo-wide quality gates | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
 | Live Plane MVP | Planned | — | — |
 | Observability Baseline | Planned | — | — |
 | Robustness Hardening | Planned | — | — |
@@ -20,7 +20,7 @@
 **Quality gates (as of March 7, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/ apps/ --strict` — 0 errors
-- `pytest tests/` — 973 passed, 10 skipped in ~7.8s
+- `pytest tests/ -q` — 1237 passed, 10 skipped in ~9.9s
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:
@@ -120,9 +120,11 @@ Completed follow-on contracts are folded into the relevant stage plans below. Se
 ### Active Delivery Order (Recommended)
 
 1. Harden the current research CLI scaffold and implement `ArtifactStore` + `optimize` (LA-009, LA-010).
-2. Add macro ingestion via OpenBB hybrid path (M0-M2 below).
-3. Replace the current backtest scaffold with richer PM-native execution and resolution handling (B0-B4 below).
-4. Promote only validated pieces into Live Plane MVP.
+2. Add CI smoke coverage for the research CLI pipeline (LA-015).
+3. Add macro ingestion via OpenBB hybrid path (M0-M2 below).
+4. Replace the current backtest scaffold with richer PM-native execution and resolution handling (B0-B4 below).
+5. Add research-session / experiment-catalog governance (LA-016 through LA-018).
+6. Promote only validated pieces into Live Plane MVP.
 
 ## Macro Data Ingestion Plan (OpenBB Hybrid)
 

@@ -117,9 +117,36 @@ def read_artifacts_index(storage_root: Path, run_id: str) -> dict[str, str]:
     return dict(json.loads(path.read_text(encoding="utf-8")))
 
 
+def resolve_registered_artifact_path(
+    storage_root: Path,
+    run_id: str,
+    artifact_path_raw: str | None,
+) -> Path | None:
+    """Resolve a manifest-registered artifact path if it stays within the run root.
+
+    Returns ``None`` when the path is missing, does not exist, or escapes the
+    canonical ``runs/{run_id}`` directory after path resolution.
+    """
+    if artifact_path_raw is None:
+        return None
+
+    candidate = Path(artifact_path_raw)
+    if not candidate.exists():
+        return None
+
+    allowed_root = run_root(storage_root, run_id).resolve()
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(allowed_root)
+    except (OSError, ValueError):
+        return None
+    return resolved
+
+
 __all__ = [
     "artifact_key_path",
     "read_artifacts_index",
+    "resolve_registered_artifact_path",
     "run_artifacts_path",
     "run_config_path",
     "run_manifest_path",

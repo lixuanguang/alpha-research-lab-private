@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from apps.live_system.runtime import RuntimeMetrics
 
 from alpha_core.execution.order_models import (
     ExecutionReport,
@@ -29,7 +30,6 @@ from alpha_core.execution.order_models import (
 )
 from alpha_core.research.run_context import RunContext
 from alpha_core.research.run_summary import RunSummary
-from apps.live_system.runtime import RuntimeMetrics
 
 # ---------------------------------------------------------------------------
 # Pinned key sets — edit deliberately, document why
@@ -205,7 +205,10 @@ class TestEvaluateMetricsSchema:
     def _run_metrics(self, profile: str) -> dict[str, float]:
         """Run the evaluate metrics computation with empty (but valid) dataframes."""
         import pandas as pd
-        from alpha_core.research.evaluate_runner import _compute_metrics  # type: ignore[attr-defined]
+
+        from alpha_core.research.evaluate_runner import (
+            _compute_metrics,  # type: ignore[attr-defined]
+        )
 
         trades_df = pd.DataFrame(columns=["realized_pnl"])
         equity_df = pd.DataFrame(columns=["ts_event", "equity"])

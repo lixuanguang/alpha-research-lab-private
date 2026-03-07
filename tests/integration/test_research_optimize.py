@@ -18,13 +18,14 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import apps.research.main as research_main
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
 
 import alpha_core.research.artifact_paths as artifact_paths
-import apps.research.main as research_main
+import alpha_core.research.manifest as manifest_mod
 from alpha_core.research.optimize_runner import (
     OptimizeConfig,
     OptimizeRunner,
@@ -383,6 +384,23 @@ class TestOptimizeExecute:
         )
         assert result.exit_code != 0
 
+    def test_missing_feature_artifact_exits_nonzero(self, tmp_path: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            research_main.main,
+            [
+                "optimize",
+                "--dataset-id", _DATASET_ID,
+                "--strategy-id", _STRATEGY_ID,
+                "--feature-run-id", "missing_feature_run",
+                "--threshold", "1.5",
+                "--storage-root", str(tmp_path),
+                "--execute",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "Feature artifact not found" in result.output
+
 
 # ---------------------------------------------------------------------------
 # Trial registry content
@@ -470,6 +488,54 @@ class TestTrialRegistryContent:
         for key in ("best_backtest_run_id", "best_params", "best_objective_value", "trial_index"):
             assert key in best, f"missing key: {key}"
 
+    def test_optimize_manifest_parents_feature_run(self, storage_with_features: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            research_main.main,
+            [
+                "optimize",
+                "--dataset-id", _DATASET_ID,
+                "--strategy-id", _STRATEGY_ID,
+                "--feature-run-id", _FEATURE_RUN_ID,
+                "--threshold", "1.5",
+                "--storage-root", str(storage_with_features),
+                "--execute",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+        manifests = [
+            manifest_mod.read_run_manifest(path)
+            for path in storage_with_features.rglob("manifest.json")
+        ]
+        optimize_manifest = next(m for m in manifests if m.run.run_type == "optimize")
+        assert optimize_manifest.parent_run_id == _FEATURE_RUN_ID
+
+    def test_trial_evaluations_parent_backtest_runs(self, storage_with_features: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            research_main.main,
+            [
+                "optimize",
+                "--dataset-id", _DATASET_ID,
+                "--strategy-id", _STRATEGY_ID,
+                "--feature-run-id", _FEATURE_RUN_ID,
+                "--threshold", "1.0", "--threshold", "1.5",
+                "--storage-root", str(storage_with_features),
+                "--execute",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+        manifests = [
+            manifest_mod.read_run_manifest(path)
+            for path in storage_with_features.rglob("manifest.json")
+        ]
+        evaluate_manifests = [m for m in manifests if m.run.run_type == "evaluate"]
+        assert evaluate_manifests
+        for manifest in evaluate_manifests:
+            assert manifest.parent_run_id == manifest.artifacts["backtest_run_id"]
+
 
 # ---------------------------------------------------------------------------
 # Deterministic seed — same config twice yields identical leaderboard order
@@ -488,14 +554,13 @@ class TestDeterministicSeed:
             seed=seed,
         )
         runner = OptimizeRunner(storage_root)
-        manifest = runner.run(config, feature_run_id=_FEATURE_RUN_ID)
+        runner.run(config, feature_run_id=_FEATURE_RUN_ID)
         lb_path = next(storage_root.rglob("leaderboard.json"))
         leaderboard = json.loads(lb_path.read_text())
         return [entry["backtest_run_id"] for entry in leaderboard]
 
     def test_same_seed_same_trial_order(self) -> None:
         """Two independent runs with the same seed expand the parameter space identically."""
-        import tempfile
 
         config = OptimizeConfig(
             dataset_id=_DATASET_ID,

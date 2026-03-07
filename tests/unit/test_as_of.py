@@ -136,6 +136,19 @@ class TestAlignToGrid:
         ts_records = result["trades"].column("ts_record").to_pylist()
         assert all(t <= _T2 for t in ts_records), f"Look-ahead leaked: {ts_records}"
 
+    def test_latest_row_per_instrument_retained_per_grid_point(self) -> None:
+        table = self._trade_table([(_T1, _T1, "x"), (_T2, _T2, "x")])
+        result = as_of_mod.align_to_grid(
+            {"trades": table},
+            spec=as_of_mod.GridAlignmentSpec(
+                frequency="1h",
+                start=_T2,
+                end=_T2,
+            ),
+        )
+        ts_events = result["trades"].column("ts_event").to_pylist()
+        assert ts_events == [_T2]
+
     def test_empty_table_passthrough(self) -> None:
         empty = pa.table(
             {
@@ -152,6 +165,7 @@ class TestAlignToGrid:
             ),
         )
         assert result["trades"].num_rows == 0
+        assert "grid_ts" in result["trades"].schema.names
 
     def test_multiple_tables_aligned(self) -> None:
         trade_table = self._trade_table([(_T1, _T1, "a")])

@@ -9,7 +9,9 @@ import apps.live_system.main as live_main
 import apps.research.main as research_main
 import click.testing
 
+import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
+import alpha_core.research.run_context as run_context_mod
 
 
 def test_research_cli_help_lists_stage_commands() -> None:
@@ -48,7 +50,7 @@ def test_research_build_dataset_plan_only_emits_run_summary(tmp_path: Path) -> N
     assert "status=planned" in result.output
 
 
-def test_research_optimize_execute_writes_manifest(tmp_path: Path) -> None:
+def test_research_optimize_execute_with_missing_feature_run_fails(tmp_path: Path) -> None:
     runner = click.testing.CliRunner()
     result = runner.invoke(
         research_main.main,
@@ -70,14 +72,11 @@ def test_research_optimize_execute_writes_manifest(tmp_path: Path) -> None:
         ],
     )
 
-    assert result.exit_code == 0, result.output
-    assert "run_type=optimize" in result.output
-    assert "status=materialized" in result.output
+    assert result.exit_code != 0
+    assert "Feature artifact not found" in result.output
 
 
 def test_research_report_execute_writes_report_manifest(tmp_path: Path) -> None:
-    import alpha_core.research.artifact_paths as artifact_paths
-
     # Pre-populate the metrics.json artifact that the report command requires.
     eval_run_id = "eval_run_a"
     metrics_path = artifact_paths.artifact_key_path(tmp_path, eval_run_id, "metrics.json")
@@ -114,6 +113,46 @@ def test_research_report_execute_writes_report_manifest(tmp_path: Path) -> None:
     manifest = manifest_mod.read_run_manifest(manifest_path)
     assert manifest.run.run_type == "report"
     assert manifest.parent_run_id == eval_run_id
+
+
+def test_research_report_rejects_metrics_path_outside_run_root(tmp_path: Path) -> None:
+    eval_run_context = run_context_mod.close_run_context(
+        run_context_mod.make_run_context("evaluate", config_payload={"kind": "unit_test"})
+    )
+    eval_run_id = eval_run_context.run_id
+    rogue_metrics_path = tmp_path / "rogue_metrics.json"
+    rogue_metrics_path.write_text(
+        json.dumps(
+            {
+                "metrics_profile": "pm_core",
+                "metrics": {"total_return": 0.05, "trade_count": 10.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest_mod.write_run_manifest(
+        artifact_paths.run_manifest_path(tmp_path, eval_run_id),
+        manifest_mod.RunManifest(
+            run=eval_run_context,
+            artifacts={"metrics_json": str(rogue_metrics_path)},
+        ),
+    )
+
+    runner = click.testing.CliRunner()
+    result = runner.invoke(
+        research_main.main,
+        [
+            "report",
+            "--evaluation-run-id",
+            eval_run_id,
+            "--storage-root",
+            str(tmp_path),
+            "--execute",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "invalid" in result.output.lower()
 
 
 def test_live_cli_help_lists_runtime_commands() -> None:

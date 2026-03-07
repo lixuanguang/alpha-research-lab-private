@@ -15,8 +15,8 @@ should inject custom implementations via ``LiveRuntimeConfig``.
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -442,21 +442,16 @@ def _read_live_summary(
     storage_root: Path,
     run_id: str,
 ) -> tuple[int, int]:
-    if summary_path_raw is None:
-        return (0, 0)
-    summary_path = Path(summary_path_raw)
-    if not summary_path.exists():
-        return (0, 0)
-
-    allowed_root = artifact_paths.run_root(storage_root, run_id).resolve()
-    try:
-        resolved_summary_path = summary_path.resolve()
-        resolved_summary_path.relative_to(allowed_root)
-    except (OSError, ValueError):
+    summary_path = artifact_paths.resolve_registered_artifact_path(
+        storage_root,
+        run_id,
+        summary_path_raw,
+    )
+    if summary_path is None:
         return (0, 0)
 
     try:
-        payload = json.loads(resolved_summary_path.read_text(encoding="utf-8"))
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return (0, 0)
     if not isinstance(payload, dict):

@@ -15,15 +15,6 @@ import click
 
 import alpha_core.research.evaluate_runner as evaluate_runner_mod
 import apps.research.commands.common as cmd_common
-import apps.research.runtime as research_runtime
-
-
-def make_evaluate_runner(storage_root: Path) -> evaluate_runner_mod.EvaluateRunner:
-    """Construct an :class:`EvaluateRunner` wired to *storage_root*.
-
-    Callers in tests can monkeypatch this function.
-    """
-    return evaluate_runner_mod.EvaluateRunner(storage_root)
 
 
 @click.command("evaluate")
@@ -67,7 +58,6 @@ def evaluate_command(
             --execute
     """
     resolved_root = cmd_common.resolve_storage_root(ctx, storage_root)
-    fmt = cmd_common.get_output_format(ctx)
     payload = cmd_common.build_run_payload(
         ctx,
         {
@@ -77,20 +67,16 @@ def evaluate_command(
     )
 
     if not execute:
-        cmd_common.emit_outcome(
-            research_runtime.run_stage(
-                run_type="evaluate",
-                payload=payload,
-                storage_root=resolved_root,
-                execute=False,
-                parent_run_id=backtest_run_id,
-            ),
-            fmt,
+        cmd_common.emit_planned_outcome(
+            ctx,
+            run_type="evaluate",
+            payload=payload,
         )
         return
 
+    fmt = cmd_common.get_output_format(ctx)
     try:
-        runner = make_evaluate_runner(resolved_root)
+        runner = evaluate_runner_mod.EvaluateRunner(resolved_root)
         manifest = runner.build(
             backtest_run_id,
             metrics_profile=cast(evaluate_runner_mod.MetricsProfile, metrics_profile),
@@ -123,5 +109,4 @@ def evaluate_command(
     for key, value in manifest.metrics.items():
         click.echo(f"  {key}={value}")
 
-
-__all__ = ["evaluate_command", "make_evaluate_runner"]
+__all__ = ["evaluate_command"]

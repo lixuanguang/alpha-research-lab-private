@@ -1,13 +1,13 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 973 passed, 10 skipped; quality gates green)
+> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 1237 passed, 10 skipped; quality gates green)
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Lean adoption alignment (March 7, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
-> **Implementation status (March 7, 2026):** R1 is delivered; LA-006 through LA-008 added feature-build, backtest, evaluate, and report scaffolds plus end-to-end CLI coverage. Artifact store, optimize, richer PM-native execution, and production evaluation hardening remain open.
-> **Current quality gate snapshot (validated March 7, 2026):** `ruff check .` (pass), `mypy libs/ apps/ --strict` (pass), `pytest tests/ -v` (`973 passed, 10 skipped`).
+> **Implementation status (March 7, 2026):** Dataset/feature/backtest/evaluate/report workflows are delivered, and LA-009 through LA-010 added the filesystem `ArtifactStore` and first-class optimize workflow. Richer PM-native execution, vectorized parity, and deeper PM-specific evaluation hardening remain open.
+> **Current quality gate snapshot (validated March 7, 2026):** `ruff check .` (pass), `mypy libs/ apps/ --strict` (pass), `pytest tests/ -q` (`1237 passed, 10 skipped`).
 
 ---
 
@@ -398,12 +398,13 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 
 #### R4 — Vectorized Backtester & Parameter Sweep
 
-- [ ] Vectorized fast path — deferred to LA-010 / later iteration
-- [ ] `BacktestSweep` / grid+random search — deferred to LA-010
+- [ ] Vectorized fast path — deferred to later iteration
+- [x] `alpha_core.research.optimize_runner` — first-class grid/random search with persisted trial registry and leaderboard (`libs/core/alpha_core/research/optimize_runner.py`)
+- [x] CLI: `optimize` command (`apps/research/commands/optimize.py`)
 
 #### R5 — Evaluation Metrics & Reporting
 
-- [x] `alpha_core.research.evaluate_runner` — `EvaluateManifest`, `EvaluateRunner.build()`, `pm_core` / `minimal` / `microstructure` metric profiles (`libs/core/alpha_core/research/evaluate_runner.py`)
+- [x] `alpha_core.research.evaluate_runner` — `EvaluateManifest`, `EvaluateRunner.build()`, and named metrics profiles; current `pm_core` coverage is financial/trade-core, with deeper PM-native metrics deferred (`libs/core/alpha_core/research/evaluate_runner.py`)
 - [x] CLI: `evaluate` command (`apps/research/commands/evaluate.py`)
 - [x] CLI: `report` command — JSON and Markdown rendering (`apps/research/commands/report.py`)
 - [ ] Brier score, log-loss, calibration curves — deferred to later iteration
@@ -411,11 +412,11 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 
 #### R6 — Research CLI & Integration Wiring
 
-- [x] `apps/research/main.py` — full command group: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize` (stub) (`apps/research/main.py`)
+- [x] `apps/research/main.py` — full command group: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize` (`apps/research/main.py`)
 - [x] `apps/research/commands/common.py` — shared options, output format, run payload helpers
 - [x] `apps/research/runtime.py` — `ResearchStageRequest`, `run_stage` for plan-only mode
 - [x] E2E pipeline integration test — full chain `build-features → backtest → evaluate` with artifact + schema assertions (`tests/integration/test_research_pipeline_e2e.py`)
-- [ ] CLI: `optimize` command (wired stub; full implementation deferred to LA-010)
+- [x] CLI: `optimize` command with trial registry + leaderboard persistence (`apps/research/commands/optimize.py`)
 - [ ] CI smoke pipeline — deferred to LA-015
 - [ ] Example strategies (`probability_momentum`, `cross_venue_arb`, `mean_reversion`) — deferred to later iteration
 
@@ -1158,7 +1159,7 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 **Embedded cross-stage contract work for this step (LA-014 prep):**
 
 - Version report schemas explicitly and add compatibility notes in each report artifact.
-- Emit a standard run summary block shared by `evaluate`, `report`, and future live commands.
+- Keep `RunSummary` versioned for live output/schema regression coverage, and keep research CLI outputs aligned on core traceability fields.
 - Capture run lineage links (`parent_run_id`, source dataset/feature run IDs) in evaluation artifacts.
 
 **Actions:**

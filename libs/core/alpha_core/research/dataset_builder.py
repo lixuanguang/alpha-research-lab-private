@@ -12,6 +12,7 @@ import pyarrow.compute as pc  # type: ignore[import-untyped]
 
 import alpha_core.quality.gap_detector as gap_mod
 import alpha_core.quality.partition_validator as pv_mod
+import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.as_of as as_of_mod
 import alpha_core.research.dataset as dataset_mod
 import alpha_core.research.dataset_builder_io as dataset_builder_io
@@ -21,7 +22,6 @@ import alpha_core.research.universe as universe_mod
 import alpha_core.storage.conventions as storage_conventions
 import alpha_core.storage.parquet_reader as parquet_reader_mod
 import alpha_core.utils.time as time_utils
-from alpha_core.research.artifact_store import FilesystemArtifactStore
 
 
 class DatasetBuildError(RuntimeError):
@@ -49,7 +49,7 @@ class DatasetBuilder:
         quality_validator: pv_mod.PartitionValidator,
         gap_detector: gap_mod.GapDetector,
         storage_root: Path,
-        store: FilesystemArtifactStore | None = None,
+        store: artifact_store_mod.FilesystemArtifactStore | None = None,
     ) -> None:
         self._reader = reader
         self._universe_mgr = universe_mgr
@@ -60,7 +60,11 @@ class DatasetBuilder:
         # Note: dataset archives are written to gold/datasets/{dataset_id}/ via
         # dataset_builder_io (backward-compatible location). The store manages
         # run-scoped stage_outputs/ artifacts (manifests, configs, indexes).
-        self._store = store if store is not None else FilesystemArtifactStore(storage_root)
+        self._store = (
+            store
+            if store is not None
+            else artifact_store_mod.FilesystemArtifactStore(storage_root)
+        )
 
     # ------------------------------------------------------------------
     # Primary API
