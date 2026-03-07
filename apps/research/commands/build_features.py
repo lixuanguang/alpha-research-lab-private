@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import click
 from pydantic import ValidationError
@@ -99,16 +98,16 @@ def build_features_command(
     payload = cmd_common.build_run_payload(ctx, config.model_dump(mode="json"))
 
     if not execute:
-        outcome = research_runtime.run_stage(
-            research_runtime.ResearchStageRequest(
+        cmd_common.emit_outcome(
+            research_runtime.run_stage(
                 run_type="feature_build",
                 payload=payload,
                 storage_root=resolved_root,
                 execute=False,
                 parent_run_id=parent_run_id,
-            )
+            ),
+            fmt,
         )
-        cmd_common.emit_outcome(outcome, fmt)
         return
 
     try:
@@ -117,42 +116,33 @@ def build_features_command(
     except feature_runner_mod.FeatureRunError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    _emit_manifest_outcome(manifest, fmt)
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
-def _emit_manifest_outcome(
-    manifest: feature_runner_mod.FeatureManifest,
-    fmt: cmd_common.OutputFormat,
-) -> None:
-    """Print a feature build outcome summary to stdout."""
     if fmt == "json":
-        data: dict[str, Any] = {
-            "run_type": "feature_build",
-            "status": "materialized",
-            "run_id": manifest.run_id,
-            "dataset_id": manifest.dataset_id,
-            "feature_set_version": manifest.feature_set_version,
-            "built_at": manifest.built_at.isoformat(),
-            "row_count": manifest.row_count,
-            "feature_count": manifest.feature_count,
-            "feature_names": manifest.feature_names,
-        }
-        click.echo(json.dumps(data, indent=2))
-    else:
         click.echo(
-            f"run_type=feature_build  status=materialized  "
-            f"run_id={manifest.run_id}  feature_set_version={manifest.feature_set_version}"
+            json.dumps(
+                {
+                    "run_type": "feature_build",
+                    "status": "materialized",
+                    "run_id": manifest.run_id,
+                    "dataset_id": manifest.dataset_id,
+                    "feature_set_version": manifest.feature_set_version,
+                    "built_at": manifest.built_at.isoformat(),
+                    "row_count": manifest.row_count,
+                    "feature_count": manifest.feature_count,
+                    "feature_names": manifest.feature_names,
+                },
+                indent=2,
+            )
         )
-        click.echo(
-            f"dataset_id={manifest.dataset_id}  "
-            f"rows={manifest.row_count}  features={manifest.feature_count}  "
-            f"built_at={manifest.built_at.isoformat()}"
-        )
+        return
+    click.echo(
+        f"run_type=feature_build  status=materialized  "
+        f"run_id={manifest.run_id}  feature_set_version={manifest.feature_set_version}"
+    )
+    click.echo(
+        f"dataset_id={manifest.dataset_id}  "
+        f"rows={manifest.row_count}  features={manifest.feature_count}  "
+        f"built_at={manifest.built_at.isoformat()}"
+    )
 
 
 __all__ = ["build_features_command", "make_feature_runner"]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -61,28 +60,19 @@ class MarketMaster:
             market,
             earliest_first_seen=earliest_first_seen,
         )
-        self._upsert_market_history(canonical_market_id, version_market)
-        current_market = self._latest_market_version(canonical_market_id)
-
-        if existing_market is not None:
-            self._remove_current_indexes(canonical_market_id, existing_market)
-
-        self._store_current_market(canonical_market_id, current_market)
+        current_market = self._upsert_market_history(canonical_market_id, version_market)
+        self._replace_current_market(canonical_market_id, existing_market, current_market)
         return canonical_market_id
 
     def get_market(self, canonical_id: str) -> instrument_models.MarketSpec | None:
         """Get a market by canonical market id (`{venue}:{market_id}`)."""
         market = self._markets.get(canonical_id)
-        if market is None:
-            return None
-        return market.model_copy(deep=True)
+        return None if market is None else market.model_copy(deep=True)
 
     def get_outcome(self, canonical_id: str) -> instrument_models.OutcomeSpec | None:
         """Get an outcome by canonical outcome id (`{venue}:{market_id}:{outcome_id}`)."""
         outcome = self._outcomes.get(canonical_id)
-        if outcome is None:
-            return None
-        return outcome.model_copy(deep=True)
+        return None if outcome is None else outcome.model_copy(deep=True)
 
     def get_market_history(self, canonical_id: str) -> list[instrument_models.MarketSpec]:
         """Return all known point-in-time versions for one market, oldest first."""
@@ -139,12 +129,11 @@ class MarketMaster:
         Returns an empty list when the group id is unknown.
         """
         canonical_ids = self._markets_by_group.get(group_id, [])
-        markets: list[instrument_models.MarketSpec] = []
-        for canonical_id in canonical_ids:
-            market = self._markets.get(canonical_id)
-            if market is not None:
-                markets.append(market.model_copy(deep=True))
-        return markets
+        return [
+            market.model_copy(deep=True)
+            for canonical_id in canonical_ids
+            if (market := self._markets.get(canonical_id)) is not None
+        ]
 
     def search(
         self,
@@ -219,19 +208,18 @@ class MarketMaster:
         """Persist market history to Parquet."""
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        rows: list[dict[str, object]] = []
-        for canonical_id, versions in sorted(
-            self._market_history.items(),
-            key=lambda item: item[0],
-        ):
-            for market in versions:
-                rows.append(
-                    {
-                        "canonical_market_id": canonical_id,
-                        "version_ts": market.last_updated,
-                        "payload_json": market.model_dump_json(),
-                    }
-                )
+        rows = [
+            {
+                "canonical_market_id": canonical_id,
+                "version_ts": market.last_updated,
+                "payload_json": market.model_dump_json(),
+            }
+            for canonical_id, versions in sorted(
+                self._market_history.items(),
+                key=lambda item: item[0],
+            )
+            for market in versions
+        ]
 
         table = pa.Table.from_pylist(
             rows,
@@ -300,7 +288,7 @@ class MarketMaster:
         self,
         canonical_market_id: str,
         market: instrument_models.MarketSpec,
-    ) -> None:
+    ) -> instrument_models.MarketSpec:
         history = self._market_history.setdefault(canonical_market_id, [])
         for index, existing in enumerate(history):
             if existing.last_updated == market.last_updated:
@@ -317,38 +305,29 @@ class MarketMaster:
         ]
         history.sort(key=lambda item: item.last_updated)
         self._market_history[canonical_market_id] = history
-
-    def _latest_market_version(self, canonical_market_id: str) -> instrument_models.MarketSpec:
-        history = self._market_history.get(canonical_market_id)
-        if not history:
-            raise KeyError(f"Unknown market canonical id: {canonical_market_id}")
         return history[-1].model_copy(deep=True)
 
-    def _remove_current_indexes(
+    def _replace_current_market(
         self,
         canonical_market_id: str,
-        market: instrument_models.MarketSpec,
+        previous_market: instrument_models.MarketSpec | None,
+        current_market: instrument_models.MarketSpec,
     ) -> None:
-        for outcome in market.outcomes:
-            existing_canonical_id = symbology.make_canonical_outcome_id(
-                market.venue,
-                market.market_id,
-                outcome.outcome_id,
-            )
-            self._outcomes.pop(existing_canonical_id, None)
-        if market.outcome_group_id is not None:
-            _remove_from_group(self._markets_by_group, market.outcome_group_id, canonical_market_id)
+        if previous_market is not None:
+            for outcome in previous_market.outcomes:
+                self._outcomes.pop(outcome.canonical_id, None)
+            if previous_market.outcome_group_id is not None:
+                members = self._markets_by_group.get(previous_market.outcome_group_id)
+                if members is not None and canonical_market_id in members:
+                    members.remove(canonical_market_id)
+                    if not members:
+                        del self._markets_by_group[previous_market.outcome_group_id]
 
-    def _store_current_market(
-        self,
-        canonical_market_id: str,
-        market: instrument_models.MarketSpec,
-    ) -> None:
-        self._markets[canonical_market_id] = market
-        for outcome in market.outcomes:
+        self._markets[canonical_market_id] = current_market
+        for outcome in current_market.outcomes:
             self._outcomes[outcome.canonical_id] = outcome.model_copy(deep=True)
-        if market.outcome_group_id is not None:
-            group_members = self._markets_by_group.setdefault(market.outcome_group_id, [])
+        if current_market.outcome_group_id is not None:
+            group_members = self._markets_by_group.setdefault(current_market.outcome_group_id, [])
             if canonical_market_id not in group_members:
                 group_members.append(canonical_market_id)
                 group_members.sort()
@@ -363,19 +342,6 @@ def _matches_query(market: instrument_models.MarketSpec, query: str) -> bool:
     haystack_parts.extend(tag.lower() for tag in market.tags)
     haystack_parts.extend(outcome.label.lower() for outcome in market.outcomes)
     return query in " ".join(haystack_parts)
-
-
-def _remove_from_group(
-    index: dict[str, list[str]], group_id: str, canonical_market_id: str
-) -> None:
-    """Remove a canonical market id from a group index entry, pruning empty entries."""
-    members = index.get(group_id)
-    if members is None:
-        return
-    with contextlib.suppress(ValueError):
-        members.remove(canonical_market_id)
-    if not members:
-        del index[group_id]
 
 
 def _project_pre_snapshot_market(

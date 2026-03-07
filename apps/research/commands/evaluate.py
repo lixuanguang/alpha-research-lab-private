@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 import click
 
@@ -74,59 +74,51 @@ def evaluate_command(
     })
 
     if not execute:
-        outcome = research_runtime.run_stage(
-            research_runtime.ResearchStageRequest(
+        cmd_common.emit_outcome(
+            research_runtime.run_stage(
                 run_type="evaluate",
                 payload=payload,
                 storage_root=resolved_root,
                 execute=False,
                 parent_run_id=backtest_run_id,
-            )
+            ),
+            fmt,
         )
-        cmd_common.emit_outcome(outcome, fmt)
         return
 
     try:
         runner = make_evaluate_runner(resolved_root)
         manifest = runner.build(
             backtest_run_id,
-            metrics_profile=metrics_profile,  # type: ignore[arg-type]
+            metrics_profile=cast(evaluate_runner_mod.MetricsProfile, metrics_profile),
             config_payload=payload,
             parent_run_id=backtest_run_id,
         )
     except evaluate_runner_mod.EvaluateRunError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    _emit_manifest_outcome(manifest, fmt)
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
-def _emit_manifest_outcome(
-    manifest: evaluate_runner_mod.EvaluateManifest,
-    fmt: cmd_common.OutputFormat,
-) -> None:
     if fmt == "json":
-        data: dict[str, Any] = {
-            "run_type": "evaluate",
-            "status": "materialized",
-            "run_id": manifest.run_id,
-            "backtest_run_id": manifest.backtest_run_id,
-            "metrics_profile": manifest.metrics_profile,
-            "built_at": manifest.built_at.isoformat(),
-            "metrics": manifest.metrics,
-        }
-        click.echo(json.dumps(data, indent=2))
-    else:
         click.echo(
-            f"run_type=evaluate  status=materialized  run_id={manifest.run_id}  "
-            f"profile={manifest.metrics_profile}"
+            json.dumps(
+                {
+                    "run_type": "evaluate",
+                    "status": "materialized",
+                    "run_id": manifest.run_id,
+                    "backtest_run_id": manifest.backtest_run_id,
+                    "metrics_profile": manifest.metrics_profile,
+                    "built_at": manifest.built_at.isoformat(),
+                    "metrics": manifest.metrics,
+                },
+                indent=2,
+            )
         )
-        for key, value in manifest.metrics.items():
-            click.echo(f"  {key}={value}")
+        return
+    click.echo(
+        f"run_type=evaluate  status=materialized  run_id={manifest.run_id}  "
+        f"profile={manifest.metrics_profile}"
+    )
+    for key, value in manifest.metrics.items():
+        click.echo(f"  {key}={value}")
 
 
 __all__ = ["evaluate_command", "make_evaluate_runner"]

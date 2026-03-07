@@ -15,6 +15,7 @@ import alpha_core.quality.partition_validator as pv_mod
 import alpha_core.research.as_of as as_of_mod
 import alpha_core.research.dataset as dataset_mod
 import alpha_core.research.dataset_builder_io as dataset_builder_io
+import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.research.universe as universe_mod
 import alpha_core.storage.conventions as storage_conventions
@@ -119,24 +120,27 @@ class DatasetBuilder:
         try:
             outputs = dataset_builder_io.write_dataset_outputs(
                 gold_root=self._gold_root,
-                spec=dataset_builder_io.DatasetOutputSpec(
-                    run_id=run_context.run_id,
-                    config=config,
-                    start_utc=start_utc,
-                    end_utc=end_utc,
-                    snapshots=snapshots,
-                    gold_tables=gold_tables,
-                    quality_summary=quality_summary,
-                    instrument_count=len(all_instruments),
-                )
+                run_id=run_context.run_id,
+                config=config,
+                start_utc=start_utc,
+                end_utc=end_utc,
+                snapshots=snapshots,
+                gold_tables=gold_tables,
+                quality_summary=quality_summary,
+                instrument_count=len(all_instruments),
             )
         except FileExistsError as exc:
             raise DatasetBuildError(str(exc)) from exc
-        dataset_builder_io.persist_build_artifacts(
+        manifest_mod.persist_run_record(
             storage_root=self._storage_root,
+            run_context=run_context_mod.close_run_context(run_context),
             config_payload=effective_config_payload,
-            run_context=run_context,
-            outputs=outputs,
+            artifacts={
+                "dataset_id": outputs.dataset_id,
+                "dataset_meta": str(outputs.meta_path),
+                "dataset_dir": str(outputs.dataset_dir),
+                "universe": str(outputs.dataset_dir / "universe.parquet"),
+            },
             parent_run_id=parent_run_id,
         )
         return outputs.manifest
@@ -155,9 +159,11 @@ class DatasetBuilder:
             )
             for point in change_points
         ]
-        all_instruments: set[str] = set()
-        for snapshot in snapshots:
-            all_instruments.update(snapshot.instruments)
+        all_instruments = {
+            instrument_id
+            for snapshot in snapshots
+            for instrument_id in snapshot.instruments
+        }
         return snapshots, all_instruments
 
     def _run_quality_and_gap_checks(
@@ -188,70 +194,38 @@ class DatasetBuilder:
         end_utc: datetime,
         snapshots: list[universe_mod.UniverseSnapshot],
     ) -> dict[str, pa.Table]:
-        raw_tables = self._load_raw_tables(config, start_utc=start_utc, end_utc=end_utc)
+        raw_tables: dict[str, pa.Table] = {}
+        normalized_venues = [venue.lower() for venue in (config.venues or [])]
+        for event_type in config.event_types:
+            if event_type == "trades":
+                table = self._reader.read_trades(start=start_utc, end=end_utc)
+            elif event_type == "ohlcv":
+                table = self._reader.read_ohlcv(start=start_utc, end=end_utc)
+            elif event_type == "books":
+                table = self._reader.read_books(start=start_utc, end=end_utc)
+            else:
+                continue
+            raw_tables[event_type] = _filter_table_by_venues(table, venues=normalized_venues)
+
         if _tables_have_rows(raw_tables) and not _snapshots_have_instruments(snapshots):
             raise DatasetBuildError(
                 "No point-in-time universe was available for the requested window. "
                 "Persist an instrument master at "
                 f"{self._storage_root / 'instruments.parquet'} before building datasets."
             )
-        as_of_tables = self._apply_as_of_filters(raw_tables, cutoff=end_utc)
-        return self._filter_tables_by_point_in_time_universe(as_of_tables, snapshots=snapshots)
-
-    def _load_raw_tables(
-        self,
-        config: dataset_mod.DatasetConfig,
-        *,
-        start_utc: datetime,
-        end_utc: datetime,
-    ) -> dict[str, pa.Table]:
-        raw_tables: dict[str, pa.Table] = {}
-        normalized_venues = [venue.lower() for venue in (config.venues or [])]
-        for event_type in config.event_types:
-            table = self._read_raw_event_table(event_type, start_utc=start_utc, end_utc=end_utc)
-            if table is None:
-                continue
-            raw_tables[event_type] = _filter_table_by_venues(table, venues=normalized_venues)
-        return raw_tables
-
-    def _read_raw_event_table(
-        self,
-        event_type: str,
-        *,
-        start_utc: datetime,
-        end_utc: datetime,
-    ) -> pa.Table | None:
-        if event_type == "trades":
-            return self._reader.read_trades(start=start_utc, end=end_utc)
-        if event_type == "ohlcv":
-            return self._reader.read_ohlcv(start=start_utc, end=end_utc)
-        if event_type == "books":
-            return self._reader.read_books(start=start_utc, end=end_utc)
-        return None
-
-    def _apply_as_of_filters(
-        self,
-        tables: dict[str, pa.Table],
-        *,
-        cutoff: datetime,
-    ) -> dict[str, pa.Table]:
-        filtered: dict[str, pa.Table] = {}
-        for event_type, table in tables.items():
+        gold_tables: dict[str, pa.Table] = {}
+        for event_type, table in raw_tables.items():
             if "ts_record" in table.schema.names and "ts_event" in table.schema.names:
-                table = as_of_mod.as_of_filter(table, as_of_column="ts_record", cutoff=cutoff)
-            filtered[event_type] = table
-        return filtered
-
-    def _filter_tables_by_point_in_time_universe(
-        self,
-        tables: dict[str, pa.Table],
-        *,
-        snapshots: list[universe_mod.UniverseSnapshot],
-    ) -> dict[str, pa.Table]:
-        filtered: dict[str, pa.Table] = {}
-        for event_type, table in tables.items():
-            filtered[event_type] = _filter_table_by_universe_snapshots(table, snapshots=snapshots)
-        return filtered
+                table = as_of_mod.as_of_filter(
+                    table,
+                    as_of_column="ts_record",
+                    cutoff=end_utc,
+                )
+            gold_tables[event_type] = _filter_table_by_universe_snapshots(
+                table,
+                snapshots=snapshots,
+            )
+        return gold_tables
 
     def load(self, dataset_id: str) -> dataset_mod.GoldDataset:
         """Load a previously built gold dataset by *dataset_id* or name.

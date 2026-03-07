@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import click
 from pydantic import ValidationError
@@ -113,16 +113,16 @@ def backtest_command(
     payload = cmd_common.build_run_payload(ctx, config.model_dump(mode="json"))
 
     if not execute:
-        outcome = research_runtime.run_stage(
-            research_runtime.ResearchStageRequest(
+        cmd_common.emit_outcome(
+            research_runtime.run_stage(
                 run_type="backtest",
                 payload=payload,
                 storage_root=resolved_root,
                 execute=False,
                 parent_run_id=parent_run_id,
-            )
+            ),
+            fmt,
         )
-        cmd_common.emit_outcome(outcome, fmt)
         return
 
     try:
@@ -131,44 +131,36 @@ def backtest_command(
     except backtest_runner_mod.BacktestRunError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    _emit_manifest_outcome(manifest, fmt)
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
-def _emit_manifest_outcome(
-    manifest: backtest_runner_mod.BacktestManifest,
-    fmt: cmd_common.OutputFormat,
-) -> None:
     if fmt == "json":
-        data: dict[str, Any] = {
-            "run_type": "backtest",
-            "status": "materialized",
-            "run_id": manifest.run_id,
-            "dataset_id": manifest.dataset_id,
-            "feature_set_version": manifest.feature_set_version,
-            "strategy_id": manifest.strategy_id,
-            "engine": manifest.engine,
-            "built_at": manifest.built_at.isoformat(),
-            "trade_count": manifest.trade_count,
-            "final_equity": manifest.final_equity,
-            "total_return": manifest.total_return,
-        }
-        click.echo(json.dumps(data, indent=2))
-    else:
         click.echo(
-            f"run_type=backtest  status=materialized  run_id={manifest.run_id}  "
-            f"strategy_id={manifest.strategy_id}"
+            json.dumps(
+                {
+                    "run_type": "backtest",
+                    "status": "materialized",
+                    "run_id": manifest.run_id,
+                    "dataset_id": manifest.dataset_id,
+                    "feature_set_version": manifest.feature_set_version,
+                    "strategy_id": manifest.strategy_id,
+                    "engine": manifest.engine,
+                    "built_at": manifest.built_at.isoformat(),
+                    "trade_count": manifest.trade_count,
+                    "final_equity": manifest.final_equity,
+                    "total_return": manifest.total_return,
+                },
+                indent=2,
+            )
         )
-        click.echo(
-            f"trades={manifest.trade_count}  "
-            f"total_return={manifest.total_return:.4f}  "
-            f"final_equity={manifest.final_equity:.2f}  "
-            f"built_at={manifest.built_at.isoformat()}"
-        )
+        return
+    click.echo(
+        f"run_type=backtest  status=materialized  run_id={manifest.run_id}  "
+        f"strategy_id={manifest.strategy_id}"
+    )
+    click.echo(
+        f"trades={manifest.trade_count}  "
+        f"total_return={manifest.total_return:.4f}  "
+        f"final_equity={manifest.final_equity:.2f}  "
+        f"built_at={manifest.built_at.isoformat()}"
+    )
 
 
 __all__ = ["backtest_command", "make_backtest_runner"]

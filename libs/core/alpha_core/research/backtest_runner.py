@@ -16,16 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
-import alpha_core.strategy_framework.interfaces as strategy_interfaces
 import alpha_core.strategy_framework.models as strategy_models
 import alpha_core.utils.time as time_utils
 
 _EPSILON = 1e-9
 _DEFAULT_PRICE = 0.5
-
-# ---------------------------------------------------------------------------
-# Schema constants
-# ---------------------------------------------------------------------------
 
 _TRADES_SCHEMA = pa.schema(
     [
@@ -50,10 +45,6 @@ _EQUITY_SCHEMA = pa.schema(
         pa.field("positions_value", pa.float64()),
     ]
 )
-
-# ---------------------------------------------------------------------------
-# Config & Manifest
-# ---------------------------------------------------------------------------
 
 EngineType = Literal["event", "vectorized"]
 
@@ -98,18 +89,8 @@ class BacktestManifest(BaseModel):
     parent_run_id: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-
 class BacktestRunError(RuntimeError):
-    """Raised when the backtest cannot proceed (e.g. missing feature artifacts)."""
-
-
-# ---------------------------------------------------------------------------
-# Strategy wiring
-# ---------------------------------------------------------------------------
+    """Raised when the backtest cannot proceed."""
 
 
 @dataclass(slots=True, frozen=True)
@@ -126,53 +107,67 @@ class PendingTarget:
     signal_ts: datetime
 
 
-@dataclass(slots=True, frozen=True)
-class StrategyComponents:
-    universe: strategy_interfaces.UniverseModel
-    alpha: strategy_interfaces.AlphaModel
-    portfolio: strategy_interfaces.PortfolioConstructionModel
-    risk: strategy_interfaces.RiskModel
-
-
 class _FeatureMarketState(strategy_models.MarketState):
     feature_row: dict[str, float] = Field(default_factory=dict)
 
 
-class _SingleInstrumentUniverse:
+class _ZScoreStrategy:
+    def __init__(self, spec: StrategySpec) -> None:
+        self._spec = spec
+
+    def direction(
+        self,
+        *,
+        instrument_id: str,
+        price: float,
+        zscore: float,
+        position_size: float,
+        as_of: datetime,
+    ) -> strategy_models.SignalDirection:
+        state = _FeatureMarketState(
+            as_of_utc=as_of,
+            universe=[instrument_id],
+            instruments={
+                instrument_id: strategy_models.InstrumentState(
+                    instrument_id=instrument_id,
+                    last_trade_price=Decimal(str(price)),
+                    mid_price=Decimal(str(price)),
+                )
+            },
+            portfolio=(
+                {instrument_id: Decimal(str(position_size))}
+                if abs(position_size) > _EPSILON
+                else {}
+            ),
+            feature_row={"zscore": zscore},
+        )
+        state.universe = self.select(state)
+        targets = self.apply(self.targets(self.generate(state), state), state)
+        if not targets:
+            return strategy_models.SignalDirection.FLAT
+        return targets[0].direction
+
     def select(self, state: strategy_models.MarketState) -> list[str]:
         if state.universe:
             return state.universe
         return list(state.instruments)
 
-
-class _ZScoreAlphaModel:
-    def __init__(self, strategy: StrategySpec) -> None:
-        self._strategy = strategy
-
     def generate(self, state: strategy_models.MarketState) -> list[strategy_models.Signal]:
-        instrument_id = next(iter(state.universe), None)
+        instrument_id = state.universe[0] if state.universe else next(iter(state.instruments), None)
         if instrument_id is None:
             return []
-        feature_row = getattr(state, "feature_row", {})
-        if not isinstance(feature_row, dict):
-            feature_row = {}
-        zscore = _coerce_float(feature_row.get("zscore"), default=0.0)
-        threshold = max(self._strategy.threshold, _EPSILON)
+        zscore = _coerce_float(getattr(state, "feature_row", {}).get("zscore"), default=0.0)
+        threshold = max(self._spec.threshold, _EPSILON)
         conviction = min(abs(zscore) / threshold, 1.0)
         return [
             strategy_models.Signal(
                 instrument_id=instrument_id,
-                direction=_signal_direction_from_zscore(zscore, self._strategy),
+                direction=_direction_from_zscore(zscore, self._spec),
                 strength=Decimal(str(conviction)),
                 confidence=Decimal(str(conviction)),
-                metadata={"strategy_id": self._strategy.strategy_id},
+                metadata={"strategy_id": self._spec.strategy_id},
             )
         ]
-
-
-class _FixedWeightPortfolioModel:
-    def __init__(self, strategy: StrategySpec) -> None:
-        self._strategy = strategy
 
     def targets(
         self,
@@ -185,7 +180,7 @@ class _FixedWeightPortfolioModel:
         signal = signals[0]
         target_weight = 0.0
         if signal.direction != strategy_models.SignalDirection.FLAT:
-            target_weight = self._strategy.target_weight
+            target_weight = self._spec.target_weight
         return [
             strategy_models.Target(
                 instrument_id=signal.instrument_id,
@@ -195,8 +190,6 @@ class _FixedWeightPortfolioModel:
             )
         ]
 
-
-class _PassThroughRiskModel:
     def apply(
         self,
         targets: list[strategy_models.Target],
@@ -204,11 +197,6 @@ class _PassThroughRiskModel:
     ) -> list[strategy_models.Target]:
         del state
         return targets
-
-
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
 
 
 class BacktestRunner:
@@ -241,32 +229,29 @@ class BacktestRunner:
                 f"Ensure run '{parent_run_id}' completed successfully."
             )
 
-        strategy = _resolve_strategy_spec(config.strategy_id)
         effective_payload = (
             config_payload if config_payload is not None else config.model_dump(mode="json")
         )
         run_context = run_context_mod.make_run_context("backtest", config_payload=effective_payload)
         run_id = run_context.run_id
-
-        features_df = pq.read_table(features_path).to_pandas()
-        if config.engine == "event":
-            sim_trades, equity_curve = _simulate_event(features_df, config, strategy)
-        else:
-            sim_trades, equity_curve = _simulate_vectorized(features_df, config, strategy)
+        strategy = _ZScoreStrategy(_resolve_strategy_spec(config.strategy_id))
+        trades_table, equity_table = _simulate(
+            features_df=pq.read_table(features_path).to_pandas(),
+            config=config,
+            strategy=strategy,
+        )
 
         trades_path = artifact_paths.artifact_key_path(self._storage_root, run_id, "trades.parquet")
         equity_path = artifact_paths.artifact_key_path(self._storage_root, run_id, "equity.parquet")
         trades_path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(sim_trades, trades_path, compression="zstd")
-        pq.write_table(equity_curve, equity_path, compression="zstd")
+        pq.write_table(trades_table, trades_path, compression="zstd")
+        pq.write_table(equity_table, equity_path, compression="zstd")
 
         completed_context = run_context_mod.close_run_context(run_context)
         built_at = completed_context.completed_at_utc or datetime.now(tz=UTC)
-        trade_count = sim_trades.num_rows
         final_equity = config.starting_cash
-        if equity_curve.num_rows > 0:
-            final_equity = float(equity_curve.column("equity").to_pylist()[-1])
-        total_return = (final_equity - config.starting_cash) / config.starting_cash
+        if equity_table.num_rows > 0:
+            final_equity = float(equity_table.column("equity").to_pylist()[-1])
 
         artifact_map: dict[str, str] = {
             "trades": str(trades_path),
@@ -283,9 +268,9 @@ class BacktestRunner:
             engine=config.engine,
             starting_cash=config.starting_cash,
             built_at=built_at,
-            trade_count=trade_count,
+            trade_count=trades_table.num_rows,
             final_equity=final_equity,
-            total_return=total_return,
+            total_return=(final_equity - config.starting_cash) / config.starting_cash,
             artifacts=artifact_map,
             parent_run_id=parent_run_id,
         )
@@ -308,27 +293,19 @@ class BacktestRunner:
         return backtest_manifest
 
 
-# ---------------------------------------------------------------------------
-# Simulation helpers
-# ---------------------------------------------------------------------------
-
-
-def _simulate_event(
+def _simulate(
+    *,
     features_df: pd.DataFrame,
     config: BacktestConfig,
-    strategy: StrategySpec,
+    strategy: _ZScoreStrategy,
 ) -> tuple[pa.Table, pa.Table]:
-    prepared = _prepare_features(features_df)
-    if prepared is None:
-        return _empty_simulation()
-
-    prepared_df, sequence_col, price_col, zscore_col = prepared
-    components = StrategyComponents(
-        universe=_SingleInstrumentUniverse(),
-        alpha=_ZScoreAlphaModel(strategy),
-        portfolio=_FixedWeightPortfolioModel(strategy),
-        risk=_PassThroughRiskModel(),
+    frame = _prepare_features(
+        features_df=features_df,
+        engine=config.engine,
+        strategy_spec=strategy._spec,
     )
+    if frame is None:
+        return _empty_simulation()
 
     cash = config.starting_cash
     positions: dict[str, float] = {}
@@ -338,10 +315,10 @@ def _simulate_event(
     trades: list[dict[str, object]] = []
     equity_rows: list[dict[str, object]] = []
 
-    for row in prepared_df.to_dict(orient="records"):
-        instrument_id = str(row["instrument_id"])
-        execution_ts = _coerce_timestamp(row[sequence_col])
-        price = _coerce_price(row.get(price_col))
+    for row in frame.itertuples(index=False):
+        instrument_id = str(row.instrument_id)
+        execution_ts = _coerce_timestamp(row.execution_ts)
+        price = _coerce_price(row.execution_price)
         last_prices[instrument_id] = price
 
         pending = pending_targets.pop(instrument_id, None)
@@ -351,7 +328,7 @@ def _simulate_event(
                 signal_ts=pending.signal_ts,
                 execution_ts=execution_ts,
                 direction=pending.direction,
-                target_weight=strategy.target_weight,
+                target_weight=strategy._spec.target_weight,
                 price=price,
                 cash=cash,
                 positions=positions,
@@ -371,88 +348,31 @@ def _simulate_event(
             }
         )
 
-        pending_targets[instrument_id] = PendingTarget(
-            direction=_event_target_direction(
-                row=row,
-                components=components,
-                zscore_col=zscore_col,
+        if config.engine == "event":
+            direction = strategy.direction(
+                instrument_id=instrument_id,
                 price=price,
+                zscore=_coerce_float(row.zscore, default=0.0),
                 position_size=positions.get(instrument_id, 0.0),
                 as_of=execution_ts,
-            ),
+            )
+        else:
+            direction = strategy_models.SignalDirection(str(row.planned_direction))
+
+        pending_targets[instrument_id] = PendingTarget(
+            direction=direction,
             signal_ts=execution_ts,
         )
 
     return _finalize_simulation(trades, equity_rows)
 
 
-def _simulate_vectorized(
-    features_df: pd.DataFrame,
-    config: BacktestConfig,
-    strategy: StrategySpec,
-) -> tuple[pa.Table, pa.Table]:
-    prepared = _prepare_features(features_df)
-    if prepared is None:
-        return _empty_simulation()
-
-    prepared_df, sequence_col, price_col, zscore_col = prepared
-    signal_directions = _vectorized_signal_directions(prepared_df[zscore_col], strategy)
-    execution_directions = (
-        signal_directions.groupby(prepared_df["instrument_id"], sort=False).shift(1).fillna("flat")
-    )
-    signal_times = prepared_df.groupby("instrument_id", sort=False)[sequence_col].shift(1)
-
-    cash = config.starting_cash
-    positions: dict[str, float] = {}
-    average_costs: dict[str, float] = {}
-    last_prices: dict[str, float] = {}
-    trades: list[dict[str, object]] = []
-    equity_rows: list[dict[str, object]] = []
-
-    prepared_df = prepared_df.assign(
-        _execution_direction=execution_directions,
-        _signal_ts=signal_times,
-    )
-    for row in prepared_df.to_dict(orient="records"):
-        instrument_id = str(row["instrument_id"])
-        execution_ts = _coerce_timestamp(row[sequence_col])
-        price = _coerce_price(row.get(price_col))
-        last_prices[instrument_id] = price
-
-        signal_ts = row.get("_signal_ts")
-        if signal_ts is not None and not pd.isna(signal_ts):
-            direction = strategy_models.SignalDirection(str(row["_execution_direction"]))
-            cash, trade = _rebalance_to_target(
-                instrument_id=instrument_id,
-                signal_ts=_coerce_timestamp(signal_ts),
-                execution_ts=execution_ts,
-                direction=direction,
-                target_weight=strategy.target_weight,
-                price=price,
-                cash=cash,
-                positions=positions,
-                average_costs=average_costs,
-                last_prices=last_prices,
-            )
-            if trade is not None:
-                trades.append(trade)
-
-        positions_value = _mark_to_market(positions, last_prices)
-        equity_rows.append(
-            {
-                "ts_event": execution_ts,
-                "equity": cash + positions_value,
-                "cash": cash,
-                "positions_value": positions_value,
-            }
-        )
-
-    return _finalize_simulation(trades, equity_rows)
-
-
 def _prepare_features(
+    *,
     features_df: pd.DataFrame,
-) -> tuple[pd.DataFrame, str, str, str] | None:
+    engine: EngineType,
+    strategy_spec: StrategySpec,
+) -> pd.DataFrame | None:
     if features_df.empty:
         return None
 
@@ -461,53 +381,39 @@ def _prepare_features(
         (col for col in features_df.columns if col.startswith("price_mean_")),
         None,
     )
-    if zscore_col is None or price_col is None:
+    if zscore_col is None or price_col is None or "instrument_id" not in features_df.columns:
         return None
 
-    prepared_df = features_df.copy()
-    sequence_col = "ts_available" if "ts_available" in prepared_df.columns else "ts_event"
-    prepared_df = prepared_df.sort_values(
-        [sequence_col, "instrument_id", "ts_event"],
+    sequence_col = "ts_available" if "ts_available" in features_df.columns else "ts_event"
+    if sequence_col not in features_df.columns:
+        return None
+
+    prepared = features_df.copy()
+    prepared["instrument_id"] = prepared["instrument_id"].astype(str)
+    prepared["execution_ts"] = pd.to_datetime(prepared[sequence_col], utc=True, errors="coerce")
+    prepared["event_ts"] = pd.to_datetime(
+        prepared.get("ts_event", prepared["execution_ts"]),
+        utc=True,
+        errors="coerce",
+    )
+    prepared = prepared.dropna(subset=["instrument_id", "execution_ts"])
+    prepared = prepared.sort_values(
+        ["execution_ts", "instrument_id", "event_ts"],
         kind="stable",
     ).reset_index(drop=True)
-    prepared_df[zscore_col] = prepared_df[zscore_col].fillna(0.0)
-    prepared_df[price_col] = prepared_df[price_col].fillna(_DEFAULT_PRICE)
-    return prepared_df, sequence_col, price_col, zscore_col
-
-
-def _event_target_direction(
-    *,
-    row: dict[str, Any],
-    components: StrategyComponents,
-    zscore_col: str,
-    price: float,
-    position_size: float,
-    as_of: datetime,
-) -> strategy_models.SignalDirection:
-    instrument_id = str(row["instrument_id"])
-    instrument_state = strategy_models.InstrumentState(
-        instrument_id=instrument_id,
-        last_trade_price=Decimal(str(price)),
-        mid_price=Decimal(str(price)),
+    prepared["zscore"] = prepared[zscore_col].map(
+        lambda value: _coerce_float(value, default=0.0)
     )
-    state = _FeatureMarketState(
-        as_of_utc=as_of,
-        universe=[instrument_id],
-        instruments={instrument_id: instrument_state},
-        portfolio=(
-            {instrument_id: Decimal(str(position_size))}
-            if abs(position_size) > _EPSILON
-            else {}
-        ),
-        feature_row={"zscore": _coerce_float(row.get(zscore_col), default=0.0)},
-    )
-    state.universe = components.universe.select(state)
-    signals = components.alpha.generate(state)
-    targets = components.portfolio.targets(signals, state)
-    targets = components.risk.apply(targets, state)
-    if not targets:
-        return strategy_models.SignalDirection.FLAT
-    return targets[0].direction
+    prepared["execution_price"] = prepared[price_col].map(_coerce_price)
+
+    columns = ["instrument_id", "execution_ts", "zscore", "execution_price"]
+    if engine == "vectorized":
+        prepared["planned_direction"] = _vectorized_directions(
+            prepared["zscore"],
+            strategy_spec,
+        )
+        columns.append("planned_direction")
+    return prepared.loc[:, columns]
 
 
 def _rebalance_to_target(
@@ -525,16 +431,17 @@ def _rebalance_to_target(
 ) -> tuple[float, dict[str, object] | None]:
     current_equity = cash + _mark_to_market(positions, last_prices)
     current_quantity = positions.get(instrument_id, 0.0)
-    desired_notional = _target_notional(current_equity, target_weight, direction)
-    desired_quantity = desired_notional / max(price, _EPSILON)
+    desired_quantity = _target_notional(current_equity, target_weight, direction) / max(
+        price,
+        _EPSILON,
+    )
     quantity_delta = desired_quantity - current_quantity
     if abs(quantity_delta) <= _EPSILON:
         return cash, None
 
-    current_avg_cost = average_costs.get(instrument_id, price)
     realized_pnl, trade_return, updated_quantity, updated_avg_cost = _apply_fill(
         current_quantity=current_quantity,
-        current_avg_cost=current_avg_cost,
+        current_avg_cost=average_costs.get(instrument_id, price),
         trade_quantity=quantity_delta,
         execution_price=price,
     )
@@ -576,23 +483,22 @@ def _apply_fill(
     if abs(current_quantity) <= _EPSILON:
         return 0.0, None, trade_quantity, execution_price
 
-    current_side = 1.0 if current_quantity > 0 else -1.0
-    trade_side = 1.0 if trade_quantity > 0 else -1.0
-    if current_side == trade_side:
+    if (current_quantity > 0) == (trade_quantity > 0):
         new_quantity = current_quantity + trade_quantity
         new_avg_cost = (
-            (abs(current_quantity) * current_avg_cost) + (abs(trade_quantity) * execution_price)
+            abs(current_quantity) * current_avg_cost
+            + abs(trade_quantity) * execution_price
         ) / max(abs(new_quantity), _EPSILON)
         return 0.0, None, new_quantity, new_avg_cost
 
     closed_quantity = min(abs(current_quantity), abs(trade_quantity))
-    if current_side > 0:
+    if current_quantity > 0:
         realized_pnl = closed_quantity * (execution_price - current_avg_cost)
     else:
         realized_pnl = closed_quantity * (current_avg_cost - execution_price)
+
     closed_notional = closed_quantity * max(current_avg_cost, _EPSILON)
     trade_return = realized_pnl / closed_notional if closed_notional > _EPSILON else None
-
     new_quantity = current_quantity + trade_quantity
     if abs(new_quantity) <= _EPSILON:
         return realized_pnl, trade_return, 0.0, 0.0
@@ -623,36 +529,45 @@ def _resolve_strategy_spec(strategy_id: str) -> StrategySpec:
     )
 
 
-def _signal_direction_from_zscore(
+def _direction_from_zscore(
     zscore: float,
-    strategy: StrategySpec,
+    strategy_spec: StrategySpec,
 ) -> strategy_models.SignalDirection:
-    if strategy.family == "zscore_momentum":
-        if zscore >= strategy.threshold:
+    if strategy_spec.family == "zscore_momentum":
+        if zscore >= strategy_spec.threshold:
             return strategy_models.SignalDirection.LONG
-        if zscore <= -strategy.threshold:
+        if zscore <= -strategy_spec.threshold:
             return strategy_models.SignalDirection.SHORT
         return strategy_models.SignalDirection.FLAT
 
-    if zscore <= -strategy.threshold:
+    if zscore <= -strategy_spec.threshold:
         return strategy_models.SignalDirection.LONG
-    if zscore >= strategy.threshold:
+    if zscore >= strategy_spec.threshold:
         return strategy_models.SignalDirection.SHORT
     return strategy_models.SignalDirection.FLAT
 
 
-def _vectorized_signal_directions(
-    zscores: pd.Series,
-    strategy: StrategySpec,
-) -> pd.Series:
-    directions = pd.Series("flat", index=zscores.index, dtype="object")
-    if strategy.family == "zscore_momentum":
-        directions[zscores >= strategy.threshold] = strategy_models.SignalDirection.LONG.value
-        directions[zscores <= -strategy.threshold] = strategy_models.SignalDirection.SHORT.value
+def _vectorized_directions(zscores: pd.Series, strategy_spec: StrategySpec) -> pd.Series:
+    directions = pd.Series(
+        strategy_models.SignalDirection.FLAT.value,
+        index=zscores.index,
+        dtype="object",
+    )
+    if strategy_spec.family == "zscore_momentum":
+        directions.loc[zscores >= strategy_spec.threshold] = (
+            strategy_models.SignalDirection.LONG.value
+        )
+        directions.loc[zscores <= -strategy_spec.threshold] = (
+            strategy_models.SignalDirection.SHORT.value
+        )
         return directions
 
-    directions[zscores <= -strategy.threshold] = strategy_models.SignalDirection.LONG.value
-    directions[zscores >= strategy.threshold] = strategy_models.SignalDirection.SHORT.value
+    directions.loc[zscores <= -strategy_spec.threshold] = (
+        strategy_models.SignalDirection.LONG.value
+    )
+    directions.loc[zscores >= strategy_spec.threshold] = (
+        strategy_models.SignalDirection.SHORT.value
+    )
     return directions
 
 
@@ -709,15 +624,13 @@ def _coerce_float(value: object, *, default: float) -> float:
         if pd.isna(value):
             return default
         return value
-    if isinstance(value, int):
-        return float(value)
-    if isinstance(value, Decimal):
+    if isinstance(value, int | Decimal):
         return float(value)
     if not isinstance(value, str):
         return default
     try:
         converted = float(value)
-    except (TypeError, ValueError):
+    except ValueError:
         return default
     if pd.isna(converted):
         return default

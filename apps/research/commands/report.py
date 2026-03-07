@@ -77,22 +77,23 @@ def report_command(
     })
 
     if not execute:
-        outcome = research_runtime.run_stage(
-            research_runtime.ResearchStageRequest(
+        cmd_common.emit_outcome(
+            research_runtime.run_stage(
                 run_type="report",
                 payload=payload,
                 storage_root=resolved_root,
                 execute=False,
                 parent_run_id=evaluation_run_id,
-            )
+            ),
+            fmt,
         )
-        cmd_common.emit_outcome(outcome, fmt)
         return
 
     try:
-        report_payload = _build_report(resolved_root, evaluation_run_id, report_format)
+        report_payload = _build_report(resolved_root, evaluation_run_id)
     except ReportError as exc:
         raise click.ClickException(str(exc)) from exc
+    report_payload["report_format"] = report_format
 
     # Persist the report artifact under a new report run.
     run_context = run_context_mod.make_run_context("report", config_payload=payload)
@@ -103,13 +104,12 @@ def report_command(
         resolved_root, run_id, f"report.{report_suffix}"
     )
     report_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if report_format == "json":
-        report_path.write_text(
-            json.dumps(report_payload, indent=2, sort_keys=True), encoding="utf-8"
-        )
-    else:
-        report_path.write_text(_render_markdown(report_payload), encoding="utf-8")
+    report_text = (
+        json.dumps(report_payload, indent=2, sort_keys=True)
+        if report_format == "json"
+        else _render_markdown(report_payload)
+    )
+    report_path.write_text(report_text, encoding="utf-8")
 
     completed_context = run_context_mod.close_run_context(run_context)
     artifact_map: dict[str, str] = {
@@ -125,7 +125,29 @@ def report_command(
         parent_run_id=evaluation_run_id,
     )
 
-    _emit_outcome(run_id, report_path, report_payload, fmt)
+    if fmt == "json":
+        click.echo(
+            json.dumps(
+                {
+                    "run_type": "report",
+                    "status": "materialized",
+                    "run_id": run_id,
+                    "evaluation_run_id": report_payload["evaluation_run_id"],
+                    "report_format": report_payload["report_format"],
+                    "report_path": str(report_path),
+                    "summary": report_payload.get("summary", {}),
+                },
+                indent=2,
+            )
+        )
+        return
+    click.echo(
+        f"run_type=report  status=materialized  run_id={run_id}  "
+        f"format={report_payload['report_format']}"
+    )
+    click.echo(f"report={report_path}")
+    for key, value in report_payload.get("summary", {}).items():
+        click.echo(f"  {key}={value}")
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +158,6 @@ def report_command(
 def _build_report(
     storage_root: Path,
     evaluation_run_id: str,
-    report_format: str,
 ) -> dict[str, Any]:
     """Load the evaluate manifest and build the deterministic report payload."""
     # Load the evaluate manifest from the run.
@@ -173,7 +194,11 @@ def _build_report(
             f"metrics.json at '{metrics_json_path}' is missing the 'metrics' object."
         )
 
-    metrics = _validate_metrics(metrics_raw)
+    metrics: dict[str, float] = {}
+    for key, value in metrics_raw.items():
+        if not isinstance(key, str) or not isinstance(value, (int, float)):
+            raise ReportError("metrics.json contains non-numeric metric values.")
+        metrics[key] = float(value)
     metrics_profile = raw.get("metrics_profile", "unknown")
     if not isinstance(metrics_profile, str):
         raise ReportError(
@@ -183,19 +208,9 @@ def _build_report(
     return {
         "evaluation_run_id": evaluation_run_id,
         "metrics_profile": metrics_profile,
-        "report_format": report_format,
         "metrics": metrics,
         "summary": _summarize(metrics),
     }
-
-
-def _validate_metrics(metrics_raw: dict[str, Any]) -> dict[str, float]:
-    metrics: dict[str, float] = {}
-    for key, value in metrics_raw.items():
-        if not isinstance(key, str) or not isinstance(value, (int, float)):
-            raise ReportError("metrics.json contains non-numeric metric values.")
-        metrics[key] = float(value)
-    return metrics
 
 
 def _summarize(metrics: dict[str, float]) -> dict[str, str]:
@@ -236,33 +251,6 @@ def _render_markdown(payload: dict[str, Any]) -> str:
         lines.append(f"| {key} | {value} |")
     lines.append("")
     return "\n".join(lines)
-
-
-def _emit_outcome(
-    run_id: str,
-    report_path: Path,
-    payload: dict[str, Any],
-    fmt: cmd_common.OutputFormat,
-) -> None:
-    if fmt == "json":
-        data: dict[str, Any] = {
-            "run_type": "report",
-            "status": "materialized",
-            "run_id": run_id,
-            "evaluation_run_id": payload["evaluation_run_id"],
-            "report_format": payload["report_format"],
-            "report_path": str(report_path),
-            "summary": payload.get("summary", {}),
-        }
-        click.echo(json.dumps(data, indent=2))
-    else:
-        click.echo(
-            f"run_type=report  status=materialized  run_id={run_id}  "
-            f"format={payload['report_format']}"
-        )
-        click.echo(f"report={report_path}")
-        for key, value in payload.get("summary", {}).items():
-            click.echo(f"  {key}={value}")
 
 
 __all__ = ["ReportError", "report_command"]

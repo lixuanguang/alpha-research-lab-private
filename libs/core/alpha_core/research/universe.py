@@ -71,13 +71,13 @@ class UniverseManager:
         is included in the result.
         """
         as_of_utc = time_utils.ensure_utc(as_of)
-        markets_in_scope = self._filter_markets(as_of_utc)
+        markets_in_scope = sorted(self._filter_markets(as_of_utc))
 
         instrument_ids: list[str] = []
         market_ids: list[str] = []
         venue_counts: dict[str, int] = defaultdict(int)
 
-        for canonical_market_id, market in sorted(markets_in_scope):
+        for canonical_market_id, market in markets_in_scope:
             market_ids.append(canonical_market_id)
             venue_counts[market.venue] += len(market.outcomes)
             instrument_ids.extend(outcome.canonical_id for outcome in market.outcomes)
@@ -132,23 +132,17 @@ class UniverseManager:
         end_utc = time_utils.ensure_utc(end)
         points: set[datetime] = {start_utc, end_utc}
 
-        snapshot = self._master.snapshot()
-        markets_raw: dict[str, Any] = snapshot.get("markets", {})  # type: ignore[assignment]
-        for canonical_id in markets_raw:
+        markets = self._master.snapshot()["markets"]
+        if not isinstance(markets, dict):
+            return sorted(points)
+        for canonical_id in markets:
             for market in self._master.get_market_history(str(canonical_id)):
-                first_seen_utc = time_utils.ensure_utc(market.first_seen)
-                if start_utc <= first_seen_utc <= end_utc:
-                    points.add(first_seen_utc)
-
-                version_utc = time_utils.ensure_utc(market.last_updated)
-                if start_utc <= version_utc <= end_utc:
-                    points.add(version_utc)
-
-                if market.resolution_date is None:
-                    continue
-                resolution_utc = time_utils.ensure_utc(market.resolution_date)
-                if start_utc <= resolution_utc <= end_utc:
-                    points.add(resolution_utc)
+                for timestamp in (market.first_seen, market.last_updated, market.resolution_date):
+                    if timestamp is None:
+                        continue
+                    timestamp_utc = time_utils.ensure_utc(timestamp)
+                    if start_utc <= timestamp_utc <= end_utc:
+                        points.add(timestamp_utc)
 
         return sorted(points)
 

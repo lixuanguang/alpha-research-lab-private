@@ -39,7 +39,7 @@ class EvaluateManifest(BaseModel):
 
 
 class EvaluateRunError(RuntimeError):
-    """Raised when evaluation cannot proceed (e.g. missing backtest artifacts)."""
+    """Raised when evaluation cannot proceed."""
 
 
 class EvaluateRunner:
@@ -84,14 +84,11 @@ class EvaluateRunner:
         run_context = run_context_mod.make_run_context("evaluate", config_payload=effective_payload)
         run_id = run_context.run_id
 
-        trades_df = pq.read_table(trades_path).to_pandas()
-        equity_df = pq.read_table(equity_path).to_pandas()
-        starting_cash = _load_starting_cash(self._storage_root, backtest_run_id)
         metrics = _compute_metrics(
-            trades_df=trades_df,
-            equity_df=equity_df,
+            trades_df=pq.read_table(trades_path).to_pandas(),
+            equity_df=pq.read_table(equity_path).to_pandas(),
             profile=metrics_profile,
-            starting_cash=starting_cash,
+            starting_cash=_load_starting_cash(self._storage_root, backtest_run_id),
         )
 
         metrics_json_path = artifact_paths.artifact_key_path(
@@ -114,11 +111,13 @@ class EvaluateRunner:
             ),
             encoding="utf-8",
         )
-        metrics_df = pd.DataFrame(
-            [{"metric": key, "value": value} for key, value in metrics.items()]
-        )
         pq.write_table(
-            pa.Table.from_pandas(metrics_df, preserve_index=False),
+            pa.Table.from_pandas(
+                pd.DataFrame(
+                    [{"metric": key, "value": value} for key, value in metrics.items()]
+                ),
+                preserve_index=False,
+            ),
             metrics_parquet_path,
             compression="zstd",
         )
@@ -166,130 +165,84 @@ def _compute_metrics(
     profile: MetricsProfile,
     starting_cash: float,
 ) -> dict[str, float]:
-    minimal = _minimal_metrics(
-        trades_df=trades_df,
-        equity_df=equity_df,
-        starting_cash=starting_cash,
-    )
-    if profile == "minimal":
-        return minimal
+    if {"ts_event", "equity"}.issubset(equity_df.columns):
+        equity_frame = equity_df.loc[:, ["ts_event", "equity"]].copy()
+        equity_frame["ts_event"] = pd.to_datetime(
+            equity_frame["ts_event"],
+            utc=True,
+            errors="coerce",
+        )
+        equity_frame["equity"] = pd.to_numeric(equity_frame["equity"], errors="coerce")
+        equity_frame = equity_frame.dropna(subset=["ts_event", "equity"]).sort_values(
+            "ts_event",
+            kind="stable",
+        )
+        equity_frame = equity_frame.reset_index(drop=True)
+    else:
+        equity_frame = pd.DataFrame(columns=["ts_event", "equity"])
 
-    pm_core = _pm_core_metrics(
-        trades_df=trades_df,
-        equity_df=equity_df,
-        base=minimal,
-        starting_cash=starting_cash,
-    )
-    if profile in ("pm_core", "default"):
-        return pm_core
-    if profile == "microstructure":
-        return {**pm_core, "avg_spread_cost_bps": 0.0}
-    return minimal
-
-
-def _minimal_metrics(
-    *,
-    trades_df: pd.DataFrame,
-    equity_df: pd.DataFrame,
-    starting_cash: float,
-) -> dict[str, float]:
     final_equity = starting_cash
-    if not equity_df.empty and "equity" in equity_df.columns:
-        final_equity = float(equity_df["equity"].iloc[-1])
-    total_return = (final_equity - starting_cash) / max(abs(starting_cash), _EPSILON)
-    return {
-        "total_return": round(total_return, 8),
+    if not equity_frame.empty:
+        final_equity = float(equity_frame["equity"].iloc[-1])
+
+    metrics = {
+        "total_return": round(
+            (final_equity - starting_cash) / max(abs(starting_cash), _EPSILON),
+            8,
+        ),
         "trade_count": float(len(trades_df)),
     }
+    if profile == "minimal":
+        return metrics
 
-
-def _pm_core_metrics(
-    *,
-    trades_df: pd.DataFrame,
-    equity_df: pd.DataFrame,
-    base: dict[str, float],
-    starting_cash: float,
-) -> dict[str, float]:
-    metrics = dict(base)
-    equity_frame = _sorted_equity_frame(equity_df)
+    annualized_return = 0.0
+    sharpe_ratio = 0.0
+    max_drawdown = 0.0
     equity_series = pd.Series([starting_cash, *equity_frame["equity"].tolist()], dtype=float)
-    period_returns = equity_series.pct_change().dropna()
-    periods_per_year = _infer_periods_per_year(equity_frame)
-    annualized_return = _annualized_return(equity_frame, starting_cash=starting_cash)
-
-    metrics["annualized_return"] = round(annualized_return, 8)
-    if len(period_returns) >= 2 and periods_per_year > 0:
-        mean_return = float(period_returns.mean())
-        std_return = float(period_returns.std(ddof=1))
-        metrics["sharpe_ratio"] = (
-            round(mean_return / std_return * math.sqrt(periods_per_year), 4)
-            if std_return > _EPSILON
-            else 0.0
-        )
-    else:
-        metrics["sharpe_ratio"] = 0.0
-
     if len(equity_series) >= 2:
         rolling_max = equity_series.cummax()
         drawdowns = (equity_series - rolling_max) / rolling_max.replace(0, float("nan"))
-        metrics["max_drawdown"] = round(float(drawdowns.min()), 8)
-    else:
-        metrics["max_drawdown"] = 0.0
+        max_drawdown = float(drawdowns.min())
 
-    trade_statistics = _trade_statistics(trades_df, starting_cash=starting_cash)
-    metrics.update(trade_statistics)
+    if len(equity_frame) >= 2 and starting_cash > 0:
+        elapsed_seconds = float(
+            (equity_frame["ts_event"].iloc[-1] - equity_frame["ts_event"].iloc[0]).total_seconds()
+        )
+        equity_ratio = max(final_equity / starting_cash, 0.0)
+        if equity_ratio == 0.0:
+            annualized_return = -1.0
+        elif elapsed_seconds > 0:
+            annualized_return = float(
+                equity_ratio ** (_SECONDS_PER_YEAR / elapsed_seconds) - 1.0
+            )
+
+        period_returns = equity_series.pct_change().dropna()
+        deltas = equity_frame["ts_event"].diff().dropna().dt.total_seconds()
+        positive_deltas = deltas[deltas > 0]
+        if len(period_returns) >= 2 and not positive_deltas.empty:
+            periods_per_year = _SECONDS_PER_YEAR / float(positive_deltas.median())
+            std_return = float(period_returns.std(ddof=1))
+            if std_return > _EPSILON:
+                sharpe_ratio = float(
+                    period_returns.mean() / std_return * math.sqrt(periods_per_year)
+                )
+
+    metrics.update(
+        {
+            "annualized_return": round(annualized_return, 8),
+            "sharpe_ratio": round(sharpe_ratio, 4),
+            "max_drawdown": round(max_drawdown, 8),
+        }
+    )
+    metrics.update(_trade_statistics(trades_df=trades_df, starting_cash=starting_cash))
+    if profile == "microstructure":
+        metrics["avg_spread_cost_bps"] = 0.0
     return metrics
 
 
-def _sorted_equity_frame(equity_df: pd.DataFrame) -> pd.DataFrame:
-    if equity_df.empty or "ts_event" not in equity_df.columns:
-        return equity_df.copy()
-    frame = equity_df.copy()
-    frame["ts_event"] = pd.to_datetime(frame["ts_event"], utc=True, errors="coerce")
-    frame = frame.dropna(subset=["ts_event"]).sort_values("ts_event", kind="stable")
-    return frame.reset_index(drop=True)
-
-
-def _annualized_return(equity_df: pd.DataFrame, *, starting_cash: float) -> float:
-    if equity_df.empty or "equity" not in equity_df.columns or "ts_event" not in equity_df.columns:
-        return 0.0
-
-    ending_equity = float(equity_df["equity"].iloc[-1])
-    if starting_cash <= 0:
-        return 0.0
-    equity_ratio = max(ending_equity / starting_cash, 0.0)
-    if equity_ratio == 0.0:
-        return -1.0
-
-    timestamps = pd.to_datetime(equity_df["ts_event"], utc=True, errors="coerce").dropna()
-    if len(timestamps) < 2:
-        return 0.0
-    elapsed_seconds = float((timestamps.iloc[-1] - timestamps.iloc[0]).total_seconds())
-    if elapsed_seconds <= 0:
-        return 0.0
-    annualized_return = equity_ratio ** (_SECONDS_PER_YEAR / elapsed_seconds) - 1.0
-    return float(annualized_return)
-
-
-def _infer_periods_per_year(equity_df: pd.DataFrame) -> float:
-    if equity_df.empty or "ts_event" not in equity_df.columns:
-        return 0.0
-    timestamps = pd.to_datetime(equity_df["ts_event"], utc=True, errors="coerce").dropna()
-    if len(timestamps) < 2:
-        return 0.0
-    deltas = timestamps.diff().dropna().dt.total_seconds()
-    positive_deltas = deltas[deltas > 0]
-    if positive_deltas.empty:
-        return 0.0
-    median_delta = float(positive_deltas.median())
-    if median_delta <= 0:
-        return 0.0
-    return _SECONDS_PER_YEAR / median_delta
-
-
 def _trade_statistics(
-    trades_df: pd.DataFrame,
     *,
+    trades_df: pd.DataFrame,
     starting_cash: float,
 ) -> dict[str, float]:
     if trades_df.empty or "realized_pnl" not in trades_df.columns:
@@ -300,40 +253,31 @@ def _trade_statistics(
     if not bool(closed_mask.any()):
         return {"win_rate": 0.0, "avg_trade_return": 0.0, "profit_factor": 0.0}
 
-    closed_pnl = realized[closed_mask]
-    trade_returns = _closed_trade_returns(trades_df, closed_mask, starting_cash=starting_cash)
-    winning = closed_pnl[closed_pnl > 0]
-    losing = closed_pnl[closed_pnl < 0]
-    win_rate = float((closed_pnl > 0).mean())
-    avg_trade_return = float(trade_returns.mean()) if not trade_returns.empty else 0.0
-    if losing.empty:
-        profit_factor = 0.0
-    else:
-        gross_loss = abs(float(losing.sum()))
-        profit_factor = float(winning.sum()) / gross_loss if gross_loss > _EPSILON else 0.0
+    closed_pnl = realized.loc[closed_mask].astype(float)
+    trade_returns = closed_pnl / max(abs(starting_cash), _EPSILON)
+    if "trade_return" in trades_df.columns:
+        explicit_returns = pd.to_numeric(
+            trades_df.loc[closed_mask, "trade_return"],
+            errors="coerce",
+        )
+        trade_returns = explicit_returns.where(
+            explicit_returns.notna(),
+            trade_returns,
+        ).astype(float)
+
+    winners = closed_pnl[closed_pnl > 0]
+    losers = closed_pnl[closed_pnl < 0]
+    profit_factor = 0.0
+    if not losers.empty:
+        gross_loss = abs(float(losers.sum()))
+        if gross_loss > _EPSILON:
+            profit_factor = float(winners.sum()) / gross_loss
+
     return {
-        "win_rate": round(win_rate, 6),
-        "avg_trade_return": round(avg_trade_return, 8),
+        "win_rate": round(float((closed_pnl > 0).mean()), 6),
+        "avg_trade_return": round(float(trade_returns.mean()), 8),
         "profit_factor": round(profit_factor, 4),
     }
-
-
-def _closed_trade_returns(
-    trades_df: pd.DataFrame,
-    closed_mask: pd.Series,
-    *,
-    starting_cash: float,
-) -> pd.Series:
-    if "trade_return" in trades_df.columns:
-        trade_returns = pd.to_numeric(trades_df.loc[closed_mask, "trade_return"], errors="coerce")
-        trade_returns = trade_returns.dropna()
-        if not trade_returns.empty:
-            return trade_returns.astype(float)
-    fallback = pd.to_numeric(
-        trades_df.loc[closed_mask, "realized_pnl"],
-        errors="coerce",
-    ).fillna(0.0)
-    return fallback.astype(float) / max(abs(starting_cash), _EPSILON)
 
 
 def _load_starting_cash(storage_root: Path, backtest_run_id: str) -> float:
@@ -345,9 +289,9 @@ def _load_starting_cash(storage_root: Path, backtest_run_id: str) -> float:
     if not manifest_path.exists():
         return 100_000.0
 
-    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-    starting_cash = raw.get("starting_cash")
-    if isinstance(starting_cash, (int, float)) and starting_cash > 0:
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    starting_cash = payload.get("starting_cash")
+    if isinstance(starting_cash, int | float) and starting_cash > 0:
         return float(starting_cash)
     return 100_000.0
 

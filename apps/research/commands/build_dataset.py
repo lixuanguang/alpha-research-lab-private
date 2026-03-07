@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import click
 from pydantic import ValidationError
@@ -166,16 +165,16 @@ def build_dataset_command(
     payload = cmd_common.build_run_payload(ctx, config.model_dump(mode="json"))
 
     if not execute:
-        outcome = research_runtime.run_stage(
-            research_runtime.ResearchStageRequest(
+        cmd_common.emit_outcome(
+            research_runtime.run_stage(
                 run_type="dataset_build",
                 payload=payload,
                 storage_root=resolved_root,
                 execute=False,
                 parent_run_id=parent_run_id,
-            )
+            ),
+            fmt,
         )
-        cmd_common.emit_outcome(outcome, fmt)
         return
 
     try:
@@ -188,47 +187,38 @@ def build_dataset_command(
     except builder_mod.DatasetBuildError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    _emit_manifest_outcome(manifest, fmt)
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
-def _emit_manifest_outcome(
-    manifest: research_dataset.DatasetManifest,
-    fmt: cmd_common.OutputFormat,
-) -> None:
-    """Print a dataset build outcome summary to stdout."""
     if fmt == "json":
-        data: dict[str, Any] = {
-            "run_type": "dataset_build",
-            "status": "materialized",
-            "run_id": manifest.run_id,
-            "dataset_id": manifest.dataset_id,
-            "name": manifest.config.name,
-            "built_at": manifest.built_at.isoformat(),
-            "row_counts": manifest.row_counts,
-            "instrument_count": manifest.instrument_count,
-            "date_range": [
-                manifest.date_range[0].isoformat(),
-                manifest.date_range[1].isoformat(),
-            ],
-        }
-        click.echo(json.dumps(data, indent=2))
-    else:
         click.echo(
-            f"run_type=dataset_build  status=materialized  "
-            f"run_id={manifest.run_id}  "
-            f"dataset_id={manifest.dataset_id}  "
-            f"name={manifest.config.name}"
+            json.dumps(
+                {
+                    "run_type": "dataset_build",
+                    "status": "materialized",
+                    "run_id": manifest.run_id,
+                    "dataset_id": manifest.dataset_id,
+                    "name": manifest.config.name,
+                    "built_at": manifest.built_at.isoformat(),
+                    "row_counts": manifest.row_counts,
+                    "instrument_count": manifest.instrument_count,
+                    "date_range": [
+                        manifest.date_range[0].isoformat(),
+                        manifest.date_range[1].isoformat(),
+                    ],
+                },
+                indent=2,
+            )
         )
-        click.echo(
-            f"rows={manifest.row_counts}  "
-            f"instruments={manifest.instrument_count}  "
-            f"built_at={manifest.built_at.isoformat()}"
-        )
+        return
+    click.echo(
+        f"run_type=dataset_build  status=materialized  "
+        f"run_id={manifest.run_id}  "
+        f"dataset_id={manifest.dataset_id}  "
+        f"name={manifest.config.name}"
+    )
+    click.echo(
+        f"rows={manifest.row_counts}  "
+        f"instruments={manifest.instrument_count}  "
+        f"built_at={manifest.built_at.isoformat()}"
+    )
 
 
 def _parse_utc_dt(value: str) -> datetime:

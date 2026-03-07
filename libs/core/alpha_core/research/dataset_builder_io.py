@@ -16,8 +16,6 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
 import alpha_core.research.dataset as dataset_mod
-import alpha_core.research.manifest as manifest_mod
-import alpha_core.research.run_context as run_context_mod
 import alpha_core.research.universe as universe_mod
 
 _UNIVERSE_SCHEMA = pa.schema(
@@ -44,24 +42,19 @@ class DatasetLocator:
     dataset_dir: Path
 
 
-@dataclass(slots=True)
-class DatasetOutputSpec:
-    run_id: str
-    config: dataset_mod.DatasetConfig
-    start_utc: datetime
-    end_utc: datetime
-    snapshots: list[universe_mod.UniverseSnapshot]
-    gold_tables: dict[str, pa.Table]
-    quality_summary: dict[str, Any]
-    instrument_count: int
-
-
 def write_dataset_outputs(
     *,
     gold_root: Path,
-    spec: DatasetOutputSpec,
+    run_id: str,
+    config: dataset_mod.DatasetConfig,
+    start_utc: datetime,
+    end_utc: datetime,
+    snapshots: list[universe_mod.UniverseSnapshot],
+    gold_tables: dict[str, pa.Table],
+    quality_summary: dict[str, Any],
+    instrument_count: int,
 ) -> DatasetBuildOutputs:
-    dataset_id = make_dataset_id(spec.config)
+    dataset_id = make_dataset_id(config)
     dataset_dir = dataset_directory(gold_root, dataset_id)
     if dataset_dir.exists():
         raise FileExistsError(
@@ -73,18 +66,18 @@ def write_dataset_outputs(
     staging_dir = gold_root / f".{dataset_id}.{uuid.uuid4().hex}.tmp"
     staging_dir.mkdir(parents=False, exist_ok=False)
     try:
-        row_counts = _write_event_tables(dataset_dir=staging_dir, gold_tables=spec.gold_tables)
-        _write_universe_table(dataset_dir=staging_dir, snapshots=spec.snapshots)
+        row_counts = _write_event_tables(dataset_dir=staging_dir, gold_tables=gold_tables)
+        _write_universe_table(dataset_dir=staging_dir, snapshots=snapshots)
 
         manifest = dataset_mod.DatasetManifest(
-            run_id=spec.run_id,
+            run_id=run_id,
             dataset_id=dataset_id,
-            config=spec.config,
+            config=config,
             built_at=datetime.now(tz=UTC),
             row_counts=row_counts,
-            instrument_count=spec.instrument_count,
-            date_range=(spec.start_utc, spec.end_utc),
-            quality_summary=spec.quality_summary,
+            instrument_count=instrument_count,
+            date_range=(start_utc, end_utc),
+            quality_summary=quality_summary,
             schema_version=1,
         )
         staged_meta_path = staging_dir / "_meta.json"
@@ -100,30 +93,6 @@ def write_dataset_outputs(
         dataset_id=dataset_id,
         dataset_dir=dataset_dir,
         meta_path=meta_path,
-    )
-
-
-def persist_build_artifacts(
-    *,
-    storage_root: Path,
-    config_payload: dict[str, Any],
-    run_context: run_context_mod.RunContext,
-    outputs: DatasetBuildOutputs,
-    parent_run_id: str | None,
-) -> None:
-    completed_context = run_context_mod.close_run_context(run_context)
-    artifact_map = {
-        "dataset_id": outputs.dataset_id,
-        "dataset_meta": str(outputs.meta_path),
-        "dataset_dir": str(outputs.dataset_dir),
-        "universe": str(outputs.dataset_dir / "universe.parquet"),
-    }
-    manifest_mod.persist_run_record(
-        storage_root=storage_root,
-        run_context=completed_context,
-        config_payload=config_payload,
-        artifacts=artifact_map,
-        parent_run_id=parent_run_id,
     )
 
 
@@ -198,28 +167,19 @@ def _write_universe_table(
     dataset_dir: Path,
     snapshots: list[universe_mod.UniverseSnapshot],
 ) -> None:
-    universe_rows: list[dict[str, object]] = []
-    for snapshot in snapshots:
-        venue_id_map = _build_venue_map(snapshot)
-        universe_rows.extend(
-            {
-                "as_of": snapshot.as_of,
-                "instrument_id": instrument_id,
-                "market_id": _market_for_instrument(instrument_id),
-                "venue": venue_id_map.get(instrument_id, "unknown"),
-            }
-            for instrument_id in snapshot.instruments
-        )
+    universe_rows = [
+        {
+            "as_of": snapshot.as_of,
+            "instrument_id": instrument_id,
+            "market_id": _market_for_instrument(instrument_id),
+            "venue": instrument_id.split(":", 1)[0],
+        }
+        for snapshot in snapshots
+        for instrument_id in snapshot.instruments
+    ]
 
     universe_table = pa.Table.from_pylist(universe_rows, schema=_UNIVERSE_SCHEMA)
     pq.write_table(universe_table, dataset_dir / "universe.parquet", compression="zstd")
-
-
-def _build_venue_map(snapshot: universe_mod.UniverseSnapshot) -> dict[str, str]:
-    venue_map: dict[str, str] = {}
-    for instrument_id in snapshot.instruments:
-        venue_map[instrument_id] = instrument_id.split(":", 1)[0]
-    return venue_map
 
 
 def _market_for_instrument(instrument_id: str) -> str:

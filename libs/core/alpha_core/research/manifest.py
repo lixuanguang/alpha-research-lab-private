@@ -88,24 +88,13 @@ def persist_run_record(
             parent_run_id=parent_run_id,
         ),
     )
-    _link_parent_ingestion_run(
-        storage_root=storage_root,
-        parent_run_id=parent_run_id,
-        run_id=run_context.run_id,
-    )
-
-
-def _link_parent_ingestion_run(
-    *,
-    storage_root: Path,
-    parent_run_id: str | None,
-    run_id: str,
-) -> None:
     if parent_run_id is None:
         return
-    store = lineage_mod.LineageStore(storage_root)
     try:
-        store.link_downstream_run(parent_run_id, run_id)
+        lineage_mod.LineageStore(storage_root).link_downstream_run(
+            parent_run_id,
+            run_context.run_id,
+        )
     except KeyError:
         return
 

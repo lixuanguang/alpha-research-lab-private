@@ -18,9 +18,7 @@ OutputFormat = Literal["text", "json"]
 
 def get_output_format(ctx: click.Context) -> OutputFormat:
     """Return the output format stored by the root command group."""
-    obj: dict[str, Any] = ctx.obj or {}
-    fmt = obj.get("format", "text")
-    return "json" if fmt == "json" else "text"
+    return "json" if (ctx.obj or {}).get("format") == "json" else "text"
 
 
 def load_config_reference(config_path: Path) -> dict[str, str]:
@@ -38,8 +36,7 @@ def load_config_reference(config_path: Path) -> dict[str, str]:
 
 def build_run_payload(ctx: click.Context, stage_payload: dict[str, Any]) -> dict[str, Any]:
     """Attach shared CLI metadata to a stage payload when present."""
-    obj: dict[str, Any] = ctx.obj or {}
-    config_reference = obj.get("config")
+    config_reference = (ctx.obj or {}).get("config")
     if not isinstance(config_reference, dict):
         return dict(stage_payload)
     return {
@@ -50,31 +47,36 @@ def build_run_payload(ctx: click.Context, stage_payload: dict[str, Any]) -> dict
 
 def resolve_storage_root(ctx: click.Context, storage_root: Path) -> Path:
     """Resolve the effective storage root for a command invocation."""
-    obj: dict[str, Any] = ctx.obj or {}
-    output_dir = obj.get("output_dir")
+    output_dir = (ctx.obj or {}).get("output_dir")
     return output_dir if isinstance(output_dir, Path) else storage_root
 
 
 def emit_outcome(outcome: runtime_mod.ResearchStageOutcome, fmt: OutputFormat) -> None:
     """Write a :class:`~apps.research.runtime.ResearchStageOutcome` to stdout."""
     if fmt == "json":
-        data: dict[str, Any] = {
-            "run_id": outcome.run_id,
-            "run_type": outcome.run_type,
-            "status": outcome.status,
-            "config_hash": outcome.config_hash,
-            "manifest_path": (
-                str(outcome.manifest_path) if outcome.manifest_path is not None else None
-            ),
-        }
-        click.echo(json.dumps(data, indent=2))
-    else:
         click.echo(
-            f"run_type={outcome.run_type} status={outcome.status} "
-            f"run_id={outcome.run_id} config_hash={outcome.config_hash}"
+            json.dumps(
+                {
+                    "run_id": outcome.run_id,
+                    "run_type": outcome.run_type,
+                    "status": outcome.status,
+                    "config_hash": outcome.config_hash,
+                    "manifest_path": (
+                        str(outcome.manifest_path)
+                        if outcome.manifest_path is not None
+                        else None
+                    ),
+                },
+                indent=2,
+            )
         )
-        if outcome.manifest_path is not None:
-            click.echo(f"manifest={outcome.manifest_path}")
+        return
+    click.echo(
+        f"run_type={outcome.run_type} status={outcome.status} "
+        f"run_id={outcome.run_id} config_hash={outcome.config_hash}"
+    )
+    if outcome.manifest_path is not None:
+        click.echo(f"manifest={outcome.manifest_path}")
 
 
 __all__ = [

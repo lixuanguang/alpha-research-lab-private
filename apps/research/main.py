@@ -118,17 +118,16 @@ def optimize_command(
         "max_trials": max_trials,
         "objective": objective,
     }
-    runtime_payload = cmd_common.build_run_payload(ctx, payload)
-    outcome = research_runtime.run_stage(
-        research_runtime.ResearchStageRequest(
+    cmd_common.emit_outcome(
+        research_runtime.run_stage(
             run_type="optimize",
-            payload=runtime_payload,
+            payload=cmd_common.build_run_payload(ctx, payload),
             storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
             execute=execute,
             parent_run_id=parent_run_id,
-        )
+        ),
+        cmd_common.get_output_format(ctx),
     )
-    cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
 
 
 if __name__ == "__main__":
