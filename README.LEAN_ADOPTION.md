@@ -565,11 +565,13 @@ Add a registry pattern for grouped feature/signal definitions:
 Outcome:
 - clearer ownership and versioning of reusable alpha components.
 
-### 12.4 Optional Acceleration Boundary (Not Mandatory in MVP)
+### 12.4 Optional Acceleration Boundary — **Implemented (LA-022)**
 
-Define an optional performance boundary now:
+> Delivered: `alpha_core.perf.interfaces` (`FeatureTransform`, `SimulationKernel` protocols), parity harness (`alpha_core.performance.parity`), fallback policy, and numerical tolerance constants (`FEATURE_TOLERANCE_ABSOLUTE = 1e-9`, `SIMULATION_TOLERANCE_ABSOLUTE = 1e-9`). Decision recorded in `docs/adr/005-performance-boundary.md`. Regression coverage in `tests/regression/test_acceleration_parity.py`.
 
-- pure-Python default path
+Design:
+
+- pure-Python default path (`alpha_core.perf.interfaces` — `FeatureTransform`, `SimulationKernel`)
 - optional accelerated implementation behind same interface (Numba/Rust/C++)
 - strict parity tests between baseline and accelerated implementations
 

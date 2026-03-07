@@ -16,7 +16,9 @@ _END = datetime(2026, 3, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _mock_reader(
-    trades_table: pa.Table, ohlcv_table: pa.Table | None = None
+    trades_table: pa.Table,
+    ohlcv_table: pa.Table | None = None,
+    books_table: pa.Table | None = None,
 ) -> storage_parquet_reader.ParquetEventReader:
     reader = MagicMock(spec=storage_parquet_reader.ParquetEventReader)
     reader.read_trades.return_value = trades_table
@@ -25,6 +27,12 @@ def _mock_reader(
             "ts_event": pa.array([], type=pa.timestamp("us", tz="UTC")),
             "instrument_id": pa.array([], type=pa.string()),
             "resolution": pa.array([], type=pa.string()),
+        }
+    )
+    reader.read_books.return_value = books_table or pa.table(
+        {
+            "ts_event": pa.array([], type=pa.timestamp("us", tz="UTC")),
+            "instrument_id": pa.array([], type=pa.string()),
         }
     )
     return reader
@@ -64,6 +72,21 @@ def _detect_ohlcv(
 ) -> list[quality_gap_detector.TimeGap]:
     return detector.detect_ohlcv_gaps(
         "kalshi", "kalshi:m1:yes", resolution=resolution, start=_START, end=_END
+    )
+
+
+def _detect_books(
+    detector: quality_gap_detector.GapDetector,
+    *,
+    end: datetime = _END,
+    max_gap_seconds: float = 3600.0,
+) -> list[quality_gap_detector.TimeGap]:
+    return detector.detect_book_gaps(
+        "kalshi",
+        "kalshi:m1:yes",
+        start=_START,
+        end=end,
+        max_gap_seconds=max_gap_seconds,
     )
 
 
@@ -194,6 +217,41 @@ def test_trade_gap_non_positive_threshold_raises() -> None:
     detector = quality_gap_detector.GapDetector(reader)
     with pytest.raises(ValueError, match="`max_gap_seconds` must be > 0"):
         detector.detect_trade_gaps(
+            "kalshi",
+            "kalshi:m1:yes",
+            start=_START,
+            end=_END,
+            max_gap_seconds=0.0,
+        )
+
+
+# ---------------------------------------------------------------------------
+# detect_book_gaps
+# ---------------------------------------------------------------------------
+
+
+def test_book_no_gaps_returns_empty() -> None:
+    ts = [_START + timedelta(minutes=30 * i) for i in range(25)]
+    reader = _mock_reader(_empty_trades_tbl(), books_table=_ts_table(ts))
+    detector = quality_gap_detector.GapDetector(reader)
+    gaps = _detect_books(detector)
+    assert gaps == []
+
+
+def test_book_single_gap_detected() -> None:
+    ts = [_START + timedelta(minutes=30), _END - timedelta(minutes=30)]
+    reader = _mock_reader(_empty_trades_tbl(), books_table=_ts_table(ts))
+    detector = quality_gap_detector.GapDetector(reader)
+    gaps = _detect_books(detector)
+    assert len(gaps) == 1
+    assert gaps[0].event_type == "book"
+
+
+def test_book_gap_non_positive_threshold_raises() -> None:
+    reader = _mock_reader(_empty_trades_tbl())
+    detector = quality_gap_detector.GapDetector(reader)
+    with pytest.raises(ValueError, match="`max_gap_seconds` must be > 0"):
+        detector.detect_book_gaps(
             "kalshi",
             "kalshi:m1:yes",
             start=_START,

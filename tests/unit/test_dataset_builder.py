@@ -138,6 +138,8 @@ def _make_builder(
     mock_validator = MagicMock(spec=pv_mod.PartitionValidator)
     mock_gap = MagicMock(spec=gap_mod.GapDetector)
     mock_gap.detect_trade_gaps.return_value = []
+    mock_gap.detect_book_gaps.return_value = []
+    mock_gap.detect_ohlcv_gaps.return_value = []
 
     mgr = universe_mod.UniverseManager(master)
     return builder_mod.DatasetBuilder(
@@ -500,6 +502,46 @@ class TestDatasetBuilderBuild:
         with pytest.raises(builder_mod.DatasetBuildError, match="Gap check failed"):
             bad_builder.build(config)
 
+    def test_book_gap_check_raises_on_gaps(self, tmp_path: Path) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+
+        mock_reader = MagicMock(spec=reader_mod.ParquetEventReader)
+        mock_reader.read_trades.return_value = pa.table({})
+        mock_reader.read_books.return_value = pa.table({})
+        mock_reader.read_ohlcv.return_value = pa.table({})
+        mock_validator = MagicMock(spec=pv_mod.PartitionValidator)
+        mock_gap = MagicMock(spec=gap_mod.GapDetector)
+        mock_gap.detect_trade_gaps.return_value = []
+        mock_gap.detect_book_gaps.return_value = [
+            gap_mod.TimeGap(
+                venue="p",
+                outcome_id="p:m1:yes",
+                gap_start=_BASE,
+                gap_end=_BASE + timedelta(hours=6),
+                duration_seconds=21600.0,
+                event_type="book",
+            )
+        ]
+
+        bad_builder = builder_mod.DatasetBuilder(
+            reader=mock_reader,
+            universe_mgr=universe_mod.UniverseManager(master),
+            quality_validator=mock_validator,
+            gap_detector=mock_gap,
+            storage_root=tmp_path,
+        )
+        config = dataset_mod.DatasetConfig(
+            name="book_gap_test",
+            start=_BASE,
+            end=_END,
+            event_types=["books"],
+            require_quality_pass=False,
+            require_gap_free=True,
+        )
+        with pytest.raises(builder_mod.DatasetBuildError, match="Gap check failed"):
+            bad_builder.build(config)
+
     def test_gap_check_uses_observed_ohlcv_resolutions(self, tmp_path: Path) -> None:
         master = master_mod.MarketMaster()
         master.register_market(_make_market("p", "m1", ["yes"]))
@@ -515,6 +557,7 @@ class TestDatasetBuilderBuild:
         mock_validator = MagicMock(spec=pv_mod.PartitionValidator)
         mock_gap = MagicMock(spec=gap_mod.GapDetector)
         mock_gap.detect_trade_gaps.return_value = []
+        mock_gap.detect_book_gaps.return_value = []
         mock_gap.detect_ohlcv_gaps.return_value = []
 
         builder = builder_mod.DatasetBuilder(
@@ -563,6 +606,7 @@ class TestDatasetBuilderBuild:
         mock_validator = MagicMock(spec=pv_mod.PartitionValidator)
         mock_gap = MagicMock(spec=gap_mod.GapDetector)
         mock_gap.detect_trade_gaps.return_value = []
+        mock_gap.detect_book_gaps.return_value = []
         mock_gap.detect_ohlcv_gaps.return_value = [
             gap_mod.TimeGap(
                 venue="p",

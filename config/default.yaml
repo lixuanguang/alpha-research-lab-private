@@ -1,5 +1,9 @@
 project_name: alpha-research-lab
 log_level: INFO
+# profile: dev  # Uncomment to pin a runtime profile; or pass --profile at the CLI.
+#   Valid values: dev | research | ci | paper | live
+#   When set, the profile's log_level, dry_run flag, and storage root are
+#   applied as authoritative overrides in addition to this file.
 feature_flags:
   enable_pmxt_adapter: true
   enable_storage_validation: true

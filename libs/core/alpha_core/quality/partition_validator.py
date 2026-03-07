@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow as pa
 
 import alpha_core.quality.base as quality_base
 import alpha_core.quality.suites.book_microstructure_quality as book_microstructure_quality_suites

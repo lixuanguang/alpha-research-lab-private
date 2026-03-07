@@ -8,9 +8,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-import pandas as pd  # type: ignore[import-untyped]
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 import alpha_core.config.paths as config_paths
@@ -418,8 +418,9 @@ def _simulate(
         price = _coerce_price(row.execution_price)
         last_prices[instrument_id] = price
 
-        pending = pending_targets.pop(instrument_id, None)
-        if pending is not None:
+        pending = pending_targets.get(instrument_id)
+        if pending is not None and execution_ts > pending.signal_ts:
+            pending_targets.pop(instrument_id, None)
             cash, trade = _rebalance_to_target(
                 instrument_id=instrument_id,
                 signal_ts=pending.signal_ts,
@@ -936,9 +937,9 @@ def _validate_recipe_feature_contract(
     required_pack_id = recipe.factor_pack_ids[0]
     if feature_manifest.factor_pack_id != required_pack_id:
         raise BacktestRunError(
-            f"Feature run '{parent_run_id}' was built with factor pack "
-            f"'{feature_manifest.factor_pack_id}', but strategy recipe "
-            f"'{recipe.recipe_id}' requires '{required_pack_id}'."
+            f"Feature run '{parent_run_id}' has feature_manifest.json "
+            f"factor_pack_id={feature_manifest.factor_pack_id!r}, but strategy "
+            f"recipe '{recipe.recipe_id}' requires factor_pack_id={required_pack_id!r}."
         )
     if feature_manifest.factor_pack_version is None:
         raise BacktestRunError(

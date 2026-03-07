@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from pathlib import Path
 
-import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow as pa
 
 
 class StorageTier(StrEnum):

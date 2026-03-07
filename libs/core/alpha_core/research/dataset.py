@@ -6,10 +6,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd  # type: ignore[import-untyped]
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.compute as pc  # type: ignore[import-untyped]
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
+import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import alpha_core.research.as_of as as_of_mod

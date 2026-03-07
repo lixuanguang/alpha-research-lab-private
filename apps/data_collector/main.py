@@ -35,6 +35,12 @@ def main() -> None:
     help="Optional environment overlay (e.g. local).",
 )
 @click.option(
+    "--profile",
+    type=click.Choice(["dev", "research", "ci", "paper", "live"]),
+    default=None,
+    help="Runtime profile (dev/research/ci/paper/live). Overrides log level and safety flags.",
+)
+@click.option(
     "--apply-user-settings/--ignore-user-settings",
     default=True,
     show_default=True,
@@ -76,6 +82,7 @@ def run_command(
     venues: tuple[str, ...],
     mode: str,
     environment: str | None,
+    profile: str | None,
     apply_user_settings: bool,
     validate_secrets: bool,
     execute: bool,
@@ -94,13 +101,14 @@ def run_command(
         apply_user_settings=apply_user_settings,
         validate_secrets=validate_secrets,
         requested_venues=venues,
+        profile=profile,
     )
     if not selected_venues:
         raise click.ClickException("No enabled venues found for run command.")
 
     click.echo(
         "Run configuration ready "
-        f"(environment={environment or 'default'}, mode={mode}, "
+        f"(environment={environment or 'default'}, profile={profile or 'none'}, mode={mode}, "
         f"venues={','.join(selected_venues)})"
     )
     if not execute:
@@ -137,6 +145,12 @@ def run_command(
     help="Optional environment overlay (e.g. ci).",
 )
 @click.option(
+    "--profile",
+    type=click.Choice(["dev", "research", "ci", "paper", "live"]),
+    default=None,
+    help="Runtime profile (dev/research/ci/paper/live). Overrides log level and safety flags.",
+)
+@click.option(
     "--apply-user-settings/--ignore-user-settings",
     default=False,
     show_default=True,
@@ -156,6 +170,7 @@ def run_command(
 )
 def validate_command(
     environment: str | None,
+    profile: str | None,
     apply_user_settings: bool,
     venue: str | None,
     since: str | None,
@@ -165,13 +180,16 @@ def validate_command(
         environment=environment,
         apply_user_settings=apply_user_settings,
         validate_secrets=False,
+        profile=profile,
     )
     missing = config_secrets.missing_required_secrets(settings)
     enabled_venues = sorted(venue.name for venue in settings.venues if venue.enabled)
 
     click.echo(
         "Configuration valid "
-        f"(environment={environment or 'default'}, enabled_venues={len(enabled_venues)})"
+        f"(environment={environment or 'default'}, "
+        f"profile={profile or 'none'}, "
+        f"enabled_venues={len(enabled_venues)})"
     )
     if missing:
         missing_joined = ", ".join(missing)

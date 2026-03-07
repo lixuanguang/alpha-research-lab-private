@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow as pa
 import pytest
 
 import alpha_core.events.models as event_models

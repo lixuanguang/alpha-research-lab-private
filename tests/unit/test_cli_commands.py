@@ -366,7 +366,13 @@ def test_detect_gaps_ohlcv_scans_ohlcv_instrument_ids(
 
 def test_scan_instrument_ids_ignores_null_and_blank_values() -> None:
     class _ReaderStub:
-        def read_trades(self, **_kwargs: object) -> pa.Table:
+        def read_trades(
+            self,
+            venue: str | None = None,
+            start: datetime | None = None,
+            end: datetime | None = None,
+        ) -> pa.Table:
+            del venue, start, end
             return pa.table(
                 {
                     "instrument_id": pa.array(
@@ -384,7 +390,14 @@ def test_scan_instrument_ids_ignores_null_and_blank_values() -> None:
                 }
             )
 
-        def read_ohlcv(self, **_kwargs: object) -> pa.Table:
+        def read_ohlcv(
+            self,
+            venue: str | None = None,
+            resolution: str | None = None,
+            start: datetime | None = None,
+            end: datetime | None = None,
+        ) -> pa.Table:
+            del venue, resolution, start, end
             return pa.table(
                 {
                     "instrument_id": pa.array([], type=pa.string()),

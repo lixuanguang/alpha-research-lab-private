@@ -126,15 +126,30 @@ def _deviation(
     accelerated: Sequence[float],
     mode: ToleranceMode,
 ) -> float:
-    """Return the scalar deviation between two numeric sequences."""
+    """Return the scalar deviation between two numeric sequences.
+
+    NaN handling:
+    - Both NaN at the same position → no deviation (skip).
+    - One NaN, one finite at the same position → return ``math.inf``.
+    - Both finite → compare normally.
+    """
     if len(baseline) != len(accelerated):
         return math.inf
     if not baseline:
         return 0.0
-    if mode is ToleranceMode.ABSOLUTE:
-        return max(abs(a - b) for a, b in zip(baseline, accelerated, strict=True))
-    # RELATIVE
-    return max(abs(a - b) / (abs(a) + 1e-12) for a, b in zip(baseline, accelerated, strict=True))
+    worst: float = 0.0
+    for a, b in zip(baseline, accelerated, strict=True):
+        a_nan = math.isnan(a)
+        b_nan = math.isnan(b)
+        if a_nan and b_nan:
+            continue  # matching NaN — no deviation
+        if a_nan != b_nan:
+            return math.inf  # one finite, one NaN — mismatch
+        if mode is ToleranceMode.ABSOLUTE:
+            worst = max(worst, abs(a - b))
+        else:
+            worst = max(worst, abs(a - b) / (abs(a) + 1e-12))
+    return worst
 
 
 def _mapping_deviation(

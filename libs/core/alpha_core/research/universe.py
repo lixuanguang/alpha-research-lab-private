@@ -107,7 +107,7 @@ class UniverseManager:
         Returns:
             Ordered list of :class:`UniverseSnapshot` objects, one per grid point.
         """
-        import pandas as pd  # type: ignore[import-untyped]
+        import pandas as pd
 
         start_utc = time_utils.ensure_utc(start)
         end_utc = time_utils.ensure_utc(end)

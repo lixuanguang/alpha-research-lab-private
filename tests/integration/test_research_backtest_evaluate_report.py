@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 import apps.research.main as research_main
 import pandas as pd
@@ -32,6 +33,8 @@ import alpha_core.research.manifest as manifest_mod
 
 _BASE = datetime(2026, 1, 1, 0, 0, tzinfo=UTC)
 _N_ROWS = 30
+_FEATURE_DATASET_ID = "deadbeef01234567"
+_FEATURE_SET_VERSION = "v1"
 
 
 def _write_feature_manifest(
@@ -40,6 +43,8 @@ def _write_feature_manifest(
     *,
     feature_names: list[str],
     row_count: int,
+    dataset_id: str = _FEATURE_DATASET_ID,
+    feature_set_version: str = _FEATURE_SET_VERSION,
     factor_pack_id: str | None = None,
     factor_pack_version: str | None = None,
 ) -> None:
@@ -50,8 +55,8 @@ def _write_feature_manifest(
             {
                 "schema_version": 2,
                 "run_id": run_id,
-                "dataset_id": "deadbeef01234567",
-                "feature_set_version": "v1",
+                "dataset_id": dataset_id,
+                "feature_set_version": feature_set_version,
                 "built_at": _BASE.isoformat(),
                 "lookback_bars": 200,
                 "row_count": row_count,
@@ -177,6 +182,17 @@ def _write_empty_features_parquet(storage_root: Path, run_id: str) -> Path:
         path,
         compression="zstd",
     )
+    _write_feature_manifest(
+        storage_root,
+        run_id,
+        feature_names=[
+            "price_mean_200",
+            "price_std_200",
+            "price_zscore_200",
+            "volume_mean_200",
+        ],
+        row_count=0,
+    )
     return path
 
 
@@ -230,14 +246,19 @@ def _run_backtest(storage_root: Path, parent_run_id: str = _FEATURE_RUN_ID) -> s
         ],
     )
     assert result.exit_code == 0, result.output
-    return json.loads(result.output)["run_id"]
+    payload = cast(dict[str, Any], json.loads(result.output))
+    run_id = payload["run_id"]
+    assert isinstance(run_id, str)
+    return run_id
 
 
 def _first_feature_timestamp(storage_root: Path, run_id: str) -> datetime:
     table = pq.read_table(
         artifact_paths.artifact_key_path(storage_root, run_id, "features.parquet")
     )
-    return table.column("ts_event")[0].as_py()
+    timestamp = table.column("ts_event")[0].as_py()
+    assert isinstance(timestamp, datetime)
+    return timestamp
 
 
 def _run_evaluate(storage_root: Path, backtest_run_id: str) -> str:
@@ -257,7 +278,10 @@ def _run_evaluate(storage_root: Path, backtest_run_id: str) -> str:
         ],
     )
     assert result.exit_code == 0, result.output
-    return json.loads(result.output)["run_id"]
+    payload = cast(dict[str, Any], json.loads(result.output))
+    run_id = payload["run_id"]
+    assert isinstance(run_id, str)
+    return run_id
 
 
 def _run_report(storage_root: Path, evaluate_run_id: str) -> str:
@@ -277,7 +301,10 @@ def _run_report(storage_root: Path, evaluate_run_id: str) -> str:
         ],
     )
     assert result.exit_code == 0, result.output
-    return json.loads(result.output)["run_id"]
+    payload = cast(dict[str, Any], json.loads(result.output))
+    run_id = payload["run_id"]
+    assert isinstance(run_id, str)
+    return run_id
 
 
 # ===========================================================================
@@ -293,7 +320,7 @@ class TestBacktest:
             [
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
             ],
@@ -310,7 +337,7 @@ class TestBacktest:
                 "json",
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
             ],
@@ -327,7 +354,7 @@ class TestBacktest:
             [
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--storage-root",
@@ -343,7 +370,7 @@ class TestBacktest:
             [
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--parent-run-id",
@@ -376,7 +403,7 @@ class TestBacktest:
                 "json",
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--parent-run-id",
@@ -431,7 +458,7 @@ class TestBacktest:
                 "json",
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--engine",
@@ -457,7 +484,7 @@ class TestBacktest:
                 "json",
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--parent-run-id",
@@ -478,7 +505,7 @@ class TestBacktest:
             [
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--storage-root",
@@ -495,7 +522,7 @@ class TestBacktest:
             [
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--parent-run-id",
@@ -515,7 +542,7 @@ class TestBacktest:
             [
                 "backtest",
                 "--dataset-id",
-                "abc",
+                _FEATURE_DATASET_ID,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--starting-cash",
@@ -536,9 +563,9 @@ class TestBacktest:
                 "json",
                 "backtest",
                 "--dataset-id",
-                "deadbeef01234567",
+                _FEATURE_DATASET_ID,
                 "--feature-set-version",
-                "v1",
+                _FEATURE_SET_VERSION,
                 "--strategy-id",
                 "zscore_momentum_v1",
                 "--parent-run-id",
@@ -558,9 +585,9 @@ class TestBacktest:
                 "json",
                 "backtest",
                 "--dataset-id",
-                "deadbeef01234567",
+                _FEATURE_DATASET_ID,
                 "--feature-set-version",
-                "v1",
+                _FEATURE_SET_VERSION,
                 "--strategy-id",
                 "zscore_momentum_v1",
                 "--strategy-recipe",
@@ -610,9 +637,9 @@ class TestBacktest:
             [
                 "backtest",
                 "--dataset-id",
-                "deadbeef01234567",
+                _FEATURE_DATASET_ID,
                 "--feature-set-version",
-                "v1",
+                _FEATURE_SET_VERSION,
                 "--strategy-id",
                 _BT_STRATEGY,
                 "--strategy-recipe",

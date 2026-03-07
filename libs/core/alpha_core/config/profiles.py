@@ -177,3 +177,55 @@ def get_profile(name: ProfileName | str) -> EnvironmentProfile:
         valid = ", ".join(p.value for p in ProfileName)
         raise ValueError(f"Unknown profile {name!r}. Valid profiles: {valid}") from None
     return BUILTIN_PROFILES[key]
+
+
+def guard_execution(
+    profile: EnvironmentProfile | None,
+    *,
+    context: str = "order submission",
+) -> None:
+    """Raise :exc:`PermissionError` if ``profile`` forbids execution.
+
+    Parameters
+    ----------
+    profile:
+        Active :class:`EnvironmentProfile`, or ``None`` to skip the guard.
+    context:
+        Human-readable description of the guarded action for the error message.
+
+    Raises
+    ------
+    PermissionError
+        When ``profile.execution_enabled`` is ``False``.
+    """
+    if profile is not None and not profile.execution_enabled:
+        raise PermissionError(
+            f"Profile '{profile.name}' does not allow {context}. "
+            f"Use '--profile paper' or '--profile live' to enable execution."
+        )
+
+
+def guard_real_money(
+    profile: EnvironmentProfile | None,
+    *,
+    context: str = "real-money routing",
+) -> None:
+    """Raise :exc:`PermissionError` if ``profile`` forbids real-money routing.
+
+    Parameters
+    ----------
+    profile:
+        Active :class:`EnvironmentProfile`, or ``None`` to skip the guard.
+    context:
+        Human-readable description of the guarded action for the error message.
+
+    Raises
+    ------
+    PermissionError
+        When ``profile.allow_real_money`` is ``False``.
+    """
+    if profile is not None and not profile.allow_real_money:
+        raise PermissionError(
+            f"Profile '{profile.name}' does not allow {context}. "
+            f"Use '--profile live' to enable real-money routing."
+        )

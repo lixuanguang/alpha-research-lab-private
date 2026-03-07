@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any, Literal
 
-import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow as pa
 
 import alpha_core.quality.base as quality_base
 

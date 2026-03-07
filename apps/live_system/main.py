@@ -6,8 +6,9 @@ from pathlib import Path
 
 import click
 
+import alpha_core.config.profiles as config_profiles
+import alpha_core.research.run_summary as run_summary_mod
 import apps.live_system.runtime as live_runtime
-from alpha_core.research.run_summary import RunSummary
 
 
 @click.group()
@@ -19,8 +20,14 @@ from alpha_core.research.run_summary import RunSummary
     show_default=True,
     help="Output format: human-readable text or machine-readable JSON.",
 )
+@click.option(
+    "--profile",
+    type=click.Choice(["dev", "research", "ci", "paper", "live"]),
+    default=None,
+    help="Runtime profile (dev/research/ci/paper/live). Overrides log level and safety flags.",
+)
 @click.pass_context
-def main(ctx: click.Context, output_format: str) -> None:
+def main(ctx: click.Context, output_format: str, profile: str | None) -> None:
     """Live system — run strategy cycles against live venue adapters.
 
     \b
@@ -30,6 +37,7 @@ def main(ctx: click.Context, output_format: str) -> None:
     """
     ctx.ensure_object(dict)
     ctx.obj["format"] = output_format
+    ctx.obj["profile"] = profile
 
 
 @main.command("run")
@@ -65,6 +73,12 @@ def main(ctx: click.Context, output_format: str) -> None:
     show_default=True,
     help="Materialize run artifacts (--execute) or emit a validated plan (--plan-only).",
 )
+@click.option(
+    "--real-money/--paper-money",
+    default=False,
+    show_default=True,
+    help="Require the live profile before enabling real-money routing.",
+)
 @click.pass_context
 def run_command(
     ctx: click.Context,
@@ -73,6 +87,7 @@ def run_command(
     strategy_id: str,
     storage_root: Path,
     execute: bool,
+    real_money: bool,
 ) -> None:
     """Start the live runtime for one or more strategy cycles.
 
@@ -84,12 +99,37 @@ def run_command(
       # Execute two cycles and persist artifacts
       python -m apps.live_system.main run --instrument p:abc:yes --cycles 2 --execute
     """
+    profile_name = (ctx.obj or {}).get("profile")
+    active_profile = (
+        config_profiles.get_profile(profile_name) if profile_name is not None else None
+    )
+    resolved_storage_root = (
+        active_profile.storage_root
+        if active_profile is not None and storage_root == Path("data")
+        else storage_root
+    )
+
+    if execute:
+        try:
+            config_profiles.guard_execution(active_profile, context="live order submission")
+            if real_money:
+                if active_profile is None:
+                    raise PermissionError(
+                        "Real-money routing requires '--profile live'."
+                    )
+                config_profiles.guard_real_money(
+                    active_profile,
+                    context="live real-money routing",
+                )
+        except PermissionError as exc:
+            raise click.ClickException(str(exc)) from exc
+
     try:
         outcome = live_runtime.run_live_scaffold(
             live_runtime.LiveRunRequest(
                 instruments=list(instruments),
                 cycles=cycles,
-                storage_root=storage_root,
+                storage_root=resolved_storage_root,
                 execute=execute,
             )
         )
@@ -101,7 +141,7 @@ def run_command(
         if outcome.manifest_path is not None
         else []
     )
-    summary = RunSummary(
+    summary = run_summary_mod.RunSummary(
         run_id=outcome.run_id,
         run_type="live",
         status=outcome.status,
@@ -111,6 +151,7 @@ def run_command(
             "strategy_id": strategy_id,
             "cycles": outcome.cycles,
             "orders_emitted": outcome.orders_emitted,
+            "real_money": real_money,
         },
     )
 

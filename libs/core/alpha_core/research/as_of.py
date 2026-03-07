@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.compute as pc  # type: ignore[import-untyped]
+import pyarrow as pa
+import pyarrow.compute as pc
 
 import alpha_core.utils.time as time_utils
 
@@ -80,7 +80,7 @@ def align_to_grid(
         containing a ``grid_ts`` column (UTC timestamp) added to identify the
         grid point each row was assigned to.
     """
-    import pandas as pd  # type: ignore[import-untyped]  # lazy import — pandas not always needed
+    import pandas as pd  # lazy import — pandas not always needed
 
     start_utc = time_utils.ensure_utc(spec.start)
     end_utc = time_utils.ensure_utc(spec.end)

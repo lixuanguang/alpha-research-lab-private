@@ -57,8 +57,8 @@ Suggested labels:
 - [x] LA-018: Add promotion-gate workflow and research ergonomics CLI aliases (P5)
 - [x] LA-019: Add provider-neutral data-bridge contract and capability declarations (P6)
 - [x] LA-020: Add incremental cursor persistence and replay-package manifests (P6)
-- [ ] LA-021: Standardize runtime environment profiles across collector/research/live (P6)
-- [ ] LA-022: Add optional acceleration boundary and parity-test harness + docs modularity rule (P7)
+- [x] LA-021: Standardize runtime environment profiles across collector/research/live (P6)
+- [x] LA-022: Add optional acceleration boundary and parity-test harness + docs modularity rule (P7)
 
 ---
 
@@ -932,11 +932,11 @@ Define and enforce shared runtime profiles (`dev`, `research`, `ci`, `paper`, `l
 
 ### Checklist
 
-- [ ] Add profile schema with required keys: storage roots, log level, safety flags, retention policy
-- [ ] Add profile selection flag for entrypoints (`--profile`)
-- [ ] Enforce safety behavior (for example no live order submission in `research` profile)
-- [ ] Document profile semantics and defaults
-- [ ] Add tests for profile parsing and guard behavior
+- [x] Add profile schema with required keys: storage roots, log level, safety flags, retention policy
+- [x] Add profile selection flag for entrypoints (`--profile`)
+- [x] Enforce safety behavior (for example no live order submission in `research` profile)
+- [x] Document profile semantics and defaults
+- [x] Add tests for profile parsing and guard behavior
 
 ### Acceptance criteria
 
@@ -976,11 +976,11 @@ Create a formal boundary for optional accelerated compute backends and enforce p
 
 ### Checklist
 
-- [ ] Define pure-Python baseline interface and optional accelerated interface contract
-- [ ] Add parity test harness and numerical tolerance policy
-- [ ] Add fallback policy when accelerated backend is unavailable
-- [ ] Add documentation modularity rule references (architecture vs runbook vs guide vs ADR)
-- [ ] Add regression tests for baseline/accelerated parity on representative workloads
+- [x] Define pure-Python baseline interface and optional accelerated interface contract
+- [x] Add parity test harness and numerical tolerance policy
+- [x] Add fallback policy when accelerated backend is unavailable
+- [x] Add documentation modularity rule references (architecture vs runbook vs guide vs ADR)
+- [x] Add regression tests for baseline/accelerated parity on representative workloads
 
 ### Acceptance criteria
 

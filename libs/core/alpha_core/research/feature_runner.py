@@ -16,9 +16,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd  # type: ignore[import-untyped]
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import alpha_core.config.paths as config_paths
@@ -279,6 +279,56 @@ class FeatureRunner:
 # ---------------------------------------------------------------------------
 
 
+class _RollingFeatureCache:
+    """Memoized rolling statistics used by :func:`_compute_features`."""
+
+    def __init__(self, df: pd.DataFrame) -> None:
+        self._df = df
+        self._grouped = df.groupby("instrument_id", sort=False)
+        self._history_price = self._grouped["price"].shift(1)
+        self._history_size = self._grouped["size"].shift(1)
+        self._instrument_ids = df["instrument_id"]
+        self._rolling_price_mean: dict[int, pd.Series] = {}
+        self._rolling_price_std: dict[int, pd.Series] = {}
+        self._rolling_volume_mean: dict[int, pd.Series] = {}
+        self._lagged_price: dict[int, pd.Series] = {}
+
+    def price_mean(self, window: int) -> pd.Series:
+        if window not in self._rolling_price_mean:
+            self._rolling_price_mean[window] = (
+                self._history_price.groupby(self._instrument_ids, sort=False)
+                .rolling(window, min_periods=window)
+                .mean()
+                .reset_index(level=0, drop=True)
+            )
+        return self._rolling_price_mean[window]
+
+    def price_std(self, window: int) -> pd.Series:
+        if window not in self._rolling_price_std:
+            self._rolling_price_std[window] = (
+                self._history_price.groupby(self._instrument_ids, sort=False)
+                .rolling(window, min_periods=window)
+                .std()
+                .reset_index(level=0, drop=True)
+            )
+        return self._rolling_price_std[window]
+
+    def volume_mean(self, window: int) -> pd.Series:
+        if window not in self._rolling_volume_mean:
+            self._rolling_volume_mean[window] = (
+                self._history_size.groupby(self._instrument_ids, sort=False)
+                .rolling(window, min_periods=window)
+                .mean()
+                .reset_index(level=0, drop=True)
+            )
+        return self._rolling_volume_mean[window]
+
+    def price_lag(self, window: int) -> pd.Series:
+        if window not in self._lagged_price:
+            self._lagged_price[window] = self._grouped["price"].shift(window)
+        return self._lagged_price[window]
+
+
 def _compute_features(
     trades_path: Path,
     lookback_bars: int,
@@ -322,51 +372,7 @@ def _compute_features(
 
     df = _with_availability_time(df)
     df = df.sort_values(["instrument_id", "ts_available", "ts_event"]).reset_index(drop=True)
-
-    grouped = df.groupby("instrument_id", sort=False)
-    history_price = grouped["price"].shift(1)
-    history_size = grouped["size"].shift(1)
-    instrument_ids = df["instrument_id"]
-
-    rolling_price_mean: dict[int, pd.Series] = {}
-    rolling_price_std: dict[int, pd.Series] = {}
-    rolling_volume_mean: dict[int, pd.Series] = {}
-    lagged_price: dict[int, pd.Series] = {}
-
-    def get_price_mean(window: int) -> pd.Series:
-        if window not in rolling_price_mean:
-            rolling_price_mean[window] = (
-                history_price.groupby(instrument_ids, sort=False)
-                .rolling(window, min_periods=window)
-                .mean()
-                .reset_index(level=0, drop=True)
-            )
-        return rolling_price_mean[window]
-
-    def get_price_std(window: int) -> pd.Series:
-        if window not in rolling_price_std:
-            rolling_price_std[window] = (
-                history_price.groupby(instrument_ids, sort=False)
-                .rolling(window, min_periods=window)
-                .std()
-                .reset_index(level=0, drop=True)
-            )
-        return rolling_price_std[window]
-
-    def get_volume_mean(window: int) -> pd.Series:
-        if window not in rolling_volume_mean:
-            rolling_volume_mean[window] = (
-                history_size.groupby(instrument_ids, sort=False)
-                .rolling(window, min_periods=window)
-                .mean()
-                .reset_index(level=0, drop=True)
-            )
-        return rolling_volume_mean[window]
-
-    def get_price_lag(window: int) -> pd.Series:
-        if window not in lagged_price:
-            lagged_price[window] = grouped["price"].shift(window)
-        return lagged_price[window]
+    cache = _RollingFeatureCache(df)
 
     features_data: dict[str, pd.Series] = {
         "instrument_id": df["instrument_id"],
@@ -376,22 +382,22 @@ def _compute_features(
     }
     for feature_name in feature_columns:
         if match := re.fullmatch(r"price_mean_(\d+)", feature_name):
-            features_data[feature_name] = get_price_mean(int(match.group(1)))
+            features_data[feature_name] = cache.price_mean(int(match.group(1)))
             continue
         if match := re.fullmatch(r"price_std_(\d+)", feature_name):
-            features_data[feature_name] = get_price_std(int(match.group(1)))
+            features_data[feature_name] = cache.price_std(int(match.group(1)))
             continue
         if match := re.fullmatch(r"price_zscore_(\d+)", feature_name):
             window = int(match.group(1))
-            price_std = get_price_std(window)
-            normalized_price = df["price"] - get_price_mean(window)
+            price_std = cache.price_std(window)
+            normalized_price = df["price"] - cache.price_mean(window)
             features_data[feature_name] = normalized_price / price_std.replace(0, float("nan"))
             continue
         if match := re.fullmatch(r"volume_mean_(\d+)", feature_name):
-            features_data[feature_name] = get_volume_mean(int(match.group(1)))
+            features_data[feature_name] = cache.volume_mean(int(match.group(1)))
             continue
         if match := re.fullmatch(r"rolling_return_(\d+)", feature_name):
-            lag = get_price_lag(int(match.group(1)))
+            lag = cache.price_lag(int(match.group(1)))
             features_data[feature_name] = df["price"] / lag.replace(0, float("nan")) - 1.0
             continue
         raise FeatureRunError(

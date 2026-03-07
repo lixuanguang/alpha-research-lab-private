@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.compute as pc  # type: ignore[import-untyped]
+import pyarrow as pa
+import pyarrow.compute as pc
 
 import alpha_core.quality.gap_detector as gap_mod
 import alpha_core.quality.partition_validator as pv_mod
@@ -330,6 +330,17 @@ class DatasetBuilder:
                 for instr_id in venue_instruments:
                     gaps_found.extend(
                         self._gap_detector.detect_trade_gaps(
+                            venue,
+                            instr_id,
+                            start=start,
+                            end=end,
+                            max_gap_seconds=max_gap_seconds,
+                        )
+                    )
+            if "books" in config.event_types:
+                for instr_id in venue_instruments:
+                    gaps_found.extend(
+                        self._gap_detector.detect_book_gaps(
                             venue,
                             instr_id,
                             start=start,

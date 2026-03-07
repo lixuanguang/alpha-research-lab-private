@@ -6,7 +6,7 @@ import importlib
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow as pa
 
 import alpha_core.storage._duckdb_validation as duckdb_validation
 import alpha_core.storage.conventions as storage_conventions

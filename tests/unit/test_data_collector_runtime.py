@@ -378,7 +378,7 @@ def test_run_polling_and_streaming_once_sums_run_counts(
                 once=True,
                 max_outcomes_per_venue=10,
             ),
-            adapter_factory=lambda _exchange, _cfg: _StubAdapter("kalshi"),  # type: ignore[arg-type]
+            adapter_factory=lambda _exchange, _cfg: _StubAdapter("kalshi"),
             emit=lambda _message, _is_error: None,
         )
     )

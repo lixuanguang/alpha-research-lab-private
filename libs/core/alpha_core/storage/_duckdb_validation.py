@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow as pa
 
 _READ_ONLY_PREFIXES = ("select", "with", "explain")
 _FORBIDDEN_SQL_KEYWORDS = (

@@ -105,7 +105,10 @@ def backtest_command(
             resolved_recipe = backtest_runner_mod.resolve_strategy_recipe(strategy_recipe_id)
         except backtest_runner_mod.BacktestRunError as exc:
             raise click.ClickException(str(exc)) from exc
-        assert resolved_recipe is not None
+        if resolved_recipe is None:
+            raise click.ClickException(
+                f"Strategy recipe '{strategy_recipe_id}' could not be resolved."
+            )
         strategy_params = backtest_runner_mod.normalize_recipe_strategy_params(
             resolved_recipe.strategy_params
         )

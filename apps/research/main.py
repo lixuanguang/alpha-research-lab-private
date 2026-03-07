@@ -49,6 +49,12 @@ import apps.research.commands.session as session_cmd
     default=None,
     help="Optional research session id recorded in run manifests and session storage.",
 )
+@click.option(
+    "--profile",
+    type=click.Choice(["dev", "research", "ci", "paper", "live"]),
+    default=None,
+    help="Runtime profile (dev/research/ci/paper/live). Overrides log level and safety flags.",
+)
 @click.pass_context
 def main(
     ctx: click.Context,
@@ -56,6 +62,7 @@ def main(
     output_dir: Path | None,
     config: Path | None,
     session_id: str | None,
+    profile: str | None,
 ) -> None:
     """Run research-plane scaffolding commands."""
     ctx.ensure_object(dict)
@@ -65,6 +72,7 @@ def main(
     if session_id is not None:
         session_id = session_id.strip() or None
     ctx.obj["session_id"] = session_id
+    ctx.obj["profile"] = profile
 
 
 main.add_command(build_dataset_cmd.build_dataset_command)

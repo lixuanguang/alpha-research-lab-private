@@ -29,14 +29,15 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
 import random
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-import pandas as pd  # type: ignore[import-untyped]
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.parquet as pq  # type: ignore[import-untyped]
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import alpha_core.research.artifact_paths as artifact_paths
@@ -45,6 +46,8 @@ import alpha_core.research.backtest_runner as backtest_runner_mod
 import alpha_core.research.evaluate_runner as evaluate_runner_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -287,17 +290,27 @@ class OptimizeRunner:
                     ev_runner=ev_runner,
                 )
             except Exception as exc:
-                raise OptimizeRunError(
-                    f"Optimize trial {index} failed for params={params}: {exc}"
-                ) from exc
+                log.warning(
+                    "Optimize trial failed: run_id=%s trial_index=%d params=%s error=%s",
+                    optimize_run_id,
+                    index,
+                    params,
+                    exc,
+                )
+                record = _failed_trial_record(
+                    index=index,
+                    params=params,
+                    optimize_run_id=optimize_run_id,
+                )
             records.append(record)
 
         feasible = [r for r in records if r.constraint_pass and r.status == "ok"]
-        reverse_sort = not config.objective_minimize
         feasible_sorted = sorted(
             feasible,
-            key=lambda r: r.objective_value,
-            reverse=reverse_sort,
+            key=lambda r: (
+                r.objective_value if config.objective_minimize else -r.objective_value,
+                r.trial_index,
+            ),
         )
         leaderboard = feasible_sorted[: config.top_n]
 
@@ -468,6 +481,25 @@ def _run_trial(
         objective_value=objective_value,
         constraint_pass=constraint_pass,
         status=status,
+    )
+
+
+def _failed_trial_record(
+    *,
+    index: int,
+    params: dict[str, float],
+    optimize_run_id: str,
+) -> TrialRecord:
+    return TrialRecord(
+        optimize_run_id=optimize_run_id,
+        trial_index=index,
+        backtest_run_id="",
+        evaluate_run_id="",
+        params=params,
+        metrics={},
+        objective_value=0.0,
+        constraint_pass=False,
+        status="failed",
     )
 
 

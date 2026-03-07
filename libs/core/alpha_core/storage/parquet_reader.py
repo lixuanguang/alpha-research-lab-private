@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.dataset as ds  # type: ignore[import-untyped]
+import pyarrow as pa
+import pyarrow.dataset as ds
 
 import alpha_core.storage.conventions as storage_conventions
 import alpha_core.utils.time as time_utils

@@ -8,6 +8,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, Protocol
 
 import click
 
@@ -78,17 +79,36 @@ class GapDetectionRequest:
     environment: str | None
 
 
+class InstrumentScanReader(Protocol):
+    def read_trades(
+        self,
+        venue: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> Any: ...
+
+    def read_ohlcv(
+        self,
+        venue: str | None = None,
+        resolution: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> Any: ...
+
+
 def prepare_run_settings(
     *,
     environment: str | None,
     apply_user_settings: bool,
     validate_secrets: bool,
     requested_venues: tuple[str, ...],
+    profile: str | None = None,
 ) -> tuple[config_models.Settings, list[str]]:
     settings = config_loader.load_settings(
         environment=environment,
         apply_user_settings=apply_user_settings,
         validate_secrets=validate_secrets,
+        profile=profile,
     )
     selected_venues = resolve_target_venues(settings, requested_venues=requested_venues)
     return settings, selected_venues
@@ -293,7 +313,7 @@ def require_venue(settings: config_models.Settings, venue: str) -> config_models
 
 
 def scan_instrument_ids(
-    reader: parquet_reader_mod.ParquetEventReader,
+    reader: InstrumentScanReader,
     *,
     scope: GapScanScope,
 ) -> list[str]:

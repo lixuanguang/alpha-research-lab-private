@@ -11,6 +11,7 @@ import click
 import yaml
 
 import alpha_core.config._merge as config_merge
+import alpha_core.config.profiles as config_profiles
 import alpha_core.research.run_context as run_context_mod
 import apps.research.runtime as runtime_mod
 
@@ -49,7 +50,13 @@ def build_run_payload(ctx: click.Context, stage_payload: dict[str, Any]) -> dict
 def resolve_storage_root(ctx: click.Context, storage_root: Path) -> Path:
     """Resolve the effective storage root for a command invocation."""
     output_dir = (ctx.obj or {}).get("output_dir")
-    return output_dir if isinstance(output_dir, Path) else storage_root
+    if isinstance(output_dir, Path):
+        return output_dir
+
+    profile_name = (ctx.obj or {}).get("profile")
+    if isinstance(profile_name, str) and storage_root == Path("data"):
+        return config_profiles.get_profile(profile_name).storage_root
+    return storage_root
 
 
 def get_session_id(ctx: click.Context) -> str | None:

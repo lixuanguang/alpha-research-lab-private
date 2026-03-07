@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-import pyarrow.compute as pc  # type: ignore[import-untyped]
+import pyarrow.compute as pc
 from pydantic import BaseModel, ConfigDict
 
 import alpha_core.storage.parquet_reader as parquet_reader_mod
@@ -40,7 +40,7 @@ class _GapIdentity:
 
 
 class GapDetector:
-    """Identifies missing time windows in silver trade and OHLCV data."""
+    """Identifies missing time windows in silver trade, book, and OHLCV data."""
 
     def __init__(self, reader: parquet_reader_mod.ParquetEventReader) -> None:
         self._reader = reader
@@ -90,6 +90,53 @@ class GapDetector:
                 venue=venue,
                 outcome_id=outcome_id,
                 event_type="trade",
+            ),
+        )
+
+    def detect_book_gaps(
+        self,
+        venue: str,
+        outcome_id: str,
+        *,
+        start: datetime,
+        end: datetime,
+        max_gap_seconds: float = 3600.0,
+    ) -> list[TimeGap]:
+        """Return windows where no book snapshots exist for longer than max_gap_seconds."""
+        _validate_window(start=start, end=end)
+        if max_gap_seconds <= 0:
+            raise ValueError("`max_gap_seconds` must be > 0")
+        table = self._reader.read_books(venue=venue, start=start, end=end)
+        if "instrument_id" in table.schema.names:
+            table = table.filter(pc.equal(table.column("instrument_id"), outcome_id))
+
+        if table.num_rows == 0:
+            duration = (end - start).total_seconds()
+            if duration > max_gap_seconds:
+                return [
+                    TimeGap(
+                        venue=venue,
+                        outcome_id=outcome_id,
+                        gap_start=_ensure_utc(start),
+                        gap_end=_ensure_utc(end),
+                        duration_seconds=duration,
+                        event_type="book",
+                    )
+                ]
+            return []
+
+        ts_list: list[datetime] = sorted(
+            _ensure_utc(ts) for ts in table.column("ts_event").to_pylist()
+        )
+        return _find_gaps(
+            timestamps=ts_list,
+            window_start=_ensure_utc(start),
+            window_end=_ensure_utc(end),
+            max_gap_seconds=max_gap_seconds,
+            identity=_GapIdentity(
+                venue=venue,
+                outcome_id=outcome_id,
+                event_type="book",
             ),
         )
 

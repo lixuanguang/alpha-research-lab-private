@@ -19,8 +19,8 @@
 
 **Quality gates (as of March 7, 2026):**
 - `ruff check .` — 0 errors
-- `mypy libs/ apps/ --strict` — 0 errors
-- `pytest tests/ -q` — 1237 passed, 10 skipped in ~9.9s
+- `mypy libs/core apps tests --strict` — 0 errors
+- `pytest tests/ -q` — 1595 passed, 10 skipped
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:
@@ -60,7 +60,7 @@ The research plane exposes a first-class CLI pipeline. All commands are run from
 | 3 | `python -m apps.research.main backtest --dataset-id <id> --strategy-id <id> --parent-run-id <feature_run_id> --storage-root data/ --execute` | `trades.parquet`, `equity.parquet`, `run_manifest.json` |
 | 4 | `python -m apps.research.main evaluate --backtest-run-id <id> --storage-root data/ --execute` | `metrics.json`, `metrics.parquet` |
 | 5 | `python -m apps.research.main report --evaluate-run-id <id> --storage-root data/ --execute` | `report.json` |
-| 6 | `python -m apps.research.main optimize --config config/research/optimize.example.yaml --storage-root data/ --execute` | `trial_registry.jsonl`, `leaderboard.parquet` |
+| 6 | `python -m apps.research.main optimize --config config/research/optimize.example.yaml --storage-root data/ --execute` | `trial_registry.jsonl`, `trial_registry.parquet`, `leaderboard.json`, `best_manifest.json` |
 
 Run the full smoke path against fixture data (matches CI):
 

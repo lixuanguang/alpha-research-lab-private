@@ -127,7 +127,6 @@ class FillSimulator:
         Returns:
             An :class:`ExecutionReport` describing the simulated fill.
         """
-        intent = validated_order.intent
         oid = order_id or str(uuid.uuid4())
         ts = fill_ts or datetime.now(tz=UTC)
 
@@ -135,27 +134,27 @@ class FillSimulator:
         if not validated_order.is_valid:
             return order_models_mod.ExecutionReport(
                 order_id=oid,
-                instrument_id=intent.instrument_id,
+                instrument_id=validated_order.intent.instrument_id,
                 status=order_models_mod.OrderLifecycleStatus.CANCELLED,
                 fill_ts=ts,
                 notes=(
                     f"pre-trade rejected: {validated_order.reject_reason_code} — "
                     f"{validated_order.reject_reason_detail}"
                 ),
-                source_intent=intent,
+                source_intent=validated_order.intent,
             )
 
         # Resolve base price
-        base_price = self._resolve_base_price(intent, market_price)
+        base_price = self._resolve_base_price(validated_order.intent, market_price)
 
         # Apply slippage (adverse — always moves against the order direction)
-        fill_price = self._apply_slippage(base_price, intent)
+        fill_price = self._apply_slippage(base_price, validated_order.intent)
 
         # Clamp to [0, 1] (probability space)
         fill_price = max(_ZERO, min(_ONE, fill_price)).quantize(_PRICE_PREC)
 
         # Fill size (respects partial-fill ratio)
-        fill_size = (intent.size * self._config.fill_ratio).quantize(
+        fill_size = (validated_order.intent.size * self._config.fill_ratio).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
 
@@ -177,14 +176,14 @@ class FillSimulator:
 
         return order_models_mod.ExecutionReport(
             order_id=oid,
-            instrument_id=intent.instrument_id,
+            instrument_id=validated_order.intent.instrument_id,
             status=status,
             fill_price=fill_price,
             fill_size=fill_size,
             fill_ts=ts,
             fee=fee,
             slippage=slippage,
-            source_intent=intent,
+            source_intent=validated_order.intent,
         )
 
     # ------------------------------------------------------------------

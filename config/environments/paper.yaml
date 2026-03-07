@@ -1,0 +1,10 @@
+# Runtime profile: paper
+# Paper-trading dry runs.  Execution is enabled so the full order lifecycle
+# is exercised, but real-money routing is blocked.  Data retained for 90 days.
+
+profile: paper
+log_level: INFO
+feature_flags:
+  dry_run: false
+storage:
+  base_path: data/paper

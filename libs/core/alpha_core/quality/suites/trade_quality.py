@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pyarrow as pa  # type: ignore[import-untyped]
-import pyarrow.compute as pc  # type: ignore[import-untyped]
+import pyarrow as pa
+import pyarrow.compute as pc
 
 import alpha_core.quality.base as quality_base
 

@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow as pa
 from pydantic import BaseModel, ConfigDict, Field
 
 

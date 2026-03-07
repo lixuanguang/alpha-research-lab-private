@@ -44,6 +44,45 @@ _DATASET_ID = "ds_opt_001"
 _FEATURE_SET_VERSION = "v1"
 
 
+def _write_feature_manifest(storage_root: Path, run_id: str, *, row_count: int) -> None:
+    manifest_path = artifact_paths.artifact_key_path(storage_root, run_id, "feature_manifest.json")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "run_id": run_id,
+                "dataset_id": _DATASET_ID,
+                "feature_set_version": _FEATURE_SET_VERSION,
+                "built_at": _BASE.isoformat(),
+                "lookback_bars": 200,
+                "row_count": row_count,
+                "feature_count": 4,
+                "feature_names": [
+                    "price_mean_200",
+                    "price_std_200",
+                    "price_zscore_200",
+                    "volume_mean_200",
+                ],
+                "artifacts": {
+                    "features": str(
+                        artifact_paths.artifact_key_path(
+                            storage_root,
+                            run_id,
+                            "features.parquet",
+                        )
+                    )
+                },
+                "parent_run_id": None,
+                "factor_pack_id": None,
+                "factor_pack_version": None,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def _write_features_parquet(storage_root: Path, run_id: str, n: int = _N_ROWS) -> Path:
     """Write a synthetic features.parquet to simulate a completed build-features run."""
     path = artifact_paths.artifact_key_path(storage_root, run_id, "features.parquet")
@@ -81,6 +120,7 @@ def _write_features_parquet(storage_root: Path, run_id: str, n: int = _N_ROWS) -
         path,
         compression="zstd",
     )
+    _write_feature_manifest(storage_root, run_id, row_count=n)
     return path
 
 
@@ -136,16 +176,18 @@ class TestParameterSpaceExpansion:
         assert run1 == run2  # same seed → same order
 
     def test_random_search_different_seeds_differ(self) -> None:
-        base = dict(
+        config_a = OptimizeConfig(
             dataset_id="d",
             feature_set_version="v1",
             strategy_id="zscore_v1",
             search_mode="random",
             parameter_space={"threshold": [0.5, 1.0, 1.5, 2.0, 2.5, 3.0]},
             max_trials=3,
+            seed=1,
         )
-        run_a = _expand_parameter_space(OptimizeConfig(**base, seed=1))
-        run_b = _expand_parameter_space(OptimizeConfig(**base, seed=2))
+        config_b = config_a.model_copy(update={"seed": 2})
+        run_a = _expand_parameter_space(config_a)
+        run_b = _expand_parameter_space(config_b)
         # Different seeds should almost certainly produce different orderings
         assert run_a != run_b
 
@@ -543,7 +585,7 @@ class TestTrialRegistryContent:
 
 
 class TestDeterministicSeed:
-    def _run_optimize(self, storage_root: Path, seed: int) -> list[dict]:
+    def _run_optimize(self, storage_root: Path, seed: int) -> list[str]:
         config = OptimizeConfig(
             dataset_id=_DATASET_ID,
             feature_set_version=_FEATURE_SET_VERSION,
@@ -585,7 +627,7 @@ class TestDeterministicSeed:
             max_trials=4,
             seed=1,
         )
-        config_b = OptimizeConfig(**{**config_a.model_dump(), "seed": 2})
+        config_b = config_a.model_copy(update={"seed": 2})
         assert _expand_parameter_space(config_a) != _expand_parameter_space(config_b)
 
 
@@ -638,6 +680,44 @@ class TestConstraintFiltering:
         lb_path = next(storage_with_features.rglob("leaderboard.json"))
         leaderboard = json.loads(lb_path.read_text())
         assert leaderboard == []
+
+
+# ---------------------------------------------------------------------------
+# Failed trial handling
+# ---------------------------------------------------------------------------
+
+
+class TestFailedTrials:
+    def test_failed_trials_are_recorded_without_aborting_sweep(self, tmp_path: Path) -> None:
+        _write_features_parquet(tmp_path, _FEATURE_RUN_ID)
+        artifact_paths.artifact_key_path(
+            tmp_path,
+            _FEATURE_RUN_ID,
+            "feature_manifest.json",
+        ).unlink()
+
+        runner = CliRunner()
+        result = runner.invoke(
+            research_main.main,
+            [
+                "--format", "json",
+                "optimize",
+                "--dataset-id", _DATASET_ID,
+                "--strategy-id", _STRATEGY_ID,
+                "--feature-run-id", _FEATURE_RUN_ID,
+                "--threshold", "1.0", "--threshold", "1.5",
+                "--storage-root", str(tmp_path),
+                "--execute",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["total_trials"] == 2
+        assert payload["feasible_trials"] == 0
+
+        registry_path = next(tmp_path.rglob("trial_registry.jsonl"))
+        rows = [json.loads(line) for line in registry_path.read_text().splitlines() if line.strip()]
+        assert {row["status"] for row in rows} == {"failed"}
 
 
 # ---------------------------------------------------------------------------
