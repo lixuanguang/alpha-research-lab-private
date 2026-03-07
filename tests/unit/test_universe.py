@@ -31,6 +31,7 @@ def _make_market(
     resolution_date: datetime | None = None,
 ) -> instrument_models.MarketSpec:
     now = datetime.now(tz=UTC)
+    effective_first_seen = first_seen or now
     return instrument_models.MarketSpec(
         market_id=market_id,
         venue=venue,
@@ -46,8 +47,8 @@ def _make_market(
         lifecycle=lifecycle,
         volume=volume,
         liquidity=liquidity,
-        first_seen=first_seen or now,
-        last_updated=last_updated or now,
+        first_seen=effective_first_seen,
+        last_updated=last_updated or effective_first_seen,
         resolution_date=resolution_date,
     )
 
@@ -120,6 +121,33 @@ class TestSnapshotAt:
         snap = mgr.snapshot_at(_BASE + _DAY)
         assert "p:high:y" in snap.instruments
         assert "p:low:y" not in snap.instruments
+
+    def test_min_volume_uses_point_in_time_history(self) -> None:
+        master = _make_master()
+        market = _make_market(
+            "p",
+            "history",
+            ["y"],
+            volume=Decimal("50"),
+            first_seen=_BASE,
+            last_updated=_BASE,
+        )
+        master.register_market(market)
+        master.register_market(
+            market.model_copy(
+                update={
+                    "volume": Decimal("250"),
+                    "last_updated": _BASE + 3 * _DAY,
+                }
+            )
+        )
+        mgr = universe_mod.UniverseManager(master, min_volume=Decimal("100"))
+
+        early_snapshot = mgr.snapshot_at(_BASE + _DAY)
+        late_snapshot = mgr.snapshot_at(_BASE + 4 * _DAY)
+
+        assert "p:history:y" not in early_snapshot.instruments
+        assert "p:history:y" in late_snapshot.instruments
 
     def test_filters_by_min_liquidity(self) -> None:
         master = _make_master()

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 from pydantic import ValidationError
@@ -102,7 +102,7 @@ def backtest_command(
             dataset_id=dataset_id,
             feature_set_version=feature_set_version,
             strategy_id=strategy_id,
-            engine=engine,
+            engine=cast(backtest_runner_mod.EngineType, engine),
             starting_cash=starting_cash,
         )
     except ValidationError as exc:

@@ -10,6 +10,7 @@ import pytest
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
+import alpha_core.storage.lineage as lineage_mod
 
 # ---------------------------------------------------------------------------
 # RunType coverage
@@ -272,3 +273,23 @@ def test_manifest_exposes_all_lean_adoption_required_fields() -> None:
     assert m.artifacts["dataset_id"] == "ds_abc"
     assert m.artifacts["feature_set_version"] == "fv1"
     assert m.artifacts["strategy_version"] == "v1"
+
+
+def test_persist_run_record_links_parent_ingestion_run(tmp_path: Path) -> None:
+    store = lineage_mod.LineageStore(tmp_path)
+    ingestion = store.start_run("kalshi", "polling")
+    run_context = run_context_mod.close_run_context(
+        run_context_mod.make_run_context("dataset_build", config_payload={"name": "linked"})
+    )
+
+    manifest_mod.persist_run_record(
+        storage_root=tmp_path,
+        run_context=run_context,
+        config_payload={"name": "linked"},
+        artifacts={"dataset_id": "abc123"},
+        parent_run_id=ingestion.run_id,
+    )
+
+    updated_ingestion = store.get_run(ingestion.run_id)
+    assert updated_ingestion is not None
+    assert run_context.run_id in updated_ingestion.downstream_run_ids

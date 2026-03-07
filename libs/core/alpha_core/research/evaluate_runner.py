@@ -1,21 +1,4 @@
-"""EvaluateRunner — computes financial and PM metrics from backtest artifacts.
-
-Evaluate build steps (see :meth:`EvaluateRunner.build`)
----------------------------------------------------------
-1. Locate backtest trades/equity artifacts from the parent backtest run.
-2. Fail fast when artifacts are absent.
-3. Compute ``pm_core`` or other metrics profile.
-4. Write ``metrics.parquet`` and ``metrics.json`` artifacts.
-5. Persist ``evaluate_manifest.json`` and a ``RunManifest``.
-
-Metrics profiles
-----------------
-- **pm_core** (default): total_return, annualized_return, sharpe_ratio,
-  max_drawdown, trade_count, win_rate, avg_trade_return, profit_factor.
-- **minimal**: total_return, trade_count.
-- **default**: alias for pm_core.
-- **microstructure**: pm_core + avg_spread_cost_bps (stub).
-"""
+"""EvaluateRunner — computes financial and PM metrics from backtest artifacts."""
 
 from __future__ import annotations
 
@@ -36,9 +19,8 @@ import alpha_core.research.run_context as run_context_mod
 
 MetricsProfile = Literal["default", "pm_core", "microstructure", "minimal"]
 
-# ---------------------------------------------------------------------------
-# Manifest
-# ---------------------------------------------------------------------------
+_EPSILON = 1e-12
+_SECONDS_PER_YEAR = 365.25 * 24.0 * 60.0 * 60.0
 
 
 class EvaluateManifest(BaseModel):
@@ -56,28 +38,12 @@ class EvaluateManifest(BaseModel):
     parent_run_id: str | None = None
 
 
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-
 class EvaluateRunError(RuntimeError):
     """Raised when evaluation cannot proceed (e.g. missing backtest artifacts)."""
 
 
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
-
-
 class EvaluateRunner:
-    """Computes metrics from backtest artifacts.
-
-    Parameters
-    ----------
-    storage_root:
-        Shared run artifact root.
-    """
+    """Computes metrics from backtest artifacts."""
 
     def __init__(self, storage_root: Path) -> None:
         self._storage_root = storage_root
@@ -90,29 +56,15 @@ class EvaluateRunner:
         config_payload: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
     ) -> EvaluateManifest:
-        """Compute and persist metrics for *backtest_run_id*.
-
-        Parameters
-        ----------
-        backtest_run_id:
-            The run id of the completed backtest whose artifacts to evaluate.
-        metrics_profile:
-            Named metrics preset (default ``"pm_core"``).
-        config_payload:
-            Optional config dict for run-manifest hashing.
-        parent_run_id:
-            Set to *backtest_run_id* for lineage tracking (auto-set by CLI).
-
-        Raises
-        ------
-        EvaluateRunError
-            When backtest artifacts are missing.
-        """
         trades_path = artifact_paths.artifact_key_path(
-            self._storage_root, backtest_run_id, "trades.parquet"
+            self._storage_root,
+            backtest_run_id,
+            "trades.parquet",
         )
         equity_path = artifact_paths.artifact_key_path(
-            self._storage_root, backtest_run_id, "equity.parquet"
+            self._storage_root,
+            backtest_run_id,
+            "equity.parquet",
         )
         if not trades_path.exists():
             raise EvaluateRunError(
@@ -129,27 +81,28 @@ class EvaluateRunner:
             "backtest_run_id": backtest_run_id,
             "metrics_profile": metrics_profile,
         }
-        run_context = run_context_mod.make_run_context(
-            "evaluate", config_payload=effective_payload
-        )
+        run_context = run_context_mod.make_run_context("evaluate", config_payload=effective_payload)
         run_id = run_context.run_id
 
         trades_df = pq.read_table(trades_path).to_pandas()
         equity_df = pq.read_table(equity_path).to_pandas()
         starting_cash = _load_starting_cash(self._storage_root, backtest_run_id)
         metrics = _compute_metrics(
-            trades_df,
-            equity_df,
-            metrics_profile,
+            trades_df=trades_df,
+            equity_df=equity_df,
+            profile=metrics_profile,
             starting_cash=starting_cash,
         )
 
-        # Write metrics.json and metrics.parquet
         metrics_json_path = artifact_paths.artifact_key_path(
-            self._storage_root, run_id, "metrics.json"
+            self._storage_root,
+            run_id,
+            "metrics.json",
         )
         metrics_parquet_path = artifact_paths.artifact_key_path(
-            self._storage_root, run_id, "metrics.parquet"
+            self._storage_root,
+            run_id,
+            "metrics.parquet",
         )
         metrics_json_path.parent.mkdir(parents=True, exist_ok=True)
         metrics_json_path.write_text(
@@ -161,7 +114,9 @@ class EvaluateRunner:
             ),
             encoding="utf-8",
         )
-        metrics_df = pd.DataFrame([{"metric": k, "value": v} for k, v in metrics.items()])
+        metrics_df = pd.DataFrame(
+            [{"metric": key, "value": value} for key, value in metrics.items()]
+        )
         pq.write_table(
             pa.Table.from_pandas(metrics_df, preserve_index=False),
             metrics_parquet_path,
@@ -170,15 +125,13 @@ class EvaluateRunner:
 
         completed_context = run_context_mod.close_run_context(run_context)
         built_at = completed_context.completed_at_utc or datetime.now(tz=UTC)
-
         artifact_map: dict[str, str] = {
             "metrics_json": str(metrics_json_path),
             "metrics_parquet": str(metrics_parquet_path),
             "backtest_run_id": backtest_run_id,
             "metrics_profile": metrics_profile,
         }
-
-        ev_manifest = EvaluateManifest(
+        evaluate_manifest = EvaluateManifest(
             run_id=run_id,
             backtest_run_id=backtest_run_id,
             metrics_profile=metrics_profile,
@@ -188,11 +141,13 @@ class EvaluateRunner:
             parent_run_id=parent_run_id or backtest_run_id,
         )
 
-        ev_manifest_path = artifact_paths.artifact_key_path(
-            self._storage_root, run_id, "evaluate_manifest.json"
+        manifest_path = artifact_paths.artifact_key_path(
+            self._storage_root,
+            run_id,
+            "evaluate_manifest.json",
         )
-        ev_manifest_path.write_text(ev_manifest.model_dump_json(indent=2), encoding="utf-8")
-        artifact_map["evaluate_manifest"] = str(ev_manifest_path)
+        manifest_path.write_text(evaluate_manifest.model_dump_json(indent=2), encoding="utf-8")
+        artifact_map["evaluate_manifest"] = str(manifest_path)
 
         manifest_mod.persist_run_record(
             storage_root=self._storage_root,
@@ -201,90 +156,76 @@ class EvaluateRunner:
             artifacts=artifact_map,
             parent_run_id=parent_run_id or backtest_run_id,
         )
-
-        return ev_manifest
-
-
-# ---------------------------------------------------------------------------
-# Metrics computation
-# ---------------------------------------------------------------------------
-
-_TRADING_BARS_PER_YEAR = 252 * 48  # ~30 min bars; scales gracefully for any granularity
+        return evaluate_manifest
 
 
 def _compute_metrics(
+    *,
     trades_df: pd.DataFrame,
     equity_df: pd.DataFrame,
     profile: MetricsProfile,
-    *,
     starting_cash: float,
 ) -> dict[str, float]:
-    """Compute named metrics from trades and equity DataFrames."""
-    minimal = _minimal_metrics(trades_df, equity_df, starting_cash=starting_cash)
+    minimal = _minimal_metrics(
+        trades_df=trades_df,
+        equity_df=equity_df,
+        starting_cash=starting_cash,
+    )
     if profile == "minimal":
         return minimal
 
-    pm = _pm_core_metrics(
-        trades_df,
-        equity_df,
-        minimal,
+    pm_core = _pm_core_metrics(
+        trades_df=trades_df,
+        equity_df=equity_df,
+        base=minimal,
         starting_cash=starting_cash,
     )
     if profile in ("pm_core", "default"):
-        return pm
-
+        return pm_core
     if profile == "microstructure":
-        return {**pm, "avg_spread_cost_bps": 0.0}
-
+        return {**pm_core, "avg_spread_cost_bps": 0.0}
     return minimal
 
 
 def _minimal_metrics(
+    *,
     trades_df: pd.DataFrame,
     equity_df: pd.DataFrame,
-    *,
     starting_cash: float,
 ) -> dict[str, float]:
-    trade_count = float(len(trades_df))
     final_equity = starting_cash
     if not equity_df.empty and "equity" in equity_df.columns:
         final_equity = float(equity_df["equity"].iloc[-1])
-    total_return = (final_equity - starting_cash) / max(abs(starting_cash), 1e-9)
-    return {"total_return": round(total_return, 8), "trade_count": trade_count}
+    total_return = (final_equity - starting_cash) / max(abs(starting_cash), _EPSILON)
+    return {
+        "total_return": round(total_return, 8),
+        "trade_count": float(len(trades_df)),
+    }
 
 
 def _pm_core_metrics(
+    *,
     trades_df: pd.DataFrame,
     equity_df: pd.DataFrame,
     base: dict[str, float],
-    *,
     starting_cash: float,
 ) -> dict[str, float]:
     metrics = dict(base)
-    equity_values = equity_df["equity"].tolist() if "equity" in equity_df.columns else []
-    equity_series = pd.Series([starting_cash, *equity_values], dtype=float)
+    equity_frame = _sorted_equity_frame(equity_df)
+    equity_series = pd.Series([starting_cash, *equity_frame["equity"].tolist()], dtype=float)
     period_returns = equity_series.pct_change().dropna()
+    periods_per_year = _infer_periods_per_year(equity_frame)
+    annualized_return = _annualized_return(equity_frame, starting_cash=starting_cash)
 
-    n_periods = len(period_returns)
-    if n_periods >= 1 and starting_cash > 0:
-        ending_equity = float(equity_series.iloc[-1])
-        equity_ratio = max(ending_equity / starting_cash, 0.0)
-        metrics["annualized_return"] = round(
-            equity_ratio ** (_TRADING_BARS_PER_YEAR / n_periods) - 1.0,
-            8,
+    metrics["annualized_return"] = round(annualized_return, 8)
+    if len(period_returns) >= 2 and periods_per_year > 0:
+        mean_return = float(period_returns.mean())
+        std_return = float(period_returns.std(ddof=1))
+        metrics["sharpe_ratio"] = (
+            round(mean_return / std_return * math.sqrt(periods_per_year), 4)
+            if std_return > _EPSILON
+            else 0.0
         )
-    else:
-        metrics["annualized_return"] = 0.0
-
-    if n_periods >= 2:
-        mean_r = period_returns.mean()
-        std_r = period_returns.std(ddof=1)
-        if std_r > 1e-12:
-            metrics["sharpe_ratio"] = round(
-                mean_r / std_r * math.sqrt(_TRADING_BARS_PER_YEAR), 4
-            )
-        else:
-            metrics["sharpe_ratio"] = 0.0
     else:
         metrics["sharpe_ratio"] = 0.0
 
@@ -295,23 +236,104 @@ def _pm_core_metrics(
     else:
         metrics["max_drawdown"] = 0.0
 
-    if n_periods >= 1:
-        positive_returns = period_returns[period_returns > 0]
-        negative_returns = period_returns[period_returns < 0]
-        metrics["win_rate"] = round(float((period_returns > 0).mean()), 6)
-        metrics["avg_trade_return"] = round(base["total_return"] / max(len(trades_df), 1), 8)
-        metrics["profit_factor"] = round(
-            float(positive_returns.sum() / abs(negative_returns.sum()))
-            if not negative_returns.empty and abs(float(negative_returns.sum())) > 1e-12
-            else 0.0,
-            4,
-        )
-    else:
-        metrics["win_rate"] = 0.0
-        metrics["avg_trade_return"] = 0.0
-        metrics["profit_factor"] = 0.0
-
+    trade_statistics = _trade_statistics(trades_df, starting_cash=starting_cash)
+    metrics.update(trade_statistics)
     return metrics
+
+
+def _sorted_equity_frame(equity_df: pd.DataFrame) -> pd.DataFrame:
+    if equity_df.empty or "ts_event" not in equity_df.columns:
+        return equity_df.copy()
+    frame = equity_df.copy()
+    frame["ts_event"] = pd.to_datetime(frame["ts_event"], utc=True, errors="coerce")
+    frame = frame.dropna(subset=["ts_event"]).sort_values("ts_event", kind="stable")
+    return frame.reset_index(drop=True)
+
+
+def _annualized_return(equity_df: pd.DataFrame, *, starting_cash: float) -> float:
+    if equity_df.empty or "equity" not in equity_df.columns or "ts_event" not in equity_df.columns:
+        return 0.0
+
+    ending_equity = float(equity_df["equity"].iloc[-1])
+    if starting_cash <= 0:
+        return 0.0
+    equity_ratio = max(ending_equity / starting_cash, 0.0)
+    if equity_ratio == 0.0:
+        return -1.0
+
+    timestamps = pd.to_datetime(equity_df["ts_event"], utc=True, errors="coerce").dropna()
+    if len(timestamps) < 2:
+        return 0.0
+    elapsed_seconds = float((timestamps.iloc[-1] - timestamps.iloc[0]).total_seconds())
+    if elapsed_seconds <= 0:
+        return 0.0
+    annualized_return = equity_ratio ** (_SECONDS_PER_YEAR / elapsed_seconds) - 1.0
+    return float(annualized_return)
+
+
+def _infer_periods_per_year(equity_df: pd.DataFrame) -> float:
+    if equity_df.empty or "ts_event" not in equity_df.columns:
+        return 0.0
+    timestamps = pd.to_datetime(equity_df["ts_event"], utc=True, errors="coerce").dropna()
+    if len(timestamps) < 2:
+        return 0.0
+    deltas = timestamps.diff().dropna().dt.total_seconds()
+    positive_deltas = deltas[deltas > 0]
+    if positive_deltas.empty:
+        return 0.0
+    median_delta = float(positive_deltas.median())
+    if median_delta <= 0:
+        return 0.0
+    return _SECONDS_PER_YEAR / median_delta
+
+
+def _trade_statistics(
+    trades_df: pd.DataFrame,
+    *,
+    starting_cash: float,
+) -> dict[str, float]:
+    if trades_df.empty or "realized_pnl" not in trades_df.columns:
+        return {"win_rate": 0.0, "avg_trade_return": 0.0, "profit_factor": 0.0}
+
+    realized = pd.to_numeric(trades_df["realized_pnl"], errors="coerce").fillna(0.0)
+    closed_mask = realized.abs() > _EPSILON
+    if not bool(closed_mask.any()):
+        return {"win_rate": 0.0, "avg_trade_return": 0.0, "profit_factor": 0.0}
+
+    closed_pnl = realized[closed_mask]
+    trade_returns = _closed_trade_returns(trades_df, closed_mask, starting_cash=starting_cash)
+    winning = closed_pnl[closed_pnl > 0]
+    losing = closed_pnl[closed_pnl < 0]
+    win_rate = float((closed_pnl > 0).mean())
+    avg_trade_return = float(trade_returns.mean()) if not trade_returns.empty else 0.0
+    if losing.empty:
+        profit_factor = 0.0
+    else:
+        gross_loss = abs(float(losing.sum()))
+        profit_factor = float(winning.sum()) / gross_loss if gross_loss > _EPSILON else 0.0
+    return {
+        "win_rate": round(win_rate, 6),
+        "avg_trade_return": round(avg_trade_return, 8),
+        "profit_factor": round(profit_factor, 4),
+    }
+
+
+def _closed_trade_returns(
+    trades_df: pd.DataFrame,
+    closed_mask: pd.Series,
+    *,
+    starting_cash: float,
+) -> pd.Series:
+    if "trade_return" in trades_df.columns:
+        trade_returns = pd.to_numeric(trades_df.loc[closed_mask, "trade_return"], errors="coerce")
+        trade_returns = trade_returns.dropna()
+        if not trade_returns.empty:
+            return trade_returns.astype(float)
+    fallback = pd.to_numeric(
+        trades_df.loc[closed_mask, "realized_pnl"],
+        errors="coerce",
+    ).fillna(0.0)
+    return fallback.astype(float) / max(abs(starting_cash), _EPSILON)
 
 
 def _load_starting_cash(storage_root: Path, backtest_run_id: str) -> float:

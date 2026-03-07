@@ -1,4 +1,4 @@
-"""Point-in-time universe management built from MarketMaster snapshots."""
+"""Point-in-time universe management built from MarketMaster history."""
 
 from __future__ import annotations
 
@@ -31,18 +31,12 @@ class UniverseManager:
 
     Point-in-time logic
     -------------------
-    MarketMaster stores only the *current* state of each market (no lifecycle
-    change history).  ``UniverseManager`` approximates the historical universe
-    at time *t* by:
-
-    1. Including only markets where ``first_seen <= t`` (we had discovered
-       them by that point).
-    2. Applying the lifecycle filter against ``lifecycle`` plus a heuristic
-       that treats a RESOLVED market with ``resolution_date > t`` as still
-       ACTIVE at time ``t``.
-    3. Applying optional volume / liquidity / venue filters from the
-       **current** snapshot data (acknowledged best-approximation — dedicated
-       bitemporal lifecycle tracking would improve fidelity further).
+    ``MarketMaster`` keeps a history of canonical market versions keyed by
+    ``last_updated``. ``UniverseManager`` reconstructs the universe at time *t*
+    from the latest stored version whose ``last_updated <= t``. When the market
+    is already known via ``first_seen`` but the first stored snapshot arrives
+    slightly later, the manager falls back to a conservative pre-snapshot
+    projection that strips future liquidity/volume values.
     """
 
     def __init__(
@@ -140,16 +134,18 @@ class UniverseManager:
 
         snapshot = self._master.snapshot()
         markets_raw: dict[str, Any] = snapshot.get("markets", {})  # type: ignore[assignment]
-        for market_dict in markets_raw.values():
-            market = instrument_models.MarketSpec.model_validate(market_dict)
-            first_seen_utc = time_utils.ensure_utc(market.first_seen)
-            if start_utc <= first_seen_utc <= end_utc:
-                points.add(first_seen_utc)
+        for canonical_id in markets_raw:
+            for market in self._master.get_market_history(str(canonical_id)):
+                first_seen_utc = time_utils.ensure_utc(market.first_seen)
+                if start_utc <= first_seen_utc <= end_utc:
+                    points.add(first_seen_utc)
 
-            if (
-                market.lifecycle == instrument_models.MarketLifecycle.RESOLVED
-                and market.resolution_date is not None
-            ):
+                version_utc = time_utils.ensure_utc(market.last_updated)
+                if start_utc <= version_utc <= end_utc:
+                    points.add(version_utc)
+
+                if market.resolution_date is None:
+                    continue
                 resolution_utc = time_utils.ensure_utc(market.resolution_date)
                 if start_utc <= resolution_utc <= end_utc:
                     points.add(resolution_utc)
@@ -178,15 +174,9 @@ class UniverseManager:
 
     def _filter_markets(self, as_of: datetime) -> list[tuple[str, instrument_models.MarketSpec]]:
         """Return (canonical_id, MarketSpec) pairs that pass all filters at *as_of*."""
-        snapshot = self._master.snapshot()
-        markets_raw: dict[str, Any] = snapshot.get("markets", {})  # type: ignore[assignment]
-
         results: list[tuple[str, instrument_models.MarketSpec]] = []
 
-        for canonical_id_raw, market_dict in markets_raw.items():
-            canonical_id = str(canonical_id_raw)
-            market = instrument_models.MarketSpec.model_validate(market_dict)
-
+        for canonical_id, market in self._master.iter_markets_at(as_of):
             # --- Temporal gate: only markets discovered by as_of ---
             first_seen_utc = time_utils.ensure_utc(market.first_seen)
             if first_seen_utc > as_of:

@@ -64,6 +64,7 @@ class DatasetBuilder:
         config: dataset_mod.DatasetConfig,
         *,
         config_payload: dict[str, Any] | None = None,
+        parent_run_id: str | None = None,
     ) -> dataset_mod.DatasetManifest:
         """Build a gold dataset from silver data.
 
@@ -119,6 +120,7 @@ class DatasetBuilder:
             outputs = dataset_builder_io.write_dataset_outputs(
                 gold_root=self._gold_root,
                 spec=dataset_builder_io.DatasetOutputSpec(
+                    run_id=run_context.run_id,
                     config=config,
                     start_utc=start_utc,
                     end_utc=end_utc,
@@ -135,6 +137,7 @@ class DatasetBuilder:
             config_payload=effective_config_payload,
             run_context=run_context,
             outputs=outputs,
+            parent_run_id=parent_run_id,
         )
         return outputs.manifest
 

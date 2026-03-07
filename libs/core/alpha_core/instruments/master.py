@@ -13,6 +13,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import alpha_core.instruments.lifecycle as lifecycle_utils
 import alpha_core.instruments.models as instrument_models
 import alpha_core.instruments.symbology as symbology
+import alpha_core.utils.time as time_utils
 
 
 class VenueAdapter(Protocol):
@@ -28,6 +29,7 @@ class MarketMaster:
     def __init__(self) -> None:
         self._markets: dict[str, instrument_models.MarketSpec] = {}
         self._outcomes: dict[str, instrument_models.OutcomeSpec] = {}
+        self._market_history: dict[str, list[instrument_models.MarketSpec]] = {}
         # Maps outcome_group_id → sorted list of canonical market IDs for fast
         # simplex-constrained basket lookup.
         self._markets_by_group: dict[str, list[str]] = {}
@@ -50,57 +52,22 @@ class MarketMaster:
         """Register a market and all outcomes, returning canonical market id."""
         canonical_market_id = symbology.make_canonical_market_id(market.venue, market.market_id)
         existing_market = self._markets.get(canonical_market_id)
+        earliest_first_seen = (
+            market.first_seen
+            if existing_market is None
+            else min(existing_market.first_seen, market.first_seen)
+        )
+        version_market = self._normalize_market_version(
+            market,
+            earliest_first_seen=earliest_first_seen,
+        )
+        self._upsert_market_history(canonical_market_id, version_market)
+        current_market = self._latest_market_version(canonical_market_id)
+
         if existing_market is not None:
-            for existing_outcome in existing_market.outcomes:
-                existing_canonical_id = symbology.make_canonical_outcome_id(
-                    existing_market.venue,
-                    existing_market.market_id,
-                    existing_outcome.outcome_id,
-                )
-                self._outcomes.pop(existing_canonical_id, None)
-            # Remove from old group index if group membership may have changed.
-            if existing_market.outcome_group_id is not None:
-                _remove_from_group(
-                    self._markets_by_group, existing_market.outcome_group_id, canonical_market_id
-                )
+            self._remove_current_indexes(canonical_market_id, existing_market)
 
-        stored_market = market.model_copy(deep=True)
-        first_seen = (
-            stored_market.first_seen
-            if existing_market is None
-            else min(existing_market.first_seen, stored_market.first_seen)
-        )
-        last_updated = (
-            stored_market.last_updated
-            if existing_market is None
-            else max(existing_market.last_updated, stored_market.last_updated)
-        )
-        normalized_outcomes: list[instrument_models.OutcomeSpec] = []
-
-        for outcome in stored_market.outcomes:
-            canonical_outcome_id = symbology.make_canonical_outcome_id(
-                stored_market.venue,
-                stored_market.market_id,
-                outcome.outcome_id,
-            )
-            normalized_outcome = outcome.model_copy(update={"canonical_id": canonical_outcome_id})
-            normalized_outcomes.append(normalized_outcome)
-            self._outcomes[canonical_outcome_id] = normalized_outcome
-
-        new_group_id = stored_market.outcome_group_id
-        self._markets[canonical_market_id] = stored_market.model_copy(
-            update={
-                "venue": stored_market.venue.lower(),
-                "outcomes": normalized_outcomes,
-                "first_seen": first_seen,
-                "last_updated": last_updated,
-            }
-        )
-        if new_group_id is not None:
-            group_members = self._markets_by_group.setdefault(new_group_id, [])
-            if canonical_market_id not in group_members:
-                group_members.append(canonical_market_id)
-                group_members.sort()
+        self._store_current_market(canonical_market_id, current_market)
         return canonical_market_id
 
     def get_market(self, canonical_id: str) -> instrument_models.MarketSpec | None:
@@ -116,6 +83,53 @@ class MarketMaster:
         if outcome is None:
             return None
         return outcome.model_copy(deep=True)
+
+    def get_market_history(self, canonical_id: str) -> list[instrument_models.MarketSpec]:
+        """Return all known point-in-time versions for one market, oldest first."""
+        history = self._market_history.get(canonical_id, [])
+        return [market.model_copy(deep=True) for market in history]
+
+    def market_at(
+        self,
+        canonical_id: str,
+        as_of: datetime,
+    ) -> instrument_models.MarketSpec | None:
+        """Return the latest market snapshot known at *as_of*.
+
+        When the market was already known via ``first_seen`` but the first stored
+        snapshot arrived slightly later, return a conservative projection that
+        does not leak future liquidity/volume values.
+        """
+        history = self._market_history.get(canonical_id, [])
+        if not history:
+            return None
+
+        as_of_utc = time_utils.ensure_utc(as_of)
+        selected: instrument_models.MarketSpec | None = None
+        for market in history:
+            if market.last_updated <= as_of_utc:
+                selected = market
+                continue
+            break
+
+        if selected is not None:
+            return selected.model_copy(deep=True)
+
+        earliest = history[0]
+        if earliest.first_seen > as_of_utc:
+            return None
+        return _project_pre_snapshot_market(earliest, as_of_utc)
+
+    def iter_markets_at(self, as_of: datetime) -> list[tuple[str, instrument_models.MarketSpec]]:
+        """Return all markets with a point-in-time view at *as_of*, sorted by ID."""
+        as_of_utc = time_utils.ensure_utc(as_of)
+        markets: list[tuple[str, instrument_models.MarketSpec]] = []
+        for canonical_id in sorted(self._market_history):
+            market = self.market_at(canonical_id, as_of_utc)
+            if market is None:
+                continue
+            markets.append((canonical_id, market))
+        return markets
 
     def get_markets_by_group(self, group_id: str) -> list[instrument_models.MarketSpec]:
         """Return all markets belonging to an outcome group, sorted by canonical market id.
@@ -181,7 +195,7 @@ class MarketMaster:
                 "last_updated": datetime.now(tz=UTC),
             }
         )
-        self._markets[canonical_id] = updated
+        self.register_market(updated)
 
     def snapshot(self) -> dict[str, object]:
         """Return deterministic registry snapshot for reproducibility."""
@@ -202,22 +216,29 @@ class MarketMaster:
         }
 
     def persist(self, path: Path) -> None:
-        """Persist current market registry to Parquet."""
+        """Persist market history to Parquet."""
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        rows = [
-            {
-                "canonical_market_id": canonical_id,
-                "payload_json": market.model_dump_json(),
-            }
-            for canonical_id, market in sorted(self._markets.items(), key=lambda item: item[0])
-        ]
+        rows: list[dict[str, object]] = []
+        for canonical_id, versions in sorted(
+            self._market_history.items(),
+            key=lambda item: item[0],
+        ):
+            for market in versions:
+                rows.append(
+                    {
+                        "canonical_market_id": canonical_id,
+                        "version_ts": market.last_updated,
+                        "payload_json": market.model_dump_json(),
+                    }
+                )
 
         table = pa.Table.from_pylist(
             rows,
             schema=pa.schema(
                 [
                     pa.field("canonical_market_id", pa.string(), nullable=False),
+                    pa.field("version_ts", pa.timestamp("us", tz="UTC"), nullable=False),
                     pa.field("payload_json", pa.string(), nullable=False),
                 ]
             ),
@@ -225,13 +246,14 @@ class MarketMaster:
         pq.write_table(table, path, compression="zstd")
 
     def restore(self, path: Path) -> None:
-        """Restore registry state from Parquet snapshot."""
+        """Restore registry state from Parquet history snapshot."""
         table = pq.read_table(path)
         canonical_market_ids = table.column("canonical_market_id").to_pylist()
         payloads = table.column("payload_json").to_pylist()
 
         self._markets.clear()
         self._outcomes.clear()
+        self._market_history.clear()
         self._markets_by_group.clear()
 
         for canonical_market_id, payload_json in zip(canonical_market_ids, payloads, strict=True):
@@ -247,6 +269,89 @@ class MarketMaster:
                     "Persisted canonical market id does not match normalized market payload: "
                     f"{canonical_market_id} != {registered_market_id}"
                 )
+
+    def _normalize_market_version(
+        self,
+        market: instrument_models.MarketSpec,
+        *,
+        earliest_first_seen: datetime,
+    ) -> instrument_models.MarketSpec:
+        normalized_outcomes: list[instrument_models.OutcomeSpec] = []
+        for outcome in market.outcomes:
+            canonical_outcome_id = symbology.make_canonical_outcome_id(
+                market.venue,
+                market.market_id,
+                outcome.outcome_id,
+            )
+            normalized_outcomes.append(
+                outcome.model_copy(update={"canonical_id": canonical_outcome_id})
+            )
+
+        return market.model_copy(
+            deep=True,
+            update={
+                "venue": market.venue.lower(),
+                "outcomes": normalized_outcomes,
+                "first_seen": earliest_first_seen,
+            },
+        )
+
+    def _upsert_market_history(
+        self,
+        canonical_market_id: str,
+        market: instrument_models.MarketSpec,
+    ) -> None:
+        history = self._market_history.setdefault(canonical_market_id, [])
+        for index, existing in enumerate(history):
+            if existing.last_updated == market.last_updated:
+                history[index] = market
+                break
+        else:
+            history.append(market)
+        earliest_first_seen = min(item.first_seen for item in history)
+        history = [
+            item.model_copy(update={"first_seen": earliest_first_seen})
+            if item.first_seen != earliest_first_seen
+            else item
+            for item in history
+        ]
+        history.sort(key=lambda item: item.last_updated)
+        self._market_history[canonical_market_id] = history
+
+    def _latest_market_version(self, canonical_market_id: str) -> instrument_models.MarketSpec:
+        history = self._market_history.get(canonical_market_id)
+        if not history:
+            raise KeyError(f"Unknown market canonical id: {canonical_market_id}")
+        return history[-1].model_copy(deep=True)
+
+    def _remove_current_indexes(
+        self,
+        canonical_market_id: str,
+        market: instrument_models.MarketSpec,
+    ) -> None:
+        for outcome in market.outcomes:
+            existing_canonical_id = symbology.make_canonical_outcome_id(
+                market.venue,
+                market.market_id,
+                outcome.outcome_id,
+            )
+            self._outcomes.pop(existing_canonical_id, None)
+        if market.outcome_group_id is not None:
+            _remove_from_group(self._markets_by_group, market.outcome_group_id, canonical_market_id)
+
+    def _store_current_market(
+        self,
+        canonical_market_id: str,
+        market: instrument_models.MarketSpec,
+    ) -> None:
+        self._markets[canonical_market_id] = market
+        for outcome in market.outcomes:
+            self._outcomes[outcome.canonical_id] = outcome.model_copy(deep=True)
+        if market.outcome_group_id is not None:
+            group_members = self._markets_by_group.setdefault(market.outcome_group_id, [])
+            if canonical_market_id not in group_members:
+                group_members.append(canonical_market_id)
+                group_members.sort()
 
 
 def _matches_query(market: instrument_models.MarketSpec, query: str) -> bool:
@@ -271,3 +376,21 @@ def _remove_from_group(
         members.remove(canonical_market_id)
     if not members:
         del index[group_id]
+
+
+def _project_pre_snapshot_market(
+    market: instrument_models.MarketSpec,
+    as_of: datetime,
+) -> instrument_models.MarketSpec:
+    lifecycle = instrument_models.MarketLifecycle.ACTIVE
+    if market.resolution_date is not None and market.resolution_date <= as_of:
+        lifecycle = instrument_models.MarketLifecycle.RESOLVED
+    return market.model_copy(
+        deep=True,
+        update={
+            "last_updated": market.first_seen,
+            "lifecycle": lifecycle,
+            "volume": None,
+            "liquidity": None,
+        },
+    )

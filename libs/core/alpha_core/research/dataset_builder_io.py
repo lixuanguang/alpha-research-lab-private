@@ -38,8 +38,15 @@ class DatasetBuildOutputs:
     meta_path: Path
 
 
+@dataclass(slots=True, frozen=True)
+class DatasetLocator:
+    dataset_id: str
+    dataset_dir: Path
+
+
 @dataclass(slots=True)
 class DatasetOutputSpec:
+    run_id: str
     config: dataset_mod.DatasetConfig
     start_utc: datetime
     end_utc: datetime
@@ -70,6 +77,7 @@ def write_dataset_outputs(
         _write_universe_table(dataset_dir=staging_dir, snapshots=spec.snapshots)
 
         manifest = dataset_mod.DatasetManifest(
+            run_id=spec.run_id,
             dataset_id=dataset_id,
             config=spec.config,
             built_at=datetime.now(tz=UTC),
@@ -101,6 +109,7 @@ def persist_build_artifacts(
     config_payload: dict[str, Any],
     run_context: run_context_mod.RunContext,
     outputs: DatasetBuildOutputs,
+    parent_run_id: str | None,
 ) -> None:
     completed_context = run_context_mod.close_run_context(run_context)
     artifact_map = {
@@ -114,34 +123,20 @@ def persist_build_artifacts(
         run_context=completed_context,
         config_payload=config_payload,
         artifacts=artifact_map,
-        parent_run_id=None,
+        parent_run_id=parent_run_id,
     )
 
 
 def load_dataset(gold_root: Path, dataset_id: str) -> dataset_mod.GoldDataset:
     """Load a previously built gold dataset by dataset id or unique config name."""
-    if not gold_root.exists() or not gold_root.is_dir():
+    locator = resolve_dataset_locator(gold_root, dataset_id)
+    meta_path = locator.dataset_dir / "_meta.json"
+    if not meta_path.exists():
         raise KeyError(f"No gold dataset found with id or name '{dataset_id}'")
-
-    entries = _load_dataset_entries(gold_root)
-    for manifest, candidate_dir in entries:
-        if manifest.dataset_id == dataset_id:
-            return dataset_mod.GoldDataset(manifest=manifest, dataset_dir=candidate_dir)
-
-    name_matches = [
-        (manifest, candidate_dir)
-        for manifest, candidate_dir in entries
-        if manifest.config.name == dataset_id
-    ]
-    if len(name_matches) == 1:
-        manifest, candidate_dir = name_matches[0]
-        return dataset_mod.GoldDataset(manifest=manifest, dataset_dir=candidate_dir)
-    if len(name_matches) > 1:
-        raise ValueError(
-            f"Dataset name '{dataset_id}' is ambiguous; use an explicit dataset_id instead."
-        )
-
-    raise KeyError(f"No gold dataset found with id or name '{dataset_id}'")
+    manifest = dataset_mod.DatasetManifest.model_validate_json(
+        meta_path.read_text(encoding="utf-8")
+    )
+    return dataset_mod.GoldDataset(manifest=manifest, dataset_dir=locator.dataset_dir)
 
 
 def list_datasets(gold_root: Path) -> list[dataset_mod.DatasetManifest]:
@@ -160,6 +155,30 @@ def make_dataset_id(config: dataset_mod.DatasetConfig) -> str:
 def dataset_directory(gold_root: Path, dataset_id: str) -> Path:
     """Return the immutable storage path for one dataset snapshot."""
     return gold_root / dataset_id
+
+
+def resolve_dataset_locator(gold_root: Path, dataset_ref: str) -> DatasetLocator:
+    """Resolve a dataset by hash directory name or unique manifest config name."""
+    direct_dir = gold_root / dataset_ref
+    if direct_dir.exists() and direct_dir.is_dir():
+        return DatasetLocator(dataset_id=direct_dir.name, dataset_dir=direct_dir)
+
+    if not gold_root.exists() or not gold_root.is_dir():
+        raise KeyError(f"No gold dataset found with id or name '{dataset_ref}'")
+
+    entries = _load_dataset_entries(gold_root)
+    name_matches = [
+        DatasetLocator(dataset_id=manifest.dataset_id, dataset_dir=candidate_dir)
+        for manifest, candidate_dir in entries
+        if manifest.config.name == dataset_ref
+    ]
+    if len(name_matches) == 1:
+        return name_matches[0]
+    if len(name_matches) > 1:
+        raise ValueError(
+            f"Dataset name '{dataset_ref}' is ambiguous; use an explicit dataset_id instead."
+        )
+    raise KeyError(f"No gold dataset found with id or name '{dataset_ref}'")
 
 
 def _write_event_tables(

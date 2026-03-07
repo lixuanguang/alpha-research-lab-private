@@ -67,6 +67,32 @@ def _write_gold_trades(dataset_dir: Path, n: int = 20) -> None:
     pq.write_table(table, dataset_dir / "trades.parquet", compression="zstd")
 
 
+def _write_dataset_meta(dataset_dir: Path, dataset_id: str, dataset_name: str) -> None:
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "run_id": "dataset_run_123",
+        "dataset_id": dataset_id,
+        "config": {
+            "name": dataset_name,
+            "start": _BASE.isoformat(),
+            "end": (_BASE + timedelta(days=1)).isoformat(),
+            "venues": None,
+            "event_types": ["trades"],
+            "universe_filters": {},
+            "require_quality_pass": False,
+            "require_gap_free": False,
+            "max_gap_hours": 24.0,
+        },
+        "built_at": _BASE.isoformat(),
+        "row_counts": {"trades": 20},
+        "instrument_count": 2,
+        "date_range": [_BASE.isoformat(), (_BASE + timedelta(days=1)).isoformat()],
+        "quality_summary": {"checked": False},
+        "schema_version": 1,
+    }
+    (dataset_dir / "_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
 def _write_empty_gold_trades(dataset_dir: Path) -> None:
     """Write an empty-row gold ``trades.parquet`` into *dataset_dir*."""
     dataset_dir.mkdir(parents=True, exist_ok=True)
@@ -90,6 +116,14 @@ def storage_root_with_empty_dataset(tmp_path: Path) -> Path:
     """Storage root with a gold dataset containing zero trades rows."""
     dataset_dir = tmp_path / "gold" / "datasets" / _DATASET_ID
     _write_empty_gold_trades(dataset_dir)
+    return tmp_path
+
+
+@pytest.fixture()
+def storage_root_with_named_dataset(tmp_path: Path) -> Path:
+    dataset_dir = tmp_path / "gold" / "datasets" / _DATASET_ID
+    _write_gold_trades(dataset_dir, n=20)
+    _write_dataset_meta(dataset_dir, _DATASET_ID, "named_dataset")
     return tmp_path
 
 
@@ -413,6 +447,24 @@ def test_missing_trades_parquet_exits_nonzero(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "trades.parquet" in result.output
+
+
+def test_execute_resolves_dataset_by_name(storage_root_with_named_dataset: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        research_main.main,
+        [
+            "--format", "json",
+            "build-features",
+            "--dataset-id", "named_dataset",
+            "--feature-set-version", "v1",
+            "--storage-root", str(storage_root_with_named_dataset),
+            "--execute",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["dataset_id"] == _DATASET_ID
 
 
 def test_invalid_lookback_bars_exits_nonzero() -> None:

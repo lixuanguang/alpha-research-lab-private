@@ -132,6 +132,13 @@ def _run_backtest(storage_root: Path, parent_run_id: str = _FEATURE_RUN_ID) -> s
     return json.loads(result.output)["run_id"]
 
 
+def _first_feature_timestamp(storage_root: Path, run_id: str) -> datetime:
+    table = pq.read_table(
+        artifact_paths.artifact_key_path(storage_root, run_id, "features.parquet")
+    )
+    return table.column("ts_event")[0].as_py()
+
+
 def _run_evaluate(storage_root: Path, backtest_run_id: str) -> str:
     """Execute evaluate and return its run_id."""
     runner = CliRunner()
@@ -276,6 +283,39 @@ class TestBacktest:
         assert Path(manifest.artifacts["trades"]).exists()
         assert Path(manifest.artifacts["equity"]).exists()
         assert manifest.parent_run_id == _FEATURE_RUN_ID
+
+    def test_first_fill_is_delayed_until_next_observation(
+        self,
+        storage_with_features: Path,
+    ) -> None:
+        first_feature_ts = _first_feature_timestamp(storage_with_features, _FEATURE_RUN_ID)
+        bt_run_id = _run_backtest(storage_with_features)
+        trades_table = pq.read_table(
+            artifact_paths.artifact_key_path(storage_with_features, bt_run_id, "trades.parquet")
+        )
+        if trades_table.num_rows == 0:
+            pytest.fail("Expected at least one simulated trade for delayed-fill assertion")
+        first_trade_ts = trades_table.column("ts_event")[0].as_py()
+        assert first_trade_ts > first_feature_ts
+
+    def test_vectorized_engine_executes_successfully(self, storage_with_features: Path) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            research_main.main,
+            [
+                "--format", "json",
+                "backtest",
+                "--dataset-id", "abc",
+                "--strategy-id", _BT_STRATEGY,
+                "--engine", "vectorized",
+                "--parent-run-id", _FEATURE_RUN_ID,
+                "--storage-root", str(storage_with_features),
+                "--execute",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["engine"] == "vectorized"
 
     def test_empty_features_exits_zero(self, storage_with_empty_features: Path) -> None:
         """Empty feature input must not crash — produces zero trades."""

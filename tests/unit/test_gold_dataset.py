@@ -89,6 +89,7 @@ def _write_dataset(tmp_path: Path) -> tuple[dataset_mod.DatasetManifest, Path]:
 
     config = dataset_mod.DatasetConfig(name="test_ds", start=_BASE, end=_END)
     manifest = dataset_mod.DatasetManifest(
+        run_id="dataset_run_abc123",
         dataset_id="abc123",
         config=config,
         built_at=datetime.now(tz=UTC),

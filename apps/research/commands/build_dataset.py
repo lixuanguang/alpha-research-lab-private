@@ -93,6 +93,11 @@ def make_dataset_builder(storage_root: Path) -> builder_mod.DatasetBuilder:
     help="Maximum tolerated gap duration (hours) when --require-gap-free is enabled.",
 )
 @click.option(
+    "--parent-run-id",
+    default=None,
+    help="Optional upstream ingestion run id for lineage linking.",
+)
+@click.option(
     "--storage-root",
     type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
     default=Path("data"),
@@ -116,6 +121,7 @@ def build_dataset_command(
     require_quality_pass: bool,
     require_gap_free: bool,
     max_gap_hours: float,
+    parent_run_id: str | None,
     storage_root: Path,
     execute: bool,
 ) -> None:
@@ -166,6 +172,7 @@ def build_dataset_command(
                 payload=payload,
                 storage_root=resolved_root,
                 execute=False,
+                parent_run_id=parent_run_id,
             )
         )
         cmd_common.emit_outcome(outcome, fmt)
@@ -173,7 +180,11 @@ def build_dataset_command(
 
     try:
         builder = make_dataset_builder(resolved_root)
-        manifest = builder.build(config, config_payload=payload)
+        manifest = builder.build(
+            config,
+            config_payload=payload,
+            parent_run_id=parent_run_id,
+        )
     except builder_mod.DatasetBuildError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -194,6 +205,7 @@ def _emit_manifest_outcome(
         data: dict[str, Any] = {
             "run_type": "dataset_build",
             "status": "materialized",
+            "run_id": manifest.run_id,
             "dataset_id": manifest.dataset_id,
             "name": manifest.config.name,
             "built_at": manifest.built_at.isoformat(),
@@ -208,7 +220,9 @@ def _emit_manifest_outcome(
     else:
         click.echo(
             f"run_type=dataset_build  status=materialized  "
-            f"dataset_id={manifest.dataset_id}  name={manifest.config.name}"
+            f"run_id={manifest.run_id}  "
+            f"dataset_id={manifest.dataset_id}  "
+            f"name={manifest.config.name}"
         )
         click.echo(
             f"rows={manifest.row_counts}  "

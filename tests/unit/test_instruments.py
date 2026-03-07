@@ -199,6 +199,94 @@ def test_market_master_register_market_preserves_first_seen_and_latest_last_upda
     assert stored.last_updated == datetime(2026, 2, 11, tzinfo=UTC)
 
 
+def test_market_master_current_snapshot_keeps_latest_payload_fields() -> None:
+    master = instruments_master.MarketMaster()
+    original_market = _load_market_specs()[0].model_copy(
+        update={
+            "title": "Original title",
+            "last_updated": datetime(2026, 2, 2, tzinfo=UTC),
+        }
+    )
+    latest_market = original_market.model_copy(
+        update={
+            "title": "Latest title",
+            "last_updated": datetime(2026, 2, 11, tzinfo=UTC),
+        }
+    )
+    stale_refresh = original_market.model_copy(
+        update={
+            "title": "Stale title",
+            "last_updated": datetime(2026, 2, 5, tzinfo=UTC),
+        }
+    )
+
+    master.register_market(original_market)
+    master.register_market(latest_market)
+    master.register_market(stale_refresh)
+
+    stored = master.get_market("polymarket:us-pres-2028-winner")
+    assert stored is not None
+    assert stored.title == "Latest title"
+
+
+def test_market_master_market_at_uses_history() -> None:
+    master = instruments_master.MarketMaster()
+    market = _load_market_specs()[0].model_copy(
+        update={
+            "volume": 10,
+            "first_seen": datetime(2026, 2, 1, tzinfo=UTC),
+            "last_updated": datetime(2026, 2, 1, tzinfo=UTC),
+        }
+    )
+    master.register_market(market)
+    master.register_market(
+        market.model_copy(
+            update={
+                "volume": 99,
+                "last_updated": datetime(2026, 2, 4, tzinfo=UTC),
+            }
+        )
+    )
+
+    early = master.market_at(
+        "polymarket:us-pres-2028-winner",
+        datetime(2026, 2, 2, tzinfo=UTC),
+    )
+    late = master.market_at(
+        "polymarket:us-pres-2028-winner",
+        datetime(2026, 2, 5, tzinfo=UTC),
+    )
+
+    assert early is not None
+    assert late is not None
+    assert early.volume == 10
+    assert late.volume == 99
+
+
+def test_market_master_backfilled_history_updates_first_seen_across_versions() -> None:
+    master = instruments_master.MarketMaster()
+    market = _load_market_specs()[0].model_copy(
+        update={
+            "first_seen": datetime(2026, 2, 5, tzinfo=UTC),
+            "last_updated": datetime(2026, 2, 5, tzinfo=UTC),
+        }
+    )
+    master.register_market(market)
+    master.register_market(
+        market.model_copy(
+            update={
+                "first_seen": datetime(2026, 2, 1, tzinfo=UTC),
+                "last_updated": datetime(2026, 2, 1, tzinfo=UTC),
+            }
+        )
+    )
+
+    history = master.get_market_history("polymarket:us-pres-2028-winner")
+
+    assert history
+    assert all(item.first_seen == datetime(2026, 2, 1, tzinfo=UTC) for item in history)
+
+
 def test_market_master_search_filters_by_venue_category_and_lifecycle() -> None:
     master = instruments_master.MarketMaster()
     asyncio.run(master.load_from_exchange(_MockAdapter(_load_market_specs())))

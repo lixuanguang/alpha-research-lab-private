@@ -13,9 +13,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import apps.research.main as research_main
 import pyarrow as pa
 import pytest
-from apps.research.main import main
 from click.testing import CliRunner
 
 import alpha_core.instruments.master as master_mod
@@ -125,7 +125,7 @@ def test_plan_only_exits_zero() -> None:
     """Plan-only mode must exit 0 and emit a planned outcome."""
     runner = CliRunner()
     result = runner.invoke(
-        main,
+        research_main.main,
         ["build-dataset", "--name", "test_ds", "--start", _START_STR, "--end", _END_STR],
     )
     assert result.exit_code == 0, result.output
@@ -138,7 +138,7 @@ def test_plan_only_json_output() -> None:
 
     runner = CliRunner()
     result = runner.invoke(
-        main,
+        research_main.main,
         [
             "--format", "json",
             "build-dataset",
@@ -164,7 +164,7 @@ def test_execute_run_manifest_uses_same_config_hash_as_plan(tmp_path: Path) -> N
     builder, storage_root = _make_wired_builder(tmp_path)
     runner = CliRunner()
     plan = runner.invoke(
-        main,
+        research_main.main,
         [
             "--format",
             "json",
@@ -184,7 +184,7 @@ def test_execute_run_manifest_uses_same_config_hash_as_plan(tmp_path: Path) -> N
 
     with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
         execute = runner.invoke(
-            main,
+            research_main.main,
             [
                 "--config",
                 str(config_path),
@@ -217,7 +217,7 @@ def test_execute_emits_materialized_status(wired_builder: tuple) -> None:
     runner = CliRunner()
     with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
         result = runner.invoke(
-            main,
+            research_main.main,
             [
                 "build-dataset",
                 "--name", "gold_jan",
@@ -240,7 +240,7 @@ def test_execute_json_output_has_dataset_id(wired_builder: tuple) -> None:
     runner = CliRunner()
     with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
         result = runner.invoke(
-            main,
+            research_main.main,
             [
                 "--format", "json",
                 "build-dataset",
@@ -268,7 +268,7 @@ def test_execute_writes_gold_parquet(wired_builder: tuple) -> None:
     runner = CliRunner()
     with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
         result = runner.invoke(
-            main,
+            research_main.main,
             [
                 "build-dataset",
                 "--name", "gold_parquet_check",
@@ -295,7 +295,7 @@ def test_execute_manifest_counts_match_silver(wired_builder: tuple) -> None:
     runner = CliRunner()
     with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
         result = runner.invoke(
-            main,
+            research_main.main,
             [
                 "--format", "json",
                 "build-dataset",
@@ -315,6 +315,53 @@ def test_execute_manifest_counts_match_silver(wired_builder: tuple) -> None:
     assert trades_count == 20
 
 
+def test_execute_json_output_has_run_id(wired_builder: tuple) -> None:
+    import json
+
+    builder, storage_root = wired_builder
+    runner = CliRunner()
+    with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
+        result = runner.invoke(
+            research_main.main,
+            [
+                "--format", "json",
+                "build-dataset",
+                "--name", "run_id_check",
+                "--start", _START_STR,
+                "--end", _END_STR,
+                "--skip-quality-pass",
+                "--storage-root", str(storage_root),
+                "--execute",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["run_id"]
+
+
+def test_execute_manifest_parent_run_id_is_set(wired_builder: tuple) -> None:
+    builder, storage_root = wired_builder
+    runner = CliRunner()
+    with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
+        result = runner.invoke(
+            research_main.main,
+            [
+                "build-dataset",
+                "--name", "lineage_check",
+                "--start", _START_STR,
+                "--end", _END_STR,
+                "--skip-quality-pass",
+                "--parent-run-id", "ingestion_run_123",
+                "--storage-root", str(storage_root),
+                "--execute",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    run_dirs = sorted((storage_root / "runs").iterdir())
+    run_manifest = manifest_mod.read_run_manifest(run_dirs[0] / "manifest.json")
+    assert run_manifest.parent_run_id == "ingestion_run_123"
+
+
 # ---------------------------------------------------------------------------
 # Tests — error paths
 # ---------------------------------------------------------------------------
@@ -323,7 +370,7 @@ def test_execute_manifest_counts_match_silver(wired_builder: tuple) -> None:
 def test_invalid_max_gap_hours_exits_nonzero() -> None:
     runner = CliRunner()
     result = runner.invoke(
-        main,
+        research_main.main,
         [
             "build-dataset",
             "--name", "bad",
@@ -338,7 +385,7 @@ def test_invalid_max_gap_hours_exits_nonzero() -> None:
 def test_invalid_start_datetime_exits_nonzero() -> None:
     runner = CliRunner()
     result = runner.invoke(
-        main,
+        research_main.main,
         [
             "build-dataset",
             "--name", "bad",
@@ -364,7 +411,7 @@ def test_dataset_build_error_exits_nonzero(wired_builder: tuple) -> None:
         side_effect=_failing_builder,
     ):
         result = runner.invoke(
-            main,
+            research_main.main,
             [
                 "build-dataset",
                 "--name", "bad_quality",

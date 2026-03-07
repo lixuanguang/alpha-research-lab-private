@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.run_context as run_context_mod
+import alpha_core.storage.lineage as lineage_mod
 
 # ---------------------------------------------------------------------------
 # Schema versioning
@@ -87,6 +88,26 @@ def persist_run_record(
             parent_run_id=parent_run_id,
         ),
     )
+    _link_parent_ingestion_run(
+        storage_root=storage_root,
+        parent_run_id=parent_run_id,
+        run_id=run_context.run_id,
+    )
+
+
+def _link_parent_ingestion_run(
+    *,
+    storage_root: Path,
+    parent_run_id: str | None,
+    run_id: str,
+) -> None:
+    if parent_run_id is None:
+        return
+    store = lineage_mod.LineageStore(storage_root)
+    try:
+        store.link_downstream_run(parent_run_id, run_id)
+    except KeyError:
+        return
 
 
 __all__ = [

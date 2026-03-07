@@ -21,6 +21,7 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.dataset_builder_io as dataset_builder_io
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.storage.conventions as storage_conventions
@@ -154,16 +155,21 @@ class FeatureRunner:
         )
 
         # 1. Fail fast: require dataset and trades artifact.
-        dataset_dir = self._gold_root / config.dataset_id
-        if not dataset_dir.exists():
-            raise FeatureRunError(
-                f"Dataset '{config.dataset_id}' not found at '{dataset_dir}'. "
-                "Run build-dataset first."
+        try:
+            dataset_locator = dataset_builder_io.resolve_dataset_locator(
+                self._gold_root,
+                config.dataset_id,
             )
-        trades_path = dataset_dir / "trades.parquet"
+        except (KeyError, ValueError) as exc:
+            raise FeatureRunError(
+                f"Dataset '{config.dataset_id}' could not be resolved: {exc}. "
+                "Run build-dataset first."
+            ) from exc
+
+        trades_path = dataset_locator.dataset_dir / "trades.parquet"
         if not trades_path.exists():
             raise FeatureRunError(
-                f"Dataset '{config.dataset_id}' is missing 'trades.parquet'. "
+                f"Dataset '{dataset_locator.dataset_id}' is missing 'trades.parquet'. "
                 "The dataset may be empty or was built without the 'trades' event type."
             )
 
@@ -191,7 +197,7 @@ class FeatureRunner:
 
         feature_manifest = FeatureManifest(
             run_id=run_id,
-            dataset_id=config.dataset_id,
+            dataset_id=dataset_locator.dataset_id,
             feature_set_version=config.feature_set_version,
             built_at=built_at,
             lookback_bars=config.lookback_bars,
@@ -215,7 +221,7 @@ class FeatureRunner:
             "features": str(features_path),
             "feature_manifest": str(feature_manifest_path),
             "feature_set_version": config.feature_set_version,
-            "dataset_id": config.dataset_id,
+            "dataset_id": dataset_locator.dataset_id,
         }
         manifest_mod.persist_run_record(
             storage_root=self._storage_root,

@@ -95,6 +95,7 @@ class DatasetManifest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    run_id: str
     dataset_id: str  # Deterministic hash of config
     config: DatasetConfig
     built_at: datetime
