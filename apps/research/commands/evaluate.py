@@ -68,10 +68,13 @@ def evaluate_command(
     """
     resolved_root = cmd_common.resolve_storage_root(ctx, storage_root)
     fmt = cmd_common.get_output_format(ctx)
-    payload = cmd_common.build_run_payload(ctx, {
-        "backtest_run_id": backtest_run_id,
-        "metrics_profile": metrics_profile,
-    })
+    payload = cmd_common.build_run_payload(
+        ctx,
+        {
+            "backtest_run_id": backtest_run_id,
+            "metrics_profile": metrics_profile,
+        },
+    )
 
     if not execute:
         cmd_common.emit_outcome(

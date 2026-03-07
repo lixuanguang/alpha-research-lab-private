@@ -79,9 +79,7 @@ class _PassthroughKernel:
     def name(self) -> str:
         return "passthrough"
 
-    def step(
-        self, state: Mapping[str, Any], event: Mapping[str, Any]
-    ) -> Mapping[str, Any]:
+    def step(self, state: Mapping[str, Any], event: Mapping[str, Any]) -> Mapping[str, Any]:
         return dict(state)
 
 
@@ -95,9 +93,7 @@ class _OffsetPriceKernel:
     def name(self) -> str:
         return f"offset_price_{self._offset}"
 
-    def step(
-        self, state: Mapping[str, Any], event: Mapping[str, Any]
-    ) -> Mapping[str, Any]:
+    def step(self, state: Mapping[str, Any], event: Mapping[str, Any]) -> Mapping[str, Any]:
         result = dict(state)
         if "price" in result and isinstance(result["price"], (int, float)):
             result["price"] = result["price"] + self._offset
@@ -111,9 +107,7 @@ class _WrongKeyKernel:
     def name(self) -> str:
         return "wrong_key"
 
-    def step(
-        self, state: Mapping[str, Any], event: Mapping[str, Any]
-    ) -> Mapping[str, Any]:
+    def step(self, state: Mapping[str, Any], event: Mapping[str, Any]) -> Mapping[str, Any]:
         result = dict(state)
         result["__spurious__"] = 999
         return result
@@ -156,9 +150,7 @@ class TestParityConfig:
         assert cfg.require_same_length is True
 
     def test_relative_mode(self) -> None:
-        cfg = perf_parity.ParityConfig(
-            tolerance=1e-6, mode=perf_parity.ToleranceMode.RELATIVE
-        )
+        cfg = perf_parity.ParityConfig(tolerance=1e-6, mode=perf_parity.ToleranceMode.RELATIVE)
         assert cfg.mode is perf_parity.ToleranceMode.RELATIVE
 
     def test_zero_tolerance_allowed(self) -> None:
@@ -191,9 +183,7 @@ _INPUTS: list[list[float]] = [
 
 _CFG_TIGHT = perf_parity.ParityConfig(tolerance=0.0)
 _CFG_LOOSE = perf_parity.ParityConfig(tolerance=0.01)
-_CFG_RELATIVE = perf_parity.ParityConfig(
-    tolerance=1e-6, mode=perf_parity.ToleranceMode.RELATIVE
-)
+_CFG_RELATIVE = perf_parity.ParityConfig(tolerance=1e-6, mode=perf_parity.ToleranceMode.RELATIVE)
 
 
 class TestCheckFeatureParity:
@@ -201,9 +191,7 @@ class TestCheckFeatureParity:
         baseline = _IdentityTransform()
         # accelerated is another identity (same outputs)
         accelerated = _IdentityTransform()
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, _INPUTS, _CFG_TIGHT
-        )
+        result = perf_parity.check_feature_parity(baseline, accelerated, _INPUTS, _CFG_TIGHT)
         assert result.passed
         assert result.max_deviation == 0.0
         assert result.n_cases == len(_INPUTS)
@@ -219,9 +207,7 @@ class TestCheckFeatureParity:
     def test_beyond_tolerance_fails(self) -> None:
         baseline = _IdentityTransform()
         accelerated = _ScaledTransform(2.0)  # doubles all values
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, _INPUTS, _CFG_TIGHT
-        )
+        result = perf_parity.check_feature_parity(baseline, accelerated, _INPUTS, _CFG_TIGHT)
         assert not result.passed
         assert result.max_deviation > 0.0
         assert "FAILED" in result.summary
@@ -229,17 +215,13 @@ class TestCheckFeatureParity:
     def test_passed_summary_label(self) -> None:
         baseline = _IdentityTransform()
         accelerated = _IdentityTransform()
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, _INPUTS, _CFG_TIGHT
-        )
+        result = perf_parity.check_feature_parity(baseline, accelerated, _INPUTS, _CFG_TIGHT)
         assert "PASSED" in result.summary
 
     def test_length_mismatch_fails_with_require_same_length(self) -> None:
         baseline = _IdentityTransform()
         accelerated = _ShortenTransform()
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, _INPUTS, _CFG_TIGHT
-        )
+        result = perf_parity.check_feature_parity(baseline, accelerated, _INPUTS, _CFG_TIGHT)
         assert not result.passed
         assert result.max_deviation == math.inf
 
@@ -250,46 +232,34 @@ class TestCheckFeatureParity:
         # _deviation returns inf for length mismatches regardless of the flag;
         # the flag only controls whether we early-exit vs let _deviation handle it.
         cfg = perf_parity.ParityConfig(tolerance=1.0, require_same_length=False)
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, _INPUTS, cfg
-        )
+        result = perf_parity.check_feature_parity(baseline, accelerated, _INPUTS, cfg)
         # _deviation returns inf for unequal lengths → still fails
         assert not result.passed
 
     def test_empty_inputs_passes(self) -> None:
         baseline = _IdentityTransform()
         accelerated = _IdentityTransform()
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, [], _CFG_TIGHT
-        )
+        result = perf_parity.check_feature_parity(baseline, accelerated, [], _CFG_TIGHT)
         assert result.passed
         assert result.n_cases == 0
 
     def test_relative_mode_tight(self) -> None:
         baseline = _IdentityTransform()
         accelerated = _ScaledTransform(1.0 + 1e-10)  # tiny relative error
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, _INPUTS, _CFG_RELATIVE
-        )
+        result = perf_parity.check_feature_parity(baseline, accelerated, _INPUTS, _CFG_RELATIVE)
         assert result.passed
 
     def test_relative_mode_fail(self) -> None:
         baseline = _IdentityTransform()
         accelerated = _ScaledTransform(1.1)  # 10% relative error
-        cfg = perf_parity.ParityConfig(
-            tolerance=1e-6, mode=perf_parity.ToleranceMode.RELATIVE
-        )
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, _INPUTS, cfg
-        )
+        cfg = perf_parity.ParityConfig(tolerance=1e-6, mode=perf_parity.ToleranceMode.RELATIVE)
+        result = perf_parity.check_feature_parity(baseline, accelerated, _INPUTS, cfg)
         assert not result.passed
 
     def test_result_fields_present(self) -> None:
         baseline = _IdentityTransform()
         accelerated = _IdentityTransform()
-        result = perf_parity.check_feature_parity(
-            baseline, accelerated, _INPUTS, _CFG_TIGHT
-        )
+        result = perf_parity.check_feature_parity(baseline, accelerated, _INPUTS, _CFG_TIGHT)
         assert isinstance(result.passed, bool)
         assert isinstance(result.max_deviation, float)
         assert isinstance(result.summary, str)
@@ -315,9 +285,7 @@ class TestCheckSimulationParity:
     def test_identical_kernels_pass(self) -> None:
         baseline = _PassthroughKernel()
         accelerated = _PassthroughKernel()
-        result = perf_parity.check_simulation_parity(
-            baseline, accelerated, _SIM_CASES, _CFG_TIGHT
-        )
+        result = perf_parity.check_simulation_parity(baseline, accelerated, _SIM_CASES, _CFG_TIGHT)
         assert result.passed
         assert result.max_deviation == 0.0
 
@@ -325,58 +293,44 @@ class TestCheckSimulationParity:
         baseline = _PassthroughKernel()
         accelerated = _OffsetPriceKernel(offset=1e-12)
         cfg = perf_parity.ParityConfig(tolerance=1e-9)
-        result = perf_parity.check_simulation_parity(
-            baseline, accelerated, _SIM_CASES, cfg
-        )
+        result = perf_parity.check_simulation_parity(baseline, accelerated, _SIM_CASES, cfg)
         assert result.passed
 
     def test_large_offset_fails(self) -> None:
         baseline = _PassthroughKernel()
         accelerated = _OffsetPriceKernel(offset=0.05)
-        result = perf_parity.check_simulation_parity(
-            baseline, accelerated, _SIM_CASES, _CFG_TIGHT
-        )
+        result = perf_parity.check_simulation_parity(baseline, accelerated, _SIM_CASES, _CFG_TIGHT)
         assert not result.passed
 
     def test_extra_key_in_output_fails(self) -> None:
         baseline = _PassthroughKernel()
         accelerated = _WrongKeyKernel()
-        result = perf_parity.check_simulation_parity(
-            baseline, accelerated, _SIM_CASES, _CFG_LOOSE
-        )
+        result = perf_parity.check_simulation_parity(baseline, accelerated, _SIM_CASES, _CFG_LOOSE)
         assert not result.passed
 
     def test_empty_cases_passes(self) -> None:
         baseline = _PassthroughKernel()
         accelerated = _PassthroughKernel()
-        result = perf_parity.check_simulation_parity(
-            baseline, accelerated, [], _CFG_TIGHT
-        )
+        result = perf_parity.check_simulation_parity(baseline, accelerated, [], _CFG_TIGHT)
         assert result.passed
         assert result.n_cases == 0
 
     def test_n_cases_matches_input(self) -> None:
         baseline = _PassthroughKernel()
         accelerated = _PassthroughKernel()
-        result = perf_parity.check_simulation_parity(
-            baseline, accelerated, _SIM_CASES, _CFG_TIGHT
-        )
+        result = perf_parity.check_simulation_parity(baseline, accelerated, _SIM_CASES, _CFG_TIGHT)
         assert result.n_cases == len(_SIM_CASES)
 
     def test_summary_contains_passed(self) -> None:
         baseline = _PassthroughKernel()
         accelerated = _PassthroughKernel()
-        result = perf_parity.check_simulation_parity(
-            baseline, accelerated, _SIM_CASES, _CFG_TIGHT
-        )
+        result = perf_parity.check_simulation_parity(baseline, accelerated, _SIM_CASES, _CFG_TIGHT)
         assert "PASSED" in result.summary
 
     def test_summary_contains_failed(self) -> None:
         baseline = _PassthroughKernel()
         accelerated = _OffsetPriceKernel(offset=0.5)
-        result = perf_parity.check_simulation_parity(
-            baseline, accelerated, _SIM_CASES, _CFG_TIGHT
-        )
+        result = perf_parity.check_simulation_parity(baseline, accelerated, _SIM_CASES, _CFG_TIGHT)
         assert "FAILED" in result.summary
 
 

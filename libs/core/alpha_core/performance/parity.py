@@ -134,10 +134,7 @@ def _deviation(
     if mode is ToleranceMode.ABSOLUTE:
         return max(abs(a - b) for a, b in zip(baseline, accelerated, strict=True))
     # RELATIVE
-    return max(
-        abs(a - b) / (abs(a) + 1e-12)
-        for a, b in zip(baseline, accelerated, strict=True)
-    )
+    return max(abs(a - b) / (abs(a) + 1e-12) for a, b in zip(baseline, accelerated, strict=True))
 
 
 def _mapping_deviation(
@@ -207,9 +204,7 @@ def check_feature_parity(
                 tolerance=config.tolerance,
                 mode=config.mode,
                 n_cases=len(inputs),
-                summary=(
-                    f"Length mismatch: baseline={len(b_out)}, accelerated={len(a_out)}"
-                ),
+                summary=(f"Length mismatch: baseline={len(b_out)}, accelerated={len(a_out)}"),
             )
         worst = max(worst, _deviation(list(b_out), list(a_out), config.mode))
 

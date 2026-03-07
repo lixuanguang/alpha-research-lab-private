@@ -377,9 +377,13 @@ def _prepare_features(
         return None
 
     zscore_col = next((col for col in features_df.columns if col.startswith("price_zscore_")), None)
-    price_col = "price" if "price" in features_df.columns else next(
-        (col for col in features_df.columns if col.startswith("price_mean_")),
-        None,
+    price_col = (
+        "price"
+        if "price" in features_df.columns
+        else next(
+            (col for col in features_df.columns if col.startswith("price_mean_")),
+            None,
+        )
     )
     if zscore_col is None or price_col is None or "instrument_id" not in features_df.columns:
         return None
@@ -401,9 +405,7 @@ def _prepare_features(
         ["execution_ts", "instrument_id", "event_ts"],
         kind="stable",
     ).reset_index(drop=True)
-    prepared["zscore"] = prepared[zscore_col].map(
-        lambda value: _coerce_float(value, default=0.0)
-    )
+    prepared["zscore"] = prepared[zscore_col].map(lambda value: _coerce_float(value, default=0.0))
     prepared["execution_price"] = prepared[price_col].map(_coerce_price)
 
     columns = ["instrument_id", "execution_ts", "zscore", "execution_price"]
@@ -486,8 +488,7 @@ def _apply_fill(
     if (current_quantity > 0) == (trade_quantity > 0):
         new_quantity = current_quantity + trade_quantity
         new_avg_cost = (
-            abs(current_quantity) * current_avg_cost
-            + abs(trade_quantity) * execution_price
+            abs(current_quantity) * current_avg_cost + abs(trade_quantity) * execution_price
         ) / max(abs(new_quantity), _EPSILON)
         return 0.0, None, new_quantity, new_avg_cost
 
@@ -562,12 +563,8 @@ def _vectorized_directions(zscores: pd.Series, strategy_spec: StrategySpec) -> p
         )
         return directions
 
-    directions.loc[zscores <= -strategy_spec.threshold] = (
-        strategy_models.SignalDirection.LONG.value
-    )
-    directions.loc[zscores >= strategy_spec.threshold] = (
-        strategy_models.SignalDirection.SHORT.value
-    )
+    directions.loc[zscores <= -strategy_spec.threshold] = strategy_models.SignalDirection.LONG.value
+    directions.loc[zscores >= strategy_spec.threshold] = strategy_models.SignalDirection.SHORT.value
     return directions
 
 

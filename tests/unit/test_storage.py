@@ -775,8 +775,7 @@ def test_duckdb_internal_helpers_cover_edge_cases() -> None:
     assert duckdb_validation.arrow_type_to_duckdb_type(pa.int32()) == "INTEGER"
     assert duckdb_validation.arrow_type_to_duckdb_type(pa.decimal128(10, 2)) == "DECIMAL(10,2)"
     assert (
-        duckdb_validation.arrow_type_to_duckdb_type(pa.timestamp("us", tz="UTC"))
-        == "TIMESTAMPTZ"
+        duckdb_validation.arrow_type_to_duckdb_type(pa.timestamp("us", tz="UTC")) == "TIMESTAMPTZ"
     )
     assert duckdb_validation.arrow_type_to_duckdb_type(pa.bool_()) == "BOOLEAN"
     assert duckdb_validation.arrow_type_to_duckdb_type(pa.float64()) == "DOUBLE"

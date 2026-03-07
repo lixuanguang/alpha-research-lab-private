@@ -414,11 +414,16 @@ _research_runner = click.testing.CliRunner()
 
 _BUILD_DATASET_PLAN_ARGS = [
     "build-dataset",
-    "--name", "smoke-ds",
-    "--start", "2024-01-01T00:00:00",
-    "--end", "2024-02-01T00:00:00",
-    "--venue", "polymarket",
-    "--event-type", "trades",
+    "--name",
+    "smoke-ds",
+    "--start",
+    "2024-01-01T00:00:00",
+    "--end",
+    "2024-02-01T00:00:00",
+    "--venue",
+    "polymarket",
+    "--event-type",
+    "trades",
     "--plan-only",
 ]
 

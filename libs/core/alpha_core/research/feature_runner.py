@@ -33,9 +33,7 @@ import alpha_core.storage.conventions as storage_conventions
 _FEATURE_MANIFEST_SCHEMA_VERSION: int = 1
 
 # Columns in features.parquet that are not feature values.
-_METADATA_COLS: frozenset[str] = frozenset(
-    {"instrument_id", "price", "ts_available", "ts_event"}
-)
+_METADATA_COLS: frozenset[str] = frozenset({"instrument_id", "price", "ts_available", "ts_event"})
 
 
 class FeatureConfig(BaseModel):
@@ -111,9 +109,7 @@ class FeatureRunner:
 
     def __init__(self, storage_root: Path) -> None:
         self._storage_root = storage_root
-        self._gold_root = (
-            storage_root / storage_conventions.StorageTier.GOLD / "datasets"
-        )
+        self._gold_root = storage_root / storage_conventions.StorageTier.GOLD / "datasets"
 
     # ------------------------------------------------------------------
     # Public API
@@ -149,9 +145,7 @@ class FeatureRunner:
             When the target dataset directory or ``trades.parquet`` is absent.
         """
         effective_payload = (
-            config_payload
-            if config_payload is not None
-            else config.model_dump(mode="json")
+            config_payload if config_payload is not None else config.model_dump(mode="json")
         )
 
         # 1. Fail fast: require dataset and trades artifact.
@@ -179,9 +173,7 @@ class FeatureRunner:
             config_payload=effective_payload,
         )
         features_table = _compute_features(trades_path, config.lookback_bars)
-        feature_names = [
-            col for col in features_table.schema.names if col not in _METADATA_COLS
-        ]
+        feature_names = [col for col in features_table.schema.names if col not in _METADATA_COLS]
 
         # 3. Persist feature matrix.
         run_id = run_context.run_id
@@ -266,17 +258,13 @@ def _compute_features(trades_path: Path, lookback_bars: int) -> pa.Table:
     required = {"instrument_id", "ts_event", "price", "size"}
     missing = required - set(df.columns)
     if missing:
-        raise FeatureRunError(
-            f"trades.parquet is missing required columns: {sorted(missing)}"
-        )
+        raise FeatureRunError(f"trades.parquet is missing required columns: {sorted(missing)}")
 
     n = lookback_bars
     col_prefix = f"_{n}"
 
     df = _with_availability_time(df)
-    df = df.sort_values(["instrument_id", "ts_available", "ts_event"]).reset_index(
-        drop=True
-    )
+    df = df.sort_values(["instrument_id", "ts_available", "ts_event"]).reset_index(drop=True)
 
     grouped = df.groupby("instrument_id", sort=False)
     history_price = grouped["price"].shift(1)

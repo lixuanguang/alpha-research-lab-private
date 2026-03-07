@@ -62,9 +62,8 @@ def _write_features_parquet(storage_root: Path, run_id: str, n: int = _N_ROWS) -
         ]
     )
     import pandas as pd
-    table = pa.Table.from_pandas(
-        pd.DataFrame(df_data), schema=schema, preserve_index=False
-    )
+
+    table = pa.Table.from_pandas(pd.DataFrame(df_data), schema=schema, preserve_index=False)
     pq.write_table(table, path, compression="zstd")
     return path
 
@@ -118,13 +117,19 @@ def _run_backtest(storage_root: Path, parent_run_id: str = _FEATURE_RUN_ID) -> s
     result = runner.invoke(
         research_main.main,
         [
-            "--format", "json",
+            "--format",
+            "json",
             "backtest",
-            "--dataset-id", "deadbeef01234567",
-            "--feature-set-version", "v1",
-            "--strategy-id", _BT_STRATEGY,
-            "--parent-run-id", parent_run_id,
-            "--storage-root", str(storage_root),
+            "--dataset-id",
+            "deadbeef01234567",
+            "--feature-set-version",
+            "v1",
+            "--strategy-id",
+            _BT_STRATEGY,
+            "--parent-run-id",
+            parent_run_id,
+            "--storage-root",
+            str(storage_root),
             "--execute",
         ],
     )
@@ -145,10 +150,13 @@ def _run_evaluate(storage_root: Path, backtest_run_id: str) -> str:
     result = runner.invoke(
         research_main.main,
         [
-            "--format", "json",
+            "--format",
+            "json",
             "evaluate",
-            "--backtest-run-id", backtest_run_id,
-            "--storage-root", str(storage_root),
+            "--backtest-run-id",
+            backtest_run_id,
+            "--storage-root",
+            str(storage_root),
             "--execute",
         ],
     )
@@ -162,10 +170,13 @@ def _run_report(storage_root: Path, evaluate_run_id: str) -> str:
     result = runner.invoke(
         research_main.main,
         [
-            "--format", "json",
+            "--format",
+            "json",
             "report",
-            "--evaluation-run-id", evaluate_run_id,
-            "--storage-root", str(storage_root),
+            "--evaluation-run-id",
+            evaluate_run_id,
+            "--storage-root",
+            str(storage_root),
             "--execute",
         ],
     )
@@ -185,8 +196,10 @@ class TestBacktest:
             research_main.main,
             [
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
             ],
         )
         assert result.exit_code == 0, result.output
@@ -197,10 +210,13 @@ class TestBacktest:
         result = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
             ],
         )
         assert result.exit_code == 0, result.output
@@ -214,9 +230,12 @@ class TestBacktest:
             research_main.main,
             [
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
-                "--storage-root", str(tmp_path),
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--storage-root",
+                str(tmp_path),
             ],
         )
         assert not (tmp_path / "runs").exists()
@@ -227,10 +246,14 @@ class TestBacktest:
             research_main.main,
             [
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
-                "--parent-run-id", _FEATURE_RUN_ID,
-                "--storage-root", str(storage_with_features),
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--parent-run-id",
+                _FEATURE_RUN_ID,
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -253,12 +276,17 @@ class TestBacktest:
         result = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
-                "--parent-run-id", _FEATURE_RUN_ID,
-                "--storage-root", str(storage_with_features),
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--parent-run-id",
+                _FEATURE_RUN_ID,
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -303,13 +331,19 @@ class TestBacktest:
         result = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
-                "--engine", "vectorized",
-                "--parent-run-id", _FEATURE_RUN_ID,
-                "--storage-root", str(storage_with_features),
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--engine",
+                "vectorized",
+                "--parent-run-id",
+                _FEATURE_RUN_ID,
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -323,12 +357,17 @@ class TestBacktest:
         result = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
-                "--parent-run-id", _FEATURE_RUN_ID,
-                "--storage-root", str(storage_with_empty_features),
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--parent-run-id",
+                _FEATURE_RUN_ID,
+                "--storage-root",
+                str(storage_with_empty_features),
                 "--execute",
             ],
         )
@@ -342,9 +381,12 @@ class TestBacktest:
             research_main.main,
             [
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
-                "--storage-root", str(tmp_path),
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--storage-root",
+                str(tmp_path),
                 "--execute",
             ],
         )
@@ -356,10 +398,14 @@ class TestBacktest:
             research_main.main,
             [
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
-                "--parent-run-id", "nonexistentrun123",
-                "--storage-root", str(tmp_path),
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--parent-run-id",
+                "nonexistentrun123",
+                "--storage-root",
+                str(tmp_path),
                 "--execute",
             ],
         )
@@ -372,9 +418,12 @@ class TestBacktest:
             research_main.main,
             [
                 "backtest",
-                "--dataset-id", "abc",
-                "--strategy-id", _BT_STRATEGY,
-                "--starting-cash", "0",
+                "--dataset-id",
+                "abc",
+                "--strategy-id",
+                _BT_STRATEGY,
+                "--starting-cash",
+                "0",
             ],
         )
         assert result.exit_code != 0
@@ -408,8 +457,10 @@ class TestEvaluate:
             research_main.main,
             [
                 "evaluate",
-                "--backtest-run-id", bt_run_id,
-                "--storage-root", str(storage_with_features),
+                "--backtest-run-id",
+                bt_run_id,
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -434,11 +485,15 @@ class TestEvaluate:
         result = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "evaluate",
-                "--backtest-run-id", bt_run_id,
-                "--metrics-profile", "pm_core",
-                "--storage-root", str(storage_with_features),
+                "--backtest-run-id",
+                bt_run_id,
+                "--metrics-profile",
+                "pm_core",
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -457,11 +512,15 @@ class TestEvaluate:
         result = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "evaluate",
-                "--backtest-run-id", bt_run_id,
-                "--metrics-profile", "minimal",
-                "--storage-root", str(storage_with_features),
+                "--backtest-run-id",
+                bt_run_id,
+                "--metrics-profile",
+                "minimal",
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -488,27 +547,30 @@ class TestEvaluate:
             research_main.main,
             [
                 "evaluate",
-                "--backtest-run-id", "nonexistentbt123",
-                "--storage-root", str(tmp_path),
+                "--backtest-run-id",
+                "nonexistentbt123",
+                "--storage-root",
+                str(tmp_path),
                 "--execute",
             ],
         )
         assert result.exit_code != 0
         assert "nonexistentbt123" in result.output
 
-    def test_empty_backtest_produces_zero_metrics(
-        self, storage_with_empty_features: Path
-    ) -> None:
+    def test_empty_backtest_produces_zero_metrics(self, storage_with_empty_features: Path) -> None:
         """Empty backtest (zero trades) must still produce valid metrics."""
         bt_run_id = _run_backtest(storage_with_empty_features)
         runner = CliRunner()
         result = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "evaluate",
-                "--backtest-run-id", bt_run_id,
-                "--storage-root", str(storage_with_empty_features),
+                "--backtest-run-id",
+                bt_run_id,
+                "--storage-root",
+                str(storage_with_empty_features),
                 "--execute",
             ],
         )
@@ -546,8 +608,10 @@ class TestReport:
             research_main.main,
             [
                 "report",
-                "--evaluation-run-id", ev_run_id,
-                "--storage-root", str(storage_with_features),
+                "--evaluation-run-id",
+                ev_run_id,
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -570,10 +634,13 @@ class TestReport:
         result = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
+                "--format",
+                "json",
                 "report",
-                "--evaluation-run-id", ev_run_id,
-                "--storage-root", str(storage_with_features),
+                "--evaluation-run-id",
+                ev_run_id,
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -593,18 +660,26 @@ class TestReport:
         r1 = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
-                "report", "--evaluation-run-id", ev_run_id,
-                "--storage-root", str(storage_with_features),
+                "--format",
+                "json",
+                "report",
+                "--evaluation-run-id",
+                ev_run_id,
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
         r2 = runner.invoke(
             research_main.main,
             [
-                "--format", "json",
-                "report", "--evaluation-run-id", ev_run_id,
-                "--storage-root", str(storage_with_features),
+                "--format",
+                "json",
+                "report",
+                "--evaluation-run-id",
+                ev_run_id,
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -621,9 +696,12 @@ class TestReport:
             research_main.main,
             [
                 "report",
-                "--evaluation-run-id", ev_run_id,
-                "--report-format", "markdown",
-                "--storage-root", str(storage_with_features),
+                "--evaluation-run-id",
+                ev_run_id,
+                "--report-format",
+                "markdown",
+                "--storage-root",
+                str(storage_with_features),
                 "--execute",
             ],
         )
@@ -631,8 +709,7 @@ class TestReport:
         # Find the report.md artifact.
         run_dirs = sorted((storage_with_features / "runs").iterdir())
         report_files = [
-            f for d in run_dirs for f in (d / "stage_outputs").glob("report.md")
-            if f.exists()
+            f for d in run_dirs for f in (d / "stage_outputs").glob("report.md") if f.exists()
         ]
         assert report_files, "report.md must be written for markdown format"
         content = report_files[-1].read_text(encoding="utf-8")
@@ -656,8 +733,10 @@ class TestReport:
             research_main.main,
             [
                 "report",
-                "--evaluation-run-id", "nonexistentev123",
-                "--storage-root", str(tmp_path),
+                "--evaluation-run-id",
+                "nonexistentev123",
+                "--storage-root",
+                str(tmp_path),
                 "--execute",
             ],
         )

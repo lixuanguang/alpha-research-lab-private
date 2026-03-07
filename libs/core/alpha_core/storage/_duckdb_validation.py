@@ -255,9 +255,7 @@ def _extract_nested_query_references(statement: str) -> tuple[set[str], set[str]
         end_index = _skip_parenthesized_block(statement, index)
         inner_statement = statement[index + 1 : end_index - 1].strip()
         if inner_statement and is_read_only_statement(inner_statement):
-            nested_relations, nested_table_functions = _extract_relation_references(
-                inner_statement
-            )
+            nested_relations, nested_table_functions = _extract_relation_references(inner_statement)
             relations.update(nested_relations)
             table_functions.update(nested_table_functions)
         index = end_index

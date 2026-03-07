@@ -175,7 +175,5 @@ def get_profile(name: ProfileName | str) -> EnvironmentProfile:
         key = ProfileName(name)
     except ValueError:
         valid = ", ".join(p.value for p in ProfileName)
-        raise ValueError(
-            f"Unknown profile {name!r}. Valid profiles: {valid}"
-        ) from None
+        raise ValueError(f"Unknown profile {name!r}. Valid profiles: {valid}") from None
     return BUILTIN_PROFILES[key]

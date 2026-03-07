@@ -47,11 +47,7 @@ def main(
     ctx.ensure_object(dict)
     ctx.obj["format"] = output_format
     ctx.obj["output_dir"] = output_dir.resolve() if output_dir is not None else None
-    ctx.obj["config"] = (
-        cmd_common.load_config_reference(config)
-        if config is not None
-        else None
-    )
+    ctx.obj["config"] = cmd_common.load_config_reference(config) if config is not None else None
 
 
 main.add_command(build_dataset_cmd.build_dataset_command)

@@ -371,10 +371,7 @@ def detect_gaps_command(
         )
         return
 
-    click.echo(
-        f"Detected {len(all_gaps)} gap(s) for venue={venue}, "
-        f"event_type={event_type}:"
-    )
+    click.echo(f"Detected {len(all_gaps)} gap(s) for venue={venue}, event_type={event_type}:")
     for gap in all_gaps:
         click.echo(
             f"  outcome={gap.outcome_id}, "

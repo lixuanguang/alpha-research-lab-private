@@ -138,10 +138,13 @@ def test_no_look_ahead_via_ts_record(setup) -> None:  # type: ignore[no-untyped-
     builder, config, tmp_path = setup
     manifest = builder.build(config)
 
-    gold_path = builder_io.dataset_directory(
-        tmp_path / "gold" / "datasets",
-        manifest.dataset_id,
-    ) / "trades.parquet"
+    gold_path = (
+        builder_io.dataset_directory(
+            tmp_path / "gold" / "datasets",
+            manifest.dataset_id,
+        )
+        / "trades.parquet"
+    )
     assert gold_path.exists()
     result = pq.read_table(gold_path)
 

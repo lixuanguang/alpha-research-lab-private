@@ -160,9 +160,7 @@ class DatasetBuilder:
             for point in change_points
         ]
         all_instruments = {
-            instrument_id
-            for snapshot in snapshots
-            for instrument_id in snapshot.instruments
+            instrument_id for snapshot in snapshots for instrument_id in snapshot.instruments
         }
         return snapshots, all_instruments
 
@@ -334,12 +332,12 @@ class DatasetBuilder:
                     end=end,
                 ):
                     ohlcv_gaps = self._gap_detector.detect_ohlcv_gaps(
-                            venue,
-                            instr_id,
-                            resolution=resolution,
-                            start=start,
-                            end=end,
-                        )
+                        venue,
+                        instr_id,
+                        resolution=resolution,
+                        start=start,
+                        end=end,
+                    )
                     gaps_found.extend(
                         _gaps_exceeding_threshold(ohlcv_gaps, max_gap_seconds=max_gap_seconds)
                     )
@@ -378,9 +376,7 @@ def _scope_snapshot_to_venues(
         if _identifier_venue(market_id) in allowed_venues
     ]
     venue_breakdown = {
-        venue: count
-        for venue, count in snapshot.venue_breakdown.items()
-        if venue in allowed_venues
+        venue: count for venue, count in snapshot.venue_breakdown.items() if venue in allowed_venues
     }
     filters_applied = dict(snapshot.filters_applied)
     filters_applied["venues"] = list(venues)

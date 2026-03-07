@@ -71,10 +71,13 @@ def report_command(
     """
     resolved_root = cmd_common.resolve_storage_root(ctx, storage_root)
     fmt = cmd_common.get_output_format(ctx)
-    payload = cmd_common.build_run_payload(ctx, {
-        "evaluation_run_id": evaluation_run_id,
-        "report_format": report_format,
-    })
+    payload = cmd_common.build_run_payload(
+        ctx,
+        {
+            "evaluation_run_id": evaluation_run_id,
+            "report_format": report_format,
+        },
+    )
 
     if not execute:
         cmd_common.emit_outcome(
@@ -100,9 +103,7 @@ def report_command(
     run_id = run_context.run_id
 
     report_suffix = "json" if report_format == "json" else "md"
-    report_path = artifact_paths.artifact_key_path(
-        resolved_root, run_id, f"report.{report_suffix}"
-    )
+    report_path = artifact_paths.artifact_key_path(resolved_root, run_id, f"report.{report_suffix}")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_text = (
         json.dumps(report_payload, indent=2, sort_keys=True)
@@ -190,9 +191,7 @@ def _build_report(
     raw = json.loads(metrics_json_path.read_text(encoding="utf-8"))
     metrics_raw = raw.get("metrics")
     if not isinstance(metrics_raw, dict):
-        raise ReportError(
-            f"metrics.json at '{metrics_json_path}' is missing the 'metrics' object."
-        )
+        raise ReportError(f"metrics.json at '{metrics_json_path}' is missing the 'metrics' object.")
 
     metrics: dict[str, float] = {}
     for key, value in metrics_raw.items():

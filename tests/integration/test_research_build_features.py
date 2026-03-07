@@ -147,10 +147,13 @@ def test_plan_only_json_output() -> None:
     result = runner.invoke(
         research_main.main,
         [
-            "--format", "json",
+            "--format",
+            "json",
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -167,9 +170,12 @@ def test_plan_only_does_not_write_files(tmp_path: Path) -> None:
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(tmp_path),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(tmp_path),
         ],
     )
     assert result.exit_code == 0, result.output
@@ -187,9 +193,12 @@ def test_execute_exits_zero(storage_root_with_dataset: Path) -> None:
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(storage_root_with_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_dataset),
             "--execute",
         ],
     )
@@ -203,9 +212,12 @@ def test_execute_writes_features_parquet(storage_root_with_dataset: Path) -> Non
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(storage_root_with_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_dataset),
             "--execute",
         ],
     )
@@ -222,16 +234,20 @@ def test_execute_features_parquet_has_rows(storage_root_with_dataset: Path) -> N
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--lookback-bars", "5",
-            "--storage-root", str(storage_root_with_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--lookback-bars",
+            "5",
+            "--storage-root",
+            str(storage_root_with_dataset),
             "--execute",
         ],
     )
-    features_path = next(
-        (storage_root_with_dataset / "runs").iterdir()
-    ) / "stage_outputs" / "features.parquet"
+    features_path = (
+        next((storage_root_with_dataset / "runs").iterdir()) / "stage_outputs" / "features.parquet"
+    )
     table = pq.read_table(features_path)
     assert table.num_rows == 20  # One feature row per trade row.
     assert "instrument_id" in table.schema.names
@@ -245,9 +261,12 @@ def test_execute_writes_config_snapshot(storage_root_with_dataset: Path) -> None
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(storage_root_with_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_dataset),
             "--execute",
         ],
     )
@@ -262,16 +281,20 @@ def test_feature_warmup_rows_remain_null(storage_root_with_dataset: Path) -> Non
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--lookback-bars", "5",
-            "--storage-root", str(storage_root_with_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--lookback-bars",
+            "5",
+            "--storage-root",
+            str(storage_root_with_dataset),
             "--execute",
         ],
     )
-    features_path = next(
-        (storage_root_with_dataset / "runs").iterdir()
-    ) / "stage_outputs" / "features.parquet"
+    features_path = (
+        next((storage_root_with_dataset / "runs").iterdir()) / "stage_outputs" / "features.parquet"
+    )
     table = pq.read_table(features_path)
     assert table.column("price_mean_5")[0].as_py() is None
 
@@ -281,11 +304,15 @@ def test_execute_json_output_schema(storage_root_with_dataset: Path) -> None:
     result = runner.invoke(
         research_main.main,
         [
-            "--format", "json",
+            "--format",
+            "json",
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(storage_root_with_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_dataset),
             "--execute",
         ],
     )
@@ -307,9 +334,12 @@ def test_run_manifest_links_feature_artifacts(storage_root_with_dataset: Path) -
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v2",
-            "--storage-root", str(storage_root_with_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v2",
+            "--storage-root",
+            str(storage_root_with_dataset),
             "--execute",
         ],
     )
@@ -331,10 +361,14 @@ def test_run_manifest_parent_run_id_is_set(storage_root_with_dataset: Path) -> N
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--parent-run-id", parent_id,
-            "--storage-root", str(storage_root_with_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--parent-run-id",
+            parent_id,
+            "--storage-root",
+            str(storage_root_with_dataset),
             "--execute",
         ],
     )
@@ -355,9 +389,12 @@ def test_execute_empty_dataset_exits_zero(storage_root_with_empty_dataset: Path)
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(storage_root_with_empty_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_empty_dataset),
             "--execute",
         ],
     )
@@ -373,15 +410,20 @@ def test_execute_empty_dataset_produces_empty_features_parquet(
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(storage_root_with_empty_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_empty_dataset),
             "--execute",
         ],
     )
-    features_path = next(
-        (storage_root_with_empty_dataset / "runs").iterdir()
-    ) / "stage_outputs" / "features.parquet"
+    features_path = (
+        next((storage_root_with_empty_dataset / "runs").iterdir())
+        / "stage_outputs"
+        / "features.parquet"
+    )
     table = pq.read_table(features_path)
     assert table.num_rows == 0
     assert "instrument_id" in table.schema.names
@@ -394,11 +436,15 @@ def test_execute_empty_dataset_manifest_row_count_is_zero(
     result = runner.invoke(
         research_main.main,
         [
-            "--format", "json",
+            "--format",
+            "json",
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(storage_root_with_empty_dataset),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_empty_dataset),
             "--execute",
         ],
     )
@@ -419,9 +465,12 @@ def test_missing_dataset_exits_nonzero(tmp_path: Path) -> None:
         research_main.main,
         [
             "build-features",
-            "--dataset-id", "nonexistentdataset",
-            "--feature-set-version", "v1",
-            "--storage-root", str(tmp_path),
+            "--dataset-id",
+            "nonexistentdataset",
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(tmp_path),
             "--execute",
         ],
     )
@@ -439,9 +488,12 @@ def test_missing_trades_parquet_exits_nonzero(tmp_path: Path) -> None:
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--storage-root", str(tmp_path),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(tmp_path),
             "--execute",
         ],
     )
@@ -454,11 +506,15 @@ def test_execute_resolves_dataset_by_name(storage_root_with_named_dataset: Path)
     result = runner.invoke(
         research_main.main,
         [
-            "--format", "json",
+            "--format",
+            "json",
             "build-features",
-            "--dataset-id", "named_dataset",
-            "--feature-set-version", "v1",
-            "--storage-root", str(storage_root_with_named_dataset),
+            "--dataset-id",
+            "named_dataset",
+            "--feature-set-version",
+            "v1",
+            "--storage-root",
+            str(storage_root_with_named_dataset),
             "--execute",
         ],
     )
@@ -473,9 +529,12 @@ def test_invalid_lookback_bars_exits_nonzero() -> None:
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--lookback-bars", "0",
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--lookback-bars",
+            "0",
         ],
     )
     assert result.exit_code != 0
@@ -485,10 +544,14 @@ def test_feature_output_schema_is_deterministic(storage_root_with_dataset: Path)
     """Same config must produce identical feature column names across two runs."""
     common_args = [
         "build-features",
-        "--dataset-id", _DATASET_ID,
-        "--feature-set-version", "v1",
-        "--lookback-bars", "10",
-        "--storage-root", str(storage_root_with_dataset),
+        "--dataset-id",
+        _DATASET_ID,
+        "--feature-set-version",
+        "v1",
+        "--lookback-bars",
+        "10",
+        "--storage-root",
+        str(storage_root_with_dataset),
         "--execute",
     ]
     runner = CliRunner()
@@ -529,10 +592,14 @@ def test_late_recorded_events_are_ordered_by_availability(tmp_path: Path) -> Non
         research_main.main,
         [
             "build-features",
-            "--dataset-id", _DATASET_ID,
-            "--feature-set-version", "v1",
-            "--lookback-bars", "1",
-            "--storage-root", str(tmp_path),
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--lookback-bars",
+            "1",
+            "--storage-root",
+            str(tmp_path),
             "--execute",
         ],
     )

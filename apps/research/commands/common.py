@@ -62,9 +62,7 @@ def emit_outcome(outcome: runtime_mod.ResearchStageOutcome, fmt: OutputFormat) -
                     "status": outcome.status,
                     "config_hash": outcome.config_hash,
                     "manifest_path": (
-                        str(outcome.manifest_path)
-                        if outcome.manifest_path is not None
-                        else None
+                        str(outcome.manifest_path) if outcome.manifest_path is not None else None
                     ),
                 },
                 indent=2,

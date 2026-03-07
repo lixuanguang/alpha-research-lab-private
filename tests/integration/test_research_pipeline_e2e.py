@@ -97,6 +97,7 @@ def storage_root(tmp_path: Path) -> Path:
 # Helpers — run each command and return the emitted run_id
 # ---------------------------------------------------------------------------
 
+
 def _run_build_features(storage_root: Path, dataset_id: str) -> str:
     runner = CliRunner()
     result = runner.invoke(
@@ -171,16 +172,12 @@ class TestBuildFeaturesStage:
 
     def test_produces_features_parquet(self, storage_root: Path) -> None:
         run_id = _run_build_features(storage_root, _DATASET_ID)
-        features_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "features.parquet"
-        )
+        features_path = artifact_paths.artifact_key_path(storage_root, run_id, "features.parquet")
         assert features_path.exists(), f"features.parquet missing at {features_path}"
 
     def test_features_parquet_has_required_columns(self, storage_root: Path) -> None:
         run_id = _run_build_features(storage_root, _DATASET_ID)
-        features_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "features.parquet"
-        )
+        features_path = artifact_paths.artifact_key_path(storage_root, run_id, "features.parquet")
         table = pq.read_table(features_path)
         cols = set(table.schema.names)
         assert "instrument_id" in cols
@@ -213,53 +210,35 @@ class TestBacktestStage:
     def feature_run_id(self, storage_root: Path) -> str:
         return _run_build_features(storage_root, _DATASET_ID)
 
-    def test_produces_trades_parquet(
-        self, storage_root: Path, feature_run_id: str
-    ) -> None:
+    def test_produces_trades_parquet(self, storage_root: Path, feature_run_id: str) -> None:
         run_id = _run_backtest(storage_root, feature_run_id)
-        trades_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "trades.parquet"
-        )
+        trades_path = artifact_paths.artifact_key_path(storage_root, run_id, "trades.parquet")
         assert trades_path.exists()
 
-    def test_produces_equity_parquet(
-        self, storage_root: Path, feature_run_id: str
-    ) -> None:
+    def test_produces_equity_parquet(self, storage_root: Path, feature_run_id: str) -> None:
         run_id = _run_backtest(storage_root, feature_run_id)
-        equity_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "equity.parquet"
-        )
+        equity_path = artifact_paths.artifact_key_path(storage_root, run_id, "equity.parquet")
         assert equity_path.exists()
 
-    def test_trades_parquet_schema(
-        self, storage_root: Path, feature_run_id: str
-    ) -> None:
+    def test_trades_parquet_schema(self, storage_root: Path, feature_run_id: str) -> None:
         run_id = _run_backtest(storage_root, feature_run_id)
-        trades_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "trades.parquet"
-        )
+        trades_path = artifact_paths.artifact_key_path(storage_root, run_id, "trades.parquet")
         table = pq.read_table(trades_path)
         required = {"ts_event", "instrument_id", "direction", "size", "price"}
         assert required.issubset(set(table.schema.names)), (
             f"Missing columns: {required - set(table.schema.names)}"
         )
 
-    def test_equity_parquet_schema(
-        self, storage_root: Path, feature_run_id: str
-    ) -> None:
+    def test_equity_parquet_schema(self, storage_root: Path, feature_run_id: str) -> None:
         run_id = _run_backtest(storage_root, feature_run_id)
-        equity_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "equity.parquet"
-        )
+        equity_path = artifact_paths.artifact_key_path(storage_root, run_id, "equity.parquet")
         table = pq.read_table(equity_path)
         required = {"ts_event", "equity", "cash"}
         assert required.issubset(set(table.schema.names)), (
             f"Missing columns: {required - set(table.schema.names)}"
         )
 
-    def test_run_manifest_links_to_features(
-        self, storage_root: Path, feature_run_id: str
-    ) -> None:
+    def test_run_manifest_links_to_features(self, storage_root: Path, feature_run_id: str) -> None:
         run_id = _run_backtest(storage_root, feature_run_id)
         manifest_path = artifact_paths.run_manifest_path(storage_root, run_id)
         manifest = manifest_mod.read_run_manifest(manifest_path)
@@ -286,22 +265,14 @@ class TestEvaluateStage:
         feature_run_id = _run_build_features(storage_root, _DATASET_ID)
         return _run_backtest(storage_root, feature_run_id)
 
-    def test_produces_metrics_json(
-        self, storage_root: Path, backtest_run_id: str
-    ) -> None:
+    def test_produces_metrics_json(self, storage_root: Path, backtest_run_id: str) -> None:
         run_id = _run_evaluate(storage_root, backtest_run_id)
-        metrics_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "metrics.json"
-        )
+        metrics_path = artifact_paths.artifact_key_path(storage_root, run_id, "metrics.json")
         assert metrics_path.exists()
 
-    def test_metrics_json_has_required_keys(
-        self, storage_root: Path, backtest_run_id: str
-    ) -> None:
+    def test_metrics_json_has_required_keys(self, storage_root: Path, backtest_run_id: str) -> None:
         run_id = _run_evaluate(storage_root, backtest_run_id)
-        metrics_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "metrics.json"
-        )
+        metrics_path = artifact_paths.artifact_key_path(storage_root, run_id, "metrics.json")
         data = json.loads(metrics_path.read_text(encoding="utf-8"))
         metrics = data.get("metrics", {})
         required = {"total_return", "trade_count"}
@@ -309,13 +280,9 @@ class TestEvaluateStage:
             f"Missing metric keys: {required - set(metrics.keys())}"
         )
 
-    def test_metrics_json_pm_core_keys(
-        self, storage_root: Path, backtest_run_id: str
-    ) -> None:
+    def test_metrics_json_pm_core_keys(self, storage_root: Path, backtest_run_id: str) -> None:
         run_id = _run_evaluate(storage_root, backtest_run_id)
-        metrics_path = artifact_paths.artifact_key_path(
-            storage_root, run_id, "metrics.json"
-        )
+        metrics_path = artifact_paths.artifact_key_path(storage_root, run_id, "metrics.json")
         data = json.loads(metrics_path.read_text(encoding="utf-8"))
         assert data.get("metrics_profile") == "pm_core"
         metrics = data.get("metrics", {})
@@ -324,18 +291,14 @@ class TestEvaluateStage:
             f"Missing pm_core keys: {pm_core_keys - set(metrics.keys())}"
         )
 
-    def test_produces_metrics_parquet(
-        self, storage_root: Path, backtest_run_id: str
-    ) -> None:
+    def test_produces_metrics_parquet(self, storage_root: Path, backtest_run_id: str) -> None:
         run_id = _run_evaluate(storage_root, backtest_run_id)
         metrics_parquet_path = artifact_paths.artifact_key_path(
             storage_root, run_id, "metrics.parquet"
         )
         assert metrics_parquet_path.exists()
 
-    def test_run_manifest_links_to_backtest(
-        self, storage_root: Path, backtest_run_id: str
-    ) -> None:
+    def test_run_manifest_links_to_backtest(self, storage_root: Path, backtest_run_id: str) -> None:
         run_id = _run_evaluate(storage_root, backtest_run_id)
         manifest_path = artifact_paths.run_manifest_path(storage_root, run_id)
         manifest = manifest_mod.read_run_manifest(manifest_path)
@@ -343,9 +306,7 @@ class TestEvaluateStage:
         assert "config" in manifest.artifacts
         assert manifest.parent_run_id == backtest_run_id
 
-    def test_artifacts_index_has_metrics(
-        self, storage_root: Path, backtest_run_id: str
-    ) -> None:
+    def test_artifacts_index_has_metrics(self, storage_root: Path, backtest_run_id: str) -> None:
         run_id = _run_evaluate(storage_root, backtest_run_id)
         index = artifact_paths.read_artifacts_index(storage_root, run_id)
         assert "metrics_json" in index
@@ -377,12 +338,8 @@ def test_full_research_command_chain(storage_root: Path) -> None:
 
     # ---- Stage 2: backtest -----------------------------------------------
     backtest_run_id = _run_backtest(storage_root, feature_run_id)
-    trades_path = artifact_paths.artifact_key_path(
-        storage_root, backtest_run_id, "trades.parquet"
-    )
-    equity_path = artifact_paths.artifact_key_path(
-        storage_root, backtest_run_id, "equity.parquet"
-    )
+    trades_path = artifact_paths.artifact_key_path(storage_root, backtest_run_id, "trades.parquet")
+    equity_path = artifact_paths.artifact_key_path(storage_root, backtest_run_id, "equity.parquet")
     assert trades_path.exists(), "Stage 2: trades.parquet absent"
     assert equity_path.exists(), "Stage 2: equity.parquet absent"
 
@@ -395,9 +352,7 @@ def test_full_research_command_chain(storage_root: Path) -> None:
 
     # ---- Stage 3: evaluate -----------------------------------------------
     evaluate_run_id = _run_evaluate(storage_root, backtest_run_id)
-    metrics_path = artifact_paths.artifact_key_path(
-        storage_root, evaluate_run_id, "metrics.json"
-    )
+    metrics_path = artifact_paths.artifact_key_path(storage_root, evaluate_run_id, "metrics.json")
     assert metrics_path.exists(), "Stage 3: metrics.json absent"
 
     ev_manifest = manifest_mod.read_run_manifest(

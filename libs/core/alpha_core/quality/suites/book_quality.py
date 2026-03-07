@@ -113,13 +113,11 @@ class PriceLevelOrderExpectation(quality_base.QualityExpectation):
             bid_prices = [float(level["price"]) for level in bids]
             ask_prices = [float(level["price"]) for level in asks]
             if any(
-                bid_prices[index] < bid_prices[index + 1]
-                for index in range(len(bid_prices) - 1)
+                bid_prices[index] < bid_prices[index + 1] for index in range(len(bid_prices) - 1)
             ):
                 violations += 1
             if any(
-                ask_prices[index] > ask_prices[index + 1]
-                for index in range(len(ask_prices) - 1)
+                ask_prices[index] > ask_prices[index + 1] for index in range(len(ask_prices) - 1)
             ):
                 violations += 1
         return quality_base.QualityResult(

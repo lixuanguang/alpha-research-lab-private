@@ -77,10 +77,14 @@ class EvaluateRunner:
                 f"Ensure run '{backtest_run_id}' completed successfully."
             )
 
-        effective_payload = config_payload if config_payload is not None else {
-            "backtest_run_id": backtest_run_id,
-            "metrics_profile": metrics_profile,
-        }
+        effective_payload = (
+            config_payload
+            if config_payload is not None
+            else {
+                "backtest_run_id": backtest_run_id,
+                "metrics_profile": metrics_profile,
+            }
+        )
         run_context = run_context_mod.make_run_context("evaluate", config_payload=effective_payload)
         run_id = run_context.run_id
 
@@ -113,9 +117,7 @@ class EvaluateRunner:
         )
         pq.write_table(
             pa.Table.from_pandas(
-                pd.DataFrame(
-                    [{"metric": key, "value": value} for key, value in metrics.items()]
-                ),
+                pd.DataFrame([{"metric": key, "value": value} for key, value in metrics.items()]),
                 preserve_index=False,
             ),
             metrics_parquet_path,
@@ -212,9 +214,7 @@ def _compute_metrics(
         if equity_ratio == 0.0:
             annualized_return = -1.0
         elif elapsed_seconds > 0:
-            annualized_return = float(
-                equity_ratio ** (_SECONDS_PER_YEAR / elapsed_seconds) - 1.0
-            )
+            annualized_return = float(equity_ratio ** (_SECONDS_PER_YEAR / elapsed_seconds) - 1.0)
 
         period_returns = equity_series.pct_change().dropna()
         deltas = equity_frame["ts_event"].diff().dropna().dt.total_seconds()

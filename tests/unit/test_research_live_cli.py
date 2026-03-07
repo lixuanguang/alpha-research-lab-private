@@ -109,9 +109,7 @@ def test_research_report_execute_writes_report_manifest(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "run_type=report" in result.output
     # Extract run_id from text output: "run_type=report  status=materialized  run_id=<id>  ..."
-    run_id_token = next(
-        t for t in result.output.split() if t.startswith("run_id=")
-    )
+    run_id_token = next(t for t in result.output.split() if t.startswith("run_id="))
     run_id = run_id_token.split("=", maxsplit=1)[1]
     manifest_path = artifact_paths.run_manifest_path(tmp_path, run_id)
     manifest = manifest_mod.read_run_manifest(manifest_path)
