@@ -139,16 +139,14 @@ class TestGoldDataset:
     def test_universe_at_before_late_instrument(self, tmp_path: Path) -> None:
         manifest, dataset_dir = _write_dataset(tmp_path)
         ds = dataset_mod.GoldDataset(manifest=manifest, dataset_dir=dataset_dir)
-        # Only a:m:yes and a:m:no appear at _BASE
         instruments = ds.universe_at(_BASE)
-        assert "a:m:yes" in instruments
-        assert "a:m:no" in instruments
+        assert instruments == ["a:m:yes", "a:m:no"]
 
     def test_universe_at_after_late_instrument(self, tmp_path: Path) -> None:
         manifest, dataset_dir = _write_dataset(tmp_path)
         ds = dataset_mod.GoldDataset(manifest=manifest, dataset_dir=dataset_dir)
         instruments = ds.universe_at(_BASE + timedelta(days=1))
-        assert "b:x:yes" in instruments
+        assert instruments == ["b:x:yes"]
 
     def test_instruments_returns_unique_ids(self, tmp_path: Path) -> None:
         manifest, dataset_dir = _write_dataset(tmp_path)

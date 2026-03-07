@@ -1,6 +1,6 @@
 # Gold Dataset Collection And Streaming Guide (Current Architecture)
 
-> Last updated: March 2, 2026  
+> Last updated: March 7, 2026  
 > Scope: What is implemented in the current codebase today.
 
 ---
@@ -13,8 +13,9 @@ In the current architecture, the data collector writes:
 - `silver/` (canonical Parquet events)
 - `_lineage/` (ingestion run metadata)
 
-`gold/` exists as a configured storage tier (`storage.gold_path`, `StorageTier.GOLD`), but there is no built-in gold dataset builder CLI yet.  
-So "collect and stream gold datasets" currently means:
+`gold/` exists as a configured storage tier (`storage.gold_path`, `StorageTier.GOLD`), and
+the repo now includes a first-class `build-dataset` CLI for deterministic gold
+materialization. So "collect and stream gold datasets" currently means:
 
 1. Collect and stream venue data into silver continuously.
 2. Materialize curated gold datasets from silver on a short cadence (micro-batch loop).
@@ -140,71 +141,91 @@ python -m apps.data_collector.main backfill \
 
 ## 7. Materialize Gold Dataset (Batch Pattern)
 
-Use this when you want a deterministic snapshot from validated silver data.
+Use the first-class `build-dataset` CLI command to create a deterministic gold
+dataset from validated silver partitions.  The command creates a run manifest
+under `data/runs/{run_id}/` and writes gold Parquet files under
+`data/gold/datasets/{dataset_id}/`. Dataset IDs are immutable snapshots; rerun
+with a different dataset config if you need a fresh snapshot after upstream data
+changes.
 
-```python
-from __future__ import annotations
+### 7.1 Dry-run (plan-only, default)
 
-from datetime import UTC, datetime
-from pathlib import Path
-import json
+Preview the run scaffold without writing any data:
 
-import pyarrow.parquet as pq
-
-from alpha_core.storage.parquet_reader import ParquetEventReader
-
-storage_root = Path("data")
-dataset_id = "pm_gold_20260302"
-venue = "polymarket"
-start = datetime(2026, 3, 1, 0, 0, tzinfo=UTC)
-end = datetime(2026, 3, 2, 0, 0, tzinfo=UTC)
-
-reader = ParquetEventReader(storage_root)
-trades = reader.read_trades(venue=venue, start=start, end=end)
-books = reader.read_books(venue=venue, start=start, end=end)
-ohlcv = reader.read_ohlcv(venue=venue, resolution="1h", start=start, end=end)
-
-gold_root = storage_root / "gold" / "datasets" / dataset_id
-(gold_root / "_meta").mkdir(parents=True, exist_ok=True)
-
-if trades.num_rows:
-    pq.write_to_dataset(
-        trades,
-        root_path=str(gold_root / "trades"),
-        partition_cols=["venue", "date"],
-        compression="zstd",
-    )
-if books.num_rows:
-    pq.write_to_dataset(
-        books,
-        root_path=str(gold_root / "books"),
-        partition_cols=["venue", "date", "hour"],
-        compression="zstd",
-    )
-if ohlcv.num_rows:
-    pq.write_to_dataset(
-        ohlcv,
-        root_path=str(gold_root / "ohlcv"),
-        partition_cols=["venue", "resolution", "date"],
-        compression="zstd",
-    )
-
-manifest = {
-    "dataset_id": dataset_id,
-    "venue": venue,
-    "window_start": start.isoformat(),
-    "window_end": end.isoformat(),
-    "counts": {
-        "trades": trades.num_rows,
-        "books": books.num_rows,
-        "ohlcv": ohlcv.num_rows,
-    },
-}
-(gold_root / "_meta" / "manifest.json").write_text(
-    json.dumps(manifest, indent=2), encoding="utf-8"
-)
-print(f"gold dataset ready: {gold_root}")
+```bash
+python -m apps.research.main build-dataset \
+  --name pm_gold_jan2026 \
+  --start 2026-01-01T00:00:00Z \
+  --end   2026-01-31T23:59:59Z \
+  --venue polymarket \
+  --event-type trades --event-type ohlcv
 ```
+
+### 7.2 Execute the build
+
+Add `--execute` to materialize the dataset. The build expects the collector to
+have populated `data/instruments.parquet` through market-refresh polling so the
+universe can be reconstructed without survivorship leakage:
+
+```bash
+python -m apps.research.main build-dataset \
+  --name pm_gold_jan2026 \
+  --start 2026-01-01T00:00:00Z \
+  --end   2026-01-31T23:59:59Z \
+  --venue polymarket \
+  --event-type trades --event-type ohlcv \
+  --storage-root data \
+  --execute
+```
+
+### 7.3 Machine-readable output
+
+Use `--format json` to capture the build result in scripts or CI:
+
+```bash
+python -m apps.research.main --format json build-dataset \
+  --name pm_gold_jan2026 \
+  --start 2026-01-01T00:00:00Z \
+  --end   2026-01-31T23:59:59Z \
+  --venue polymarket \
+  --execute \
+| tee build_result.json
+```
+
+Output fields: `dataset_id`, `name`, `built_at`, `row_counts`,
+`instrument_count`, `date_range`, `status`.
+
+### 7.4 Skip quality gate (dev/test only)
+
+```bash
+python -m apps.research.main build-dataset \
+  --name dev_snapshot \
+  --start 2026-01-01T00:00:00Z \
+  --end   2026-01-02T00:00:00Z \
+  --skip-quality-pass \
+  --execute
+```
+
+### 7.5 Using a shared config reference
+
+Pass a YAML override file for reproducible config hashing:
+
+```bash
+python -m apps.research.main \
+  --config config/research/dataset.example.yaml \
+  build-dataset \
+  --name pm_gold_jan2026 \
+  --start 2026-01-01T00:00:00Z \
+  --end   2026-01-31T23:59:59Z \
+  --execute
+```
+
+See `config/research/dataset.example.yaml` for all supported keys.
+
+> **Note:** The custom Python materializer snippet that previously appeared in
+> this section has been superseded by the `build-dataset` command above.
+> Prefer the CLI for all new dataset builds so runs are fully traced and
+> reproducible.
 
 ---
 
@@ -287,8 +308,16 @@ Key paths written by current pipelines:
   - `data/silver/book_deltas/venue={venue}/date={YYYY-MM-DD}/hour={HH}/...`
 - Lineage runs:  
   `data/_lineage/runs/run_{run_id}.json`
-- Gold datasets (recommended convention for now):  
-  `data/gold/datasets/{dataset_id}/{event_type}/...` and `data/gold/datasets/{dataset_id}/_meta/manifest.json`
+- Gold dataset snapshots:
+  - `data/gold/datasets/{dataset_id}/trades.parquet`
+  - `data/gold/datasets/{dataset_id}/ohlcv.parquet`
+  - `data/gold/datasets/{dataset_id}/books.parquet`
+  - `data/gold/datasets/{dataset_id}/universe.parquet`
+  - `data/gold/datasets/{dataset_id}/_meta.json`
+- Dataset build run artifacts:
+  - `data/runs/{run_id}/manifest.json`
+  - `data/runs/{run_id}/config.json`
+  - `data/runs/{run_id}/artifacts.json`
 
 ---
 
@@ -298,4 +327,3 @@ Key paths written by current pipelines:
 2. Run `validate` + `detect-gaps` before major gold rebuilds.
 3. Treat `event_id` as dedupe key when extending the micro-batch materializer.
 4. Version gold outputs by `dataset_id` (timestamp or semantic label), and keep immutable manifests.
-

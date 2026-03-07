@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import apps.data_collector.connectors.market_refresh as connector_market_refresh
 import pytest
@@ -144,6 +145,23 @@ def test_market_refresh_marks_new_markets_in_metadata_payload() -> None:
     assert len(events) == 1
     assert isinstance(events[0], event_models.CanonicalMetadataUpdate)
     assert events[0].fields_changed == {"status": "new_market"}
+
+
+def test_market_refresh_persists_market_master_snapshot(tmp_path: Path) -> None:
+    snapshot_path = tmp_path / "instruments.parquet"
+    master = instrument_master.MarketMaster()
+    poller = connector_market_refresh.MarketRefreshPoller(
+        _MockAdapter([_market("market-a")]),
+        master,
+        snapshot_path=snapshot_path,
+        interval_seconds=60.0,
+    )
+
+    asyncio.run(poller.poll_once())
+
+    restored = instrument_master.MarketMaster()
+    restored.restore(snapshot_path)
+    assert restored.get_market("kalshi:market-a") is not None
 
 
 def test_market_refresh_ignores_unchanged_markets() -> None:

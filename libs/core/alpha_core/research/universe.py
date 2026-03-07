@@ -122,6 +122,40 @@ class UniverseManager:
         grid = pd.date_range(start=start_utc, end=end_utc, freq=freq, tz="UTC")
         return [self.snapshot_at(ts.to_pydatetime()) for ts in grid]
 
+    def change_points(
+        self,
+        start: datetime,
+        end: datetime,
+    ) -> list[datetime]:
+        """Return the ordered timestamps where universe membership can change.
+
+        Under the current market-master heuristic, membership changes only when
+        a market is first discovered or when a resolved market reaches its
+        resolution timestamp. Capturing these timestamps is sufficient for
+        exact snapshot lookup without storing a daily union.
+        """
+        start_utc = time_utils.ensure_utc(start)
+        end_utc = time_utils.ensure_utc(end)
+        points: set[datetime] = {start_utc, end_utc}
+
+        snapshot = self._master.snapshot()
+        markets_raw: dict[str, Any] = snapshot.get("markets", {})  # type: ignore[assignment]
+        for market_dict in markets_raw.values():
+            market = instrument_models.MarketSpec.model_validate(market_dict)
+            first_seen_utc = time_utils.ensure_utc(market.first_seen)
+            if start_utc <= first_seen_utc <= end_utc:
+                points.add(first_seen_utc)
+
+            if (
+                market.lifecycle == instrument_models.MarketLifecycle.RESOLVED
+                and market.resolution_date is not None
+            ):
+                resolution_utc = time_utils.ensure_utc(market.resolution_date)
+                if start_utc <= resolution_utc <= end_utc:
+                    points.add(resolution_utc)
+
+        return sorted(points)
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------

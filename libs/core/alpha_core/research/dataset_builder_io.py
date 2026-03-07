@@ -5,6 +5,8 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import shutil
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,7 +29,6 @@ _UNIVERSE_SCHEMA = pa.schema(
         pa.field("venue", pa.string(), nullable=False),
     ]
 )
-_KNOWN_EVENT_TABLES: frozenset[str] = frozenset({"trades", "ohlcv", "books"})
 
 
 @dataclass(slots=True)
@@ -56,27 +57,37 @@ def write_dataset_outputs(
 ) -> DatasetBuildOutputs:
     dataset_id = make_dataset_id(spec.config)
     dataset_dir = dataset_directory(gold_root, dataset_id)
-    dataset_dir.mkdir(parents=True, exist_ok=True)
-    _remove_stale_event_tables(
-        dataset_dir=dataset_dir,
-        active_event_types=set(spec.gold_tables),
-    )
+    if dataset_dir.exists():
+        raise FileExistsError(
+            f"Dataset snapshot '{dataset_id}' already exists at {dataset_dir}. "
+            "Dataset IDs are immutable; change the dataset config to create a new snapshot."
+        )
 
-    row_counts = _write_event_tables(dataset_dir=dataset_dir, gold_tables=spec.gold_tables)
-    _write_universe_table(dataset_dir=dataset_dir, snapshots=spec.snapshots)
+    gold_root.mkdir(parents=True, exist_ok=True)
+    staging_dir = gold_root / f".{dataset_id}.{uuid.uuid4().hex}.tmp"
+    staging_dir.mkdir(parents=False, exist_ok=False)
+    try:
+        row_counts = _write_event_tables(dataset_dir=staging_dir, gold_tables=spec.gold_tables)
+        _write_universe_table(dataset_dir=staging_dir, snapshots=spec.snapshots)
 
-    manifest = dataset_mod.DatasetManifest(
-        dataset_id=dataset_id,
-        config=spec.config,
-        built_at=datetime.now(tz=UTC),
-        row_counts=row_counts,
-        instrument_count=spec.instrument_count,
-        date_range=(spec.start_utc, spec.end_utc),
-        quality_summary=spec.quality_summary,
-        schema_version=1,
-    )
+        manifest = dataset_mod.DatasetManifest(
+            dataset_id=dataset_id,
+            config=spec.config,
+            built_at=datetime.now(tz=UTC),
+            row_counts=row_counts,
+            instrument_count=spec.instrument_count,
+            date_range=(spec.start_utc, spec.end_utc),
+            quality_summary=spec.quality_summary,
+            schema_version=1,
+        )
+        staged_meta_path = staging_dir / "_meta.json"
+        staged_meta_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+        staging_dir.rename(dataset_dir)
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+
     meta_path = dataset_dir / "_meta.json"
-    meta_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
     return DatasetBuildOutputs(
         manifest=manifest,
         dataset_id=dataset_id,
@@ -88,7 +99,7 @@ def write_dataset_outputs(
 def persist_build_artifacts(
     *,
     storage_root: Path,
-    config: dataset_mod.DatasetConfig,
+    config_payload: dict[str, Any],
     run_context: run_context_mod.RunContext,
     outputs: DatasetBuildOutputs,
 ) -> None:
@@ -98,7 +109,7 @@ def persist_build_artifacts(
         exist_ok=True,
     )
     artifact_paths.run_config_path(storage_root, completed_context.run_id).write_text(
-        json.dumps(config.model_dump(mode="json"), indent=2, sort_keys=True),
+        json.dumps(config_payload, indent=2, sort_keys=True, default=str),
         encoding="utf-8",
     )
     artifact_map = {
@@ -199,19 +210,6 @@ def _write_universe_table(
 
     universe_table = pa.Table.from_pylist(universe_rows, schema=_UNIVERSE_SCHEMA)
     pq.write_table(universe_table, dataset_dir / "universe.parquet", compression="zstd")
-
-
-def _remove_stale_event_tables(
-    *,
-    dataset_dir: Path,
-    active_event_types: set[str],
-) -> None:
-    active_files = {f"{event_type}.parquet" for event_type in active_event_types}
-    for known_event_type in _KNOWN_EVENT_TABLES:
-        event_file = dataset_dir / f"{known_event_type}.parquet"
-        if event_file.name in active_files:
-            continue
-        event_file.unlink(missing_ok=True)
 
 
 def _build_venue_map(snapshot: universe_mod.UniverseSnapshot) -> dict[str, str]:

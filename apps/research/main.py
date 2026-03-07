@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 import click
 
-import alpha_core.research.dataset as research_dataset
-import alpha_core.utils.time as time_utils
+import apps.research.commands.build_dataset as build_dataset_cmd
 import apps.research.commands.common as cmd_common
 import apps.research.runtime as research_runtime
 
@@ -52,96 +50,7 @@ def main(
     )
 
 
-@main.command("build-dataset")
-@click.option("--name", required=True, help="Dataset name.")
-@click.option("--start", required=True, help="Inclusive UTC start timestamp (ISO 8601).")
-@click.option("--end", required=True, help="Inclusive UTC end timestamp (ISO 8601).")
-@click.option(
-    "--venue",
-    "venues",
-    multiple=True,
-    help="Optional venue filter (repeat flag). Defaults to all discovered venues.",
-)
-@click.option(
-    "--event-type",
-    "event_types",
-    multiple=True,
-    default=("trades", "ohlcv"),
-    show_default=True,
-    help="Event types to include in the dataset.",
-)
-@click.option(
-    "--require-quality-pass/--skip-quality-pass",
-    default=True,
-    show_default=True,
-    help="Enforce partition-quality gates before dataset materialization.",
-)
-@click.option(
-    "--require-gap-free/--allow-gaps",
-    default=False,
-    show_default=True,
-    help="Fail when detected data gaps exceed --max-gap-hours.",
-)
-@click.option(
-    "--max-gap-hours",
-    type=float,
-    default=24.0,
-    show_default=True,
-    help="Maximum tolerated gap duration (hours) when --require-gap-free is enabled.",
-)
-@click.option(
-    "--storage-root",
-    type=click.Path(path_type=Path, file_okay=False, dir_okay=True),
-    default=Path("data"),
-    show_default=True,
-    help="Root directory for run artifacts and gold datasets.",
-)
-@click.option(
-    "--execute/--plan-only",
-    default=False,
-    show_default=True,
-    help="Materialize run artifacts or only emit a validated execution plan.",
-)
-@click.pass_context
-def build_dataset_command(
-    ctx: click.Context,
-    name: str,
-    start: str,
-    end: str,
-    venues: tuple[str, ...],
-    event_types: tuple[str, ...],
-    require_quality_pass: bool,
-    require_gap_free: bool,
-    max_gap_hours: float,
-    storage_root: Path,
-    execute: bool,
-) -> None:
-    """Plan or materialize a dataset-build run scaffold."""
-    if max_gap_hours <= 0:
-        raise click.ClickException("`--max-gap-hours` must be > 0.")
-    if not event_types:
-        raise click.ClickException("At least one `--event-type` is required.")
-
-    config = research_dataset.DatasetConfig(
-        name=name,
-        start=_parse_utc_datetime(start),
-        end=_parse_utc_datetime(end),
-        venues=list(venues) or None,
-        event_types=list(event_types),
-        require_quality_pass=require_quality_pass,
-        require_gap_free=require_gap_free,
-        max_gap_hours=max_gap_hours,
-    )
-    payload = cmd_common.build_run_payload(ctx, config.model_dump(mode="json"))
-    outcome = research_runtime.run_stage(
-        research_runtime.ResearchStageRequest(
-            run_type="dataset_build",
-            payload=payload,
-            storage_root=cmd_common.resolve_storage_root(ctx, storage_root),
-            execute=execute,
-        )
-    )
-    cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
+main.add_command(build_dataset_cmd.build_dataset_command)
 
 
 @main.command("build-features")
@@ -431,14 +340,6 @@ def optimize_command(
         )
     )
     cmd_common.emit_outcome(outcome, cmd_common.get_output_format(ctx))
-
-
-def _parse_utc_datetime(value: str) -> datetime:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise click.ClickException(f"Invalid datetime '{value}' (expected ISO 8601).") from exc
-    return time_utils.ensure_utc(parsed)
 
 
 if __name__ == "__main__":

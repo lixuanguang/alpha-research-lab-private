@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,7 @@ class DatasetBuilder:
 
     Build steps (see :meth:`build`)
     --------------------------------
-    1. Generate universe time series for *[start, end]*.
+    1. Generate universe change-point snapshots for *[start, end]*.
     2. Optionally validate quality of required silver partitions.
     3. Optionally check for gaps in required time windows.
     4. Load silver data for *[start, end]*.
@@ -58,17 +59,23 @@ class DatasetBuilder:
     # Primary API
     # ------------------------------------------------------------------
 
-    def build(self, config: dataset_mod.DatasetConfig) -> dataset_mod.DatasetManifest:
+    def build(
+        self,
+        config: dataset_mod.DatasetConfig,
+        *,
+        config_payload: dict[str, Any] | None = None,
+    ) -> dataset_mod.DatasetManifest:
         """Build a gold dataset from silver data.
 
         Steps
         -----
-        1. Generate universe snapshots for *[start, end]*.
+        1. Generate universe change-point snapshots for *[start, end]*.
         2. Validate quality if ``config.require_quality_pass`` is True.
         3. Check gaps if ``config.require_gap_free`` is True.
         4. Load silver event tables within the date range.
         5. Filter each table by ``ts_record <= config.end`` (as-of discipline).
-        6. Filter to instruments present in the union of universe snapshots.
+        6. Filter each row to instruments present in the point-in-time universe
+           at that row's ``ts_event``.
         7. Write `trades.parquet`, `ohlcv.parquet`, `books.parquet`,
            `universe.parquet`, and `_meta.json` under the dataset directory.
 
@@ -80,11 +87,22 @@ class DatasetBuilder:
         """
         start_utc = time_utils.ensure_utc(config.start)
         end_utc = time_utils.ensure_utc(config.end)
+        effective_config_payload = (
+            config_payload if config_payload is not None else config.model_dump(mode="json")
+        )
         run_context = run_context_mod.make_run_context(
             "dataset_build",
-            config_payload=config.model_dump(mode="json"),
+            config_payload=effective_config_payload,
         )
-        snapshots, all_instruments = self._build_universe_snapshots(start_utc, end_utc)
+        dataset_id = dataset_builder_io.make_dataset_id(config)
+        dataset_dir = dataset_builder_io.dataset_directory(self._gold_root, dataset_id)
+        if dataset_dir.exists():
+            raise DatasetBuildError(
+                f"Dataset snapshot '{dataset_id}' already exists at {dataset_dir}. "
+                "Dataset IDs are immutable; change the dataset config to create a new snapshot."
+            )
+
+        snapshots, all_instruments = self._build_universe_snapshots(config, start_utc, end_utc)
         quality_summary = self._run_quality_and_gap_checks(
             config=config,
             start_utc=start_utc,
@@ -95,23 +113,26 @@ class DatasetBuilder:
             config=config,
             start_utc=start_utc,
             end_utc=end_utc,
-            all_instruments=all_instruments,
+            snapshots=snapshots,
         )
-        outputs = dataset_builder_io.write_dataset_outputs(
-            gold_root=self._gold_root,
-            spec=dataset_builder_io.DatasetOutputSpec(
-                config=config,
-                start_utc=start_utc,
-                end_utc=end_utc,
-                snapshots=snapshots,
-                gold_tables=gold_tables,
-                quality_summary=quality_summary,
-                instrument_count=len(all_instruments),
+        try:
+            outputs = dataset_builder_io.write_dataset_outputs(
+                gold_root=self._gold_root,
+                spec=dataset_builder_io.DatasetOutputSpec(
+                    config=config,
+                    start_utc=start_utc,
+                    end_utc=end_utc,
+                    snapshots=snapshots,
+                    gold_tables=gold_tables,
+                    quality_summary=quality_summary,
+                    instrument_count=len(all_instruments),
+                )
             )
-        )
+        except FileExistsError as exc:
+            raise DatasetBuildError(str(exc)) from exc
         dataset_builder_io.persist_build_artifacts(
             storage_root=self._storage_root,
-            config=config,
+            config_payload=effective_config_payload,
             run_context=run_context,
             outputs=outputs,
         )
@@ -119,10 +140,18 @@ class DatasetBuilder:
 
     def _build_universe_snapshots(
         self,
+        config: dataset_mod.DatasetConfig,
         start_utc: datetime,
         end_utc: datetime,
     ) -> tuple[list[universe_mod.UniverseSnapshot], set[str]]:
-        snapshots = self._universe_mgr.time_series(start_utc, end_utc, frequency="1d")
+        change_points = self._universe_mgr.change_points(start_utc, end_utc)
+        snapshots = [
+            _scope_snapshot_to_venues(
+                self._universe_mgr.snapshot_at(point),
+                venues=config.venues,
+            )
+            for point in change_points
+        ]
         all_instruments: set[str] = set()
         for snapshot in snapshots:
             all_instruments.update(snapshot.instruments)
@@ -154,11 +183,17 @@ class DatasetBuilder:
         config: dataset_mod.DatasetConfig,
         start_utc: datetime,
         end_utc: datetime,
-        all_instruments: set[str],
+        snapshots: list[universe_mod.UniverseSnapshot],
     ) -> dict[str, pa.Table]:
         raw_tables = self._load_raw_tables(config, start_utc=start_utc, end_utc=end_utc)
+        if _tables_have_rows(raw_tables) and not _snapshots_have_instruments(snapshots):
+            raise DatasetBuildError(
+                "No point-in-time universe was available for the requested window. "
+                "Persist an instrument master at "
+                f"{self._storage_root / 'instruments.parquet'} before building datasets."
+            )
         as_of_tables = self._apply_as_of_filters(raw_tables, cutoff=end_utc)
-        return self._filter_tables_by_instrument_set(as_of_tables, all_instruments)
+        return self._filter_tables_by_point_in_time_universe(as_of_tables, snapshots=snapshots)
 
     def _load_raw_tables(
         self,
@@ -204,20 +239,15 @@ class DatasetBuilder:
             filtered[event_type] = table
         return filtered
 
-    def _filter_tables_by_instrument_set(
+    def _filter_tables_by_point_in_time_universe(
         self,
         tables: dict[str, pa.Table],
-        all_instruments: set[str],
+        *,
+        snapshots: list[universe_mod.UniverseSnapshot],
     ) -> dict[str, pa.Table]:
-        if not all_instruments:
-            return dict(tables)
-        instrument_values = pa.array(sorted(all_instruments))
         filtered: dict[str, pa.Table] = {}
         for event_type, table in tables.items():
-            if "instrument_id" in table.schema.names:
-                mask = pc.is_in(table.column("instrument_id"), value_set=instrument_values)
-                table = table.filter(mask)
-            filtered[event_type] = table
+            filtered[event_type] = _filter_table_by_universe_snapshots(table, snapshots=snapshots)
         return filtered
 
     def load(self, dataset_id: str) -> dataset_mod.GoldDataset:
@@ -326,14 +356,15 @@ class DatasetBuilder:
                     start=start,
                     end=end,
                 ):
-                    gaps_found.extend(
-                        self._gap_detector.detect_ohlcv_gaps(
+                    ohlcv_gaps = self._gap_detector.detect_ohlcv_gaps(
                             venue,
                             instr_id,
                             resolution=resolution,
                             start=start,
                             end=end,
                         )
+                    gaps_found.extend(
+                        _gaps_exceeding_threshold(ohlcv_gaps, max_gap_seconds=max_gap_seconds)
                     )
 
         if gaps_found:
@@ -348,6 +379,90 @@ def _filter_table_by_venues(table: pa.Table, *, venues: list[str]) -> pa.Table:
         return table
     mask = pc.is_in(table.column("venue_id"), value_set=pa.array(venues))
     return table.filter(mask)
+
+
+def _scope_snapshot_to_venues(
+    snapshot: universe_mod.UniverseSnapshot,
+    *,
+    venues: list[str] | None,
+) -> universe_mod.UniverseSnapshot:
+    if not venues:
+        return snapshot
+
+    allowed_venues = set(venues)
+    instruments = [
+        instrument_id
+        for instrument_id in snapshot.instruments
+        if _identifier_venue(instrument_id) in allowed_venues
+    ]
+    markets = [
+        market_id
+        for market_id in snapshot.markets
+        if _identifier_venue(market_id) in allowed_venues
+    ]
+    venue_breakdown = {
+        venue: count
+        for venue, count in snapshot.venue_breakdown.items()
+        if venue in allowed_venues
+    }
+    filters_applied = dict(snapshot.filters_applied)
+    filters_applied["venues"] = list(venues)
+    return snapshot.model_copy(
+        update={
+            "instruments": instruments,
+            "markets": markets,
+            "venue_breakdown": venue_breakdown,
+            "filters_applied": filters_applied,
+        }
+    )
+
+
+def _identifier_venue(identifier: str) -> str | None:
+    venue, separator, _rest = identifier.partition(":")
+    if not separator:
+        return None
+    normalized = venue.strip().lower()
+    return normalized or None
+
+
+def _filter_table_by_universe_snapshots(
+    table: pa.Table,
+    *,
+    snapshots: list[universe_mod.UniverseSnapshot],
+) -> pa.Table:
+    required_columns = {"instrument_id", "ts_event"}
+    if table.num_rows == 0 or not required_columns.issubset(table.schema.names):
+        return table
+
+    snapshot_times = [snapshot.as_of for snapshot in snapshots]
+    memberships = [frozenset(snapshot.instruments) for snapshot in snapshots]
+    instrument_column = table.column("instrument_id")
+    event_time_column = table.column("ts_event")
+
+    mask_values: list[bool] = []
+    for row_index in range(table.num_rows):
+        instrument_id = instrument_column[row_index].as_py()
+        event_time = event_time_column[row_index].as_py()
+        if not isinstance(instrument_id, str) or event_time is None:
+            mask_values.append(False)
+            continue
+
+        event_time_utc = time_utils.ensure_utc(event_time)
+        snapshot_index = bisect_right(snapshot_times, event_time_utc) - 1
+        if snapshot_index < 0:
+            mask_values.append(False)
+            continue
+        mask_values.append(instrument_id in memberships[snapshot_index])
+
+    return table.filter(pa.array(mask_values, type=pa.bool_()))
+
+
+def _snapshots_have_instruments(snapshots: list[universe_mod.UniverseSnapshot]) -> bool:
+    return any(snapshot.instruments for snapshot in snapshots)
+
+
+def _tables_have_rows(tables: dict[str, pa.Table]) -> bool:
+    return any(table.num_rows > 0 for table in tables.values())
 
 
 def _quality_venues(
@@ -396,6 +511,46 @@ def _ohlcv_gap_targets(
         ):
             targets.add((instrument_id, resolution.strip()))
     return sorted(targets)
+
+
+def _gaps_exceeding_threshold(
+    gaps: list[gap_mod.TimeGap],
+    *,
+    max_gap_seconds: float,
+) -> list[gap_mod.TimeGap]:
+    if not gaps:
+        return []
+
+    ordered = sorted(
+        gaps,
+        key=lambda gap: (gap.venue, gap.outcome_id, gap.event_type, gap.gap_start, gap.gap_end),
+    )
+    oversized: list[gap_mod.TimeGap] = []
+    current = ordered[0]
+
+    for gap in ordered[1:]:
+        same_identity = (
+            gap.venue == current.venue
+            and gap.outcome_id == current.outcome_id
+            and gap.event_type == current.event_type
+        )
+        if same_identity and gap.gap_start <= current.gap_end:
+            merged_end = gap.gap_end if gap.gap_end > current.gap_end else current.gap_end
+            current = current.model_copy(
+                update={
+                    "gap_end": merged_end,
+                    "duration_seconds": (merged_end - current.gap_start).total_seconds(),
+                }
+            )
+            continue
+
+        if current.duration_seconds > max_gap_seconds:
+            oversized.append(current)
+        current = gap
+
+    if current.duration_seconds > max_gap_seconds:
+        oversized.append(current)
+    return oversized
 
 
 __all__ = ["DatasetBuildError", "DatasetBuilder"]

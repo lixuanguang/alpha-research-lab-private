@@ -25,6 +25,10 @@ class VenueConnectorFactory:
         self._venue_map: dict[str, config_models.VenueConfig] = {
             vc.name: vc for vc in settings.venues
         }
+        self._market_master = instrument_master.MarketMaster()
+        self._market_master_snapshot_path = settings.storage.base_path / "instruments.parquet"
+        if self._market_master_snapshot_path.exists():
+            self._market_master.restore(self._market_master_snapshot_path)
 
     def create_poll_connectors(
         self,
@@ -51,12 +55,11 @@ class VenueConnectorFactory:
         venue_name = adapter.venue_name()
         venue_config = self._venue_map.get(venue_name)
         collection = venue_config.collection if venue_config else config_models.CollectionConfig()
-        market_master = instrument_master.MarketMaster()
-
         connectors: list[connector_polling.PollingConnector] = [
             connector_market_refresh.MarketRefreshPoller(
                 adapter,
-                market_master,
+                self._market_master,
+                snapshot_path=self._market_master_snapshot_path,
                 interval_seconds=collection.market_refresh_interval,
                 request_timeout_seconds=request_timeout_seconds,
             )

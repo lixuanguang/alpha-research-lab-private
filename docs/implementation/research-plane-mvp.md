@@ -1,11 +1,11 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 891 passed, 10 skipped; quality gates green)
+> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 906 passed, 10 skipped; quality gates green)
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
-> **Lean adoption alignment (March 2, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
+> **Lean adoption alignment (March 7, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
 
 ---
 

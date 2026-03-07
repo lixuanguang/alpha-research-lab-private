@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import alpha_core.adapters.base as adapters_base
@@ -22,11 +23,13 @@ class MarketRefreshPoller(connector_polling.PollingConnector):
         self,
         adapter: adapters_base.VenueAdapter,
         master: instrument_master.MarketMaster,
+        snapshot_path: Path | None = None,
         interval_seconds: float = 300.0,
         request_timeout_seconds: float | None = 10.0,
     ) -> None:
         self._adapter = adapter
         self._master = master
+        self._snapshot_path = snapshot_path
         super().__init__(
             venue=adapter.venue_name(),
             interval_seconds=interval_seconds,
@@ -69,6 +72,9 @@ class MarketRefreshPoller(connector_polling.PollingConnector):
                 metadata_events.append(
                     self._build_metadata_event(canonical_market_id, fields_changed=fields_changed)
                 )
+
+        if self._snapshot_path is not None:
+            self._master.persist(self._snapshot_path)
 
         return connector_types.PollingBatch(
             events=metadata_events,

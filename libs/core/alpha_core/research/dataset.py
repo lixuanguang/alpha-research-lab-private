@@ -10,7 +10,7 @@ import pandas as pd  # type: ignore[import-untyped]
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 import alpha_core.research.as_of as as_of_mod
 import alpha_core.utils.time as time_utils
@@ -42,6 +42,52 @@ class DatasetConfig(BaseModel):
         if ".." in cleaned:
             raise ValueError("dataset name must not contain '..'")
         return cleaned
+
+    @field_validator("start", "end")
+    @classmethod
+    def _normalize_time(cls, value: datetime) -> datetime:
+        return time_utils.ensure_utc(value)
+
+    @field_validator("venues")
+    @classmethod
+    def _normalize_venues(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for venue in value:
+            cleaned = venue.strip().lower()
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            normalized.append(cleaned)
+        return normalized or None
+
+    @field_validator("event_types")
+    @classmethod
+    def _normalize_event_types(cls, value: list[str]) -> list[str]:
+        supported = {"trades", "ohlcv", "books"}
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for event_type in value:
+            cleaned = event_type.strip().lower()
+            if not cleaned or cleaned in seen:
+                continue
+            if cleaned not in supported:
+                raise ValueError(
+                    f"unsupported event type '{cleaned}'; expected one of {sorted(supported)}"
+                )
+            seen.add(cleaned)
+            normalized.append(cleaned)
+        if not normalized:
+            raise ValueError("at least one event type is required")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_window(self) -> DatasetConfig:
+        if self.end <= self.start:
+            raise ValueError("`end` must be later than `start`")
+        return self
 
 
 class DatasetManifest(BaseModel):
@@ -122,11 +168,15 @@ class GoldDataset:
             return []
 
         as_of_utc = time_utils.ensure_utc(as_of)
-        # universe table schema: instrument_id, as_of (timestamp)
         filtered = as_of_mod.as_of_filter(universe_table, as_of_column="as_of", cutoff=as_of_utc)
-        if "instrument_id" not in filtered.schema.names:
+        if filtered.num_rows == 0 or "instrument_id" not in filtered.schema.names:
             return []
-        return filtered.column("instrument_id").to_pylist()  # type: ignore[no-any-return]
+        latest_as_of = pc.max(filtered.column("as_of"))
+        if not latest_as_of.is_valid:
+            return []
+        snapshot = filtered.filter(pc.equal(filtered.column("as_of"), latest_as_of))
+        raw: list[str | None] = snapshot.column("instrument_id").to_pylist()
+        return list(dict.fromkeys(x for x in raw if x is not None))
 
     def instruments(self) -> list[str]:
         """Return the full list of instrument IDs covered by this dataset."""

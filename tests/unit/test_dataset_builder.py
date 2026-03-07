@@ -29,7 +29,14 @@ _END = _BASE + timedelta(days=3)
 
 
 def _make_market(
-    venue: str, market_id: str, outcome_ids: list[str]
+    venue: str,
+    market_id: str,
+    outcome_ids: list[str],
+    *,
+    first_seen: datetime | None = None,
+    last_updated: datetime | None = None,
+    lifecycle: instrument_models.MarketLifecycle = instrument_models.MarketLifecycle.ACTIVE,
+    resolution_date: datetime | None = None,
 ) -> instrument_models.MarketSpec:
     return instrument_models.MarketSpec(
         market_id=market_id,
@@ -43,8 +50,10 @@ def _make_market(
             )
             for oid in outcome_ids
         ],
-        first_seen=_BASE - timedelta(days=1),
-        last_updated=_BASE,
+        first_seen=first_seen or (_BASE - timedelta(days=1)),
+        last_updated=last_updated or _BASE,
+        lifecycle=lifecycle,
+        resolution_date=resolution_date,
     )
 
 
@@ -285,6 +294,39 @@ class TestDatasetBuilderBuild:
         result = pq.read_table(gold_path)
         assert result.num_rows == 1, "Future-recorded rows must be excluded by as-of filter"
 
+    def test_rows_before_first_seen_are_excluded_point_in_time(self, tmp_path: Path) -> None:
+        """Rows from before a market enters the universe must be excluded."""
+        first_seen = _BASE + timedelta(days=1)
+        master = master_mod.MarketMaster()
+        master.register_market(
+            _make_market(
+                "p",
+                "late_market",
+                ["yes"],
+                first_seen=first_seen,
+                last_updated=first_seen,
+            )
+        )
+        table = _trade_table(
+            ["p:late_market:yes", "p:late_market:yes"],
+            [_BASE + timedelta(hours=1), first_seen + timedelta(hours=1)],
+        )
+        builder = _make_builder(tmp_path, master, trade_table=table)
+        config = dataset_mod.DatasetConfig(
+            name="point_in_time_market_entry",
+            start=_BASE,
+            end=_END,
+            require_quality_pass=False,
+        )
+        manifest = builder.build(config)
+        gold_path = (
+            builder_io.dataset_directory(tmp_path / "gold" / "datasets", manifest.dataset_id)
+            / "trades.parquet"
+        )
+        result = pq.read_table(gold_path)
+        assert result.num_rows == 1
+        assert result.column("ts_event").to_pylist() == [first_seen + timedelta(hours=1)]
+
     def test_instruments_outside_universe_excluded(self, tmp_path: Path) -> None:
         """Instruments not in the universe snapshot should be stripped."""
         master = master_mod.MarketMaster()
@@ -307,6 +349,37 @@ class TestDatasetBuilderBuild:
         result = pq.read_table(gold_path)
         ids = result.column("instrument_id").to_pylist()
         assert "unknown:x:y" not in ids
+
+    def test_venue_filtered_build_scopes_universe_and_manifest(self, tmp_path: Path) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "known", ["yes"]))
+        master.register_market(_make_market("k", "known", ["yes"]))
+        table = _trade_table(
+            ["p:known:yes", "k:known:yes"],
+            [_BASE + timedelta(hours=1), _BASE + timedelta(hours=2)],
+        )
+        builder = _make_builder(tmp_path, master, trade_table=table)
+        config = dataset_mod.DatasetConfig(
+            name="venue_scoped_dataset",
+            start=_BASE,
+            end=_END,
+            venues=["p"],
+            require_quality_pass=False,
+        )
+
+        manifest = builder.build(config)
+        dataset = builder.load(manifest.dataset_id)
+
+        assert manifest.instrument_count == 1
+        assert dataset.instruments() == ["p:known:yes"]
+        assert dataset.universe_at(_BASE) == ["p:known:yes"]
+
+        gold_path = (
+            builder_io.dataset_directory(tmp_path / "gold" / "datasets", manifest.dataset_id)
+            / "trades.parquet"
+        )
+        result = pq.read_table(gold_path)
+        assert result.column("instrument_id").to_pylist() == ["p:known:yes"]
 
     def test_quality_gate_raises_on_failure(self, tmp_path: Path) -> None:
         master = master_mod.MarketMaster()
@@ -436,6 +509,50 @@ class TestDatasetBuilderBuild:
         }
         assert observed_calls == expected_calls
 
+    def test_small_ohlcv_gap_within_threshold_does_not_raise(self, tmp_path: Path) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+
+        mock_reader = MagicMock(spec=reader_mod.ParquetEventReader)
+        mock_reader.read_trades.return_value = pa.table({})
+        mock_reader.read_ohlcv.return_value = pa.table(
+            {
+                "instrument_id": ["p:m1:yes"],
+                "resolution": ["1h"],
+            }
+        )
+        mock_validator = MagicMock(spec=pv_mod.PartitionValidator)
+        mock_gap = MagicMock(spec=gap_mod.GapDetector)
+        mock_gap.detect_trade_gaps.return_value = []
+        mock_gap.detect_ohlcv_gaps.return_value = [
+            gap_mod.TimeGap(
+                venue="p",
+                outcome_id="p:m1:yes",
+                gap_start=_BASE,
+                gap_end=_BASE + timedelta(hours=1),
+                duration_seconds=3600.0,
+                event_type="ohlcv",
+            )
+        ]
+
+        builder = builder_mod.DatasetBuilder(
+            reader=mock_reader,
+            universe_mgr=universe_mod.UniverseManager(master),
+            quality_validator=mock_validator,
+            gap_detector=mock_gap,
+            storage_root=tmp_path,
+        )
+        config = dataset_mod.DatasetConfig(
+            name="ohlcv_gap_threshold",
+            start=_BASE,
+            end=_END,
+            event_types=["ohlcv"],
+            require_quality_pass=False,
+            require_gap_free=True,
+            max_gap_hours=24.0,
+        )
+        builder.build(config)
+
     def test_distinct_dataset_ids_preserve_prior_snapshot_contents(self, tmp_path: Path) -> None:
         master = master_mod.MarketMaster()
         master.register_market(_make_market("p", "m1", ["yes"]))
@@ -479,6 +596,25 @@ class TestDatasetBuilderBuild:
         assert (initial_dir / "ohlcv.parquet").exists()
         assert (rebuilt_dir / "trades.parquet").exists()
         assert not (rebuilt_dir / "ohlcv.parquet").exists()
+
+    def test_same_config_cannot_overwrite_existing_snapshot(self, tmp_path: Path) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+        ts = [_BASE + timedelta(hours=1)]
+        builder = _make_builder(
+            tmp_path,
+            master,
+            trade_table=_trade_table(["p:m1:yes"], ts),
+        )
+        config = dataset_mod.DatasetConfig(
+            name="immutable_snapshot",
+            start=_BASE,
+            end=_END,
+            require_quality_pass=False,
+        )
+        builder.build(config)
+        with pytest.raises(builder_mod.DatasetBuildError, match="immutable"):
+            builder.build(config)
 
 
 # ---------------------------------------------------------------------------

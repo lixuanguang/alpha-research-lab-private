@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import AsyncIterator
 from datetime import datetime
 
@@ -109,7 +110,7 @@ def _settings_with_mode(venue: str, mode: str) -> config_models.Settings:
                     "collection": {"mode": mode},
                 }
             ],
-            "storage": {"base_path": "/tmp/factory-tests"},
+            "storage": {"base_path": tempfile.mkdtemp(prefix="factory-tests-")},
         }
     )
 
@@ -197,7 +198,7 @@ def test_poll_intervals_match_collection_config() -> None:
                     },
                 }
             ],
-            "storage": {"base_path": "/tmp/factory-tests"},
+            "storage": {"base_path": tempfile.mkdtemp(prefix="factory-tests-")},
         }
     )
     factory = connector_factory.VenueConnectorFactory(settings)
@@ -228,7 +229,7 @@ def test_factory_initialises_with_multiple_venues() -> None:
                 {"name": "polymarket", "exchange_class": "Polymarket", "rate_limit_rpm": 60},
                 {"name": "kalshi", "exchange_class": "Kalshi", "rate_limit_rpm": 180},
             ],
-            "storage": {"base_path": "/tmp/factory-tests"},
+            "storage": {"base_path": tempfile.mkdtemp(prefix="factory-tests-")},
         }
     )
     factory = connector_factory.VenueConnectorFactory(settings)

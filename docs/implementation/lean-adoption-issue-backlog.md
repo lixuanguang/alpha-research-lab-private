@@ -1,6 +1,6 @@
 # Lean Adoption GitHub Issue Backlog
 
-> Last updated: March 2, 2026  
+> Last updated: March 7, 2026  
 > Source: `README.LEAN_ADOPTION.md`  
 > Purpose: Copy-paste-ready issue plan with milestones, dependencies, file targets, and acceptance criteria.
 
@@ -41,7 +41,7 @@ Suggested labels:
 - [x] LA-002: Add run context + run manifest models/writer (P0)
 - [x] LA-003: Add run manifest bridge + artifact path conventions (P0)
 - [x] LA-004: Convert research CLI from stub to command group (P1)
-- [ ] LA-005: Implement `build-dataset` command + runner (P1)
+- [x] LA-005: Implement `build-dataset` command + runner (P1)
 - [ ] LA-006: Implement `build-features` command + runner (P1)
 - [ ] LA-007: Implement `backtest`, `evaluate`, `report` commands + runners (P1)
 - [ ] LA-008: Add research end-to-end integration tests and docs wiring (P1)
@@ -258,11 +258,11 @@ Add first-class dataset materialization command replacing ad-hoc scripts in docs
 
 ### Checklist
 
-- [ ] Implement dataset runner with point-in-time window arguments
-- [ ] Persist manifest and artifact paths under canonical run directory
-- [ ] Add CLI command wiring and output summary
-- [ ] Replace doc script example with official command flow
-- [ ] Add integration test using fixture silver data
+- [x] Implement dataset runner with point-in-time window arguments
+- [x] Persist manifest and artifact paths under canonical run directory
+- [x] Add CLI command wiring and output summary
+- [x] Replace doc script example with official command flow
+- [x] Add integration test using fixture silver data
 
 ### Acceptance criteria
 
