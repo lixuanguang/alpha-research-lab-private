@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.run_context as run_context_mod
 
 # ---------------------------------------------------------------------------
@@ -52,4 +55,44 @@ def read_run_manifest(path: Path) -> RunManifest:
     return RunManifest.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-__all__ = ["RUN_MANIFEST_SCHEMA_VERSION", "RunManifest", "read_run_manifest", "write_run_manifest"]
+def persist_run_record(
+    *,
+    storage_root: Path,
+    run_context: run_context_mod.RunContext,
+    config_payload: dict[str, Any],
+    artifacts: dict[str, str],
+    parent_run_id: str | None,
+) -> None:
+    """Persist the config snapshot, artifact index, and manifest for one run."""
+    run_root = artifact_paths.run_root(storage_root, run_context.run_id)
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    config_path = artifact_paths.run_config_path(storage_root, run_context.run_id)
+    config_path.write_text(
+        json.dumps(config_payload, indent=2, sort_keys=True, default=str),
+        encoding="utf-8",
+    )
+
+    persisted_artifacts = {"config": str(config_path), **artifacts}
+    artifact_paths.write_artifacts_index(
+        storage_root,
+        run_context.run_id,
+        persisted_artifacts,
+    )
+    write_run_manifest(
+        artifact_paths.run_manifest_path(storage_root, run_context.run_id),
+        RunManifest(
+            run=run_context,
+            artifacts=persisted_artifacts,
+            parent_run_id=parent_run_id,
+        ),
+    )
+
+
+__all__ = [
+    "RUN_MANIFEST_SCHEMA_VERSION",
+    "RunManifest",
+    "persist_run_record",
+    "read_run_manifest",
+    "write_run_manifest",
+]

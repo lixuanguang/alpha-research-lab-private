@@ -1,11 +1,13 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 906 passed, 10 skipped; quality gates green)
+> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 973 passed, 10 skipped; quality gates green)
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Lean adoption alignment (March 7, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
+> **Implementation status (March 7, 2026):** R1 is delivered; LA-006 through LA-008 added feature-build, backtest, evaluate, and report scaffolds plus end-to-end CLI coverage. Artifact store, optimize, richer PM-native execution, and production evaluation hardening remain open.
+> **Current quality gate snapshot (validated March 7, 2026):** `ruff check .` (pass), `mypy libs/ apps/ --strict` (pass), `pytest tests/ -v` (`973 passed, 10 skipped`).
 
 ---
 
@@ -356,6 +358,66 @@ The Research Plane MVP is broken into **6 sequential sub-steps** (R1–R6). Each
 Lean-adoption tasks are embedded in each step so no second refactor pass is required.
 
 If you are currently implementing **R1**, prioritize the R1 contract items below first; they are intentionally low-disruption and unblock R2-R6 reproducibility.
+
+### Implementation Progress
+
+> Last updated: March 7, 2026 — Lean Adoption P1 milestone complete.  
+> Test suite: **952 passed, 10 skipped** (full test run, no failures).
+
+#### R1 — Dataset Builder & Universe Manager
+
+- [x] `alpha_core.research.run_context` — `RunContext`, `make_run_context`, `close_run_context` (`libs/core/alpha_core/research/run_context.py`)
+- [x] `alpha_core.research.manifest` — `RunManifest`, `write_run_manifest`, `read_run_manifest` (`libs/core/alpha_core/research/manifest.py`)
+- [x] `alpha_core.research.artifact_paths` — `artifact_key_path`, `run_manifest_path`, `write_artifacts_index`, `read_artifacts_index` (`libs/core/alpha_core/research/artifact_paths.py`)
+- [x] `alpha_core.research.universe` — `UniverseSnapshot`, `UniverseManager` (`libs/core/alpha_core/research/universe.py`)
+- [x] `alpha_core.research.as_of` — point-in-time join helpers (`libs/core/alpha_core/research/as_of.py`)
+- [x] `alpha_core.research.dataset_builder` — `DatasetConfig`, `DatasetManifest`, `DatasetBuilder.build()` (`libs/core/alpha_core/research/dataset_builder.py`)
+- [x] `alpha_core.research.dataset` — `GoldDataset` handle (`libs/core/alpha_core/research/dataset.py`)
+- [x] CLI: `build-dataset` command (`apps/research/commands/build_dataset.py`)
+- [x] Integration tests: `tests/integration/test_research_build_dataset.py`
+
+#### R2 — Feature Engine
+
+- [x] `alpha_core.research.feature_runner` — `FeatureConfig`, `FeatureManifest`, `FeatureRunner.build()`, rolling zscore/mean/std/volume features (`libs/core/alpha_core/research/feature_runner.py`)
+- [x] CLI: `build-features` command (`apps/research/commands/build_features.py`)
+- [x] Config example: `config/research/features.example.yaml`
+- [x] Integration tests: `tests/integration/test_research_build_features.py`
+- [ ] `alpha_core.features.pm_specific` — prediction-market microstructure features (deferred to later iteration)
+- [ ] `FeatureRegistry` — versioned feature catalogue (deferred to LA-017)
+
+#### R3 — Event-Driven Backtester & Execution Simulator
+
+- [x] `alpha_core.strategy_framework.interfaces` — `UniverseModel`, `AlphaModel`, `PortfolioConstructionModel`, `RiskModel`, `ExecutionModel` protocols (`libs/core/alpha_core/strategy_framework/interfaces.py`)
+- [x] `alpha_core.strategy_framework.models` — `MarketState`, `Signal`, `Target`, `OrderIntent` (`libs/core/alpha_core/strategy_framework/models.py`)
+- [x] `alpha_core.strategy_framework.engine` — `StrategyEngine` with 5-step pipeline (`libs/core/alpha_core/strategy_framework/engine.py`)
+- [x] `alpha_core.research.backtest_runner` — `BacktestConfig`, `BacktestManifest`, `BacktestRunner.build()`, zscore-threshold simulation (`libs/core/alpha_core/research/backtest_runner.py`)
+- [x] CLI: `backtest` command (`apps/research/commands/backtest.py`)
+- [x] Integration tests: `tests/integration/test_research_backtest_evaluate_report.py`
+- [ ] Full execution simulator (fills, slippage, fees, binary payoffs) — deferred to later iteration
+- [ ] PM microstructure engine path — deferred to later iteration
+
+#### R4 — Vectorized Backtester & Parameter Sweep
+
+- [ ] Vectorized fast path — deferred to LA-010 / later iteration
+- [ ] `BacktestSweep` / grid+random search — deferred to LA-010
+
+#### R5 — Evaluation Metrics & Reporting
+
+- [x] `alpha_core.research.evaluate_runner` — `EvaluateManifest`, `EvaluateRunner.build()`, `pm_core` / `minimal` / `microstructure` metric profiles (`libs/core/alpha_core/research/evaluate_runner.py`)
+- [x] CLI: `evaluate` command (`apps/research/commands/evaluate.py`)
+- [x] CLI: `report` command — JSON and Markdown rendering (`apps/research/commands/report.py`)
+- [ ] Brier score, log-loss, calibration curves — deferred to later iteration
+- [ ] Resolution PnL decomposition — deferred to later iteration
+
+#### R6 — Research CLI & Integration Wiring
+
+- [x] `apps/research/main.py` — full command group: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize` (stub) (`apps/research/main.py`)
+- [x] `apps/research/commands/common.py` — shared options, output format, run payload helpers
+- [x] `apps/research/runtime.py` — `ResearchStageRequest`, `run_stage` for plan-only mode
+- [x] E2E pipeline integration test — full chain `build-features → backtest → evaluate` with artifact + schema assertions (`tests/integration/test_research_pipeline_e2e.py`)
+- [ ] CLI: `optimize` command (wired stub; full implementation deferred to LA-010)
+- [ ] CI smoke pipeline — deferred to LA-015
+- [ ] Example strategies (`probability_momentum`, `cross_venue_arb`, `mean_reversion`) — deferred to later iteration
 
 ---
 

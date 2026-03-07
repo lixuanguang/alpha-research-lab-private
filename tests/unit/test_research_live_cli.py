@@ -77,13 +77,29 @@ def test_research_optimize_execute_writes_manifest(tmp_path: Path) -> None:
 
 
 def test_research_report_execute_writes_report_manifest(tmp_path: Path) -> None:
+    import alpha_core.research.artifact_paths as artifact_paths
+
+    # Pre-populate the metrics.json artifact that the report command requires.
+    eval_run_id = "eval_run_a"
+    metrics_path = artifact_paths.artifact_key_path(tmp_path, eval_run_id, "metrics.json")
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+    metrics_path.write_text(
+        json.dumps(
+            {
+                "metrics_profile": "pm_core",
+                "metrics": {"total_return": 0.05, "trade_count": 10.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
     runner = click.testing.CliRunner()
     result = runner.invoke(
         research_main.main,
         [
             "report",
             "--evaluation-run-id",
-            "eval_run_a",
+            eval_run_id,
             "--storage-root",
             str(tmp_path),
             "--execute",
@@ -92,13 +108,15 @@ def test_research_report_execute_writes_report_manifest(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert "run_type=report" in result.output
-    manifest_line = next(
-        line for line in result.output.splitlines() if line.startswith("manifest=")
+    # Extract run_id from text output: "run_type=report  status=materialized  run_id=<id>  ..."
+    run_id_token = next(
+        t for t in result.output.split() if t.startswith("run_id=")
     )
-    manifest_path = Path(manifest_line.split("=", maxsplit=1)[1].strip())
+    run_id = run_id_token.split("=", maxsplit=1)[1]
+    manifest_path = artifact_paths.run_manifest_path(tmp_path, run_id)
     manifest = manifest_mod.read_run_manifest(manifest_path)
     assert manifest.run.run_type == "report"
-    assert manifest.parent_run_id == "eval_run_a"
+    assert manifest.parent_run_id == eval_run_id
 
 
 def test_live_cli_help_lists_runtime_commands() -> None:

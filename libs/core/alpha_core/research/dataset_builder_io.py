@@ -15,7 +15,6 @@ from typing import Any
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
-import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.dataset as dataset_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
@@ -104,33 +103,18 @@ def persist_build_artifacts(
     outputs: DatasetBuildOutputs,
 ) -> None:
     completed_context = run_context_mod.close_run_context(run_context)
-    artifact_paths.run_root(storage_root, completed_context.run_id).mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-    artifact_paths.run_config_path(storage_root, completed_context.run_id).write_text(
-        json.dumps(config_payload, indent=2, sort_keys=True, default=str),
-        encoding="utf-8",
-    )
     artifact_map = {
         "dataset_id": outputs.dataset_id,
         "dataset_meta": str(outputs.meta_path),
         "dataset_dir": str(outputs.dataset_dir),
         "universe": str(outputs.dataset_dir / "universe.parquet"),
     }
-    artifact_paths.write_artifacts_index(
-        storage_root,
-        completed_context.run_id,
-        artifact_map,
-    )
-    run_manifest = manifest_mod.RunManifest(
-        run=completed_context,
+    manifest_mod.persist_run_record(
+        storage_root=storage_root,
+        run_context=completed_context,
+        config_payload=config_payload,
         artifacts=artifact_map,
         parent_run_id=None,
-    )
-    manifest_mod.write_run_manifest(
-        artifact_paths.run_manifest_path(storage_root, completed_context.run_id),
-        run_manifest,
     )
 
 

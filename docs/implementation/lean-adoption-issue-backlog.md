@@ -42,9 +42,9 @@ Suggested labels:
 - [x] LA-003: Add run manifest bridge + artifact path conventions (P0)
 - [x] LA-004: Convert research CLI from stub to command group (P1)
 - [x] LA-005: Implement `build-dataset` command + runner (P1)
-- [ ] LA-006: Implement `build-features` command + runner (P1)
-- [ ] LA-007: Implement `backtest`, `evaluate`, `report` commands + runners (P1)
-- [ ] LA-008: Add research end-to-end integration tests and docs wiring (P1)
+- [x] LA-006: Implement `build-features` command + runner (P1)
+- [x] LA-007: Implement `backtest`, `evaluate`, `report` commands + runners (P1)
+- [x] LA-008: Add research end-to-end integration tests and docs wiring (P1)
 - [ ] LA-009: Add `ArtifactStore` abstraction and filesystem backend (P2)
 - [ ] LA-010: Implement `optimize` command + trial registry persistence (P2)
 - [ ] LA-011: Implement live runtime using shared strategy framework contracts (P3)
@@ -300,11 +300,11 @@ Add first-class feature build command with versioned feature-set metadata.
 
 ### Checklist
 
-- [ ] Implement feature runner interface over input dataset artifacts
-- [ ] Persist feature matrix and feature manifest
-- [ ] Include `feature_set_version` in run manifest
-- [ ] Add CLI wiring and JSON output
-- [ ] Add integration tests for empty and normal cases
+- [x] Implement feature runner interface over input dataset artifacts
+- [x] Persist feature matrix and feature manifest
+- [x] Include `feature_set_version` in run manifest
+- [x] Add CLI wiring and JSON output
+- [x] Add integration tests for empty and normal cases
 
 ### Acceptance criteria
 
@@ -345,11 +345,11 @@ Implement remaining core research pipeline commands with consistent contracts an
 
 ### Checklist
 
-- [ ] Implement backtest runner using framework contracts
-- [ ] Implement evaluation runner for financial and PM metrics
-- [ ] Implement report writer producing JSON/Parquet outputs
-- [ ] Wire commands and shared output semantics
-- [ ] Add integration tests for command chain
+- [x] Implement backtest runner using framework contracts
+- [x] Implement evaluation runner for financial and PM metrics
+- [x] Implement report writer producing JSON/Parquet outputs
+- [x] Wire commands and shared output semantics
+- [x] Add integration tests for command chain
 
 ### Acceptance criteria
 
@@ -383,10 +383,10 @@ Enforce reproducible end-to-end research workflow and document notebook-to-CLI m
 
 ### Checklist
 
-- [ ] Add full chain test (`build-dataset` -> `build-features` -> `backtest` -> `evaluate`)
-- [ ] Add artifact existence and schema assertions
-- [ ] Update migration guide with exact command mapping
-- [ ] Add progress checkbox tracker into research implementation doc
+- [x] Add full chain test (`build-dataset` -> `build-features` -> `backtest` -> `evaluate`)
+- [x] Add artifact existence and schema assertions
+- [x] Update migration guide with exact command mapping
+- [x] Add progress checkbox tracker into research implementation doc
 
 ### Acceptance criteria
 

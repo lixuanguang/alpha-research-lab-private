@@ -33,7 +33,7 @@ As of today:
 - Canonical PM event modeling is strict and reproducible (`alpha_core/events/models.py`).
 - Ingestion lineage exists (`alpha_core/storage/lineage.py`).
 - Research and live entrypoints now expose scaffolded Click command groups (`apps/research/main.py`, `apps/live_system/main.py`), but the full production research/live workflows are still in progress.
-- Gold dataset materialization is now available through first-class research modules and CLI scaffolding, with broader feature/backtest/runtime coverage still planned.
+- Gold dataset materialization, feature builds, backtest/evaluate/report scaffolds, and end-to-end CLI coverage are now available through first-class research modules; artifact store, optimize, and live reuse remain planned.
 
 Implication: the largest leverage is in **research/live orchestration and shared strategy contracts**.
 

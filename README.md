@@ -12,7 +12,7 @@
 |---|---|---|---|
 | **Foundation** | **Complete (F1-F6 closed; all validated baseline work folded into implementation steps)** | Covered by repo-wide quality gates | [Foundation Plan](docs/implementation/foundation-stage.md) |
 | **Data Plane MVP** | **Complete (D1-D6 closed; section 11 integrated)** | Covered by repo-wide quality gates | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
-| **Research Plane MVP** (R1–R6) | **In Progress (R1 dataset builder + CLI contract landed; R2-R6 remain open)** | Covered by repo-wide quality gates | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
+| **Research Plane MVP** (R1–R6) | **In Progress (R1 delivered; LA-006 through LA-008 landed feature/backtest/evaluate/report scaffolds and end-to-end coverage; artifact store, optimize, PM-native execution, and hardening remain open)** | Covered by repo-wide quality gates | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
 | Live Plane MVP | Planned | — | — |
 | Observability Baseline | Planned | — | — |
 | Robustness Hardening | Planned | — | — |
@@ -20,7 +20,7 @@
 **Quality gates (as of March 7, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/ apps/ --strict` — 0 errors
-- `pytest tests/` — 906 passed, 10 skipped in ~5.7s
+- `pytest tests/` — 973 passed, 10 skipped in ~7.8s
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:
@@ -119,9 +119,9 @@ Completed follow-on contracts are folded into the relevant stage plans below. Se
 
 ### Active Delivery Order (Recommended)
 
-1. Complete Research Plane R1-R2 with run manifests and artifact contracts.
+1. Harden the current research CLI scaffold and implement `ArtifactStore` + `optimize` (LA-009, LA-010).
 2. Add macro ingestion via OpenBB hybrid path (M0-M2 below).
-3. Implement backtester capability upgrades (B0-B4 below) using PM-native contracts.
+3. Replace the current backtest scaffold with richer PM-native execution and resolution handling (B0-B4 below).
 4. Promote only validated pieces into Live Plane MVP.
 
 ## Macro Data Ingestion Plan (OpenBB Hybrid)

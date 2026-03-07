@@ -76,11 +76,11 @@ Align extracted logic with the Research Plane architecture.
 | Notebook Logic Type | Target Module Path | Typical Output |
 |---|---|---|
 | Dataset assembly, as-of joins, universe snapshotting | `libs/core/alpha_core/research/` | Gold dataset manifest/handle |
-| Feature transforms (microstructure + PM-specific) | `libs/core/alpha_core/features/` | Feature table (`pyarrow`/`pandas`) |
-| Position, fills, slippage, fees | `libs/core/alpha_core/portfolio/` + `libs/core/alpha_core/execution/` | Fill stream + portfolio state |
-| Event/vectorized simulation | `apps/research/backtester/` | `BacktestResult` |
-| PM and financial evaluation | `libs/core/alpha_core/evaluation/` | Metrics report |
-| Report persistence/comparison | `apps/research/reporting/` | JSON/Parquet artifacts |
+| Feature transforms (microstructure + PM-specific) | `libs/core/alpha_core/research/feature_runner.py` (promote to `features/` later if it grows) | Feature table (`pyarrow`/`pandas`) |
+| Position, fills, slippage, fees | `libs/core/alpha_core/strategy_framework/` + `libs/core/alpha_core/research/backtest_runner.py` | Trade stream + equity curve |
+| Event/vectorized simulation | `libs/core/alpha_core/research/backtest_runner.py` | `BacktestManifest` + trade/equity artifacts |
+| PM and financial evaluation | `libs/core/alpha_core/research/evaluate_runner.py` | Metrics report |
+| Report persistence/comparison | `apps/research/commands/report.py` + run artifacts | JSON/Markdown report artifacts |
 | User-facing orchestration | `apps/research/main.py` | CLI subcommands |
 
 Rule: domain logic in `libs/core`; orchestration in `apps/research`.
@@ -132,8 +132,8 @@ For each function define:
 Notebook should call module functions, not duplicate logic:
 
 ```python
-from alpha_core.features.pm_specific import compute_microprice_deviation
-from apps.research.backtester.engine import EventBacktestEngine
+import alpha_core.research.backtest_runner as backtest_runner_mod
+import alpha_core.research.feature_runner as feature_runner_mod
 ```
 
 ### Step 7: Expose Through CLI
@@ -163,12 +163,12 @@ Suggested extraction map:
 | Notebook Section | Promote To | Notes |
 |---|---|---|
 | R1 book/trade loading + as-of merge | `alpha_core.research.dataset_builder` + helper in `alpha_core.research.as_of` | Keep joins point-in-time safe |
-| Book JSON parsing and spread/imbalance derivation | `alpha_core.features.pm_specific` (or helper module under `features`) | Add strict schema validation |
-| R2 feature engineering (`mom_5`, `ofi_proxy_5`, etc.) | `alpha_core.features.pm_specific` + `FeatureRegistry` entries | Version feature params |
-| R3 `run_event_style_backtest` | `apps/research/backtester/engine.py` strategy/engine path | Replace proxy with canonical engine models |
-| R4 grid sweep loop | `apps/research/backtester/sweep.py` | Persist sweep metadata |
-| R5 scorecard and metric summary | `alpha_core.evaluation/*` + `apps/research/reporting/writer.py` | Separate metric compute from presentation |
-| Export block | `apps/research/reporting/writer.py` | Keep output schema stable |
+| Book JSON parsing and spread/imbalance derivation | `alpha_core.research.feature_runner` helper module (or `features/` if promoted later) | Add strict schema validation |
+| R2 feature engineering (`mom_5`, `ofi_proxy_5`, etc.) | `alpha_core.research.feature_runner` + staged registry/config helpers | Version feature params |
+| R3 `run_event_style_backtest` | `alpha_core.research.backtest_runner` strategy/engine path | Replace proxy with canonical engine models |
+| R4 grid sweep loop | `apps/research/main.py optimize` until a dedicated sweep module exists | Persist sweep metadata |
+| R5 scorecard and metric summary | `alpha_core.research.evaluate_runner` + `apps/research/commands/report.py` | Separate metric compute from presentation |
+| Export block | `apps/research/commands/report.py` | Keep output schema stable |
 
 Minimal migration order for this notebook:
 
@@ -225,7 +225,7 @@ Example tolerance table:
 
 ## 8. CLI Wiring Pattern
 
-As of **March 1, 2026**, `apps/research/main.py` is a stub. During R6, expose migrated logic with stable commands.
+As of **March 7, 2026**, `apps/research/main.py` is a **fully wired command group** (LA-004 through LA-007 complete).  All pipeline stages are implemented and tested.
 
 CLI design rules:
 
@@ -234,14 +234,88 @@ CLI design rules:
 - Emit machine-readable output (`--format json`) for automation
 - Return non-zero exit code on failed validation gates
 
-Suggested command surface:
+### 8.1 Implemented Command Surface and Notebook Mapping
 
-- `build-dataset`
-- `build-features`
-- `backtest`
-- `evaluate`
-- `report`
-- `run-microstructure-pipeline` (optional convenience wrapper)
+The table below maps each research notebook section to the canonical CLI command that replaces or wraps it.
+
+| Notebook Section / Notebook Cell Pattern | CLI Command | Key Options | Output Artifacts |
+|---|---|---|---|
+| Silver data loading, as-of joins, universe snapshot | `build-dataset` | `--name`, `--start`, `--end`, `--venues` | `trades.parquet` under `gold/datasets/{dataset_id}/` |
+| Feature engineering (rolling zscore, mean, std, volume) | `build-features` | `--dataset-id`, `--feature-set-version`, `--lookback-bars`, `--parent-run-id` | `features.parquet`, `feature_manifest.json` under `runs/{run_id}/` |
+| Event-driven backtest / strategy simulation | `backtest` | `--dataset-id`, `--strategy-id`, `--parent-run-id`, `--engine`, `--starting-cash` | `trades.parquet`, `equity.parquet`, `backtest_manifest.json` under `runs/{run_id}/` |
+| Scorecard, Sharpe, drawdown, win-rate metrics | `evaluate` | `--backtest-run-id`, `--metrics-profile` (`pm_core` \| `minimal` \| `microstructure`) | `metrics.json`, `metrics.parquet` under `runs/{run_id}/` |
+| Summary report / export block | `report` | `--evaluation-run-id`, `--report-format` (`json` \| `markdown`) | `report.json` or `report.md` under `runs/{run_id}/` |
+| Parameter sweep / grid search | `optimize` *(planned LA-010)* | `--dataset-id`, `--feature-set`, `--strategy-id` | trial registry, leaderboard parquet |
+
+### 8.2 Full Pipeline Example
+
+```bash
+# 1. Build a gold dataset from silver Parquet for a date window.
+python -m apps.research.main build-dataset \
+    --name my_study \
+    --start 2026-01-01T00:00:00Z \
+    --end   2026-02-01T00:00:00Z \
+    --storage-root data/research \
+    --execute
+# Emits: dataset_id=<hash>  (use in next step)
+
+# 2. Build features on the dataset.
+python -m apps.research.main build-features \
+    --dataset-id <dataset_id> \
+    --feature-set-version v1 \
+    --lookback-bars 200 \
+    --storage-root data/research \
+    --execute
+# Emits: run_id=<feature_run_id>
+
+# 3. Run the backtest.
+python -m apps.research.main backtest \
+    --dataset-id <dataset_id> \
+    --strategy-id zscore_momentum_v1 \
+    --parent-run-id <feature_run_id> \
+    --engine event \
+    --starting-cash 100000 \
+    --storage-root data/research \
+    --execute
+# Emits: run_id=<backtest_run_id>
+
+# 4. Evaluate the backtest.
+python -m apps.research.main evaluate \
+    --backtest-run-id <backtest_run_id> \
+    --metrics-profile pm_core \
+    --storage-root data/research \
+    --execute
+# Emits: run_id=<evaluate_run_id>
+
+# 5. Render a report.
+python -m apps.research.main report \
+    --evaluation-run-id <evaluate_run_id> \
+    --report-format markdown \
+    --storage-root data/research \
+    --execute
+```
+
+### 8.3 Machine-Readable Output
+
+Every command supports `--format json` (via the global `--format` flag) which emits a single JSON object instead of key=value text lines.  This is suitable for scripting and CI pipelines:
+
+```bash
+python -m apps.research.main --format json evaluate \
+    --backtest-run-id <id> --storage-root data/research --execute \
+  | jq '.metrics.sharpe_ratio'
+```
+
+### 8.4 Plan-Only Mode
+
+Every command supports `--plan-only` (the default) which validates arguments and emits a run summary *without* writing any artifacts.  Use this to verify configuration before committing a long run:
+
+```bash
+python -m apps.research.main backtest \
+    --dataset-id <id> --strategy-id my_strat \
+    --parent-run-id <feature_run_id> \
+    --storage-root data/research
+    # --execute is NOT passed → plan-only, exits zero, no files written
+```
 
 ---
 

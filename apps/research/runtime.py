@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,24 +44,17 @@ def run_stage(request: ResearchStageRequest) -> ResearchStageOutcome:
         )
 
     completed_context = run_context_mod.close_run_context(run_context)
-    run_root = artifact_paths.run_root(request.storage_root, completed_context.run_id)
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    config_path = artifact_paths.run_config_path(request.storage_root, completed_context.run_id)
-    config_path.write_text(
-        json.dumps(request.payload, indent=2, sort_keys=True, default=str),
-        encoding="utf-8",
-    )
-    artifacts = {"config": str(config_path)}
-    artifact_paths.write_artifacts_index(request.storage_root, completed_context.run_id, artifacts)
-
-    manifest = manifest_mod.RunManifest(
-        run=completed_context,
-        artifacts=artifacts,
+    manifest_mod.persist_run_record(
+        storage_root=request.storage_root,
+        run_context=completed_context,
+        config_payload=request.payload,
+        artifacts={},
         parent_run_id=request.parent_run_id,
     )
-    manifest_path = artifact_paths.run_manifest_path(request.storage_root, completed_context.run_id)
-    manifest_mod.write_run_manifest(manifest_path, manifest)
+    manifest_path = artifact_paths.run_manifest_path(
+        request.storage_root,
+        completed_context.run_id,
+    )
     return ResearchStageOutcome(
         run_id=completed_context.run_id,
         run_type=completed_context.run_type,
