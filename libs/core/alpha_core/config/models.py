@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -80,4 +81,43 @@ class Settings(BaseModel):
         description=(
             "Active runtime profile. None means no profile-level safety guards are applied."
         ),
+    )
+
+
+class ResearchConfig(BaseModel):
+    """Research-plane configuration extensions.
+
+    All fields have safe defaults so that existing ``Settings`` usage is
+    unaffected.  Attach an instance to ``Settings`` or load it from a
+    dedicated ``config/research/*.yaml`` override file.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    default_initial_cash: Decimal = Field(
+        default=Decimal("10000"),
+        description="Default starting cash for new backtests.",
+    )
+    default_fee_bps: Decimal = Field(
+        default=Decimal("0"),
+        ge=Decimal("0"),
+        description="Default taker fee rate in basis points.",
+    )
+    default_slippage_bps: Decimal = Field(
+        default=Decimal("10"),
+        ge=Decimal("0"),
+        description="Default fixed slippage in basis points.",
+    )
+    default_engine: Literal["event", "vec"] = Field(
+        default="event",
+        description="Backtest engine used when --engine is not specified.",
+    )
+    max_sweep_combinations: int = Field(
+        default=1000,
+        ge=1,
+        description="Hard cap on parameter-sweep trial count before truncation.",
+    )
+    backtest_storage_path: str = Field(
+        default="backtests",
+        description="Sub-path under the storage root where backtest artifacts live.",
     )

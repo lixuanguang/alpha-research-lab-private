@@ -6,8 +6,8 @@
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Lean adoption alignment (March 7, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
-> **Implementation status (March 7, 2026):** Dataset/feature/backtest/evaluate/report workflows are delivered, and LA-009 through LA-010 added the filesystem `ArtifactStore` and first-class optimize workflow. LA-022 delivered the acceleration boundary contract (`alpha_core.performance.interfaces`, parity harness, ADR 005, regression tests). Richer PM-native execution, full vectorized fast path, and deeper PM-specific evaluation hardening remain open.
-> **Current quality gate snapshot (validated March 7, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`1875 passed, 10 skipped`).
+> **Implementation status (March 8, 2026):** Dataset/feature/backtest/evaluate/report/optimize workflows delivered. R5 complete: `alpha_core.evaluation` package with `FinancialMetrics`, `PMMetrics` (Brier, log-loss, ECE, resolution decomposition, category breakdown), `BacktestEvaluator`, schema-versioned `EvaluationReport`, and `apps.research.reporting` (ReportWriter, comparisons). 73 new tests added.
+> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`1948 passed, 10 skipped`).
 
 ---
 
@@ -411,8 +411,14 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 - [x] `alpha_core.research.evaluate_runner` — `EvaluateManifest`, `EvaluateRunner.build()`, and named metrics profiles; current `pm_core` coverage is financial/trade-core, with deeper PM-native metrics deferred (`libs/core/alpha_core/research/evaluate_runner.py`)
 - [x] CLI: `evaluate` command (`apps/research/commands/evaluate.py`)
 - [x] CLI: `report` command — JSON and Markdown rendering (`apps/research/commands/report.py`)
-- [ ] Brier score, log-loss, calibration curves — deferred to later iteration
-- [ ] Resolution PnL decomposition — deferred to later iteration
+- [x] `alpha_core.evaluation.financial` — `FinancialMetrics`, `compute_financial_metrics` (Sharpe, Sortino, Calmar, drawdown, win rate, profit factor, avg holding period) (`libs/core/alpha_core/evaluation/financial.py`)
+- [x] `alpha_core.evaluation.calibration` — `calibration_curve`, `expected_calibration_error`, `brier_score`, `log_loss_score` — pure-NumPy, zero-dependency (`libs/core/alpha_core/evaluation/calibration.py`)
+- [x] `alpha_core.evaluation.pm_metrics` — `PMMetrics`, `compute_pm_metrics` (Brier score, log-loss, ECE, resolution PnL, resolution accuracy, avg entry/exit prob, per-category breakdown) (`libs/core/alpha_core/evaluation/pm_metrics.py`)
+- [x] `alpha_core.evaluation.evaluator` — `EvaluationReport` (schema-versioned), `BacktestEvaluator.evaluate()`, `BacktestEvaluator.evaluate_result()`, `BacktestEvaluator.compare()` (`libs/core/alpha_core/evaluation/evaluator.py`)
+- [x] `apps.research.reporting.writer` — `ReportWriter` (write/load/list round-trip, atomic writes, flat metrics.json) (`apps/research/reporting/writer.py`)
+- [x] `apps.research.reporting.comparisons` — `compare_reports`, `rank_reports`, `pivot_metric` (`apps/research/reporting/comparisons.py`)
+- [x] Unit tests: `tests/unit/test_financial_metrics.py` (17 tests), `tests/unit/test_calibration.py` (16 tests), `tests/unit/test_pm_metrics.py` (15 tests), `tests/unit/test_evaluator.py` (12 tests), `tests/unit/test_report_writer.py` (8 tests)
+- [x] Integration test: `tests/integration/test_evaluation_pipeline.py` (5 tests — full evaluate → write → load → compare chain)
 
 #### R6 — Research CLI & Integration Wiring
 
@@ -422,7 +428,11 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 - [x] E2E pipeline integration test — full chain `build-features → backtest → evaluate` with artifact + schema assertions (`tests/integration/test_research_pipeline_e2e.py`)
 - [x] CLI: `optimize` command with trial registry + leaderboard persistence (`apps/research/commands/optimize.py`)
 - [ ] CI smoke pipeline — deferred to LA-015
-- [ ] Example strategies (`probability_momentum`, `cross_venue_arb`, `mean_reversion`) — deferred to later iteration
+- [x] Example strategies (`probability_momentum`, `cross_venue_arb`, `mean_reversion`) — `apps/research/strategies/`
+- [x] Strategy loader — `apps/research/strategies/loader.py` (`StrategyLoader`)
+- [x] `ResearchConfig` — added to `libs/core/alpha_core/config/models.py` (backward compatible)
+- [x] Unit tests — `test_research_cli.py` (10), `test_example_strategies.py` (20), `test_strategy_loader.py` (10)
+- [x] Integration test — `test_engine_congruence.py` (3 tests: equity start, tolerance, ProbMomentum ≥1 trade)
 
 ---
 
