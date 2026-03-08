@@ -95,9 +95,7 @@ class ParquetEventReader:
         for partition_ref in partition_refs:
             resolved_path = self._resolve_partition_ref(partition_ref)
             if not resolved_path.exists():
-                raise FileNotFoundError(
-                    f"Referenced partition does not exist: {partition_ref}"
-                )
+                raise FileNotFoundError(f"Referenced partition does not exist: {partition_ref}")
             dataset_names.add(_dataset_name_from_partition_ref(partition_ref))
             if len(dataset_names) > 1:
                 raise ValueError("All partition refs must belong to the same dataset.")

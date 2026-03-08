@@ -149,8 +149,7 @@ class CrossVenueSpread(feature_base.Feature):
             latest_prices: dict[str, float] = {}
             for _, bucket in group.groupby("_sequence_ts", sort=False):
                 bucket_latest = {
-                    str(row["_venue"]): float(row["_price_f"])
-                    for _, row in bucket.iterrows()
+                    str(row["_venue"]): float(row["_price_f"]) for _, row in bucket.iterrows()
                 }
                 latest_prices.update(bucket_latest)
                 if len(latest_prices) < 2:
@@ -349,9 +348,8 @@ class CategoryMomentum(feature_base.Feature):
 
         idx = pd.MultiIndex.from_arrays([ordered["_sequence_ts"], ordered["category"]])
         ordered["_value"] = cat_roll.reindex(idx).to_numpy(dtype=float, na_value=np.nan)
-        values = (
-            ordered.sort_values("_row_order", kind="stable")["_value"]
-            .to_numpy(dtype=float, na_value=np.nan)
+        values = ordered.sort_values("_row_order", kind="stable")["_value"].to_numpy(
+            dtype=float, na_value=np.nan
         )
         return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
