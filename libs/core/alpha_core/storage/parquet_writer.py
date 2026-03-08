@@ -152,9 +152,7 @@ class ParquetEventWriter:
         basename_template = None
         if file_stem_token is not None:
             normalized_token = _normalize_file_stem_token(file_stem_token)
-            basename_template = (
-                f"run_{normalized_token}_{uuid.uuid4().hex}-{{i}}.parquet"
-            )
+            basename_template = f"run_{normalized_token}_{uuid.uuid4().hex}-{{i}}.parquet"
         pq.write_to_dataset(
             table,
             root_path=str(dataset_root),
