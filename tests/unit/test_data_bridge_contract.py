@@ -537,9 +537,7 @@ class TestPullIncremental:
 
     def test_resume_deduplicates_same_watermark_trade_ids(self) -> None:
         iid = "mkt:k:yes"
-        initial_bridge = _make_bridge(
-            trades_by_id={iid: [_trade(iid, ts_offset_seconds=0)]}
-        )
+        initial_bridge = _make_bridge(trades_by_id={iid: [_trade(iid, ts_offset_seconds=0)]})
         start_cursor = IncrementalCursor(
             venue_name="stub",
             instrument_ids=[iid],
@@ -569,9 +567,7 @@ class TestPullIncremental:
         events, new_cursor = asyncio.run(resumed_bridge.pull_incremental(resume_cursor))
 
         trade_ids = [
-            event.trade_id
-            for event in events
-            if isinstance(event, event_models.CanonicalTrade)
+            event.trade_id for event in events if isinstance(event, event_models.CanonicalTrade)
         ]
         assert trade_ids == [
             "trade-late-at-watermark",

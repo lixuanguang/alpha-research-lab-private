@@ -49,12 +49,14 @@ def _trade_table(n: int = 40, num_instruments: int = 1) -> pa.Table:
             sizes.append(1.0 + float(i % 5))
             ts_list.append(_T0 + timedelta(minutes=i + idx * rows_per_instrument))
 
-    return pa.table({
-        "instrument_id": pa.array(instr_ids, pa.string()),
-        "price": pa.array(prices, pa.float64()),
-        "size": pa.array(sizes, pa.float64()),
-        "ts_event": pa.array(ts_list, pa.timestamp("us", tz="UTC")),
-    })
+    return pa.table(
+        {
+            "instrument_id": pa.array(instr_ids, pa.string()),
+            "price": pa.array(prices, pa.float64()),
+            "size": pa.array(sizes, pa.float64()),
+            "ts_event": pa.array(ts_list, pa.timestamp("us", tz="UTC")),
+        }
+    )
 
 
 def _mock_dataset(table: pa.Table) -> MagicMock:
@@ -93,6 +95,7 @@ class _OnesFeature(feature_base.Feature):
 # ---------------------------------------------------------------------------
 # Integration: FeatureRegistry.compute_all
 # ---------------------------------------------------------------------------
+
 
 class TestRegistryComputeAllIntegration:
     def test_single_primitive_appends_column(self) -> None:
@@ -160,6 +163,7 @@ class TestRegistryComputeAllIntegration:
 # ---------------------------------------------------------------------------
 # Integration: FeatureSetBuilder end-to-end
 # ---------------------------------------------------------------------------
+
 
 class TestFeatureSetBuilderIntegration:
     def test_build_and_load_roundtrip(self, tmp_path: Path) -> None:

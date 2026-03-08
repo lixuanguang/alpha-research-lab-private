@@ -218,9 +218,7 @@ class VecBacktestEngine:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _get_rebalance_bars(
-        self, df: pd.DataFrame
-    ) -> list[tuple[datetime, pd.DataFrame]]:
+    def _get_rebalance_bars(self, df: pd.DataFrame) -> list[tuple[datetime, pd.DataFrame]]:
         """Group the trade data by rebalance_frequency bars.
 
         Returns a list of ``(bar_timestamp, bar_df)`` pairs sorted chronologically.
@@ -302,11 +300,7 @@ class VecBacktestEngine:
             target_value = abs(Decimal(str(weight))) * portfolio_value
             # Target size (number of contracts)
             target_size = (target_value / ref_price).quantize(_SIZE_PREC, ROUND_HALF_UP)
-            target_side = (
-                portfolio_models.Side.LONG
-                if weight > 0
-                else portfolio_models.Side.SHORT
-            )
+            target_side = portfolio_models.Side.LONG if weight > 0 else portfolio_models.Side.SHORT
 
             # Current size/side held.
             current_size = _ZERO
@@ -333,12 +327,14 @@ class VecBacktestEngine:
                 # Same side → adjust size.
                 delta = target_size - current_size
                 if abs(delta) >= Decimal("0.000001"):
-                    adj_side = target_side if delta > _ZERO else (
-
+                    adj_side = (
+                        target_side
+                        if delta > _ZERO
+                        else (
                             portfolio_models.Side.SHORT
                             if target_side == portfolio_models.Side.LONG
                             else portfolio_models.Side.LONG
-
+                        )
                     )
                     fill = self._make_fill(
                         instrument_id=instr,

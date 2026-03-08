@@ -150,8 +150,7 @@ def _silver_trade_ids(storage_root: Path) -> list[str]:
     if not dataset_root.exists() or not list(dataset_root.rglob("*.parquet")):
         return []
     return sorted(
-        str(trade_id)
-        for trade_id in pq.read_table(dataset_root).column("trade_id").to_pylist()
+        str(trade_id) for trade_id in pq.read_table(dataset_root).column("trade_id").to_pylist()
     )
 
 

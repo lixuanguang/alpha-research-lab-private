@@ -137,8 +137,7 @@ class TestSimulatedFill:
     def test_fill_price_in_range(self) -> None:
         with pytest.raises(ValidationError):
             order = BacktestOrderIntent(
-                instrument_id="a", side=Side.LONG,
-                size=Decimal("1"), order_type="market"
+                instrument_id="a", side=Side.LONG, size=Decimal("1"), order_type="market"
             )
             SimulatedFill(
                 order=order,

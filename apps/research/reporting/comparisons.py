@@ -53,9 +53,7 @@ def rank_reports(
     missing = [c for c in (primary, secondary) if c not in comparison_df.columns]
     if missing:
         available = list(comparison_df.columns)
-        raise ValueError(
-            f"Columns {missing} not found in comparison_df.  Available: {available}"
-        )
+        raise ValueError(f"Columns {missing} not found in comparison_df.  Available: {available}")
 
     ranked = comparison_df.sort_values(
         [primary, secondary],

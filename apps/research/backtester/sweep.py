@@ -291,9 +291,7 @@ class ParameterSweepRunner:
             message = "; ".join(failures[:3])
             if len(failures) > 3:
                 message = f"{message}; and {len(failures) - 3} more"
-            raise RuntimeError(
-                f"Parameter sweep failed for {len(failures)} trial(s): {message}"
-            )
+            raise RuntimeError(f"Parameter sweep failed for {len(failures)} trial(s): {message}")
         if not trials:
             raise RuntimeError("Parameter sweep produced no trials.")
 

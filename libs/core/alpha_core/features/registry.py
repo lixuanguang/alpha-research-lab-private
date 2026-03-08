@@ -69,14 +69,9 @@ class FeatureRegistry:
         if name not in self._features:
             raise KeyError(f"Feature '{name}' is not registered.")
         # Guard: refuse if another registered feature depends on this one.
-        dependants = [
-            f.name for f in self._features.values()
-            if name in f.dependencies
-        ]
+        dependants = [f.name for f in self._features.values() if name in f.dependencies]
         if dependants:
-            raise ValueError(
-                f"Cannot deregister '{name}': depended on by {dependants}."
-            )
+            raise ValueError(f"Cannot deregister '{name}': depended on by {dependants}.")
         del self._features[name]
 
     # ------------------------------------------------------------------
@@ -144,9 +139,7 @@ class FeatureRegistry:
         for name in ordered:
             result = self._features[name].compute(working)
             col = pa.array(result.values, type=pa.float64())
-            working = working.append_column(
-                pa.field(name, pa.float64()), col
-            )
+            working = working.append_column(pa.field(name, pa.float64()), col)
 
         return working
 
@@ -188,9 +181,7 @@ class FeatureRegistry:
 
         if len(order) != len(self._features):
             cycle_nodes = [n for n, d in in_degree.items() if d > 0]
-            raise ValueError(
-                f"Cyclic dependency detected among features: {sorted(cycle_nodes)}"
-            )
+            raise ValueError(f"Cyclic dependency detected among features: {sorted(cycle_nodes)}")
         return order
 
     def _transitive_deps(self, names: set[str]) -> set[str]:

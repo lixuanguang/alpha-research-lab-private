@@ -151,8 +151,9 @@ class ParquetEventWriter:
         table = pa.Table.from_pylist(rows, schema=schema)
         basename_template = None
         if file_stem_token is not None:
+            normalized_token = _normalize_file_stem_token(file_stem_token)
             basename_template = (
-                f"run_{_normalize_file_stem_token(file_stem_token)}_{uuid.uuid4().hex}-{{i}}.parquet"
+                f"run_{normalized_token}_{uuid.uuid4().hex}-{{i}}.parquet"
             )
         pq.write_to_dataset(
             table,
@@ -296,9 +297,7 @@ def _normalize_file_stem_token(value: str) -> str:
     if not cleaned:
         raise ValueError("`file_stem_token` must be non-empty")
     if _FILE_STEM_TOKEN_RE.fullmatch(cleaned) is None:
-        raise ValueError(
-            "`file_stem_token` contains unsupported characters; use [A-Za-z0-9._-]"
-        )
+        raise ValueError("`file_stem_token` contains unsupported characters; use [A-Za-z0-9._-]")
     return cleaned
 
 

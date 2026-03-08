@@ -168,7 +168,7 @@ class TestCrossVenueArbStrategy:
         orders = s.on_data(_T0, _state(universe, prices))
         assert len(orders) == 2
         sides = {o.instrument_id: o.side for o in orders}
-        assert sides["poly:q1"] == Side.LONG   # cheaper → buy
+        assert sides["poly:q1"] == Side.LONG  # cheaper → buy
         assert sides["multi:q1"] == Side.SHORT  # dearer → sell
 
     def test_no_orders_when_spread_below_threshold(self) -> None:
@@ -288,9 +288,7 @@ class TestMeanReversionStrategy:
 
     def test_size_positions_delegates_to_sizer(self) -> None:
         s = MeanReversionStrategy()
-        signals = pd.DataFrame(
-            {"instrument_id": ["A", "B"], "signal": [1.0, -1.0]}
-        )
+        signals = pd.DataFrame({"instrument_id": ["A", "B"], "signal": [1.0, -1.0]})
         weights = s.size_positions(signals, Decimal("10000"), 10)
         assert set(weights.columns) == {"instrument_id", "target_weight"}
         assert abs(weights["target_weight"].abs().sum() - 1.0) < 1e-6

@@ -34,12 +34,14 @@ def _table(
 ) -> pa.Table:
     n = len(prices)
     ts = [_T0 + timedelta(minutes=i) for i in range(n)]
-    return pa.table({
-        "instrument_id": [instrument] * n,
-        "price": pa.array(prices, type=pa.float64()),
-        "size": pa.array(sizes or [1.0] * n, type=pa.float64()),
-        "ts_event": pa.array(ts, type=pa.timestamp("us", tz="UTC")),
-    })
+    return pa.table(
+        {
+            "instrument_id": [instrument] * n,
+            "price": pa.array(prices, type=pa.float64()),
+            "size": pa.array(sizes or [1.0] * n, type=pa.float64()),
+            "ts_event": pa.array(ts, type=pa.timestamp("us", tz="UTC")),
+        }
+    )
 
 
 def _multi_table(prices_a: list[float], prices_b: list[float]) -> pa.Table:
@@ -47,17 +49,20 @@ def _multi_table(prices_a: list[float], prices_b: list[float]) -> pa.Table:
     na, nb = len(prices_a), len(prices_b)
     ts_a = [_T0 + timedelta(minutes=i) for i in range(na)]
     ts_b = [_T0 + timedelta(minutes=i) for i in range(nb)]
-    return pa.table({
-        "instrument_id": ["a"] * na + ["b"] * nb,
-        "price": pa.array(prices_a + prices_b, type=pa.float64()),
-        "size": pa.array([1.0] * (na + nb), type=pa.float64()),
-        "ts_event": pa.array(ts_a + ts_b, type=pa.timestamp("us", tz="UTC")),
-    })
+    return pa.table(
+        {
+            "instrument_id": ["a"] * na + ["b"] * nb,
+            "price": pa.array(prices_a + prices_b, type=pa.float64()),
+            "size": pa.array([1.0] * (na + nb), type=pa.float64()),
+            "ts_event": pa.array(ts_a + ts_b, type=pa.timestamp("us", tz="UTC")),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # RollingMean
 # ---------------------------------------------------------------------------
+
 
 class TestRollingMean:
     def test_correct_output_sufficient_history(self) -> None:
@@ -77,10 +82,14 @@ class TestRollingMean:
         assert all(math.isnan(v) for v in result.values)
 
     def test_empty_table_returns_empty(self) -> None:
-        t = pa.table({"instrument_id": pa.array([], type=pa.string()),
-                      "price": pa.array([], type=pa.float64()),
-                      "size": pa.array([], type=pa.float64()),
-                      "ts_event": pa.array([], type=pa.timestamp("us", tz="UTC"))})
+        t = pa.table(
+            {
+                "instrument_id": pa.array([], type=pa.string()),
+                "price": pa.array([], type=pa.float64()),
+                "size": pa.array([], type=pa.float64()),
+                "ts_event": pa.array([], type=pa.timestamp("us", tz="UTC")),
+            }
+        )
         result = RollingMean(window=3).compute(t)
         assert len(result.values) == 0
 
@@ -92,7 +101,7 @@ class TestRollingMean:
         assert math.isnan(result.values[3])
         assert math.isnan(result.values[1])
         assert math.isnan(result.values[4])
-        assert result.values[2] == pytest.approx(1.5)   # (1+2)/2
+        assert result.values[2] == pytest.approx(1.5)  # (1+2)/2
         assert result.values[5] == pytest.approx(15.0)  # (10+20)/2
 
     def test_params_snapshot(self) -> None:
@@ -104,6 +113,7 @@ class TestRollingMean:
 # ---------------------------------------------------------------------------
 # RollingStd
 # ---------------------------------------------------------------------------
+
 
 class TestRollingStd:
     def test_std_known_values(self) -> None:
@@ -126,6 +136,7 @@ class TestRollingStd:
 # EWM
 # ---------------------------------------------------------------------------
 
+
 class TestEWM:
     def test_second_value_equals_first_price(self) -> None:
         t = _table([0.3, 0.5, 0.7])
@@ -134,10 +145,14 @@ class TestEWM:
         assert result.values[1] == pytest.approx(0.3)
 
     def test_empty_returns_empty(self) -> None:
-        t = pa.table({"instrument_id": pa.array([], pa.string()),
-                      "price": pa.array([], pa.float64()),
-                      "size": pa.array([], pa.float64()),
-                      "ts_event": pa.array([], pa.timestamp("us", tz="UTC"))})
+        t = pa.table(
+            {
+                "instrument_id": pa.array([], pa.string()),
+                "price": pa.array([], pa.float64()),
+                "size": pa.array([], pa.float64()),
+                "ts_event": pa.array([], pa.timestamp("us", tz="UTC")),
+            }
+        )
         result = EWM(span=5).compute(t)
         assert len(result.values) == 0
 
@@ -149,6 +164,7 @@ class TestEWM:
 # ---------------------------------------------------------------------------
 # ZScore
 # ---------------------------------------------------------------------------
+
 
 class TestZScore:
     def test_zscore_zero_at_mean(self) -> None:
@@ -175,6 +191,7 @@ class TestZScore:
 # Rank
 # ---------------------------------------------------------------------------
 
+
 class TestRank:
     def test_time_series_rank_basic(self) -> None:
         # Lagged history at the last row is [1,2,3,4], so the rank is 1.0.
@@ -185,12 +202,14 @@ class TestRank:
     def test_cross_sectional_rank(self) -> None:
         # Two instruments at same timestamps: a=0.3, b=0.7
         # b should have higher percentile rank.
-        t = pa.table({
-            "instrument_id": ["a", "b"],
-            "price": pa.array([0.3, 0.7], pa.float64()),
-            "size": pa.array([1.0, 1.0], pa.float64()),
-            "ts_event": pa.array([_T0, _T0], pa.timestamp("us", tz="UTC")),
-        })
+        t = pa.table(
+            {
+                "instrument_id": ["a", "b"],
+                "price": pa.array([0.3, 0.7], pa.float64()),
+                "size": pa.array([1.0, 1.0], pa.float64()),
+                "ts_event": pa.array([_T0, _T0], pa.timestamp("us", tz="UTC")),
+            }
+        )
         result = Rank(window=2, method="cross_sectional").compute(t)
         assert result.values[0] < result.values[1]
 
@@ -202,6 +221,7 @@ class TestRank:
 # ---------------------------------------------------------------------------
 # Lag
 # ---------------------------------------------------------------------------
+
 
 class TestLag:
     def test_lag_one(self) -> None:
@@ -223,6 +243,7 @@ class TestLag:
 # Diff
 # ---------------------------------------------------------------------------
 
+
 class TestDiff:
     def test_diff_one(self) -> None:
         t = _table([1.0, 3.0, 6.0])
@@ -232,10 +253,14 @@ class TestDiff:
         assert result.values[2] == pytest.approx(2.0)
 
     def test_empty_input(self) -> None:
-        t = pa.table({"instrument_id": pa.array([], pa.string()),
-                      "price": pa.array([], pa.float64()),
-                      "size": pa.array([], pa.float64()),
-                      "ts_event": pa.array([], pa.timestamp("us", tz="UTC"))})
+        t = pa.table(
+            {
+                "instrument_id": pa.array([], pa.string()),
+                "price": pa.array([], pa.float64()),
+                "size": pa.array([], pa.float64()),
+                "ts_event": pa.array([], pa.timestamp("us", tz="UTC")),
+            }
+        )
         result = Diff().compute(t)
         assert len(result.values) == 0
 
@@ -243,6 +268,7 @@ class TestDiff:
 # ---------------------------------------------------------------------------
 # Return
 # ---------------------------------------------------------------------------
+
 
 class TestReturn:
     def test_pct_return_known(self) -> None:
@@ -261,6 +287,7 @@ class TestReturn:
 # ---------------------------------------------------------------------------
 # Volatility
 # ---------------------------------------------------------------------------
+
 
 class TestVolatility:
     def test_constant_returns_zero_vol(self) -> None:

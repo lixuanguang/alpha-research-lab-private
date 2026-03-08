@@ -28,6 +28,7 @@ class TestOptimizeConfig:
 
     def test_blank_dataset_id_raises(self) -> None:
         import pytest
+
         with pytest.raises(Exception):
             OptimizeConfig(
                 dataset_id="  ",
@@ -38,6 +39,7 @@ class TestOptimizeConfig:
 
     def test_unknown_parameter_space_key_raises(self) -> None:
         import pytest
+
         with pytest.raises(Exception, match="Unsupported"):
             OptimizeConfig(
                 dataset_id="ds",
@@ -48,6 +50,7 @@ class TestOptimizeConfig:
 
     def test_empty_parameter_space_list_raises(self) -> None:
         import pytest
+
         with pytest.raises(Exception):
             OptimizeConfig(
                 dataset_id="ds",
@@ -145,6 +148,7 @@ class TestExpandParameterSpace:
         # We test the helper directly with a "skip validator" config.
         # Since the validator rejects empty dicts, just test the logic branch directly.
         from unittest.mock import MagicMock
+
         mock_config = MagicMock()
         mock_config.parameter_space = {}
         mock_config.search_mode = "grid"
@@ -214,10 +218,15 @@ class TestLeaderboardSorting:
         """Feasible trials are sorted by objective_value descending, tie-break trial_index."""
         records = [
             TrialRecord(
-                optimize_run_id="o", trial_index=i,
-                backtest_run_id=f"b{i}", evaluate_run_id=f"e{i}",
-                params={}, metrics={}, objective_value=float(v),
-                constraint_pass=True, status="ok",
+                optimize_run_id="o",
+                trial_index=i,
+                backtest_run_id=f"b{i}",
+                evaluate_run_id=f"e{i}",
+                params={},
+                metrics={},
+                objective_value=float(v),
+                constraint_pass=True,
+                status="ok",
             )
             for i, v in enumerate([1.5, 2.0, 0.5])
         ]
@@ -233,16 +242,26 @@ class TestLeaderboardSorting:
     def test_constraint_violation_excluded(self) -> None:
         records = [
             TrialRecord(
-                optimize_run_id="o", trial_index=0,
-                backtest_run_id="b0", evaluate_run_id="e0",
-                params={}, metrics={}, objective_value=99.0,
-                constraint_pass=False, status="constraint_violation",
+                optimize_run_id="o",
+                trial_index=0,
+                backtest_run_id="b0",
+                evaluate_run_id="e0",
+                params={},
+                metrics={},
+                objective_value=99.0,
+                constraint_pass=False,
+                status="constraint_violation",
             ),
             TrialRecord(
-                optimize_run_id="o", trial_index=1,
-                backtest_run_id="b1", evaluate_run_id="e1",
-                params={}, metrics={}, objective_value=1.0,
-                constraint_pass=True, status="ok",
+                optimize_run_id="o",
+                trial_index=1,
+                backtest_run_id="b1",
+                evaluate_run_id="e1",
+                params={},
+                metrics={},
+                objective_value=1.0,
+                constraint_pass=True,
+                status="ok",
             ),
         ]
         feasible = [r for r in records if r.constraint_pass and r.status == "ok"]

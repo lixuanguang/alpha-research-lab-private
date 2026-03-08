@@ -16,12 +16,8 @@ class _SimpleStrategy(vec_strategy_mod.VecStrategy):
 
     name = "simple"
 
-    def generate_signals(
-        self, features: pd.DataFrame, universe: list[str]
-    ) -> pd.DataFrame:
-        return pd.DataFrame(
-            {"instrument_id": universe, "signal": [1.0] * len(universe)}
-        )
+    def generate_signals(self, features: pd.DataFrame, universe: list[str]) -> pd.DataFrame:
+        return pd.DataFrame({"instrument_id": universe, "signal": [1.0] * len(universe)})
 
     def size_positions(
         self,
@@ -37,12 +33,8 @@ class _FlatStrategy(vec_strategy_mod.VecStrategy):
 
     name = "flat"
 
-    def generate_signals(
-        self, features: pd.DataFrame, universe: list[str]
-    ) -> pd.DataFrame:
-        return pd.DataFrame(
-            {"instrument_id": universe, "signal": [0.0] * len(universe)}
-        )
+    def generate_signals(self, features: pd.DataFrame, universe: list[str]) -> pd.DataFrame:
+        return pd.DataFrame({"instrument_id": universe, "signal": [0.0] * len(universe)})
 
     def size_positions(
         self, signals: pd.DataFrame, portfolio_value: Decimal, max_positions: int
@@ -55,9 +47,7 @@ class _EmptyUniverseStrategy(vec_strategy_mod.VecStrategy):
 
     name = "empty_universe"
 
-    def generate_signals(
-        self, features: pd.DataFrame, universe: list[str]
-    ) -> pd.DataFrame:
+    def generate_signals(self, features: pd.DataFrame, universe: list[str]) -> pd.DataFrame:
         return pd.DataFrame({"instrument_id": [], "signal": []})
 
     def size_positions(

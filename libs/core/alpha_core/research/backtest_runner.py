@@ -650,10 +650,7 @@ def _build_lagged_feature_table(features_df: pd.DataFrame) -> pa.Table:
 
 
 def _closed_positions_to_table(result: result_mod.BacktestResult) -> pa.Table:
-    rows = [
-        _position_row(position, final_timestamp=None)
-        for position in result.closed_positions
-    ]
+    rows = [_position_row(position, final_timestamp=None) for position in result.closed_positions]
     rows.extend(
         _position_row(position, final_timestamp=result.final_portfolio.timestamp)
         for position in result.final_portfolio.positions.values()
@@ -811,9 +808,7 @@ def _signed_position_size(
 
 def _select_default_zscore_column(columns: pd.Index | list[str]) -> str | None:
     candidates = sorted(
-        column_name
-        for column_name in columns
-        if column_name.startswith("price_zscore_")
+        column_name for column_name in columns if column_name.startswith("price_zscore_")
     )
     if not candidates:
         return None
@@ -824,9 +819,7 @@ def _select_price_column(columns: pd.Index | list[str]) -> str | None:
     if "price" in columns:
         return "price"
     candidates = sorted(
-        column_name
-        for column_name in columns
-        if column_name.startswith("price_mean_")
+        column_name for column_name in columns if column_name.startswith("price_mean_")
     )
     if not candidates:
         return None

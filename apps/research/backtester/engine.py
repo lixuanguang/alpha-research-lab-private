@@ -119,9 +119,7 @@ class EventBacktestEngine:
         if trades_table.num_rows == 0:
             return self._empty_result(strategy, t_start)
 
-        universe = list(
-            set(trades_table.column("instrument_id").to_pylist())
-        )
+        universe = list(set(trades_table.column("instrument_id").to_pylist()))
 
         tracker = tracker_mod.PortfolioTracker(self._config.initial_cash)
         features_index = self._build_features_index(features)
@@ -184,9 +182,7 @@ class EventBacktestEngine:
 
         duration = time.monotonic() - t_start
         config_dict = self._config.model_dump(mode="json")
-        final_timestamp = _row_timestamp(
-            _row_dict(sorted_table, sorted_table.num_rows - 1)
-        )
+        final_timestamp = _row_timestamp(_row_dict(sorted_table, sorted_table.num_rows - 1))
 
         return result_mod.BacktestResult(
             backtest_id=result_mod.make_backtest_id(config_dict, strategy.name),
@@ -245,9 +241,7 @@ class EventBacktestEngine:
         sequence_col = _sequence_column(features)
         skip = {"instrument_id", "price", "ts_available", "ts_event"}
         feat_cols = [
-            column_name
-            for column_name in features.schema.names
-            if column_name not in skip
+            column_name for column_name in features.schema.names if column_name not in skip
         ]
         if not feat_cols:
             return None

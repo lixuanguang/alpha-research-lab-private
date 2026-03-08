@@ -102,21 +102,15 @@ class FeeSchedule(BaseModel):
 
     def taker_fee(self, notional: Decimal) -> Decimal:
         """Compute taker fee on a given notional value."""
-        return (notional * self.taker_fee_bps / Decimal("10000")).quantize(
-            Decimal("0.000001")
-        )
+        return (notional * self.taker_fee_bps / Decimal("10000")).quantize(Decimal("0.000001"))
 
     def maker_fee(self, notional: Decimal) -> Decimal:
         """Compute maker fee on a given notional value."""
-        return (notional * self.maker_fee_bps / Decimal("10000")).quantize(
-            Decimal("0.000001")
-        )
+        return (notional * self.maker_fee_bps / Decimal("10000")).quantize(Decimal("0.000001"))
 
     def resolution_fee(self, payoff: Decimal) -> Decimal:
         """Compute resolution fee on a gross resolution payoff."""
-        return (payoff * self.resolution_fee_bps / Decimal("10000")).quantize(
-            Decimal("0.000001")
-        )
+        return (payoff * self.resolution_fee_bps / Decimal("10000")).quantize(Decimal("0.000001"))
 
 
 __all__ = ["BacktestOrderIntent", "FeeSchedule", "SimulatedFill"]

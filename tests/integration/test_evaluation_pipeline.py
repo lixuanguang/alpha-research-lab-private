@@ -166,9 +166,16 @@ def test_write_load_round_trip_with_metrics_json(tmp_path: Path) -> None:
     # Flat metrics JSON has correct keys
     metrics_data = json.loads(metrics_path.read_text())
     required_keys = {
-        "sharpe_ratio", "sortino_ratio", "calmar_ratio", "max_drawdown",
-        "win_rate", "profit_factor", "brier_score", "log_loss",
-        "calibration_error", "resolution_count",
+        "sharpe_ratio",
+        "sortino_ratio",
+        "calmar_ratio",
+        "max_drawdown",
+        "win_rate",
+        "profit_factor",
+        "brier_score",
+        "log_loss",
+        "calibration_error",
+        "resolution_count",
     }
     assert required_keys.issubset(set(metrics_data.keys()))
 

@@ -55,20 +55,23 @@ class _Const(feature_base.Feature):
 
 
 def _simple_table(n: int = 4) -> pa.Table:
-    return pa.table({
-        "instrument_id": ["a"] * n,
-        "price": pa.array([0.5] * n, pa.float64()),
-        "size": pa.array([1.0] * n, pa.float64()),
-        "ts_event": pa.array(
-            [_T0 + timedelta(minutes=i) for i in range(n)],
-            pa.timestamp("us", tz="UTC"),
-        ),
-    })
+    return pa.table(
+        {
+            "instrument_id": ["a"] * n,
+            "price": pa.array([0.5] * n, pa.float64()),
+            "size": pa.array([1.0] * n, pa.float64()),
+            "ts_event": pa.array(
+                [_T0 + timedelta(minutes=i) for i in range(n)],
+                pa.timestamp("us", tz="UTC"),
+            ),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestRegistration:
     def test_register_and_lookup(self) -> None:
@@ -174,15 +177,17 @@ class TestComputeAll:
         reg = FeatureRegistry()
         reg.register(_Const("f"))
         # Build a table with two instruments.
-        t = pa.table({
-            "instrument_id": ["a", "a", "b", "b"],
-            "price": pa.array([0.5] * 4, pa.float64()),
-            "size": pa.array([1.0] * 4, pa.float64()),
-            "ts_event": pa.array(
-                [_T0 + timedelta(minutes=i) for i in range(4)],
-                pa.timestamp("us", tz="UTC"),
-            ),
-        })
+        t = pa.table(
+            {
+                "instrument_id": ["a", "a", "b", "b"],
+                "price": pa.array([0.5] * 4, pa.float64()),
+                "size": pa.array([1.0] * 4, pa.float64()),
+                "ts_event": pa.array(
+                    [_T0 + timedelta(minutes=i) for i in range(4)],
+                    pa.timestamp("us", tz="UTC"),
+                ),
+            }
+        )
         result = reg.compute_all(t, instrument_ids=["a"])
         ids = result.column("instrument_id").to_pylist()
         assert set(ids) == {"a"}

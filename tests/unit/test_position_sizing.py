@@ -19,9 +19,7 @@ _PV = Decimal("10000")  # portfolio value
 
 def _signals(*pairs: tuple[str, float]) -> pd.DataFrame:
     """Helper: build a signals DataFrame from (instrument_id, signal) pairs."""
-    return pd.DataFrame(
-        {"instrument_id": [p[0] for p in pairs], "signal": [p[1] for p in pairs]}
-    )
+    return pd.DataFrame({"instrument_id": [p[0] for p in pairs], "signal": [p[1] for p in pairs]})
 
 
 # ---------------------------------------------------------------------------

@@ -138,15 +138,17 @@ class PortfolioTracker:
             pnl = pos.size * (pos.entry_price - resolved_price)
             self._cash -= payoff
 
-        settled = pos.model_copy(update={
-            "current_price": resolved_price,
-            "realised_pnl": pnl,
-            "unrealised_pnl": _ZERO,
-            "closed_at": resolved_at,
-            "last_updated": resolved_at,
-            "resolution_outcome": resolved_price,
-            "exit_reason": "resolution",
-        })
+        settled = pos.model_copy(
+            update={
+                "current_price": resolved_price,
+                "realised_pnl": pnl,
+                "unrealised_pnl": _ZERO,
+                "closed_at": resolved_at,
+                "last_updated": resolved_at,
+                "resolution_outcome": resolved_price,
+                "exit_reason": "resolution",
+            }
+        )
         self._position_history.append(settled)
         del self._positions[instrument_id]
         self._total_realised += pnl
@@ -172,11 +174,13 @@ class PortfolioTracker:
                 upnl = pos.size * (new_price - pos.entry_price)
             else:
                 upnl = pos.size * (pos.entry_price - new_price)
-            self._positions[instr] = pos.model_copy(update={
-                "current_price": new_price,
-                "unrealised_pnl": upnl,
-                "last_updated": timestamp,
-            })
+            self._positions[instr] = pos.model_copy(
+                update={
+                    "current_price": new_price,
+                    "unrealised_pnl": upnl,
+                    "last_updated": timestamp,
+                }
+            )
 
         # Record equity snapshot.
         positions_value = self._positions_value()
@@ -189,9 +193,7 @@ class PortfolioTracker:
         """Return a snapshot of the current portfolio state."""
         ts = timestamp or self._last_timestamp or _EPOCH
         eq = self._equity()
-        total_pnl = self._total_realised + sum(
-            p.unrealised_pnl for p in self._positions.values()
-        )
+        total_pnl = self._total_realised + sum(p.unrealised_pnl for p in self._positions.values())
         return PortfolioState(
             timestamp=ts,
             cash=self._cash,
@@ -279,12 +281,14 @@ class PortfolioTracker:
         new_size = pos.size + size
         # Volume-weighted average entry price.
         new_entry = (pos.entry_price * pos.size + price * size) / new_size
-        return pos.model_copy(update={
-            "size": new_size,
-            "entry_price": new_entry.quantize(_PRICE_PREC, rounding=ROUND_HALF_UP),
-            "fees_paid": pos.fees_paid + fee,
-            "last_updated": ts,
-        })
+        return pos.model_copy(
+            update={
+                "size": new_size,
+                "entry_price": new_entry.quantize(_PRICE_PREC, rounding=ROUND_HALF_UP),
+                "fees_paid": pos.fees_paid + fee,
+                "last_updated": ts,
+            }
+        )
 
     def _reduce_position(
         self,
@@ -307,30 +311,34 @@ class PortfolioTracker:
 
         if remaining == _ZERO:
             # Fully closed.
-            return pos.model_copy(update={
-                "size": actual_close,
-                "current_price": close_price,
-                "unrealised_pnl": _ZERO,
-                "realised_pnl": new_realised,
-                "fees_paid": pos.fees_paid + fee,
-                "closed_at": ts,
-                "last_updated": ts,
-                "exit_reason": "trade",
-            })
+            return pos.model_copy(
+                update={
+                    "size": actual_close,
+                    "current_price": close_price,
+                    "unrealised_pnl": _ZERO,
+                    "realised_pnl": new_realised,
+                    "fees_paid": pos.fees_paid + fee,
+                    "closed_at": ts,
+                    "last_updated": ts,
+                    "exit_reason": "trade",
+                }
+            )
         # Partially closed — keep same entry price on remainder.
         # Unrealised PnL on remaining size.
         if pos.side == Side.LONG:
             new_upnl = remaining * (close_price - pos.entry_price)
         else:
             new_upnl = remaining * (pos.entry_price - close_price)
-        return pos.model_copy(update={
-            "size": remaining,
-            "current_price": close_price,
-            "unrealised_pnl": new_upnl,
-            "realised_pnl": new_realised,
-            "fees_paid": pos.fees_paid + fee,
-            "last_updated": ts,
-        })
+        return pos.model_copy(
+            update={
+                "size": remaining,
+                "current_price": close_price,
+                "unrealised_pnl": new_upnl,
+                "realised_pnl": new_realised,
+                "fees_paid": pos.fees_paid + fee,
+                "last_updated": ts,
+            }
+        )
 
     def _apply_opposite_fill(
         self,

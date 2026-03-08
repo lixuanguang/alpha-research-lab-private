@@ -28,9 +28,7 @@ _ZERO = Decimal("0")
 def _trades_table(rows: list[tuple[datetime, str, float]]) -> pa.Table:
     return pa.table(
         {
-            "ts_event": pa.array(
-                [r[0] for r in rows], type=pa.timestamp("us", tz="UTC")
-            ),
+            "ts_event": pa.array([r[0] for r in rows], type=pa.timestamp("us", tz="UTC")),
             "instrument_id": pa.array([r[1] for r in rows], type=pa.string()),
             "price": pa.array([r[2] for r in rows], type=pa.float64()),
         }
@@ -104,8 +102,9 @@ class TestBuyAndResolveWinner:
         result = EventBacktestEngine(config).run(strategy, dataset, resolution_prices=resolution)
 
         # Cash: 1000 - 10*0.3 = 997; after resolution: 997 + 10*1 = 1007
-        assert result.final_portfolio.cash == Decimal("1007.000000") or \
-            result.final_portfolio.cash.quantize(Decimal("0.01")) == Decimal("1007.00")
+        assert result.final_portfolio.cash == Decimal(
+            "1007.000000"
+        ) or result.final_portfolio.cash.quantize(Decimal("0.01")) == Decimal("1007.00")
         assert len(result.trades) == 1
 
     def test_pnl_after_long_resolution_at_zero(self) -> None:

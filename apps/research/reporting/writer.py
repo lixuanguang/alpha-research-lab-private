@@ -99,8 +99,7 @@ class ReportWriter:
         report_path = self._stage_outputs(run_id) / "report.json"
         if not report_path.exists():
             raise ReportNotFoundError(
-                f"report.json not found for run_id={run_id!r} "
-                f"(looked in {report_path})"
+                f"report.json not found for run_id={run_id!r} (looked in {report_path})"
             )
         return EvaluationReport.model_validate_json(report_path.read_text(encoding="utf-8"))
 

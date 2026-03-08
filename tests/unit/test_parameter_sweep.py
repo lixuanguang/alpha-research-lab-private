@@ -98,10 +98,7 @@ class TestMakeSweepId:
 
 
 def _make_equity_curve(values: list[float]) -> list[tuple[datetime, Decimal]]:
-    return [
-        (datetime(2024, 1, i + 1, tzinfo=UTC), Decimal(str(v)))
-        for i, v in enumerate(values)
-    ]
+    return [(datetime(2024, 1, i + 1, tzinfo=UTC), Decimal(str(v))) for i, v in enumerate(values)]
 
 
 class TestBacktestEvaluator:

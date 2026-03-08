@@ -79,9 +79,7 @@ def test_annualised_return_is_finite() -> None:
 
 def test_sharpe_ratio_positive_for_uptrend() -> None:
     # Monotonically increasing equity → positive Sharpe
-    eq = _equity(
-        [(_BASE + timedelta(hours=i), 1000.0 + i * 5.0) for i in range(48)]
-    )
+    eq = _equity([(_BASE + timedelta(hours=i), 1000.0 + i * 5.0) for i in range(48)])
     m = compute_financial_metrics(pd.DataFrame(), eq, starting_cash=1000.0)
     assert m.sharpe_ratio > 0.0
 

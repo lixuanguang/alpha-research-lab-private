@@ -104,7 +104,7 @@ def _volatility_lagged(
     window: int,
     periods_per_year: int,
 ) -> pd.Series:
-    scale = periods_per_year ** 0.5
+    scale = periods_per_year**0.5
     returns = _lag_history(series).pct_change()
     return returns.rolling(window, min_periods=window).std(ddof=1) * scale
 

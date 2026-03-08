@@ -88,9 +88,7 @@ class ImpliedProbMomentum(feature_base.Feature):
 
         transform = partial(_implied_prob_momentum, window=self._window)
         result = (
-            df["price"].astype(float)
-            .groupby(df["instrument_id"], sort=False)
-            .transform(transform)
+            df["price"].astype(float).groupby(df["instrument_id"], sort=False).transform(transform)
         )
         values = result.to_numpy(dtype=float, na_value=np.nan)
         return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
@@ -346,9 +344,7 @@ class ProbAcceleration(feature_base.Feature):
 
         transform = partial(_prob_acceleration, fast=self._fast, slow=self._slow)
         result = (
-            df["price"].astype(float)
-            .groupby(df["instrument_id"], sort=False)
-            .transform(transform)
+            df["price"].astype(float).groupby(df["instrument_id"], sort=False).transform(transform)
         )
         values = result.to_numpy(dtype=float, na_value=np.nan)
         return feature_base.FeatureResult(name=self.name, values=values, params=self.params)

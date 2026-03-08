@@ -282,9 +282,9 @@ class ExecutionSimulator:
         # For LIMIT orders, check if the price is reachable.
         if order.order_type == "limit" and order.limit_price is not None:
             if order.side == portfolio_models.Side.LONG and ref_price > order.limit_price:
-                return None   # Market is above limit — won't fill.
+                return None  # Market is above limit — won't fill.
             if order.side == portfolio_models.Side.SHORT and ref_price < order.limit_price:
-                return None   # Market is below limit — won't fill.
+                return None  # Market is below limit — won't fill.
 
         # Compute slippage delta.
         slip = self._slippage.estimate_slippage(order, book)

@@ -70,8 +70,7 @@ class StrategyLoader:
         cls = getattr(module, class_name)
 
         if not (
-            isinstance(cls, type)
-            and (issubclass(cls, Strategy) or issubclass(cls, VecStrategy))
+            isinstance(cls, type) and (issubclass(cls, Strategy) or issubclass(cls, VecStrategy))
         ):
             raise TypeError(
                 f"'{module_path}' resolved to {cls!r}, which is not a subclass of "

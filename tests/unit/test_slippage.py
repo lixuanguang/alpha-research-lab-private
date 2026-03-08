@@ -54,8 +54,10 @@ class TestFixedSlippage:
     def test_market_order_uses_half_as_ref(self) -> None:
         slip = FixedSlippage(bps=Decimal("10"))
         order = BacktestOrderIntent(
-            instrument_id="a", side=Side.LONG,
-            size=Decimal("1"), order_type="market",
+            instrument_id="a",
+            side=Side.LONG,
+            size=Decimal("1"),
+            order_type="market",
         )
         # No limit_price → ref = 0.5; slippage = 0.5 * 10/10000 = 0.0005
         delta = slip.estimate_slippage(order, book=None)

@@ -52,6 +52,7 @@ def _base_table(
 # ImpliedProbMomentum
 # ---------------------------------------------------------------------------
 
+
 class TestImpliedProbMomentum:
     def test_output_name(self) -> None:
         t = _base_table(["a"] * 5, [0.5] * 5)
@@ -71,10 +72,14 @@ class TestImpliedProbMomentum:
         assert all(isinstance(v, float) for v in non_nan)
 
     def test_empty_table_returns_empty(self) -> None:
-        t = pa.table({"instrument_id": pa.array([], pa.string()),
-                      "price": pa.array([], pa.float64()),
-                      "size": pa.array([], pa.float64()),
-                      "ts_event": pa.array([], pa.timestamp("us", tz="UTC"))})
+        t = pa.table(
+            {
+                "instrument_id": pa.array([], pa.string()),
+                "price": pa.array([], pa.float64()),
+                "size": pa.array([], pa.float64()),
+                "ts_event": pa.array([], pa.timestamp("us", tz="UTC")),
+            }
+        )
         result = ImpliedProbMomentum(window=5).compute(t)
         assert len(result.values) == 0
 
@@ -83,19 +88,22 @@ class TestImpliedProbMomentum:
 # CrossVenueSpread
 # ---------------------------------------------------------------------------
 
+
 class TestCrossVenueSpread:
     def _two_venue_table(self, price_a: float, price_b: float) -> pa.Table:
         """Two venues for the same outcome at the same timestamp."""
         ts = _T0
-        return pa.table({
-            "instrument_id": [
-                "venueA:mkt1:outc1",
-                "venueB:mkt1:outc1",
-            ],
-            "price": pa.array([price_a, price_b], pa.float64()),
-            "size": pa.array([1.0, 1.0], pa.float64()),
-            "ts_event": pa.array([ts, ts], pa.timestamp("us", tz="UTC")),
-        })
+        return pa.table(
+            {
+                "instrument_id": [
+                    "venueA:mkt1:outc1",
+                    "venueB:mkt1:outc1",
+                ],
+                "price": pa.array([price_a, price_b], pa.float64()),
+                "size": pa.array([1.0, 1.0], pa.float64()),
+                "ts_event": pa.array([ts, ts], pa.timestamp("us", tz="UTC")),
+            }
+        )
 
     def test_two_venues_same_cross_key_non_nan_spread(self) -> None:
         t = self._two_venue_table(0.3, 0.5)
@@ -123,10 +131,14 @@ class TestCrossVenueSpread:
         assert all(v >= 0 for v in spread_vals)
 
     def test_empty_table_returns_empty(self) -> None:
-        t = pa.table({"instrument_id": pa.array([], pa.string()),
-                      "price": pa.array([], pa.float64()),
-                      "size": pa.array([], pa.float64()),
-                      "ts_event": pa.array([], pa.timestamp("us", tz="UTC"))})
+        t = pa.table(
+            {
+                "instrument_id": pa.array([], pa.string()),
+                "price": pa.array([], pa.float64()),
+                "size": pa.array([], pa.float64()),
+                "ts_event": pa.array([], pa.timestamp("us", tz="UTC")),
+            }
+        )
         result = CrossVenueSpread().compute(t)
         assert len(result.values) == 0
 
@@ -134,6 +146,7 @@ class TestCrossVenueSpread:
 # ---------------------------------------------------------------------------
 # VolumeWeightedProb
 # ---------------------------------------------------------------------------
+
 
 class TestVolumeWeightedProb:
     def test_vwap_in_price_range(self) -> None:
@@ -144,14 +157,16 @@ class TestVolumeWeightedProb:
         assert all(min(prices) <= v <= max(prices) for v in non_nan)
 
     def test_missing_size_column_all_nan(self) -> None:
-        t = pa.table({
-            "instrument_id": ["a"] * 5,
-            "price": pa.array([0.5] * 5, pa.float64()),
-            "ts_event": pa.array(
-                [_T0 + timedelta(minutes=i) for i in range(5)],
-                pa.timestamp("us", tz="UTC"),
-            ),
-        })
+        t = pa.table(
+            {
+                "instrument_id": ["a"] * 5,
+                "price": pa.array([0.5] * 5, pa.float64()),
+                "ts_event": pa.array(
+                    [_T0 + timedelta(minutes=i) for i in range(5)],
+                    pa.timestamp("us", tz="UTC"),
+                ),
+            }
+        )
         result = VolumeWeightedProb(window=3).compute(t)
         assert all(math.isnan(v) for v in result.values)
 
@@ -171,17 +186,20 @@ class TestVolumeWeightedProb:
 # TimeToResolutionDecay
 # ---------------------------------------------------------------------------
 
+
 class TestTimeToResolutionDecay:
     def _table_with_resolution(self, n: int = 5, days_ahead: int = 10) -> pa.Table:
         ts_list = [_T0 + timedelta(minutes=i) for i in range(n)]
         res_date = _T0 + timedelta(days=days_ahead)
-        return pa.table({
-            "instrument_id": ["a"] * n,
-            "price": pa.array([0.5] * n, pa.float64()),
-            "size": pa.array([1.0] * n, pa.float64()),
-            "ts_event": pa.array(ts_list, pa.timestamp("us", tz="UTC")),
-            "resolution_date": pa.array([res_date] * n, pa.timestamp("us", tz="UTC")),
-        })
+        return pa.table(
+            {
+                "instrument_id": ["a"] * n,
+                "price": pa.array([0.5] * n, pa.float64()),
+                "size": pa.array([1.0] * n, pa.float64()),
+                "ts_event": pa.array(ts_list, pa.timestamp("us", tz="UTC")),
+                "resolution_date": pa.array([res_date] * n, pa.timestamp("us", tz="UTC")),
+            }
+        )
 
     def test_values_in_range(self) -> None:
         t = self._table_with_resolution()
@@ -215,18 +233,21 @@ class TestTimeToResolutionDecay:
 # CategoryMomentum
 # ---------------------------------------------------------------------------
 
+
 class TestCategoryMomentum:
     def _table_with_category(self) -> pa.Table:
         n = 8
         ts_list = [_T0 + timedelta(minutes=i) for i in range(n)]
         categories = ["sports", "politics"] * (n // 2)
-        return pa.table({
-            "instrument_id": ["a", "b", "c", "d", "e", "f", "g", "h"],
-            "price": pa.array([0.3, 0.7, 0.32, 0.68, 0.35, 0.65, 0.38, 0.62], pa.float64()),
-            "size": pa.array([1.0] * n, pa.float64()),
-            "ts_event": pa.array(ts_list, pa.timestamp("us", tz="UTC")),
-            "category": pa.array(categories, pa.string()),
-        })
+        return pa.table(
+            {
+                "instrument_id": ["a", "b", "c", "d", "e", "f", "g", "h"],
+                "price": pa.array([0.3, 0.7, 0.32, 0.68, 0.35, 0.65, 0.38, 0.62], pa.float64()),
+                "size": pa.array([1.0] * n, pa.float64()),
+                "ts_event": pa.array(ts_list, pa.timestamp("us", tz="UTC")),
+                "category": pa.array(categories, pa.string()),
+            }
+        )
 
     def test_missing_category_column_all_nan(self) -> None:
         t = _base_table(["a"] * 5, [0.5] * 5)
@@ -244,11 +265,15 @@ class TestCategoryMomentum:
         assert len(result.values) == len(t)
 
     def test_empty_table(self) -> None:
-        t = pa.table({"instrument_id": pa.array([], pa.string()),
-                      "price": pa.array([], pa.float64()),
-                      "size": pa.array([], pa.float64()),
-                      "ts_event": pa.array([], pa.timestamp("us", tz="UTC")),
-                      "category": pa.array([], pa.string())})
+        t = pa.table(
+            {
+                "instrument_id": pa.array([], pa.string()),
+                "price": pa.array([], pa.float64()),
+                "size": pa.array([], pa.float64()),
+                "ts_event": pa.array([], pa.timestamp("us", tz="UTC")),
+                "category": pa.array([], pa.string()),
+            }
+        )
         result = CategoryMomentum(window=3).compute(t)
         assert len(result.values) == 0
 
@@ -257,20 +282,23 @@ class TestCategoryMomentum:
 # BookImbalance
 # ---------------------------------------------------------------------------
 
+
 class TestBookImbalance:
     def _book_table(self, bid_vols: list[float], ask_vols: list[float]) -> pa.Table:
         n = len(bid_vols)
-        return pa.table({
-            "instrument_id": ["a"] * n,
-            "price": pa.array([0.5] * n, pa.float64()),
-            "size": pa.array([1.0] * n, pa.float64()),
-            "ts_event": pa.array(
-                [_T0 + timedelta(minutes=i) for i in range(n)],
-                pa.timestamp("us", tz="UTC"),
-            ),
-            "bid_volume": pa.array(bid_vols, pa.float64()),
-            "ask_volume": pa.array(ask_vols, pa.float64()),
-        })
+        return pa.table(
+            {
+                "instrument_id": ["a"] * n,
+                "price": pa.array([0.5] * n, pa.float64()),
+                "size": pa.array([1.0] * n, pa.float64()),
+                "ts_event": pa.array(
+                    [_T0 + timedelta(minutes=i) for i in range(n)],
+                    pa.timestamp("us", tz="UTC"),
+                ),
+                "bid_volume": pa.array(bid_vols, pa.float64()),
+                "ask_volume": pa.array(ask_vols, pa.float64()),
+            }
+        )
 
     def test_balanced_book_zero(self) -> None:
         t = self._book_table([5.0, 5.0, 5.0], [5.0, 5.0, 5.0])
@@ -301,6 +329,7 @@ class TestBookImbalance:
 # ProbAcceleration
 # ---------------------------------------------------------------------------
 
+
 class TestProbAcceleration:
     def test_fast_gte_slow_raises(self) -> None:
         with pytest.raises(ValueError):
@@ -322,9 +351,13 @@ class TestProbAcceleration:
         assert all(isinstance(v, float) for v in non_nan)
 
     def test_empty_table_returns_empty(self) -> None:
-        t = pa.table({"instrument_id": pa.array([], pa.string()),
-                      "price": pa.array([], pa.float64()),
-                      "size": pa.array([], pa.float64()),
-                      "ts_event": pa.array([], pa.timestamp("us", tz="UTC"))})
+        t = pa.table(
+            {
+                "instrument_id": pa.array([], pa.string()),
+                "price": pa.array([], pa.float64()),
+                "size": pa.array([], pa.float64()),
+                "ts_event": pa.array([], pa.timestamp("us", tz="UTC")),
+            }
+        )
         result = ProbAcceleration(fast=5, slow=20).compute(t)
         assert len(result.values) == 0

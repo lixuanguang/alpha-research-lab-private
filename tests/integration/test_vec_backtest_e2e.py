@@ -182,6 +182,7 @@ class TestVecBacktestE2E:
             _BuyAndHoldStrategy(), _MockDataset(table)
         )
         import json
+
         serialized = result.model_dump(mode="json")
         assert isinstance(json.dumps(serialized), str)
 

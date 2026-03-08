@@ -27,33 +27,25 @@ from apps.research.strategies.loader import StrategyLoader
 
 def test_load_event_strategy_returns_strategy_subclass() -> None:
     loader = StrategyLoader()
-    cls = loader.load(
-        "apps.research.strategies.probability_momentum.ProbabilityMomentumStrategy"
-    )
+    cls = loader.load("apps.research.strategies.probability_momentum.ProbabilityMomentumStrategy")
     assert issubclass(cls, Strategy)
 
 
 def test_load_vec_strategy_returns_vec_strategy_subclass() -> None:
     loader = StrategyLoader()
-    cls = loader.load(
-        "apps.research.strategies.mean_reversion.MeanReversionStrategy"
-    )
+    cls = loader.load("apps.research.strategies.mean_reversion.MeanReversionStrategy")
     assert issubclass(cls, VecStrategy)
 
 
 def test_load_cross_venue_arb_strategy() -> None:
     loader = StrategyLoader()
-    cls = loader.load(
-        "apps.research.strategies.cross_venue_arb.CrossVenueArbStrategy"
-    )
+    cls = loader.load("apps.research.strategies.cross_venue_arb.CrossVenueArbStrategy")
     assert issubclass(cls, Strategy)
 
 
 def test_loaded_class_is_instantiable() -> None:
     loader = StrategyLoader()
-    cls = loader.load(
-        "apps.research.strategies.probability_momentum.ProbabilityMomentumStrategy"
-    )
+    cls = loader.load("apps.research.strategies.probability_momentum.ProbabilityMomentumStrategy")
     instance = cast(Any, cls)(momentum_threshold=0.03, window=5)
     assert instance is not None
 

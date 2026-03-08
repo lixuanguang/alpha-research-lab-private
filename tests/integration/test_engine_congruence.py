@@ -248,9 +248,7 @@ class _ScheduledTargetsVecStrategy(VecStrategy):
     def __init__(self, targets: dict[datetime, Decimal]) -> None:
         self._targets = targets
 
-    def generate_signals(
-        self, features: pd.DataFrame, universe: list[str]
-    ) -> pd.DataFrame:
+    def generate_signals(self, features: pd.DataFrame, universe: list[str]) -> pd.DataFrame:
         snapshot = features.copy()
         if (
             snapshot.empty
@@ -300,9 +298,7 @@ class _CrossSectionalTargetsVecStrategy(VecStrategy):
     def __init__(self, targets: dict[datetime, dict[str, Decimal]]) -> None:
         self._targets = targets
 
-    def generate_signals(
-        self, features: pd.DataFrame, universe: list[str]
-    ) -> pd.DataFrame:
+    def generate_signals(self, features: pd.DataFrame, universe: list[str]) -> pd.DataFrame:
         snapshot = features.copy()
         if (
             snapshot.empty
@@ -358,9 +354,7 @@ class _FlatVecStrategy(VecStrategy):
 
     name = "flat_vec"
 
-    def generate_signals(
-        self, features: pd.DataFrame, universe: list[str]
-    ) -> pd.DataFrame:
+    def generate_signals(self, features: pd.DataFrame, universe: list[str]) -> pd.DataFrame:
         del features
         return pd.DataFrame({"instrument_id": universe, "signal": [0.0] * len(universe)})
 
@@ -548,9 +542,7 @@ class TestEngineCongruence:
 
         close_timestamps = set(_INTRADAY_CLOSE_TIMESTAMPS)
         event_close_curve = [
-            point
-            for point in event_result.equity_curve
-            if point[0] in close_timestamps
+            point for point in event_result.equity_curve if point[0] in close_timestamps
         ]
 
         assert len(event_result.trades) == 4
@@ -593,9 +585,7 @@ class TestEngineCongruence:
 
         close_timestamps = set(_CROSS_SECTIONAL_CLOSE_TIMESTAMPS)
         event_close_curve = [
-            point
-            for point in event_result.equity_curve
-            if point[0] in close_timestamps
+            point for point in event_result.equity_curve if point[0] in close_timestamps
         ]
 
         assert len(event_result.trades) == 11

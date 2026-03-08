@@ -106,12 +106,17 @@ def test_json_format_propagates_to_build_dataset(tmp_path: Path) -> None:
     result = _runner().invoke(
         research_main.main,
         [
-            "--format", "json",
+            "--format",
+            "json",
             "build-dataset",
-            "--name", "test_json",
-            "--start", "2026-01-01T00:00:00Z",
-            "--end", "2026-01-02T00:00:00Z",
-            "--storage-root", str(tmp_path),
+            "--name",
+            "test_json",
+            "--start",
+            "2026-01-01T00:00:00Z",
+            "--end",
+            "2026-01-02T00:00:00Z",
+            "--storage-root",
+            str(tmp_path),
             "--plan-only",
         ],
     )

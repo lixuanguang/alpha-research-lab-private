@@ -215,9 +215,9 @@ class TestBuyAllStrategy:
 
     def test_buy_reduces_cash(self) -> None:
         rows = [(_T0, "a", 0.5)]
-        result = VecBacktestEngine(
-            _default_config(initial_cash=Decimal("1000"))
-        ).run(_BuyAllStrategy(), _MockDataset(_make_trades_table(rows)))
+        result = VecBacktestEngine(_default_config(initial_cash=Decimal("1000"))).run(
+            _BuyAllStrategy(), _MockDataset(_make_trades_table(rows))
+        )
         assert result.final_portfolio.cash < Decimal("1000")
 
     def test_equity_curve_non_empty(self) -> None:

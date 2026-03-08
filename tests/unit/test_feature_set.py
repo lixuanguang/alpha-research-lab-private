@@ -61,15 +61,17 @@ def _make_registry(*feature_names: str) -> FeatureRegistry:
 
 
 def _make_trade_table(n: int = 6) -> pa.Table:
-    return pa.table({
-        "instrument_id": ["a"] * n,
-        "price": pa.array([0.5] * n, pa.float64()),
-        "size": pa.array([1.0] * n, pa.float64()),
-        "ts_event": pa.array(
-            [_T0 + timedelta(minutes=i) for i in range(n)],
-            pa.timestamp("us", tz="UTC"),
-        ),
-    })
+    return pa.table(
+        {
+            "instrument_id": ["a"] * n,
+            "price": pa.array([0.5] * n, pa.float64()),
+            "size": pa.array([1.0] * n, pa.float64()),
+            "ts_event": pa.array(
+                [_T0 + timedelta(minutes=i) for i in range(n)],
+                pa.timestamp("us", tz="UTC"),
+            ),
+        }
+    )
 
 
 def _mock_dataset(table: pa.Table | None = None) -> MagicMock:
@@ -82,6 +84,7 @@ def _mock_dataset(table: pa.Table | None = None) -> MagicMock:
 # ---------------------------------------------------------------------------
 # FeatureSetConfig
 # ---------------------------------------------------------------------------
+
 
 class TestFeatureSetConfig:
     def test_basic_construction(self) -> None:
@@ -98,6 +101,7 @@ class TestFeatureSetConfig:
 # ---------------------------------------------------------------------------
 # FeatureSetBuilder.build
 # ---------------------------------------------------------------------------
+
 
 class TestFeatureSetBuilderBuild:
     def test_build_writes_parquet_and_meta(self, tmp_path: Path) -> None:
@@ -136,6 +140,7 @@ class TestFeatureSetBuilderBuild:
 # FeatureSetBuilder.load
 # ---------------------------------------------------------------------------
 
+
 class TestFeatureSetBuilderLoad:
     def test_load_returns_table_with_feature_columns(self, tmp_path: Path) -> None:
         reg = _make_registry("feat_load")
@@ -156,6 +161,7 @@ class TestFeatureSetBuilderLoad:
 # ---------------------------------------------------------------------------
 # FeatureSetBuilder.load_manifest
 # ---------------------------------------------------------------------------
+
 
 class TestFeatureSetBuilderManifest:
     def test_manifest_roundtrip(self, tmp_path: Path) -> None:
@@ -182,6 +188,7 @@ class TestFeatureSetBuilderManifest:
 # ---------------------------------------------------------------------------
 # FeatureSetBuilder.list_feature_sets
 # ---------------------------------------------------------------------------
+
 
 class TestListFeatureSets:
     def test_empty_root_returns_empty(self, tmp_path: Path) -> None:

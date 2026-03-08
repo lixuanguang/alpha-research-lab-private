@@ -84,8 +84,8 @@ class MeanReversionStrategy(VecStrategy):
 
         # Use most-recent snapshot per instrument
         snap = (
-            features[features["instrument_id"].isin(universe)]
-            .sort_values("ts_event") if "ts_event" in features.columns
+            features[features["instrument_id"].isin(universe)].sort_values("ts_event")
+            if "ts_event" in features.columns
             else features[features["instrument_id"].isin(universe)]
         )
         snap = snap.groupby("instrument_id", as_index=False).last()
@@ -98,9 +98,7 @@ class MeanReversionStrategy(VecStrategy):
                 "(looked for %s). Returning zero signals.",
                 _PRICE_COLS,
             )
-            return pd.DataFrame(
-                {"instrument_id": snap["instrument_id"], "signal": 0.0}
-            )
+            return pd.DataFrame({"instrument_id": snap["instrument_id"], "signal": 0.0})
 
         prices = snap[price_col].astype(float).values
         cross_mean = float(np.nanmean(prices))
@@ -114,9 +112,7 @@ class MeanReversionStrategy(VecStrategy):
         # Negate z-score: positive z (over-valued) → short signal
         signals = -np.where(np.abs(zscores) >= self._threshold, zscores, 0.0)
 
-        return pd.DataFrame(
-            {"instrument_id": snap["instrument_id"].values, "signal": signals}
-        )
+        return pd.DataFrame({"instrument_id": snap["instrument_id"].values, "signal": signals})
 
     def size_positions(
         self,

@@ -24,6 +24,7 @@ import alpha_core.storage.conventions as storage_conventions
 # Config + Manifest
 # ---------------------------------------------------------------------------
 
+
 class FeatureSetConfig(BaseModel):
     """Configuration for a batch feature computation run."""
 
@@ -69,6 +70,7 @@ class FeatureSetManifest(BaseModel):
 # Builder
 # ---------------------------------------------------------------------------
 
+
 class FeatureSetBuilder:
     """Computes a feature set from a gold dataset and persists it.
 
@@ -89,9 +91,7 @@ class FeatureSetBuilder:
         storage_root: Path,
     ) -> None:
         self._registry = registry
-        self._features_root = (
-            storage_root / storage_conventions.StorageTier.GOLD / "features"
-        )
+        self._features_root = storage_root / storage_conventions.StorageTier.GOLD / "features"
 
     # ------------------------------------------------------------------
     # Public API
@@ -171,9 +171,7 @@ class FeatureSetBuilder:
         """
         path = self._features_root / feature_set_name / "features.parquet"
         if not path.exists():
-            raise FileNotFoundError(
-                f"Feature set '{feature_set_name}' not found at {path}."
-            )
+            raise FileNotFoundError(f"Feature set '{feature_set_name}' not found at {path}.")
         return pq.read_table(path)
 
     def load_manifest(self, feature_set_name: str) -> FeatureSetManifest:
@@ -199,6 +197,7 @@ class FeatureSetBuilder:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _hash_config(config: FeatureSetConfig) -> str:
     payload = json.dumps(config.model_dump(mode="json"), sort_keys=True, default=str)

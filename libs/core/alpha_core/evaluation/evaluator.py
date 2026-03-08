@@ -295,8 +295,7 @@ def _positions_to_df(positions: list[Any]) -> pd.DataFrame:
         rows.append(
             {
                 "ts_event": (
-                    getattr(position, "closed_at", None)
-                    or getattr(position, "last_updated")
+                    getattr(position, "closed_at", None) or getattr(position, "last_updated")
                 ),
                 "entry_time": getattr(position, "opened_at", None),
                 "instrument_id": getattr(position, "instrument_id", None),

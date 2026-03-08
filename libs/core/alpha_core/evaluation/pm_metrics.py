@@ -135,9 +135,7 @@ def compute_pm_metrics(
     res_count = len(resolved.index)
     res_accuracy = 0.0
     if not resolved.empty:
-        correct_side = (resolved["forecast_prob"] >= 0.5) == (
-            resolved["forecast_outcome"] >= 0.5
-        )
+        correct_side = (resolved["forecast_prob"] >= 0.5) == (resolved["forecast_outcome"] >= 0.5)
         res_accuracy = round(float(correct_side.mean()), 6)
         if "realized_pnl" in resolved.columns:
             pnl_series = pd.to_numeric(resolved["realized_pnl"], errors="coerce").fillna(0.0)

@@ -54,9 +54,7 @@ class ProbabilityMomentumStrategy(Strategy):
 
     @property
     def name(self) -> str:
-        return (
-            f"prob_momentum_t{self._threshold}_w{self._window}"
-        )
+        return f"prob_momentum_t{self._threshold}_w{self._window}"
 
     # ------------------------------------------------------------------
     # Strategy lifecycle
@@ -87,9 +85,7 @@ class ProbabilityMomentumStrategy(Strategy):
 
             # Current exposure
             position = state.portfolio.positions.get(instrument_id)
-            current_side: portfolio_models.Side | None = (
-                position.side if position else None
-            )
+            current_side: portfolio_models.Side | None = position.side if position else None
 
             if momentum > self._threshold and current_side != portfolio_models.Side.LONG:
                 orders.append(

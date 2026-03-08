@@ -56,9 +56,7 @@ class FinancialMetrics(BaseModel):
     # Trade-level summary
     total_trades: int = Field(ge=0)
     win_rate: float = Field(ge=0.0, le=1.0, description="Fraction of closed trades with PnL > 0")
-    profit_factor: Decimal = Field(
-        description="gross_profit / gross_loss; 0 when no losing trades"
-    )
+    profit_factor: Decimal = Field(description="gross_profit / gross_loss; 0 when no losing trades")
     avg_trade_pnl: Decimal = Field(description="Mean realised PnL per closed trade")
     avg_holding_period_hours: float = Field(
         ge=0.0, description="Average hours between entry and exit fill"

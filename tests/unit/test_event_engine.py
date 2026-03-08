@@ -30,9 +30,7 @@ def _make_trades_table(
     """Build a minimal trade table with ts_event, instrument_id, price columns."""
     return pa.table(
         {
-            "ts_event": pa.array(
-                [r[0] for r in rows], type=pa.timestamp("us", tz="UTC")
-            ),
+            "ts_event": pa.array([r[0] for r in rows], type=pa.timestamp("us", tz="UTC")),
             "instrument_id": pa.array([r[1] for r in rows], type=pa.string()),
             "price": pa.array([r[2] for r in rows], type=pa.float64()),
         }
@@ -218,9 +216,7 @@ class TestFills:
 
     def test_null_strategy_no_fills(self) -> None:
         table = _make_trades_table([(_T0, "a", 0.5)])
-        result = EventBacktestEngine(_default_config()).run(
-            _NullStrategy(), _MockDataset(table)
-        )
+        result = EventBacktestEngine(_default_config()).run(_NullStrategy(), _MockDataset(table))
         assert result.trades == []
 
 
@@ -234,23 +230,17 @@ class TestResultMetadata:
 
     def test_equity_curve_non_empty(self) -> None:
         table = _make_trades_table([(_T0, "a", 0.5)])
-        result = EventBacktestEngine(_default_config()).run(
-            _NullStrategy(), _MockDataset(table)
-        )
+        result = EventBacktestEngine(_default_config()).run(_NullStrategy(), _MockDataset(table))
         assert len(result.equity_curve) >= 1
 
     def test_strategy_name_in_result(self) -> None:
         table = _make_trades_table([(_T0, "a", 0.5)])
-        result = EventBacktestEngine(_default_config()).run(
-            _NullStrategy(), _MockDataset(table)
-        )
+        result = EventBacktestEngine(_default_config()).run(_NullStrategy(), _MockDataset(table))
         assert result.strategy_name == "null"
 
     def test_duration_seconds_positive(self) -> None:
         table = _make_trades_table([(_T0, "a", 0.5)])
-        result = EventBacktestEngine(_default_config()).run(
-            _NullStrategy(), _MockDataset(table)
-        )
+        result = EventBacktestEngine(_default_config()).run(_NullStrategy(), _MockDataset(table))
         assert result.duration_seconds >= 0
 
 

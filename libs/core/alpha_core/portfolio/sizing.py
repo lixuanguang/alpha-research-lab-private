@@ -72,8 +72,7 @@ class EqualWeightSizer(PositionSizer):
 
         # Select top max_positions by |signal| strength.
         active = (
-            active
-            .assign(_abs_signal=active["signal"].abs())
+            active.assign(_abs_signal=active["signal"].abs())
             .sort_values("_abs_signal", ascending=False)
             .head(max_positions)
             .drop(columns=["_abs_signal"])
@@ -84,10 +83,7 @@ class EqualWeightSizer(PositionSizer):
         result = pd.DataFrame(
             {
                 "instrument_id": active["instrument_id"].values,
-                "target_weight": [
-                    weight if s > 0 else -weight
-                    for s in active["signal"].values
-                ],
+                "target_weight": [weight if s > 0 else -weight for s in active["signal"].values],
             }
         )
         return result.reset_index(drop=True)
@@ -129,9 +125,7 @@ class FixedSizeSizer(PositionSizer):
         result = pd.DataFrame(
             {
                 "instrument_id": active["instrument_id"].values,
-                "target_weight": [
-                    frac if s > 0 else -frac for s in active["signal"].values
-                ],
+                "target_weight": [frac if s > 0 else -frac for s in active["signal"].values],
             }
         )
         return result.reset_index(drop=True)
