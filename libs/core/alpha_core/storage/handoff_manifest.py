@@ -53,6 +53,7 @@ Usage::
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -188,9 +189,9 @@ class GatedHandoffResult(BaseModel):
 
 def check_gating_rules(
     *,
-    runs: list[object],
-    suite_reports: list[object],
-    gaps: list[object],
+    runs: Sequence[object],
+    suite_reports: Sequence[object],
+    gaps: Sequence[object],
     required_event_types: list[str],
     allow_gaps: bool = False,
 ) -> GatedHandoffResult:

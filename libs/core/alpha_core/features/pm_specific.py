@@ -15,6 +15,7 @@ later without breaking existing code paths.
 
 from __future__ import annotations
 
+import json
 from functools import partial
 from typing import Any
 
@@ -31,6 +32,14 @@ def _to_df(table: pa.Table) -> pd.DataFrame:
 
 def _has_col(df: pd.DataFrame, *cols: str) -> bool:
     return all(column_name in df.columns for column_name in cols)
+
+
+def _sequence_column(df: pd.DataFrame) -> str:
+    if "ts_available" in df.columns:
+        return "ts_available"
+    if "ts_record" in df.columns:
+        return "ts_record"
+    return "ts_event"
 
 
 def _lagged_delta(series: pd.Series) -> pd.Series:
@@ -123,17 +132,67 @@ class CrossVenueSpread(feature_base.Feature):
             return self._empty_result(len(df))
 
         df = df.copy()
+        sequence_col = _sequence_column(df)
         df["_cross_key"] = parsed[1].str.cat(parsed[2], sep=":")
+        df["_venue"] = parsed[0].astype(str)
         df["_price_f"] = df["price"].astype(float)
+        df["_sequence_ts"] = pd.to_datetime(df[sequence_col], utc=True, errors="coerce")
+        df["_ts_event"] = pd.to_datetime(df["ts_event"], utc=True, errors="coerce")
+        df["_row_order"] = np.arange(len(df))
+        ordered = df.sort_values(
+            ["_sequence_ts", "_ts_event", "_cross_key", "_venue", "instrument_id"],
+            kind="stable",
+        )
 
-        spread_map = df.groupby(["ts_event", "_cross_key"])["_price_f"].agg(_spread)
-        idx = pd.MultiIndex.from_arrays([df["ts_event"], df["_cross_key"]])
-        values = spread_map.reindex(idx).to_numpy(dtype=float, na_value=np.nan)
+        values = pd.Series(np.nan, index=ordered.index, dtype=float)
+        for _, group in ordered.groupby("_cross_key", sort=False):
+            latest_prices: dict[str, float] = {}
+            for _, bucket in group.groupby("_sequence_ts", sort=False):
+                bucket_latest = {
+                    str(row["_venue"]): float(row["_price_f"])
+                    for _, row in bucket.iterrows()
+                }
+                latest_prices.update(bucket_latest)
+                if len(latest_prices) < 2:
+                    continue
+                spread = max(latest_prices.values()) - min(latest_prices.values())
+                values.loc[bucket.index] = spread
+
+        values = (
+            ordered.assign(_value=values)
+            .sort_values("_row_order", kind="stable")["_value"]
+            .to_numpy(dtype=float, na_value=np.nan)
+        )
         return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
 def _spread(series: pd.Series) -> float:
     return float(series.max() - series.min()) if len(series) > 1 else float("nan")
+
+
+def _sum_top_level_sizes(raw_levels: object, *, levels: int) -> float:
+    if not isinstance(raw_levels, str) or not raw_levels.strip():
+        return float("nan")
+    try:
+        parsed = json.loads(raw_levels)
+    except json.JSONDecodeError:
+        return float("nan")
+    if not isinstance(parsed, list):
+        return float("nan")
+
+    total = 0.0
+    matched = 0
+    for level in parsed:
+        if matched >= levels:
+            break
+        if not isinstance(level, dict):
+            continue
+        try:
+            total += float(level["size"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        matched += 1
+    return total if matched > 0 else float("nan")
 
 
 class VolumeWeightedProb(feature_base.Feature):
@@ -215,7 +274,7 @@ class TimeToResolutionDecay(feature_base.Feature):
             return self._empty_result(len(df))
 
         res_dt = pd.to_datetime(df["resolution_date"], utc=True)
-        ts = pd.to_datetime(df["ts_event"], utc=True)
+        ts = pd.to_datetime(df[_sequence_column(df)], utc=True)
         ttr_seconds = (res_dt - ts).dt.total_seconds().clip(lower=0.0)
 
         if "instrument_id" in df.columns:
@@ -262,16 +321,38 @@ class CategoryMomentum(feature_base.Feature):
             return self._empty_result(len(df))
 
         df = df.copy()
-        price_series = df["price"].astype(float)
-        instrument_delta = price_series.groupby(df["instrument_id"], sort=False).diff(1)
-        df["_ret"] = instrument_delta.groupby(df["instrument_id"], sort=False).shift(1)
+        sequence_col = _sequence_column(df)
+        df["_sequence_ts"] = pd.to_datetime(df[sequence_col], utc=True, errors="coerce")
+        df["_ts_event"] = pd.to_datetime(df["ts_event"], utc=True, errors="coerce")
+        df["_row_order"] = np.arange(len(df))
+        instrument_sorted = df.sort_values(
+            ["instrument_id", "_sequence_ts", "_ts_event"],
+            kind="stable",
+        )
+        price_series = instrument_sorted["price"].astype(float)
+        instrument_delta = price_series.groupby(
+            instrument_sorted["instrument_id"],
+            sort=False,
+        ).diff(1)
+        instrument_sorted["_ret"] = instrument_delta.groupby(
+            instrument_sorted["instrument_id"],
+            sort=False,
+        ).shift(1)
 
-        cat_ts_avg = df.groupby(["ts_event", "category"], sort=False)["_ret"].mean()
+        ordered = instrument_sorted.sort_values(
+            ["_sequence_ts", "_ts_event", "instrument_id"],
+            kind="stable",
+        )
+        cat_ts_avg = ordered.groupby(["_sequence_ts", "category"], sort=False)["_ret"].mean()
         smoother = partial(_rolling_mean, window=self._window, min_periods=1)
         cat_roll = cat_ts_avg.groupby(level="category", sort=False).transform(smoother)
 
-        idx = pd.MultiIndex.from_arrays([df["ts_event"], df["category"]])
-        values = cat_roll.reindex(idx).to_numpy(dtype=float, na_value=np.nan)
+        idx = pd.MultiIndex.from_arrays([ordered["_sequence_ts"], ordered["category"]])
+        ordered["_value"] = cat_roll.reindex(idx).to_numpy(dtype=float, na_value=np.nan)
+        values = (
+            ordered.sort_values("_row_order", kind="stable")["_value"]
+            .to_numpy(dtype=float, na_value=np.nan)
+        )
         return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
@@ -299,11 +380,15 @@ class BookImbalance(feature_base.Feature):
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        if not _has_col(df, "bid_volume", "ask_volume"):
+        if _has_col(df, "bids_json", "asks_json"):
+            bid = df["bids_json"].map(lambda raw: _sum_top_level_sizes(raw, levels=self._levels))
+            ask = df["asks_json"].map(lambda raw: _sum_top_level_sizes(raw, levels=self._levels))
+        elif _has_col(df, "bid_volume", "ask_volume"):
+            bid = df["bid_volume"].astype(float)
+            ask = df["ask_volume"].astype(float)
+        else:
             return self._empty_result(len(df))
 
-        bid = df["bid_volume"].astype(float)
-        ask = df["ask_volume"].astype(float)
         total = bid + ask
         values = ((bid - ask) / total.replace(0.0, np.nan)).to_numpy(
             dtype=float,

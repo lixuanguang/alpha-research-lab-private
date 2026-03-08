@@ -1,13 +1,13 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 2006 passed, 10 skipped; quality gates green)
+> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete; repo-wide quality gates green at `pytest tests/ -q` = `2083 passed, 10 skipped`)
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Lean adoption alignment (March 7, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
-> **Implementation status (March 8, 2026):** Dataset/feature/backtest/evaluate/report/optimize workflows delivered. R5 complete: `alpha_core.evaluation` package with `FinancialMetrics`, `PMMetrics` (Brier, log-loss, ECE, resolution decomposition, category breakdown), `BacktestEvaluator`, schema-versioned `EvaluationReport`, and `apps.research.reporting` (ReportWriter, comparisons). Additional regression coverage has been added for PM-native feature builds, lifecycle handling, and portfolio accounting.
-> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2006 passed, 10 skipped`).
+> **Implementation status (March 8, 2026):** Dataset/feature/backtest/evaluate/report/optimize workflows delivered. R5 complete: `alpha_core.evaluation` package with `FinancialMetrics`, `PMMetrics` (Brier, log-loss, ECE, resolution decomposition, category breakdown), `BacktestEvaluator`, schema-versioned `EvaluationReport`, and `apps.research.reporting` (ReportWriter, comparisons). PM-native feature builds now enrich trade data from point-in-time instrument metadata and optional book snapshots using availability-safe joins, the event backtester exposes the full per-instrument feature state promised by its strategy contract, and `build-dataset` can consume dataset-ready handoff contracts directly from the Data Plane while binding itself to the exact silver partitions declared by that handoff. Additional regression coverage has been added for PM-native feature builds, lifecycle handling, portfolio accounting, and handoff-driven dataset assembly.
+> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2083 passed, 10 skipped`).
 
 ---
 
@@ -1541,7 +1541,7 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 
 The Research Plane MVP is **complete** when all of the following are true:
 
-- [ ] `ruff check . && mypy libs/core apps/ --strict` — 0 errors
+- [x] `ruff check . && mypy libs/core apps/ --strict` — 0 errors
 - [ ] `pytest tests/ -v` — all tests green, ≥ 730 total, ≥ 85% coverage
 - [ ] Dataset builder produces gold datasets with zero look-ahead leakage
 - [ ] Universe manager respects market lifecycle at each point in time
@@ -1557,7 +1557,7 @@ The Research Plane MVP is **complete** when all of the following are true:
 - [ ] All research CLI commands support `--format json` and deterministic exit codes
 - [ ] Every stage emits a run manifest and artifact index under `data/runs/{run_id}/`
 - [ ] Artifact persistence is routed through a stable store abstraction (filesystem backend for MVP)
-- [ ] All existing foundation + data plane tests still pass (0 regressions)
+- [x] All existing foundation + data plane tests still pass (0 regressions)
 - [ ] Config system extended for research settings (backward compatible)
 
 ---

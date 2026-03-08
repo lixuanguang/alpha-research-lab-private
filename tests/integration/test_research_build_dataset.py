@@ -9,8 +9,10 @@ Verifies that the ``build-dataset`` command:
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import apps.research.main as research_main
@@ -25,7 +27,10 @@ import alpha_core.quality.partition_validator as pv_mod
 import alpha_core.research.dataset_builder as builder_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.universe as universe_mod
+import alpha_core.storage.handoff_manifest as handoff_mod
+import alpha_core.storage.lineage as lineage_mod
 import alpha_core.storage.parquet_reader as reader_mod
+import alpha_core.storage.run_artifact_emitter as emitter_mod
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -90,10 +95,12 @@ def _make_wired_builder(tmp_path: Path) -> tuple[builder_mod.DatasetBuilder, Pat
     master = master_mod.MarketMaster()
     master.register_market(_make_market("p", "m1", ["yes", "no"]))
 
+    trades_table = _silver_trades()
     mock_reader = MagicMock(spec=reader_mod.ParquetEventReader)
-    mock_reader.read_trades.return_value = _silver_trades()
+    mock_reader.read_trades.return_value = trades_table
     mock_reader.read_ohlcv.return_value = pa.table({})
     mock_reader.read_books.return_value = pa.table({})
+    mock_reader.read_partition_refs.side_effect = lambda partition_refs, *, schema: trades_table
 
     mock_validator = MagicMock(spec=pv_mod.PartitionValidator)
     mock_gap = MagicMock(spec=gap_mod.GapDetector)
@@ -108,6 +115,67 @@ def _make_wired_builder(tmp_path: Path) -> tuple[builder_mod.DatasetBuilder, Pat
         storage_root=tmp_path,
     )
     return builder, tmp_path
+
+
+def _emit_ready_handoff(storage_root: Path) -> tuple[str, Path, str]:
+    lineage_store = lineage_mod.LineageStore(storage_root)
+    run = lineage_store.start_run(
+        "p",
+        "polling",
+        options=lineage_mod.StartRunOptions(
+            run_id="ingest-ready-001",
+            event_types=["trades"],
+            config_snapshot={"mode": "poll"},
+        ),
+    )
+    lineage_store.complete_run(
+        run.run_id,
+        counts={"trades": 20},
+        errors=[],
+        cursor_watermark_utc=_END,
+        resume_safe=True,
+    )
+    handoff_manifest = handoff_mod.build_handoff_manifest(
+        venue="p",
+        source_run_ids=[run.run_id],
+        window_start=_BASE,
+        window_end=_END,
+        event_types=["trades"],
+        quality_status=handoff_mod.QualityStatus(passed=True),
+        gap_status=handoff_mod.GapStatus(gap_free=True, max_gap_hours=0.0),
+        watermarks=handoff_mod.WatermarkInfo(max_ts_event=_END, max_ts_record=_END),
+        partition_refs=["silver/trades/venue=p/date=2026-01-01"],
+        handoff_id="handoff-ready-001",
+    )
+    handoff_path = handoff_mod.HandoffManifestStore(storage_root).save(handoff_manifest)
+    lineage_store.mark_dataset_ready(run.run_id, handoff_manifest_path=str(handoff_path))
+    ingestion_run = lineage_store.get_run(run.run_id)
+    assert ingestion_run is not None
+    emitter_mod.emit_ingestion_run_artifacts(
+        ingestion_run=ingestion_run,
+        storage_root=storage_root,
+        partition_refs={"silver_trades": "silver/trades/venue=p/date=2026-01-01"},
+    )
+    return run.run_id, handoff_path, handoff_manifest.handoff_id
+
+
+def _write_not_ready_handoff(storage_root: Path) -> Path:
+    handoff_manifest = handoff_mod.build_handoff_manifest(
+        venue="p",
+        source_run_ids=["ingest-not-ready-001"],
+        window_start=_BASE,
+        window_end=_END,
+        event_types=["trades"],
+        quality_status=handoff_mod.QualityStatus(
+            passed=False,
+            failed_suites=["silver_trades"],
+        ),
+        gap_status=handoff_mod.GapStatus(gap_free=True, max_gap_hours=0.0),
+        watermarks=handoff_mod.WatermarkInfo(max_ts_event=_END, max_ts_record=_END),
+        partition_refs=["silver/trades/venue=p/date=2026-01-01"],
+        handoff_id="handoff-not-ready-001",
+    )
+    return handoff_mod.HandoffManifestStore(storage_root).save(handoff_manifest)
 
 
 @pytest.fixture()
@@ -406,6 +474,103 @@ def test_execute_manifest_parent_run_id_is_set(
     run_dirs = sorted((storage_root / "runs").iterdir())
     run_manifest = manifest_mod.read_run_manifest(run_dirs[0] / "manifest.json")
     assert run_manifest.parent_run_id == "ingestion_run_123"
+
+
+def test_execute_consumes_dataset_ready_handoff_from_ingestion_run(
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
+) -> None:
+    builder, storage_root = wired_builder
+    ingestion_run_id, handoff_path, handoff_id = _emit_ready_handoff(storage_root)
+    runner = CliRunner()
+    with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
+        result = runner.invoke(
+            research_main.main,
+            [
+                "--format",
+                "json",
+                "build-dataset",
+                "--name",
+                "handoff_ds",
+                "--handoff-manifest",
+                ingestion_run_id,
+                "--skip-quality-pass",
+                "--storage-root",
+                str(storage_root),
+                "--execute",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    run_manifest = manifest_mod.read_run_manifest(
+        storage_root / "runs" / payload["run_id"] / "manifest.json"
+    )
+    assert run_manifest.parent_run_id == ingestion_run_id
+    assert run_manifest.artifacts["handoff_manifest"] == str(handoff_path)
+    assert run_manifest.artifacts["handoff_id"] == handoff_id
+
+    lineage_run = lineage_mod.LineageStore(storage_root).get_run(ingestion_run_id)
+    assert lineage_run is not None
+    assert payload["run_id"] in lineage_run.downstream_run_ids
+
+
+def test_execute_handoff_build_reads_exact_partition_refs(
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
+) -> None:
+    builder, storage_root = wired_builder
+    broad_trades = _silver_trades()
+    handed_off_trades = _silver_trades(n=3)
+    reader = cast(MagicMock, builder._reader)
+    reader.read_trades.return_value = broad_trades
+    reader.read_partition_refs.side_effect = lambda partition_refs, *, schema: handed_off_trades
+    ingestion_run_id, _handoff_path, _handoff_id = _emit_ready_handoff(storage_root)
+    runner = CliRunner()
+    with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
+        result = runner.invoke(
+            research_main.main,
+            [
+                "--format",
+                "json",
+                "build-dataset",
+                "--name",
+                "handoff_exact_refs",
+                "--handoff-manifest",
+                ingestion_run_id,
+                "--skip-quality-pass",
+                "--storage-root",
+                str(storage_root),
+                "--execute",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["row_counts"]["trades"] == 3
+    reader.read_partition_refs.assert_called_once()
+    reader.read_trades.assert_not_called()
+
+
+def test_handoff_manifest_must_be_dataset_ready(
+    wired_builder: tuple[builder_mod.DatasetBuilder, Path],
+) -> None:
+    builder, storage_root = wired_builder
+    handoff_path = _write_not_ready_handoff(storage_root)
+    runner = CliRunner()
+    with patch("apps.research.commands.build_dataset.make_dataset_builder", return_value=builder):
+        result = runner.invoke(
+            research_main.main,
+            [
+                "build-dataset",
+                "--name",
+                "bad_handoff",
+                "--handoff-manifest",
+                str(handoff_path),
+                "--skip-quality-pass",
+                "--storage-root",
+                str(storage_root),
+                "--execute",
+            ],
+        )
+    assert result.exit_code != 0
+    assert "not dataset-ready" in result.output
 
 
 # ---------------------------------------------------------------------------

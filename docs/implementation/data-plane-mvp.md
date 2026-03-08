@@ -6,7 +6,7 @@
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Implementation Status (as of March 8, 2026):** D1, D2, D3, D4, D5, and D6 complete; section 11 is validated and folded into the closed Data Plane baseline
-> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2006 passed, 10 skipped`).
+> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2083 passed, 10 skipped`).
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---
@@ -1537,7 +1537,10 @@ Validated implementation status (March 8, 2026):
 > `emit_ingestion_run_artifacts()` and `IngestionArtifactEmission` are in
 > `libs/core/alpha_core/storage/run_artifact_emitter.py`.
 > 24 tests in `tests/unit/test_run_artifact_emitter.py` — all passing.
-> Remaining item (§12.4 gate 5 integration test) is still forward-looking.
+>
+> **§12.4 status:** Acceptance gates are implemented (March 8, 2026).
+> `build-dataset --handoff-manifest` now consumes dataset-ready handoff contracts by
+> file path, handoff id, or ingestion run id.
 
 Reference documents:
 - `README.LEAN_ADOPTION.md`
@@ -1689,7 +1692,13 @@ content (run type, run id, parent_run_id, schema version), partition refs, hando
 linkage, extra artifacts, guard against non-completed runs, idempotency, artifacts.json
 readability, and an end-to-end flow from ingest → dataset-ready → emit artifacts.
 
-### 12.4 Acceptance Gates
+### 12.4 Acceptance Gates ✅ (March 8, 2026)
+
+**Implemented.** `build-dataset` can now consume a dataset-ready handoff contract
+directly, and it binds the dataset build to the exact silver partition refs
+declared by that handoff instead of re-expanding the window from metadata
+alone. That closes the ingestion run -> handoff manifest -> dataset build path
+without duplicating the window/venue/event-type contract at the call site.
 
 This future section is complete when:
 
@@ -1697,7 +1706,7 @@ This future section is complete when:
 - [x] Dataset-ready handoff manifest schema is implemented and validated by tests.
 - [x] `dataset_ready` gating uses quality + gap + status checks.
 - [x] Run artifact outputs are compatible with Research Plane run path conventions.
-- [ ] Integration tests cover end-to-end handoff: ingestion run -> handoff manifest -> dataset build consumption path.
+- [x] Integration tests cover end-to-end handoff: ingestion run -> handoff manifest -> dataset build consumption path.
 
 ---
 

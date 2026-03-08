@@ -23,7 +23,7 @@ def _complete_run(
     run_id: str = "test-run-001",
     venue: str = "kalshi",
     event_types: list[str] | None = None,
-    config_snapshot: dict | None = None,
+    config_snapshot: dict[str, object] | None = None,
     parent_run_id: str | None = None,
 ) -> lineage.IngestionRun:
     """Start + immediately complete a run and return the completed IngestionRun."""

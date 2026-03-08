@@ -339,6 +339,31 @@ class TestPointInTimeSemantics:
         assert first_state.features is None
         assert second_state.features == {"a": {"feature_alpha": 1.0}}
 
+    def test_strategy_state_features_include_all_available_instruments(self) -> None:
+        trades = _make_trades_table([(_T0, "a", 0.5), (_T1, "b", 0.6)])
+        features = pa.table(
+            {
+                "instrument_id": pa.array(["a", "b"], type=pa.string()),
+                "price": pa.array([0.5, 0.6], type=pa.float64()),
+                "ts_event": pa.array([_T0, _T0], type=pa.timestamp("us", tz="UTC")),
+                "ts_available": pa.array([_T0, _T0], type=pa.timestamp("us", tz="UTC")),
+                "feature_alpha": pa.array([1.0, 2.0], type=pa.float64()),
+            }
+        )
+        strategy = _NullStrategy()
+
+        EventBacktestEngine(_default_config()).run(
+            strategy,
+            _MockDataset(trades),
+            features=features,
+        )
+
+        first_state = strategy.data_calls[0][1]
+        assert first_state.features == {
+            "a": {"feature_alpha": 1.0},
+            "b": {"feature_alpha": 2.0},
+        }
+
     def test_strategy_state_separates_observed_and_execution_prices(self) -> None:
         table = _make_trades_table([(_T0, "a", 0.5), (_T1, "a", 0.6)])
         strategy = _NullStrategy()

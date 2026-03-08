@@ -22,7 +22,7 @@
 | Extension | Status | Tests | Docs |
 |---|---|---|---|
 | Research Ergonomics Extension | **Partially delivered (sessions, catalog, promotion gates, factor packs, and strategy recipes are landed; remaining work is mostly doc folding and workflow hardening)** | Covered by repo-wide quality gates | [Research Plane Plan](docs/implementation/research-plane-mvp.md) |
-| Data Plane -> Research Handoff Contract | Planned | — | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
+| Data Plane -> Research Handoff Contract | **Complete (lineage bridge fields, `dataset_ready` gating, handoff manifests, ingestion artifact compatibility, and handoff-driven dataset builds are landed)** | Focused unit/integration coverage for sections 12.1-12.4 | [Data Plane Plan](docs/implementation/data-plane-mvp.md) |
 | PM-Native Backtester Enhancement Plan (`B0`-`B4`) | Planned | — | [README Backtester Plan](README.md#backtester-enhancement-plan-zipline-informed-pm-native) |
 | Research Microstructure Extension (Tick-Resolution) | Planned | — | [Research Plane Extension](docs/implementation/research-plane-mvp.md#11-future-microstructure-extension-tick-resolution) |
 | Macro/OpenBB Ingestion (`M0`-`M3`) | Optional / Planned | — | [README Macro Plan](README.md#macro-data-ingestion-plan-openbb-hybrid) |
@@ -30,7 +30,7 @@
 **Quality gates (as of March 8, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/core apps tests --strict` — 0 errors
-- `pytest tests/ -q` — 2006 passed, 10 skipped
+- `pytest tests/ -q` — 2083 passed, 10 skipped
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:
@@ -155,15 +155,15 @@ Completed follow-on contracts are folded into the relevant stage plans below. Se
 Closed:
 - Foundation Stage (`F1`-`F6`)
 - Data Plane MVP (`D1`-`D6`)
+- Data Plane -> Research handoff contract (`§12.1`-`§12.4`)
 - Lean adoption backlog (`LA-001` through `LA-022`)
 - Research CLI baseline: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize`
 - Research governance baseline: `session`, `catalog`, `promote`
 - Filesystem `ArtifactStore`, optimize trial registry, runtime profiles, and acceleration parity boundary
 
 Still open:
-- Research Plane MVP hardening: PM-specific features, richer execution simulation, vectorized fast path, deeper PM-native evaluation metrics, example strategies
+- Research Plane MVP hardening: richer execution simulation, vectorized fast path, deeper PM-native evaluation metrics, and example strategies
 - Cross-stage contract cleanup: harmonized materialized CLI payloads, optional `run-pipeline` decision, broader `ArtifactStore` reuse in live/runtime
-- Data Plane -> Research handoff contract: lineage bridge fields, `dataset_ready` gating, handoff manifests, ingestion-to-dataset integration coverage
 - PM-native backtester enhancement plan (`B0`-`B4`)
 - Live Plane MVP
 - Observability Baseline
@@ -172,14 +172,13 @@ Still open:
 
 ### Active Delivery Order (Recommended)
 
-1. Finish the open **Research Plane MVP** gaps: PM-specific features, richer execution simulation, vectorized fast path, deeper PM-native evaluation metrics, and example strategies.
+1. Finish the open **Research Plane MVP** gaps: richer execution simulation, vectorized fast path, deeper PM-native evaluation metrics, and example strategies.
 2. Clean up remaining **cross-stage contracts**: harmonize materialized research CLI payloads, decide on the optional `run-pipeline` alias, and extend `ArtifactStore` reuse into live/runtime paths.
-3. Implement the **Data Plane -> Research handoff contract**: lineage bridge fields, `dataset_ready` gating, handoff manifests, and ingestion-to-dataset integration coverage.
-4. Apply the **PM-native backtester enhancement plan** (`B0`-`B4` below): scheduling/calendars, pluggable cost models, deterministic bundle snapshots, metrics-set registry, and factor-graph ergonomics.
-5. Build **Live Plane MVP** on top of the validated research contracts: paper/live-safe routing, real-time feature/signal services, and production risk gates.
-6. Add the **Observability Baseline**: telemetry, dashboards, alerts, and operator runbooks for the now-meaningful live/runtime surface.
-7. Finish **Robustness Hardening**: purged/embargoed CV, multiple-testing controls, survivorship/bias enforcement, and research validation workflows.
-8. Treat **macro/OpenBB ingestion** (`M0`-`M3` below) as an optional, thesis-driven extension unless it is directly required by the current alpha roadmap.
+3. Apply the **PM-native backtester enhancement plan** (`B0`-`B4` below): scheduling/calendars, pluggable cost models, deterministic bundle snapshots, metrics-set registry, and factor-graph ergonomics.
+4. Build **Live Plane MVP** on top of the validated research contracts: paper/live-safe routing, real-time feature/signal services, and production risk gates.
+5. Add the **Observability Baseline**: telemetry, dashboards, alerts, and operator runbooks for the now-meaningful live/runtime surface.
+6. Finish **Robustness Hardening**: purged/embargoed CV, multiple-testing controls, survivorship/bias enforcement, and research validation workflows.
+7. Treat **macro/OpenBB ingestion** (`M0`-`M3` below) as an optional, thesis-driven extension unless it is directly required by the current alpha roadmap.
 
 ## Macro Data Ingestion Plan (OpenBB Hybrid)
 

@@ -272,6 +272,38 @@ def test_trade_schema_matches_expected_columns_and_types(tmp_path: Path) -> None
     assert table.schema.field("ts_event").type == pa.timestamp("us", tz="UTC")
 
 
+def test_read_partition_refs_returns_only_requested_trade_partition(tmp_path: Path) -> None:
+    writer = parquet_writer.ParquetEventWriter(tmp_path)
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+    day_one = datetime(2026, 2, 28, 12, 0, tzinfo=UTC)
+    day_two = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
+
+    writer.write_trades(
+        [
+            _make_trade(trade_index=1, venue="kalshi", ts_event=day_one),
+            _make_trade(trade_index=2, venue="kalshi", ts_event=day_two),
+        ]
+    )
+
+    table = reader.read_partition_refs(
+        ["silver/trades/venue=kalshi/date=2026-03-01"],
+        schema=storage_conventions.TRADE_PARQUET_SCHEMA,
+    )
+
+    assert table.num_rows == 1
+    assert table.column("trade_id").to_pylist() == ["trade-2"]
+
+
+def test_read_partition_refs_raises_for_missing_partition(tmp_path: Path) -> None:
+    reader = parquet_reader.ParquetEventReader(tmp_path)
+
+    with pytest.raises(FileNotFoundError, match="Referenced partition does not exist"):
+        reader.read_partition_refs(
+            ["silver/trades/venue=kalshi/date=2026-03-01"],
+            schema=storage_conventions.TRADE_PARQUET_SCHEMA,
+        )
+
+
 def test_book_schema_matches_expected_columns_and_types(tmp_path: Path) -> None:
     writer = parquet_writer.ParquetEventWriter(tmp_path)
     reader = parquet_reader.ParquetEventReader(tmp_path)

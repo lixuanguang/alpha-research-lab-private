@@ -18,6 +18,7 @@ Usage::
 from __future__ import annotations
 
 import time
+from bisect import bisect_right
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -153,7 +154,7 @@ class EventBacktestEngine:
                         resolved_set.add(res_instr)
 
             # --- Update feature state ---
-            current_features = self._current_features(features_index, instr, ts)
+            current_features = self._current_features(features_index, ts)
             active_universe = [
                 instrument_id for instrument_id in universe if instrument_id not in resolved_set
             ]
@@ -248,7 +249,7 @@ class EventBacktestEngine:
     @staticmethod
     def _build_features_index(
         features: pa.Table | None,
-    ) -> dict[str, list[tuple[datetime, dict[str, float]]]] | None:
+    ) -> dict[str, tuple[list[datetime], list[dict[str, float]]]] | None:
         """Pre-index features for point-in-time as-of lookups."""
         if features is None:
             return None
@@ -272,43 +273,36 @@ class EventBacktestEngine:
         if not feat_cols:
             return None
 
-        index: dict[str, list[tuple[datetime, dict[str, float]]]] = {}
+        index: dict[str, tuple[list[datetime], list[dict[str, float]]]] = {}
 
         for instr, grp in df.groupby("instrument_id"):
             sort_columns = [sequence_col]
             if "ts_event" in grp.columns and sequence_col != "ts_event":
                 sort_columns.append("ts_event")
             grp_sorted = grp.sort_values(sort_columns, kind="stable")
-            rows: list[tuple[datetime, dict[str, float]]] = []
+            timestamps: list[datetime] = []
+            feature_rows: list[dict[str, float]] = []
             for _, r in grp_sorted.iterrows():
-                ts = _to_datetime(r[sequence_col])
-                feats = {c: float(r[c]) for c in feat_cols if not pd.isna(r[c])}
-                rows.append((ts, feats))
-            index[str(instr)] = rows
+                timestamps.append(_to_datetime(r[sequence_col]))
+                feature_rows.append({c: float(r[c]) for c in feat_cols if not pd.isna(r[c])})
+            index[str(instr)] = (timestamps, feature_rows)
         return index
 
     @staticmethod
     def _current_features(
-        index: dict[str, list[tuple[datetime, dict[str, float]]]] | None,
-        instrument_id: str,
+        index: dict[str, tuple[list[datetime], list[dict[str, float]]]] | None,
         ts: datetime,
     ) -> dict[str, dict[str, float]] | None:
-        """Return {instrument_id: {feat: val}} for instruments with latest data ≤ ts."""
+        """Return the full feature map available at *ts*."""
         if index is None:
             return None
-        rows = index.get(instrument_id)
-        if not rows:
-            return None
-        # As-of: find latest row with ts_event <= current ts.
-        latest_feats: dict[str, float] | None = None
-        for row_ts, feats in rows:
-            if row_ts <= ts:
-                latest_feats = feats
-            else:
-                break
-        if latest_feats is None:
-            return None
-        return {instrument_id: latest_feats}
+        current: dict[str, dict[str, float]] = {}
+        for instrument_id, (timestamps, feature_rows) in index.items():
+            row_index = bisect_right(timestamps, ts) - 1
+            if row_index < 0:
+                continue
+            current[instrument_id] = feature_rows[row_index]
+        return current or None
 
     def _empty_result(
         self,

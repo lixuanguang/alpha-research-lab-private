@@ -216,6 +216,29 @@ class TestDatasetBuilderBuild:
         assert manifest.config.name == "manifest_check"
         assert manifest.schema_version == 1
 
+    def test_gold_event_tables_include_dataset_provenance_columns(self, tmp_path: Path) -> None:
+        master = master_mod.MarketMaster()
+        master.register_market(_make_market("p", "m1", ["yes"]))
+        ts = [_BASE + timedelta(hours=i) for i in range(2)]
+        table = _trade_table(["p:m1:yes", "p:m1:yes"], ts)
+        builder = _make_builder(tmp_path, master, trade_table=table)
+        manifest = builder.build(
+            dataset_mod.DatasetConfig(
+                name="provenance",
+                start=_BASE,
+                end=_END,
+                require_quality_pass=False,
+            )
+        )
+        dataset_dir = builder_io.dataset_directory(
+            tmp_path / "gold" / "datasets",
+            manifest.dataset_id,
+        )
+        trades = pq.read_table(dataset_dir / "trades.parquet")
+        assert "dataset_id" in trades.schema.names
+        assert "gold_schema_version" in trades.schema.names
+        assert set(trades.column("dataset_id").to_pylist()) == {manifest.dataset_id}
+
     def test_build_persists_run_manifest(self, tmp_path: Path) -> None:
         master = master_mod.MarketMaster()
         master.register_market(_make_market("p", "m1", ["yes"]))

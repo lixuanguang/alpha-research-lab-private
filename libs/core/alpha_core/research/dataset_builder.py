@@ -75,6 +75,8 @@ class DatasetBuilder:
         config_payload: dict[str, Any] | None = None,
         parent_run_id: str | None = None,
         session_id: str | None = None,
+        extra_artifacts: dict[str, str] | None = None,
+        partition_refs_by_event_type: dict[str, list[str]] | None = None,
     ) -> dataset_mod.DatasetManifest:
         """Build a gold dataset from silver data.
 
@@ -126,6 +128,7 @@ class DatasetBuilder:
             start_utc=start_utc,
             end_utc=end_utc,
             snapshots=snapshots,
+            partition_refs_by_event_type=partition_refs_by_event_type,
         )
         try:
             outputs = dataset_builder_io.write_dataset_outputs(
@@ -150,6 +153,7 @@ class DatasetBuilder:
                 "dataset_meta": str(outputs.meta_path),
                 "dataset_dir": str(outputs.dataset_dir),
                 "universe": str(outputs.dataset_dir / "universe.parquet"),
+                **(extra_artifacts or {}),
             },
             parent_run_id=parent_run_id,
         )
@@ -201,11 +205,18 @@ class DatasetBuilder:
         start_utc: datetime,
         end_utc: datetime,
         snapshots: list[universe_mod.UniverseSnapshot],
+        partition_refs_by_event_type: dict[str, list[str]] | None = None,
     ) -> dict[str, pa.Table]:
         raw_tables: dict[str, pa.Table] = {}
         normalized_venues = [venue.lower() for venue in (config.venues or [])]
         for event_type in config.event_types:
-            if event_type == "trades":
+            partition_refs = (partition_refs_by_event_type or {}).get(event_type, [])
+            if partition_refs:
+                table = self._reader.read_partition_refs(
+                    partition_refs,
+                    schema=_event_schema(event_type),
+                )
+            elif event_type == "trades":
                 table = self._reader.read_trades(start=start_utc, end=end_utc)
             elif event_type == "ohlcv":
                 table = self._reader.read_ohlcv(start=start_utc, end=end_utc)
@@ -520,6 +531,16 @@ def _quality_venues(
         if ":" in instrument_id
     }
     return sorted(venue for venue in discovered_venues if venue)
+
+
+def _event_schema(event_type: str) -> pa.Schema:
+    if event_type == "trades":
+        return storage_conventions.TRADE_PARQUET_SCHEMA
+    if event_type == "ohlcv":
+        return storage_conventions.OHLCV_PARQUET_SCHEMA
+    if event_type == "books":
+        return storage_conventions.BOOK_PARQUET_SCHEMA
+    raise ValueError(f"Unsupported event type '{event_type}'")
 
 
 def _ohlcv_gap_targets(

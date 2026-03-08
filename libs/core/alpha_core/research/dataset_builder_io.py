@@ -17,6 +17,7 @@ import pyarrow.parquet as pq
 
 import alpha_core.research.dataset as dataset_mod
 import alpha_core.research.universe as universe_mod
+import alpha_core.storage.conventions as storage_conventions
 
 _UNIVERSE_SCHEMA = pa.schema(
     [
@@ -66,7 +67,11 @@ def write_dataset_outputs(
     staging_dir = gold_root / f".{dataset_id}.{uuid.uuid4().hex}.tmp"
     staging_dir.mkdir(parents=False, exist_ok=False)
     try:
-        row_counts = _write_event_tables(dataset_dir=staging_dir, gold_tables=gold_tables)
+        row_counts = _write_event_tables(
+            dataset_dir=staging_dir,
+            gold_tables=gold_tables,
+            dataset_id=dataset_id,
+        )
         _write_universe_table(dataset_dir=staging_dir, snapshots=snapshots)
 
         manifest = dataset_mod.DatasetManifest(
@@ -154,12 +159,31 @@ def _write_event_tables(
     *,
     dataset_dir: Path,
     gold_tables: dict[str, pa.Table],
+    dataset_id: str,
 ) -> dict[str, int]:
     row_counts: dict[str, int] = {}
     for event_type, table in gold_tables.items():
+        table = _with_gold_provenance(table, dataset_id=dataset_id)
         pq.write_table(table, dataset_dir / f"{event_type}.parquet", compression="zstd")
         row_counts[event_type] = table.num_rows
     return row_counts
+
+
+def _with_gold_provenance(table: pa.Table, *, dataset_id: str) -> pa.Table:
+    if "dataset_id" not in table.schema.names:
+        table = table.append_column(
+            pa.field("dataset_id", pa.string()),
+            pa.array([dataset_id] * table.num_rows, type=pa.string()),
+        )
+    if "gold_schema_version" not in table.schema.names:
+        table = table.append_column(
+            pa.field("gold_schema_version", pa.int32()),
+            pa.array(
+                [storage_conventions.GOLD_SCHEMA_VERSION] * table.num_rows,
+                type=pa.int32(),
+            ),
+        )
+    return table
 
 
 def _write_universe_table(

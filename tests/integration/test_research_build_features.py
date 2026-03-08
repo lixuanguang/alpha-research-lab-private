@@ -21,6 +21,8 @@ import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
 
+import alpha_core.instruments.master as master_mod
+import alpha_core.instruments.models as instrument_models
 import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.session as session_mod
@@ -45,13 +47,16 @@ _TRADES_SCHEMA = pa.schema(
     ]
 )
 
-_PM_TRADES_SCHEMA = pa.schema(
+_BOOKS_SCHEMA = pa.schema(
     [
-        *_TRADES_SCHEMA,
-        pa.field("resolution_date", pa.timestamp("us", tz="UTC")),
-        pa.field("category", pa.string()),
-        pa.field("bid_volume", pa.float64()),
-        pa.field("ask_volume", pa.float64()),
+        pa.field("event_id", pa.string()),
+        pa.field("instrument_id", pa.string()),
+        pa.field("venue_id", pa.string()),
+        pa.field("event_type", pa.string()),
+        pa.field("ts_event", pa.timestamp("us", tz="UTC")),
+        pa.field("ts_record", pa.timestamp("us", tz="UTC")),
+        pa.field("bids_json", pa.string()),
+        pa.field("asks_json", pa.string()),
     ]
 )
 
@@ -81,7 +86,6 @@ def _write_gold_trades(dataset_dir: Path, n: int = 20) -> None:
 def _write_pm_gold_trades(dataset_dir: Path, n_timestamps: int = 25) -> None:
     dataset_dir.mkdir(parents=True, exist_ok=True)
     ts_events = [_BASE + timedelta(minutes=15 * i) for i in range(n_timestamps)]
-    resolution_date = _BASE + timedelta(days=7)
     rows: list[dict[str, object]] = []
     venues = ("kalshi", "polymarket")
     for idx, ts_event in enumerate(ts_events):
@@ -97,14 +101,71 @@ def _write_pm_gold_trades(dataset_dir: Path, n_timestamps: int = 25) -> None:
                     "ts_record": ts_event,
                     "price": base_price + 0.02 * venue_idx,
                     "size": 100.0 + idx + 10.0 * venue_idx,
-                    "resolution_date": resolution_date,
-                    "category": "macro",
-                    "bid_volume": 140.0 + idx + venue_idx,
-                    "ask_volume": 90.0 + idx - venue_idx,
                 }
             )
-    table = pa.Table.from_pylist(rows, schema=_PM_TRADES_SCHEMA)
+    table = pa.Table.from_pylist(rows, schema=_TRADES_SCHEMA)
     pq.write_table(table, dataset_dir / "trades.parquet", compression="zstd")
+
+
+def _write_pm_gold_books(dataset_dir: Path, n_timestamps: int = 25) -> None:
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    ts_events = [_BASE + timedelta(minutes=15 * i) for i in range(n_timestamps)]
+    rows: list[dict[str, object]] = []
+    venues = ("kalshi", "polymarket")
+    for idx, ts_event in enumerate(ts_events):
+        for venue_idx, venue in enumerate(venues):
+            rows.append(
+                {
+                    "event_id": f"{venue}-b{idx}",
+                    "instrument_id": f"{venue}:m1:yes",
+                    "venue_id": venue,
+                    "event_type": "book_snapshot",
+                    "ts_event": ts_event,
+                    "ts_record": ts_event,
+                    "bids_json": json.dumps(
+                        [
+                            {"price": "0.49", "size": str(140 + idx + venue_idx)},
+                            {"price": "0.48", "size": str(50 + venue_idx)},
+                            {"price": "0.47", "size": str(25 + venue_idx)},
+                        ]
+                    ),
+                    "asks_json": json.dumps(
+                        [
+                            {"price": "0.51", "size": str(90 + idx - venue_idx)},
+                            {"price": "0.52", "size": str(40 + venue_idx)},
+                            {"price": "0.53", "size": str(20 + venue_idx)},
+                        ]
+                    ),
+                }
+            )
+    table = pa.Table.from_pylist(rows, schema=_BOOKS_SCHEMA)
+    pq.write_table(table, dataset_dir / "books.parquet", compression="zstd")
+
+
+def _write_instrument_master(storage_root: Path) -> None:
+    master = master_mod.MarketMaster()
+    first_seen = _BASE - timedelta(days=1)
+    resolution_date = _BASE + timedelta(days=7)
+    for venue in ("kalshi", "polymarket"):
+        master.register_market(
+            instrument_models.MarketSpec(
+                market_id="m1",
+                venue=venue,
+                title=f"{venue} market",
+                category="macro",
+                outcomes=[
+                    instrument_models.OutcomeSpec(
+                        outcome_id="yes",
+                        label="YES",
+                        canonical_id=f"{venue}:m1:yes",
+                    )
+                ],
+                resolution_date=resolution_date,
+                first_seen=first_seen,
+                last_updated=first_seen,
+            )
+        )
+    master.persist(storage_root / "instruments.parquet")
 
 
 def _write_dataset_meta(dataset_dir: Path, dataset_id: str, dataset_name: str) -> None:
@@ -171,6 +232,8 @@ def storage_root_with_named_dataset(tmp_path: Path) -> Path:
 def storage_root_with_pm_dataset(tmp_path: Path) -> Path:
     dataset_dir = tmp_path / "gold" / "datasets" / _DATASET_ID
     _write_pm_gold_trades(dataset_dir)
+    _write_pm_gold_books(dataset_dir)
+    _write_instrument_master(tmp_path)
     return tmp_path
 
 

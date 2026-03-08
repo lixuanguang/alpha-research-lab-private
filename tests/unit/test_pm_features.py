@@ -130,6 +130,23 @@ class TestCrossVenueSpread:
         spread_vals = [v for v in result.values if not math.isnan(v)]
         assert all(v >= 0 for v in spread_vals)
 
+    def test_late_second_venue_does_not_leak_into_earlier_row(self) -> None:
+        t = pa.table(
+            {
+                "instrument_id": ["venueA:mkt1:outc1", "venueB:mkt1:outc1"],
+                "price": pa.array([0.3, 0.5], pa.float64()),
+                "size": pa.array([1.0, 1.0], pa.float64()),
+                "ts_event": pa.array([_T0, _T0], pa.timestamp("us", tz="UTC")),
+                "ts_record": pa.array(
+                    [_T0, _T0 + timedelta(minutes=5)],
+                    pa.timestamp("us", tz="UTC"),
+                ),
+            }
+        )
+        result = CrossVenueSpread().compute(t)
+        assert math.isnan(result.values[0])
+        assert result.values[1] == pytest.approx(0.2)
+
     def test_empty_table_returns_empty(self) -> None:
         t = pa.table(
             {
@@ -264,6 +281,37 @@ class TestCategoryMomentum:
         result = CategoryMomentum(window=2).compute(t)
         assert len(result.values) == len(t)
 
+    def test_late_category_peer_does_not_leak_into_earlier_row(self) -> None:
+        t = pa.table(
+            {
+                "instrument_id": ["a", "a", "a", "b"],
+                "price": pa.array([0.20, 0.30, 0.40, 0.70], pa.float64()),
+                "size": pa.array([1.0, 1.0, 1.0, 1.0], pa.float64()),
+                "ts_event": pa.array(
+                    [
+                        _T0,
+                        _T0 + timedelta(minutes=1),
+                        _T0 + timedelta(minutes=2),
+                        _T0 + timedelta(minutes=2),
+                    ],
+                    pa.timestamp("us", tz="UTC"),
+                ),
+                "ts_record": pa.array(
+                    [
+                        _T0,
+                        _T0 + timedelta(minutes=1),
+                        _T0 + timedelta(minutes=2),
+                        _T0 + timedelta(minutes=5),
+                    ],
+                    pa.timestamp("us", tz="UTC"),
+                ),
+                "category": pa.array(["macro", "macro", "macro", "macro"], pa.string()),
+            }
+        )
+        result = CategoryMomentum(window=1).compute(t)
+        assert result.values[2] == pytest.approx(0.1)
+        assert math.isnan(result.values[3])
+
     def test_empty_table(self) -> None:
         t = pa.table(
             {
@@ -323,6 +371,26 @@ class TestBookImbalance:
     def test_output_name(self) -> None:
         t = self._book_table([1.0], [1.0])
         assert BookImbalance(levels=3).compute(t).name == "book_imbalance_3"
+
+    def test_json_book_payloads_are_supported(self) -> None:
+        t = pa.table(
+            {
+                "instrument_id": ["a"],
+                "price": pa.array([0.5], pa.float64()),
+                "size": pa.array([1.0], pa.float64()),
+                "ts_event": pa.array([_T0], pa.timestamp("us", tz="UTC")),
+                "bids_json": pa.array(
+                    ['[{"price":"0.49","size":"10"},{"price":"0.48","size":"5"}]'],
+                    pa.string(),
+                ),
+                "asks_json": pa.array(
+                    ['[{"price":"0.51","size":"4"},{"price":"0.52","size":"1"}]'],
+                    pa.string(),
+                ),
+            }
+        )
+        result = BookImbalance(levels=2).compute(t)
+        assert result.values[0] == pytest.approx((15.0 - 5.0) / 20.0)
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import alpha_core.config.paths as config_paths
 import alpha_core.features.base as feature_base
 import alpha_core.features.factor_pack as factor_pack_mod
 import alpha_core.features.pm_specific as pm_features_mod
+import alpha_core.instruments.master as master_mod
 import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.dataset_builder_io as dataset_builder_io
 import alpha_core.research.manifest as manifest_mod
@@ -191,6 +192,8 @@ class FeatureRunner:
         features_table = _compute_features(
             trades_path,
             config.lookback_bars,
+            dataset_dir=dataset_locator.dataset_dir,
+            storage_root=self._storage_root,
             factor_packs=resolved_factor_packs,
         )
         features_path = self._persist_feature_table(
@@ -381,6 +384,8 @@ def _compute_features(
     trades_path: Path,
     lookback_bars: int,
     *,
+    dataset_dir: Path,
+    storage_root: Path,
     factor_packs: list[factor_pack_mod.FactorPackManifest] | None = None,
 ) -> pa.Table:
     """Compute per-instrument rolling features from a gold trades Parquet file.
@@ -393,8 +398,10 @@ def _compute_features(
     - ``volume_mean_{N}`` — rolling mean of prior trade size.
 
     Feature history is ordered by ``ts_available = max(ts_event, ts_record)`` so
-    late-arriving events cannot leak into earlier rows. Warm-up rows with
-    insufficient history retain ``NaN`` values.
+    late-arriving events cannot leak into earlier rows. PM-native factor packs
+    are enriched from ``instruments.parquet`` and optional ``books.parquet``
+    before feature computation. Warm-up rows with insufficient history retain
+    ``NaN`` values.
 
     Returns an Arrow table with columns:
     ``instrument_id``, ``price``, ``ts_available``, ``ts_event``, and the four
@@ -419,6 +426,12 @@ def _compute_features(
     feature_columns = _requested_feature_columns(factor_packs, fallback=lookback_bars)
 
     df = _with_availability_time(df)
+    df = _enrich_trade_frame(
+        df,
+        dataset_dir=dataset_dir,
+        storage_root=storage_root,
+        requested_features=feature_columns,
+    )
     df = df.sort_values(["instrument_id", "ts_available", "ts_event"]).reset_index(drop=True)
     cache = _RollingFeatureCache(df)
     pm_input_table: pa.Table | None = None
@@ -491,6 +504,240 @@ def _with_availability_time(df: pd.DataFrame) -> pd.DataFrame:
     recorded_at = df["ts_record"].where(df["ts_record"].notna(), df["ts_event"])
     df["ts_available"] = recorded_at.where(recorded_at >= df["ts_event"], df["ts_event"])
     return df
+
+
+def _enrich_trade_frame(
+    df: pd.DataFrame,
+    *,
+    dataset_dir: Path,
+    storage_root: Path,
+    requested_features: list[str],
+) -> pd.DataFrame:
+    enriched = df.copy()
+    if any(_needs_market_metadata(feature_name) for feature_name in requested_features):
+        enriched = _enrich_with_market_metadata(enriched, storage_root=storage_root)
+    if any(_needs_book_snapshots(feature_name) for feature_name in requested_features):
+        enriched = _enrich_with_book_snapshots(enriched, dataset_dir=dataset_dir)
+    _validate_feature_inputs(enriched, requested_features=requested_features)
+    return enriched
+
+
+def _needs_market_metadata(feature_name: str) -> bool:
+    return feature_name == "time_to_resolution_decay" or feature_name.startswith(
+        "category_momentum_"
+    )
+
+
+def _needs_book_snapshots(feature_name: str) -> bool:
+    return feature_name.startswith("book_imbalance_")
+
+
+def _validate_feature_inputs(df: pd.DataFrame, *, requested_features: list[str]) -> None:
+    if "time_to_resolution_decay" in requested_features and (
+        "resolution_date" not in df.columns or not df["resolution_date"].notna().any()
+    ):
+        raise FeatureRunError(
+            "Feature 'time_to_resolution_decay' requires point-in-time market metadata. "
+            "Persist instruments to 'instruments.parquet' before running build-features."
+        )
+    if any(
+        feature_name.startswith("category_momentum_") for feature_name in requested_features
+    ) and ("category" not in df.columns or not df["category"].notna().any()):
+        raise FeatureRunError(
+            "Feature 'category_momentum_*' requires market category metadata. "
+            "Persist instruments to 'instruments.parquet' before running build-features."
+        )
+    if any(feature_name.startswith("book_imbalance_") for feature_name in requested_features) and (
+        not {"bids_json", "asks_json"}.issubset(df.columns)
+        or not df["bids_json"].notna().any()
+        or not df["asks_json"].notna().any()
+    ):
+        raise FeatureRunError(
+            "Feature 'book_imbalance_*' requires gold books data. "
+            "Build the dataset with '--event-type books' before running build-features."
+        )
+
+
+def _sequence_column(df: pd.DataFrame) -> str:
+    if "ts_available" in df.columns:
+        return "ts_available"
+    if "ts_record" in df.columns:
+        return "ts_record"
+    return "ts_event"
+
+
+def _utc_timestamp_series(values: pd.Series) -> pd.Series:
+    series = pd.to_datetime(values, utc=True, errors="coerce")
+    return pd.Series(series.astype("datetime64[ns, UTC]"), index=values.index)
+
+
+def _market_id_for_instrument(instrument_id: object) -> str | None:
+    if not isinstance(instrument_id, str):
+        return None
+    parts = instrument_id.rsplit(":", 1)
+    if len(parts) != 2 or not parts[0]:
+        return None
+    return parts[0]
+
+
+def _enrich_with_market_metadata(df: pd.DataFrame, *, storage_root: Path) -> pd.DataFrame:
+    instruments_path = storage_root / "instruments.parquet"
+    if not instruments_path.exists():
+        return df
+
+    metadata = _load_market_metadata_frame(instruments_path)
+    if metadata.empty:
+        return df
+
+    sequence_col = _sequence_column(df)
+    left = df.copy()
+    left["_market_id"] = left["instrument_id"].map(_market_id_for_instrument)
+    left["_sequence_ts"] = _utc_timestamp_series(left[sequence_col])
+    left["_row_order"] = pd.RangeIndex(len(left))
+    left = left.sort_values(["_sequence_ts", "_market_id"], kind="stable")
+
+    merged = pd.merge_asof(
+        left,
+        metadata.sort_values(["effective_at", "market_id"], kind="stable"),
+        left_on="_sequence_ts",
+        right_on="effective_at",
+        left_by="_market_id",
+        right_by="market_id",
+        direction="backward",
+    )
+    if "category" not in merged.columns:
+        merged["category"] = merged["_category_meta"]
+    else:
+        merged["category"] = merged["category"].where(
+            merged["category"].notna(),
+            merged["_category_meta"],
+        )
+    if "resolution_date" not in merged.columns:
+        merged["resolution_date"] = merged["_resolution_date_meta"]
+    else:
+        merged["resolution_date"] = merged["resolution_date"].where(
+            merged["resolution_date"].notna(),
+            merged["_resolution_date_meta"],
+        )
+
+    return (
+        merged.sort_values("_row_order", kind="stable")
+        .drop(
+            columns=[
+                "_market_id",
+                "_sequence_ts",
+                "_row_order",
+                "market_id",
+                "effective_at",
+                "_category_meta",
+                "_resolution_date_meta",
+            ],
+            errors="ignore",
+        )
+        .reset_index(drop=True)
+    )
+
+
+def _load_market_metadata_frame(instruments_path: Path) -> pd.DataFrame:
+    master = master_mod.MarketMaster()
+    master.restore(instruments_path)
+    snapshot = master.snapshot()["markets"]
+    if not isinstance(snapshot, dict):
+        return pd.DataFrame(
+            columns=["market_id", "effective_at", "_category_meta", "_resolution_date_meta"]
+        )
+
+    rows: list[dict[str, object]] = []
+    for canonical_market_id in sorted(snapshot):
+        history = master.get_market_history(str(canonical_market_id))
+        for index, market in enumerate(history):
+            rows.append(
+                {
+                    "market_id": str(canonical_market_id),
+                    "effective_at": market.first_seen if index == 0 else market.last_updated,
+                    "_category_meta": market.category,
+                    "_resolution_date_meta": market.resolution_date,
+                }
+            )
+    if not rows:
+        return pd.DataFrame(
+            columns=["market_id", "effective_at", "_category_meta", "_resolution_date_meta"]
+        )
+    frame = pd.DataFrame(rows)
+    frame["effective_at"] = _utc_timestamp_series(frame["effective_at"])
+    if "_resolution_date_meta" in frame.columns:
+        frame["_resolution_date_meta"] = _utc_timestamp_series(frame["_resolution_date_meta"])
+    return frame
+
+
+def _enrich_with_book_snapshots(df: pd.DataFrame, *, dataset_dir: Path) -> pd.DataFrame:
+    books_path = dataset_dir / "books.parquet"
+    if not books_path.exists():
+        return df
+
+    books_df = pq.read_table(books_path).to_pandas()
+    if books_df.empty or "instrument_id" not in books_df.columns:
+        return df
+
+    books_df = _with_availability_time(books_df)
+    required = {"instrument_id", "ts_available", "bids_json", "asks_json"}
+    if not required.issubset(books_df.columns):
+        return df
+
+    sequence_col = _sequence_column(df)
+    left = df.copy()
+    left["_sequence_ts"] = _utc_timestamp_series(left[sequence_col])
+    left["_row_order"] = pd.RangeIndex(len(left))
+    left = left.sort_values(["_sequence_ts", "instrument_id"], kind="stable")
+
+    right = books_df.loc[:, ["instrument_id", "ts_available", "bids_json", "asks_json"]].copy()
+    right["ts_available"] = _utc_timestamp_series(right["ts_available"])
+    right = right.rename(
+        columns={
+            "ts_available": "_book_available",
+            "bids_json": "_bids_json_book",
+            "asks_json": "_asks_json_book",
+        }
+    )
+    right = right.sort_values(["_book_available", "instrument_id"], kind="stable")
+
+    merged = pd.merge_asof(
+        left,
+        right,
+        left_on="_sequence_ts",
+        right_on="_book_available",
+        by="instrument_id",
+        direction="backward",
+    )
+    if "bids_json" not in merged.columns:
+        merged["bids_json"] = merged["_bids_json_book"]
+    else:
+        merged["bids_json"] = merged["bids_json"].where(
+            merged["bids_json"].notna(),
+            merged["_bids_json_book"],
+        )
+    if "asks_json" not in merged.columns:
+        merged["asks_json"] = merged["_asks_json_book"]
+    else:
+        merged["asks_json"] = merged["asks_json"].where(
+            merged["asks_json"].notna(),
+            merged["_asks_json_book"],
+        )
+
+    return (
+        merged.sort_values("_row_order", kind="stable")
+        .drop(
+            columns=[
+                "_sequence_ts",
+                "_row_order",
+                "_book_available",
+                "_bids_json_book",
+                "_asks_json_book",
+            ],
+            errors="ignore",
+        )
+        .reset_index(drop=True)
+    )
 
 
 def resolve_factor_pack_chain(
