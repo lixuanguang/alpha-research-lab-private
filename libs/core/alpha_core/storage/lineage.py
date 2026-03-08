@@ -37,12 +37,29 @@ class IngestionRun(BaseModel):
     errors: list[str] = Field(default_factory=list)
     schema_version: int = 2
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
-    # Bridge to downstream research/backtest runs that consumed this ingestion run.
+    # ------------------------------------------------------------------
+    # Research-handoff linkage (§12.1)
+    # ------------------------------------------------------------------
+    # ``parent_run_id`` is the upstream ingestion run that triggered or
+    # produced the data that *this* run consumes (fan-in reference).  Leave
+    # ``None`` for top-level ingest runs that have no upstream parent.
+    parent_run_id: str | None = None
+    # Bridge to downstream research/backtest runs that consumed this ingestion
+    # run.  Also serves as the §12.1 ``child_run_ids`` (fan-out references).
     # A downstream run (dataset_build, feature_build, etc.) should set
     # ``RunManifest.parent_run_id`` to this ``run_id`` and then call
     # ``LineageStore.link_downstream_run`` to register the linkage here too,
     # giving bidirectional traceability at zero coupling cost.
     downstream_run_ids: list[str] = Field(default_factory=list)
+    # ``dataset_ready`` is set to ``True`` (via
+    # ``LineageStore.mark_dataset_ready``) once quality checks pass and the
+    # data from this run is eligible for downstream research consumption.
+    # Until this flag is ``True``, downstream dataset-build commands should
+    # skip this run.
+    dataset_ready: bool = False
+    # Optional path to the handoff manifest written alongside the ingestion
+    # artifacts.  Set by ``LineageStore.mark_dataset_ready``.
+    handoff_manifest_path: str | None = None
 
     # ------------------------------------------------------------------
     # Incremental-sync cursor (LA-020)
@@ -110,6 +127,8 @@ class StartRunOptions:
     schema_version: int = 2
     config_snapshot: dict[str, Any] | None = None
     run_id: str | None = None
+    # Upstream ingestion run that triggered this one (§12.1 parent_run_id).
+    parent_run_id: str | None = None
     # Initial cursor to carry forward from a previous run (used for resume).
     cursor_type: str | None = None
     cursor_value: str | None = None
@@ -144,6 +163,7 @@ class LineageStore:
             errors=[],
             schema_version=resolved_options.schema_version,
             config_snapshot=dict(resolved_options.config_snapshot or {}),
+            parent_run_id=resolved_options.parent_run_id,
         )
         self._persist_run(run)
         return run
@@ -214,6 +234,36 @@ class LineageStore:
         if not run_path.exists():
             return None
         return IngestionRun.model_validate_json(run_path.read_text(encoding="utf-8"))
+
+    def mark_dataset_ready(
+        self,
+        run_id: str,
+        handoff_manifest_path: str | None = None,
+    ) -> None:
+        """Mark a completed run as eligible for downstream research consumption.
+
+        Sets ``dataset_ready=True`` on the persisted run and optionally records
+        the path to the handoff manifest written alongside the artifacts.  A
+        run must be in ``completed`` status; calling on a failed or running run
+        raises ``ValueError``.
+
+        Args:
+            run_id: ID of the run to mark ready.
+            handoff_manifest_path: Optional filesystem path to the dataset-ready
+                handoff manifest (see §12.2).  Pass ``None`` to mark the run
+                ready without a manifest reference.
+        """
+        run = self._require_run(run_id)
+        if run.status != "completed":
+            raise ValueError(
+                f"Cannot mark run `{run_id}` as dataset-ready: "
+                f"status is `{run.status}`, expected `completed`"
+            )
+        updates: dict[str, object] = {"dataset_ready": True}
+        if handoff_manifest_path is not None:
+            updates["handoff_manifest_path"] = handoff_manifest_path
+        updated = self._revalidated_run(run, **updates)
+        self._persist_run(updated)
 
     def link_downstream_run(self, ingestion_run_id: str, downstream_run_id: str) -> None:
         """Register *downstream_run_id* as a consumer of *ingestion_run_id*.

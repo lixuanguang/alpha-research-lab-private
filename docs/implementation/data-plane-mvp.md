@@ -1499,49 +1499,91 @@ Expose read path:
 
 This section is complete when all are true:
 
-- [ ] Books stream carries sequence/latency metadata (or explicit null + capability flag).
-- [ ] Reconstruction path for `book_deltas` exists for snapshot-only venues.
-- [ ] Quality suite catches sequence gaps and stale/cadence violations.
-- [ ] `book_deltas` is queryable through reader and DuckDB view registration.
-- [ ] Integration tests cover reconnect + gap markers + delta reconstruction consistency.
-
-Validated implementation status (March 6, 2026):
-
 - [x] Books stream carries sequence/latency metadata (or explicit null + capability flag).
 - [x] Reconstruction path for `book_deltas` exists for snapshot-only venues.
 - [x] Quality suite catches sequence gaps and stale/cadence violations.
 - [x] `book_deltas` is queryable through reader and DuckDB view registration.
 - [x] Integration tests cover reconnect + gap markers + delta reconstruction consistency.
 
+Validated implementation status (March 8, 2026):
+
+- [x] Books stream carries sequence/latency metadata (or explicit null + capability flag).
+- [x] Reconstruction path for `book_deltas` exists for snapshot-only venues.
+- [x] Quality suite catches sequence gaps and stale/cadence violations.
+- [x] `book_deltas` is queryable through reader and DuckDB view registration.
+- [x] Integration tests cover reconnect + gap markers + delta reconstruction consistency.
+- [x] `BOOK_DELTA_PARQUET_SCHEMA` with all required fields (`instrument_id`, `ts_event`, `ts_record`, `side`, `price`, `delta_size`, `reason`, `sequence_id`, `is_reconstructed`) — `libs/core/alpha_core/storage/conventions.py`
+- [x] `ParquetEventWriter.write_book_deltas(...)` with `venue/date/hour` partitioning — `libs/core/alpha_core/storage/parquet_writer.py`
+- [x] `ParquetEventReader.read_book_deltas(...)` with partition-pruned filters — `libs/core/alpha_core/storage/parquet_reader.py`
+- [x] `DuckDBAnalytics.register_silver("book_deltas")` — `libs/core/alpha_core/storage/duckdb_layer.py`
+- [x] 15 tests green (10 unit + 5 integration roundtrip) — `tests/unit/test_storage.py`, `tests/integration/test_storage_roundtrip.py`
+
 ---
 
 ## 12. Future Research Handoff Contracts (March 2026)
 
-This remains forward-looking until the corresponding handoff contracts are implemented and folded into the main Data Plane sections.
+> **§12.1 status:** Ingestion Lineage → Research Run Bridge is implemented (March 8, 2026).
+> `IngestionRun` now carries `parent_run_id`, `dataset_ready`, and `handoff_manifest_path`;
+> `LineageStore` exposes `mark_dataset_ready()`. See `libs/core/alpha_core/storage/lineage.py`.
+>
+> *(See §12.2 and §12.3 status notes below — all three sub-sections are fully implemented.)*
+>
+> **§12.2 status:** Dataset-Ready Handoff Contract is implemented (March 8, 2026).
+> `DatasetHandoffManifest`, `check_gating_rules()`, `build_handoff_manifest()`, and
+> `HandoffManifestStore` are in `libs/core/alpha_core/storage/handoff_manifest.py`.
+> 32 tests in `tests/unit/test_handoff_manifest.py` — all passing.
+>
+> **§12.3 status:** Run Artifact Compatibility with Research CLI is implemented (March 8, 2026).
+> `emit_ingestion_run_artifacts()` and `IngestionArtifactEmission` are in
+> `libs/core/alpha_core/storage/run_artifact_emitter.py`.
+> 24 tests in `tests/unit/test_run_artifact_emitter.py` — all passing.
+> Remaining item (§12.4 gate 5 integration test) is still forward-looking.
 
 Reference documents:
 - `README.LEAN_ADOPTION.md`
 - `docs/implementation/lean-adoption-issue-backlog.md` (primarily LA-003, LA-005, LA-008, LA-014)
 
-### 12.1 Ingestion Lineage -> Research Run Bridge
+### 12.1 Ingestion Lineage -> Research Run Bridge ✅ (March 8, 2026)
 
-Extend lineage metadata with optional downstream linkage fields:
+**Implemented.** `IngestionRun` carries four new optional fields (zero breaking change — all default to `None`/`False`):
 
-- `parent_run_id` (upstream run reference)
-- `child_run_ids` (optional fan-out references)
-- `dataset_ready` (boolean flag for handoff eligibility)
-- `handoff_manifest_path` (path to dataset-ready handoff contract)
+- `parent_run_id: str | None` — upstream ingestion run reference (fan-in)
+- `downstream_run_ids: list[str]` — fan-out child run references (pre-existing, now documented as the §12.1 `child_run_ids` equivalent)
+- `dataset_ready: bool` — set to `True` via `LineageStore.mark_dataset_ready()` once quality gates pass
+- `handoff_manifest_path: str | None` — path to the dataset-ready handoff contract
+
+`StartRunOptions` gains a `parent_run_id` field so the parent linkage is set at run-start time.
+
+`LineageStore` gains:
+- `mark_dataset_ready(run_id, handoff_manifest_path=None)` — marks a completed run as eligible for downstream research consumption; raises `ValueError` on running/failed runs.
+
+Bidirectional traceability pattern:
+```python
+# Downstream research runner:
+research_run = lineage_store.start_run(
+    venue, "polling",
+    options=StartRunOptions(parent_run_id=ingestion_run.run_id)
+)
+# After research run completes, register the reverse link:
+lineage_store.link_downstream_run(ingestion_run.run_id, research_run.run_id)
+```
+
+File: `libs/core/alpha_core/storage/lineage.py`\
+Tests (10 new): `tests/unit/test_lineage.py` — covers defaults, propagation, `mark_dataset_ready` happy/error paths, idempotency, bidirectional traceability, and disk persistence roundtrip.
 
 Goal:
 - Preserve existing ingestion behavior while allowing explicit traceability from ingestion runs to dataset/build/evaluate runs.
 
-### 12.2 Dataset-Ready Handoff Contract
+### 12.2 Dataset-Ready Handoff Contract ✅ (March 8, 2026)
 
-Define a deterministic handoff manifest for Research Plane dataset builds:
+**Implemented.** A deterministic manifest signals the Data Plane has finished collecting and
+validating a time window so that Research Plane tools can safely consume it.
+
+Manifest schema (JSON, `schema_version=1`):
 
 ```json
 {
-  "handoff_id": "20260302T120000Z_kalshi_trades",
+  "handoff_id": "20260302T120000Z_kalshi_trades_a1b2c3d4",
   "source_run_ids": ["run_..."],
   "venue": "kalshi",
   "window_start_utc": "2026-03-01T00:00:00Z",
@@ -1550,35 +1592,111 @@ Define a deterministic handoff manifest for Research Plane dataset builds:
   "quality_status": {"passed": true, "failed_suites": []},
   "gap_status": {"gap_free": true, "max_gap_hours": 0.0},
   "watermarks": {"max_ts_event": "...", "max_ts_record": "..."},
-  "partition_refs": ["..."],
+  "partition_refs": ["silver/trades/venue=kalshi/date=2026-03-01"],
   "schema_version": 1
 }
 ```
 
-Minimum gating rule for `dataset_ready=true`:
+Three gate conditions enforced by `check_gating_rules()`:
 
-- quality checks pass for required event types in target window
-- no disallowed gaps for declared policy
-- lineage run status is terminal `completed`
+1. **Status gate** — all `source_run_ids` must be `status="completed"`.
+2. **Quality gate** — each `required_event_type` must have a passing `SuiteReport`
+   (mapped via `silver_{type}` → `{type}` convention).
+3. **Gap gate** — no `TimeGap` entries unless `allow_gaps=True`.
 
-### 12.3 Run Artifact Compatibility with Research CLI
+Usage pattern:
 
-Data Plane should emit run artifacts compatible with `data/runs/{run_id}/...` conventions:
+```python
+from alpha_core.storage.handoff_manifest import (
+    HandoffManifestStore, build_handoff_manifest, check_gating_rules,
+)
 
-- `manifest.json` with required run fields
-- `artifacts.json` logical->physical mapping
-- stable references to lineage and silver partitions
+result = check_gating_rules(
+    runs=[ingestion_run],
+    suite_reports=reports,
+    gaps=gaps,
+    required_event_types=["trades"],
+)
+if result.passed:
+    manifest = build_handoff_manifest(
+        venue="kalshi",
+        source_run_ids=[ingestion_run.run_id],
+        window_start=start_utc,
+        window_end=end_utc,
+        event_types=["trades"],
+        quality_status=result.quality_status,
+        gap_status=result.gap_status,
+        watermarks=result.watermarks,
+        partition_refs=["silver/trades/venue=kalshi/date=2026-03-01"],
+    )
+    path = store.save(manifest)
+    lineage_store.mark_dataset_ready(ingestion_run.run_id, handoff_manifest_path=str(path))
+```
 
-This allows Research CLI commands to consume Data Plane outputs without custom path logic.
+Storage: manifests are written atomically to `{storage_root}/_lineage/handoffs/{handoff_id}.json`.
+`HandoffManifestStore.list_manifests(venue=..., dataset_ready_only=True)` allows filtered discovery.
+
+File: `libs/core/alpha_core/storage/handoff_manifest.py`\
+Tests (32): `tests/unit/test_handoff_manifest.py` — covers all sub-models, `is_dataset_ready()`,
+gate conditions (pass/fail for each gate), `build_handoff_manifest()` factory, `HandoffManifestStore`
+save/load/list/filter, and a full end-to-end flow test linking manifest back to a lineage run.
+
+### 12.3 Run Artifact Compatibility with Research CLI ✅ (March 8, 2026)
+
+**Implemented.** After an ingestion run completes, `emit_ingestion_run_artifacts()` writes
+the standard Research-CLI artifact tree so that downstream research commands can discover
+and consume ingestion outputs without custom path logic:
+
+```text
+{storage_root}/runs/{run_id}/
+    manifest.json       # RunManifest (run_type="ingestion", artifact index, parent_run_id)
+    config.json         # frozen config_snapshot from IngestionRun
+    artifacts.json      # logical key → absolute path index
+```
+
+Standard artifact keys emitted:
+
+| Key | Content |
+|---|---|
+| `"config"` | Frozen `config_snapshot` JSON |
+| `"lineage"` | Path to `_lineage/runs/run_{run_id}.json` |
+| `"handoff_manifest"` | Path to handoff manifest (when `dataset_ready=True`) |
+| `"silver_{event_type}"` | Per-event-type partition refs (caller-supplied) |
+| Any extra keys | Via `extra_artifacts` kwarg |
+
+Usage pattern:
+
+```python
+from alpha_core.storage.run_artifact_emitter import emit_ingestion_run_artifacts
+
+result = emit_ingestion_run_artifacts(
+    ingestion_run=completed_run,
+    storage_root=Path("data"),
+    partition_refs={
+        "silver_trades": "silver/trades/venue=kalshi/date=2026-03-01",
+    },
+)
+# Research CLI can now read: data/runs/{run_id}/manifest.json
+```
+
+The emitted `RunManifest` is compatible with `alpha_core.research.manifest.read_run_manifest()`
+and `artifact_paths.read_artifacts_index()` — the same helpers used by all Research Plane
+stages.
+
+File: `libs/core/alpha_core/storage/run_artifact_emitter.py`\
+Tests (24): `tests/unit/test_run_artifact_emitter.py` — covers file creation, manifest
+content (run type, run id, parent_run_id, schema version), partition refs, handoff manifest
+linkage, extra artifacts, guard against non-completed runs, idempotency, artifacts.json
+readability, and an end-to-end flow from ingest → dataset-ready → emit artifacts.
 
 ### 12.4 Acceptance Gates
 
 This future section is complete when:
 
-- [ ] Lineage models support optional parent/child run references without breaking existing runs.
-- [ ] Dataset-ready handoff manifest schema is implemented and validated by tests.
-- [ ] `dataset_ready` gating uses quality + gap + status checks.
-- [ ] Run artifact outputs are compatible with Research Plane run path conventions.
+- [x] Lineage models support optional parent/child run references without breaking existing runs.
+- [x] Dataset-ready handoff manifest schema is implemented and validated by tests.
+- [x] `dataset_ready` gating uses quality + gap + status checks.
+- [x] Run artifact outputs are compatible with Research Plane run path conventions.
 - [ ] Integration tests cover end-to-end handoff: ingestion run -> handoff manifest -> dataset build consumption path.
 
 ---
