@@ -17,6 +17,7 @@ All tests use an in-process stub adapter — no network calls are made.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -529,9 +530,54 @@ class TestPullIncremental:
             cursor_watermark_utc=_BASE_TIME - timedelta(seconds=1),
         )
         _, new_cursor = asyncio.run(bridge.pull_incremental(cursor))
-        # cursor_value should be a parseable ISO-8601 timestamp
-        parsed = datetime.fromisoformat(new_cursor.cursor_value)
-        assert parsed.tzinfo is not None
+        payload = json.loads(new_cursor.cursor_value)
+        assert payload["cursor_type"] == "trade_id"
+        assert payload["watermark_utc"] == _BASE_TIME.isoformat()
+        assert payload["seen"] == ["trade-0"]
+
+    def test_resume_deduplicates_same_watermark_trade_ids(self) -> None:
+        iid = "mkt:k:yes"
+        initial_bridge = _make_bridge(
+            trades_by_id={iid: [_trade(iid, ts_offset_seconds=0)]}
+        )
+        start_cursor = IncrementalCursor(
+            venue_name="stub",
+            instrument_ids=[iid],
+            cursor_watermark_utc=_BASE_TIME - timedelta(seconds=1),
+        )
+        _, resume_cursor = asyncio.run(initial_bridge.pull_incremental(start_cursor))
+
+        resumed_bridge = _make_bridge(
+            trades_by_id={
+                iid: [
+                    _trade(iid, ts_offset_seconds=0),
+                    event_models.CanonicalTrade(  # type: ignore[call-arg]
+                        venue_id="stub",
+                        instrument_id=iid,
+                        ts_event=_BASE_TIME,
+                        ts_record=_BASE_TIME,
+                        price=Decimal("0.56"),
+                        size=Decimal("9"),
+                        side=event_models.TradeSide.BUY,
+                        trade_id="trade-late-at-watermark",
+                    ),
+                    _trade(iid, ts_offset_seconds=60),
+                ]
+            }
+        )
+
+        events, new_cursor = asyncio.run(resumed_bridge.pull_incremental(resume_cursor))
+
+        trade_ids = [
+            event.trade_id
+            for event in events
+            if isinstance(event, event_models.CanonicalTrade)
+        ]
+        assert trade_ids == [
+            "trade-late-at-watermark",
+            "trade-60",
+        ]
+        assert new_cursor.cursor_watermark_utc == _BASE_TIME + timedelta(seconds=60)
 
 
 # ---------------------------------------------------------------------------

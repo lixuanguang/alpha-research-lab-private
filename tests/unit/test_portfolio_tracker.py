@@ -5,9 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-import pytest
-
-from alpha_core.execution.models import BacktestOrderIntent, FeeSchedule, SimulatedFill
+from alpha_core.execution.models import BacktestOrderIntent, SimulatedFill
 from alpha_core.portfolio.models import Side
 from alpha_core.portfolio.tracker import PortfolioTracker
 
@@ -63,7 +61,14 @@ class TestLongFills:
 
     def test_long_fill_reduces_cash(self) -> None:
         tracker = PortfolioTracker(Decimal("1000"))
-        tracker.apply_fill(_fill(side=Side.LONG, size=Decimal("5"), fill_price=Decimal("0.4"), fee=_ZERO))
+        tracker.apply_fill(
+            _fill(
+                side=Side.LONG,
+                size=Decimal("5"),
+                fill_price=Decimal("0.4"),
+                fee=_ZERO,
+            )
+        )
         state = tracker.state()
         # cash -= 5 * 0.4 = 2.0
         assert state.cash == Decimal("998")
@@ -101,7 +106,12 @@ class TestShortFills:
     def test_short_fill_with_fee_reduces_cash_received(self) -> None:
         tracker = PortfolioTracker(Decimal("1000"))
         tracker.apply_fill(
-            _fill(side=Side.SHORT, size=Decimal("10"), fill_price=Decimal("0.5"), fee=Decimal("0.5"))
+            _fill(
+                side=Side.SHORT,
+                size=Decimal("10"),
+                fill_price=Decimal("0.5"),
+                fee=Decimal("0.5"),
+            )
         )
         state = tracker.state()
         # cash += 10 * 0.5 - 0.5 = 4.5
@@ -185,13 +195,20 @@ class TestMarkToMarket:
         tracker.mark_to_market({"a": Decimal("0.6")}, _T0 + timedelta(minutes=1))
         curve = tracker.equity_curve()
         assert len(curve) == 2
-        ts0, eq0 = curve[0]
-        ts1, eq1 = curve[1]
+        ts0, _eq0 = curve[0]
+        ts1, _eq1 = curve[1]
         assert ts1 > ts0
 
     def test_mtm_missing_instrument_ignored(self) -> None:
         tracker = PortfolioTracker(Decimal("1000"))
-        tracker.apply_fill(_fill(instrument_id="a", side=Side.LONG, size=Decimal("10"), fill_price=Decimal("0.3")))
+        tracker.apply_fill(
+            _fill(
+                instrument_id="a",
+                side=Side.LONG,
+                size=Decimal("10"),
+                fill_price=Decimal("0.3"),
+            )
+        )
         # No price for "a" in update — should not raise.
         tracker.mark_to_market({"b": Decimal("0.5")}, _T0)
         state = tracker.state()

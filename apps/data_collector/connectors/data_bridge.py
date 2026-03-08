@@ -41,6 +41,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -99,7 +100,10 @@ class IncrementalCursor:
         Semantics of *cursor_value*: ``ts_event`` (ISO-8601 UTC timestamp),
         ``trade_id`` (venue trade identifier), or ``sequence`` (monotonic int).
     cursor_value
-        Opaque string representation of the cursor position.
+        Opaque string representation of the cursor position. For trade and
+        sequence cursors this stores the set of IDs already seen at
+        ``cursor_watermark_utc`` so resume stays deterministic when multiple
+        events share the same timestamp.
     cursor_watermark_utc
         Authoritative UTC timestamp of the last event seen.  Used as the
         ``since`` argument for adapter calls regardless of ``cursor_type``.
@@ -343,28 +347,39 @@ class ConnectorDataBridge:
         caps = self._capabilities
         _require(caps.trades, "trades", caps.venue_name)
 
-        since = cursor.cursor_watermark_utc
-        new_events: list[event_models.CanonicalMarketEvent] = []
+        cursor_state = _load_cursor_state(cursor)
+        new_events: list[event_models.CanonicalTrade] = []
 
         for iid in cursor.instrument_ids:
-            fetched = await self._adapter.fetch_trades(iid, since=since)
+            fetched = await _fetch_incremental_trades(
+                self._adapter,
+                instrument_id=iid,
+                cursor=cursor_state,
+            )
             new_events.extend(fetched)
 
-        new_events.sort(key=lambda e: e.ts_event)
+        new_events.sort(key=_trade_sort_key)
 
         if not new_events:
             return [], cursor
 
         new_watermark = max(e.ts_event for e in new_events)
+        watermark_events = [event for event in new_events if event.ts_event == new_watermark]
+        new_cursor_type = _cursor_type_for_trades(cursor.cursor_type, watermark_events)
+        new_cursor_value = _encode_cursor_value(
+            new_cursor_type,
+            new_watermark,
+            watermark_events,
+        )
         updated_cursor = IncrementalCursor(
             venue_name=cursor.venue_name,
             instrument_ids=cursor.instrument_ids,
-            cursor_type=cursor.cursor_type,
-            cursor_value=new_watermark.isoformat(),
+            cursor_type=new_cursor_type,
+            cursor_value=new_cursor_value,
             cursor_watermark_utc=new_watermark,
             resume_safe=True,
         )
-        return new_events, updated_cursor
+        return cast(list[event_models.CanonicalMarketEvent], new_events), updated_cursor
 
     def stream_subscribe(
         self, topics: list[StreamTopic]
@@ -464,6 +479,7 @@ async def _fetch_trades_in_window(
             collected.append(trade)
             new_rows += 1
 
+        fetched.sort(key=_trade_sort_key)
         max_ts = max(trade.ts_event for trade in fetched)
         if max_ts > window.end or len(fetched) < window.limit_per_instrument:
             break
@@ -482,6 +498,143 @@ async def _fetch_trades_in_window(
         else:
             stalled_iterations = 0
         cursor = max_ts
+
+    return collected
+
+
+@dataclass(frozen=True)
+class _NormalizedCursor:
+    watermark: datetime
+    cursor_type: str
+    seen_values_at_watermark: frozenset[str]
+
+
+def _load_cursor_state(cursor: IncrementalCursor) -> _NormalizedCursor:
+    seen_values: frozenset[str] = frozenset()
+    raw_value = cursor.cursor_value.strip()
+    if raw_value:
+        try:
+            payload = json.loads(raw_value)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            seen_items = payload.get("seen")
+            if isinstance(seen_items, list):
+                seen_values = frozenset(str(item) for item in seen_items if str(item))
+    return _NormalizedCursor(
+        watermark=cursor.cursor_watermark_utc,
+        cursor_type=cursor.cursor_type,
+        seen_values_at_watermark=seen_values,
+    )
+
+
+def _cursor_type_for_trades(
+    preferred_type: str,
+    trades: Sequence[event_models.CanonicalTrade],
+) -> str:
+    if preferred_type == "sequence" and all(trade.sequence_id is not None for trade in trades):
+        return "sequence"
+    return "trade_id"
+
+
+def _trade_resume_value(trade: event_models.CanonicalTrade, cursor_type: str) -> str:
+    if cursor_type == "sequence" and trade.sequence_id is not None:
+        return trade.sequence_id
+    return trade.trade_id
+
+
+def _encode_cursor_value(
+    cursor_type: str,
+    watermark: datetime,
+    trades: Sequence[event_models.CanonicalTrade],
+) -> str:
+    seen_values = sorted({_trade_resume_value(trade, cursor_type) for trade in trades})
+    return json.dumps(
+        {
+            "cursor_type": cursor_type,
+            "watermark_utc": watermark.isoformat(),
+            "seen": seen_values,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _trade_sort_key(
+    trade: event_models.CanonicalTrade,
+) -> tuple[datetime, str, str, str]:
+    sequence_value = trade.sequence_id or ""
+    return (
+        trade.ts_event,
+        trade.instrument_id,
+        sequence_value,
+        trade.trade_id,
+    )
+
+
+def _is_after_cursor(
+    trade: event_models.CanonicalTrade,
+    cursor: _NormalizedCursor,
+) -> bool:
+    if trade.ts_event > cursor.watermark:
+        return True
+    if trade.ts_event < cursor.watermark:
+        return False
+    resume_value = _trade_resume_value(trade, cursor.cursor_type)
+    return resume_value not in cursor.seen_values_at_watermark
+
+
+async def _fetch_incremental_trades(
+    adapter: adapters_base.VenueAdapter,
+    *,
+    instrument_id: str,
+    cursor: _NormalizedCursor,
+    limit: int = 500,
+) -> list[event_models.CanonicalTrade]:
+    fetch_cursor = cursor.watermark
+    stalled_iterations = 0
+    seen_trade_keys: set[tuple[str, str]] = set()
+    collected: list[event_models.CanonicalTrade] = []
+
+    while True:
+        fetched = await adapter.fetch_trades(
+            instrument_id,
+            since=fetch_cursor,
+            limit=limit,
+        )
+        if not fetched:
+            break
+
+        fetched.sort(key=_trade_sort_key)
+        new_rows = 0
+        for trade in fetched:
+            trade_key = (trade.instrument_id, trade.trade_id)
+            if trade_key in seen_trade_keys:
+                continue
+            seen_trade_keys.add(trade_key)
+            if not _is_after_cursor(trade, cursor):
+                continue
+            collected.append(trade)
+            new_rows += 1
+
+        max_ts = max(trade.ts_event for trade in fetched)
+        if len(fetched) < limit:
+            break
+        if max_ts < fetch_cursor:
+            raise RuntimeError(
+                "Incremental trade pagination regressed cursor timestamp; "
+                "aborting to avoid silent data loss."
+            )
+        if max_ts == fetch_cursor and new_rows == 0:
+            stalled_iterations += 1
+            if stalled_iterations >= 2:
+                raise RuntimeError(
+                    "Incremental trade pagination stalled at a single timestamp; "
+                    "venue pagination is ambiguous."
+                )
+        else:
+            stalled_iterations = 0
+        fetch_cursor = max_ts
 
     return collected
 

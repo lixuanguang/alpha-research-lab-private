@@ -19,7 +19,8 @@ Error policy
 ------------
 - Registering a feature whose dependency isn't registered yet raises
   :exc:`ValueError` immediately (fail-fast).
-- Computing an unregistered feature name raises :exc:`KeyError`.- Cyclic dependencies raise :exc:`ValueError` from the topological sort.
+- Computing an unregistered feature name raises :exc:`KeyError`.
+- Cyclic dependencies raise :exc:`ValueError` from the topological sort.
 """
 
 from __future__ import annotations
@@ -27,21 +28,22 @@ from __future__ import annotations
 from collections import deque
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
-from alpha_core.features.base import Feature, FeatureResult
+import alpha_core.features.base as feature_base
 
 
 class FeatureRegistry:
     """Manages feature definitions, dependency resolution, and computation."""
 
     def __init__(self) -> None:
-        self._features: dict[str, Feature] = {}
+        self._features: dict[str, feature_base.Feature] = {}
 
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
 
-    def register(self, feature: Feature) -> None:
+    def register(self, feature: feature_base.Feature) -> None:
         """Register a feature.
 
         Raises:
@@ -86,7 +88,7 @@ class FeatureRegistry:
         name: str,
         data: pa.Table,
         instrument_id: str | None = None,
-    ) -> FeatureResult:
+    ) -> feature_base.FeatureResult:
         """Compute a single registered feature.
 
         Raises:
@@ -132,7 +134,6 @@ class FeatureRegistry:
         # Optional instrument filter.
         working = data
         if instrument_ids is not None and "instrument_id" in data.schema.names:
-            import pyarrow.compute as pc
             mask = pc.is_in(
                 data.column("instrument_id"),
                 value_set=pa.array(instrument_ids, type=pa.string()),

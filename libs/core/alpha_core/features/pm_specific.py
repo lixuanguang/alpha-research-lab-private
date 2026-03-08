@@ -15,38 +15,52 @@ later without breaking existing code paths.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 
-from alpha_core.features.base import Feature, FeatureResult
+import alpha_core.features.base as feature_base
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _to_df(table: pa.Table) -> pd.DataFrame:
     return table.to_pandas()
 
 
 def _has_col(df: pd.DataFrame, *cols: str) -> bool:
-    return all(c in df.columns for c in cols)
+    return all(column_name in df.columns for column_name in cols)
 
 
-# ---------------------------------------------------------------------------
-# PM Features
-# ---------------------------------------------------------------------------
+def _lagged_delta(series: pd.Series) -> pd.Series:
+    return series.diff(1).shift(1)
 
-class ImpliedProbMomentum(Feature):
-    """Rate of change in implied probability (price) over a rolling window.
 
-    For prediction markets price ≈ probability, so this directly measures
-    probability momentum.  Computed as rolling mean of 1-period price changes,
-    normalised by the rolling std to give a momentum z-score.
-    """
+def _rolling_mean(series: pd.Series, *, window: int, min_periods: int) -> pd.Series:
+    return series.rolling(window, min_periods=min_periods).mean()
+
+
+def _rolling_std(series: pd.Series, *, window: int, min_periods: int) -> pd.Series:
+    return series.rolling(window, min_periods=min_periods).std(ddof=1)
+
+
+def _implied_prob_momentum(series: pd.Series, *, window: int) -> pd.Series:
+    lagged_delta = _lagged_delta(series)
+    mean = _rolling_mean(lagged_delta, window=window, min_periods=window)
+    std = _rolling_std(lagged_delta, window=window, min_periods=window)
+    return mean / std.replace(0.0, np.nan)
+
+
+def _prob_acceleration(series: pd.Series, *, fast: int, slow: int) -> pd.Series:
+    lagged_delta = _lagged_delta(series)
+    fast_ewm = lagged_delta.ewm(span=fast, adjust=False, min_periods=1).mean()
+    slow_ewm = lagged_delta.ewm(span=slow, adjust=False, min_periods=1).mean()
+    return fast_ewm - slow_ewm
+
+
+class ImpliedProbMomentum(feature_base.Feature):
+    """Lagged probability-momentum z-score within each instrument."""
 
     def __init__(self, window: int = 20) -> None:
         self._window = window
@@ -59,40 +73,31 @@ class ImpliedProbMomentum(Feature):
     def params(self) -> dict[str, Any]:
         return {"window": self._window}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
         if not _has_col(df, "price", "instrument_id"):
             return self._empty_result(len(df))
 
-        w = self._window
-
-        def _momentum(s: pd.Series) -> pd.Series:
-            delta = s.diff(1)
-            mu = delta.rolling(w, min_periods=w).mean()
-            sigma = delta.rolling(w, min_periods=w).std(ddof=1)
-            return mu / sigma.replace(0.0, np.nan)
-
+        transform = partial(_implied_prob_momentum, window=self._window)
         result = (
             df["price"].astype(float)
             .groupby(df["instrument_id"], sort=False)
-            .transform(_momentum)
+            .transform(transform)
         )
-        return FeatureResult(name=self.name, values=result.to_numpy(dtype=float, na_value=np.nan), params=self.params)
+        values = result.to_numpy(dtype=float, na_value=np.nan)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class CrossVenueSpread(Feature):
-    """Price spread between equivalent markets on different venues.
-
-    Parses canonical instrument IDs (``venue:market_id:outcome_id``) and groups
-    by ``market_id:outcome_id`` to identify cross-venue equivalents.  At each
-    timestamp the spread is ``max_price - min_price`` across all venues carrying
-    that question.  Returns NaN for instruments with no cross-venue counterpart.
-    """
-
-    def __init__(self) -> None:
-        pass
+class CrossVenueSpread(feature_base.Feature):
+    """Price spread between equivalent markets on different venues."""
 
     @property
     def name(self) -> str:
@@ -102,38 +107,39 @@ class CrossVenueSpread(Feature):
     def params(self) -> dict[str, Any]:
         return {}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
         if not _has_col(df, "price", "instrument_id", "ts_event"):
             return self._empty_result(len(df))
 
-        # Parse canonical IDs to extract the cross-venue key.
         parsed = df["instrument_id"].str.split(":", n=2, expand=True)
         if parsed.shape[1] < 3:
-            # IDs don't follow {venue}:{market_id}:{outcome_id} format → NaN.
             return self._empty_result(len(df))
 
         df = df.copy()
         df["_cross_key"] = parsed[1].str.cat(parsed[2], sep=":")
         df["_price_f"] = df["price"].astype(float)
 
-        def _spread(s: pd.Series) -> float:
-            return float(s.max() - s.min()) if len(s) > 1 else np.nan
-
         spread_map = df.groupby(["ts_event", "_cross_key"])["_price_f"].agg(_spread)
         idx = pd.MultiIndex.from_arrays([df["ts_event"], df["_cross_key"]])
         values = spread_map.reindex(idx).to_numpy(dtype=float, na_value=np.nan)
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class VolumeWeightedProb(Feature):
-    """Volume-weighted average price (probability) over a rolling window.
+def _spread(series: pd.Series) -> float:
+    return float(series.max() - series.min()) if len(series) > 1 else float("nan")
 
-    Heavier-volume trades carry stronger conviction; VWAP is a consensus
-    probability estimate weighted by market participation intensity.
-    """
+
+class VolumeWeightedProb(feature_base.Feature):
+    """Lagged volume-weighted average probability over a rolling window."""
 
     def __init__(self, window: int = 50) -> None:
         self._window = window
@@ -146,56 +152,48 @@ class VolumeWeightedProb(Feature):
     def params(self) -> dict[str, Any]:
         return {"window": self._window}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
         if not _has_col(df, "price", "size", "instrument_id"):
             return self._empty_result(len(df))
 
-        w = self._window
         df = df.copy()
-        df["_pv"] = df["price"].astype(float) * df["size"].astype(float)
+        df["_price_f"] = df["price"].astype(float)
+        df["_size_f"] = df["size"].astype(float)
+        df["_pv"] = df["_price_f"] * df["_size_f"]
 
-        def _vwap(grp: pd.DataFrame) -> pd.Series:
-            pv_roll = grp["_pv"].rolling(w, min_periods=w).sum()
-            vol_roll = grp["_size_f"].rolling(w, min_periods=w).sum()
-            return pv_roll / vol_roll.replace(0.0, np.nan)
-
-        df["_vol"] = df["size"].astype(float)
-
-        def _vwap(s: pd.Series) -> pd.Series:
-            # s is the _pv series; companion _vol series accessed via df
-            # Use transform on each group individually.
-            pv_roll = s.rolling(w, min_periods=w).sum()
-            vol_roll = df.loc[s.index, "_vol"].rolling(w, min_periods=w).sum()
-            return pv_roll / vol_roll.replace(0.0, np.nan)
-
-        result = (
-            df.groupby("instrument_id", sort=False)["_pv"]
-            .transform(lambda s: _vwap(s))
+        grouped = df.groupby("instrument_id", sort=False)
+        pv_history = grouped["_pv"].shift(1)
+        size_history = grouped["_size_f"].shift(1)
+        pv_roll = (
+            pv_history.groupby(df["instrument_id"], sort=False)
+            .rolling(self._window, min_periods=self._window)
+            .sum()
+            .reset_index(level=0, drop=True)
         )
-        return FeatureResult(
-            name=self.name,
-            values=result.to_numpy(dtype=float, na_value=np.nan),
-            params=self.params,
+        size_roll = (
+            size_history.groupby(df["instrument_id"], sort=False)
+            .rolling(self._window, min_periods=self._window)
+            .sum()
+            .reset_index(level=0, drop=True)
         )
+        values = (pv_roll / size_roll.replace(0.0, np.nan)).to_numpy(
+            dtype=float,
+            na_value=np.nan,
+        )
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class TimeToResolutionDecay(Feature):
-    """Normalised time remaining until resolution.
-
-    Returns a value in [0, 1] where 1 = maximum horizon (start of observation
-    window) and 0 = resolution imminent.  Requires a ``resolution_date`` column
-    in the input table (UTC-aware timestamp).  Rows missing a resolution date
-    are assigned NaN.
-
-    Formula: clip((resolution_date - ts_event) / max_horizon, 0, 1)
-    where max_horizon is the max such duration in the instrument's history.
-    """
-
-    def __init__(self) -> None:
-        pass
+class TimeToResolutionDecay(feature_base.Feature):
+    """Normalised time remaining until resolution."""
 
     @property
     def name(self) -> str:
@@ -205,7 +203,13 @@ class TimeToResolutionDecay(Feature):
     def params(self) -> dict[str, Any]:
         return {}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
@@ -216,27 +220,24 @@ class TimeToResolutionDecay(Feature):
         ts = pd.to_datetime(df["ts_event"], utc=True)
         ttr_seconds = (res_dt - ts).dt.total_seconds().clip(lower=0.0)
 
-        # Normalise per instrument by the maximum observed TTR for that instrument.
         if "instrument_id" in df.columns:
             max_ttr = ttr_seconds.groupby(df["instrument_id"], sort=False).transform("max")
+            denom = max_ttr.replace(0.0, np.nan)
         else:
-            max_ttr = ttr_seconds.max()
+            denom = float(max(ttr_seconds.max(), 0.0))
+            if denom == 0.0:
+                denom = float("nan")
 
-        values = (ttr_seconds / max_ttr.replace(0.0, np.nan)).clip(0.0, 1.0)
-        return FeatureResult(
+        values = (ttr_seconds / denom).clip(0.0, 1.0)
+        return feature_base.FeatureResult(
             name=self.name,
             values=values.to_numpy(dtype=float, na_value=np.nan),
             params=self.params,
         )
 
 
-class CategoryMomentum(Feature):
-    """Average implied-probability momentum within the same market category.
-
-    Captures thematic drifts (e.g., all politics markets moving together).
-    Requires a ``category`` column in the input table.  Rows without a
-    category are assigned the dataset-wide average.
-    """
+class CategoryMomentum(feature_base.Feature):
+    """Lagged average implied-probability momentum within the same market category."""
 
     def __init__(self, window: int = 10) -> None:
         self._window = window
@@ -249,51 +250,35 @@ class CategoryMomentum(Feature):
     def params(self) -> dict[str, Any]:
         return {"window": self._window}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        if not _has_col(df, "price", "ts_event", "category"):
+        if not _has_col(df, "price", "ts_event", "category", "instrument_id"):
             return self._empty_result(len(df))
 
-        w = self._window
         df = df.copy()
+        price_series = df["price"].astype(float)
+        instrument_delta = price_series.groupby(df["instrument_id"], sort=False).diff(1)
+        df["_ret"] = instrument_delta.groupby(df["instrument_id"], sort=False).shift(1)
 
-        # Per-instrument 1-period price delta.
-        if "instrument_id" in df.columns:
-            df["_ret"] = (
-                df["price"].astype(float)
-                .groupby(df["instrument_id"], sort=False)
-                .transform(lambda s: s.diff(1))
-            )
-        else:
-            df["_ret"] = df["price"].astype(float).diff(1)
+        cat_ts_avg = df.groupby(["ts_event", "category"], sort=False)["_ret"].mean()
+        smoother = partial(_rolling_mean, window=self._window, min_periods=1)
+        cat_roll = cat_ts_avg.groupby(level="category", sort=False).transform(smoother)
 
-        # Average category return at each timestamp.
-        cat_ts_avg: pd.Series = df.groupby(["ts_event", "category"])["_ret"].mean()
-
-        # Rolling mean of category averages over time.
-        cat_roll = (
-            cat_ts_avg
-            .groupby(level="category", sort=False)
-            .transform(lambda s: s.rolling(w, min_periods=1).mean())
-        )
-
-        # Map back to each source row.
         idx = pd.MultiIndex.from_arrays([df["ts_event"], df["category"]])
         values = cat_roll.reindex(idx).to_numpy(dtype=float, na_value=np.nan)
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class BookImbalance(Feature):
-    """Order-book imbalance at best N levels.
-
-    Formula: (bid_volume - ask_volume) / (bid_volume + ask_volume)
-    Result range: [-1, +1].  Positive → more bid pressure → price likely to rise.
-
-    Requires ``bid_volume`` and ``ask_volume`` columns (typically from book data
-    joined to trades).  Returns NaN when columns are absent.
-    """
+class BookImbalance(feature_base.Feature):
+    """Order-book imbalance at best N levels."""
 
     def __init__(self, levels: int = 3) -> None:
         self._levels = levels
@@ -306,7 +291,13 @@ class BookImbalance(Feature):
     def params(self) -> dict[str, Any]:
         return {"levels": self._levels}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
@@ -316,18 +307,15 @@ class BookImbalance(Feature):
         bid = df["bid_volume"].astype(float)
         ask = df["ask_volume"].astype(float)
         total = bid + ask
-        values = ((bid - ask) / total.replace(0.0, np.nan)).to_numpy(dtype=float, na_value=np.nan)
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        values = ((bid - ask) / total.replace(0.0, np.nan)).to_numpy(
+            dtype=float,
+            na_value=np.nan,
+        )
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class ProbAcceleration(Feature):
-    """Probability acceleration: fast_ewm - slow_ewm of price changes.
-
-    Captures momentum-of-momentum — whether the rate of probability change
-    itself is accelerating or decelerating.
-
-    ``fast`` and ``slow`` are EWM span parameters (in periods).
-    """
+class ProbAcceleration(feature_base.Feature):
+    """Lagged probability acceleration: fast_ewm - slow_ewm of prior price changes."""
 
     def __init__(self, fast: int = 5, slow: int = 20) -> None:
         if fast >= slow:
@@ -343,40 +331,35 @@ class ProbAcceleration(Feature):
     def params(self) -> dict[str, Any]:
         return {"fast": self._fast, "slow": self._slow}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
         if not _has_col(df, "price", "instrument_id"):
             return self._empty_result(len(df))
 
-        fast, slow = self._fast, self._slow
-
-        def _accel(s: pd.Series) -> pd.Series:
-            delta = s.diff(1)
-            return (
-                delta.ewm(span=fast, adjust=False).mean()
-                - delta.ewm(span=slow, adjust=False).mean()
-            )
-
+        transform = partial(_prob_acceleration, fast=self._fast, slow=self._slow)
         result = (
             df["price"].astype(float)
             .groupby(df["instrument_id"], sort=False)
-            .transform(_accel)
+            .transform(transform)
         )
-        return FeatureResult(
-            name=self.name,
-            values=result.to_numpy(dtype=float, na_value=np.nan),
-            params=self.params,
-        )
+        values = result.to_numpy(dtype=float, na_value=np.nan)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
 __all__ = [
-    "ImpliedProbMomentum",
-    "CrossVenueSpread",
-    "VolumeWeightedProb",
-    "TimeToResolutionDecay",
-    "CategoryMomentum",
     "BookImbalance",
+    "CategoryMomentum",
+    "CrossVenueSpread",
+    "ImpliedProbMomentum",
     "ProbAcceleration",
+    "TimeToResolutionDecay",
+    "VolumeWeightedProb",
 ]

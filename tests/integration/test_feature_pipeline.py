@@ -16,13 +16,14 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
+import alpha_core.features.base as feature_base
 from alpha_core.features.feature_set import FeatureSetBuilder, FeatureSetConfig
 from alpha_core.features.pm_specific import (
     ImpliedProbMomentum,
     ProbAcceleration,
     VolumeWeightedProb,
 )
-from alpha_core.features.primitives import RollingMean, RollingStd, ZScore
+from alpha_core.features.primitives import RollingMean, RollingStd
 from alpha_core.features.registry import FeatureRegistry
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,33 @@ def _mock_dataset(table: pa.Table) -> MagicMock:
     ds = MagicMock()
     ds.trades.return_value = table
     return ds
+
+
+class _OnesFeature(feature_base.Feature):
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def params(self) -> dict[str, object]:
+        return {}
+
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
+        return feature_base.FeatureResult(
+            name=self._name,
+            values=np.ones(data.num_rows),
+            computed_at=datetime.now(tz=UTC),
+            params={},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -105,8 +133,6 @@ class TestRegistryComputeAllIntegration:
 
         mask_a = pc.equal(t.column("instrument_id"), "instr_0")
         t_a = t.filter(mask_a)
-        mask_b = pc.equal(t.column("instrument_id"), "instr_1")
-        t_b = t.filter(mask_b)
 
         enriched = reg.compute_all(t)
         enriched_a = enriched.filter(pc.equal(enriched.column("instrument_id"), "instr_0"))
@@ -157,28 +183,7 @@ class TestFeatureSetBuilderIntegration:
         table = _trade_table(n=15)
         reg = FeatureRegistry()
         for name_suffix in ["a", "b", "c"]:
-            from alpha_core.features.base import Feature, FeatureResult
-
-            class _F(Feature):  # type: ignore[misc]
-                _n = f"feat_{name_suffix}"
-
-                @property
-                def name(self) -> str:
-                    return self._n
-
-                @property
-                def params(self) -> dict:
-                    return {}
-
-                def compute(self, data: pa.Table, *, instrument_id=None) -> FeatureResult:
-                    return FeatureResult(
-                        name=self._n,
-                        values=np.ones(data.num_rows),
-                        computed_at=datetime.now(tz=UTC),
-                        params={},
-                    )
-
-            reg.register(_F())
+            reg.register(_OnesFeature(f"feat_{name_suffix}"))
 
         builder = FeatureSetBuilder(registry=reg, storage_root=tmp_path)
         cfg = FeatureSetConfig(

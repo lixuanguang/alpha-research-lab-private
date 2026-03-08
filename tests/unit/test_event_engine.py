@@ -7,13 +7,12 @@ from decimal import Decimal
 from typing import Any
 
 import pyarrow as pa
-import pytest
-
-from alpha_core.execution.models import BacktestOrderIntent, FeeSchedule
-from alpha_core.portfolio.models import Side
 from apps.research.backtester.engine import EventBacktestConfig, EventBacktestEngine
 from apps.research.backtester.result import BacktestResult, make_backtest_id
 from apps.research.backtester.strategy import Strategy, StrategyState
+
+from alpha_core.execution.models import BacktestOrderIntent
+from alpha_core.portfolio.models import Side
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,6 +39,19 @@ def _make_trades_table(
     )
 
 
+def _make_trades_table_with_available(
+    rows: list[tuple[datetime, datetime, str, float]],
+) -> pa.Table:
+    return pa.table(
+        {
+            "ts_event": pa.array([r[0] for r in rows], type=pa.timestamp("us", tz="UTC")),
+            "ts_available": pa.array([r[1] for r in rows], type=pa.timestamp("us", tz="UTC")),
+            "instrument_id": pa.array([r[2] for r in rows], type=pa.string()),
+            "price": pa.array([r[3] for r in rows], type=pa.float64()),
+        }
+    )
+
+
 class _MockDataset:
     """Minimal stand-in for GoldDataset."""
 
@@ -51,7 +63,7 @@ class _MockDataset:
 
 
 def _default_config(**kwargs: Any) -> EventBacktestConfig:
-    base = {
+    base: dict[str, Any] = {
         "dataset_id": "test",
         "initial_cash": Decimal("1000"),
         "slippage_model": "fixed",
@@ -65,14 +77,11 @@ class _NullStrategy(Strategy):
     """Strategy that never places orders."""
 
     name = "null"
-    init_calls: list[list[str]] = []
-    data_calls: list[tuple[datetime, StrategyState]] = []
-    resolution_calls: list[tuple[str, Decimal]] = []
 
     def __init__(self) -> None:
-        self.init_calls = []
-        self.data_calls = []
-        self.resolution_calls = []
+        self.init_calls: list[list[str]] = []
+        self.data_calls: list[tuple[datetime, StrategyState]] = []
+        self.resolution_calls: list[tuple[str, Decimal]] = []
 
     def on_init(self, universe: list[str]) -> None:
         self.init_calls.append(universe)
@@ -261,6 +270,50 @@ class TestTimeFiltering:
             _NullStrategy(), _MockDataset(_make_trades_table(rows))
         )
         assert result.event_count == 2  # T0 and T1 included
+
+
+class TestPointInTimeSemantics:
+    def test_ts_available_drives_processing_order(self) -> None:
+        table = _make_trades_table_with_available(
+            [
+                (_T0, _T2, "a", 0.5),
+                (_T1, _T1, "a", 0.6),
+            ]
+        )
+        strategy = _NullStrategy()
+
+        EventBacktestEngine(_default_config()).run(strategy, _MockDataset(table))
+
+        assert [ts for ts, _ in strategy.data_calls] == [_T1, _T2]
+
+    def test_late_feature_not_visible_before_ts_available(self) -> None:
+        trades = _make_trades_table_with_available(
+            [
+                (_T0, _T1, "a", 0.5),
+                (_T1, _T2, "a", 0.6),
+            ]
+        )
+        features = pa.table(
+            {
+                "instrument_id": pa.array(["a"], type=pa.string()),
+                "price": pa.array([0.5], type=pa.float64()),
+                "ts_event": pa.array([_T0], type=pa.timestamp("us", tz="UTC")),
+                "ts_available": pa.array([_T2], type=pa.timestamp("us", tz="UTC")),
+                "feature_alpha": pa.array([1.0], type=pa.float64()),
+            }
+        )
+        strategy = _NullStrategy()
+
+        EventBacktestEngine(_default_config()).run(
+            strategy,
+            _MockDataset(trades),
+            features=features,
+        )
+
+        first_state = strategy.data_calls[0][1]
+        second_state = strategy.data_calls[1][1]
+        assert first_state.features is None
+        assert second_state.features == {"a": {"feature_alpha": 1.0}}
 
 
 class TestBacktestId:

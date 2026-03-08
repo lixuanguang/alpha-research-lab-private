@@ -8,7 +8,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from alpha_core.features.base import Feature, FeatureResult
+import alpha_core.features.base as feature_base
 from alpha_core.features.registry import FeatureRegistry
 
 # ---------------------------------------------------------------------------
@@ -18,7 +18,7 @@ from alpha_core.features.registry import FeatureRegistry
 _T0 = datetime(2024, 1, 1, tzinfo=UTC)
 
 
-class _Const(Feature):
+class _Const(feature_base.Feature):
     """Always returns a constant array (value = self._val)."""
 
     def __init__(self, name: str, value: float = 1.0, deps: list[str] | None = None) -> None:
@@ -31,16 +31,22 @@ class _Const(Feature):
         return self._name
 
     @property
-    def params(self) -> dict:
+    def params(self) -> dict[str, float]:
         return {"value": self._val}
 
     @property
     def dependencies(self) -> list[str]:
         return self._deps
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
         n = data.num_rows
-        return FeatureResult(
+        del instrument_id
+        return feature_base.FeatureResult(
             name=self._name,
             values=np.full(n, self._val),
             computed_at=datetime.now(tz=UTC),
@@ -202,5 +208,5 @@ class TestDependencyOrder:
         # Directly inject a cycle (bypass register validation).
         reg._features["x"] = _Const("x", deps=["y"])
         reg._features["y"] = _Const("y", deps=["x"])
-        with pytest.raises(ValueError, match="[Cc]ycl"):
+        with pytest.raises(ValueError, match=r"[Cc]ycl"):
             reg.dependency_order()

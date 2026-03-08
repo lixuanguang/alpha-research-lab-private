@@ -5,18 +5,17 @@ from __future__ import annotations
 import math
 from datetime import UTC, datetime, timedelta
 
-import numpy as np
 import pyarrow as pa
 import pytest
 
 from alpha_core.features.primitives import (
-    Diff,
     EWM,
+    Diff,
     Lag,
+    Rank,
     Return,
     RollingMean,
     RollingStd,
-    Rank,
     Volatility,
     ZScore,
 )
@@ -28,7 +27,11 @@ from alpha_core.features.primitives import (
 _T0 = datetime(2024, 1, 1, tzinfo=UTC)
 
 
-def _table(prices: list[float], instrument: str = "a", sizes: list[float] | None = None) -> pa.Table:
+def _table(
+    prices: list[float],
+    instrument: str = "a",
+    sizes: list[float] | None = None,
+) -> pa.Table:
     n = len(prices)
     ts = [_T0 + timedelta(minutes=i) for i in range(n)]
     return pa.table({
@@ -61,12 +64,12 @@ class TestRollingMean:
         t = _table([1.0, 2.0, 3.0, 4.0, 5.0])
         result = RollingMean(window=3).compute(t)
         assert result.name == "rolling_mean_price_3"
-        # First two warm-up rows should be NaN.
+        # First three rows are warm-up because the rolling window is lagged.
         assert math.isnan(result.values[0])
         assert math.isnan(result.values[1])
-        assert result.values[2] == pytest.approx(2.0)
-        assert result.values[3] == pytest.approx(3.0)
-        assert result.values[4] == pytest.approx(4.0)
+        assert math.isnan(result.values[2])
+        assert result.values[3] == pytest.approx(2.0)
+        assert result.values[4] == pytest.approx(3.0)
 
     def test_window_larger_than_data_all_nan(self) -> None:
         t = _table([1.0, 2.0])
@@ -84,11 +87,13 @@ class TestRollingMean:
     def test_two_instruments_independent(self) -> None:
         t = _multi_table([1.0, 2.0, 3.0], [10.0, 20.0, 30.0])
         result = RollingMean(window=2).compute(t)
-        # Row 0 (a[0]) and row 3 (b[0]) should be NaN (warm-up).
+        # Row 0/1 and row 3/4 are NaN because the lagged window needs two full observations.
         assert math.isnan(result.values[0])
         assert math.isnan(result.values[3])
-        assert result.values[1] == pytest.approx(1.5)   # (1+2)/2
-        assert result.values[4] == pytest.approx(15.0)  # (10+20)/2
+        assert math.isnan(result.values[1])
+        assert math.isnan(result.values[4])
+        assert result.values[2] == pytest.approx(1.5)   # (1+2)/2
+        assert result.values[5] == pytest.approx(15.0)  # (10+20)/2
 
     def test_params_snapshot(self) -> None:
         f = RollingMean(window=10, source_col="size")
@@ -104,8 +109,8 @@ class TestRollingStd:
     def test_std_known_values(self) -> None:
         t = _table([2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0])
         result = RollingStd(window=4).compute(t)
-        # Std of [2,4,4,4] with ddof=1: mean=3.5, var=((2-3.5)²+3*(4-3.5)²)/3 = 3/3 = 1.0
-        assert result.values[3] == pytest.approx(1.0, rel=1e-4)
+        # Lagged window at index 4 is [2,4,4,4].
+        assert result.values[4] == pytest.approx(1.0, rel=1e-4)
 
     def test_window_larger_all_nan(self) -> None:
         result = RollingStd(window=10).compute(_table([1.0, 2.0, 3.0]))
@@ -122,11 +127,11 @@ class TestRollingStd:
 # ---------------------------------------------------------------------------
 
 class TestEWM:
-    def test_first_value_equals_first_price(self) -> None:
+    def test_second_value_equals_first_price(self) -> None:
         t = _table([0.3, 0.5, 0.7])
         result = EWM(span=2).compute(t)
-        # With adjust=False, ewm(span=2) first value = first data point.
-        assert result.values[0] == pytest.approx(0.3)
+        assert math.isnan(result.values[0])
+        assert result.values[1] == pytest.approx(0.3)
 
     def test_empty_returns_empty(self) -> None:
         t = pa.table({"instrument_id": pa.array([], pa.string()),
@@ -154,16 +159,16 @@ class TestZScore:
         assert math.isnan(result.values[4])
 
     def test_zscore_known_value(self) -> None:
-        # [1,2,3]: mean=2, std=1.0 (ddof=1); z of 3 = (3-2)/1 = 1.0
-        t = _table([1.0, 2.0, 3.0])
+        t = _table([1.0, 2.0, 3.0, 4.0])
         result = ZScore(window=3).compute(t)
-        assert result.values[2] == pytest.approx(1.0, rel=1e-3)
+        assert result.values[3] == pytest.approx(1.0, rel=1e-3)
 
     def test_warm_up_nan(self) -> None:
         t = _table([1.0, 2.0, 3.0, 4.0])
         result = ZScore(window=3).compute(t)
         assert math.isnan(result.values[0])
         assert math.isnan(result.values[1])
+        assert math.isnan(result.values[2])
 
 
 # ---------------------------------------------------------------------------
@@ -172,10 +177,10 @@ class TestZScore:
 
 class TestRank:
     def test_time_series_rank_basic(self) -> None:
-        # [1,2,3,4]: rank of 4 in [1,2,3,4] = 4/4 = 1.0
-        t = _table([1.0, 2.0, 3.0, 4.0])
+        # Lagged history at the last row is [1,2,3,4], so the rank is 1.0.
+        t = _table([1.0, 2.0, 3.0, 4.0, 5.0])
         result = Rank(window=4, method="time_series").compute(t)
-        assert result.values[3] == pytest.approx(1.0)
+        assert result.values[4] == pytest.approx(1.0)
 
     def test_cross_sectional_rank(self) -> None:
         # Two instruments at same timestamps: a=0.3, b=0.7
@@ -191,7 +196,7 @@ class TestRank:
 
     def test_invalid_method_raises(self) -> None:
         with pytest.raises(ValueError, match="method"):
-            Rank(method="unknown")  # type: ignore[arg-type]
+            Rank(method="unknown")
 
 
 # ---------------------------------------------------------------------------
@@ -223,8 +228,8 @@ class TestDiff:
         t = _table([1.0, 3.0, 6.0])
         result = Diff(periods=1).compute(t)
         assert math.isnan(result.values[0])
-        assert result.values[1] == pytest.approx(2.0)
-        assert result.values[2] == pytest.approx(3.0)
+        assert math.isnan(result.values[1])
+        assert result.values[2] == pytest.approx(2.0)
 
     def test_empty_input(self) -> None:
         t = pa.table({"instrument_id": pa.array([], pa.string()),
@@ -244,8 +249,8 @@ class TestReturn:
         t = _table([1.0, 1.5, 2.0])
         result = Return(periods=1).compute(t)
         assert math.isnan(result.values[0])
-        assert result.values[1] == pytest.approx(0.5)   # 50% return
-        assert result.values[2] == pytest.approx(1/3, rel=1e-5)
+        assert math.isnan(result.values[1])
+        assert result.values[2] == pytest.approx(0.5)
 
     def test_zero_lagged_price_is_nan(self) -> None:
         t = _table([0.0, 1.0])

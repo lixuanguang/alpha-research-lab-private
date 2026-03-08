@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
+import pandas as pd
 import pyarrow as pa
 
 
@@ -20,7 +22,7 @@ class FeatureResult:
     """
 
     name: str
-    values: np.ndarray  # float64, aligned to input rows
+    values: npt.NDArray[np.float64]
     computed_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     params: dict[str, Any] = field(default_factory=dict)
 
@@ -79,9 +81,7 @@ class Feature(ABC):
         self,
         table: pa.Table,
         column: str,
-    ) -> "pd.Series":  # type: ignore[name-defined]  # noqa: F821
-        import pandas as pd  # local import to avoid hard top-level dep
-
+    ) -> pd.Series:
         if column not in table.schema.names:
             raise KeyError(f"Column '{column}' not found in table (have: {table.schema.names})")
         return table.column(column).to_pandas()

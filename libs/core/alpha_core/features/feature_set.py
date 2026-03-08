@@ -20,7 +20,6 @@ import alpha_core.features.registry as registry_mod
 import alpha_core.research.dataset as dataset_mod
 import alpha_core.storage.conventions as storage_conventions
 
-
 # ---------------------------------------------------------------------------
 # Config + Manifest
 # ---------------------------------------------------------------------------
@@ -30,9 +29,18 @@ class FeatureSetConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1, description="Feature set name (used as directory name).")
-    dataset_id: str = Field(min_length=1, description="Gold dataset ID to compute features from.")
-    features: list[str] = Field(min_length=1, description="Feature names to compute (must be registered).")
+    name: str = Field(
+        min_length=1,
+        description="Feature set name (used as directory name).",
+    )
+    dataset_id: str = Field(
+        min_length=1,
+        description="Gold dataset ID to compute features from.",
+    )
+    features: list[str] = Field(
+        min_length=1,
+        description="Feature names to compute (must be registered).",
+    )
     # Per-feature param overrides recorded in metadata; registry instances are used as-is.
     # To compute with different params, register a variant feature under a distinct name.
     params_override: dict[str, dict[str, Any]] = Field(
@@ -67,7 +75,7 @@ class FeatureSetBuilder:
     Storage layout::
 
         {storage_root}/gold/features/{name}/
-            features.parquet   - [timestamp × instrument × feature_columns]
+            features.parquet   - [timestamp x instrument x feature_columns]
             _meta.json         - FeatureSetManifest
 
     Args:
@@ -197,4 +205,4 @@ def _hash_config(config: FeatureSetConfig) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
-__all__ = ["FeatureSetConfig", "FeatureSetManifest", "FeatureSetBuilder"]
+__all__ = ["FeatureSetBuilder", "FeatureSetConfig", "FeatureSetManifest"]

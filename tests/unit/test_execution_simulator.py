@@ -5,9 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import pytest
-
-from alpha_core.execution.models import BacktestOrderIntent, FeeSchedule, SimulatedFill
+from alpha_core.execution.models import BacktestOrderIntent, FeeSchedule
 from alpha_core.execution.simulator import ExecutionSimulator
 from alpha_core.execution.slippage import FixedSlippage
 from alpha_core.portfolio.models import Side

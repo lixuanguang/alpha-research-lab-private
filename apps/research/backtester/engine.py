@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -29,9 +30,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 import alpha_core.execution.models as exec_models
 import alpha_core.execution.simulator as sim_mod
 import alpha_core.execution.slippage as slippage_mod
+import alpha_core.portfolio.models as portfolio_models
 import alpha_core.portfolio.tracker as tracker_mod
-from apps.research.backtester.result import BacktestResult, make_backtest_id
-from apps.research.backtester.strategy import Strategy, StrategyState
+import apps.research.backtester.result as result_mod
+import apps.research.backtester.strategy as strategy_mod
 
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
@@ -88,11 +90,11 @@ class EventBacktestEngine:
 
     def run(
         self,
-        strategy: Strategy,
+        strategy: strategy_mod.Strategy,
         dataset: object,  # GoldDataset — typed loosely to avoid heavy dependency
         features: pa.Table | None = None,
         resolution_prices: dict[str, tuple[Decimal, datetime]] | None = None,
-    ) -> BacktestResult:
+    ) -> result_mod.BacktestResult:
         """Execute the backtest and return a :class:`BacktestResult`.
 
         Args:
@@ -130,14 +132,17 @@ class EventBacktestEngine:
         latest_prices: dict[str, Decimal] = {}
         all_fills: list[exec_models.SimulatedFill] = []
 
-        # Sort by ts_event — gold tables are usually sorted, but enforce.
-        sorted_table = trades_table.sort_by("ts_event")
+        sequence_col = _sequence_column(trades_table)
+        sort_keys: list[tuple[str, str]] = [(sequence_col, "ascending")]
+        if "ts_event" in trades_table.schema.names and sequence_col != "ts_event":
+            sort_keys.append(("ts_event", "ascending"))
+        sorted_table = trades_table.sort_by(sort_keys)
 
         for row_idx in range(sorted_table.num_rows):
             row = _row_dict(sorted_table, row_idx)
             instr = str(row["instrument_id"])
             price = Decimal(str(row["price"]))
-            ts = _to_datetime(row["ts_event"])
+            ts = _row_timestamp(row)
 
             latest_prices[instr] = price
 
@@ -154,7 +159,7 @@ class EventBacktestEngine:
 
             # --- Strategy callback ---
             port_state = tracker.state()
-            state = StrategyState(
+            state = strategy_mod.StrategyState(
                 timestamp=ts,
                 portfolio=port_state,
                 latest_prices=dict(latest_prices),
@@ -180,8 +185,8 @@ class EventBacktestEngine:
         duration = time.monotonic() - t_start
         config_dict = self._config.model_dump(mode="json")
 
-        return BacktestResult(
-            backtest_id=make_backtest_id(config_dict, strategy.name),
+        return result_mod.BacktestResult(
+            backtest_id=result_mod.make_backtest_id(config_dict, strategy.name),
             config_snapshot=config_dict,
             strategy_name=strategy.name,
             trades=all_fills,
@@ -197,6 +202,7 @@ class EventBacktestEngine:
 
     @staticmethod
     def _build_simulator(config: EventBacktestConfig) -> sim_mod.ExecutionSimulator:
+        slip: slippage_mod.SlippageModel
         if config.slippage_model == "fixed":
             bps = Decimal(str(config.slippage_params.get("bps", 10)))
             slip = slippage_mod.FixedSlippage(bps=bps)
@@ -208,14 +214,15 @@ class EventBacktestEngine:
         )
 
     def _apply_time_filter(self, table: pa.Table) -> pa.Table:
-        if "ts_event" not in table.schema.names:
+        sequence_col = _sequence_column(table)
+        if sequence_col not in table.schema.names:
             return table
         if self._config.start is not None:
-            ts_arr = table.column("ts_event")
+            ts_arr = table.column(sequence_col)
             start_ts = pa.scalar(self._config.start, type=pa.timestamp("us", tz="UTC"))
             table = table.filter(pc.greater_equal(ts_arr, start_ts))
         if self._config.end is not None:
-            ts_arr = table.column("ts_event")
+            ts_arr = table.column(sequence_col)
             end_ts = pa.scalar(self._config.end, type=pa.timestamp("us", tz="UTC"))
             table = table.filter(pc.less_equal(ts_arr, end_ts))
         return table
@@ -224,26 +231,41 @@ class EventBacktestEngine:
     def _build_features_index(
         features: pa.Table | None,
     ) -> dict[str, list[tuple[datetime, dict[str, float]]]] | None:
-        """Pre-index features as {instrument_id -> [(ts, {feat: val}), ...]} sorted by ts."""
+        """Pre-index features for point-in-time as-of lookups."""
         if features is None:
             return None
         if "instrument_id" not in features.schema.names:
             return None
 
-        # Identify feature columns (everything except the index columns).
-        skip = {"ts_event", "instrument_id"}
-        feat_cols = [c for c in features.schema.names if c not in skip]
+        sequence_col = _sequence_column(features)
+        skip = {"instrument_id", "price", "ts_available", "ts_event"}
+        feat_cols = [
+            column_name
+            for column_name in features.schema.names
+            if column_name not in skip
+        ]
         if not feat_cols:
             return None
 
         df = features.to_pandas()
+        feat_cols = [
+            column_name
+            for column_name in feat_cols
+            if pd.api.types.is_numeric_dtype(df[column_name])
+        ]
+        if not feat_cols:
+            return None
+
         index: dict[str, list[tuple[datetime, dict[str, float]]]] = {}
 
         for instr, grp in df.groupby("instrument_id"):
-            grp_sorted = grp.sort_values("ts_event")
+            sort_columns = [sequence_col]
+            if "ts_event" in grp.columns and sequence_col != "ts_event":
+                sort_columns.append("ts_event")
+            grp_sorted = grp.sort_values(sort_columns, kind="stable")
             rows: list[tuple[datetime, dict[str, float]]] = []
             for _, r in grp_sorted.iterrows():
-                ts = r["ts_event"].to_pydatetime().replace(tzinfo=UTC)
+                ts = _to_datetime(r[sequence_col])
                 feats = {c: float(r[c]) for c in feat_cols if not pd.isna(r[c])}
                 rows.append((ts, feats))
             index[str(instr)] = rows
@@ -272,10 +294,13 @@ class EventBacktestEngine:
             return None
         return {instrument_id: latest_feats}
 
-    def _empty_result(self, strategy: Strategy, t_start: float) -> BacktestResult:
-        from alpha_core.portfolio.models import PortfolioState
+    def _empty_result(
+        self,
+        strategy: strategy_mod.Strategy,
+        t_start: float,
+    ) -> result_mod.BacktestResult:
         duration = time.monotonic() - t_start
-        dummy_portfolio = PortfolioState(
+        dummy_portfolio = portfolio_models.PortfolioState(
             timestamp=datetime.now(tz=UTC),
             cash=self._config.initial_cash,
             positions={},
@@ -283,8 +308,8 @@ class EventBacktestEngine:
             total_fees=_ZERO,
             equity=self._config.initial_cash,
         )
-        return BacktestResult(
-            backtest_id=make_backtest_id(
+        return result_mod.BacktestResult(
+            backtest_id=result_mod.make_backtest_id(
                 self._config.model_dump(mode="json"), strategy.name
             ),
             config_snapshot=self._config.model_dump(mode="json"),
@@ -307,6 +332,14 @@ def _row_dict(table: pa.Table, idx: int) -> dict[str, Any]:
     return {col: table.column(col)[idx].as_py() for col in table.schema.names}
 
 
+def _sequence_column(table: pa.Table) -> str:
+    return "ts_available" if "ts_available" in table.schema.names else "ts_event"
+
+
+def _row_timestamp(row: dict[str, Any]) -> datetime:
+    return _to_datetime(row.get("ts_available", row["ts_event"]))
+
+
 def _to_datetime(value: Any) -> datetime:
     """Convert a PyArrow timestamp scalar to UTC-aware datetime."""
     if isinstance(value, datetime):
@@ -314,14 +347,7 @@ def _to_datetime(value: Any) -> datetime:
             return value.replace(tzinfo=UTC)
         return value
     # Fallback: treat as epoch microseconds.
-    from datetime import timezone
-    return datetime.fromtimestamp(float(value) / 1e6, tz=timezone.utc)
-
-
-try:
-    import pandas as pd
-except ImportError:  # pragma: no cover
-    pd = None  # type: ignore[assignment]
+    return datetime.fromtimestamp(float(value) / 1e6, tz=UTC)
 
 
 __all__ = ["EventBacktestConfig", "EventBacktestEngine"]

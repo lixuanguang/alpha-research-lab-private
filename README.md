@@ -30,7 +30,7 @@
 **Quality gates (as of March 7, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/core apps tests --strict` — 0 errors
-- `pytest tests/ -q` — 1595 passed, 10 skipped
+- `pytest tests/ -q` — 1875 passed, 10 skipped
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:

@@ -1,13 +1,13 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 1595 passed, 10 skipped; quality gates green)
+> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 1875 passed, 10 skipped; quality gates green)
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Lean adoption alignment (March 7, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
-> **Implementation status (March 7, 2026):** Dataset/feature/backtest/evaluate/report workflows are delivered, and LA-009 through LA-010 added the filesystem `ArtifactStore` and first-class optimize workflow. LA-022 delivered the acceleration boundary contract (`alpha_core.perf.interfaces`, parity harness, ADR 005, regression tests). Richer PM-native execution, full vectorized fast path, and deeper PM-specific evaluation hardening remain open.
-> **Current quality gate snapshot (validated March 7, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`1595 passed, 10 skipped`).
+> **Implementation status (March 7, 2026):** Dataset/feature/backtest/evaluate/report workflows are delivered, and LA-009 through LA-010 added the filesystem `ArtifactStore` and first-class optimize workflow. LA-022 delivered the acceleration boundary contract (`alpha_core.performance.interfaces`, parity harness, ADR 005, regression tests). Richer PM-native execution, full vectorized fast path, and deeper PM-specific evaluation hardening remain open.
+> **Current quality gate snapshot (validated March 7, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`1875 passed, 10 skipped`).
 
 ---
 
@@ -402,7 +402,7 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 #### R4 — Vectorized Backtester & Parameter Sweep
 
 - [x] Vectorized fast path — `VecStrategy` ABC, `VecBacktestConfig`, `VecBacktestEngine` (cross-sectional, DataFrame-native, rebalance-frequency grid) in `apps/research/backtester/`; position sizing (`EqualWeightSizer`, `FixedSizeSizer`, `KellySizer`) in `libs/core/alpha_core/portfolio/sizing.py`; parameter sweep (`ParameterGrid`, `BacktestEvaluator`, `ParameterSweepRunner`, `SweepResult`) in `apps/research/backtester/sweep.py`; tests: `tests/unit/test_vec_engine.py`, `test_vec_strategy.py`, `test_position_sizing.py`, `test_parameter_sweep.py`, `test_optimize_runner.py`; `tests/integration/test_vec_backtest_e2e.py` (95 new tests, 1877 total passing)
-- [x] Acceleration boundary contract — `alpha_core.perf.interfaces` (`FeatureTransform`, `SimulationKernel`) and parity harness (`alpha_core.performance.parity`) established; regression tests in `tests/regression/test_acceleration_parity.py`; ADR 005 documents tolerance policy and promotion gate (LA-022)
+- [x] Acceleration boundary contract — `alpha_core.performance.interfaces` (`FeatureTransform`, `SimulationKernel`) and parity harness (`alpha_core.performance.parity`) established; regression tests in `tests/regression/test_acceleration_parity.py`; ADR 005 documents tolerance policy and promotion gate (LA-022)
 - [x] `alpha_core.research.optimize_runner` — first-class grid/random search with persisted trial registry and leaderboard (`libs/core/alpha_core/research/optimize_runner.py`)
 - [x] CLI: `optimize` command (`apps/research/commands/optimize.py`)
 

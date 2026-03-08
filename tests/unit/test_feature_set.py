@@ -8,10 +8,9 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 
-from alpha_core.features.base import Feature, FeatureResult
+import alpha_core.features.base as feature_base
 from alpha_core.features.feature_set import (
     FeatureSetBuilder,
     FeatureSetConfig,
@@ -26,7 +25,7 @@ from alpha_core.features.registry import FeatureRegistry
 _T0 = datetime(2024, 1, 1, tzinfo=UTC)
 
 
-class _Const(Feature):
+class _Const(feature_base.Feature):
     def __init__(self, name: str, value: float = 1.0) -> None:
         self._name = name
         self._value = value
@@ -36,11 +35,17 @@ class _Const(Feature):
         return self._name
 
     @property
-    def params(self) -> dict:
+    def params(self) -> dict[str, float]:
         return {"value": self._value}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
-        return FeatureResult(
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
+        return feature_base.FeatureResult(
             name=self._name,
             values=np.full(data.num_rows, self._value),
             computed_at=datetime.now(tz=UTC),

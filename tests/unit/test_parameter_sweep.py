@@ -6,20 +6,15 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+import apps.research.backtester.result as result_mod
+import apps.research.backtester.sweep as sweep_mod
+import apps.research.backtester.vec_engine as vec_engine_mod
+import apps.research.backtester.vec_strategy as vec_strategy_mod
 import pandas as pd
 import pyarrow as pa
 import pytest
 
-from apps.research.backtester.sweep import (
-    BacktestEvaluator,
-    ParameterGrid,
-    ParameterSweepRunner,
-    SweepResult,
-    SweepTrial,
-    make_sweep_id,
-)
-from apps.research.backtester.vec_engine import VecBacktestConfig, VecBacktestEngine
-from apps.research.backtester.vec_strategy import VecStrategy
+import alpha_core.portfolio.models as portfolio_models
 from alpha_core.portfolio.sizing import EqualWeightSizer
 
 _T0 = datetime(2024, 1, 1, tzinfo=UTC)
@@ -33,17 +28,17 @@ _ZERO = Decimal("0")
 
 class TestParameterGrid:
     def test_empty_params_yields_one_empty_dict(self) -> None:
-        g = ParameterGrid({})
+        g = sweep_mod.ParameterGrid({})
         assert len(g) == 1
         combos = list(g)
         assert combos == [{}]
 
     def test_single_param_yields_correct_count(self) -> None:
-        g = ParameterGrid({"window": [5, 10, 20]})
+        g = sweep_mod.ParameterGrid({"window": [5, 10, 20]})
         assert len(g) == 3
 
     def test_two_params_cartesian_product(self) -> None:
-        g = ParameterGrid({"a": [1, 2], "b": [10, 20]})
+        g = sweep_mod.ParameterGrid({"a": [1, 2], "b": [10, 20]})
         assert len(g) == 4
         combos = list(g)
         # All 4 combinations must be present.
@@ -53,21 +48,21 @@ class TestParameterGrid:
         assert {"a": 2, "b": 20} in combos
 
     def test_iteration_produces_dicts(self) -> None:
-        g = ParameterGrid({"x": [1, 2]})
+        g = sweep_mod.ParameterGrid({"x": [1, 2]})
         for combo in g:
             assert isinstance(combo, dict)
             assert "x" in combo
 
     def test_non_dict_raises(self) -> None:
         with pytest.raises(TypeError):
-            ParameterGrid([1, 2])  # type: ignore[arg-type]
+            sweep_mod.ParameterGrid([1, 2])  # type: ignore[arg-type]
 
     def test_non_list_values_raises(self) -> None:
         with pytest.raises(TypeError):
-            ParameterGrid({"a": (1, 2)})  # type: ignore[dict-item]
+            sweep_mod.ParameterGrid({"a": (1, 2)})  # type: ignore[dict-item]
 
     def test_repr_contains_params(self) -> None:
-        g = ParameterGrid({"w": [5, 10]})
+        g = sweep_mod.ParameterGrid({"w": [5, 10]})
         assert "ParameterGrid" in repr(g)
 
 
@@ -78,22 +73,22 @@ class TestParameterGrid:
 
 class TestMakeSweepId:
     def test_deterministic(self) -> None:
-        cid1 = make_sweep_id("strategy_a", {"w": [5, 10]})
-        cid2 = make_sweep_id("strategy_a", {"w": [5, 10]})
+        cid1 = sweep_mod.make_sweep_id("strategy_a", {"w": [5, 10]})
+        cid2 = sweep_mod.make_sweep_id("strategy_a", {"w": [5, 10]})
         assert cid1 == cid2
 
     def test_length_is_16(self) -> None:
-        cid = make_sweep_id("my_strat", {"p": [1]})
+        cid = sweep_mod.make_sweep_id("my_strat", {"p": [1]})
         assert len(cid) == 16
 
     def test_different_strategy_different_id(self) -> None:
-        cid1 = make_sweep_id("strat_a", {"w": [5]})
-        cid2 = make_sweep_id("strat_b", {"w": [5]})
+        cid1 = sweep_mod.make_sweep_id("strat_a", {"w": [5]})
+        cid2 = sweep_mod.make_sweep_id("strat_b", {"w": [5]})
         assert cid1 != cid2
 
     def test_different_grid_different_id(self) -> None:
-        cid1 = make_sweep_id("strat", {"w": [5]})
-        cid2 = make_sweep_id("strat", {"w": [10]})
+        cid1 = sweep_mod.make_sweep_id("strat", {"w": [5]})
+        cid2 = sweep_mod.make_sweep_id("strat", {"w": [10]})
         assert cid1 != cid2
 
 
@@ -111,13 +106,12 @@ def _make_equity_curve(values: list[float]) -> list[tuple[datetime, Decimal]]:
 
 class TestBacktestEvaluator:
     def _minimal_result(
-        self, equity: list[float], initial_cash: float = 1000.0
-    ):
+        self,
+        equity: list[float],
+        initial_cash: float = 1000.0,
+    ) -> result_mod.BacktestResult:
         """Build a minimal BacktestResult for evaluator tests."""
-        from alpha_core.portfolio.models import PortfolioState
-        from apps.research.backtester.result import BacktestResult
-
-        portfolio = PortfolioState(
+        portfolio = portfolio_models.PortfolioState(
             timestamp=_T0,
             cash=Decimal(str(equity[-1])),
             positions={},
@@ -125,7 +119,7 @@ class TestBacktestEvaluator:
             total_fees=_ZERO,
             equity=Decimal(str(equity[-1])),
         )
-        return BacktestResult(
+        return result_mod.BacktestResult(
             backtest_id="test0001",
             config_snapshot={"initial_cash": initial_cash},
             strategy_name="test",
@@ -138,46 +132,46 @@ class TestBacktestEvaluator:
 
     def test_total_return_zero_when_flat(self) -> None:
         result = self._minimal_result([1000.0, 1000.0, 1000.0])
-        ev = BacktestEvaluator()
+        ev = sweep_mod.BacktestEvaluator()
         metrics = ev.evaluate(result)
         assert metrics["total_return"] == pytest.approx(0.0, abs=1e-9)
 
     def test_total_return_positive(self) -> None:
         result = self._minimal_result([1000.0, 1100.0])
-        ev = BacktestEvaluator()
+        ev = sweep_mod.BacktestEvaluator()
         metrics = ev.evaluate(result)
         assert metrics["total_return"] == pytest.approx(0.1, rel=0.001)
 
     def test_sharpe_zero_when_constant_equity(self) -> None:
         result = self._minimal_result([1000.0, 1000.0, 1000.0, 1000.0])
-        ev = BacktestEvaluator()
+        ev = sweep_mod.BacktestEvaluator()
         metrics = ev.evaluate(result)
         assert metrics["sharpe_ratio"] == 0.0
 
     def test_sharpe_zero_when_single_point(self) -> None:
         result = self._minimal_result([1000.0])
-        metrics = BacktestEvaluator().evaluate(result)
+        metrics = sweep_mod.BacktestEvaluator().evaluate(result)
         assert metrics["sharpe_ratio"] == 0.0
 
     def test_max_drawdown_zero_when_monotonic(self) -> None:
         result = self._minimal_result([1000.0, 1100.0, 1200.0])
-        metrics = BacktestEvaluator().evaluate(result)
+        metrics = sweep_mod.BacktestEvaluator().evaluate(result)
         assert metrics["max_drawdown"] == pytest.approx(0.0, abs=1e-9)
 
     def test_max_drawdown_negative_on_drawdown(self) -> None:
         result = self._minimal_result([1000.0, 1200.0, 900.0])
-        metrics = BacktestEvaluator().evaluate(result)
+        metrics = sweep_mod.BacktestEvaluator().evaluate(result)
         # Drawdown from 1200 to 900 = -300/1200 = -0.25
         assert metrics["max_drawdown"] == pytest.approx(-0.25, rel=0.01)
 
     def test_trade_count_matches(self) -> None:
         result = self._minimal_result([1000.0, 1000.0])
-        metrics = BacktestEvaluator().evaluate(result)
+        metrics = sweep_mod.BacktestEvaluator().evaluate(result)
         assert metrics["trade_count"] == 0.0
 
     def test_all_expected_keys_present(self) -> None:
         result = self._minimal_result([1000.0, 1050.0])
-        metrics = BacktestEvaluator().evaluate(result)
+        metrics = sweep_mod.BacktestEvaluator().evaluate(result)
         for key in ("total_return", "sharpe_ratio", "max_drawdown", "trade_count"):
             assert key in metrics
 
@@ -207,7 +201,7 @@ class _MockDataset:
         return self._table
 
 
-class _ParametricStrategy(VecStrategy):
+class _ParametricStrategy(vec_strategy_mod.VecStrategy):
     """Strategy parameterized by threshold; ignores the param value for simplicity."""
 
     def __init__(self, params: dict[str, Any]) -> None:
@@ -217,33 +211,45 @@ class _ParametricStrategy(VecStrategy):
     def name(self) -> str:
         return "parametric"
 
-    def generate_signals(self, features, universe):
+    def generate_signals(
+        self,
+        features: pd.DataFrame,
+        universe: list[str],
+    ) -> pd.DataFrame:
         # Always go long all instruments.
+        del features
         return pd.DataFrame({"instrument_id": universe, "signal": [1.0] * len(universe)})
 
-    def size_positions(self, signals, portfolio_value, max_positions):
+    def size_positions(
+        self,
+        signals: pd.DataFrame,
+        portfolio_value: Decimal,
+        max_positions: int,
+    ) -> pd.DataFrame:
         return EqualWeightSizer().size(signals, portfolio_value, max_positions)
 
 
 class TestParameterSweepRunner:
-    def _engine(self) -> VecBacktestEngine:
-        return VecBacktestEngine(
-            VecBacktestConfig(
+    def _engine(self) -> vec_engine_mod.VecBacktestEngine:
+        return vec_engine_mod.VecBacktestEngine(
+            vec_engine_mod.VecBacktestConfig(
                 dataset_id="test",
                 initial_cash=Decimal("1000"),
-                slippage_model="fixed" if False else "fixed",
                 rebalance_frequency="1D",
             )
         )
 
     def test_sweep_runs_all_combinations(self) -> None:
-        grid = ParameterGrid({"threshold": [0.5, 1.0, 1.5]})
+        grid = sweep_mod.ParameterGrid({"threshold": [0.5, 1.0, 1.5]})
         dataset = _MockDataset(_make_trades_table())
-        runner = ParameterSweepRunner(
-            engine=VecBacktestEngine(
-                VecBacktestConfig(dataset_id="t", initial_cash=Decimal("1000"))
+        runner = sweep_mod.ParameterSweepRunner(
+            engine=vec_engine_mod.VecBacktestEngine(
+                vec_engine_mod.VecBacktestConfig(
+                    dataset_id="t",
+                    initial_cash=Decimal("1000"),
+                )
             ),
-            evaluator=BacktestEvaluator(),
+            evaluator=sweep_mod.BacktestEvaluator(),
         )
         sweep = runner.run(
             lambda p: _ParametricStrategy(p),
@@ -253,58 +259,70 @@ class TestParameterSweepRunner:
         assert len(sweep.trials) == 3
 
     def test_best_params_in_sweep_result(self) -> None:
-        grid = ParameterGrid({"threshold": [0.5, 1.0]})
+        grid = sweep_mod.ParameterGrid({"threshold": [0.5, 1.0]})
         dataset = _MockDataset(_make_trades_table())
-        runner = ParameterSweepRunner(
-            engine=VecBacktestEngine(
-                VecBacktestConfig(dataset_id="t", initial_cash=Decimal("1000"))
+        runner = sweep_mod.ParameterSweepRunner(
+            engine=vec_engine_mod.VecBacktestEngine(
+                vec_engine_mod.VecBacktestConfig(
+                    dataset_id="t",
+                    initial_cash=Decimal("1000"),
+                )
             ),
-            evaluator=BacktestEvaluator(),
+            evaluator=sweep_mod.BacktestEvaluator(),
         )
         sweep = runner.run(lambda p: _ParametricStrategy(p), grid, dataset=dataset)
         assert isinstance(sweep.best_params, dict)
         assert "threshold" in sweep.best_params
 
     def test_empty_grid_runs_once(self) -> None:
-        grid = ParameterGrid({})
+        grid = sweep_mod.ParameterGrid({})
         dataset = _MockDataset(_make_trades_table())
-        runner = ParameterSweepRunner(
-            engine=VecBacktestEngine(
-                VecBacktestConfig(dataset_id="t", initial_cash=Decimal("1000"))
+        runner = sweep_mod.ParameterSweepRunner(
+            engine=vec_engine_mod.VecBacktestEngine(
+                vec_engine_mod.VecBacktestConfig(
+                    dataset_id="t",
+                    initial_cash=Decimal("1000"),
+                )
             ),
-            evaluator=BacktestEvaluator(),
+            evaluator=sweep_mod.BacktestEvaluator(),
         )
         sweep = runner.run(lambda p: _ParametricStrategy(p), grid, dataset=dataset)
         assert len(sweep.trials) == 1
 
     def test_sweep_id_is_16_chars(self) -> None:
-        grid = ParameterGrid({"threshold": [0.5]})
+        grid = sweep_mod.ParameterGrid({"threshold": [0.5]})
         dataset = _MockDataset(_make_trades_table())
-        runner = ParameterSweepRunner(
-            engine=VecBacktestEngine(
-                VecBacktestConfig(dataset_id="t", initial_cash=Decimal("1000"))
+        runner = sweep_mod.ParameterSweepRunner(
+            engine=vec_engine_mod.VecBacktestEngine(
+                vec_engine_mod.VecBacktestConfig(
+                    dataset_id="t",
+                    initial_cash=Decimal("1000"),
+                )
             ),
-            evaluator=BacktestEvaluator(),
+            evaluator=sweep_mod.BacktestEvaluator(),
         )
         sweep = runner.run(lambda p: _ParametricStrategy(p), grid, dataset=dataset)
         assert len(sweep.sweep_id) == 16
 
     def test_invalid_n_workers_raises(self) -> None:
         with pytest.raises(ValueError):
-            ParameterSweepRunner(
+            sweep_mod.ParameterSweepRunner(
                 engine=None,
-                evaluator=BacktestEvaluator(),
+                evaluator=sweep_mod.BacktestEvaluator(),
                 n_workers=0,
             )
 
     def test_primary_metric_propagated(self) -> None:
-        grid = ParameterGrid({"threshold": [0.5]})
+        grid = sweep_mod.ParameterGrid({"threshold": [0.5]})
         dataset = _MockDataset(_make_trades_table())
-        runner = ParameterSweepRunner(
-            engine=VecBacktestEngine(
-                VecBacktestConfig(dataset_id="t", initial_cash=Decimal("1000"))
+        runner = sweep_mod.ParameterSweepRunner(
+            engine=vec_engine_mod.VecBacktestEngine(
+                vec_engine_mod.VecBacktestConfig(
+                    dataset_id="t",
+                    initial_cash=Decimal("1000"),
+                )
             ),
-            evaluator=BacktestEvaluator(),
+            evaluator=sweep_mod.BacktestEvaluator(),
         )
         sweep = runner.run(
             lambda p: _ParametricStrategy(p),

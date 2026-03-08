@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import apps.research.backtester.vec_strategy as vec_strategy_mod
 import pandas as pd
 import pytest
 
 from alpha_core.portfolio.sizing import EqualWeightSizer, FixedSizeSizer
-from apps.research.backtester.vec_strategy import VecStrategy
 
 
-class _SimpleStrategy(VecStrategy):
+class _SimpleStrategy(vec_strategy_mod.VecStrategy):
     """Minimal concrete VecStrategy for testing."""
 
     name = "simple"
@@ -32,7 +32,7 @@ class _SimpleStrategy(VecStrategy):
         return EqualWeightSizer().size(signals, portfolio_value, max_positions)
 
 
-class _FlatStrategy(VecStrategy):
+class _FlatStrategy(vec_strategy_mod.VecStrategy):
     """Strategy that always returns zero signals."""
 
     name = "flat"
@@ -50,7 +50,7 @@ class _FlatStrategy(VecStrategy):
         return EqualWeightSizer().size(signals, portfolio_value, max_positions)
 
 
-class _EmptyUniverseStrategy(VecStrategy):
+class _EmptyUniverseStrategy(vec_strategy_mod.VecStrategy):
     """Strategy that handles empty universe gracefully."""
 
     name = "empty_universe"
@@ -66,10 +66,30 @@ class _EmptyUniverseStrategy(VecStrategy):
         return pd.DataFrame({"instrument_id": [], "target_weight": []})
 
 
+class _FixedStrategy(vec_strategy_mod.VecStrategy):
+    name = "fixed"
+
+    def generate_signals(
+        self,
+        features: pd.DataFrame,
+        universe: list[str],
+    ) -> pd.DataFrame:
+        del features
+        return pd.DataFrame({"instrument_id": universe, "signal": [1.0] * len(universe)})
+
+    def size_positions(
+        self,
+        signals: pd.DataFrame,
+        portfolio_value: Decimal,
+        max_positions: int,
+    ) -> pd.DataFrame:
+        return FixedSizeSizer(fraction=0.2).size(signals, portfolio_value, max_positions)
+
+
 class TestVecStrategyABC:
     def test_cannot_instantiate_abc(self) -> None:
         with pytest.raises(TypeError):
-            VecStrategy()  # type: ignore[abstract]
+            vec_strategy_mod.VecStrategy()  # type: ignore[abstract]
 
     def test_concrete_subclass_instantiates(self) -> None:
         s = _SimpleStrategy()
@@ -121,15 +141,6 @@ class TestSizePositions:
         assert weights.empty
 
     def test_fixed_size_sizer_integration(self) -> None:
-        class _FixedStrategy(VecStrategy):
-            name = "fixed"
-
-            def generate_signals(self, features, universe):
-                return pd.DataFrame({"instrument_id": universe, "signal": [1.0] * len(universe)})
-
-            def size_positions(self, signals, portfolio_value, max_positions):
-                return FixedSizeSizer(fraction=0.2).size(signals, portfolio_value, max_positions)
-
         s = _FixedStrategy()
         signals = pd.DataFrame({"instrument_id": ["a"], "signal": [1.0]})
         weights = s.size_positions(signals, Decimal("500"), max_positions=5)

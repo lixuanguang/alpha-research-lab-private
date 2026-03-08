@@ -32,7 +32,11 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+import alpha_core.execution.fees as fees_mod
+import alpha_core.execution.models as exec_models
 import alpha_core.execution.order_models as order_models_mod
+import alpha_core.execution.slippage as slippage_mod
+import alpha_core.portfolio.models as portfolio_models
 import alpha_core.strategy_framework.models as strategy_models
 
 # ---------------------------------------------------------------------------
@@ -222,16 +226,6 @@ class FillSimulator:
         return base_price - slip_delta
 
 
-# ---------------------------------------------------------------------------
-# ExecutionSimulator — R3 backtester execution model
-# ---------------------------------------------------------------------------
-
-import alpha_core.execution.fees as fees_mod
-import alpha_core.execution.models as exec_models
-import alpha_core.execution.slippage as slippage_mod
-from alpha_core.portfolio.models import Side as _Side
-
-
 class ExecutionSimulator:
     """Simulates order execution for the event-driven backtester.
 
@@ -273,7 +267,8 @@ class ExecutionSimulator:
 
         Args:
             order: The order intent to simulate.
-            book: Optional order-book snapshot for :class:`~alpha_core.execution.slippage.BookDepthSlippage`.
+            book: Optional order-book snapshot for
+                :class:`~alpha_core.execution.slippage.BookDepthSlippage`.
             last_trade_price: Reference price for MARKET orders.  If ``None``,
                 falls back to ``Decimal("0.5")``.
             timestamp: Fill timestamp.  Defaults to ``datetime.now(UTC)``.
@@ -286,16 +281,16 @@ class ExecutionSimulator:
 
         # For LIMIT orders, check if the price is reachable.
         if order.order_type == "limit" and order.limit_price is not None:
-            if order.side == _Side.LONG and ref_price > order.limit_price:
+            if order.side == portfolio_models.Side.LONG and ref_price > order.limit_price:
                 return None   # Market is above limit — won't fill.
-            if order.side == _Side.SHORT and ref_price < order.limit_price:
+            if order.side == portfolio_models.Side.SHORT and ref_price < order.limit_price:
                 return None   # Market is below limit — won't fill.
 
         # Compute slippage delta.
         slip = self._slippage.estimate_slippage(order, book)
 
         # Apply slippage adversely.
-        if order.side == _Side.LONG:
+        if order.side == portfolio_models.Side.LONG:
             fill_price = ref_price + slip
         else:
             fill_price = ref_price - slip
@@ -303,8 +298,6 @@ class ExecutionSimulator:
         # Clamp to probability space.
         fill_price = max(_ZERO, min(_ONE, fill_price)).quantize(_PRICE_PREC)
 
-        # Compute fee on notional.
-        notional = order.size * fill_price
         fee = fees_mod.total_fill_fee(self._fees, order.size, fill_price)
 
         return exec_models.SimulatedFill(

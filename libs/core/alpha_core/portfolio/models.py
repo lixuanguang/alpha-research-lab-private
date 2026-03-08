@@ -12,10 +12,9 @@ Timestamps are always UTC-aware :class:`~datetime.datetime` objects.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,8 +38,8 @@ class PositionState(BaseModel):
 
     ``unrealised_pnl`` is always computed as:
 
-    * **LONG:**  ``size × (current_price − entry_price)``
-    * **SHORT:** ``size × (entry_price − current_price)``
+    * **LONG:**  ``size x (current_price - entry_price)``
+    * **SHORT:** ``size x (entry_price - current_price)``
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -77,7 +76,7 @@ class PositionState(BaseModel):
 class PortfolioState(BaseModel):
     """Complete portfolio snapshot at a point in time.
 
-    ``equity = cash + sum(unrealised_pnl over all open positions) − total_fees``
+    ``equity = cash + sum(unrealised_pnl over all open positions) - total_fees``
     """
 
     model_config = ConfigDict(extra="forbid")

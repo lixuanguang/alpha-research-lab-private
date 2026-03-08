@@ -34,20 +34,26 @@ import hashlib
 import itertools
 import json
 import math
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Callable, Iterator, Union
+from typing import Any, cast
 
 import pyarrow as pa
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-from apps.research.backtester.result import BacktestResult
-from apps.research.backtester.strategy import Strategy
-from apps.research.backtester.vec_strategy import VecStrategy
+import apps.research.backtester.result as result_mod
+import apps.research.backtester.strategy as strategy_mod
+import apps.research.backtester.vec_strategy as vec_strategy_mod
 
 _ZERO = Decimal("0")
 _PERIODS_PER_YEAR = 252.0  # daily bars assumption for annualisation
+ResolutionPrices = dict[str, tuple[Decimal, datetime]]
+StrategyFactory = Callable[
+    [dict[str, Any]],
+    strategy_mod.Strategy | vec_strategy_mod.VecStrategy,
+]
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +107,7 @@ class ParameterGrid:
 
 
 class BacktestEvaluator:
-    """Compute summary financial metrics directly from a :class:`BacktestResult`.
+    """Compute summary financial metrics directly from a backtest result.
 
     Metrics returned:
 
@@ -119,7 +125,7 @@ class BacktestEvaluator:
     =================  =====================================================
     """
 
-    def evaluate(self, result: BacktestResult) -> dict[str, float]:
+    def evaluate(self, result: result_mod.BacktestResult) -> dict[str, float]:
         """Compute all metrics and return as a plain ``dict[str, float]``."""
         metrics: dict[str, float] = {}
 
@@ -154,7 +160,7 @@ class SweepTrial(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     params: dict[str, Any]
-    result: BacktestResult
+    result: result_mod.BacktestResult
     metrics: dict[str, float]
 
 
@@ -229,13 +235,13 @@ class ParameterSweepRunner:
 
     def run(
         self,
-        strategy_factory: Callable[[dict[str, Any]], Union[Strategy, VecStrategy]],
+        strategy_factory: StrategyFactory,
         param_grid: ParameterGrid,
         *,
         dataset: object,
         features: pa.Table | None = None,
         primary_metric: str = "sharpe_ratio",
-        resolution_prices: dict[str, tuple[Decimal, datetime]] | None = None,
+        resolution_prices: ResolutionPrices | None = None,
     ) -> SweepResult:
         """Run a backtest for each parameter combination.
 
@@ -253,6 +259,7 @@ class ParameterSweepRunner:
         """
         params_list = list(param_grid)
         trials: list[SweepTrial] = []
+        failures: list[str] = []
 
         if self._n_workers == 1:
             for params in params_list:
@@ -276,9 +283,19 @@ class ParameterSweepRunner:
                 for future in as_completed(future_to_params):
                     try:
                         trials.append(future.result())
-                    except Exception:  # noqa: BLE001
-                        # Skip failed trials — they won't appear in the sort.
-                        pass
+                    except Exception as exc:
+                        params = future_to_params[future]
+                        failures.append(f"params={params!r}: {exc!r}")
+
+        if failures:
+            message = "; ".join(failures[:3])
+            if len(failures) > 3:
+                message = f"{message}; and {len(failures) - 3} more"
+            raise RuntimeError(
+                f"Parameter sweep failed for {len(failures)} trial(s): {message}"
+            )
+        if not trials:
+            raise RuntimeError("Parameter sweep produced no trials.")
 
         # Sort by primary_metric descending (higher is better).
         sorted_trials = sorted(
@@ -287,20 +304,15 @@ class ParameterSweepRunner:
             reverse=True,
         )
 
-        best_trial = sorted_trials[0] if sorted_trials else None
-
-        strategy_name = (
-            strategy_factory({}).name  # type: ignore[union-attr]
-            if not trials
-            else trials[0].result.strategy_name
-        )
+        best_trial = sorted_trials[0]
+        strategy_name = trials[0].result.strategy_name
 
         return SweepResult(
             sweep_id=make_sweep_id(strategy_name, param_grid.params),
             strategy_name=strategy_name,
             parameter_grid=param_grid.params,
             trials=sorted_trials,
-            best_params=best_trial.params if best_trial else {},
+            best_params=best_trial.params,
             primary_metric=primary_metric,
             completed_at=datetime.now(tz=UTC),
         )
@@ -312,10 +324,10 @@ class ParameterSweepRunner:
     def _run_trial(
         self,
         params: dict[str, Any],
-        strategy_factory: Callable,
+        strategy_factory: StrategyFactory,
         dataset: object,
         features: pa.Table | None,
-        resolution_prices: dict[str, tuple[Decimal, datetime]] | None,
+        resolution_prices: ResolutionPrices | None,
     ) -> SweepTrial:
         strategy = strategy_factory(params)
         # Support both EventBacktestEngine (positional features) and VecBacktestEngine.
@@ -329,7 +341,7 @@ class ParameterSweepRunner:
 # ---------------------------------------------------------------------------
 
 
-def _initial_cash_from_result(result: BacktestResult) -> float:
+def _initial_cash_from_result(result: result_mod.BacktestResult) -> float:
     """Extract initial_cash from config_snapshot or fall back to equity floor."""
     snapshot = result.config_snapshot
     if isinstance(snapshot, dict):
@@ -396,15 +408,18 @@ def _call_engine_run(
     strategy: Any,
     dataset: object,
     features: pa.Table | None,
-    resolution_prices: dict | None,
-) -> BacktestResult:
+    resolution_prices: ResolutionPrices | None,
+) -> result_mod.BacktestResult:
     """Dispatch to the correct engine.run() signature."""
     # VecBacktestEngine signature: run(strategy, dataset, feature_table, resolution_prices)
     # EventBacktestEngine signature: run(strategy, dataset, features, resolution_prices)
     try:
-        return engine.run(strategy, dataset, features, resolution_prices)
+        return cast(
+            result_mod.BacktestResult,
+            engine.run(strategy, dataset, features, resolution_prices),
+        )
     except TypeError:
-        return engine.run(strategy, dataset, features)
+        return cast(result_mod.BacktestResult, engine.run(strategy, dataset, features))
 
 
 __all__ = [

@@ -3,7 +3,7 @@
 These tests pin the parity contract between the documented pure-Python
 baseline implementations and any future accelerated counterpart.
 
-Design rules (from alpha_core.perf.interfaces)
+Design rules (from alpha_core.performance.interfaces)
 ----------------------------------------------
 1. An accelerated implementation must have identical method signatures.
 2. Inputs are treated as read-only by both paths.
@@ -27,7 +27,7 @@ Representative workloads
 
 Module importability
 --------------------
-- Both ``alpha_core.perf`` and ``alpha_core.performance`` namespaces are tested.
+- The canonical ``alpha_core.performance`` namespace is tested.
 - Regression tests must remain importable and greenfield-passing forever.
 """
 
@@ -39,12 +39,9 @@ from typing import Any, cast
 
 import pytest
 
-import alpha_core.perf as perf_alias
-import alpha_core.perf.interfaces as perf_ifaces
-import alpha_core.perf.parity as perf_parity
 import alpha_core.performance as perf_pkg
-import alpha_core.performance.interfaces as raw_ifaces
-import alpha_core.performance.parity as raw_parity
+import alpha_core.performance.interfaces as perf_interfaces
+import alpha_core.performance.parity as perf_parity
 
 # ---------------------------------------------------------------------------
 # Tolerance policy constants (single source of truth)
@@ -56,8 +53,8 @@ FEATURE_TOLERANCE_ABSOLUTE: float = 1e-9
 #: Maximum absolute deviation permitted for simulation (mark-to-market) kernels.
 SIMULATION_TOLERANCE_ABSOLUTE: float = 1e-9
 
-_PARITY_CFG_FEATURE = raw_parity.ParityConfig(tolerance=FEATURE_TOLERANCE_ABSOLUTE)
-_PARITY_CFG_SIM = raw_parity.ParityConfig(tolerance=SIMULATION_TOLERANCE_ABSOLUTE)
+_PARITY_CFG_FEATURE = perf_parity.ParityConfig(tolerance=FEATURE_TOLERANCE_ABSOLUTE)
+_PARITY_CFG_SIM = perf_parity.ParityConfig(tolerance=SIMULATION_TOLERANCE_ABSOLUTE)
 
 # ---------------------------------------------------------------------------
 # Baseline implementations: pure-Python reference paths
@@ -178,37 +175,16 @@ _SIM_CASES: list[tuple[dict[str, Any], dict[str, Any]]] = [
 
 
 # ---------------------------------------------------------------------------
-# 1. Namespace alias equivalence
+# 1. Namespace importability
 # ---------------------------------------------------------------------------
 
 
-class TestNamespaceAliases:
-    """Both ``alpha_core.perf`` and ``alpha_core.performance`` must expose
-    the same objects."""
-
-    def test_feature_transform_same_protocol(self) -> None:
-        assert perf_ifaces.FeatureTransform is raw_ifaces.FeatureTransform
-
-    def test_simulation_kernel_same_protocol(self) -> None:
-        assert perf_ifaces.SimulationKernel is raw_ifaces.SimulationKernel
-
-    def test_parity_config_same_class(self) -> None:
-        assert perf_parity.ParityConfig is raw_parity.ParityConfig
-
-    def test_check_feature_parity_same_function(self) -> None:
-        assert perf_parity.check_feature_parity is raw_parity.check_feature_parity
-
-    def test_check_simulation_parity_same_function(self) -> None:
-        assert perf_parity.check_simulation_parity is raw_parity.check_simulation_parity
-
-    def test_perf_alias_has_interfaces_attr(self) -> None:
-        assert hasattr(perf_alias, "interfaces")
-
-    def test_perf_alias_has_parity_attr(self) -> None:
-        assert hasattr(perf_alias, "parity")
-
+class TestPerformanceNamespace:
     def test_performance_pkg_has_interfaces_attr(self) -> None:
         assert hasattr(perf_pkg, "interfaces")
+
+    def test_performance_pkg_has_parity_attr(self) -> None:
+        assert hasattr(perf_pkg, "parity")
 
 
 # ---------------------------------------------------------------------------
@@ -218,13 +194,13 @@ class TestNamespaceAliases:
 
 class TestBaselineConformance:
     def test_rolling_mean_is_feature_transform(self) -> None:
-        assert isinstance(RollingMeanTransform(5), perf_ifaces.FeatureTransform)
+        assert isinstance(RollingMeanTransform(5), perf_interfaces.FeatureTransform)
 
     def test_ewm_is_feature_transform(self) -> None:
-        assert isinstance(EwmTransform(0.1), perf_ifaces.FeatureTransform)
+        assert isinstance(EwmTransform(0.1), perf_interfaces.FeatureTransform)
 
     def test_mark_to_market_is_simulation_kernel(self) -> None:
-        assert isinstance(MarkToMarketKernel(), perf_ifaces.SimulationKernel)
+        assert isinstance(MarkToMarketKernel(), perf_interfaces.SimulationKernel)
 
     def test_rolling_mean_name_is_nonempty(self) -> None:
         assert len(RollingMeanTransform(3).name) > 0
@@ -251,20 +227,20 @@ class TestBaselineSelfParity:
     @pytest.mark.parametrize("window", [3, 5, 10])
     def test_rolling_mean_self_parity(self, window: int) -> None:
         t = RollingMeanTransform(window)
-        result = raw_parity.check_feature_parity(t, t, _PROB_SERIES, _PARITY_CFG_FEATURE)
+        result = perf_parity.check_feature_parity(t, t, _PROB_SERIES, _PARITY_CFG_FEATURE)
         assert result.passed
         assert result.max_deviation == 0.0
 
     @pytest.mark.parametrize("alpha", [0.05, 0.1, 0.3, 0.5])
     def test_ewm_self_parity(self, alpha: float) -> None:
         t = EwmTransform(alpha)
-        result = raw_parity.check_feature_parity(t, t, _PROB_SERIES, _PARITY_CFG_FEATURE)
+        result = perf_parity.check_feature_parity(t, t, _PROB_SERIES, _PARITY_CFG_FEATURE)
         assert result.passed
         assert result.max_deviation == 0.0
 
     def test_mark_to_market_self_parity(self) -> None:
         k = MarkToMarketKernel()
-        result = raw_parity.check_simulation_parity(k, k, _SIM_CASES, _PARITY_CFG_SIM)
+        result = perf_parity.check_simulation_parity(k, k, _SIM_CASES, _PARITY_CFG_SIM)
         assert result.passed
         assert result.max_deviation == 0.0
 
@@ -336,7 +312,7 @@ class TestFallbackPolicy:
     def test_fallback_to_baseline_when_accel_unavailable(self) -> None:
         """Simulate a missing accelerated backend and verify fallback works."""
 
-        def _resolve_transform(window: int) -> perf_ifaces.FeatureTransform:
+        def _resolve_transform(window: int) -> perf_interfaces.FeatureTransform:
             try:
                 # If an optional accelerator package existed it would be imported here.
                 # Simulated as always-missing so the fallback is always exercised.
@@ -345,7 +321,7 @@ class TestFallbackPolicy:
                 return RollingMeanTransform(window)
 
         transform = _resolve_transform(5)
-        assert isinstance(transform, perf_ifaces.FeatureTransform)
+        assert isinstance(transform, perf_interfaces.FeatureTransform)
         result = transform.compute([0.5, 0.6, 0.7, 0.8, 0.9])
         assert len(result) == 5
 
@@ -370,7 +346,7 @@ class TestPromotionGate:
     like, ensuring the parity harness would correctly block its promotion.
     """
 
-    def _biased_transform(self, bias: float) -> perf_ifaces.FeatureTransform:
+    def _biased_transform(self, bias: float) -> perf_interfaces.FeatureTransform:
         """Returns a transform that adds a fixed bias to rolling mean output."""
 
         class _BiasedMean:
@@ -382,12 +358,12 @@ class TestPromotionGate:
                 base = RollingMeanTransform(3).compute(values)
                 return [v + bias if not math.isnan(v) else v for v in base]
 
-        return cast(perf_ifaces.FeatureTransform, _BiasedMean())
+        return cast(perf_interfaces.FeatureTransform, _BiasedMean())
 
     def test_large_bias_fails_parity(self) -> None:
         baseline = RollingMeanTransform(3)
         biased = self._biased_transform(0.05)
-        result = raw_parity.check_feature_parity(
+        result = perf_parity.check_feature_parity(
             baseline,
             biased,
             _PROB_SERIES,
@@ -398,13 +374,13 @@ class TestPromotionGate:
     def test_tiny_bias_within_tolerance_passes(self) -> None:
         baseline = RollingMeanTransform(3)
         biased = self._biased_transform(1e-12)  # well within 1e-9
-        cfg = raw_parity.ParityConfig(tolerance=FEATURE_TOLERANCE_ABSOLUTE)
-        result = raw_parity.check_feature_parity(baseline, biased, _PROB_SERIES, cfg)
+        cfg = perf_parity.ParityConfig(tolerance=FEATURE_TOLERANCE_ABSOLUTE)
+        result = perf_parity.check_feature_parity(baseline, biased, _PROB_SERIES, cfg)
         assert result.passed
 
     def test_parity_summary_shows_tolerance(self) -> None:
         baseline = RollingMeanTransform(3)
-        result = raw_parity.check_feature_parity(
+        result = perf_parity.check_feature_parity(
             baseline,
             baseline,
             _PROB_SERIES,
@@ -421,17 +397,17 @@ class TestPromotionGate:
 class TestToleranceModes:
     def test_relative_mode_tight_ewm_passes(self) -> None:
         t = EwmTransform(0.1)
-        cfg = raw_parity.ParityConfig(tolerance=1e-9, mode=raw_parity.ToleranceMode.RELATIVE)
-        result = raw_parity.check_feature_parity(t, t, _PROB_SERIES, cfg)
+        cfg = perf_parity.ParityConfig(tolerance=1e-9, mode=perf_parity.ToleranceMode.RELATIVE)
+        result = perf_parity.check_feature_parity(t, t, _PROB_SERIES, cfg)
         assert result.passed
 
     def test_absolute_mode_documented_in_parity_config(self) -> None:
         cfg = _PARITY_CFG_FEATURE
-        assert cfg.mode is raw_parity.ToleranceMode.ABSOLUTE
+        assert cfg.mode is perf_parity.ToleranceMode.ABSOLUTE
 
     def test_all_tolerance_modes_are_valid(self) -> None:
-        for mode in raw_parity.ToleranceMode:
-            cfg = raw_parity.ParityConfig(tolerance=1e-6, mode=mode)
+        for mode in perf_parity.ToleranceMode:
+            cfg = perf_parity.ParityConfig(tolerance=1e-6, mode=mode)
             assert cfg.mode == mode
 
 
@@ -446,24 +422,24 @@ class TestRepresentativeWorkloads:
     @pytest.mark.parametrize("window", [3, 5])
     def test_rolling_mean_representative_series(self, window: int) -> None:
         t = RollingMeanTransform(window)
-        result = raw_parity.check_feature_parity(t, t, _PROB_SERIES, _PARITY_CFG_FEATURE)
+        result = perf_parity.check_feature_parity(t, t, _PROB_SERIES, _PARITY_CFG_FEATURE)
         assert result.passed
         assert result.n_cases == len(_PROB_SERIES)
 
     def test_ewm_representative_series(self) -> None:
         t = EwmTransform(0.1)
-        result = raw_parity.check_feature_parity(t, t, _PROB_SERIES, _PARITY_CFG_FEATURE)
+        result = perf_parity.check_feature_parity(t, t, _PROB_SERIES, _PARITY_CFG_FEATURE)
         assert result.passed
         assert result.n_cases == len(_PROB_SERIES)
 
     def test_mark_to_market_representative_sim(self) -> None:
         k = MarkToMarketKernel()
-        result = raw_parity.check_simulation_parity(k, k, _SIM_CASES, _PARITY_CFG_SIM)
+        result = perf_parity.check_simulation_parity(k, k, _SIM_CASES, _PARITY_CFG_SIM)
         assert result.passed
         assert result.n_cases == len(_SIM_CASES)
 
     def test_empty_workload_always_passes(self) -> None:
         t = RollingMeanTransform(5)
-        result = raw_parity.check_feature_parity(t, t, [], _PARITY_CFG_FEATURE)
+        result = perf_parity.check_feature_parity(t, t, [], _PARITY_CFG_FEATURE)
         assert result.passed
         assert result.n_cases == 0

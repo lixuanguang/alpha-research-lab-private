@@ -9,11 +9,11 @@ from typing import Any
 import pandas as pd
 import pyarrow as pa
 import pytest
-
-from alpha_core.portfolio.sizing import EqualWeightSizer
 from apps.research.backtester.result import BacktestResult
 from apps.research.backtester.vec_engine import VecBacktestConfig, VecBacktestEngine
 from apps.research.backtester.vec_strategy import VecStrategy
+
+from alpha_core.portfolio.sizing import EqualWeightSizer
 
 _T0 = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
 _T1 = datetime(2024, 1, 2, 12, 0, tzinfo=UTC)
@@ -28,6 +28,19 @@ def _make_trades_table(rows: list[tuple[datetime, str, float]]) -> pa.Table:
             "ts_event": pa.array([r[0] for r in rows], type=pa.timestamp("us", tz="UTC")),
             "instrument_id": pa.array([r[1] for r in rows], type=pa.string()),
             "price": pa.array([r[2] for r in rows], type=pa.float64()),
+        }
+    )
+
+
+def _make_trades_table_with_available(
+    rows: list[tuple[datetime, datetime, str, float]],
+) -> pa.Table:
+    return pa.table(
+        {
+            "ts_event": pa.array([r[0] for r in rows], type=pa.timestamp("us", tz="UTC")),
+            "ts_available": pa.array([r[1] for r in rows], type=pa.timestamp("us", tz="UTC")),
+            "instrument_id": pa.array([r[2] for r in rows], type=pa.string()),
+            "price": pa.array([r[3] for r in rows], type=pa.float64()),
         }
     )
 
@@ -54,21 +67,66 @@ def _default_config(**kwargs: Any) -> VecBacktestConfig:
 class _NullStrategy(VecStrategy):
     name = "null_vec"
 
-    def generate_signals(self, features, universe):
+    def generate_signals(
+        self,
+        features: pd.DataFrame,
+        universe: list[str],
+    ) -> pd.DataFrame:
+        del features
         return pd.DataFrame({"instrument_id": universe, "signal": [0.0] * len(universe)})
 
-    def size_positions(self, signals, portfolio_value, max_positions):
+    def size_positions(
+        self,
+        signals: pd.DataFrame,
+        portfolio_value: Decimal,
+        max_positions: int,
+    ) -> pd.DataFrame:
+        del signals, portfolio_value, max_positions
         return pd.DataFrame({"instrument_id": [], "target_weight": []})
 
 
 class _BuyAllStrategy(VecStrategy):
     name = "buy_all_vec"
 
-    def generate_signals(self, features, universe):
+    def generate_signals(
+        self,
+        features: pd.DataFrame,
+        universe: list[str],
+    ) -> pd.DataFrame:
+        del features
         return pd.DataFrame({"instrument_id": universe, "signal": [1.0] * len(universe)})
 
-    def size_positions(self, signals, portfolio_value, max_positions):
+    def size_positions(
+        self,
+        signals: pd.DataFrame,
+        portfolio_value: Decimal,
+        max_positions: int,
+    ) -> pd.DataFrame:
         return EqualWeightSizer().size(signals, portfolio_value, max_positions)
+
+
+class _CaptureFeaturesStrategy(VecStrategy):
+    name = "capture_features"
+
+    def __init__(self) -> None:
+        self.snapshots: list[pd.DataFrame] = []
+
+    def generate_signals(
+        self,
+        features: pd.DataFrame,
+        universe: list[str],
+    ) -> pd.DataFrame:
+        self.snapshots.append(features.copy())
+        return pd.DataFrame({"instrument_id": universe, "signal": [0.0] * len(universe)})
+
+    def size_positions(
+        self,
+        signals: pd.DataFrame,
+        portfolio_value: Decimal,
+        max_positions: int,
+    ) -> pd.DataFrame:
+        del signals, portfolio_value, max_positions
+        return pd.DataFrame({"instrument_id": [], "target_weight": []})
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +262,40 @@ class TestTimeFiltering:
             _NullStrategy(), _MockDataset(_make_trades_table(rows))
         )
         assert result.event_count == 2
+
+
+class TestPointInTimeSemantics:
+    def test_late_feature_not_visible_before_ts_available(self) -> None:
+        trades = _make_trades_table_with_available(
+            [
+                (_T0, _T1, "a", 0.5),
+                (_T1, _T2, "a", 0.6),
+            ]
+        )
+        features = pa.table(
+            {
+                "instrument_id": pa.array(["a"], type=pa.string()),
+                "price": pa.array([0.5], type=pa.float64()),
+                "ts_event": pa.array([_T0], type=pa.timestamp("us", tz="UTC")),
+                "ts_available": pa.array([_T2], type=pa.timestamp("us", tz="UTC")),
+                "feature_alpha": pa.array([1.0], type=pa.float64()),
+            }
+        )
+        strategy = _CaptureFeaturesStrategy()
+
+        VecBacktestEngine(_default_config(rebalance_frequency="12h")).run(
+            strategy,
+            _MockDataset(trades),
+            feature_table=features,
+        )
+
+        first_snapshot = strategy.snapshots[0]
+        second_snapshot = strategy.snapshots[1]
+        assert (
+            "feature_alpha" not in first_snapshot.columns
+            or first_snapshot["feature_alpha"].isna().all()
+        )
+        assert second_snapshot.loc[0, "feature_alpha"] == pytest.approx(1.0)
 
     def test_end_filter(self) -> None:
         rows = [(_T0, "a", 0.5), (_T1, "a", 0.6), (_T2, "a", 0.7)]

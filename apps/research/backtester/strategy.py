@@ -21,9 +21,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 import alpha_core.execution.models as exec_models
 import alpha_core.portfolio.models as portfolio_models

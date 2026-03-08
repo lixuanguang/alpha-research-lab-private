@@ -12,11 +12,14 @@ Covers:
 from __future__ import annotations
 
 import asyncio
+import gzip
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import apps.data_collector.backfill as collector_backfill
+import pyarrow.parquet as pq
 
 import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
@@ -140,6 +143,31 @@ def _make_manager(
             storage_root=tmp_path,
         ),
     )
+
+
+def _silver_trade_ids(storage_root: Path) -> list[str]:
+    dataset_root = storage_root / "silver" / "trades"
+    if not dataset_root.exists() or not list(dataset_root.rglob("*.parquet")):
+        return []
+    return sorted(
+        str(trade_id)
+        for trade_id in pq.read_table(dataset_root).column("trade_id").to_pylist()
+    )
+
+
+def _bronze_trade_ids(storage_root: Path) -> list[str]:
+    trade_ids: list[str] = []
+    bronze_root = storage_root / "bronze" / "trades"
+    if not bronze_root.exists():
+        return trade_ids
+    for path in sorted(bronze_root.rglob("run_*.jsonl.gz")):
+        with gzip.open(path, mode="rt", encoding="utf-8") as handle:
+            for line in handle:
+                payload = json.loads(line)["payload"]
+                trade_id = payload.get("trade_id")
+                if isinstance(trade_id, str):
+                    trade_ids.append(trade_id)
+    return sorted(trade_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -297,14 +325,13 @@ def test_get_latest_cursor_returns_window_end_after_successful_backfill(tmp_path
 
 
 def test_resume_flow_cursor_advances_window_end_across_two_runs(tmp_path: Path) -> None:
-    """After two sequential backfill runs, the latest cursor must reflect
-    the second run's window_end."""
+    """Resume backfills must advance the cursor without replaying boundary data."""
     lineage_store = storage_lineage.LineageStore(tmp_path)
-    trades = [_trade("t1", _WINDOW_START + timedelta(hours=1))]
+    boundary_trade = _trade("t1", _WINDOW_END)
 
     # --- Run 1: window [T0, T1] ---
     t1_end = _WINDOW_END
-    manager = _make_manager(tmp_path, _StubAdapter(trades))
+    manager = _make_manager(tmp_path, _StubAdapter([boundary_trade]))
     asyncio.run(
         manager.backfill_trades(
             ["polymarket:mkt-a:yes"],
@@ -319,7 +346,7 @@ def test_resume_flow_cursor_advances_window_end_across_two_runs(tmp_path: Path) 
 
     # --- Run 2: window [T1, T2] using cursor as resume point ---
     t2_end = t1_end + timedelta(days=1)
-    manager2 = _make_manager(tmp_path, _StubAdapter(trades))
+    manager2 = _make_manager(tmp_path, _StubAdapter([boundary_trade]))
     asyncio.run(
         manager2.backfill_trades(
             ["polymarket:mkt-a:yes"],
@@ -332,6 +359,8 @@ def test_resume_flow_cursor_advances_window_end_across_two_runs(tmp_path: Path) 
     assert cursor_after_run2 is not None
     assert cursor_after_run2.cursor_watermark_utc == t2_end
     assert cursor_after_run2.cursor_watermark_utc > cursor_after_run1.cursor_watermark_utc
+    assert _silver_trade_ids(tmp_path) == ["t1"]
+    assert _bronze_trade_ids(tmp_path) == ["t1"]
 
 
 def test_failed_run_excluded_from_cursor_lookup(tmp_path: Path) -> None:

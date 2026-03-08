@@ -399,6 +399,18 @@ class ReplayPackageStore:
             return None
         return ReplayPackageManifest.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def delete(self, package_id: str) -> bool:
+        """Delete the manifest for *package_id*.
+
+        Returns ``True`` when a manifest was removed and ``False`` when it did
+        not exist.
+        """
+        path = self._package_path(package_id)
+        if not path.exists():
+            return False
+        path.unlink()
+        return True
+
     def list_packages(
         self,
         venue: str | None = None,

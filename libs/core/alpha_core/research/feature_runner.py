@@ -175,30 +175,8 @@ class FeatureRunner:
         FeatureRunError
             When the target dataset directory or ``trades.parquet`` is absent.
         """
-        effective_payload = (
-            config_payload if config_payload is not None else config.model_dump(mode="json")
-        )
-
-        # 1. Fail fast: require dataset and trades artifact.
-        try:
-            dataset_locator = dataset_builder_io.resolve_dataset_locator(
-                self._gold_root,
-                config.dataset_id,
-            )
-        except (KeyError, ValueError) as exc:
-            raise FeatureRunError(
-                f"Dataset '{config.dataset_id}' could not be resolved: {exc}. "
-                "Run build-dataset first."
-            ) from exc
-
-        trades_path = dataset_locator.dataset_dir / "trades.parquet"
-        if not trades_path.exists():
-            raise FeatureRunError(
-                f"Dataset '{dataset_locator.dataset_id}' is missing 'trades.parquet'. "
-                "The dataset may be empty or was built without the 'trades' event type."
-            )
-
-        # 2. Compute features.
+        effective_payload = self._resolve_config_payload(config, config_payload)
+        dataset_locator, trades_path = self._resolve_dataset_inputs(config)
         resolved_factor_packs = resolve_factor_pack_chain(
             config.factor_pack_id,
             expected_version=config.factor_pack_version,
@@ -213,21 +191,83 @@ class FeatureRunner:
             config.lookback_bars,
             factor_packs=resolved_factor_packs,
         )
-        feature_names = [col for col in features_table.schema.names if col not in _METADATA_COLS]
-        factor_pack = resolved_factor_packs[-1] if resolved_factor_packs else None
-
-        # 3. Persist feature matrix.
         run_id = run_context.run_id
+        features_path = self._persist_feature_table(run_id=run_id, features_table=features_table)
+        completed_context = run_context_mod.close_run_context(run_context)
+        feature_manifest = self._build_feature_manifest(
+            run_id=run_id,
+            config=config,
+            dataset_id=dataset_locator.dataset_id,
+            completed_context=completed_context,
+            features_table=features_table,
+            features_path=features_path,
+            resolved_factor_packs=resolved_factor_packs,
+            parent_run_id=parent_run_id,
+        )
+        self._persist_run_record(
+            feature_manifest=feature_manifest,
+            config=config,
+            dataset_id=dataset_locator.dataset_id,
+            completed_context=completed_context,
+            effective_payload=effective_payload,
+            parent_run_id=parent_run_id,
+        )
+        return feature_manifest
+
+    @staticmethod
+    def _resolve_config_payload(
+        config: FeatureConfig,
+        config_payload: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if config_payload is not None:
+            return config_payload
+        return config.model_dump(mode="json")
+
+    def _resolve_dataset_inputs(
+        self,
+        config: FeatureConfig,
+    ) -> tuple[dataset_builder_io.DatasetLocator, Path]:
+        try:
+            dataset_locator = dataset_builder_io.resolve_dataset_locator(
+                self._gold_root,
+                config.dataset_id,
+            )
+        except (KeyError, ValueError) as exc:
+            raise FeatureRunError(
+                f"Dataset '{config.dataset_id}' could not be resolved: {exc}. "
+                "Run build-dataset first."
+            ) from exc
+        trades_path = dataset_locator.dataset_dir / "trades.parquet"
+        if not trades_path.exists():
+            raise FeatureRunError(
+                f"Dataset '{dataset_locator.dataset_id}' is missing 'trades.parquet'. "
+                "The dataset may be empty or was built without the 'trades' event type."
+            )
+        return dataset_locator, trades_path
+
+    def _persist_feature_table(self, *, run_id: str, features_table: pa.Table) -> Path:
         features_path = self._store.prepare_path(run_id, "features.parquet")
         pq.write_table(features_table, features_path, compression="zstd")
+        return features_path
 
-        # 4. Finalize run context and assemble manifest.
-        completed_context = run_context_mod.close_run_context(run_context)
+    def _build_feature_manifest(
+        self,
+        *,
+        run_id: str,
+        config: FeatureConfig,
+        dataset_id: str,
+        completed_context: run_context_mod.RunContext,
+        features_table: pa.Table,
+        features_path: Path,
+        resolved_factor_packs: list[factor_pack_mod.FactorPackManifest],
+        parent_run_id: str | None,
+    ) -> FeatureManifest:
+        feature_names = [col for col in features_table.schema.names if col not in _METADATA_COLS]
+        factor_pack = resolved_factor_packs[-1] if resolved_factor_packs else None
         built_at = completed_context.completed_at_utc or datetime.now(tz=UTC)
-
-        feature_manifest = FeatureManifest(
+        return FeatureManifest(
             run_id=run_id,
-            dataset_id=dataset_locator.dataset_id,
+            dataset_id=dataset_id,
             feature_set_version=config.feature_set_version,
             built_at=built_at,
             lookback_bars=_effective_lookback_bars(feature_names, fallback=config.lookback_bars),
@@ -244,32 +284,38 @@ class FeatureRunner:
             ),
         )
 
-        # 5. Write feature manifest JSON.
-        feature_manifest_path = self._store.prepare_path(run_id, "feature_manifest.json")
-        feature_manifest_path.write_text(
-            feature_manifest.model_dump_json(indent=2), encoding="utf-8"
+    def _persist_run_record(
+        self,
+        *,
+        feature_manifest: FeatureManifest,
+        config: FeatureConfig,
+        dataset_id: str,
+        completed_context: run_context_mod.RunContext,
+        effective_payload: dict[str, Any],
+        parent_run_id: str | None,
+    ) -> None:
+        feature_manifest_path = self._store.prepare_path(
+            feature_manifest.run_id,
+            "feature_manifest.json",
         )
-
-        # 6. Write artifacts index and run manifest (includes feature_set_version).
-        artifact_map: dict[str, str] = {
-            "features": str(features_path),
-            "feature_manifest": str(feature_manifest_path),
-            "feature_set_version": config.feature_set_version,
-            "dataset_id": dataset_locator.dataset_id,
-        }
+        feature_manifest.artifacts["feature_manifest"] = str(feature_manifest_path)
+        feature_manifest_path.write_text(
+            feature_manifest.model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+        feature_manifest.artifacts["feature_set_version"] = config.feature_set_version
+        feature_manifest.artifacts["dataset_id"] = dataset_id
         if feature_manifest.factor_pack_id is not None:
-            artifact_map["factor_pack_id"] = feature_manifest.factor_pack_id
+            feature_manifest.artifacts["factor_pack_id"] = feature_manifest.factor_pack_id
         if feature_manifest.factor_pack_version is not None:
-            artifact_map["factor_pack_version"] = feature_manifest.factor_pack_version
+            feature_manifest.artifacts["factor_pack_version"] = feature_manifest.factor_pack_version
         manifest_mod.persist_run_record(
             storage_root=self._storage_root,
             run_context=completed_context,
             config_payload=effective_payload,
-            artifacts=artifact_map,
+            artifacts=feature_manifest.artifacts,
             parent_run_id=parent_run_id,
         )
-
-        return feature_manifest
 
 
 # ---------------------------------------------------------------------------

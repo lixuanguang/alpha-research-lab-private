@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import uuid
 from pathlib import Path
 
 import pyarrow as pa
@@ -11,6 +13,8 @@ import pyarrow.parquet as pq
 import alpha_core.events.models as event_models
 import alpha_core.storage.conventions as storage_conventions
 import alpha_core.utils.time as time_utils
+
+_FILE_STEM_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 class ParquetEventWriter:
@@ -24,6 +28,8 @@ class ParquetEventWriter:
         self,
         trades: list[event_models.CanonicalTrade],
         tier: storage_conventions.StorageTier = storage_conventions.StorageTier.SILVER,
+        *,
+        file_stem_token: str | None = None,
     ) -> Path:
         """Write canonical trades to the configured storage tier."""
         dataset_root = storage_conventions.dataset_root(
@@ -41,6 +47,7 @@ class ParquetEventWriter:
             schema=storage_conventions.TRADE_PARQUET_SCHEMA,
             dataset_root=dataset_root,
             partition_cols=storage_conventions.resolve_partition_columns("silver_trades"),
+            file_stem_token=file_stem_token,
         )
         return dataset_root
 
@@ -72,6 +79,8 @@ class ParquetEventWriter:
         self,
         candles: list[event_models.CanonicalOHLCV],
         tier: storage_conventions.StorageTier = storage_conventions.StorageTier.SILVER,
+        *,
+        file_stem_token: str | None = None,
     ) -> Path:
         """Write canonical OHLCV bars to the configured storage tier."""
         dataset_root = storage_conventions.dataset_root(
@@ -89,6 +98,7 @@ class ParquetEventWriter:
             schema=storage_conventions.OHLCV_PARQUET_SCHEMA,
             dataset_root=dataset_root,
             partition_cols=storage_conventions.resolve_partition_columns("silver_ohlcv"),
+            file_stem_token=file_stem_token,
         )
         return dataset_root
 
@@ -136,13 +146,20 @@ class ParquetEventWriter:
         schema: pa.Schema,
         dataset_root: Path,
         partition_cols: list[str],
+        file_stem_token: str | None = None,
     ) -> None:
         table = pa.Table.from_pylist(rows, schema=schema)
+        basename_template = None
+        if file_stem_token is not None:
+            basename_template = (
+                f"run_{_normalize_file_stem_token(file_stem_token)}_{uuid.uuid4().hex}-{{i}}.parquet"
+            )
         pq.write_to_dataset(
             table,
             root_path=str(dataset_root),
             partition_cols=partition_cols,
             compression=self._compression,
+            basename_template=basename_template,
         )
 
     @staticmethod
@@ -272,6 +289,17 @@ class ParquetEventWriter:
 def _encode_price_levels(levels: list[event_models.PriceLevel]) -> str:
     payload = [{"price": str(level.price), "size": str(level.size)} for level in levels]
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
+def _normalize_file_stem_token(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError("`file_stem_token` must be non-empty")
+    if _FILE_STEM_TOKEN_RE.fullmatch(cleaned) is None:
+        raise ValueError(
+            "`file_stem_token` contains unsupported characters; use [A-Za-z0-9._-]"
+        )
+    return cleaned
 
 
 __all__ = ["ParquetEventWriter"]

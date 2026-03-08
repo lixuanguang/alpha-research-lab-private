@@ -255,34 +255,112 @@ class BacktestRunner:
         parent_run_id: str | None = None,
         session_id: str | None = None,
     ) -> BacktestManifest:
+        required_parent_run_id = self._require_parent_run_id(parent_run_id)
+        effective_payload = self._resolve_config_payload(config, config_payload)
+        feature_manifest, features_df = self._load_feature_inputs(
+            config=config,
+            parent_run_id=required_parent_run_id,
+        )
+        resolved_recipe, recipe_zscore_column, strategy_spec = self._resolve_strategy_runtime(
+            config=config,
+            parent_run_id=required_parent_run_id,
+            feature_manifest=feature_manifest,
+            features_df=features_df,
+        )
+        run_context = run_context_mod.make_run_context(
+            "backtest",
+            config_payload=effective_payload,
+            session_id=session_id,
+        )
+        run_id = run_context.run_id
+        strategy = _ZScoreStrategy(strategy_spec)
+        trades_table, equity_table = _simulate(
+            features_df=features_df,
+            config=config,
+            strategy=strategy,
+            zscore_column=recipe_zscore_column,
+        )
+        artifact_map = self._persist_output_tables(
+            run_id=run_id,
+            config=config,
+            trades_table=trades_table,
+            equity_table=equity_table,
+            resolved_recipe=resolved_recipe,
+        )
+
+        completed_context = run_context_mod.close_run_context(run_context)
+        backtest_manifest = self._build_manifest(
+            run_id=run_id,
+            config=config,
+            parent_run_id=required_parent_run_id,
+            completed_context=completed_context,
+            trades_table=trades_table,
+            equity_table=equity_table,
+            artifact_map=artifact_map,
+            resolved_recipe=resolved_recipe,
+        )
+        self._persist_run_record(
+            run_context=completed_context,
+            effective_payload=effective_payload,
+            parent_run_id=required_parent_run_id,
+            backtest_manifest=backtest_manifest,
+        )
+        return backtest_manifest
+
+    @staticmethod
+    def _require_parent_run_id(parent_run_id: str | None) -> str:
         if parent_run_id is None:
             raise BacktestRunError(
                 "A feature-build run id is required to locate features artifacts. "
                 "Pass --parent-run-id pointing to a completed build-features run."
             )
+        return parent_run_id
 
-        try:
-            features_path = self._store.path_for(parent_run_id, "features.parquet")
-        except artifact_store_mod.ArtifactNotFoundError as exc:
-            raise BacktestRunError(
-                f"Feature artifact not found for run '{parent_run_id}': {exc}. "
-                "Ensure the feature-build run completed successfully."
-            ) from exc
+    @staticmethod
+    def _resolve_config_payload(
+        config: BacktestConfig,
+        config_payload: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if config_payload is not None:
+            return config_payload
+        return config.model_dump(mode="json")
 
-        effective_payload = (
-            config_payload if config_payload is not None else config.model_dump(mode="json")
-        )
+    def _load_feature_inputs(
+        self,
+        *,
+        config: BacktestConfig,
+        parent_run_id: str,
+    ) -> tuple[feature_runner_mod.FeatureManifest, pd.DataFrame]:
+        features_path = self._require_feature_artifact(parent_run_id)
         feature_manifest = _load_feature_manifest(store=self._store, run_id=parent_run_id)
         _validate_feature_manifest_contract(
             config=config,
             parent_run_id=parent_run_id,
             feature_manifest=feature_manifest,
         )
+        return feature_manifest, pq.read_table(features_path).to_pandas()
+
+    def _require_feature_artifact(self, parent_run_id: str) -> Path:
+        try:
+            return self._store.path_for(parent_run_id, "features.parquet")
+        except artifact_store_mod.ArtifactNotFoundError as exc:
+            raise BacktestRunError(
+                f"Feature artifact not found for run '{parent_run_id}': {exc}. "
+                "Ensure the feature-build run completed successfully."
+            ) from exc
+
+    def _resolve_strategy_runtime(
+        self,
+        *,
+        config: BacktestConfig,
+        parent_run_id: str,
+        feature_manifest: feature_runner_mod.FeatureManifest,
+        features_df: pd.DataFrame,
+    ) -> tuple[strategy_recipe_mod.StrategyRecipeManifest | None, str | None, StrategySpec]:
         resolved_recipe = resolve_strategy_recipe(
             config.strategy_recipe_id,
             expected_version=config.strategy_recipe_version,
         )
-        features_df = pq.read_table(features_path).to_pandas()
         effective_strategy_params = dict(config.strategy_params)
         effective_fee_bps = config.fee_bps
         effective_slippage_bps = config.slippage_bps
@@ -294,22 +372,13 @@ class BacktestRunner:
                 effective_fee_bps,
                 effective_slippage_bps,
                 effective_max_position_pct,
-            ) = _merge_recipe_defaults(
-                config=config,
-                recipe=resolved_recipe,
-            )
+            ) = _merge_recipe_defaults(config=config, recipe=resolved_recipe)
             recipe_zscore_column = _validate_recipe_feature_contract(
                 parent_run_id=parent_run_id,
                 recipe=resolved_recipe,
                 feature_manifest=feature_manifest,
                 features_df=features_df,
             )
-        run_context = run_context_mod.make_run_context(
-            "backtest",
-            config_payload=effective_payload,
-            session_id=session_id,
-        )
-        run_id = run_context.run_id
         strategy_spec = _resolve_strategy_spec(
             config.strategy_id,
             effective_strategy_params,
@@ -317,24 +386,21 @@ class BacktestRunner:
             fee_bps=effective_fee_bps,
             slippage_bps=effective_slippage_bps,
         )
-        strategy = _ZScoreStrategy(strategy_spec)
-        trades_table, equity_table = _simulate(
-            features_df=features_df,
-            config=config,
-            strategy=strategy,
-            zscore_column=recipe_zscore_column,
-        )
+        return resolved_recipe, recipe_zscore_column, strategy_spec
 
+    def _persist_output_tables(
+        self,
+        *,
+        run_id: str,
+        config: BacktestConfig,
+        trades_table: pa.Table,
+        equity_table: pa.Table,
+        resolved_recipe: strategy_recipe_mod.StrategyRecipeManifest | None,
+    ) -> dict[str, str]:
         trades_path = self._store.prepare_path(run_id, "trades.parquet")
         equity_path = self._store.prepare_path(run_id, "equity.parquet")
         pq.write_table(trades_table, trades_path, compression="zstd")
         pq.write_table(equity_table, equity_path, compression="zstd")
-
-        completed_context = run_context_mod.close_run_context(run_context)
-        built_at = completed_context.completed_at_utc or datetime.now(tz=UTC)
-        final_equity = config.starting_cash
-        if equity_table.num_rows > 0:
-            final_equity = float(equity_table.column("equity").to_pylist()[-1])
 
         artifact_map: dict[str, str] = {
             "trades": str(trades_path),
@@ -346,7 +412,23 @@ class BacktestRunner:
         if resolved_recipe is not None:
             artifact_map["strategy_recipe_id"] = resolved_recipe.recipe_id
             artifact_map["strategy_recipe_version"] = resolved_recipe.version
-        backtest_manifest = BacktestManifest(
+        return artifact_map
+
+    def _build_manifest(
+        self,
+        *,
+        run_id: str,
+        config: BacktestConfig,
+        parent_run_id: str,
+        completed_context: run_context_mod.RunContext,
+        trades_table: pa.Table,
+        equity_table: pa.Table,
+        artifact_map: dict[str, str],
+        resolved_recipe: strategy_recipe_mod.StrategyRecipeManifest | None,
+    ) -> BacktestManifest:
+        built_at = completed_context.completed_at_utc or datetime.now(tz=UTC)
+        final_equity = self._resolve_final_equity(config.starting_cash, equity_table)
+        return BacktestManifest(
             run_id=run_id,
             dataset_id=config.dataset_id,
             feature_set_version=config.feature_set_version,
@@ -371,18 +453,30 @@ class BacktestRunner:
             ),
         )
 
-        manifest_path = self._store.prepare_path(run_id, "backtest_manifest.json")
-        manifest_path.write_text(backtest_manifest.model_dump_json(indent=2), encoding="utf-8")
-        artifact_map["backtest_manifest"] = str(manifest_path)
+    @staticmethod
+    def _resolve_final_equity(starting_cash: float, equity_table: pa.Table) -> float:
+        if equity_table.num_rows == 0:
+            return starting_cash
+        return float(equity_table.column("equity").to_pylist()[-1])
 
+    def _persist_run_record(
+        self,
+        *,
+        run_context: run_context_mod.RunContext,
+        effective_payload: dict[str, Any],
+        parent_run_id: str,
+        backtest_manifest: BacktestManifest,
+    ) -> None:
+        manifest_path = self._store.prepare_path(backtest_manifest.run_id, "backtest_manifest.json")
+        backtest_manifest.artifacts["backtest_manifest"] = str(manifest_path)
+        manifest_path.write_text(backtest_manifest.model_dump_json(indent=2), encoding="utf-8")
         manifest_mod.persist_run_record(
             storage_root=self._storage_root,
-            run_context=completed_context,
+            run_context=run_context,
             config_payload=effective_payload,
-            artifacts=artifact_map,
+            artifacts=backtest_manifest.artifacts,
             parent_run_id=parent_run_id,
         )
-        return backtest_manifest
 
 
 def _simulate(

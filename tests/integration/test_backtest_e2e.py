@@ -8,13 +8,12 @@ from decimal import Decimal
 from typing import Any
 
 import pyarrow as pa
-import pytest
+from apps.research.backtester.engine import EventBacktestConfig, EventBacktestEngine
+from apps.research.backtester.result import make_backtest_id
+from apps.research.backtester.strategy import Strategy, StrategyState
 
 from alpha_core.execution.models import BacktestOrderIntent, FeeSchedule
 from alpha_core.portfolio.models import Side
-from apps.research.backtester.engine import EventBacktestConfig, EventBacktestEngine
-from apps.research.backtester.result import BacktestResult, make_backtest_id
-from apps.research.backtester.strategy import Strategy, StrategyState
 
 # ---------------------------------------------------------------------------
 # Shared helpers

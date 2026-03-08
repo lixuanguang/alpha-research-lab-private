@@ -24,7 +24,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pandas as pd
 import pyarrow as pa
@@ -32,10 +32,10 @@ import pyarrow.compute as pc
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import alpha_core.execution.models as exec_models
+import alpha_core.portfolio.models as portfolio_models
 import alpha_core.portfolio.tracker as tracker_mod
-from alpha_core.portfolio.models import Side
-from apps.research.backtester.result import BacktestResult, make_backtest_id
-from apps.research.backtester.vec_strategy import VecStrategy
+import apps.research.backtester.result as result_mod
+import apps.research.backtester.vec_strategy as vec_strategy_mod
 
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
@@ -93,11 +93,11 @@ class VecBacktestEngine:
 
     def run(
         self,
-        strategy: VecStrategy,
+        strategy: vec_strategy_mod.VecStrategy,
         dataset: object,  # GoldDataset — typed loosely to avoid heavy dependency
         feature_table: pa.Table | None = None,
         resolution_prices: dict[str, tuple[Decimal, datetime]] | None = None,
-    ) -> BacktestResult:
+    ) -> result_mod.BacktestResult:
         """Execute the vectorized backtest.
 
         Args:
@@ -120,12 +120,15 @@ class VecBacktestEngine:
 
         # Convert to pandas for resampling.
         df = trades_table.to_pandas()
-        if df["ts_event"].dt.tz is None:
-            df["ts_event"] = df["ts_event"].dt.tz_localize("UTC")
-        else:
-            df["ts_event"] = df["ts_event"].dt.tz_convert("UTC")
+        sequence_col = _sequence_column_from_df(df)
+        _normalize_utc_column(df, sequence_col)
+        if "ts_event" in df.columns:
+            _normalize_utc_column(df, "ts_event")
 
-        df = df.sort_values("ts_event")
+        sort_columns = [sequence_col]
+        if "ts_event" in df.columns and sequence_col != "ts_event":
+            sort_columns.append("ts_event")
+        df = df.sort_values(sort_columns, kind="stable")
         df["price"] = df["price"].astype(float)
 
         universe = sorted(df["instrument_id"].unique().tolist())
@@ -195,8 +198,8 @@ class VecBacktestEngine:
         duration = time.monotonic() - t_start
         config_dict = self._config.model_dump(mode="json")
 
-        return BacktestResult(
-            backtest_id=make_backtest_id(config_dict, strategy.name),
+        return result_mod.BacktestResult(
+            backtest_id=result_mod.make_backtest_id(config_dict, strategy.name),
             config_snapshot=config_dict,
             strategy_name=strategy.name,
             trades=all_fills,
@@ -218,11 +221,12 @@ class VecBacktestEngine:
         Returns a list of (bar_timestamp, bar_df) pairs sorted chronologically.
         ``bar_timestamp`` is the *end* of the rebalance period.
         """
+        sequence_col = _sequence_column_from_df(df)
         try:
-            df["_bar"] = df["ts_event"].dt.floor(self._config.rebalance_frequency)
+            df["_bar"] = df[sequence_col].dt.floor(self._config.rebalance_frequency)
         except ValueError:
             # Fallback: group by calendar day.
-            df["_bar"] = df["ts_event"].dt.floor("1D")
+            df["_bar"] = df[sequence_col].dt.floor("1D")
 
         bars = [(bar_ts, grp.drop(columns=["_bar"])) for bar_ts, grp in df.groupby("_bar")]
         return sorted(bars, key=lambda x: x[0])
@@ -266,7 +270,11 @@ class VecBacktestEngine:
             fill = self._make_fill(
                 instrument_id=instr,
                 delta_size=pos.size,
-                side=Side.SHORT if pos.side == Side.LONG else Side.LONG,
+                side=(
+                    portfolio_models.Side.SHORT
+                    if pos.side == portfolio_models.Side.LONG
+                    else portfolio_models.Side.LONG
+                ),
                 ref_price=ref_price,
                 ts=bar_ts,
             )
@@ -279,15 +287,19 @@ class VecBacktestEngine:
             if ref_price == _ZERO:
                 continue
 
-            # Target value = |weight| × portfolio_value
+            # Target value = |weight| x portfolio_value
             target_value = abs(Decimal(str(weight))) * portfolio_value
             # Target size (number of contracts)
             target_size = (target_value / ref_price).quantize(_SIZE_PREC, ROUND_HALF_UP)
-            target_side = Side.LONG if weight > 0 else Side.SHORT
+            target_side = (
+                portfolio_models.Side.LONG
+                if weight > 0
+                else portfolio_models.Side.SHORT
+            )
 
             # Current size/side held.
             current_size = _ZERO
-            current_side: Side | None = None
+            current_side: portfolio_models.Side | None = None
             if instr in current_positions:
                 pos = current_positions[instr]
                 current_size = pos.size
@@ -311,7 +323,11 @@ class VecBacktestEngine:
                 delta = target_size - current_size
                 if abs(delta) >= Decimal("0.000001"):
                     adj_side = target_side if delta > _ZERO else (
-                        Side.SHORT if target_side == Side.LONG else Side.LONG
+
+                            portfolio_models.Side.SHORT
+                            if target_side == portfolio_models.Side.LONG
+                            else portfolio_models.Side.LONG
+
                     )
                     fill = self._make_fill(
                         instrument_id=instr,
@@ -324,7 +340,11 @@ class VecBacktestEngine:
                         fills.append(fill)
             else:
                 # Opposite side → close current, open target.
-                close_side = Side.SHORT if current_side == Side.LONG else Side.LONG
+                close_side = (
+                    portfolio_models.Side.SHORT
+                    if current_side == portfolio_models.Side.LONG
+                    else portfolio_models.Side.LONG
+                )
                 fill = self._make_fill(
                     instrument_id=instr,
                     delta_size=current_size,
@@ -352,7 +372,7 @@ class VecBacktestEngine:
         *,
         instrument_id: str,
         delta_size: Decimal,
-        side: Side,
+        side: portfolio_models.Side,
         ref_price: Decimal,
         ts: datetime,
     ) -> exec_models.SimulatedFill | None:
@@ -383,14 +403,15 @@ class VecBacktestEngine:
         )
 
     def _apply_time_filter(self, table: pa.Table) -> pa.Table:
-        if "ts_event" not in table.schema.names:
+        sequence_col = _sequence_column_from_table(table)
+        if sequence_col not in table.schema.names:
             return table
         if self._config.start is not None:
-            ts_arr = table.column("ts_event")
+            ts_arr = table.column(sequence_col)
             start_ts = pa.scalar(self._config.start, type=pa.timestamp("us", tz="UTC"))
             table = table.filter(pc.greater_equal(ts_arr, start_ts))
         if self._config.end is not None:
-            ts_arr = table.column("ts_event")
+            ts_arr = table.column(sequence_col)
             end_ts = pa.scalar(self._config.end, type=pa.timestamp("us", tz="UTC"))
             table = table.filter(pc.less_equal(ts_arr, end_ts))
         return table
@@ -403,10 +424,15 @@ class VecBacktestEngine:
         if feature_table is None:
             return None
         df = feature_table.to_pandas()
-        if "ts_event" in df.columns:
-            if df["ts_event"].dt.tz is None:
-                df["ts_event"] = df["ts_event"].dt.tz_localize("UTC")
-            df = df.sort_values("ts_event")
+        sequence_col = _sequence_column_from_df(df)
+        if sequence_col in df.columns:
+            _normalize_utc_column(df, sequence_col)
+            if "ts_event" in df.columns:
+                _normalize_utc_column(df, "ts_event")
+            sort_columns = [sequence_col]
+            if "ts_event" in df.columns and sequence_col != "ts_event":
+                sort_columns.append("ts_event")
+            df = df.sort_values(sort_columns, kind="stable")
         return df
 
     @staticmethod
@@ -419,27 +445,31 @@ class VecBacktestEngine:
         if features_index is None or features_index.empty:
             return pd.DataFrame({"instrument_id": universe})
 
-        if "ts_event" not in features_index.columns:
+        sequence_col = _sequence_column_from_df(features_index)
+        if sequence_col not in features_index.columns:
             return features_index.copy()
 
-        # Filter to rows ≤ bar_ts.
-        cutoff = pd.Timestamp(bar_ts, tz="UTC") if bar_ts.tzinfo else pd.Timestamp(bar_ts)
-        snapshot = features_index[features_index["ts_event"] <= cutoff]
+        cutoff = pd.Timestamp(bar_ts)
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.tz_localize("UTC")
+        else:
+            cutoff = cutoff.tz_convert("UTC")
+        snapshot = features_index[features_index[sequence_col] <= cutoff]
 
         if snapshot.empty:
             return pd.DataFrame({"instrument_id": universe})
 
-        # Take the last row per instrument (most recent as-of).
         if "instrument_id" in snapshot.columns:
             snapshot = snapshot.groupby("instrument_id").last().reset_index()
 
         return snapshot
 
-    def _empty_result(self, strategy: VecStrategy, t_start: float) -> BacktestResult:
-        from alpha_core.portfolio.models import PortfolioState
-
-        duration = time.monotonic() - t_start
-        dummy_portfolio = PortfolioState(
+    def _empty_result(
+        self,
+        strategy: vec_strategy_mod.VecStrategy,
+        t_start: float,
+    ) -> result_mod.BacktestResult:
+        dummy_portfolio = portfolio_models.PortfolioState(
             timestamp=datetime.now(tz=UTC),
             cash=self._config.initial_cash,
             positions={},
@@ -448,8 +478,8 @@ class VecBacktestEngine:
             equity=self._config.initial_cash,
         )
         config_dict = self._config.model_dump(mode="json")
-        return BacktestResult(
-            backtest_id=make_backtest_id(config_dict, strategy.name),
+        return result_mod.BacktestResult(
+            backtest_id=result_mod.make_backtest_id(config_dict, strategy.name),
             config_snapshot=config_dict,
             strategy_name=strategy.name,
             trades=[],
@@ -465,10 +495,28 @@ class VecBacktestEngine:
 # ---------------------------------------------------------------------------
 
 
+def _sequence_column_from_table(table: pa.Table) -> str:
+    return "ts_available" if "ts_available" in table.schema.names else "ts_event"
+
+
+def _sequence_column_from_df(df: pd.DataFrame) -> str:
+    return "ts_available" if "ts_available" in df.columns else "ts_event"
+
+
+def _normalize_utc_column(df: pd.DataFrame, column_name: str) -> None:
+    if column_name not in df.columns:
+        return
+    series = df[column_name]
+    if series.dt.tz is None:
+        df[column_name] = series.dt.tz_localize("UTC")
+        return
+    df[column_name] = series.dt.tz_convert("UTC")
+
+
 def _to_utc_datetime(ts: Any) -> datetime:
     """Convert pandas Timestamp or datetime to UTC-aware datetime."""
     if isinstance(ts, pd.Timestamp):
-        dt = ts.to_pydatetime()
+        dt = cast(datetime, ts.to_pydatetime())
         if dt.tzinfo is None:
             return dt.replace(tzinfo=UTC)
         return dt.astimezone(UTC)
@@ -480,8 +528,8 @@ def _to_utc_datetime(ts: Any) -> datetime:
 
 
 def _last_ts(df: pd.DataFrame) -> datetime:
-    """Return the last ts_event in the DataFrame as UTC-aware datetime."""
-    last = df["ts_event"].iloc[-1]
+    """Return the last execution timestamp in the DataFrame as UTC-aware datetime."""
+    last = df[_sequence_column_from_df(df)].iloc[-1]
     return _to_utc_datetime(last)
 
 

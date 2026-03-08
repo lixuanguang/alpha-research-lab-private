@@ -15,6 +15,7 @@ import alpha_core.adapters.base as adapters_base
 import alpha_core.events.quality as event_quality
 import alpha_core.quality.gap_detector as quality_gap_detector
 import alpha_core.storage.bronze_writer as storage_bronze
+import alpha_core.storage.conventions as storage_conventions
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_writer as storage_parquet
 import alpha_core.storage.replay_package as storage_replay
@@ -85,7 +86,7 @@ class BackfillManager:
         self._quality_checker = dependencies.quality_checker
         self._lineage_store = dependencies.lineage_store
         self._replay_package_store = dependencies.replay_package_store
-        self._storage_root = dependencies.storage_root
+        self._storage_root = dependencies.storage_root or self._resolve_storage_root(dependencies)
         self._retry_policy = retry_policy or backfill_support.FetchRetryPolicy()
 
     async def backfill_trades(
@@ -106,6 +107,7 @@ class BackfillManager:
         end_utc = time_utils.ensure_utc(end)
         backfill_support.validate_window(start_utc, end_utc)
         window = backfill_support.TimeWindow(start=start_utc, end=end_utc)
+        exclude_start = self._should_exclude_resume_boundary("trades", window)
         return await self._run_outcome_backfill(
             event_type="trades",
             outcome_ids=outcome_ids,
@@ -114,11 +116,13 @@ class BackfillManager:
                 "window_start": start_utc.isoformat(),
                 "window_end": end_utc.isoformat(),
                 "batch_size": batch_size,
+                "exclude_start_boundary": exclude_start,
             },
             process_outcome=partial(
                 self._backfill_trades_for_outcome,
                 window=window,
                 batch_size=batch_size,
+                exclude_start=exclude_start,
             ),
         )
 
@@ -143,6 +147,7 @@ class BackfillManager:
             end=end_utc,
         )
         window = backfill_support.TimeWindow(start=start_utc, end=end_utc)
+        exclude_start = self._should_exclude_resume_boundary("ohlcv", window)
         return await self._run_outcome_backfill(
             event_type="ohlcv",
             outcome_ids=outcome_ids,
@@ -151,12 +156,14 @@ class BackfillManager:
                 "window_start": start_utc.isoformat(),
                 "window_end": end_utc.isoformat(),
                 "resolution": resolution,
+                "exclude_start_boundary": exclude_start,
             },
             process_outcome=partial(
                 self._backfill_ohlcv_for_outcome,
                 window=window,
                 resolution=resolution,
                 limit=limit,
+                exclude_start=exclude_start,
             ),
         )
 
@@ -253,10 +260,28 @@ class BackfillManager:
                 replay_package_id=replay_package_id,
             )
         except BackfillRunError as exc:
-            self._lineage_store.fail_run(run.run_id, exc.errors)
+            self._lineage_store.fail_run(
+                run.run_id,
+                self._build_failure_errors(
+                    exc.errors,
+                    self._cleanup_failed_run_artifacts(
+                        run_id=run.run_id,
+                        event_type=event_type,
+                        replay_package_id=replay_package_id,
+                    ),
+                ),
+            )
             raise
         except Exception as exc:
-            self._lineage_store.fail_run(run.run_id, str(exc))
+            errors = self._build_failure_errors(
+                [str(exc)],
+                self._cleanup_failed_run_artifacts(
+                    run_id=run.run_id,
+                    event_type=event_type,
+                    replay_package_id=replay_package_id,
+                ),
+            )
+            self._lineage_store.fail_run(run.run_id, errors)
             raise
 
         return BackfillResult(
@@ -281,6 +306,7 @@ class BackfillManager:
         *,
         window: backfill_support.TimeWindow,
         batch_size: int,
+        exclude_start: bool,
     ) -> backfill_support.OutcomeBackfillTotals:
         trades, raw_payloads = await backfill_support.fetch_trades_windowed(
             self._adapter,
@@ -288,6 +314,7 @@ class BackfillManager:
             window=window,
             batch_size=batch_size,
             retry_policy=self._retry_policy,
+            exclude_start=exclude_start,
         )
         trades.sort(key=lambda trade: (trade.instrument_id, trade.ts_event, trade.trade_id))
         valid_trades, rejected = backfill_support.filter_quality_events(
@@ -303,7 +330,7 @@ class BackfillManager:
                 run_id=run_id,
             )
         if valid_trades:
-            self._silver_writer.write_trades(valid_trades)
+            self._silver_writer.write_trades(valid_trades, file_stem_token=run_id)
 
         return backfill_support.OutcomeBackfillTotals(
             fetched=len(trades),
@@ -319,6 +346,7 @@ class BackfillManager:
         window: backfill_support.TimeWindow,
         resolution: str,
         limit: int,
+        exclude_start: bool,
     ) -> backfill_support.OutcomeBackfillTotals:
         candles, raw_payloads = await backfill_support.call_with_retries(
             partial(
@@ -339,6 +367,7 @@ class BackfillManager:
             normalized_raw,
             start=window.start,
             end=window.end,
+            exclude_start=exclude_start,
         )
         in_window_candles.sort(
             key=lambda candle: (candle.instrument_id, candle.ts_event, candle.resolution)
@@ -356,13 +385,104 @@ class BackfillManager:
                 run_id=run_id,
             )
         if valid_candles:
-            self._silver_writer.write_ohlcv(valid_candles)
+            self._silver_writer.write_ohlcv(valid_candles, file_stem_token=run_id)
 
         return backfill_support.OutcomeBackfillTotals(
             fetched=len(in_window_candles),
             stored=len(valid_candles),
             rejected=rejected,
         )
+
+    def _should_exclude_resume_boundary(
+        self,
+        event_type: str,
+        window: backfill_support.TimeWindow,
+    ) -> bool:
+        prior_run = self._lineage_store.get_latest_cursor(self._venue, event_type=event_type)
+        if prior_run is None or not prior_run.resume_safe:
+            return False
+        return prior_run.cursor_watermark_utc == window.start
+
+    @staticmethod
+    def _resolve_storage_root(dependencies: BackfillDependencies) -> Path | None:
+        bronze_root = getattr(dependencies.bronze_writer, "_storage_root", None)
+        silver_root = getattr(dependencies.silver_writer, "_storage_root", None)
+        if isinstance(bronze_root, Path) and bronze_root == silver_root:
+            return bronze_root
+        return None
+
+    def _cleanup_failed_run_artifacts(
+        self,
+        *,
+        run_id: str,
+        event_type: str,
+        replay_package_id: str | None,
+    ) -> list[str]:
+        errors: list[str] = []
+        if self._storage_root is not None:
+            errors.extend(self._cleanup_bronze_run_files(run_id=run_id, event_type=event_type))
+            errors.extend(self._cleanup_silver_run_files(run_id=run_id, event_type=event_type))
+        if self._replay_package_store is not None and replay_package_id is not None:
+            try:
+                self._replay_package_store.delete(replay_package_id)
+            except Exception as exc:
+                errors.append(f"cleanup_replay_package_failed: {exc}")
+        return errors
+
+    def _cleanup_bronze_run_files(self, *, run_id: str, event_type: str) -> list[str]:
+        storage_root = self._storage_root
+        if storage_root is None:
+            return []
+        bronze_root = storage_root / storage_conventions.StorageTier.BRONZE.value / event_type
+        return self._cleanup_run_files(
+            root=bronze_root,
+            pattern=f"run_{run_id}.jsonl.gz",
+        )
+
+    def _cleanup_silver_run_files(self, *, run_id: str, event_type: str) -> list[str]:
+        storage_root = self._storage_root
+        if storage_root is None:
+            return []
+        silver_root = storage_root / storage_conventions.StorageTier.SILVER.value / event_type
+        return self._cleanup_run_files(
+            root=silver_root,
+            pattern=f"run_{run_id}_*.parquet",
+        )
+
+    def _cleanup_run_files(self, *, root: Path, pattern: str) -> list[str]:
+        if not root.exists():
+            return []
+        errors: list[str] = []
+        try:
+            artifact_paths = list(root.rglob(pattern))
+        except FileNotFoundError:
+            return []
+        prunable_dirs: set[Path] = set()
+        for artifact_path in artifact_paths:
+            try:
+                artifact_path.unlink()
+                prunable_dirs.add(artifact_path.parent)
+            except FileNotFoundError:
+                continue
+            except Exception as exc:
+                errors.append(f"cleanup_failed[{artifact_path}]: {exc}")
+        for directory in sorted(prunable_dirs, key=lambda path: len(path.parts), reverse=True):
+            self._prune_empty_directories(directory, stop_root=root)
+        return errors
+
+    @staticmethod
+    def _prune_empty_directories(directory: Path, *, stop_root: Path) -> None:
+        current = directory
+        while current.exists() and current != stop_root:
+            try:
+                current.rmdir()
+            except OSError:
+                return
+            current = current.parent
+
+    @staticmethod
+    def _build_failure_errors(base_errors: list[str], cleanup_errors: list[str]) -> list[str]:
+        return [*base_errors, *cleanup_errors]
 
 
 __all__ = ["BackfillDependencies", "BackfillManager", "BackfillResult"]

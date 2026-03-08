@@ -6,7 +6,7 @@ import asyncio
 import math
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TypeVar
 
 import alpha_core.adapters.base as adapters_base
@@ -110,6 +110,7 @@ async def fetch_trades_windowed(
     window: TimeWindow,
     batch_size: int,
     retry_policy: FetchRetryPolicy,
+    exclude_start: bool = False,
 ) -> tuple[list[event_models.CanonicalTrade], list[dict[str, object]]]:
     """Paginate fetch_trades_with_raw to collect all trades in [start, end]."""
     sink = TradeBackfillSink()
@@ -130,6 +131,7 @@ async def fetch_trades_windowed(
             trades=trades,
             normalized_raw=normalized_raw,
             window=window,
+            exclude_start=exclude_start,
             state=state,
             sink=sink,
         )
@@ -141,7 +143,13 @@ async def fetch_trades_windowed(
             batch_size=batch_size,
         ):
             break
-        _update_trade_pagination_state(state, max_ts=max_ts, new_rows=new_rows)
+        _update_trade_pagination_state(
+            state,
+            max_ts=max_ts,
+            new_rows=new_rows,
+            window=window,
+            exclude_start=exclude_start,
+        )
 
     return sink.trades, sink.raw_payloads
 
@@ -191,6 +199,7 @@ def filter_ohlcv_window_with_raw(
     *,
     start: datetime,
     end: datetime,
+    exclude_start: bool = False,
 ) -> tuple[list[event_models.CanonicalOHLCV], list[dict[str, object]]]:
     """Filter candles to [start, end] and preserve raw-payload alignment when available."""
     in_window_candles: list[event_models.CanonicalOHLCV] = []
@@ -198,13 +207,22 @@ def filter_ohlcv_window_with_raw(
 
     if len(raw_payloads) == len(candles):
         for candle, raw_payload in zip(candles, raw_payloads, strict=True):
-            if not (start <= candle.ts_event <= end):
+            if not _is_in_window(
+                candle.ts_event,
+                start=start,
+                end=end,
+                exclude_start=exclude_start,
+            ):
                 continue
             in_window_candles.append(candle)
             in_window_raw_payloads.append(raw_payload)
         return in_window_candles, in_window_raw_payloads
 
-    in_window_candles.extend(candle for candle in candles if start <= candle.ts_event <= end)
+    in_window_candles.extend(
+        candle
+        for candle in candles
+        if _is_in_window(candle.ts_event, start=start, end=end, exclude_start=exclude_start)
+    )
     return in_window_candles, in_window_raw_payloads
 
 
@@ -243,12 +261,18 @@ def _append_windowed_unique_trades(
     trades: list[event_models.CanonicalTrade],
     normalized_raw: list[dict[str, object]],
     window: TimeWindow,
+    exclude_start: bool,
     state: TradePaginationState,
     sink: TradeBackfillSink,
 ) -> int:
     new_rows = 0
     for trade, raw_payload in _pair_trades_with_raw_payloads(trades, normalized_raw):
-        if not (window.start <= trade.ts_event <= window.end):
+        if not _is_in_window(
+            trade.ts_event,
+            start=window.start,
+            end=window.end,
+            exclude_start=exclude_start,
+        ):
             continue
         trade_key = (trade.instrument_id, trade.trade_id)
         if trade_key in state.seen_trade_keys:
@@ -288,11 +312,22 @@ def _update_trade_pagination_state(
     *,
     max_ts: datetime,
     new_rows: int,
+    window: TimeWindow,
+    exclude_start: bool,
 ) -> None:
     if state.cursor is not None and max_ts < state.cursor:
         raise RuntimeError(
             "Trade pagination regressed cursor timestamp; aborting to avoid silent data loss."
         )
+    if (
+        exclude_start
+        and state.cursor is not None
+        and max_ts == state.cursor == window.start
+        and new_rows == 0
+    ):
+        state.stalled_iterations = 0
+        state.cursor = window.start + timedelta(microseconds=1)
+        return
     if state.cursor is not None and max_ts == state.cursor and new_rows == 0:
         state.stalled_iterations += 1
         if state.stalled_iterations >= 2:
@@ -302,3 +337,15 @@ def _update_trade_pagination_state(
     else:
         state.stalled_iterations = 0
     state.cursor = max_ts
+
+
+def _is_in_window(
+    ts_event: datetime,
+    *,
+    start: datetime,
+    end: datetime,
+    exclude_start: bool,
+) -> bool:
+    if exclude_start:
+        return start < ts_event <= end
+    return start <= ts_event <= end

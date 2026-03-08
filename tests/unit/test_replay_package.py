@@ -302,6 +302,16 @@ def test_store_get_returns_none_for_missing_id(tmp_path: Path) -> None:
     assert store.get("nonexistent-id") is None
 
 
+def test_store_delete_removes_manifest(tmp_path: Path) -> None:
+    store = rp.ReplayPackageStore(tmp_path)
+    manifest = _simple_manifest(package_id="pkg-delete-001")
+    store.save(manifest)
+
+    assert store.delete("pkg-delete-001") is True
+    assert store.get("pkg-delete-001") is None
+    assert store.delete("pkg-delete-001") is False
+
+
 def test_store_save_write_once_by_default(tmp_path: Path) -> None:
     store = rp.ReplayPackageStore(tmp_path)
     manifest = _simple_manifest(package_id="pkg-dup-001")

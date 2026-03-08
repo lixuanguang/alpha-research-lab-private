@@ -250,9 +250,7 @@ class OptimizeRunner:
         OptimizeManifest
             Metadata for the completed sweep, also persisted to disk.
         """
-        effective_payload = (
-            config_payload if config_payload is not None else config.model_dump(mode="json")
-        )
+        effective_payload = self._resolve_config_payload(config, config_payload)
         run_context = run_context_mod.make_run_context(
             "optimize",
             config_payload=effective_payload,
@@ -260,7 +258,59 @@ class OptimizeRunner:
         )
         optimize_run_id = run_context.run_id
         resolved_parent_run_id = parent_run_id or feature_run_id
+        self._require_feature_artifact(feature_run_id)
+        records = self._execute_trials(
+            config=config,
+            feature_run_id=feature_run_id,
+            optimize_run_id=optimize_run_id,
+        )
+        feasible = [r for r in records if r.constraint_pass and r.status == "ok"]
+        feasible_sorted = sorted(
+            feasible,
+            key=lambda r: (
+                r.objective_value if config.objective_minimize else -r.objective_value,
+                r.trial_index,
+            ),
+        )
+        leaderboard = feasible_sorted[: config.top_n]
 
+        best = leaderboard[0] if leaderboard else None
+        artifact_map = self._persist_artifacts(
+            optimize_run_id=optimize_run_id,
+            records=records,
+            leaderboard=leaderboard,
+            best_record=best,
+        )
+
+        completed_context = run_context_mod.close_run_context(run_context)
+        manifest = self._build_manifest(
+            optimize_run_id=optimize_run_id,
+            config=config,
+            records=records,
+            feasible=feasible,
+            best_record=best,
+            completed_context=completed_context,
+            artifact_map=artifact_map,
+            parent_run_id=resolved_parent_run_id,
+        )
+        self._persist_run_record(
+            manifest=manifest,
+            completed_context=completed_context,
+            effective_payload=effective_payload,
+            parent_run_id=resolved_parent_run_id,
+        )
+        return manifest
+
+    @staticmethod
+    def _resolve_config_payload(
+        config: OptimizeConfig,
+        config_payload: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if config_payload is not None:
+            return config_payload
+        return config.model_dump(mode="json")
+
+    def _require_feature_artifact(self, feature_run_id: str) -> None:
         try:
             self._store.path_for(feature_run_id, "features.parquet")
         except artifact_store_mod.ArtifactNotFoundError as exc:
@@ -269,13 +319,17 @@ class OptimizeRunner:
                 "Ensure the feature-build run completed successfully."
             ) from exc
 
-        trial_params = _expand_parameter_space(config)
-
+    def _execute_trials(
+        self,
+        *,
+        config: OptimizeConfig,
+        feature_run_id: str,
+        optimize_run_id: str,
+    ) -> list[TrialRecord]:
         bt_runner = backtest_runner_mod.BacktestRunner(self._storage_root, self._store)
         ev_runner = evaluate_runner_mod.EvaluateRunner(self._storage_root, self._store)
-
         records: list[TrialRecord] = []
-        for index, params in enumerate(trial_params):
+        for index, params in enumerate(_expand_parameter_space(config)):
             try:
                 record = _run_trial(
                     index=index,
@@ -300,29 +354,22 @@ class OptimizeRunner:
                     optimize_run_id=optimize_run_id,
                 )
             records.append(record)
+        return records
 
-        feasible = [r for r in records if r.constraint_pass and r.status == "ok"]
-        feasible_sorted = sorted(
-            feasible,
-            key=lambda r: (
-                r.objective_value if config.objective_minimize else -r.objective_value,
-                r.trial_index,
-            ),
-        )
-        leaderboard = feasible_sorted[: config.top_n]
-
-        best = leaderboard[0] if leaderboard else None
-        artifact_map = self._persist_artifacts(
-            optimize_run_id=optimize_run_id,
-            records=records,
-            leaderboard=leaderboard,
-            best_record=best,
-        )
-
-        completed_context = run_context_mod.close_run_context(run_context)
+    @staticmethod
+    def _build_manifest(
+        *,
+        optimize_run_id: str,
+        config: OptimizeConfig,
+        records: list[TrialRecord],
+        feasible: list[TrialRecord],
+        best_record: TrialRecord | None,
+        completed_context: run_context_mod.RunContext,
+        artifact_map: dict[str, str],
+        parent_run_id: str | None,
+    ) -> OptimizeManifest:
         built_at = completed_context.completed_at_utc or datetime.now(tz=UTC)
-
-        manifest = OptimizeManifest(
+        return OptimizeManifest(
             run_id=optimize_run_id,
             dataset_id=config.dataset_id,
             feature_set_version=config.feature_set_version,
@@ -332,25 +379,31 @@ class OptimizeRunner:
             objective_minimize=config.objective_minimize,
             total_trials=len(records),
             feasible_trials=len(feasible),
-            best_backtest_run_id=best.backtest_run_id if best else None,
-            best_objective_value=best.objective_value if best else None,
+            best_backtest_run_id=best_record.backtest_run_id if best_record else None,
+            best_objective_value=best_record.objective_value if best_record else None,
             built_at=built_at,
             artifacts=artifact_map,
-            parent_run_id=resolved_parent_run_id,
+            parent_run_id=parent_run_id,
         )
 
-        manifest_path = self._store.prepare_path(optimize_run_id, "optimize_manifest.json")
+    def _persist_run_record(
+        self,
+        *,
+        manifest: OptimizeManifest,
+        completed_context: run_context_mod.RunContext,
+        effective_payload: dict[str, Any],
+        parent_run_id: str | None,
+    ) -> None:
+        manifest_path = self._store.prepare_path(manifest.run_id, "optimize_manifest.json")
+        manifest.artifacts["optimize_manifest"] = str(manifest_path)
         manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
-        artifact_map["optimize_manifest"] = str(manifest_path)
-
         manifest_mod.persist_run_record(
             storage_root=self._storage_root,
             run_context=completed_context,
             config_payload=effective_payload,
-            artifacts=artifact_map,
-            parent_run_id=resolved_parent_run_id,
+            artifacts=manifest.artifacts,
+            parent_run_id=parent_run_id,
         )
-        return manifest
 
     # ------------------------------------------------------------------
     # Persistence helpers

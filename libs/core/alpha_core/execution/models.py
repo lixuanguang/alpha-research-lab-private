@@ -18,13 +18,13 @@ All monetary values use :class:`~decimal.Decimal` for exact arithmetic.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from alpha_core.portfolio.models import Side
+import alpha_core.portfolio.models as portfolio_models
 
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
@@ -40,7 +40,7 @@ class BacktestOrderIntent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instrument_id: str = Field(min_length=1)
-    side: Side
+    side: portfolio_models.Side
     size: Decimal = Field(gt=_ZERO, description="Number of contracts (positive).")
     order_type: Literal["market", "limit"] = "limit"
     limit_price: Decimal | None = Field(
@@ -61,7 +61,7 @@ class BacktestOrderIntent(BaseModel):
 class SimulatedFill(BaseModel):
     """Result of simulated order execution in the backtester.
 
-    ``slippage = fill_price − reference_price`` (positive = adverse for longs,
+    ``slippage = fill_price - reference_price`` (positive = adverse for longs,
     negative = adverse for shorts).
     """
 
@@ -82,7 +82,7 @@ class FeeSchedule(BaseModel):
     a fee-free environment.
 
     ``resolution_fee_bps`` is prediction-market-specific: a fee charged on the
-    gross resolution payoff (size × resolved_price).
+    gross resolution payoff (size x resolved_price).
     """
 
     model_config = ConfigDict(extra="forbid")

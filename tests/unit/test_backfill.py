@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
+import json
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -11,6 +13,7 @@ from typing import Any
 
 import apps.data_collector.backfill as collector_backfill
 import apps.data_collector.backfill_support as collector_backfill_support
+import pyarrow.parquet as pq
 import pytest
 
 import alpha_core.adapters.base as adapters_base
@@ -21,6 +24,7 @@ import alpha_core.quality.gap_detector as quality_gap_detector
 import alpha_core.storage.bronze_writer as storage_bronze
 import alpha_core.storage.lineage as storage_lineage
 import alpha_core.storage.parquet_writer as storage_parquet
+import alpha_core.storage.replay_package as storage_replay
 import alpha_core.utils.ids as ids_utils
 
 # ---------------------------------------------------------------------------
@@ -62,6 +66,31 @@ def _candle(ts_event: datetime) -> event_models.CanonicalOHLCV:
     }
     payload["event_id"] = ids_utils.generate_event_id(payload)
     return event_models.CanonicalOHLCV.model_validate(payload)
+
+
+def _silver_trade_ids(storage_root: Path) -> list[str]:
+    dataset_root = storage_root / "silver" / "trades"
+    if not dataset_root.exists() or not list(dataset_root.rglob("*.parquet")):
+        return []
+    return sorted(
+        str(trade_id)
+        for trade_id in pq.read_table(dataset_root).column("trade_id").to_pylist()
+    )
+
+
+def _bronze_trade_ids(storage_root: Path) -> list[str]:
+    trade_ids: list[str] = []
+    bronze_root = storage_root / "bronze" / "trades"
+    if not bronze_root.exists():
+        return trade_ids
+    for path in sorted(bronze_root.rglob("run_*.jsonl.gz")):
+        with gzip.open(path, mode="rt", encoding="utf-8") as handle:
+            for line in handle:
+                payload = json.loads(line)["payload"]
+                trade_id = payload.get("trade_id")
+                if isinstance(trade_id, str):
+                    trade_ids.append(trade_id)
+    return sorted(trade_ids)
 
 
 class _MockAdapter(adapters_base.VenueAdapter):
@@ -261,6 +290,30 @@ def test_backfill_trades_records_lineage_run(tmp_path: Path) -> None:
     assert run.venue == "polymarket"
 
 
+def test_backfill_trades_resume_boundary_is_left_open_on_latest_cursor(tmp_path: Path) -> None:
+    adapter = _MockAdapter()
+    outcome_id = "polymarket:market-a:yes"
+    boundary_trade = _trade("t-boundary", END)
+    adapter.trade_pages[outcome_id] = [[boundary_trade]]
+
+    manager = _make_manager(adapter, tmp_path)
+    asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
+
+    resumed_adapter = _MockAdapter()
+    resumed_adapter.trade_pages[outcome_id] = [[boundary_trade]]
+    resumed_manager = _make_manager(resumed_adapter, tmp_path)
+    asyncio.run(
+        resumed_manager.backfill_trades(
+            [outcome_id],
+            start=END,
+            end=END + timedelta(hours=1),
+        )
+    )
+
+    assert _silver_trade_ids(tmp_path) == ["t-boundary"]
+    assert _bronze_trade_ids(tmp_path) == ["t-boundary"]
+
+
 def test_backfill_trades_retries_transient_api_errors_with_backoff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -325,6 +378,72 @@ def test_backfill_trades_reports_failure_after_retry_exhaustion(
     assert lineage_run.status == "failed"
     assert lineage_run.cursor_watermark_utc is None
     assert any("failed after 3 attempt(s)" in error for error in lineage_run.errors)
+
+
+def test_backfill_failure_removes_partial_persisted_rows(tmp_path: Path) -> None:
+    adapter = _MockAdapter()
+    ok_outcome_id = "polymarket:market-a:yes"
+    failing_outcome_id = "polymarket:market-b:yes"
+    adapter.trade_pages[ok_outcome_id] = [[_trade("ok-trade", START + timedelta(minutes=1))]]
+    adapter.trade_errors[failing_outcome_id] = [
+        TimeoutError("timeout-1"),
+        TimeoutError("timeout-2"),
+        TimeoutError("timeout-3"),
+    ]
+
+    manager = _make_manager(adapter, tmp_path)
+    with pytest.raises(collector_backfill.BackfillRunError):
+        asyncio.run(
+            manager.backfill_trades(
+                [ok_outcome_id, failing_outcome_id],
+                start=START,
+                end=END,
+            )
+        )
+
+    assert _silver_trade_ids(tmp_path) == []
+    assert _bronze_trade_ids(tmp_path) == []
+    lineage_runs = storage_lineage.LineageStore(tmp_path).list_runs("polymarket")
+    assert len(lineage_runs) == 1
+    assert lineage_runs[0].status == "failed"
+
+
+def test_backfill_replay_package_failure_rolls_back_persisted_rows(tmp_path: Path) -> None:
+    class _FailingReplayPackageStore(storage_replay.ReplayPackageStore):
+        def save(
+            self,
+            manifest: storage_replay.ReplayPackageManifest,
+            *,
+            overwrite: bool = False,
+        ) -> Path:
+            del manifest
+            del overwrite
+            raise RuntimeError("simulated replay package failure")
+
+    adapter = _MockAdapter()
+    outcome_id = "polymarket:market-a:yes"
+    adapter.trade_pages[outcome_id] = [[_trade("ok-trade", START + timedelta(minutes=1))]]
+    manager = collector_backfill.BackfillManager(
+        adapter=adapter,
+        dependencies=collector_backfill.BackfillDependencies(
+            bronze_writer=storage_bronze.BronzeWriter(tmp_path),
+            silver_writer=storage_parquet.ParquetEventWriter(tmp_path),
+            quality_checker=event_quality.EventQualityChecker(),
+            lineage_store=storage_lineage.LineageStore(tmp_path),
+            replay_package_store=_FailingReplayPackageStore(tmp_path),
+            storage_root=tmp_path,
+        ),
+    )
+
+    with pytest.raises(
+        collector_backfill.BackfillRunError,
+        match="replay_package_emit_failed",
+    ):
+        asyncio.run(manager.backfill_trades([outcome_id], start=START, end=END))
+
+    assert _silver_trade_ids(tmp_path) == []
+    assert _bronze_trade_ids(tmp_path) == []
+    assert list((tmp_path / "_replay_packages").glob("pkg_*.json")) == []
 
 
 # ---------------------------------------------------------------------------

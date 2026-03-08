@@ -7,20 +7,20 @@ Usage::
 
     schedule = FeeSchedule(taker_fee_bps=Decimal("20"))
     fee = total_fill_fee(schedule, fill_size=Decimal("5"), fill_price=Decimal("0.6"))
-    # fee = 5 × 0.6 × 0.0020 = 0.006000
+    # fee = 5 x 0.6 x 0.0020 = 0.006000
 """
 
 from __future__ import annotations
 
 from decimal import Decimal
 
-from alpha_core.execution.models import FeeSchedule
+import alpha_core.execution.models as exec_models
 
 _ZERO = Decimal("0")
 
 
 def total_fill_fee(
-    schedule: FeeSchedule,
+    schedule: exec_models.FeeSchedule,
     fill_size: Decimal,
     fill_price: Decimal,
     *,
@@ -29,8 +29,8 @@ def total_fill_fee(
     """Compute the total fee for a single fill.
 
     Combines:
-    * Maker or taker fee on notional (``fill_size × fill_price``).
-    * Per-contract flat fee (``fill_size × per_contract_fee``).
+    * Maker or taker fee on notional (``fill_size x fill_price``).
+    * Per-contract flat fee (``fill_size x per_contract_fee``).
 
     Args:
         schedule: Fee schedule to apply.
@@ -48,7 +48,7 @@ def total_fill_fee(
 
 
 def total_resolution_fee(
-    schedule: FeeSchedule,
+    schedule: exec_models.FeeSchedule,
     fill_size: Decimal,
     resolved_price: Decimal,
 ) -> Decimal:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-import numpy as np
 import pyarrow as pa
 import pytest
 
@@ -31,13 +31,13 @@ def _base_table(
     prices: list[float],
     sizes: list[float] | None = None,
     ts_offset_mins: list[int] | None = None,
-    extra: dict | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> pa.Table:
     n = len(prices)
     if ts_offset_mins is None:
         ts_offset_mins = list(range(n))
     ts = [_T0 + timedelta(minutes=m) for m in ts_offset_mins]
-    data: dict = {
+    data: dict[str, Any] = {
         "instrument_id": instrument_ids,
         "price": pa.array(prices, pa.float64()),
         "size": pa.array(sizes or [1.0] * n, pa.float64()),
@@ -89,8 +89,8 @@ class TestCrossVenueSpread:
         ts = _T0
         return pa.table({
             "instrument_id": [
-                f"venueA:mkt1:outc1",
-                f"venueB:mkt1:outc1",
+                "venueA:mkt1:outc1",
+                "venueB:mkt1:outc1",
             ],
             "price": pa.array([price_a, price_b], pa.float64()),
             "size": pa.array([1.0, 1.0], pa.float64()),
@@ -161,10 +161,10 @@ class TestVolumeWeightedProb:
         assert result.name == "volume_weighted_prob_10"
 
     def test_uniform_volume_vwap_equals_mean_price(self) -> None:
-        prices = [0.2, 0.4, 0.6]
-        t = _base_table(["a"] * 3, prices, sizes=[1.0, 1.0, 1.0])
+        prices = [0.2, 0.4, 0.6, 0.8]
+        t = _base_table(["a"] * 4, prices, sizes=[1.0, 1.0, 1.0, 1.0])
         result = VolumeWeightedProb(window=3).compute(t)
-        assert result.values[2] == pytest.approx(sum(prices) / 3)
+        assert result.values[3] == pytest.approx(sum(prices[:3]) / 3)
 
 
 # ---------------------------------------------------------------------------

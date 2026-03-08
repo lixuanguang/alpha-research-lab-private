@@ -2,6 +2,8 @@
 
 All primitives:
 - Operate per-instrument (group by ``instrument_id``).
+- Use one-step-lagged history by default so the feature at row ``t`` only
+  depends on information available before that row.
 - Propagate NaN for warm-up rows where insufficient history exists.
 - Preserve input row order — output index matches input index.
 - Accept a ``source_col`` parameter (default ``"price"``) to support
@@ -10,43 +12,104 @@ All primitives:
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from functools import partial
+from typing import Any, cast
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import pyarrow as pa
 
-from alpha_core.features.base import Feature, FeatureResult
+import alpha_core.features.base as feature_base
 
+FloatArray = npt.NDArray[np.float64]
+SeriesTransform = Callable[[pd.Series], pd.Series]
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _to_df(table: pa.Table) -> pd.DataFrame:
     return table.to_pandas()
 
 
+def _lag_history(series: pd.Series) -> pd.Series:
+    return series.shift(1)
+
+
 def _per_instrument_result(
     df: pd.DataFrame,
-    func: "Any",  # (group: pd.Series) -> pd.Series
+    func: SeriesTransform,
     source_col: str,
-    feature_name: str,
-) -> np.ndarray:
-    """Apply *func* per instrument group, preserving original row order."""
+) -> FloatArray:
     series = df[source_col].astype(float)
-    result = (
-        series.groupby(df["instrument_id"], sort=False)
-        .transform(func)
-    )
-    return result.to_numpy(dtype=float, na_value=np.nan)
+    result = series.groupby(df["instrument_id"], sort=False).transform(func)
+    return cast(FloatArray, result.to_numpy(dtype=float, na_value=np.nan))
 
 
-# ---------------------------------------------------------------------------
-# Primitives
-# ---------------------------------------------------------------------------
+def _rolling_mean_lagged(series: pd.Series, *, window: int) -> pd.Series:
+    return _lag_history(series).rolling(window, min_periods=window).mean()
 
-class RollingMean(Feature):
+
+def _rolling_std_lagged(series: pd.Series, *, window: int) -> pd.Series:
+    return _lag_history(series).rolling(window, min_periods=window).std(ddof=1)
+
+
+def _ewm_lagged(series: pd.Series, *, span: int) -> pd.Series:
+    return _lag_history(series).ewm(span=span, adjust=False, min_periods=1).mean()
+
+
+def _zscore_lagged(series: pd.Series, *, window: int) -> pd.Series:
+    history = _lag_history(series)
+    mean = history.rolling(window, min_periods=window).mean()
+    std = history.rolling(window, min_periods=window).std(ddof=1)
+    return (history - mean) / std.replace(0.0, np.nan)
+
+
+def _rank_last_window(values: npt.NDArray[np.float64], *, window: int) -> float:
+    valid = values[~np.isnan(values)]
+    if len(valid) < window:
+        return float("nan")
+    last_value = valid[-1]
+    return float(np.sum(valid <= last_value)) / float(len(valid))
+
+
+def _time_series_rank_lagged(series: pd.Series, *, window: int) -> pd.Series:
+    history = _lag_history(series)
+    ranker = partial(_rank_last_window, window=window)
+    return history.rolling(window, min_periods=window).apply(ranker, raw=True)
+
+
+def _cross_sectional_rank(df: pd.DataFrame, source_col: str) -> FloatArray:
+    ts_col = "ts_event" if "ts_event" in df.columns else df.columns[0]
+    ranked = df.groupby(ts_col)[source_col].rank(pct=True)
+    return cast(FloatArray, ranked.to_numpy(dtype=float, na_value=np.nan))
+
+
+def _lagged_values(series: pd.Series, *, periods: int) -> pd.Series:
+    return series.shift(periods)
+
+
+def _diff_lagged(series: pd.Series, *, periods: int) -> pd.Series:
+    return _lag_history(series).diff(periods)
+
+
+def _return_lagged(series: pd.Series, *, periods: int) -> pd.Series:
+    history = _lag_history(series)
+    lagged = history.shift(periods)
+    return (history - lagged) / lagged.replace(0.0, np.nan)
+
+
+def _volatility_lagged(
+    series: pd.Series,
+    *,
+    window: int,
+    periods_per_year: int,
+) -> pd.Series:
+    scale = periods_per_year ** 0.5
+    returns = _lag_history(series).pct_change()
+    return returns.rolling(window, min_periods=window).std(ddof=1) * scale
+
+
+class RollingMean(feature_base.Feature):
     """Rolling arithmetic mean of a column within each instrument."""
 
     def __init__(self, window: int = 20, source_col: str = "price") -> None:
@@ -61,21 +124,22 @@ class RollingMean(Feature):
     def params(self) -> dict[str, Any]:
         return {"window": self._window, "source_col": self._source_col}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        w = self._window
-        values = _per_instrument_result(
-            df,
-            lambda s: s.rolling(w, min_periods=w).mean(),
-            self._source_col,
-            self.name,
-        )
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        transform = partial(_rolling_mean_lagged, window=self._window)
+        values = _per_instrument_result(df, transform, self._source_col)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class RollingStd(Feature):
+class RollingStd(feature_base.Feature):
     """Rolling standard deviation (ddof=1) of a column within each instrument."""
 
     def __init__(self, window: int = 20, source_col: str = "price") -> None:
@@ -90,21 +154,22 @@ class RollingStd(Feature):
     def params(self) -> dict[str, Any]:
         return {"window": self._window, "source_col": self._source_col}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        w = self._window
-        values = _per_instrument_result(
-            df,
-            lambda s: s.rolling(w, min_periods=w).std(ddof=1),
-            self._source_col,
-            self.name,
-        )
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        transform = partial(_rolling_std_lagged, window=self._window)
+        values = _per_instrument_result(df, transform, self._source_col)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class EWM(Feature):
+class EWM(feature_base.Feature):
     """Exponentially-weighted moving average (span-parametrised)."""
 
     def __init__(self, span: int = 10, source_col: str = "price") -> None:
@@ -119,22 +184,23 @@ class EWM(Feature):
     def params(self) -> dict[str, Any]:
         return {"span": self._span, "source_col": self._source_col}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        span = self._span
-        values = _per_instrument_result(
-            df,
-            lambda s: s.ewm(span=span, adjust=False).mean(),
-            self._source_col,
-            self.name,
-        )
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        transform = partial(_ewm_lagged, span=self._span)
+        values = _per_instrument_result(df, transform, self._source_col)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class ZScore(Feature):
-    """Rolling z-score: (x - rolling_mean) / rolling_std per instrument."""
+class ZScore(feature_base.Feature):
+    """Lagged rolling z-score per instrument."""
 
     def __init__(self, window: int = 50, source_col: str = "price") -> None:
         self._window = window
@@ -148,23 +214,22 @@ class ZScore(Feature):
     def params(self) -> dict[str, Any]:
         return {"window": self._window, "source_col": self._source_col}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        w = self._window
-        col = df[self._source_col].astype(float)
-
-        def _zscore(s: pd.Series) -> pd.Series:
-            mu = s.rolling(w, min_periods=w).mean()
-            sigma = s.rolling(w, min_periods=w).std(ddof=1)
-            return (s - mu) / sigma.replace(0.0, np.nan)
-
-        values = _per_instrument_result(df, _zscore, self._source_col, self.name)
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        transform = partial(_zscore_lagged, window=self._window)
+        values = _per_instrument_result(df, transform, self._source_col)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class Rank(Feature):
+class Rank(feature_base.Feature):
     """Rank normalised to [0, 1].
 
     ``method="time_series"`` ranks within per-instrument rolling history.
@@ -195,35 +260,27 @@ class Rank(Feature):
             "method": self._method,
         }
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        col = df[self._source_col].astype(float)
 
         if self._method == "time_series":
-            w = self._window
+            transform = partial(_time_series_rank_lagged, window=self._window)
+            values = _per_instrument_result(df, transform, self._source_col)
+        else:
+            values = _cross_sectional_rank(df, self._source_col)
 
-            def _ts_rank(s: pd.Series) -> pd.Series:
-                def _rank_last(arr: Any) -> float:
-                    valid = arr[~np.isnan(arr)]
-                    if len(valid) < w:
-                        return np.nan
-                    return float(np.sum(valid <= arr[-1])) / len(valid)
-
-                return s.rolling(w, min_periods=w).apply(_rank_last, raw=True)
-
-            values = _per_instrument_result(df, _ts_rank, self._source_col, self.name)
-
-        else:  # cross_sectional
-            ts_col = "ts_event" if "ts_event" in df.columns else df.columns[0]
-            ranked = df.groupby(ts_col)[self._source_col].rank(pct=True)
-            values = ranked.to_numpy(dtype=float, na_value=np.nan)
-
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class Lag(Feature):
+class Lag(feature_base.Feature):
     """Lag (shift) a column by *periods* within each instrument."""
 
     def __init__(self, periods: int = 1, source_col: str = "price") -> None:
@@ -238,19 +295,23 @@ class Lag(Feature):
     def params(self) -> dict[str, Any]:
         return {"periods": self._periods, "source_col": self._source_col}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        p = self._periods
-        values = _per_instrument_result(
-            df, lambda s: s.shift(p), self._source_col, self.name
-        )
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        transform = partial(_lagged_values, periods=self._periods)
+        values = _per_instrument_result(df, transform, self._source_col)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class Diff(Feature):
-    """x[t] - x[t - periods] within each instrument."""
+class Diff(feature_base.Feature):
+    """Lagged difference within each instrument."""
 
     def __init__(self, periods: int = 1, source_col: str = "price") -> None:
         self._periods = periods
@@ -264,19 +325,23 @@ class Diff(Feature):
     def params(self) -> dict[str, Any]:
         return {"periods": self._periods, "source_col": self._source_col}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        p = self._periods
-        values = _per_instrument_result(
-            df, lambda s: s.diff(p), self._source_col, self.name
-        )
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        transform = partial(_diff_lagged, periods=self._periods)
+        values = _per_instrument_result(df, transform, self._source_col)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class Return(Feature):
-    """Percentage return: (x[t] - x[t-periods]) / x[t-periods] per instrument."""
+class Return(feature_base.Feature):
+    """Lagged percentage return within each instrument."""
 
     def __init__(self, periods: int = 1, source_col: str = "price") -> None:
         self._periods = periods
@@ -290,22 +355,23 @@ class Return(Feature):
     def params(self) -> dict[str, Any]:
         return {"periods": self._periods, "source_col": self._source_col}
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        p = self._periods
-
-        def _pct(s: pd.Series) -> pd.Series:
-            lagged = s.shift(p)
-            return (s - lagged) / lagged.replace(0.0, np.nan)
-
-        values = _per_instrument_result(df, _pct, self._source_col, self.name)
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        transform = partial(_return_lagged, periods=self._periods)
+        values = _per_instrument_result(df, transform, self._source_col)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
-class Volatility(Feature):
-    """Rolling annualised volatility of returns (rolling std of 1-period returns)."""
+class Volatility(feature_base.Feature):
+    """Lagged rolling annualised volatility of returns."""
 
     def __init__(
         self,
@@ -329,29 +395,33 @@ class Volatility(Feature):
             "source_col": self._source_col,
         }
 
-    def compute(self, data: pa.Table, *, instrument_id: str | None = None) -> FeatureResult:
+    def compute(
+        self,
+        data: pa.Table,
+        *,
+        instrument_id: str | None = None,
+    ) -> feature_base.FeatureResult:
+        del instrument_id
         if data.num_rows == 0:
             return self._empty_result(0)
         df = _to_df(data)
-        w = self._window
-        scale = self._periods_per_year ** 0.5
-
-        def _vol(s: pd.Series) -> pd.Series:
-            rets = s.pct_change()
-            return rets.rolling(w, min_periods=w).std(ddof=1) * scale
-
-        values = _per_instrument_result(df, _vol, self._source_col, self.name)
-        return FeatureResult(name=self.name, values=values, params=self.params)
+        transform = partial(
+            _volatility_lagged,
+            window=self._window,
+            periods_per_year=self._periods_per_year,
+        )
+        values = _per_instrument_result(df, transform, self._source_col)
+        return feature_base.FeatureResult(name=self.name, values=values, params=self.params)
 
 
 __all__ = [
+    "EWM",
+    "Diff",
+    "Lag",
+    "Rank",
+    "Return",
     "RollingMean",
     "RollingStd",
-    "EWM",
-    "ZScore",
-    "Rank",
-    "Lag",
-    "Diff",
-    "Return",
     "Volatility",
+    "ZScore",
 ]

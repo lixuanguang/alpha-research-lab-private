@@ -32,8 +32,7 @@ The two most compute-intensive current paths are:
 ## Decision
 
 Introduce a formal, minimal interface boundary at
-`alpha_core.performance.interfaces` (canonical) and `alpha_core.perf.interfaces`
-(short-name alias):
+`alpha_core.performance.interfaces`:
 
 ```
 FeatureTransform   – compute(values: Sequence[float]) -> Sequence[float]

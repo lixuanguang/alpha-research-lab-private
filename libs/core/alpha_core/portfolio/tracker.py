@@ -12,15 +12,15 @@ Prediction-market accounting conventions
 -----------------------------------------
 **LONG position** (bought YES contracts):
 
-* Entry: ``cash -= size × fill_price + fee``
-* MtM:   ``unrealised_pnl = size × (current_price − entry_price)``
-* Resolution at *p*: ``cash += size × p``, ``realised_pnl = size × (p − entry_price)``
+* Entry: ``cash -= size x fill_price + fee``
+* MtM:   ``unrealised_pnl = size x (current_price - entry_price)``
+* Resolution at *p*: ``cash += size x p``, ``realised_pnl = size x (p - entry_price)``
 
 **SHORT position** (sold YES contracts = bought NO contracts):
 
-* Entry: ``cash += size × fill_price − fee``
-* MtM:   ``unrealised_pnl = size × (entry_price − current_price)``
-* Resolution at *p*: ``cash -= size × p``, ``realised_pnl = size × (entry_price − p)``
+* Entry: ``cash += size x fill_price - fee``
+* MtM:   ``unrealised_pnl = size x (entry_price - current_price)``
+* Resolution at *p*: ``cash -= size x p``, ``realised_pnl = size x (entry_price - p)``
 
 Reducing a position works symmetrically: a LONG fill applied against an
 existing SHORT reduces the short (and vice versa), booking realised PnL.
@@ -96,13 +96,16 @@ class PortfolioTracker:
             # Opposite side — reduce or close.
             self._positions[instr] = self._reduce_position(existing, size, price, fee, ts)
             self._adjust_cash(side, size, price, fee)
-            realised = self._positions[instr].realised_pnl if instr in self._positions else _ZERO
             # If fully closed, move to history.
             if instr in self._positions and self._positions[instr].size == _ZERO:
                 self._position_history.append(self._positions.pop(instr))
             self._total_realised = sum(
-                p.realised_pnl for p in self._positions.values()
-            ) + sum(p.realised_pnl for p in self._position_history)
+                (position.realised_pnl for position in self._positions.values()),
+                start=_ZERO,
+            ) + sum(
+                (position.realised_pnl for position in self._position_history),
+                start=_ZERO,
+            )
 
     def apply_resolution(
         self,

@@ -40,8 +40,8 @@ def _position(
 
 class TestSide:
     def test_values(self) -> None:
-        assert Side.LONG == "long"
-        assert Side.SHORT == "short"
+        assert Side.LONG.value == "long"
+        assert Side.SHORT.value == "short"
 
     def test_str_enum(self) -> None:
         assert isinstance(Side.LONG, str)
