@@ -214,6 +214,42 @@ class TestMarkToMarket:
         state = tracker.state()
         assert state.positions["a"].unrealised_pnl == _ZERO
 
+    def test_long_position_equity_includes_marked_contract_value(self) -> None:
+        tracker = PortfolioTracker(Decimal("1000"))
+        tracker.apply_fill(_fill(side=Side.LONG, size=Decimal("10"), fill_price=Decimal("0.3")))
+
+        opened = tracker.state()
+        assert opened.cash == Decimal("997")
+        assert opened.equity == Decimal("1000.0")
+
+        tracker.mark_to_market({"a": Decimal("0.5")}, _T0 + timedelta(minutes=1))
+        marked = tracker.state()
+        assert marked.equity == Decimal("1002.0")
+        assert tracker.equity_snapshots()[-1] == (
+            _T0 + timedelta(minutes=1),
+            Decimal("1002.0"),
+            Decimal("997"),
+            Decimal("5.0"),
+        )
+
+    def test_short_position_equity_offsets_embedded_liability(self) -> None:
+        tracker = PortfolioTracker(Decimal("1000"))
+        tracker.apply_fill(_fill(side=Side.SHORT, size=Decimal("10"), fill_price=Decimal("0.7")))
+
+        opened = tracker.state()
+        assert opened.cash == Decimal("1007")
+        assert opened.equity == Decimal("1000.0")
+
+        tracker.mark_to_market({"a": Decimal("0.5")}, _T0 + timedelta(minutes=1))
+        marked = tracker.state()
+        assert marked.equity == Decimal("1002.0")
+        assert tracker.equity_snapshots()[-1] == (
+            _T0 + timedelta(minutes=1),
+            Decimal("1002.0"),
+            Decimal("1007"),
+            Decimal("-5.0"),
+        )
+
 
 class TestClosingPositions:
     def test_long_closed_by_short_fill(self) -> None:

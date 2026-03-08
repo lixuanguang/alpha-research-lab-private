@@ -512,11 +512,10 @@ def _run_trial(
         parent_run_id=bt_manifest.run_id,
     )
 
-    metrics = ev_manifest.metrics
-    objective_value = float(metrics.get(config.objective, float("-inf")))
+    objective_value = float(ev_manifest.metrics.get(config.objective, float("-inf")))
 
     constraint_pass = all(
-        float(metrics.get(metric, float("-inf"))) >= min_value
+        float(ev_manifest.metrics.get(metric, float("-inf"))) >= min_value
         for metric, min_value in config.constraints.items()
     )
     status: TrialStatus = "ok" if constraint_pass else "constraint_violation"
@@ -527,7 +526,7 @@ def _run_trial(
         backtest_run_id=bt_manifest.run_id,
         evaluate_run_id=ev_manifest.run_id,
         params=params,
-        metrics=metrics,
+        metrics=ev_manifest.metrics,
         objective_value=objective_value,
         constraint_pass=constraint_pass,
         status=status,
@@ -566,7 +565,7 @@ def _expand_parameter_space(config: OptimizeConfig) -> list[dict[str, float]]:
     keys = sorted(config.parameter_space)
     value_lists = [config.parameter_space[k] for k in keys]
     all_combos: list[dict[str, float]] = [
-        dict(zip(keys, combo)) for combo in itertools.product(*value_lists)
+        dict(zip(keys, combo, strict=True)) for combo in itertools.product(*value_lists)
     ]
 
     if config.search_mode == "grid":

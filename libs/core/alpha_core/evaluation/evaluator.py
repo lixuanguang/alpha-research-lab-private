@@ -35,8 +35,8 @@ from typing import Any
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
-from alpha_core.evaluation.financial import FinancialMetrics, compute_financial_metrics
-from alpha_core.evaluation.pm_metrics import PMMetrics, compute_pm_metrics
+import alpha_core.evaluation.financial as financial_mod
+import alpha_core.evaluation.pm_metrics as pm_metrics_mod
 
 #: Increment whenever EvaluationReport fields change.
 EVALUATION_REPORT_SCHEMA_VERSION: int = 1
@@ -58,8 +58,8 @@ class EvaluationReport(BaseModel):
     evaluated_at: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
 
     # Core metrics blocks
-    financial: FinancialMetrics
-    pm_specific: PMMetrics
+    financial: financial_mod.FinancialMetrics
+    pm_specific: pm_metrics_mod.PMMetrics
 
     # Supplementary summaries
     equity_curve_summary: dict[str, Any] = Field(
@@ -120,8 +120,8 @@ class BacktestEvaluator:
         parent_run_id, dataset_run_id, feature_run_id:
             Optional lineage references for provenance tracking.
         """
-        financial = compute_financial_metrics(trades_df, equity_df, starting_cash)
-        pm = compute_pm_metrics(trades_df, starting_cash)
+        financial = financial_mod.compute_financial_metrics(trades_df, equity_df, starting_cash)
+        pm = pm_metrics_mod.compute_pm_metrics(trades_df, starting_cash)
         equity_summary = _equity_curve_summary(equity_df, starting_cash)
         monthly = _monthly_returns(equity_df)
         best, worst = _top_trades(trades_df, n=5)
@@ -184,33 +184,31 @@ class BacktestEvaluator:
         if not reports:
             return pd.DataFrame()
         rows = []
-        for r in reports:
-            fin = r.financial
-            pm = r.pm_specific
+        for report in reports:
             row: dict[str, Any] = {
-                "backtest_id": r.backtest_id,
-                "strategy_name": r.strategy_name,
-                "total_return": float(fin.total_return),
-                "annualised_return": float(fin.annualised_return),
-                "sharpe_ratio": fin.sharpe_ratio,
-                "sortino_ratio": fin.sortino_ratio,
-                "calmar_ratio": fin.calmar_ratio,
-                "max_drawdown": float(fin.max_drawdown),
-                "max_drawdown_duration_days": fin.max_drawdown_duration_days,
-                "volatility": fin.volatility,
-                "total_trades": fin.total_trades,
-                "win_rate": fin.win_rate,
-                "profit_factor": float(fin.profit_factor),
-                "avg_trade_pnl": float(fin.avg_trade_pnl),
-                "avg_holding_period_hours": fin.avg_holding_period_hours,
-                "brier_score": pm.brier_score,
-                "log_loss": pm.log_loss,
-                "calibration_error": pm.calibration_error,
-                "resolution_pnl": float(pm.resolution_pnl),
-                "resolution_count": pm.resolution_count,
-                "resolution_accuracy": pm.resolution_accuracy,
-                "avg_prob_at_entry": float(pm.avg_prob_at_entry),
-                "avg_prob_at_exit": float(pm.avg_prob_at_exit),
+                "backtest_id": report.backtest_id,
+                "strategy_name": report.strategy_name,
+                "total_return": float(report.financial.total_return),
+                "annualised_return": float(report.financial.annualised_return),
+                "sharpe_ratio": report.financial.sharpe_ratio,
+                "sortino_ratio": report.financial.sortino_ratio,
+                "calmar_ratio": report.financial.calmar_ratio,
+                "max_drawdown": float(report.financial.max_drawdown),
+                "max_drawdown_duration_days": report.financial.max_drawdown_duration_days,
+                "volatility": report.financial.volatility,
+                "total_trades": report.financial.total_trades,
+                "win_rate": report.financial.win_rate,
+                "profit_factor": float(report.financial.profit_factor),
+                "avg_trade_pnl": float(report.financial.avg_trade_pnl),
+                "avg_holding_period_hours": report.financial.avg_holding_period_hours,
+                "brier_score": report.pm_specific.brier_score,
+                "log_loss": report.pm_specific.log_loss,
+                "calibration_error": report.pm_specific.calibration_error,
+                "resolution_pnl": float(report.pm_specific.resolution_pnl),
+                "resolution_count": report.pm_specific.resolution_count,
+                "resolution_accuracy": report.pm_specific.resolution_accuracy,
+                "avg_prob_at_entry": float(report.pm_specific.avg_prob_at_entry),
+                "avg_prob_at_exit": float(report.pm_specific.avg_prob_at_exit),
             }
             rows.append(row)
         return pd.DataFrame(rows)
@@ -273,12 +271,11 @@ def _fills_to_df(fills: list[Any]) -> pd.DataFrame:
     """Convert a list of SimulatedFill-like objects to a DataFrame."""
     rows = []
     for fill in fills:
-        o = fill.order
         rows.append(
             {
                 "ts_event": fill.timestamp,
-                "instrument_id": getattr(o, "instrument_id", None),
-                "direction": str(getattr(o, "side", "long")).lower(),
+                "instrument_id": getattr(fill.order, "instrument_id", None),
+                "direction": str(getattr(fill.order, "side", "long")).lower(),
                 "price": float(fill.fill_price),
                 "size": float(fill.fill_size),
                 "fee": float(fill.fee),
@@ -294,22 +291,20 @@ def _positions_to_df(positions: list[Any]) -> pd.DataFrame:
     for position in positions:
         rows.append(
             {
-                "ts_event": (
-                    getattr(position, "closed_at", None) or getattr(position, "last_updated")
-                ),
-                "entry_time": getattr(position, "opened_at", None),
-                "instrument_id": getattr(position, "instrument_id", None),
-                "direction": str(getattr(position, "side", "long")).lower(),
-                "price": float(getattr(position, "entry_price", 0.0)),
-                "exit_price": float(getattr(position, "current_price", 0.0)),
-                "size": float(getattr(position, "size", 0.0)),
-                "realized_pnl": float(getattr(position, "realised_pnl", 0.0)),
+                "ts_event": position.closed_at or position.last_updated,
+                "entry_time": position.opened_at,
+                "instrument_id": position.instrument_id,
+                "direction": str(position.side).lower(),
+                "price": float(position.entry_price),
+                "exit_price": float(position.current_price),
+                "size": float(position.size),
+                "realized_pnl": float(position.realised_pnl),
                 "resolution_outcome": (
                     None
-                    if getattr(position, "resolution_outcome", None) is None
-                    else float(getattr(position, "resolution_outcome"))
+                    if position.resolution_outcome is None
+                    else float(position.resolution_outcome)
                 ),
-                "exit_reason": getattr(position, "exit_reason", None),
+                "exit_reason": position.exit_reason,
             }
         )
     return pd.DataFrame(rows)

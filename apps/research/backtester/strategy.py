@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 import alpha_core.execution.models as exec_models
 import alpha_core.portfolio.models as portfolio_models
@@ -40,7 +40,9 @@ class StrategyState(BaseModel):
     timestamp: datetime
     portfolio: portfolio_models.PortfolioState
     latest_prices: dict[str, Decimal]
-    """Most recent observed trade price per instrument ID."""
+    """Most recent observed trade price per instrument ID before this event."""
+    execution_prices: dict[str, Decimal] = Field(default_factory=dict)
+    """Prices the engine can fill against on this event."""
     features: dict[str, dict[str, float]] | None = None
     """Per-instrument feature values, or ``None`` if no feature set loaded."""
     universe: list[str]

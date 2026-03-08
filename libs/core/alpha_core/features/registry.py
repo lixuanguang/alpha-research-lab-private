@@ -50,19 +50,18 @@ class FeatureRegistry:
             ValueError: If any declared dependency has not yet been registered.
             ValueError: If a feature with the same name is already registered.
         """
-        name = feature.name
-        if name in self._features:
+        if feature.name in self._features:
             raise ValueError(
-                f"Feature '{name}' is already registered. "
+                f"Feature '{feature.name}' is already registered. "
                 "Use a unique name or deregister the existing one first."
             )
         missing_deps = [d for d in feature.dependencies if d not in self._features]
         if missing_deps:
             raise ValueError(
-                f"Feature '{name}' depends on unregistered features: {missing_deps}. "
+                f"Feature '{feature.name}' depends on unregistered features: {missing_deps}. "
                 "Register dependencies first."
             )
-        self._features[name] = feature
+        self._features[feature.name] = feature
 
     def deregister(self, name: str) -> None:
         """Remove a feature from the registry (raises KeyError when absent)."""

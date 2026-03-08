@@ -23,7 +23,7 @@ from decimal import Decimal
 
 import alpha_core.execution.models as exec_models
 import alpha_core.portfolio.models as portfolio_models
-from apps.research.backtester.strategy import Strategy, StrategyState
+import apps.research.backtester.strategy as strategy_mod
 
 _ZERO = Decimal("0")
 _DEFAULT_SIZE = Decimal("5")
@@ -38,7 +38,7 @@ def _question_slug(instrument_id: str) -> str:
     return slug if slug else instrument_id
 
 
-class CrossVenueArbStrategy(Strategy):
+class CrossVenueArbStrategy(strategy_mod.Strategy):
     """Buy cheaper / sell more expensive when the cross-venue spread exceeds *threshold*.
 
     Args:
@@ -69,7 +69,7 @@ class CrossVenueArbStrategy(Strategy):
     def on_data(
         self,
         timestamp: datetime,
-        state: StrategyState,
+        state: strategy_mod.StrategyState,
     ) -> list[exec_models.BacktestOrderIntent]:
         # Group active instruments by question slug
         by_question: dict[str, dict[str, Decimal]] = defaultdict(dict)
@@ -80,7 +80,7 @@ class CrossVenueArbStrategy(Strategy):
 
         orders: list[exec_models.BacktestOrderIntent] = []
 
-        for _slug, venue_prices in by_question.items():
+        for venue_prices in by_question.values():
             if len(venue_prices) < 2:
                 continue  # need at least two venues to arb
 

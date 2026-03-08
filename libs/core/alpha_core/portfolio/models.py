@@ -87,7 +87,7 @@ class PositionState(BaseModel):
 class PortfolioState(BaseModel):
     """Complete portfolio snapshot at a point in time.
 
-    ``equity = cash + sum(unrealised_pnl over all open positions)``
+    ``equity = cash + net marked-to-market value of all open positions``
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -107,7 +107,7 @@ class PortfolioState(BaseModel):
         ge=Decimal("0"),
     )
     equity: Decimal = Field(
-        description="cash + unrealised_pnl across all open positions.",
+        description="cash + signed marked-to-market value across all open positions.",
     )
 
 

@@ -22,7 +22,9 @@ import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 import alpha_core.config.paths as config_paths
+import alpha_core.features.base as feature_base
 import alpha_core.features.factor_pack as factor_pack_mod
+import alpha_core.features.pm_specific as pm_features_mod
 import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.dataset_builder_io as dataset_builder_io
 import alpha_core.research.manifest as manifest_mod
@@ -191,11 +193,13 @@ class FeatureRunner:
             config.lookback_bars,
             factor_packs=resolved_factor_packs,
         )
-        run_id = run_context.run_id
-        features_path = self._persist_feature_table(run_id=run_id, features_table=features_table)
+        features_path = self._persist_feature_table(
+            run_id=run_context.run_id,
+            features_table=features_table,
+        )
         completed_context = run_context_mod.close_run_context(run_context)
         feature_manifest = self._build_feature_manifest(
-            run_id=run_id,
+            run_id=run_context.run_id,
             config=config,
             dataset_id=dataset_locator.dataset_id,
             completed_context=completed_context,
@@ -417,6 +421,7 @@ def _compute_features(
     df = _with_availability_time(df)
     df = df.sort_values(["instrument_id", "ts_available", "ts_event"]).reset_index(drop=True)
     cache = _RollingFeatureCache(df)
+    pm_input_table: pa.Table | None = None
 
     features_data: dict[str, pd.Series] = {
         "instrument_id": df["instrument_id"],
@@ -444,10 +449,19 @@ def _compute_features(
             lag = cache.price_lag(int(match.group(1)))
             features_data[feature_name] = df["price"] / lag.replace(0, float("nan")) - 1.0
             continue
+        pm_feature = _resolve_pm_feature(feature_name)
+        if pm_feature is not None:
+            if pm_input_table is None:
+                pm_input_table = pa.Table.from_pandas(df, preserve_index=False)
+            result = pm_feature.compute(pm_input_table)
+            features_data[feature_name] = pd.Series(result.values)
+            continue
         raise FeatureRunError(
             f"Unsupported factor-pack feature column '{feature_name}'. "
             "Supported prefixes: price_mean_, price_std_, price_zscore_, "
-            "volume_mean_, rolling_return_."
+            "volume_mean_, rolling_return_, implied_prob_momentum_, "
+            "volume_weighted_prob_, prob_acceleration_, category_momentum_, "
+            "book_imbalance_, plus cross_venue_spread and time_to_resolution_decay."
         )
 
     features_df = pd.DataFrame(features_data)
@@ -592,6 +606,27 @@ def _effective_lookback_bars(feature_names: list[str], *, fallback: int) -> int:
     return max(windows, default=fallback)
 
 
+def _resolve_pm_feature(feature_name: str) -> feature_base.Feature | None:
+    if match := re.fullmatch(r"implied_prob_momentum_(\d+)", feature_name):
+        return pm_features_mod.ImpliedProbMomentum(window=int(match.group(1)))
+    if feature_name == "cross_venue_spread":
+        return pm_features_mod.CrossVenueSpread()
+    if match := re.fullmatch(r"volume_weighted_prob_(\d+)", feature_name):
+        return pm_features_mod.VolumeWeightedProb(window=int(match.group(1)))
+    if feature_name == "time_to_resolution_decay":
+        return pm_features_mod.TimeToResolutionDecay()
+    if match := re.fullmatch(r"category_momentum_(\d+)", feature_name):
+        return pm_features_mod.CategoryMomentum(window=int(match.group(1)))
+    if match := re.fullmatch(r"book_imbalance_(\d+)", feature_name):
+        return pm_features_mod.BookImbalance(levels=int(match.group(1)))
+    if match := re.fullmatch(r"prob_acceleration_(\d+)_(\d+)", feature_name):
+        return pm_features_mod.ProbAcceleration(
+            fast=int(match.group(1)),
+            slow=int(match.group(2)),
+        )
+    return None
+
+
 def _validate_feature_columns(feature_columns: list[str]) -> None:
     allowed_patterns = (
         r"price_mean_\d+",
@@ -599,6 +634,13 @@ def _validate_feature_columns(feature_columns: list[str]) -> None:
         r"price_zscore_\d+",
         r"volume_mean_\d+",
         r"rolling_return_\d+",
+        r"implied_prob_momentum_\d+",
+        r"cross_venue_spread",
+        r"volume_weighted_prob_\d+",
+        r"time_to_resolution_decay",
+        r"category_momentum_\d+",
+        r"book_imbalance_\d+",
+        r"prob_acceleration_\d+_\d+",
     )
     for feature_name in feature_columns:
         if any(re.fullmatch(pattern, feature_name) for pattern in allowed_patterns):
@@ -606,7 +648,9 @@ def _validate_feature_columns(feature_columns: list[str]) -> None:
         raise FeatureRunError(
             f"Unsupported factor-pack feature column '{feature_name}'. "
             "Supported patterns: price_mean_N, price_std_N, price_zscore_N, "
-            "volume_mean_N, rolling_return_N."
+            "volume_mean_N, rolling_return_N, implied_prob_momentum_N, "
+            "cross_venue_spread, volume_weighted_prob_N, time_to_resolution_decay, "
+            "category_momentum_N, book_imbalance_N, prob_acceleration_fast_slow."
         )
 
 

@@ -12,15 +12,15 @@ from __future__ import annotations
 
 import pandas as pd
 
-from alpha_core.evaluation.evaluator import BacktestEvaluator, EvaluationReport
+import alpha_core.evaluation.evaluator as evaluator_mod
 
 
-def compare_reports(reports: list[EvaluationReport]) -> pd.DataFrame:
+def compare_reports(reports: list[evaluator_mod.EvaluationReport]) -> pd.DataFrame:
     """Return a tidy DataFrame with one row per report, one column per metric.
 
     Delegates to :meth:`~alpha_core.evaluation.evaluator.BacktestEvaluator.compare`.
     """
-    return BacktestEvaluator().compare(reports)
+    return evaluator_mod.BacktestEvaluator().compare(reports)
 
 
 def rank_reports(
@@ -65,7 +65,7 @@ def rank_reports(
 
 
 def pivot_metric(
-    reports: list[EvaluationReport],
+    reports: list[evaluator_mod.EvaluationReport],
     metric: str,
 ) -> pd.Series:
     """Extract a single metric from a list of reports as a labelled Series.

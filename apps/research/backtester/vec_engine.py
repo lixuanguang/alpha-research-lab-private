@@ -158,14 +158,17 @@ class VecBacktestEngine:
                         resolved_set.add(res_instr)
 
             # Build feature snapshot for this bar.
-            features_df = self._features_as_of(features_index, bar_ts, universe)
+            active_universe = [
+                instrument_id for instrument_id in universe if instrument_id not in resolved_set
+            ]
+            features_df = self._features_as_of(features_index, bar_ts, active_universe)
 
             # Get current portfolio state.
             port_state = tracker.state(timestamp=bar_ts)
             portfolio_value = port_state.equity
 
             # Strategy signal generation.
-            signals_df = strategy.generate_signals(features_df, universe)
+            signals_df = strategy.generate_signals(features_df, active_universe)
             if signals_df is not None and not signals_df.empty:
                 # Position sizing.
                 weights_df = strategy.size_positions(
@@ -181,6 +184,7 @@ class VecBacktestEngine:
                     portfolio_value=portfolio_value,
                     tracker=tracker,
                     bar_ts=bar_ts,
+                    tradeable_instruments=set(active_universe),
                 )
                 for fill in fills:
                     tracker.apply_fill(fill)
@@ -248,6 +252,7 @@ class VecBacktestEngine:
         portfolio_value: Decimal,
         tracker: tracker_mod.PortfolioTracker,
         bar_ts: datetime,
+        tradeable_instruments: set[str],
     ) -> list[exec_models.SimulatedFill]:
         """Convert target weights → SimulatedFill objects.
 
@@ -267,6 +272,8 @@ class VecBacktestEngine:
         if "instrument_id" in weights_df.columns and "target_weight" in weights_df.columns:
             for _, row in weights_df.iterrows():
                 instr = str(row["instrument_id"])
+                if instr not in tradeable_instruments:
+                    continue
                 w = float(row["target_weight"])
                 if w != 0.0:
                     target[instr] = w

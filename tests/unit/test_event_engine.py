@@ -120,6 +120,27 @@ class _BuyOnceStrategy(Strategy):
         pass
 
 
+class _AlwaysBuyStrategy(Strategy):
+    name = "always_buy"
+
+    def on_init(self, universe: list[str]) -> None:
+        del universe
+
+    def on_data(self, ts: datetime, state: StrategyState) -> list[BacktestOrderIntent]:
+        del ts, state
+        return [
+            BacktestOrderIntent(
+                instrument_id="a",
+                side=Side.LONG,
+                size=Decimal("1"),
+                order_type="market",
+            )
+        ]
+
+    def on_resolution(self, instrument_id: str, resolved_price: Decimal) -> None:
+        del instrument_id, resolved_price
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -194,6 +215,19 @@ class TestResolution:
             strategy, _MockDataset(table), resolution_prices=res
         )
         assert len([c for c in strategy.resolution_calls if c[0] == "a"]) == 1
+
+    def test_resolution_prevents_reentry_in_resolved_instrument(self) -> None:
+        table = _make_trades_table([(_T0, "a", 0.5), (_T1, "a", 0.6), (_T2, "a", 0.7)])
+        res = {"a": (Decimal("1"), _T1)}
+
+        result = EventBacktestEngine(_default_config()).run(
+            _AlwaysBuyStrategy(),
+            _MockDataset(table),
+            resolution_prices=res,
+        )
+
+        assert [fill.timestamp for fill in result.trades] == [_T0]
+        assert result.final_portfolio.positions == {}
 
 
 class TestFills:
@@ -304,6 +338,19 @@ class TestPointInTimeSemantics:
         second_state = strategy.data_calls[1][1]
         assert first_state.features is None
         assert second_state.features == {"a": {"feature_alpha": 1.0}}
+
+    def test_strategy_state_separates_observed_and_execution_prices(self) -> None:
+        table = _make_trades_table([(_T0, "a", 0.5), (_T1, "a", 0.6)])
+        strategy = _NullStrategy()
+
+        EventBacktestEngine(_default_config()).run(strategy, _MockDataset(table))
+
+        first_state = strategy.data_calls[0][1]
+        second_state = strategy.data_calls[1][1]
+        assert first_state.latest_prices == {}
+        assert first_state.execution_prices == {"a": Decimal("0.5")}
+        assert second_state.latest_prices == {"a": Decimal("0.5")}
+        assert second_state.execution_prices == {"a": Decimal("0.6")}
 
 
 class TestBacktestId:

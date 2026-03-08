@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import importlib
 
-from apps.research.backtester.strategy import Strategy
-from apps.research.backtester.vec_strategy import VecStrategy
+import apps.research.backtester.strategy as strategy_mod
+import apps.research.backtester.vec_strategy as vec_strategy_mod
 
-StrategyClass = type[Strategy] | type[VecStrategy]
+StrategyClass = type[strategy_mod.Strategy] | type[vec_strategy_mod.VecStrategy]
 
 
 class StrategyLoader:
@@ -70,7 +70,11 @@ class StrategyLoader:
         cls = getattr(module, class_name)
 
         if not (
-            isinstance(cls, type) and (issubclass(cls, Strategy) or issubclass(cls, VecStrategy))
+            isinstance(cls, type)
+            and (
+                issubclass(cls, strategy_mod.Strategy)
+                or issubclass(cls, vec_strategy_mod.VecStrategy)
+            )
         ):
             raise TypeError(
                 f"'{module_path}' resolved to {cls!r}, which is not a subclass of "

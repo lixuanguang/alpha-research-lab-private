@@ -22,13 +22,13 @@ from decimal import Decimal
 
 import alpha_core.execution.models as exec_models
 import alpha_core.portfolio.models as portfolio_models
-from apps.research.backtester.strategy import Strategy, StrategyState
+import apps.research.backtester.strategy as strategy_mod
 
 _ZERO = Decimal("0")
 _DEFAULT_SIZE = Decimal("10")
 
 
-class ProbabilityMomentumStrategy(Strategy):
+class ProbabilityMomentumStrategy(strategy_mod.Strategy):
     """Go long/short on implied-probability rate-of-change.
 
     Args:
@@ -67,7 +67,7 @@ class ProbabilityMomentumStrategy(Strategy):
     def on_data(
         self,
         timestamp: datetime,
-        state: StrategyState,
+        state: strategy_mod.StrategyState,
     ) -> list[exec_models.BacktestOrderIntent]:
         orders: list[exec_models.BacktestOrderIntent] = []
 

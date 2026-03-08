@@ -1,0 +1,25 @@
+pack_id: pm_core
+version: "1.0.0"
+description: >
+  Prediction-market-native features covering probability momentum,
+  cross-venue dislocations, time-to-resolution decay, category drift,
+  top-of-book imbalance, and lagged acceleration.
+
+dependencies: []
+
+output_schema:
+  implied_prob_momentum_20: float64
+  cross_venue_spread: float64
+  volume_weighted_prob_20: float64
+  time_to_resolution_decay: float64
+  category_momentum_10: float64
+  book_imbalance_3: float64
+  prob_acceleration_5_20: float64
+
+parameters:
+  momentum_window: 20
+  volume_window: 20
+  category_window: 10
+  imbalance_levels: 3
+  acceleration_fast: 5
+  acceleration_slow: 20

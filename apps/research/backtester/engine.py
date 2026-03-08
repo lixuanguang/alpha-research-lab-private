@@ -141,8 +141,8 @@ class EventBacktestEngine:
             instr = str(row["instrument_id"])
             price = Decimal(str(row["price"]))
             ts = _row_timestamp(row)
-
-            latest_prices[instr] = price
+            row_prices = dict(latest_prices)
+            row_prices[instr] = price
 
             # --- Resolutions ---
             if resolution_prices:
@@ -154,23 +154,39 @@ class EventBacktestEngine:
 
             # --- Update feature state ---
             current_features = self._current_features(features_index, instr, ts)
+            active_universe = [
+                instrument_id for instrument_id in universe if instrument_id not in resolved_set
+            ]
+            observed_prices = {
+                instrument_id: observed_price
+                for instrument_id, observed_price in latest_prices.items()
+                if instrument_id not in resolved_set
+            }
+            execution_prices = {
+                instrument_id: execution_price
+                for instrument_id, execution_price in row_prices.items()
+                if instrument_id not in resolved_set
+            }
 
             # --- Strategy callback ---
             port_state = tracker.state(timestamp=ts)
             state = strategy_mod.StrategyState(
                 timestamp=ts,
                 portfolio=port_state,
-                latest_prices=dict(latest_prices),
+                latest_prices=observed_prices,
+                execution_prices=execution_prices,
                 features=current_features,
-                universe=universe,
+                universe=active_universe,
             )
             intents = strategy.on_data(ts, state)
 
             # --- Simulate fills ---
             for intent in intents:
+                if intent.instrument_id in resolved_set:
+                    continue
                 fill = self._simulator.simulate_fill(
                     intent,
-                    last_trade_price=latest_prices.get(intent.instrument_id),
+                    last_trade_price=execution_prices.get(intent.instrument_id),
                     timestamp=ts,
                 )
                 if fill is not None:
@@ -178,7 +194,8 @@ class EventBacktestEngine:
                     all_fills.append(fill)
 
             # --- Mark to market ---
-            tracker.mark_to_market(latest_prices, ts)
+            tracker.mark_to_market(execution_prices, ts)
+            latest_prices = row_prices
 
         duration = time.monotonic() - t_start
         config_dict = self._config.model_dump(mode="json")

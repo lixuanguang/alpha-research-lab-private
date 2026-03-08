@@ -129,6 +129,27 @@ class _CaptureFeaturesStrategy(VecStrategy):
         return pd.DataFrame({"instrument_id": [], "target_weight": []})
 
 
+class _AlwaysLongStrategy(VecStrategy):
+    name = "always_long_vec"
+
+    def generate_signals(
+        self,
+        features: pd.DataFrame,
+        universe: list[str],
+    ) -> pd.DataFrame:
+        del features, universe
+        return pd.DataFrame({"instrument_id": ["a"], "signal": [1.0], "strength": [1.0]})
+
+    def size_positions(
+        self,
+        signals: pd.DataFrame,
+        portfolio_value: Decimal,
+        max_positions: int,
+    ) -> pd.DataFrame:
+        del signals, portfolio_value, max_positions
+        return pd.DataFrame({"instrument_id": ["a"], "target_weight": [0.5]})
+
+
 # ---------------------------------------------------------------------------
 # Config validation
 # ---------------------------------------------------------------------------
@@ -326,6 +347,17 @@ class TestPointInTimeSemantics:
             _NullStrategy(), _MockDataset(_make_trades_table(rows))
         )
         assert result.event_count == 2
+
+    def test_resolution_prevents_reentry_in_resolved_instrument(self) -> None:
+        rows = [(_T0, "a", 0.5), (_T1, "a", 0.6), (_T2, "a", 0.7)]
+        result = VecBacktestEngine(_default_config()).run(
+            _AlwaysLongStrategy(),
+            _MockDataset(_make_trades_table(rows)),
+            resolution_prices={"a": (Decimal("1"), _T1)},
+        )
+
+        assert [fill.timestamp for fill in result.trades] == [_T0]
+        assert result.final_portfolio.positions == {}
 
 
 # ---------------------------------------------------------------------------

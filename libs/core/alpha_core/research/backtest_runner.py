@@ -184,7 +184,7 @@ class _EventZScoreStrategy(strategy_mod.Strategy):
             return []
 
         instrument_id, feature_row = next(iter(state.features.items()))
-        price = state.latest_prices.get(instrument_id)
+        price = state.execution_prices.get(instrument_id, state.latest_prices.get(instrument_id))
         if price is None or price <= _ZERO_D:
             return []
 
@@ -329,13 +329,12 @@ class BacktestRunner:
             config_payload=effective_payload,
             session_id=session_id,
         )
-        run_id = run_context.run_id
 
         trades_table = _closed_positions_to_table(result)
         fills_table = _fills_to_table(result.trades)
         equity_table = _equity_to_table(result)
         artifact_map = self._persist_output_tables(
-            run_id=run_id,
+            run_id=run_context.run_id,
             config=config,
             trades_table=trades_table,
             fills_table=fills_table,
@@ -345,7 +344,7 @@ class BacktestRunner:
 
         completed_context = run_context_mod.close_run_context(run_context)
         backtest_manifest = self._build_manifest(
-            run_id=run_id,
+            run_id=run_context.run_id,
             config=config,
             parent_run_id=feature_run_id,
             completed_context=completed_context,
@@ -418,28 +417,34 @@ class BacktestRunner:
             expected_version=config.strategy_recipe_version,
         )
         strategy_params = dict(config.strategy_params)
-        fee_bps = config.fee_bps
-        slippage_bps = config.slippage_bps
-        max_position_pct = config.max_position_pct
         zscore_column = _select_default_zscore_column(features_df.columns)
-
-        if resolved_recipe is not None:
-            strategy_params, fee_bps, slippage_bps, max_position_pct = _merge_recipe_defaults(
-                config=config,
-                recipe=resolved_recipe,
-            )
-            zscore_column = _validate_recipe_feature_contract(
-                parent_run_id=parent_run_id,
-                recipe=resolved_recipe,
-                feature_manifest=feature_manifest,
-                features_df=features_df,
-            )
-
         if zscore_column is None:
             raise BacktestRunError(
                 "Feature artifact does not satisfy the backtest input contract. "
                 "Missing columns: ['price_zscore_*']."
             )
+
+        if resolved_recipe is None:
+            strategy_spec = _resolve_strategy_spec(
+                config.strategy_id,
+                strategy_params,
+                max_position_pct=config.max_position_pct,
+                fee_bps=config.fee_bps,
+                slippage_bps=config.slippage_bps,
+                zscore_column=zscore_column,
+            )
+            return resolved_recipe, strategy_spec
+
+        strategy_params, fee_bps, slippage_bps, max_position_pct = _merge_recipe_defaults(
+            config=config,
+            recipe=resolved_recipe,
+        )
+        zscore_column = _validate_recipe_feature_contract(
+            parent_run_id=parent_run_id,
+            recipe=resolved_recipe,
+            feature_manifest=feature_manifest,
+            features_df=features_df,
+        )
 
         strategy_spec = _resolve_strategy_spec(
             config.strategy_id,

@@ -40,12 +40,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
-from alpha_core.evaluation.calibration import (
-    brier_score,
-    calibration_curve,
-    expected_calibration_error,
-    log_loss_score,
-)
+import alpha_core.evaluation.calibration as calibration_mod
 
 _EPSILON = 1e-12
 _ZERO_D = Decimal("0")
@@ -126,10 +121,10 @@ def compute_pm_metrics(
     if not resolved.empty:
         predictions = resolved["forecast_prob"].to_numpy(dtype=float)
         outcomes = resolved["forecast_outcome"].to_numpy(dtype=float)
-        bs = brier_score(predictions, outcomes)
-        ll = log_loss_score(predictions, outcomes)
-        ece = expected_calibration_error(predictions, outcomes)
-        cal_bins = calibration_curve(predictions, outcomes)
+        bs = calibration_mod.brier_score(predictions, outcomes)
+        ll = calibration_mod.log_loss_score(predictions, outcomes)
+        ece = calibration_mod.expected_calibration_error(predictions, outcomes)
+        cal_bins = calibration_mod.calibration_curve(predictions, outcomes)
 
     res_pnl = _ZERO_D
     res_count = len(resolved.index)
@@ -224,7 +219,7 @@ def _category_breakdown(
         resolved_group = _resolved_trade_frame(group)
         category_brier = 0.0
         if not resolved_group.empty:
-            category_brier = brier_score(
+            category_brier = calibration_mod.brier_score(
                 resolved_group["forecast_prob"].to_numpy(dtype=float),
                 resolved_group["forecast_outcome"].to_numpy(dtype=float),
             )

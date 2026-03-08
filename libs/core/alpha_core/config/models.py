@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from alpha_core.config.profiles import ProfileName
+import alpha_core.config.profiles as profiles_mod
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -76,7 +76,7 @@ class Settings(BaseModel):
     storage: StorageConfig
     log_level: LogLevel = "INFO"
     feature_flags: dict[str, bool] = Field(default_factory=dict)
-    profile: ProfileName | None = Field(
+    profile: profiles_mod.ProfileName | None = Field(
         default=None,
         description=(
             "Active runtime profile. None means no profile-level safety guards are applied."

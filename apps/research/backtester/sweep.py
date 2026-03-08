@@ -95,7 +95,7 @@ class ParameterGrid:
             return
         keys = list(self._params.keys())
         for combo in itertools.product(*[self._params[k] for k in keys]):
-            yield dict(zip(keys, combo))
+            yield dict(zip(keys, combo, strict=True))
 
     def __repr__(self) -> str:
         return f"ParameterGrid({self._params!r})"

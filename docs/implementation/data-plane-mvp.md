@@ -5,8 +5,8 @@
 > **Focus:** Prediction market data collection via `pmxt` — polling + streaming connectors, bronze/silver storage, data quality automation, backfill/replay tooling  
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
-> **Implementation Status (as of March 7, 2026):** D1, D2, D3, D4, D5, and D6 complete; section 11 is validated and folded into the closed Data Plane baseline
-> **Current quality gate snapshot (validated March 7, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`1875 passed, 10 skipped`).
+> **Implementation Status (as of March 8, 2026):** D1, D2, D3, D4, D5, and D6 complete; section 11 is validated and folded into the closed Data Plane baseline
+> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2006 passed, 10 skipped`).
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---

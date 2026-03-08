@@ -27,10 +27,10 @@
 | Research Microstructure Extension (Tick-Resolution) | Planned | — | [Research Plane Extension](docs/implementation/research-plane-mvp.md#11-future-microstructure-extension-tick-resolution) |
 | Macro/OpenBB Ingestion (`M0`-`M3`) | Optional / Planned | — | [README Macro Plan](README.md#macro-data-ingestion-plan-openbb-hybrid) |
 
-**Quality gates (as of March 7, 2026):**
+**Quality gates (as of March 8, 2026):**
 - `ruff check .` — 0 errors
 - `mypy libs/core apps tests --strict` — 0 errors
-- `pytest tests/ -q` — 1875 passed, 10 skipped
+- `pytest tests/ -q` — 2006 passed, 10 skipped
 
 **Maintenance updates (March 1, 2026):**
 - Data-collector connector internals were decomposed into focused modules:

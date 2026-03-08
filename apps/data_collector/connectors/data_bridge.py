@@ -49,7 +49,7 @@ from typing import Any, Protocol, cast, runtime_checkable
 
 import alpha_core.adapters.base as adapters_base
 import alpha_core.events.models as event_models
-from apps.data_collector.connectors.capabilities import VenueCapabilities
+import apps.data_collector.connectors.capabilities as connector_capabilities
 
 # ---------------------------------------------------------------------------
 # Domain models
@@ -181,7 +181,7 @@ class DataBridgeProtocol(Protocol):
         """Normalized venue identifier."""
         ...
 
-    def capabilities(self) -> VenueCapabilities:
+    def capabilities(self) -> connector_capabilities.VenueCapabilities:
         """Return typed capability declarations for this provider."""
         ...
 
@@ -270,7 +270,7 @@ class ConnectorDataBridge:
         self,
         adapter: adapters_base.VenueAdapter,
         *,
-        capabilities_override: VenueCapabilities | None = None,
+        capabilities_override: connector_capabilities.VenueCapabilities | None = None,
     ) -> None:
         self._adapter = adapter
         self._capabilities = capabilities_override or _infer_capabilities(adapter)
@@ -283,20 +283,19 @@ class ConnectorDataBridge:
     def venue_name(self) -> str:
         return self._adapter.venue_name()
 
-    def capabilities(self) -> VenueCapabilities:
+    def capabilities(self) -> connector_capabilities.VenueCapabilities:
         return self._capabilities
 
     async def pull_snapshot(
         self, window: SnapshotWindow
     ) -> list[event_models.CanonicalMarketEvent]:
         """Fetch historical events from the adapter for all instruments in *window*."""
-        caps = self._capabilities
         events: list[event_models.CanonicalMarketEvent] = []
         event_types = window.event_types or [event_models.EventType.TRADE]
 
         for event_type in event_types:
             if event_type == event_models.EventType.TRADE:
-                _require(caps.trades, "trades", caps.venue_name)
+                _require(self._capabilities.trades, "trades", self._capabilities.venue_name)
                 for iid in window.instrument_ids:
                     events.extend(
                         await _fetch_trades_in_window(
@@ -307,8 +306,12 @@ class ConnectorDataBridge:
                     )
 
             elif event_type == event_models.EventType.BOOK_SNAPSHOT:
-                _require(caps.book_snapshots, "book_snapshots", caps.venue_name)
-                book_adapter = _require_historical_book_adapter(self._adapter, caps)
+                _require(
+                    self._capabilities.book_snapshots,
+                    "book_snapshots",
+                    self._capabilities.venue_name,
+                )
+                book_adapter = _require_historical_book_adapter(self._adapter, self._capabilities)
                 for iid in window.instrument_ids:
                     book = await book_adapter.fetch_order_book_snapshot_at(
                         iid,
@@ -319,11 +322,14 @@ class ConnectorDataBridge:
 
             elif event_type == event_models.EventType.OHLCV:
                 _require(
-                    caps.supports_ohlcv(window.ohlcv_resolution),
+                    self._capabilities.supports_ohlcv(window.ohlcv_resolution),
                     f"ohlcv_resolutions['{window.ohlcv_resolution}']",
-                    caps.venue_name,
+                    self._capabilities.venue_name,
                 )
-                ohlcv_adapter = _require_historical_ohlcv_adapter(self._adapter, caps)
+                ohlcv_adapter = _require_historical_ohlcv_adapter(
+                    self._adapter,
+                    self._capabilities,
+                )
                 for iid in window.instrument_ids:
                     fetched = await ohlcv_adapter.fetch_ohlcv_window(
                         iid,
@@ -335,7 +341,10 @@ class ConnectorDataBridge:
                     events.extend(_keep_in_window(fetched, window))
 
             else:
-                raise UnsupportedCapabilityError(str(event_type), caps.venue_name)
+                raise UnsupportedCapabilityError(
+                    str(event_type),
+                    self._capabilities.venue_name,
+                )
 
         events.sort(key=lambda e: e.ts_event)
         return events
@@ -344,8 +353,7 @@ class ConnectorDataBridge:
         self, cursor: IncrementalCursor
     ) -> tuple[list[event_models.CanonicalMarketEvent], IncrementalCursor]:
         """Fetch trade events that arrived after *cursor.cursor_watermark_utc*."""
-        caps = self._capabilities
-        _require(caps.trades, "trades", caps.venue_name)
+        _require(self._capabilities.trades, "trades", self._capabilities.venue_name)
 
         cursor_state = _load_cursor_state(cursor)
         new_events: list[event_models.CanonicalTrade] = []
@@ -390,10 +398,9 @@ class ConnectorDataBridge:
         adapter when available.  Raises :exc:`UnsupportedCapabilityError` when
         neither streaming channel is declared.
         """
-        caps = self._capabilities
-        if not caps.supports_streaming():
-            raise UnsupportedCapabilityError("streaming", caps.venue_name)
-        return _merge_stream(self._adapter, topics, caps)
+        if not self._capabilities.supports_streaming():
+            raise UnsupportedCapabilityError("streaming", self._capabilities.venue_name)
+        return _merge_stream(self._adapter, topics, self._capabilities)
 
 
 # ---------------------------------------------------------------------------
@@ -415,10 +422,12 @@ def _keep_in_window(
     return [e for e in events if window.start <= e.ts_event <= window.end]
 
 
-def _infer_capabilities(adapter: adapters_base.VenueAdapter) -> VenueCapabilities:
+def _infer_capabilities(
+    adapter: adapters_base.VenueAdapter,
+) -> connector_capabilities.VenueCapabilities:
     """Build a best-effort capability declaration by duck-typing the adapter."""
     historical_ohlcv = isinstance(adapter, HistoricalOHLCVAdapter)
-    return VenueCapabilities(
+    return connector_capabilities.VenueCapabilities(
         venue_name=adapter.venue_name(),
         trades=True,
         book_snapshots=isinstance(adapter, HistoricalBookSnapshotAdapter),
@@ -433,7 +442,7 @@ def _infer_capabilities(adapter: adapters_base.VenueAdapter) -> VenueCapabilitie
 
 def _require_historical_book_adapter(
     adapter: adapters_base.VenueAdapter,
-    caps: VenueCapabilities,
+    caps: connector_capabilities.VenueCapabilities,
 ) -> HistoricalBookSnapshotAdapter:
     _require(isinstance(adapter, HistoricalBookSnapshotAdapter), "book_snapshots", caps.venue_name)
     return cast(HistoricalBookSnapshotAdapter, adapter)
@@ -441,7 +450,7 @@ def _require_historical_book_adapter(
 
 def _require_historical_ohlcv_adapter(
     adapter: adapters_base.VenueAdapter,
-    caps: VenueCapabilities,
+    caps: connector_capabilities.VenueCapabilities,
 ) -> HistoricalOHLCVAdapter:
     capability = "ohlcv_resolutions"
     _require(isinstance(adapter, HistoricalOHLCVAdapter), capability, caps.venue_name)
@@ -642,7 +651,7 @@ async def _fetch_incremental_trades(
 async def _merge_stream(
     adapter: Any,
     topics: list[StreamTopic],
-    caps: VenueCapabilities,
+    caps: connector_capabilities.VenueCapabilities,
 ) -> AsyncIterator[event_models.CanonicalMarketEvent]:
     """Interleave event streams for all requested topics into a single iterator.
 
@@ -656,39 +665,35 @@ async def _merge_stream(
     queue: asyncio.Queue[event_models.CanonicalMarketEvent | None] = asyncio.Queue()
     tasks: list[asyncio.Task[None]] = []
 
-    async def _drain_trade_stream(instrument_id: str) -> None:
-        watch_fn = getattr(adapter, "watch_trades", None)
-        if not callable(watch_fn):
-            return
-        async for batch in watch_fn(instrument_id):
-            for event in batch:
-                await queue.put(event)
-
-    async def _drain_book_stream(instrument_id: str) -> None:
-        watch_fn = getattr(adapter, "watch_order_book", None)
-        if not callable(watch_fn):
-            return
-        async for batch in watch_fn(instrument_id):
-            for event in batch:
-                await queue.put(event)
-
     for topic in topics:
         if topic.event_type == event_models.EventType.TRADE and caps.streaming_trades:
-            tasks.append(asyncio.create_task(_drain_trade_stream(topic.instrument_id)))
+            tasks.append(
+                asyncio.create_task(
+                    _drain_stream_events(
+                        adapter=adapter,
+                        watch_attr="watch_trades",
+                        instrument_id=topic.instrument_id,
+                        queue=queue,
+                    )
+                )
+            )
         elif (
             topic.event_type
             in (event_models.EventType.BOOK_SNAPSHOT, event_models.EventType.BOOK_DELTA)
             and caps.streaming_books
         ):
-            tasks.append(asyncio.create_task(_drain_book_stream(topic.instrument_id)))
+            tasks.append(
+                asyncio.create_task(
+                    _drain_stream_events(
+                        adapter=adapter,
+                        watch_attr="watch_order_book",
+                        instrument_id=topic.instrument_id,
+                        queue=queue,
+                    )
+                )
+            )
 
-    async def _sentinel_when_done() -> None:
-        try:
-            await asyncio.gather(*tasks)
-        finally:
-            await queue.put(None)
-
-    sentinel_task = asyncio.create_task(_sentinel_when_done())
+    sentinel_task = asyncio.create_task(_queue_sentinel_when_done(queue=queue, tasks=tasks))
 
     while True:
         item = await queue.get()
@@ -697,6 +702,32 @@ async def _merge_stream(
         yield item
 
     await sentinel_task
+
+
+async def _drain_stream_events(
+    *,
+    adapter: Any,
+    watch_attr: str,
+    instrument_id: str,
+    queue: asyncio.Queue[event_models.CanonicalMarketEvent | None],
+) -> None:
+    watch_fn = getattr(adapter, watch_attr, None)
+    if not callable(watch_fn):
+        return
+    async for batch in watch_fn(instrument_id):
+        for event in batch:
+            await queue.put(event)
+
+
+async def _queue_sentinel_when_done(
+    *,
+    queue: asyncio.Queue[event_models.CanonicalMarketEvent | None],
+    tasks: list[asyncio.Task[None]],
+) -> None:
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        await queue.put(None)
 
 
 __all__ = [

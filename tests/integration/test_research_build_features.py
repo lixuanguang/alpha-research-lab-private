@@ -45,6 +45,16 @@ _TRADES_SCHEMA = pa.schema(
     ]
 )
 
+_PM_TRADES_SCHEMA = pa.schema(
+    [
+        *_TRADES_SCHEMA,
+        pa.field("resolution_date", pa.timestamp("us", tz="UTC")),
+        pa.field("category", pa.string()),
+        pa.field("bid_volume", pa.float64()),
+        pa.field("ask_volume", pa.float64()),
+    ]
+)
+
 
 def _write_gold_trades(dataset_dir: Path, n: int = 20) -> None:
     """Write a synthetic gold ``trades.parquet`` into *dataset_dir*."""
@@ -65,6 +75,35 @@ def _write_gold_trades(dataset_dir: Path, n: int = 20) -> None:
         },
         schema=_TRADES_SCHEMA,
     )
+    pq.write_table(table, dataset_dir / "trades.parquet", compression="zstd")
+
+
+def _write_pm_gold_trades(dataset_dir: Path, n_timestamps: int = 25) -> None:
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+    ts_events = [_BASE + timedelta(minutes=15 * i) for i in range(n_timestamps)]
+    resolution_date = _BASE + timedelta(days=7)
+    rows: list[dict[str, object]] = []
+    venues = ("kalshi", "polymarket")
+    for idx, ts_event in enumerate(ts_events):
+        base_price = 0.40 + 0.01 * (idx % 10)
+        for venue_idx, venue in enumerate(venues):
+            rows.append(
+                {
+                    "event_id": f"{venue}-e{idx}",
+                    "instrument_id": f"{venue}:m1:yes",
+                    "venue_id": venue,
+                    "event_type": "trade",
+                    "ts_event": ts_event,
+                    "ts_record": ts_event,
+                    "price": base_price + 0.02 * venue_idx,
+                    "size": 100.0 + idx + 10.0 * venue_idx,
+                    "resolution_date": resolution_date,
+                    "category": "macro",
+                    "bid_volume": 140.0 + idx + venue_idx,
+                    "ask_volume": 90.0 + idx - venue_idx,
+                }
+            )
+    table = pa.Table.from_pylist(rows, schema=_PM_TRADES_SCHEMA)
     pq.write_table(table, dataset_dir / "trades.parquet", compression="zstd")
 
 
@@ -125,6 +164,13 @@ def storage_root_with_named_dataset(tmp_path: Path) -> Path:
     dataset_dir = tmp_path / "gold" / "datasets" / _DATASET_ID
     _write_gold_trades(dataset_dir, n=20)
     _write_dataset_meta(dataset_dir, _DATASET_ID, "named_dataset")
+    return tmp_path
+
+
+@pytest.fixture()
+def storage_root_with_pm_dataset(tmp_path: Path) -> Path:
+    dataset_dir = tmp_path / "gold" / "datasets" / _DATASET_ID
+    _write_pm_gold_trades(dataset_dir)
     return tmp_path
 
 
@@ -659,6 +705,53 @@ def test_execute_with_factor_pack_materializes_manifest_driven_columns(
     )
     assert run_manifest.artifacts["factor_pack_id"] == "momentum"
     assert run_manifest.artifacts["factor_pack_version"] == "1.0.0"
+
+
+def test_execute_with_pm_factor_pack_materializes_pm_native_columns(
+    storage_root_with_pm_dataset: Path,
+) -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        research_main.main,
+        [
+            "--format",
+            "json",
+            "build-features",
+            "--dataset-id",
+            _DATASET_ID,
+            "--feature-set-version",
+            "v1",
+            "--factor-pack",
+            "pm_core",
+            "--storage-root",
+            str(storage_root_with_pm_dataset),
+            "--execute",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    run_id = json.loads(result.output)["run_id"]
+
+    features = pq.read_table(
+        artifact_paths.artifact_key_path(
+            storage_root_with_pm_dataset,
+            run_id,
+            "features.parquet",
+        )
+    ).to_pandas()
+    expected_columns = {
+        "implied_prob_momentum_20",
+        "cross_venue_spread",
+        "volume_weighted_prob_20",
+        "time_to_resolution_decay",
+        "category_momentum_10",
+        "book_imbalance_3",
+        "prob_acceleration_5_20",
+    }
+    assert expected_columns.issubset(features.columns)
+    assert features["cross_venue_spread"].notna().any()
+    assert features["time_to_resolution_decay"].notna().any()
+    assert features["book_imbalance_3"].notna().any()
+    assert features["prob_acceleration_5_20"].notna().any()
 
 
 def test_missing_factor_pack_exits_nonzero(storage_root_with_dataset: Path) -> None:

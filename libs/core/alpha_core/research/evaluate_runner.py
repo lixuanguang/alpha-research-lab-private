@@ -81,7 +81,6 @@ class EvaluateRunner:
             config_payload=effective_payload,
             session_id=session_id,
         )
-        run_id = run_context.run_id
 
         report = evaluator_mod.BacktestEvaluator().evaluate(
             backtest_id=backtest_run_id,
@@ -92,7 +91,10 @@ class EvaluateRunner:
             parent_run_id=parent_run_id or backtest_run_id,
             feature_run_id=backtest_manifest.parent_run_id,
         )
-        report_path = report_writer_mod.ReportWriter(self._storage_root).write(report, run_id)
+        report_path = report_writer_mod.ReportWriter(self._storage_root).write(
+            report,
+            run_context.run_id,
+        )
 
         metrics = _profile_metrics(
             report=report,
@@ -102,7 +104,7 @@ class EvaluateRunner:
         )
 
         metrics_json_path = report_path.with_name("metrics.json")
-        metrics_parquet_path = self._store.prepare_path(run_id, "metrics.parquet")
+        metrics_parquet_path = self._store.prepare_path(run_context.run_id, "metrics.parquet")
         metrics_json_path.write_text(
             json.dumps(
                 {"metrics_profile": metrics_profile, "metrics": metrics},
@@ -131,7 +133,7 @@ class EvaluateRunner:
             "metrics_profile": metrics_profile,
         }
         evaluate_manifest = EvaluateManifest(
-            run_id=run_id,
+            run_id=run_context.run_id,
             backtest_run_id=backtest_run_id,
             metrics_profile=metrics_profile,
             built_at=built_at,
@@ -140,7 +142,7 @@ class EvaluateRunner:
             parent_run_id=parent_run_id or backtest_run_id,
         )
 
-        manifest_path = self._store.prepare_path(run_id, "evaluate_manifest.json")
+        manifest_path = self._store.prepare_path(run_context.run_id, "evaluate_manifest.json")
         manifest_path.write_text(evaluate_manifest.model_dump_json(indent=2), encoding="utf-8")
         artifact_map["evaluate_manifest"] = str(manifest_path)
 
@@ -243,19 +245,18 @@ def _profile_metrics(
     profile: MetricsProfile,
     starting_cash: float,
 ) -> dict[str, float]:
-    financial = report.financial
     metrics: dict[str, float] = {
-        "total_return": float(financial.total_return),
-        "trade_count": float(financial.total_trades),
+        "total_return": float(report.financial.total_return),
+        "trade_count": float(report.financial.total_trades),
     }
     if profile == "minimal":
         return metrics
 
     metrics.update(
         {
-            "annualized_return": float(financial.annualised_return),
-            "sharpe_ratio": financial.sharpe_ratio,
-            "max_drawdown": float(financial.max_drawdown),
+            "annualized_return": float(report.financial.annualised_return),
+            "sharpe_ratio": report.financial.sharpe_ratio,
+            "max_drawdown": float(report.financial.max_drawdown),
         }
     )
     metrics.update(_trade_statistics(trades_df=trades_df, starting_cash=starting_cash))

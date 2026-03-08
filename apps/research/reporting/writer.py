@@ -26,7 +26,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from alpha_core.evaluation.evaluator import EvaluationReport
+import alpha_core.evaluation.evaluator as evaluator_mod
 
 
 class ReportNotFoundError(KeyError):
@@ -53,7 +53,7 @@ class ReportWriter:
     # Write
     # ------------------------------------------------------------------ #
 
-    def write(self, report: EvaluationReport, run_id: str) -> Path:
+    def write(self, report: evaluator_mod.EvaluationReport, run_id: str) -> Path:
         """Persist an :class:`EvaluationReport` and return the ``report.json`` path.
 
         Creates::
@@ -83,7 +83,7 @@ class ReportWriter:
     # Load
     # ------------------------------------------------------------------ #
 
-    def load(self, run_id: str) -> EvaluationReport:
+    def load(self, run_id: str) -> evaluator_mod.EvaluationReport:
         """Load an :class:`EvaluationReport` from disk.
 
         Parameters
@@ -101,7 +101,9 @@ class ReportWriter:
             raise ReportNotFoundError(
                 f"report.json not found for run_id={run_id!r} (looked in {report_path})"
             )
-        return EvaluationReport.model_validate_json(report_path.read_text(encoding="utf-8"))
+        return evaluator_mod.EvaluationReport.model_validate_json(
+            report_path.read_text(encoding="utf-8")
+        )
 
     # ------------------------------------------------------------------ #
     # List
@@ -137,38 +139,36 @@ class ReportWriter:
         tmp.replace(path)
 
 
-def _flat_metrics(report: EvaluationReport) -> dict[str, Any]:
+def _flat_metrics(report: evaluator_mod.EvaluationReport) -> dict[str, Any]:
     """Flatten EvaluationReport financial + PM metrics into a single dict."""
-    fin = report.financial
-    pm = report.pm_specific
     return {
         # identity
         "backtest_id": report.backtest_id,
         "strategy_name": report.strategy_name,
         "schema_version": report.schema_version,
         # financial
-        "total_return": float(fin.total_return),
-        "annualised_return": float(fin.annualised_return),
-        "volatility": fin.volatility,
-        "sharpe_ratio": fin.sharpe_ratio,
-        "sortino_ratio": fin.sortino_ratio,
-        "calmar_ratio": fin.calmar_ratio,
-        "max_drawdown": float(fin.max_drawdown),
-        "max_drawdown_duration_days": fin.max_drawdown_duration_days,
-        "total_trades": fin.total_trades,
-        "win_rate": fin.win_rate,
-        "profit_factor": float(fin.profit_factor),
-        "avg_trade_pnl": float(fin.avg_trade_pnl),
-        "avg_holding_period_hours": fin.avg_holding_period_hours,
+        "total_return": float(report.financial.total_return),
+        "annualised_return": float(report.financial.annualised_return),
+        "volatility": report.financial.volatility,
+        "sharpe_ratio": report.financial.sharpe_ratio,
+        "sortino_ratio": report.financial.sortino_ratio,
+        "calmar_ratio": report.financial.calmar_ratio,
+        "max_drawdown": float(report.financial.max_drawdown),
+        "max_drawdown_duration_days": report.financial.max_drawdown_duration_days,
+        "total_trades": report.financial.total_trades,
+        "win_rate": report.financial.win_rate,
+        "profit_factor": float(report.financial.profit_factor),
+        "avg_trade_pnl": float(report.financial.avg_trade_pnl),
+        "avg_holding_period_hours": report.financial.avg_holding_period_hours,
         # PM
-        "brier_score": pm.brier_score,
-        "log_loss": pm.log_loss,
-        "calibration_error": pm.calibration_error,
-        "resolution_pnl": float(pm.resolution_pnl),
-        "resolution_count": pm.resolution_count,
-        "resolution_accuracy": pm.resolution_accuracy,
-        "avg_prob_at_entry": float(pm.avg_prob_at_entry),
-        "avg_prob_at_exit": float(pm.avg_prob_at_exit),
+        "brier_score": report.pm_specific.brier_score,
+        "log_loss": report.pm_specific.log_loss,
+        "calibration_error": report.pm_specific.calibration_error,
+        "resolution_pnl": float(report.pm_specific.resolution_pnl),
+        "resolution_count": report.pm_specific.resolution_count,
+        "resolution_accuracy": report.pm_specific.resolution_accuracy,
+        "avg_prob_at_entry": float(report.pm_specific.avg_prob_at_entry),
+        "avg_prob_at_exit": float(report.pm_specific.avg_prob_at_exit),
     }
 
 

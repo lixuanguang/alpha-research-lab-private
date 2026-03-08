@@ -1,13 +1,13 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 1875 passed, 10 skipped; quality gates green)
+> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete — 2006 passed, 10 skipped; quality gates green)
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Lean adoption alignment (March 7, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
-> **Implementation status (March 8, 2026):** Dataset/feature/backtest/evaluate/report/optimize workflows delivered. R5 complete: `alpha_core.evaluation` package with `FinancialMetrics`, `PMMetrics` (Brier, log-loss, ECE, resolution decomposition, category breakdown), `BacktestEvaluator`, schema-versioned `EvaluationReport`, and `apps.research.reporting` (ReportWriter, comparisons). 73 new tests added.
-> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`1948 passed, 10 skipped`).
+> **Implementation status (March 8, 2026):** Dataset/feature/backtest/evaluate/report/optimize workflows delivered. R5 complete: `alpha_core.evaluation` package with `FinancialMetrics`, `PMMetrics` (Brier, log-loss, ECE, resolution decomposition, category breakdown), `BacktestEvaluator`, schema-versioned `EvaluationReport`, and `apps.research.reporting` (ReportWriter, comparisons). Additional regression coverage has been added for PM-native feature builds, lifecycle handling, and portfolio accounting.
+> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2006 passed, 10 skipped`).
 
 ---
 

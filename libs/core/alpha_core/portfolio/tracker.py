@@ -32,7 +32,7 @@ from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
-from alpha_core.portfolio.models import PortfolioState, PositionState, Side
+import alpha_core.portfolio.models as portfolio_models
 
 if TYPE_CHECKING:
     import alpha_core.execution.models as exec_models
@@ -52,10 +52,10 @@ class PortfolioTracker:
 
     def __init__(self, initial_cash: Decimal = Decimal("10000")) -> None:
         self._cash: Decimal = initial_cash
-        self._positions: dict[str, PositionState] = {}
+        self._positions: dict[str, portfolio_models.PositionState] = {}
         self._equity_history: list[tuple[datetime, Decimal]] = []
         self._equity_snapshot_history: list[tuple[datetime, Decimal, Decimal, Decimal]] = []
-        self._position_history: list[PositionState] = []
+        self._position_history: list[portfolio_models.PositionState] = []
         self._total_fees: Decimal = _ZERO
         self._total_realised: Decimal = _ZERO
         self._last_timestamp: datetime | None = None
@@ -75,35 +75,39 @@ class PortfolioTracker:
         The fill's ``fee`` is always subtracted from ``cash`` regardless
         of direction.
         """
-        order = fill.order
-        instr = order.instrument_id
-        side = order.side
+        instr = fill.order.instrument_id
         size = fill.fill_size
         price = fill.fill_price
-        fee = fill.fee
         ts = fill.timestamp
 
-        self._total_fees += fee
+        self._total_fees += fill.fee
         self._last_timestamp = ts
 
         existing = self._positions.get(instr)
 
         if existing is None:
             # Brand-new position.
-            self._positions[instr] = self._open_position(instr, side, size, price, fee, ts)
-            self._adjust_cash(side, size, price, fee)
-        elif existing.side == side:
+            self._positions[instr] = self._open_position(
+                instr,
+                fill.order.side,
+                size,
+                price,
+                fill.fee,
+                ts,
+            )
+            self._adjust_cash(fill.order.side, size, price, fill.fee)
+        elif existing.side == fill.order.side:
             # Adding to same-side position — volume-weighted average entry.
-            self._positions[instr] = self._add_to_position(existing, size, price, fee, ts)
-            self._adjust_cash(side, size, price, fee)
+            self._positions[instr] = self._add_to_position(existing, size, price, fill.fee, ts)
+            self._adjust_cash(fill.order.side, size, price, fill.fee)
         else:
             self._apply_opposite_fill(
                 instrument_id=instr,
                 existing=existing,
-                side=side,
+                side=fill.order.side,
                 size=size,
                 price=price,
-                fee=fee,
+                fee=fill.fee,
                 ts=ts,
             )
             self._refresh_total_realised()
@@ -127,7 +131,7 @@ class PortfolioTracker:
             return  # No open position — nothing to settle.
         resolved_at = timestamp or self._last_timestamp or pos.last_updated
 
-        if pos.side == Side.LONG:
+        if pos.side == portfolio_models.Side.LONG:
             # Receive payoff.
             payoff = pos.size * resolved_price
             pnl = pos.size * (resolved_price - pos.entry_price)
@@ -170,7 +174,7 @@ class PortfolioTracker:
             if new_price is None:
                 continue
             new_price = max(_ZERO, min(_ONE, new_price))
-            if pos.side == Side.LONG:
+            if pos.side == portfolio_models.Side.LONG:
                 upnl = pos.size * (new_price - pos.entry_price)
             else:
                 upnl = pos.size * (pos.entry_price - new_price)
@@ -189,12 +193,12 @@ class PortfolioTracker:
         self._equity_snapshot_history.append((timestamp, equity, self._cash, positions_value))
         self._last_timestamp = timestamp
 
-    def state(self, timestamp: datetime | None = None) -> PortfolioState:
+    def state(self, timestamp: datetime | None = None) -> portfolio_models.PortfolioState:
         """Return a snapshot of the current portfolio state."""
         ts = timestamp or self._last_timestamp or _EPOCH
         eq = self._equity()
         total_pnl = self._total_realised + sum(p.unrealised_pnl for p in self._positions.values())
-        return PortfolioState(
+        return portfolio_models.PortfolioState(
             timestamp=ts,
             cash=self._cash,
             positions=dict(self._positions),
@@ -211,7 +215,7 @@ class PortfolioTracker:
         """Return chronological ``(timestamp, equity, cash, positions_value)`` snapshots."""
         return list(self._equity_snapshot_history)
 
-    def position_history(self) -> list[PositionState]:
+    def position_history(self) -> list[portfolio_models.PositionState]:
         """Return closed positions (settled or fully reduced)."""
         return list(self._position_history)
 
@@ -220,26 +224,30 @@ class PortfolioTracker:
     # ------------------------------------------------------------------
 
     def _equity(self) -> Decimal:
-        return self._cash + sum(
-            (position.unrealised_pnl for position in self._positions.values()),
-            start=_ZERO,
-        )
+        return self._cash + self._positions_value()
 
     def _positions_value(self) -> Decimal:
         return sum(
-            (position.unrealised_pnl for position in self._positions.values()),
+            (self._position_market_value(position) for position in self._positions.values()),
             start=_ZERO,
         )
 
+    @staticmethod
+    def _position_market_value(position: portfolio_models.PositionState) -> Decimal:
+        notional = position.size * position.current_price
+        if position.side == portfolio_models.Side.LONG:
+            return notional
+        return -notional
+
     def _adjust_cash(
         self,
-        side: Side,
+        side: portfolio_models.Side,
         size: Decimal,
         price: Decimal,
         fee: Decimal,
     ) -> None:
         notional = size * price
-        if side == Side.LONG:
+        if side == portfolio_models.Side.LONG:
             self._cash -= notional + fee
         else:
             self._cash += notional - fee
@@ -247,17 +255,17 @@ class PortfolioTracker:
     @staticmethod
     def _open_position(
         instrument_id: str,
-        side: Side,
+        side: portfolio_models.Side,
         size: Decimal,
         price: Decimal,
         fee: Decimal,
         ts: datetime,
-    ) -> PositionState:
-        if side == Side.LONG:
+    ) -> portfolio_models.PositionState:
+        if side == portfolio_models.Side.LONG:
             upnl = _ZERO  # Just opened at entry price.
         else:
             upnl = _ZERO
-        return PositionState(
+        return portfolio_models.PositionState(
             instrument_id=instrument_id,
             side=side,
             size=size,
@@ -272,12 +280,12 @@ class PortfolioTracker:
 
     @staticmethod
     def _add_to_position(
-        pos: PositionState,
+        pos: portfolio_models.PositionState,
         size: Decimal,
         price: Decimal,
         fee: Decimal,
         ts: datetime,
-    ) -> PositionState:
+    ) -> portfolio_models.PositionState:
         new_size = pos.size + size
         # Volume-weighted average entry price.
         new_entry = (pos.entry_price * pos.size + price * size) / new_size
@@ -292,17 +300,17 @@ class PortfolioTracker:
 
     def _reduce_position(
         self,
-        pos: PositionState,
+        pos: portfolio_models.PositionState,
         close_size: Decimal,
         close_price: Decimal,
         fee: Decimal,
         ts: datetime,
-    ) -> PositionState:
+    ) -> portfolio_models.PositionState:
         actual_close = min(close_size, pos.size)
         remaining = pos.size - actual_close
 
         # The original side is opposite to the fill that is now closing it.
-        if pos.side == Side.LONG:
+        if pos.side == portfolio_models.Side.LONG:
             partial_pnl = actual_close * (close_price - pos.entry_price)
         else:
             partial_pnl = actual_close * (pos.entry_price - close_price)
@@ -325,7 +333,7 @@ class PortfolioTracker:
             )
         # Partially closed — keep same entry price on remainder.
         # Unrealised PnL on remaining size.
-        if pos.side == Side.LONG:
+        if pos.side == portfolio_models.Side.LONG:
             new_upnl = remaining * (close_price - pos.entry_price)
         else:
             new_upnl = remaining * (pos.entry_price - close_price)
@@ -344,8 +352,8 @@ class PortfolioTracker:
         self,
         *,
         instrument_id: str,
-        existing: PositionState,
-        side: Side,
+        existing: portfolio_models.PositionState,
+        side: portfolio_models.Side,
         size: Decimal,
         price: Decimal,
         fee: Decimal,

@@ -24,15 +24,15 @@ from decimal import Decimal
 import numpy as np
 import pandas as pd
 
-from alpha_core.portfolio.sizing import EqualWeightSizer
-from apps.research.backtester.vec_strategy import VecStrategy
+import alpha_core.portfolio.sizing as sizing_mod
+import apps.research.backtester.vec_strategy as vec_strategy_mod
 
 log = logging.getLogger(__name__)
 
 _PRICE_COLS = ("price", "mid", "last_price", "close")
 
 
-class MeanReversionStrategy(VecStrategy):
+class MeanReversionStrategy(vec_strategy_mod.VecStrategy):
     """Cross-sectional mean reversion adapted for prediction-market probability space.
 
     Shorts high-z instruments, longs low-z instruments, with a dead-band around
@@ -52,7 +52,7 @@ class MeanReversionStrategy(VecStrategy):
     ) -> None:
         self._threshold = float(zscore_threshold)
         self._lookback = max(1, lookback)
-        self._sizer = EqualWeightSizer()
+        self._sizer = sizing_mod.EqualWeightSizer()
 
     @property
     def name(self) -> str:

@@ -21,10 +21,6 @@ class TradeWatchAdapter(Protocol):
 
     def watch_trades(self, outcome_id: str) -> AsyncIterator[list[event_models.CanonicalTrade]]: ...
 
-    def trade_stream_capabilities(self) -> dict[str, bool]:
-        """Optional: declare sequence/latency capability for this trade feed."""
-        ...
-
 
 @dataclass(slots=True)
 class TradeStreamOptions:

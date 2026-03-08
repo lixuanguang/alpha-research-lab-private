@@ -100,10 +100,13 @@ def report_command(
         config_payload=payload,
         session_id=cmd_common.get_session_id(ctx),
     )
-    run_id = run_context.run_id
 
     report_suffix = "json" if report_format == "json" else "md"
-    report_path = artifact_paths.artifact_key_path(resolved_root, run_id, f"report.{report_suffix}")
+    report_path = artifact_paths.artifact_key_path(
+        resolved_root,
+        run_context.run_id,
+        f"report.{report_suffix}",
+    )
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_text = (
         json.dumps(report_payload, indent=2, sort_keys=True)
@@ -132,7 +135,7 @@ def report_command(
                 {
                     "run_type": "report",
                     "status": "materialized",
-                    "run_id": run_id,
+                    "run_id": run_context.run_id,
                     "evaluation_run_id": report_payload["evaluation_run_id"],
                     "report_format": report_payload["report_format"],
                     "report_path": str(report_path),
@@ -143,7 +146,7 @@ def report_command(
         )
         return
     click.echo(
-        f"run_type=report  status=materialized  run_id={run_id}  "
+        f"run_type=report  status=materialized  run_id={run_context.run_id}  "
         f"format={report_payload['report_format']}"
     )
     click.echo(f"report={report_path}")
