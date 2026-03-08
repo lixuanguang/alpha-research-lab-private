@@ -6,7 +6,7 @@
 > **Estimated Effort:** 180–320 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Implementation Status (as of March 8, 2026):** D1, D2, D3, D4, D5, and D6 complete; section 11 is validated and folded into the closed Data Plane baseline
-> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2083 passed, 10 skipped`).
+> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2006 passed, 10 skipped`).
 > **Post-D5 maintenance update (March 1, 2026):** connector internals are split into `_types` / `_lifecycle` / `_polling` / `_streaming`, and call sites import these modules directly (compatibility facade removed).
 
 ---
@@ -1062,10 +1062,10 @@ The Data Plane MVP is **complete** when all of the following are true:
 - [ ] CI pipeline green on GitHub Actions
 - [x] Config system extended for collection settings (backward compatible)
 
-Validation snapshot (local, March 2, 2026):
+Validation snapshot (local, March 8, 2026):
 - `ruff check .` -> pass
 - `mypy libs/ apps/ --strict` -> pass
-- `pytest tests/ -v` -> `593 passed, 8 skipped`
+- `pytest tests/ -v` -> `1763 passed, 9 skipped`
 - Remaining external check: GitHub Actions CI status
 
 ---
@@ -1537,10 +1537,7 @@ Validated implementation status (March 8, 2026):
 > `emit_ingestion_run_artifacts()` and `IngestionArtifactEmission` are in
 > `libs/core/alpha_core/storage/run_artifact_emitter.py`.
 > 24 tests in `tests/unit/test_run_artifact_emitter.py` — all passing.
->
-> **§12.4 status:** Acceptance gates are implemented (March 8, 2026).
-> `build-dataset --handoff-manifest` now consumes dataset-ready handoff contracts by
-> file path, handoff id, or ingestion run id.
+> Remaining item (§12.4 gate 5 integration test) is still forward-looking.
 
 Reference documents:
 - `README.LEAN_ADOPTION.md`
@@ -1692,7 +1689,7 @@ content (run type, run id, parent_run_id, schema version), partition refs, hando
 linkage, extra artifacts, guard against non-completed runs, idempotency, artifacts.json
 readability, and an end-to-end flow from ingest → dataset-ready → emit artifacts.
 
-### 12.4 Acceptance Gates ✅ (March 8, 2026)
+### 12.4 Acceptance Gates
 
 **Implemented.** `build-dataset` can now consume a dataset-ready handoff contract
 directly, and it binds the dataset build to the exact silver partition refs
@@ -1775,15 +1772,57 @@ Research CLI can consume this package directly for deterministic scenario replay
 `alpha_core/storage/replay_package.py`.  `BackfillManager` emits a manifest on every
 successful run and links it to the lineage record via `replay_package_id`.
 
-### 13.4 Operational Profiles for Data Collection
+### 13.4 Operational Profiles for Data Collection ✅ (March 8, 2026)
 
-Align Data Plane run modes with profile contract:
+> **§13.4 status:** Implemented. `CollectorProfile` / `CollectorProfileName` /
+> `BUILTIN_COLLECTOR_PROFILES` / `get_collector_profile()` / `apply_collector_profile()`
+> delivered in `libs/core/alpha_core/config/collector_profiles.py`.
+> 47 tests in `tests/unit/test_collector_profiles.py` — all passing.
 
-- `collector-dev`: low cadence, debug logging, short retention
-- `collector-research`: complete metadata + replay package emission
-- `collector-live`: strict health gates, conservative restart policy, high durability
+Three named profiles govern how the data collector runs across environments.
+They are orthogonal to the general `EnvironmentProfile` (trading execution
+and safety) and only affect ingestion cadence, metadata emission, health-gate
+strictness, and restart behaviour.
 
-This keeps ingestion behavior explicit across environments.
+**`collector-dev`**:
+- `log_level: DEBUG`, `data_retention_days: 7` (lightweight local storage)
+- All poll intervals 10x slower than defaults (reduces noise during experimentation)
+- `emit_replay_package: False`, `emit_handoff_manifest: False`
+- `health_gate_strict: False`, `restart_policy: "lenient"`, `max_reconnect_attempts: 5`
+
+**`collector-research`**:
+- `log_level: INFO`, `data_retention_days: None` (keep forever)
+- Normal poll cadence (defaults from `CollectionConfig`)
+- `emit_replay_package: True`, `emit_handoff_manifest: True` — full lineage for research consumers
+- `health_gate_strict: False`, `restart_policy: "lenient"`, `max_reconnect_attempts: 10`
+
+**`collector-live`**:
+- `log_level: INFO`, `data_retention_days: None`
+- Normal poll cadence; tighter `heartbeat_timeout: 60s` (vs 120s default) for earlier stale detection
+- `emit_replay_package: False`, `emit_handoff_manifest: False`
+- `health_gate_strict: True`, `restart_policy: "conservative"`, `max_reconnect_attempts: None` (unlimited)
+
+Usage pattern:
+
+```python
+import alpha_core.config.collector_profiles as cp
+
+profile = cp.get_collector_profile(cp.CollectorProfileName.RESEARCH)
+assert profile.emit_replay_package  # True for research
+
+# Merge profile timing values into a venue's CollectionConfig:
+from alpha_core.config.models import CollectionConfig
+
+applied = cp.apply_collector_profile(venue_config.collection, profile)
+# applied.trade_poll_interval == profile.trade_poll_interval
+# mode / stream_outcomes_max preserved from venue config
+```
+
+File: `libs/core/alpha_core/config/collector_profiles.py`\
+Tests (47): `tests/unit/test_collector_profiles.py` — covers registry completeness,
+lookup by name and enum, immutability (frozen model), per-profile contract assertions
+(cadence ordering, health gate strictness, metadata emission flags), and
+`apply_collector_profile` field merge + preservation of unrelated venue settings.
 
 ### 13.5 Iteration 2 Acceptance Gates
 
@@ -1792,7 +1831,7 @@ This future section is complete when:
 - [x] Data-bridge contract is documented and represented by typed interfaces. *(LA-019)*
 - [x] Cursor metadata is persisted and validated in lineage regression tests. *(LA-020)*
 - [x] Replay package manifests are emitted and consumable by research runners. *(LA-020)*
-- [ ] Data collector profiles (`dev/research/live`) are documented and test-covered.
+- [x] Data collector profiles (`dev/research/live`) are documented and test-covered. *(§13.4)*
 - [x] End-to-end test covers resume-after-failure using stored cursor + replay package. *(LA-020)*
 
 ---
