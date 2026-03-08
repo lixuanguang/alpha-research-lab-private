@@ -3,15 +3,64 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import apps.live_system.main as live_main
 import apps.research.main as research_main
 import click.testing
 
+import alpha_core.evaluation.evaluator as evaluator_mod
+import alpha_core.evaluation.financial as financial_mod
+import alpha_core.evaluation.pm_metrics as pm_metrics_mod
 import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.evaluate_runner as evaluate_runner_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
+
+
+def _write_evaluate_artifacts(storage_root: Path, run_id: str) -> None:
+    report = evaluator_mod.EvaluationReport(
+        backtest_id="bt_run_a",
+        strategy_name="strategy_a",
+        financial=financial_mod.FinancialMetrics(
+            total_return=Decimal("0"),
+            annualised_return=Decimal("0"),
+            volatility=0.0,
+            sharpe_ratio=0.0,
+            sortino_ratio=0.0,
+            calmar_ratio=0.0,
+            max_drawdown=Decimal("0"),
+            max_drawdown_duration_days=0,
+            total_trades=10,
+            win_rate=0.5,
+            profit_factor=Decimal("1"),
+            avg_trade_pnl=Decimal("0"),
+            avg_holding_period_hours=0.0,
+        ),
+        pm_specific=pm_metrics_mod.PMMetrics(
+            brier_score=0.0,
+            log_loss=0.0,
+            calibration_error=0.0,
+        ),
+    )
+    report_path = artifact_paths.artifact_key_path(storage_root, run_id, "report.json")
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+
+    evaluate_manifest = evaluate_runner_mod.EvaluateManifest(
+        run_id=run_id,
+        backtest_run_id="bt_run_a",
+        metrics_profile="pm_core",
+        built_at=report.evaluated_at,
+        metrics={"total_return": 0.05, "trade_count": 10.0},
+        artifacts={},
+        parent_run_id="bt_run_a",
+    )
+    artifact_paths.artifact_key_path(storage_root, run_id, "evaluate_manifest.json").write_text(
+        evaluate_manifest.model_dump_json(indent=2),
+        encoding="utf-8",
+    )
 
 
 def test_research_cli_help_lists_stage_commands() -> None:
@@ -77,19 +126,8 @@ def test_research_optimize_execute_with_missing_feature_run_fails(tmp_path: Path
 
 
 def test_research_report_execute_writes_report_manifest(tmp_path: Path) -> None:
-    # Pre-populate the metrics.json artifact that the report command requires.
     eval_run_id = "eval_run_a"
-    metrics_path = artifact_paths.artifact_key_path(tmp_path, eval_run_id, "metrics.json")
-    metrics_path.parent.mkdir(parents=True, exist_ok=True)
-    metrics_path.write_text(
-        json.dumps(
-            {
-                "metrics_profile": "pm_core",
-                "metrics": {"total_return": 0.05, "trade_count": 10.0},
-            }
-        ),
-        encoding="utf-8",
-    )
+    _write_evaluate_artifacts(tmp_path, eval_run_id)
 
     runner = click.testing.CliRunner()
     result = runner.invoke(
@@ -120,21 +158,24 @@ def test_research_report_rejects_metrics_path_outside_run_root(tmp_path: Path) -
         run_context_mod.make_run_context("evaluate", config_payload={"kind": "unit_test"})
     )
     eval_run_id = eval_run_context.run_id
-    rogue_metrics_path = tmp_path / "rogue_metrics.json"
-    rogue_metrics_path.write_text(
-        json.dumps(
-            {
-                "metrics_profile": "pm_core",
-                "metrics": {"total_return": 0.05, "trade_count": 10.0},
-            }
-        ),
+    rogue_manifest_path = tmp_path / "rogue_evaluate_manifest.json"
+    rogue_manifest_path.write_text(
+        evaluate_runner_mod.EvaluateManifest(
+            run_id=eval_run_id,
+            backtest_run_id="bt_run_a",
+            metrics_profile="pm_core",
+            built_at=eval_run_context.started_at_utc,
+            metrics={"total_return": 0.05, "trade_count": 10.0},
+            artifacts={},
+            parent_run_id="bt_run_a",
+        ).model_dump_json(indent=2),
         encoding="utf-8",
     )
     manifest_mod.write_run_manifest(
         artifact_paths.run_manifest_path(tmp_path, eval_run_id),
         manifest_mod.RunManifest(
             run=eval_run_context,
-            artifacts={"metrics_json": str(rogue_metrics_path)},
+            artifacts={"evaluate_manifest": str(rogue_manifest_path)},
         ),
     )
 

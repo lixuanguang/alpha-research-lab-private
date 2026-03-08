@@ -265,6 +265,28 @@ class TestTimeFiltering:
 
 
 class TestPointInTimeSemantics:
+    def test_daily_rebalance_executes_at_last_event_in_bar(self) -> None:
+        early = datetime(2024, 1, 1, 9, 0, tzinfo=UTC)
+        late = datetime(2024, 1, 1, 15, 0, tzinfo=UTC)
+        trades = _make_trades_table(
+            [
+                (early, "a", 0.1),
+                (late, "a", 0.9),
+            ]
+        )
+
+        result = VecBacktestEngine(_default_config()).run(
+            _BuyAllStrategy(),
+            _MockDataset(trades),
+        )
+
+        assert len(result.trades) == 1
+        fill = result.trades[0]
+        assert fill.timestamp == late
+        assert fill.fill_price == Decimal("0.900000")
+        assert len(result.equity_curve) == 1
+        assert result.equity_curve[0][0] == late
+
     def test_late_feature_not_visible_before_ts_available(self) -> None:
         trades = _make_trades_table_with_available(
             [

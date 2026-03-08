@@ -42,6 +42,12 @@ class BacktestResult(BaseModel):
     final_portfolio: portfolio_models.PortfolioState
     """Portfolio state at the end of the backtest."""
 
+    closed_positions: list[portfolio_models.PositionState] = Field(default_factory=list)
+    """Closed positions produced during the run, one row per completed trade thesis."""
+
+    equity_snapshots: list[tuple[datetime, Decimal, Decimal, Decimal]] = Field(default_factory=list)
+    """Chronological ``(timestamp, equity, cash, positions_value)`` snapshots."""
+
     duration_seconds: float = Field(ge=0.0)
     """Wall-clock seconds the engine took to run."""
 

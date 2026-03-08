@@ -262,7 +262,7 @@ class DatasetBuilder:
         all_instruments: set[str],
     ) -> dict[str, Any]:
         """Run quality suites over required partitions; raise on failure."""
-        summary: dict[str, Any] = {"checked": True, "partitions": [], "failed": []}
+        summary: dict[str, Any] = {"checked": True, "partitions": [], "failed": [], "missing": []}
         venues_to_check = _quality_venues(config=config, all_instruments=all_instruments)
         if not venues_to_check:
             return summary
@@ -294,7 +294,21 @@ class DatasetBuilder:
                                 {"event_type": event_type, "venue": venue, "date": date_str}
                             )
                     except FileNotFoundError:
-                        pass  # Missing partition — not a quality failure per se
+                        summary["partitions"].append(
+                            {
+                                "event_type": event_type,
+                                "venue": venue,
+                                "date": date_str,
+                                "passed": False,
+                                "missing": True,
+                            }
+                        )
+                        summary["missing"].append(
+                            {"event_type": event_type, "venue": venue, "date": date_str}
+                        )
+                        summary["failed"].append(
+                            {"event_type": event_type, "venue": venue, "date": date_str}
+                        )
 
             current += timedelta(days=1)
 

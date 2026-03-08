@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
 _PRICE_PREC = Decimal("0.000001")
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 class PortfolioTracker:
@@ -53,9 +54,11 @@ class PortfolioTracker:
         self._cash: Decimal = initial_cash
         self._positions: dict[str, PositionState] = {}
         self._equity_history: list[tuple[datetime, Decimal]] = []
+        self._equity_snapshot_history: list[tuple[datetime, Decimal, Decimal, Decimal]] = []
         self._position_history: list[PositionState] = []
         self._total_fees: Decimal = _ZERO
         self._total_realised: Decimal = _ZERO
+        self._last_timestamp: datetime | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -81,6 +84,7 @@ class PortfolioTracker:
         ts = fill.timestamp
 
         self._total_fees += fee
+        self._last_timestamp = ts
 
         existing = self._positions.get(instr)
 
@@ -93,24 +97,22 @@ class PortfolioTracker:
             self._positions[instr] = self._add_to_position(existing, size, price, fee, ts)
             self._adjust_cash(side, size, price, fee)
         else:
-            # Opposite side — reduce or close.
-            self._positions[instr] = self._reduce_position(existing, size, price, fee, ts)
-            self._adjust_cash(side, size, price, fee)
-            # If fully closed, move to history.
-            if instr in self._positions and self._positions[instr].size == _ZERO:
-                self._position_history.append(self._positions.pop(instr))
-            self._total_realised = sum(
-                (position.realised_pnl for position in self._positions.values()),
-                start=_ZERO,
-            ) + sum(
-                (position.realised_pnl for position in self._position_history),
-                start=_ZERO,
+            self._apply_opposite_fill(
+                instrument_id=instr,
+                existing=existing,
+                side=side,
+                size=size,
+                price=price,
+                fee=fee,
+                ts=ts,
             )
+            self._refresh_total_realised()
 
     def apply_resolution(
         self,
         instrument_id: str,
         resolved_price: Decimal,
+        timestamp: datetime | None = None,
     ) -> None:
         """Handle prediction-market resolution.
 
@@ -123,6 +125,7 @@ class PortfolioTracker:
         pos = self._positions.get(instrument_id)
         if pos is None:
             return  # No open position — nothing to settle.
+        resolved_at = timestamp or self._last_timestamp or pos.last_updated
 
         if pos.side == Side.LONG:
             # Receive payoff.
@@ -139,11 +142,15 @@ class PortfolioTracker:
             "current_price": resolved_price,
             "realised_pnl": pnl,
             "unrealised_pnl": _ZERO,
-            "last_updated": datetime.now(tz=UTC),
+            "closed_at": resolved_at,
+            "last_updated": resolved_at,
+            "resolution_outcome": resolved_price,
+            "exit_reason": "resolution",
         })
         self._position_history.append(settled)
         del self._positions[instrument_id]
         self._total_realised += pnl
+        self._last_timestamp = resolved_at
 
     def mark_to_market(
         self,
@@ -172,11 +179,15 @@ class PortfolioTracker:
             })
 
         # Record equity snapshot.
-        self._equity_history.append((timestamp, self._equity()))
+        positions_value = self._positions_value()
+        equity = self._cash + positions_value
+        self._equity_history.append((timestamp, equity))
+        self._equity_snapshot_history.append((timestamp, equity, self._cash, positions_value))
+        self._last_timestamp = timestamp
 
-    def state(self) -> PortfolioState:
+    def state(self, timestamp: datetime | None = None) -> PortfolioState:
         """Return a snapshot of the current portfolio state."""
-        ts = datetime.now(tz=UTC)
+        ts = timestamp or self._last_timestamp or _EPOCH
         eq = self._equity()
         total_pnl = self._total_realised + sum(
             p.unrealised_pnl for p in self._positions.values()
@@ -194,6 +205,10 @@ class PortfolioTracker:
         """Return chronological list of ``(timestamp, equity)`` tuples."""
         return list(self._equity_history)
 
+    def equity_snapshots(self) -> list[tuple[datetime, Decimal, Decimal, Decimal]]:
+        """Return chronological ``(timestamp, equity, cash, positions_value)`` snapshots."""
+        return list(self._equity_snapshot_history)
+
     def position_history(self) -> list[PositionState]:
         """Return closed positions (settled or fully reduced)."""
         return list(self._position_history)
@@ -203,7 +218,16 @@ class PortfolioTracker:
     # ------------------------------------------------------------------
 
     def _equity(self) -> Decimal:
-        return self._cash + sum(p.unrealised_pnl for p in self._positions.values())
+        return self._cash + sum(
+            (position.unrealised_pnl for position in self._positions.values()),
+            start=_ZERO,
+        )
+
+    def _positions_value(self) -> Decimal:
+        return sum(
+            (position.unrealised_pnl for position in self._positions.values()),
+            start=_ZERO,
+        )
 
     def _adjust_cash(
         self,
@@ -284,12 +308,14 @@ class PortfolioTracker:
         if remaining == _ZERO:
             # Fully closed.
             return pos.model_copy(update={
-                "size": _ZERO,
+                "size": actual_close,
                 "current_price": close_price,
                 "unrealised_pnl": _ZERO,
                 "realised_pnl": new_realised,
                 "fees_paid": pos.fees_paid + fee,
+                "closed_at": ts,
                 "last_updated": ts,
+                "exit_reason": "trade",
             })
         # Partially closed — keep same entry price on remainder.
         # Unrealised PnL on remaining size.
@@ -305,6 +331,60 @@ class PortfolioTracker:
             "fees_paid": pos.fees_paid + fee,
             "last_updated": ts,
         })
+
+    def _apply_opposite_fill(
+        self,
+        *,
+        instrument_id: str,
+        existing: PositionState,
+        side: Side,
+        size: Decimal,
+        price: Decimal,
+        fee: Decimal,
+        ts: datetime,
+    ) -> None:
+        closing_size = min(size, existing.size)
+        opening_size = size - closing_size
+        closing_fee, opening_fee = _split_fee(fee=fee, total_size=size, closing_size=closing_size)
+        fully_closed = closing_size >= existing.size
+
+        reduced = self._reduce_position(existing, closing_size, price, closing_fee, ts)
+        self._adjust_cash(side, closing_size, price, closing_fee)
+        if fully_closed:
+            self._position_history.append(reduced)
+            self._positions.pop(instrument_id, None)
+        else:
+            self._positions[instrument_id] = reduced
+
+        if opening_size > _ZERO:
+            opened = self._open_position(instrument_id, side, opening_size, price, opening_fee, ts)
+            self._positions[instrument_id] = opened
+            self._adjust_cash(side, opening_size, price, opening_fee)
+
+    def _refresh_total_realised(self) -> None:
+        self._total_realised = sum(
+            (position.realised_pnl for position in self._positions.values()),
+            start=_ZERO,
+        ) + sum(
+            (position.realised_pnl for position in self._position_history),
+            start=_ZERO,
+        )
+
+
+def _split_fee(
+    *,
+    fee: Decimal,
+    total_size: Decimal,
+    closing_size: Decimal,
+) -> tuple[Decimal, Decimal]:
+    if total_size <= _ZERO or closing_size <= _ZERO:
+        return _ZERO, fee
+    if closing_size >= total_size:
+        return fee, _ZERO
+    ratio = closing_size / total_size
+    closing_fee = (fee * ratio).quantize(_PRICE_PREC, rounding=ROUND_HALF_UP)
+    opening_fee = fee - closing_fee
+    return closing_fee, opening_fee
 
 
 __all__ = ["PortfolioTracker"]

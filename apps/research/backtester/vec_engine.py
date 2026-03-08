@@ -145,8 +145,6 @@ class VecBacktestEngine:
         latest_prices: dict[str, Decimal] = {}
 
         for bar_ts, bar_df in rebalance_bars:
-            bar_ts_dt = _to_utc_datetime(bar_ts)
-
             # Update latest prices from this bar's data.
             for instr, grp in bar_df.groupby("instrument_id"):
                 last_price = Decimal(str(grp["price"].iloc[-1])).quantize(_PRICE_PREC)
@@ -155,15 +153,15 @@ class VecBacktestEngine:
             # Handle resolutions that occur within this bar.
             if resolution_prices:
                 for res_instr, (res_price, res_at) in resolution_prices.items():
-                    if res_instr not in resolved_set and bar_ts_dt >= res_at:
-                        tracker.apply_resolution(res_instr, res_price)
+                    if res_instr not in resolved_set and bar_ts >= res_at:
+                        tracker.apply_resolution(res_instr, res_price, timestamp=res_at)
                         resolved_set.add(res_instr)
 
             # Build feature snapshot for this bar.
-            features_df = self._features_as_of(features_index, bar_ts_dt, universe)
+            features_df = self._features_as_of(features_index, bar_ts, universe)
 
             # Get current portfolio state.
-            port_state = tracker.state()
+            port_state = tracker.state(timestamp=bar_ts)
             portfolio_value = port_state.equity
 
             # Strategy signal generation.
@@ -182,18 +180,23 @@ class VecBacktestEngine:
                     latest_prices=latest_prices,
                     portfolio_value=portfolio_value,
                     tracker=tracker,
-                    bar_ts=bar_ts_dt,
+                    bar_ts=bar_ts,
                 )
                 for fill in fills:
                     tracker.apply_fill(fill)
                     all_fills.append(fill)
 
             # Mark-to-market.
-            tracker.mark_to_market(latest_prices, bar_ts_dt)
+            tracker.mark_to_market(latest_prices, bar_ts)
 
-        # Final mark-to-market.
+        # Final mark-to-market only when the last processed bar did not already
+        # land on the final event timestamp.
+        final_ts = _last_ts(df)
         if latest_prices:
-            tracker.mark_to_market(latest_prices, _last_ts(df))
+            equity_curve = tracker.equity_curve()
+            last_snapshot_ts = equity_curve[-1][0] if equity_curve else None
+            if last_snapshot_ts != final_ts:
+                tracker.mark_to_market(latest_prices, final_ts)
 
         duration = time.monotonic() - t_start
         config_dict = self._config.model_dump(mode="json")
@@ -204,7 +207,9 @@ class VecBacktestEngine:
             strategy_name=strategy.name,
             trades=all_fills,
             equity_curve=tracker.equity_curve(),
-            final_portfolio=tracker.state(),
+            final_portfolio=tracker.state(timestamp=final_ts),
+            closed_positions=tracker.position_history(),
+            equity_snapshots=tracker.equity_snapshots(),
             duration_seconds=duration,
             event_count=trades_table.num_rows,
         )
@@ -215,11 +220,13 @@ class VecBacktestEngine:
 
     def _get_rebalance_bars(
         self, df: pd.DataFrame
-    ) -> list[tuple[Any, pd.DataFrame]]:
+    ) -> list[tuple[datetime, pd.DataFrame]]:
         """Group the trade data by rebalance_frequency bars.
 
-        Returns a list of (bar_timestamp, bar_df) pairs sorted chronologically.
-        ``bar_timestamp`` is the *end* of the rebalance period.
+        Returns a list of ``(bar_timestamp, bar_df)`` pairs sorted chronologically.
+        ``bar_timestamp`` is the last observed execution timestamp in the bucket,
+        so the engine never prices or timestamps a rebalance before the data used
+        to build that rebalance is actually available.
         """
         sequence_col = _sequence_column_from_df(df)
         try:
@@ -228,8 +235,12 @@ class VecBacktestEngine:
             # Fallback: group by calendar day.
             df["_bar"] = df[sequence_col].dt.floor("1D")
 
-        bars = [(bar_ts, grp.drop(columns=["_bar"])) for bar_ts, grp in df.groupby("_bar")]
-        return sorted(bars, key=lambda x: x[0])
+        bars: list[tuple[datetime, pd.DataFrame]] = []
+        for _, grp in df.groupby("_bar", sort=True):
+            bar_df = grp.drop(columns=["_bar"])
+            bar_ts = _to_utc_datetime(bar_df[sequence_col].iloc[-1])
+            bars.append((bar_ts, bar_df))
+        return bars
 
     def _compute_rebalance_fills(
         self,
@@ -469,8 +480,9 @@ class VecBacktestEngine:
         strategy: vec_strategy_mod.VecStrategy,
         t_start: float,
     ) -> result_mod.BacktestResult:
+        empty_timestamp = self._config.start or datetime(1970, 1, 1, tzinfo=UTC)
         dummy_portfolio = portfolio_models.PortfolioState(
-            timestamp=datetime.now(tz=UTC),
+            timestamp=empty_timestamp,
             cash=self._config.initial_cash,
             positions={},
             total_pnl=_ZERO,
@@ -485,6 +497,8 @@ class VecBacktestEngine:
             trades=[],
             equity_curve=[],
             final_portfolio=dummy_portfolio,
+            closed_positions=[],
+            equity_snapshots=[],
             duration_seconds=time.monotonic() - t_start,
             event_count=0,
         )

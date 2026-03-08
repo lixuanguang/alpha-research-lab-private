@@ -79,7 +79,7 @@ def make_dataset_builder(storage_root: Path) -> builder_mod.DatasetBuilder:
 )
 @click.option(
     "--require-gap-free/--allow-gaps",
-    default=False,
+    default=True,
     show_default=True,
     help="Fail when detected data gaps exceed --max-gap-hours.",
 )

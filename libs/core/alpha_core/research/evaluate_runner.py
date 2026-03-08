@@ -1,32 +1,27 @@
-"""EvaluateRunner — computes financial and PM metrics from backtest artifacts."""
+"""EvaluateRunner — canonical evaluation and report persistence for backtests."""
 
 from __future__ import annotations
 
 import json
-import math
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
+import apps.research.reporting.writer as report_writer_mod
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field
 
-import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.evaluation.evaluator as evaluator_mod
 import alpha_core.research.artifact_store as artifact_store_mod
+import alpha_core.research.backtest_runner as backtest_runner_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 
 MetricsProfile = Literal["default", "pm_core", "microstructure", "minimal"]
 
 _EPSILON = 1e-12
-_SECONDS_PER_YEAR = 365.25 * 24.0 * 60.0 * 60.0
-_RISK_METRICS_FREQUENCY = "1h"
-_RISK_METRICS_PERIODS_PER_YEAR = 365.25 * 24.0
-_RISK_METRICS_STEP = pd.to_timedelta(_RISK_METRICS_FREQUENCY)
-_MAX_ANNUAL_LOG_RETURN = math.log(sys.float_info.max)
 
 
 class EvaluateManifest(BaseModel):
@@ -49,7 +44,7 @@ class EvaluateRunError(RuntimeError):
 
 
 class EvaluateRunner:
-    """Computes metrics from backtest artifacts."""
+    """Computes an EvaluationReport and derives the requested metrics profile."""
 
     def __init__(
         self,
@@ -70,14 +65,8 @@ class EvaluateRunner:
         parent_run_id: str | None = None,
         session_id: str | None = None,
     ) -> EvaluateManifest:
-        try:
-            trades_path = self._store.path_for(backtest_run_id, "trades.parquet")
-            equity_path = self._store.path_for(backtest_run_id, "equity.parquet")
-        except artifact_store_mod.ArtifactNotFoundError as exc:
-            raise EvaluateRunError(
-                f"Backtest artifact not found for run '{backtest_run_id}': {exc}. "
-                "Ensure the backtest run completed successfully."
-            ) from exc
+        backtest_manifest = self._load_backtest_manifest(backtest_run_id)
+        trades_df, equity_df = self._load_backtest_frames(backtest_run_id)
 
         effective_payload = (
             config_payload
@@ -94,14 +83,25 @@ class EvaluateRunner:
         )
         run_id = run_context.run_id
 
-        metrics = _compute_metrics(
-            trades_df=pq.read_table(trades_path).to_pandas(),
-            equity_df=pq.read_table(equity_path).to_pandas(),
+        report = evaluator_mod.BacktestEvaluator().evaluate(
+            backtest_id=backtest_run_id,
+            strategy_name=backtest_manifest.strategy_id,
+            trades_df=trades_df,
+            equity_df=equity_df,
+            starting_cash=backtest_manifest.starting_cash,
+            parent_run_id=parent_run_id or backtest_run_id,
+            feature_run_id=backtest_manifest.parent_run_id,
+        )
+        report_path = report_writer_mod.ReportWriter(self._storage_root).write(report, run_id)
+
+        metrics = _profile_metrics(
+            report=report,
+            trades_df=trades_df,
             profile=metrics_profile,
-            starting_cash=_load_starting_cash(self._storage_root, backtest_run_id),
+            starting_cash=backtest_manifest.starting_cash,
         )
 
-        metrics_json_path = self._store.prepare_path(run_id, "metrics.json")
+        metrics_json_path = report_path.with_name("metrics.json")
         metrics_parquet_path = self._store.prepare_path(run_id, "metrics.parquet")
         metrics_json_path.write_text(
             json.dumps(
@@ -126,6 +126,7 @@ class EvaluateRunner:
         artifact_map: dict[str, str] = {
             "metrics_json": str(metrics_json_path),
             "metrics_parquet": str(metrics_parquet_path),
+            "report_json": str(report_path),
             "backtest_run_id": backtest_run_id,
             "metrics_profile": metrics_profile,
         }
@@ -152,6 +153,39 @@ class EvaluateRunner:
         )
         return evaluate_manifest
 
+    def _load_backtest_manifest(
+        self,
+        backtest_run_id: str,
+    ) -> backtest_runner_mod.BacktestManifest:
+        try:
+            manifest_path = self._store.path_for(backtest_run_id, "backtest_manifest.json")
+            return backtest_runner_mod.BacktestManifest.model_validate_json(
+                manifest_path.read_text(encoding="utf-8")
+            )
+        except artifact_store_mod.ArtifactNotFoundError as exc:
+            raise EvaluateRunError(
+                f"Backtest artifact not found for run '{backtest_run_id}': {exc}. "
+                "Ensure the backtest run completed successfully."
+            ) from exc
+        except Exception as exc:
+            raise EvaluateRunError(
+                f"Backtest run '{backtest_run_id}' has an invalid backtest manifest: {exc}."
+            ) from exc
+
+    def _load_backtest_frames(
+        self,
+        backtest_run_id: str,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        try:
+            trades_path = self._store.path_for(backtest_run_id, "trades.parquet")
+            equity_path = self._store.path_for(backtest_run_id, "equity.parquet")
+        except artifact_store_mod.ArtifactNotFoundError as exc:
+            raise EvaluateRunError(
+                f"Backtest artifact not found for run '{backtest_run_id}': {exc}. "
+                "Ensure the backtest run completed successfully."
+            ) from exc
+        return pq.read_table(trades_path).to_pandas(), pq.read_table(equity_path).to_pandas()
+
 
 def _compute_metrics(
     *,
@@ -160,78 +194,19 @@ def _compute_metrics(
     profile: MetricsProfile,
     starting_cash: float,
 ) -> dict[str, float]:
-    if {"ts_event", "equity"}.issubset(equity_df.columns):
-        equity_frame = equity_df.loc[:, ["ts_event", "equity"]].copy()
-        equity_frame["ts_event"] = pd.to_datetime(
-            equity_frame["ts_event"],
-            utc=True,
-            errors="coerce",
-        )
-        equity_frame["equity"] = pd.to_numeric(equity_frame["equity"], errors="coerce")
-        equity_frame = equity_frame.dropna(subset=["ts_event", "equity"]).sort_values(
-            "ts_event",
-            kind="stable",
-        )
-        equity_frame = equity_frame.reset_index(drop=True)
-    else:
-        equity_frame = pd.DataFrame(columns=["ts_event", "equity"])
-
-    final_equity = starting_cash
-    if not equity_frame.empty:
-        final_equity = float(equity_frame["equity"].iloc[-1])
-
-    metrics = {
-        "total_return": round(
-            (final_equity - starting_cash) / max(abs(starting_cash), _EPSILON),
-            8,
-        ),
-        "trade_count": float(len(trades_df)),
-    }
-    if profile == "minimal":
-        return metrics
-
-    annualized_return = 0.0
-    sharpe_ratio = 0.0
-    max_drawdown = 0.0
-    equity_series = pd.Series([starting_cash, *equity_frame["equity"].tolist()], dtype=float)
-    resampled_equity = _resample_equity(equity_frame=equity_frame, starting_cash=starting_cash)
-    if len(equity_series) >= 2:
-        rolling_max = equity_series.cummax()
-        drawdowns = (equity_series - rolling_max) / rolling_max.replace(0, float("nan"))
-        max_drawdown = float(drawdowns.min())
-
-    if len(equity_frame) >= 2 and starting_cash > 0:
-        elapsed_seconds = float(
-            (equity_frame["ts_event"].iloc[-1] - equity_frame["ts_event"].iloc[0]).total_seconds()
-        )
-        equity_ratio = max(final_equity / starting_cash, 0.0)
-        if equity_ratio == 0.0:
-            annualized_return = -1.0
-        elif elapsed_seconds > 0:
-            annualized_return = _annualize_return(
-                equity_ratio=equity_ratio,
-                elapsed_seconds=elapsed_seconds,
-            )
-
-        period_returns = resampled_equity.pct_change().dropna()
-        if len(period_returns) >= 2:
-            std_return = float(period_returns.std(ddof=1))
-            if std_return > _EPSILON:
-                sharpe_ratio = float(
-                    period_returns.mean() / std_return * math.sqrt(_RISK_METRICS_PERIODS_PER_YEAR)
-                )
-
-    metrics.update(
-        {
-            "annualized_return": round(annualized_return, 8),
-            "sharpe_ratio": round(sharpe_ratio, 4),
-            "max_drawdown": round(max_drawdown, 8),
-        }
+    report = evaluator_mod.BacktestEvaluator().evaluate(
+        backtest_id="adhoc",
+        strategy_name="adhoc",
+        trades_df=trades_df,
+        equity_df=equity_df,
+        starting_cash=starting_cash,
     )
-    metrics.update(_trade_statistics(trades_df=trades_df, starting_cash=starting_cash))
-    if profile == "microstructure":
-        metrics["avg_spread_cost_bps"] = 0.0
-    return metrics
+    return _profile_metrics(
+        report=report,
+        trades_df=trades_df,
+        profile=profile,
+        starting_cash=starting_cash,
+    )
 
 
 def _resample_equity(
@@ -242,27 +217,51 @@ def _resample_equity(
     if equity_frame.empty:
         return pd.Series([starting_cash], dtype=float)
 
-    indexed = equity_frame.set_index("ts_event")["equity"].sort_index(kind="stable")
-    resampled = indexed.resample(_RISK_METRICS_FREQUENCY).last().ffill()
+    frame = equity_frame.loc[:, ["ts_event", "equity"]].copy()
+    frame["ts_event"] = pd.to_datetime(frame["ts_event"], utc=True, errors="coerce")
+    frame["equity"] = pd.to_numeric(frame["equity"], errors="coerce")
+    frame = frame.dropna(subset=["ts_event", "equity"]).sort_values("ts_event", kind="stable")
+    if frame.empty:
+        return pd.Series([starting_cash], dtype=float)
+
+    indexed = frame.set_index("ts_event")["equity"]
+    resampled = indexed.resample("1h").last().ffill()
     if resampled.empty:
         return pd.Series([starting_cash], dtype=float)
 
-    first_timestamp = resampled.index[0]
+    step = pd.to_timedelta("1h")
     if float(resampled.iloc[0]) != float(starting_cash):
-        seed = pd.Series(
-            [starting_cash],
-            index=[first_timestamp - _RISK_METRICS_STEP],
-            dtype=float,
-        )
+        seed = pd.Series([starting_cash], index=[resampled.index[0] - step], dtype=float)
         resampled = pd.concat([seed, resampled]).sort_index(kind="stable")
     return resampled.astype(float)
 
 
-def _annualize_return(*, equity_ratio: float, elapsed_seconds: float) -> float:
-    annual_log_return = math.log(equity_ratio) * (_SECONDS_PER_YEAR / elapsed_seconds)
-    if annual_log_return >= _MAX_ANNUAL_LOG_RETURN:
-        return sys.float_info.max
-    return math.exp(annual_log_return) - 1.0
+def _profile_metrics(
+    *,
+    report: evaluator_mod.EvaluationReport,
+    trades_df: pd.DataFrame,
+    profile: MetricsProfile,
+    starting_cash: float,
+) -> dict[str, float]:
+    financial = report.financial
+    metrics: dict[str, float] = {
+        "total_return": float(financial.total_return),
+        "trade_count": float(financial.total_trades),
+    }
+    if profile == "minimal":
+        return metrics
+
+    metrics.update(
+        {
+            "annualized_return": float(financial.annualised_return),
+            "sharpe_ratio": financial.sharpe_ratio,
+            "max_drawdown": float(financial.max_drawdown),
+        }
+    )
+    metrics.update(_trade_statistics(trades_df=trades_df, starting_cash=starting_cash))
+    if profile == "microstructure":
+        metrics["avg_spread_cost_bps"] = 0.0
+    return metrics
 
 
 def _trade_statistics(
@@ -303,22 +302,6 @@ def _trade_statistics(
         "avg_trade_return": round(float(trade_returns.mean()), 8),
         "profit_factor": round(profit_factor, 4),
     }
-
-
-def _load_starting_cash(storage_root: Path, backtest_run_id: str) -> float:
-    manifest_path = artifact_paths.artifact_key_path(
-        storage_root,
-        backtest_run_id,
-        "backtest_manifest.json",
-    )
-    if not manifest_path.exists():
-        return 100_000.0
-
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    starting_cash = payload.get("starting_cash")
-    if isinstance(starting_cash, int | float) and starting_cash > 0:
-        return float(starting_cash)
-    return 100_000.0
 
 
 __all__ = [

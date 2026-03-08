@@ -1,8 +1,8 @@
 """report command — renders a deterministic summary from an evaluation run.
 
-The report command reads the ``metrics.json`` artifact from a completed evaluate
-run and produces a structured output (JSON or Markdown).  It does not require
-re-reading raw trade/equity data — all inputs come from the evaluate manifest.
+The report command reads the canonical ``report.json`` and evaluate manifest
+artifacts from a completed evaluate run and produces a structured output
+(JSON or Markdown).
 
 Wiring
 ------
@@ -18,9 +18,11 @@ from typing import Any
 import click
 
 import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.evaluate_runner as evaluate_runner_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import apps.research.commands.common as cmd_common
+import apps.research.reporting.writer as report_writer_mod
 
 
 class ReportError(RuntimeError):
@@ -158,13 +160,35 @@ def _build_report(
     storage_root: Path,
     evaluation_run_id: str,
 ) -> dict[str, Any]:
-    """Load the evaluate manifest and build the deterministic report payload."""
-    # Load the evaluate manifest from the run.
-    metrics_json_path = artifact_paths.artifact_key_path(
-        storage_root, evaluation_run_id, "metrics.json"
+    """Load the persisted EvaluationReport and build the deterministic report payload."""
+    evaluate_manifest = _load_evaluate_manifest(storage_root, evaluation_run_id)
+    try:
+        report = report_writer_mod.ReportWriter(storage_root).load(evaluation_run_id)
+    except report_writer_mod.ReportNotFoundError as exc:
+        raise ReportError(
+            f"report.json not found for evaluation run '{evaluation_run_id}'. "
+            "Re-run the evaluate command."
+        ) from exc
+
+    return {
+        "evaluation_run_id": evaluation_run_id,
+        "metrics_profile": evaluate_manifest.metrics_profile,
+        "metrics": evaluate_manifest.metrics,
+        "summary": _summarize(evaluate_manifest.metrics),
+        "report": report.model_dump(mode="json"),
+    }
+
+
+def _load_evaluate_manifest(
+    storage_root: Path,
+    evaluation_run_id: str,
+) -> evaluate_runner_mod.EvaluateManifest:
+    manifest_path = artifact_paths.artifact_key_path(
+        storage_root,
+        evaluation_run_id,
+        "evaluate_manifest.json",
     )
-    if not metrics_json_path.exists():
-        # Fall back to looking in the run manifest artifacts index.
+    if not manifest_path.exists():
         run_manifest_path = artifact_paths.run_manifest_path(storage_root, evaluation_run_id)
         if not run_manifest_path.exists():
             raise ReportError(
@@ -172,52 +196,32 @@ def _build_report(
                 "Ensure the evaluate command completed successfully."
             )
         run_manifest = manifest_mod.read_run_manifest(run_manifest_path)
-        if "metrics_json" not in run_manifest.artifacts:
+        evaluate_manifest_artifact = run_manifest.artifacts.get("evaluate_manifest")
+        if not isinstance(evaluate_manifest_artifact, str):
             raise ReportError(
                 f"Evaluation run '{evaluation_run_id}' manifest is missing "
-                "'metrics_json' artifact. "
-                "Re-run the evaluate command."
+                "'evaluate_manifest' artifact. Re-run the evaluate command."
             )
-        resolved_metrics_path = artifact_paths.resolve_registered_artifact_path(
+        resolved_manifest_path = artifact_paths.resolve_registered_artifact_path(
             storage_root,
             evaluation_run_id,
-            run_manifest.artifacts["metrics_json"],
+            evaluate_manifest_artifact,
         )
-        if resolved_metrics_path is None:
+        if resolved_manifest_path is None:
             raise ReportError(
                 f"Evaluation run '{evaluation_run_id}' manifest references an invalid "
-                "or out-of-root metrics_json artifact."
+                "evaluate_manifest artifact."
             )
-        metrics_json_path = resolved_metrics_path
+        manifest_path = resolved_manifest_path
 
-    if not metrics_json_path.exists():
-        raise ReportError(
-            f"metrics.json not found at '{metrics_json_path}' for evaluation run "
-            f"'{evaluation_run_id}'."
+    try:
+        return evaluate_runner_mod.EvaluateManifest.model_validate_json(
+            manifest_path.read_text(encoding="utf-8")
         )
-
-    raw = json.loads(metrics_json_path.read_text(encoding="utf-8"))
-    metrics_raw = raw.get("metrics")
-    if not isinstance(metrics_raw, dict):
-        raise ReportError(f"metrics.json at '{metrics_json_path}' is missing the 'metrics' object.")
-
-    metrics: dict[str, float] = {}
-    for key, value in metrics_raw.items():
-        if not isinstance(key, str) or not isinstance(value, (int, float)):
-            raise ReportError("metrics.json contains non-numeric metric values.")
-        metrics[key] = float(value)
-    metrics_profile = raw.get("metrics_profile", "unknown")
-    if not isinstance(metrics_profile, str):
+    except Exception as exc:
         raise ReportError(
-            f"metrics.json at '{metrics_json_path}' has a non-string metrics_profile."
-        )
-
-    return {
-        "evaluation_run_id": evaluation_run_id,
-        "metrics_profile": metrics_profile,
-        "metrics": metrics,
-        "summary": _summarize(metrics),
-    }
+            f"Evaluation run '{evaluation_run_id}' has an invalid evaluate manifest: {exc}."
+        ) from exc
 
 
 def _summarize(metrics: dict[str, float]) -> dict[str, str]:

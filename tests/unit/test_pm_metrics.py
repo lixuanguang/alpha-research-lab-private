@@ -19,7 +19,7 @@ from alpha_core.evaluation.pm_metrics import compute_pm_metrics
 _BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _trades(rows: list[dict]) -> pd.DataFrame:
+def _trades(rows: list[dict[str, object]]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 

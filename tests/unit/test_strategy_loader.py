@@ -13,6 +13,8 @@ Covers:
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from apps.research.backtester.strategy import Strategy
 from apps.research.backtester.vec_strategy import VecStrategy
@@ -52,7 +54,7 @@ def test_loaded_class_is_instantiable() -> None:
     cls = loader.load(
         "apps.research.strategies.probability_momentum.ProbabilityMomentumStrategy"
     )
-    instance = cls(momentum_threshold=0.03, window=5)
+    instance = cast(Any, cls)(momentum_threshold=0.03, window=5)
     assert instance is not None
 
 

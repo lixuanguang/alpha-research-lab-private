@@ -151,14 +151,14 @@ class EventBacktestEngine:
                 for res_instr, (res_price, res_at) in resolution_prices.items():
                     if res_instr not in resolved_set and ts >= res_at:
                         strategy.on_resolution(res_instr, res_price)
-                        tracker.apply_resolution(res_instr, res_price)
+                        tracker.apply_resolution(res_instr, res_price, timestamp=res_at)
                         resolved_set.add(res_instr)
 
             # --- Update feature state ---
             current_features = self._current_features(features_index, instr, ts)
 
             # --- Strategy callback ---
-            port_state = tracker.state()
+            port_state = tracker.state(timestamp=ts)
             state = strategy_mod.StrategyState(
                 timestamp=ts,
                 portfolio=port_state,
@@ -184,6 +184,9 @@ class EventBacktestEngine:
 
         duration = time.monotonic() - t_start
         config_dict = self._config.model_dump(mode="json")
+        final_timestamp = _row_timestamp(
+            _row_dict(sorted_table, sorted_table.num_rows - 1)
+        )
 
         return result_mod.BacktestResult(
             backtest_id=result_mod.make_backtest_id(config_dict, strategy.name),
@@ -191,7 +194,9 @@ class EventBacktestEngine:
             strategy_name=strategy.name,
             trades=all_fills,
             equity_curve=tracker.equity_curve(),
-            final_portfolio=tracker.state(),
+            final_portfolio=tracker.state(timestamp=final_timestamp),
+            closed_positions=tracker.position_history(),
+            equity_snapshots=tracker.equity_snapshots(),
             duration_seconds=duration,
             event_count=sorted_table.num_rows,
         )
@@ -300,8 +305,9 @@ class EventBacktestEngine:
         t_start: float,
     ) -> result_mod.BacktestResult:
         duration = time.monotonic() - t_start
+        empty_timestamp = self._config.start or datetime(1970, 1, 1, tzinfo=UTC)
         dummy_portfolio = portfolio_models.PortfolioState(
-            timestamp=datetime.now(tz=UTC),
+            timestamp=empty_timestamp,
             cash=self._config.initial_cash,
             positions={},
             total_pnl=_ZERO,
@@ -317,6 +323,8 @@ class EventBacktestEngine:
             trades=[],
             equity_curve=[],
             final_portfolio=dummy_portfolio,
+            closed_positions=[],
+            equity_snapshots=[],
             duration_seconds=duration,
             event_count=0,
         )

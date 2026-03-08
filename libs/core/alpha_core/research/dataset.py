@@ -28,7 +28,7 @@ class DatasetConfig(BaseModel):
     event_types: list[str] = Field(default_factory=lambda: ["trades", "ohlcv"])
     universe_filters: dict[str, Any] = Field(default_factory=dict)
     require_quality_pass: bool = True
-    require_gap_free: bool = False
+    require_gap_free: bool = True
     max_gap_hours: float = 24.0
 
     @field_validator("name")

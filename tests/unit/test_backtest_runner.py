@@ -109,7 +109,7 @@ def test_build_uses_strategy_recipe_defaults(tmp_path: Path) -> None:
     assert manifest.strategy_recipe_id == "zscore_momentum"
     assert manifest.strategy_recipe_version == "1.0.0"
     assert trades.iloc[0]["size"] == pytest.approx(100_000.0 * 0.05 / 0.51)
-    assert trades.iloc[0]["price"] == pytest.approx(0.51 * 1.0002)
+    assert trades.iloc[0]["price"] == pytest.approx(0.5101)
 
 
 def test_build_rejects_mismatched_feature_pack_metadata(tmp_path: Path) -> None:

@@ -70,13 +70,24 @@ class PositionState(BaseModel):
         ge=Decimal("0"),
     )
     opened_at: datetime
+    closed_at: datetime | None = None
     last_updated: datetime
+    resolution_outcome: Decimal | None = Field(
+        default=None,
+        ge=Decimal("0"),
+        le=Decimal("1"),
+        description="Resolved binary payoff when the position settled via market resolution.",
+    )
+    exit_reason: str | None = Field(
+        default=None,
+        description="Why the position was closed (for example: trade, resolution, end_of_run).",
+    )
 
 
 class PortfolioState(BaseModel):
     """Complete portfolio snapshot at a point in time.
 
-    ``equity = cash + sum(unrealised_pnl over all open positions) - total_fees``
+    ``equity = cash + sum(unrealised_pnl over all open positions)``
     """
 
     model_config = ConfigDict(extra="forbid")

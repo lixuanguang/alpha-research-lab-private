@@ -112,7 +112,7 @@ class BacktestEvaluator:
         strategy_name:
             Human-readable strategy name.
         trades_df:
-            One row per simulated fill.
+            One row per completed trade thesis.
         equity_df:
             Equity-curve snapshots with columns ``ts_event`` and ``equity``.
         starting_cash:
@@ -155,11 +155,15 @@ class BacktestEvaluator:
         * ``.backtest_id`` (str)
         * ``.strategy_name`` (str)
         * ``.equity_curve``  (list of (datetime, Decimal))
+        * Either ``.closed_positions`` (preferred) or ``.trades``.
         * ``.trades``        (list of SimulatedFill-like objects with attributes:
                                order.instrument_id, order.side, fill_price, fill_size,
                                fee, timestamp, slippage)
         """
-        trades_df = _fills_to_df(result.trades)
+        if getattr(result, "closed_positions", None):
+            trades_df = _positions_to_df(result.closed_positions)
+        else:
+            trades_df = _fills_to_df(result.trades)
         equity_df = _equity_curve_to_df(result.equity_curve)
         return self.evaluate(
             backtest_id=result.backtest_id,
@@ -280,6 +284,33 @@ def _fills_to_df(fills: list[Any]) -> pd.DataFrame:
                 "fee": float(fill.fee),
                 "slippage": float(fill.slippage),
                 "realized_pnl": 0.0,  # not available at fill level
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _positions_to_df(positions: list[Any]) -> pd.DataFrame:
+    rows = []
+    for position in positions:
+        rows.append(
+            {
+                "ts_event": (
+                    getattr(position, "closed_at", None)
+                    or getattr(position, "last_updated")
+                ),
+                "entry_time": getattr(position, "opened_at", None),
+                "instrument_id": getattr(position, "instrument_id", None),
+                "direction": str(getattr(position, "side", "long")).lower(),
+                "price": float(getattr(position, "entry_price", 0.0)),
+                "exit_price": float(getattr(position, "current_price", 0.0)),
+                "size": float(getattr(position, "size", 0.0)),
+                "realized_pnl": float(getattr(position, "realised_pnl", 0.0)),
+                "resolution_outcome": (
+                    None
+                    if getattr(position, "resolution_outcome", None) is None
+                    else float(getattr(position, "resolution_outcome"))
+                ),
+                "exit_reason": getattr(position, "exit_reason", None),
             }
         )
     return pd.DataFrame(rows)

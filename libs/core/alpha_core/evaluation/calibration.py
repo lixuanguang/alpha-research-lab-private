@@ -23,13 +23,14 @@ Usage::
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 
 
 def calibration_curve(
-    predictions: np.ndarray,
-    outcomes: np.ndarray,
+    predictions: npt.NDArray[np.float64],
+    outcomes: npt.NDArray[np.float64],
     n_bins: int = 10,
-) -> list[dict]:
+) -> list[dict[str, float | int]]:
     """Bin predictions into equal-width buckets and compute avg predicted vs actual.
 
     Parameters
@@ -60,7 +61,7 @@ def calibration_curve(
         return []
 
     bins = np.linspace(0.0, 1.0, n_bins + 1)
-    results: list[dict] = []
+    results: list[dict[str, float | int]] = []
     for i in range(n_bins):
         low, high = float(bins[i]), float(bins[i + 1])
         # Include upper edge in last bin
@@ -84,8 +85,8 @@ def calibration_curve(
 
 
 def expected_calibration_error(
-    predictions: np.ndarray,
-    outcomes: np.ndarray,
+    predictions: npt.NDArray[np.float64],
+    outcomes: npt.NDArray[np.float64],
     n_bins: int = 10,
 ) -> float:
     """Compute Expected Calibration Error (ECE).
@@ -122,7 +123,10 @@ def expected_calibration_error(
     return round(ece, 6)
 
 
-def brier_score(predictions: np.ndarray, outcomes: np.ndarray) -> float:
+def brier_score(
+    predictions: npt.NDArray[np.float64],
+    outcomes: npt.NDArray[np.float64],
+) -> float:
     """Mean squared error between predictions and binary outcomes.
 
     Ranges from 0 (perfect) to 1 (worst).  A naïve forecaster predicting 0.5
@@ -143,8 +147,8 @@ def brier_score(predictions: np.ndarray, outcomes: np.ndarray) -> float:
 
 
 def log_loss_score(
-    predictions: np.ndarray,
-    outcomes: np.ndarray,
+    predictions: npt.NDArray[np.float64],
+    outcomes: npt.NDArray[np.float64],
     eps: float = 1e-15,
 ) -> float:
     """Binary cross-entropy / log-loss.

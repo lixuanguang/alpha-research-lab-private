@@ -1,4 +1,4 @@
-"""BacktestRunner — delayed-fill simulation over gold feature artifacts."""
+"""BacktestRunner — canonical engine-backed backtests over feature artifacts."""
 
 from __future__ import annotations
 
@@ -8,36 +8,65 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
+import apps.research.backtester.engine as event_engine_mod
+import apps.research.backtester.result as result_mod
+import apps.research.backtester.strategy as strategy_mod
+import apps.research.backtester.vec_engine as vec_engine_mod
+import apps.research.backtester.vec_strategy as vec_strategy_mod
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 import alpha_core.config.paths as config_paths
+import alpha_core.execution.models as exec_models
 import alpha_core.features.factor_pack as factor_pack_mod
+import alpha_core.portfolio.models as portfolio_models
 import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.feature_runner as feature_runner_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.research.strategy_recipe as strategy_recipe_mod
-import alpha_core.strategy_framework.models as strategy_models
 import alpha_core.utils.time as time_utils
 
-_EPSILON = 1e-9
 _DEFAULT_PRICE = 0.5
+_EPSILON = 1e-12
+_ZERO_D = Decimal("0")
+
+_MARKET_SCHEMA = pa.schema(
+    [
+        pa.field("ts_event", pa.timestamp("us", tz="UTC")),
+        pa.field("instrument_id", pa.string()),
+        pa.field("price", pa.float64()),
+    ]
+)
 
 _TRADES_SCHEMA = pa.schema(
     [
         pa.field("ts_event", pa.timestamp("us", tz="UTC")),
-        pa.field("signal_ts", pa.timestamp("us", tz="UTC")),
+        pa.field("entry_time", pa.timestamp("us", tz="UTC")),
         pa.field("instrument_id", pa.string()),
         pa.field("direction", pa.string()),
         pa.field("size", pa.float64()),
         pa.field("price", pa.float64()),
-        pa.field("cash_impact", pa.float64()),
+        pa.field("exit_price", pa.float64()),
         pa.field("realized_pnl", pa.float64()),
         pa.field("trade_return", pa.float64()),
-        pa.field("position_after", pa.float64()),
+        pa.field("fees_paid", pa.float64()),
+        pa.field("resolution_outcome", pa.float64()),
+        pa.field("exit_reason", pa.string()),
+    ]
+)
+
+_FILLS_SCHEMA = pa.schema(
+    [
+        pa.field("ts_event", pa.timestamp("us", tz="UTC")),
+        pa.field("instrument_id", pa.string()),
+        pa.field("direction", pa.string()),
+        pa.field("size", pa.float64()),
+        pa.field("price", pa.float64()),
+        pa.field("fee", pa.float64()),
+        pa.field("slippage", pa.float64()),
     ]
 )
 
@@ -63,20 +92,9 @@ class BacktestConfig(BaseModel):
     strategy_id: str = Field(min_length=1)
     engine: EngineType = "event"
     starting_cash: float = Field(default=100_000.0, gt=0)
-    strategy_params: dict[str, float] = Field(
-        default_factory=dict,
-        description=(
-            "Optional per-trial overrides for strategy parameters (threshold, target_weight)."
-        ),
-    )
-    strategy_recipe_id: str | None = Field(
-        default=None,
-        description="Optional strategy-recipe ID whose manifest drives configuration.",
-    )
-    strategy_recipe_version: str | None = Field(
-        default=None,
-        description="Resolved strategy-recipe version recorded in the backtest manifest.",
-    )
+    strategy_params: dict[str, float] = Field(default_factory=dict)
+    strategy_recipe_id: str | None = Field(default=None)
+    strategy_recipe_version: str | None = Field(default=None)
     fee_bps: float = Field(default=0.0, ge=0.0)
     slippage_bps: float = Field(default=0.0, ge=0.0)
     max_position_pct: float | None = Field(default=None, gt=0.0, le=1.0)
@@ -132,110 +150,139 @@ class StrategySpec:
     family: Literal["zscore_mean_reversion", "zscore_momentum"]
     threshold: float
     target_weight: float
-    fee_bps: float = 0.0
-    slippage_bps: float = 0.0
+    fee_bps: float
+    slippage_bps: float
+    zscore_column: str
 
 
-@dataclass(slots=True, frozen=True)
-class PendingTarget:
-    direction: strategy_models.SignalDirection
-    signal_ts: datetime
+class _FeatureBacktestDataset:
+    def __init__(self, market_table: pa.Table) -> None:
+        self._market_table = market_table
+
+    def trades(self) -> pa.Table:
+        return self._market_table
 
 
-class _FeatureMarketState(strategy_models.MarketState):
-    feature_row: dict[str, float] = Field(default_factory=dict)
-
-
-class _ZScoreStrategy:
+class _EventZScoreStrategy(strategy_mod.Strategy):
     def __init__(self, spec: StrategySpec) -> None:
         self._spec = spec
 
-    def direction(
+    @property
+    def name(self) -> str:
+        return self._spec.strategy_id
+
+    def on_init(self, universe: list[str]) -> None:
+        del universe
+
+    def on_data(
         self,
-        *,
-        instrument_id: str,
-        price: float,
-        zscore: float,
-        position_size: float,
-        as_of: datetime,
-    ) -> strategy_models.SignalDirection:
-        state = _FeatureMarketState(
-            as_of_utc=as_of,
-            universe=[instrument_id],
-            instruments={
-                instrument_id: strategy_models.InstrumentState(
-                    instrument_id=instrument_id,
-                    last_trade_price=Decimal(str(price)),
-                    mid_price=Decimal(str(price)),
-                )
-            },
-            portfolio=(
-                {instrument_id: Decimal(str(position_size))}
-                if abs(position_size) > _EPSILON
-                else {}
-            ),
-            feature_row={"zscore": zscore},
+        timestamp: datetime,
+        state: strategy_mod.StrategyState,
+    ) -> list[exec_models.BacktestOrderIntent]:
+        del timestamp
+        if not state.features:
+            return []
+
+        instrument_id, feature_row = next(iter(state.features.items()))
+        price = state.latest_prices.get(instrument_id)
+        if price is None or price <= _ZERO_D:
+            return []
+
+        zscore = _coerce_float(feature_row.get(self._spec.zscore_column), default=0.0)
+        current_qty = _signed_position_size(state.portfolio.positions.get(instrument_id))
+        target_qty = _target_quantity(
+            equity=state.portfolio.equity,
+            price=price,
+            zscore=zscore,
+            spec=self._spec,
         )
-        state.universe = self.select(state)
-        targets = self.apply(self.targets(self.generate(state), state), state)
-        if not targets:
-            return strategy_models.SignalDirection.FLAT
-        return targets[0].direction
-
-    def select(self, state: strategy_models.MarketState) -> list[str]:
-        if state.universe:
-            return state.universe
-        return list(state.instruments)
-
-    def generate(self, state: strategy_models.MarketState) -> list[strategy_models.Signal]:
-        instrument_id = state.universe[0] if state.universe else next(iter(state.instruments), None)
-        if instrument_id is None:
+        delta = target_qty - current_qty
+        if abs(delta) <= Decimal(str(_EPSILON)):
             return []
-        zscore = _coerce_float(getattr(state, "feature_row", {}).get("zscore"), default=0.0)
-        threshold = max(self._spec.threshold, _EPSILON)
-        conviction = min(abs(zscore) / threshold, 1.0)
+
+        side = portfolio_models.Side.LONG if delta > _ZERO_D else portfolio_models.Side.SHORT
         return [
-            strategy_models.Signal(
+            exec_models.BacktestOrderIntent(
                 instrument_id=instrument_id,
-                direction=_direction_from_zscore(zscore, self._spec),
-                strength=Decimal(str(conviction)),
-                confidence=Decimal(str(conviction)),
-                metadata={"strategy_id": self._spec.strategy_id},
+                side=side,
+                size=abs(delta),
+                order_type="market",
             )
         ]
 
-    def targets(
+    def on_resolution(
         self,
-        signals: list[strategy_models.Signal],
-        state: strategy_models.MarketState,
-    ) -> list[strategy_models.Target]:
-        del state
-        if not signals:
-            return []
-        signal = signals[0]
-        target_weight = 0.0
-        if signal.direction != strategy_models.SignalDirection.FLAT:
-            target_weight = self._spec.target_weight
-        return [
-            strategy_models.Target(
-                instrument_id=signal.instrument_id,
-                target_weight=Decimal(str(target_weight)),
-                direction=signal.direction,
-                source_signal_id=signal.instrument_id,
-            )
-        ]
+        instrument_id: str,
+        resolved_price: Decimal,
+    ) -> None:
+        del instrument_id
+        del resolved_price
 
-    def apply(
+
+class _VectorizedZScoreStrategy(vec_strategy_mod.VecStrategy):
+    def __init__(self, spec: StrategySpec) -> None:
+        self._spec = spec
+
+    @property
+    def name(self) -> str:
+        return self._spec.strategy_id
+
+    def generate_signals(
         self,
-        targets: list[strategy_models.Target],
-        state: strategy_models.MarketState,
-    ) -> list[strategy_models.Target]:
-        del state
-        return targets
+        features: pd.DataFrame,
+        universe: list[str],
+    ) -> pd.DataFrame:
+        if features.empty or self._spec.zscore_column not in features.columns:
+            return pd.DataFrame(columns=["instrument_id", "signal", "strength"])
+
+        snapshot = features[features["instrument_id"].isin(universe)].copy()
+        if snapshot.empty:
+            return pd.DataFrame(columns=["instrument_id", "signal", "strength"])
+        if "ts_available" in snapshot.columns:
+            snapshot = snapshot.sort_values(["ts_available", "instrument_id"], kind="stable")
+        elif "ts_event" in snapshot.columns:
+            snapshot = snapshot.sort_values(["ts_event", "instrument_id"], kind="stable")
+        snapshot = snapshot.groupby("instrument_id", as_index=False).last()
+
+        zscores = pd.to_numeric(snapshot[self._spec.zscore_column], errors="coerce").fillna(0.0)
+        signal = pd.Series(0.0, index=snapshot.index, dtype=float)
+        if self._spec.family == "zscore_momentum":
+            signal.loc[zscores >= self._spec.threshold] = 1.0
+            signal.loc[zscores <= -self._spec.threshold] = -1.0
+        else:
+            signal.loc[zscores <= -self._spec.threshold] = 1.0
+            signal.loc[zscores >= self._spec.threshold] = -1.0
+        strength = zscores.abs()
+
+        return pd.DataFrame(
+            {
+                "instrument_id": snapshot["instrument_id"].astype(str).values,
+                "signal": signal.values,
+                "strength": strength.values,
+            }
+        )
+
+    def size_positions(
+        self,
+        signals: pd.DataFrame,
+        portfolio_value: Decimal,
+        max_positions: int,
+    ) -> pd.DataFrame:
+        del portfolio_value
+        if signals.empty:
+            return pd.DataFrame(columns=["instrument_id", "target_weight"])
+
+        active = signals[signals["signal"].abs() > _EPSILON].copy()
+        if active.empty:
+            return pd.DataFrame(columns=["instrument_id", "target_weight"])
+
+        active = active.sort_values("strength", ascending=False, kind="stable").head(max_positions)
+        active["target_weight"] = active["signal"] * self._spec.target_weight
+        return active[["instrument_id", "target_weight"]].reset_index(drop=True)
 
 
 class BacktestRunner:
-    """Simulates a strategy over feature artifacts from a prior feature-build run."""
+    """Runs a canonical event or vectorized backtest over feature artifacts."""
 
     def __init__(
         self,
@@ -255,35 +302,43 @@ class BacktestRunner:
         parent_run_id: str | None = None,
         session_id: str | None = None,
     ) -> BacktestManifest:
-        required_parent_run_id = self._require_parent_run_id(parent_run_id)
+        feature_run_id = self._require_parent_run_id(parent_run_id)
         effective_payload = self._resolve_config_payload(config, config_payload)
         feature_manifest, features_df = self._load_feature_inputs(
             config=config,
-            parent_run_id=required_parent_run_id,
+            parent_run_id=feature_run_id,
         )
-        resolved_recipe, recipe_zscore_column, strategy_spec = self._resolve_strategy_runtime(
+        resolved_recipe, strategy_spec = self._resolve_strategy_runtime(
             config=config,
-            parent_run_id=required_parent_run_id,
+            parent_run_id=feature_run_id,
             feature_manifest=feature_manifest,
             features_df=features_df,
         )
+
+        market_table = _build_market_table(features_df)
+        lagged_feature_table = _build_lagged_feature_table(features_df)
+        result = self._run_engine(
+            config=config,
+            strategy_spec=strategy_spec,
+            market_table=market_table,
+            feature_table=lagged_feature_table,
+        )
+
         run_context = run_context_mod.make_run_context(
             "backtest",
             config_payload=effective_payload,
             session_id=session_id,
         )
         run_id = run_context.run_id
-        strategy = _ZScoreStrategy(strategy_spec)
-        trades_table, equity_table = _simulate(
-            features_df=features_df,
-            config=config,
-            strategy=strategy,
-            zscore_column=recipe_zscore_column,
-        )
+
+        trades_table = _closed_positions_to_table(result)
+        fills_table = _fills_to_table(result.trades)
+        equity_table = _equity_to_table(result)
         artifact_map = self._persist_output_tables(
             run_id=run_id,
             config=config,
             trades_table=trades_table,
+            fills_table=fills_table,
             equity_table=equity_table,
             resolved_recipe=resolved_recipe,
         )
@@ -292,7 +347,7 @@ class BacktestRunner:
         backtest_manifest = self._build_manifest(
             run_id=run_id,
             config=config,
-            parent_run_id=required_parent_run_id,
+            parent_run_id=feature_run_id,
             completed_context=completed_context,
             trades_table=trades_table,
             equity_table=equity_table,
@@ -302,7 +357,7 @@ class BacktestRunner:
         self._persist_run_record(
             run_context=completed_context,
             effective_payload=effective_payload,
-            parent_run_id=required_parent_run_id,
+            parent_run_id=feature_run_id,
             backtest_manifest=backtest_manifest,
         )
         return backtest_manifest
@@ -338,7 +393,8 @@ class BacktestRunner:
             parent_run_id=parent_run_id,
             feature_manifest=feature_manifest,
         )
-        return feature_manifest, pq.read_table(features_path).to_pandas()
+        feature_table = pq.read_table(features_path)
+        return feature_manifest, feature_table.to_pandas()
 
     def _require_feature_artifact(self, parent_run_id: str) -> Path:
         try:
@@ -356,37 +412,79 @@ class BacktestRunner:
         parent_run_id: str,
         feature_manifest: feature_runner_mod.FeatureManifest,
         features_df: pd.DataFrame,
-    ) -> tuple[strategy_recipe_mod.StrategyRecipeManifest | None, str | None, StrategySpec]:
+    ) -> tuple[strategy_recipe_mod.StrategyRecipeManifest | None, StrategySpec]:
         resolved_recipe = resolve_strategy_recipe(
             config.strategy_recipe_id,
             expected_version=config.strategy_recipe_version,
         )
-        effective_strategy_params = dict(config.strategy_params)
-        effective_fee_bps = config.fee_bps
-        effective_slippage_bps = config.slippage_bps
-        effective_max_position_pct = config.max_position_pct
-        recipe_zscore_column = None
+        strategy_params = dict(config.strategy_params)
+        fee_bps = config.fee_bps
+        slippage_bps = config.slippage_bps
+        max_position_pct = config.max_position_pct
+        zscore_column = _select_default_zscore_column(features_df.columns)
+
         if resolved_recipe is not None:
-            (
-                effective_strategy_params,
-                effective_fee_bps,
-                effective_slippage_bps,
-                effective_max_position_pct,
-            ) = _merge_recipe_defaults(config=config, recipe=resolved_recipe)
-            recipe_zscore_column = _validate_recipe_feature_contract(
+            strategy_params, fee_bps, slippage_bps, max_position_pct = _merge_recipe_defaults(
+                config=config,
+                recipe=resolved_recipe,
+            )
+            zscore_column = _validate_recipe_feature_contract(
                 parent_run_id=parent_run_id,
                 recipe=resolved_recipe,
                 feature_manifest=feature_manifest,
                 features_df=features_df,
             )
+
+        if zscore_column is None:
+            raise BacktestRunError(
+                "Feature artifact does not satisfy the backtest input contract. "
+                "Missing columns: ['price_zscore_*']."
+            )
+
         strategy_spec = _resolve_strategy_spec(
             config.strategy_id,
-            effective_strategy_params,
-            max_position_pct=effective_max_position_pct,
-            fee_bps=effective_fee_bps,
-            slippage_bps=effective_slippage_bps,
+            strategy_params,
+            max_position_pct=max_position_pct,
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+            zscore_column=zscore_column,
         )
-        return resolved_recipe, recipe_zscore_column, strategy_spec
+        return resolved_recipe, strategy_spec
+
+    def _run_engine(
+        self,
+        *,
+        config: BacktestConfig,
+        strategy_spec: StrategySpec,
+        market_table: pa.Table,
+        feature_table: pa.Table,
+    ) -> result_mod.BacktestResult:
+        dataset = _FeatureBacktestDataset(market_table)
+        if config.engine == "event":
+            event_config = event_engine_mod.EventBacktestConfig(
+                dataset_id=config.dataset_id,
+                feature_set=config.feature_set_version,
+                initial_cash=Decimal(str(config.starting_cash)),
+                fee_schedule=exec_models.FeeSchedule(
+                    taker_fee_bps=Decimal(str(strategy_spec.fee_bps))
+                ),
+                slippage_model="fixed",
+                slippage_params={"bps": strategy_spec.slippage_bps},
+            )
+            event_engine = event_engine_mod.EventBacktestEngine(event_config)
+            event_strategy = _EventZScoreStrategy(strategy_spec)
+            return event_engine.run(event_strategy, dataset, features=feature_table)
+
+        vec_config = vec_engine_mod.VecBacktestConfig(
+            dataset_id=config.dataset_id,
+            feature_set=config.feature_set_version,
+            initial_cash=Decimal(str(config.starting_cash)),
+            fee_bps=Decimal(str(strategy_spec.fee_bps)),
+            rebalance_frequency=_infer_rebalance_frequency(market_table),
+        )
+        vec_engine = vec_engine_mod.VecBacktestEngine(vec_config)
+        vec_strategy = _VectorizedZScoreStrategy(strategy_spec)
+        return vec_engine.run(vec_strategy, dataset, feature_table=feature_table)
 
     def _persist_output_tables(
         self,
@@ -394,16 +492,20 @@ class BacktestRunner:
         run_id: str,
         config: BacktestConfig,
         trades_table: pa.Table,
+        fills_table: pa.Table,
         equity_table: pa.Table,
         resolved_recipe: strategy_recipe_mod.StrategyRecipeManifest | None,
     ) -> dict[str, str]:
         trades_path = self._store.prepare_path(run_id, "trades.parquet")
+        fills_path = self._store.prepare_path(run_id, "fills.parquet")
         equity_path = self._store.prepare_path(run_id, "equity.parquet")
         pq.write_table(trades_table, trades_path, compression="zstd")
+        pq.write_table(fills_table, fills_path, compression="zstd")
         pq.write_table(equity_table, equity_path, compression="zstd")
 
         artifact_map: dict[str, str] = {
             "trades": str(trades_path),
+            "fills": str(fills_path),
             "equity": str(equity_path),
             "dataset_id": config.dataset_id,
             "feature_set_version": config.feature_set_version,
@@ -479,253 +581,269 @@ class BacktestRunner:
         )
 
 
-def _simulate(
-    *,
-    features_df: pd.DataFrame,
-    config: BacktestConfig,
-    strategy: _ZScoreStrategy,
-    zscore_column: str | None = None,
-) -> tuple[pa.Table, pa.Table]:
-    frame = _prepare_features(
-        features_df=features_df,
-        engine=config.engine,
-        strategy_spec=strategy._spec,
-        zscore_column=zscore_column,
-    )
-    if frame.empty:
-        return _empty_simulation()
-
-    cash = config.starting_cash
-    positions: dict[str, float] = {}
-    average_costs: dict[str, float] = {}
-    last_prices: dict[str, float] = {}
-    pending_targets: dict[str, PendingTarget] = {}
-    trades: list[dict[str, object]] = []
-    equity_rows: list[dict[str, object]] = []
-
-    for row in frame.itertuples(index=False):
-        instrument_id = str(row.instrument_id)
-        execution_ts = _coerce_timestamp(row.execution_ts)
-        price = _coerce_price(row.execution_price)
-        last_prices[instrument_id] = price
-
-        pending = pending_targets.get(instrument_id)
-        if pending is not None and execution_ts > pending.signal_ts:
-            pending_targets.pop(instrument_id, None)
-            cash, trade = _rebalance_to_target(
-                instrument_id=instrument_id,
-                signal_ts=pending.signal_ts,
-                execution_ts=execution_ts,
-                direction=pending.direction,
-                target_weight=strategy._spec.target_weight,
-                price=price,
-                fee_bps=strategy._spec.fee_bps,
-                slippage_bps=strategy._spec.slippage_bps,
-                cash=cash,
-                positions=positions,
-                average_costs=average_costs,
-                last_prices=last_prices,
-            )
-            if trade is not None:
-                trades.append(trade)
-
-        positions_value = _mark_to_market(positions, last_prices)
-        equity_rows.append(
-            {
-                "ts_event": execution_ts,
-                "equity": cash + positions_value,
-                "cash": cash,
-                "positions_value": positions_value,
-            }
-        )
-
-        if config.engine == "event":
-            direction = strategy.direction(
-                instrument_id=instrument_id,
-                price=price,
-                zscore=_coerce_float(row.zscore, default=0.0),
-                position_size=positions.get(instrument_id, 0.0),
-                as_of=execution_ts,
-            )
-        else:
-            direction = strategy_models.SignalDirection(str(row.planned_direction))
-
-        pending_targets[instrument_id] = PendingTarget(
-            direction=direction,
-            signal_ts=execution_ts,
-        )
-
-    return _finalize_simulation(trades, equity_rows)
-
-
-def _prepare_features(
-    *,
-    features_df: pd.DataFrame,
-    engine: EngineType,
-    strategy_spec: StrategySpec,
-    zscore_column: str | None = None,
-) -> pd.DataFrame:
+def _build_market_table(features_df: pd.DataFrame) -> pa.Table:
     if features_df.empty:
-        columns = ["instrument_id", "execution_ts", "zscore", "execution_price"]
-        if engine == "vectorized":
-            columns.append("planned_direction")
-        return pd.DataFrame(columns=columns)
+        return _empty_table(_MARKET_SCHEMA)
 
-    zscore_col = zscore_column
-    if zscore_col is None:
-        zscore_col = next(
-            (col for col in features_df.columns if col.startswith("price_zscore_")),
-            None,
-        )
-    price_col = (
-        "price"
-        if "price" in features_df.columns
-        else next(
-            (col for col in features_df.columns if col.startswith("price_mean_")),
-            None,
-        )
-    )
-
-    sequence_col = "ts_available" if "ts_available" in features_df.columns else "ts_event"
-    missing_columns: list[str] = []
-    if zscore_col is None:
-        missing_columns.append("price_zscore_*")
-    elif zscore_col not in features_df.columns:
-        missing_columns.append(zscore_col)
-    if price_col is None:
-        missing_columns.append("price|price_mean_*")
-    if "instrument_id" not in features_df.columns:
-        missing_columns.append("instrument_id")
-    if sequence_col not in features_df.columns:
-        missing_columns.append("ts_available|ts_event")
-    if missing_columns:
+    price_column = _select_price_column(features_df.columns)
+    if price_column is None or "instrument_id" not in features_df.columns:
+        missing_columns = ["instrument_id"]
+        if price_column is None:
+            missing_columns.append("price|price_mean_*")
         raise BacktestRunError(
             "Feature artifact does not satisfy the backtest input contract. "
             f"Missing columns: {missing_columns}."
         )
 
-    prepared = features_df.copy()
-    prepared["instrument_id"] = prepared["instrument_id"].astype(str)
-    prepared["execution_ts"] = pd.to_datetime(prepared[sequence_col], utc=True, errors="coerce")
-    prepared["event_ts"] = pd.to_datetime(
-        prepared.get("ts_event", prepared["execution_ts"]),
-        utc=True,
-        errors="coerce",
-    )
-    prepared = prepared.dropna(subset=["instrument_id", "execution_ts"])
-    prepared = prepared.sort_values(
-        ["execution_ts", "instrument_id", "event_ts"],
-        kind="stable",
-    ).reset_index(drop=True)
-    prepared["zscore"] = prepared[zscore_col].map(lambda value: _coerce_float(value, default=0.0))
-    prepared["execution_price"] = prepared[price_col].map(_coerce_price)
-
-    columns = ["instrument_id", "execution_ts", "zscore", "execution_price"]
-    if engine == "vectorized":
-        prepared["planned_direction"] = _vectorized_directions(
-            prepared["zscore"],
-            strategy_spec,
+    sequence_column = "ts_available" if "ts_available" in features_df.columns else "ts_event"
+    if sequence_column not in features_df.columns:
+        raise BacktestRunError(
+            "Feature artifact does not satisfy the backtest input contract. "
+            "Missing columns: ['ts_available|ts_event']."
         )
-        columns.append("planned_direction")
-    return prepared.loc[:, columns]
+
+    market_df = pd.DataFrame(
+        {
+            "ts_event": _normalize_timestamps(features_df[sequence_column]),
+            "instrument_id": features_df["instrument_id"].astype(str),
+            "price": pd.to_numeric(
+                features_df[price_column],
+                errors="coerce",
+            ).fillna(_DEFAULT_PRICE),
+        }
+    )
+    market_df = market_df.dropna(subset=["ts_event"]).sort_values(
+        ["ts_event", "instrument_id"],
+        kind="stable",
+    )
+    return _table_from_frame(market_df, _MARKET_SCHEMA)
 
 
-def _rebalance_to_target(
+def _build_lagged_feature_table(features_df: pd.DataFrame) -> pa.Table:
+    if features_df.empty:
+        return pa.Table.from_pandas(features_df, preserve_index=False)
+
+    if "instrument_id" not in features_df.columns:
+        raise BacktestRunError(
+            "Feature artifact does not satisfy the backtest input contract. "
+            "Missing columns: ['instrument_id']."
+        )
+
+    sequence_column = "ts_available" if "ts_available" in features_df.columns else "ts_event"
+    if sequence_column not in features_df.columns:
+        raise BacktestRunError(
+            "Feature artifact does not satisfy the backtest input contract. "
+            "Missing columns: ['ts_available|ts_event']."
+        )
+
+    lagged = features_df.copy()
+    lagged["instrument_id"] = lagged["instrument_id"].astype(str)
+    lagged["_sequence_ts"] = _normalize_timestamps(lagged[sequence_column])
+    sort_columns = ["instrument_id", "_sequence_ts"]
+    if "ts_event" in lagged.columns:
+        lagged["ts_event"] = _normalize_timestamps(lagged["ts_event"])
+        sort_columns.append("ts_event")
+    lagged = lagged.dropna(subset=["_sequence_ts"]).sort_values(sort_columns, kind="stable")
+    lagged["ts_available"] = lagged.groupby("instrument_id", sort=False)["_sequence_ts"].shift(-1)
+    lagged = lagged.dropna(subset=["ts_available"]).drop(columns=["_sequence_ts"])
+    return pa.Table.from_pandas(lagged.reset_index(drop=True), preserve_index=False)
+
+
+def _closed_positions_to_table(result: result_mod.BacktestResult) -> pa.Table:
+    rows = [
+        _position_row(position, final_timestamp=None)
+        for position in result.closed_positions
+    ]
+    rows.extend(
+        _position_row(position, final_timestamp=result.final_portfolio.timestamp)
+        for position in result.final_portfolio.positions.values()
+    )
+    if not rows:
+        return _empty_table(_TRADES_SCHEMA)
+    rows.sort(key=lambda row: (row["ts_event"], row["instrument_id"]))
+    return pa.Table.from_pylist(rows, schema=_TRADES_SCHEMA)
+
+
+def _position_row(
+    position: portfolio_models.PositionState,
     *,
-    instrument_id: str,
-    signal_ts: datetime,
-    execution_ts: datetime,
-    direction: strategy_models.SignalDirection,
-    target_weight: float,
-    price: float,
-    fee_bps: float,
-    slippage_bps: float,
-    cash: float,
-    positions: dict[str, float],
-    average_costs: dict[str, float],
-    last_prices: dict[str, float],
-) -> tuple[float, dict[str, object] | None]:
-    current_equity = cash + _mark_to_market(positions, last_prices)
-    current_quantity = positions.get(instrument_id, 0.0)
-    desired_quantity = _target_notional(current_equity, target_weight, direction) / max(
-        price,
-        _EPSILON,
-    )
-    quantity_delta = desired_quantity - current_quantity
-    if abs(quantity_delta) <= _EPSILON:
-        return cash, None
-
-    execution_price = _apply_slippage(
-        price,
-        quantity_delta=quantity_delta,
-        slippage_bps=slippage_bps,
-    )
-    realized_pnl, trade_return, updated_quantity, updated_avg_cost = _apply_fill(
-        current_quantity=current_quantity,
-        current_avg_cost=average_costs.get(instrument_id, price),
-        trade_quantity=quantity_delta,
-        execution_price=execution_price,
-    )
-    if abs(updated_quantity) <= _EPSILON:
-        positions.pop(instrument_id, None)
-        average_costs.pop(instrument_id, None)
-    else:
-        positions[instrument_id] = updated_quantity
-        average_costs[instrument_id] = updated_avg_cost
-
-    fee = abs(quantity_delta) * execution_price * (fee_bps / 10_000.0)
-    cash_impact = -(quantity_delta * execution_price) - fee
-    cash += cash_impact
-    trade_direction = (
-        strategy_models.SignalDirection.LONG
-        if quantity_delta > 0
-        else strategy_models.SignalDirection.SHORT
-    )
-    return cash, {
-        "ts_event": execution_ts,
-        "signal_ts": signal_ts,
-        "instrument_id": instrument_id,
-        "direction": trade_direction.value,
-        "size": abs(quantity_delta),
-        "price": execution_price,
-        "cash_impact": cash_impact,
-        "realized_pnl": realized_pnl,
+    final_timestamp: datetime | None,
+) -> dict[str, object]:
+    closed_at = position.closed_at or final_timestamp or position.last_updated
+    exit_reason = position.exit_reason or "end_of_run"
+    realized_pnl = position.realised_pnl
+    if final_timestamp is not None and position.closed_at is None:
+        realized_pnl += position.unrealised_pnl
+    entry_notional = position.size * position.entry_price
+    trade_return = 0.0
+    if entry_notional > _ZERO_D:
+        trade_return = float(realized_pnl / entry_notional)
+    return {
+        "ts_event": time_utils.ensure_utc(closed_at),
+        "entry_time": time_utils.ensure_utc(position.opened_at),
+        "instrument_id": position.instrument_id,
+        "direction": position.side.value,
+        "size": float(position.size),
+        "price": float(position.entry_price),
+        "exit_price": float(position.current_price),
+        "realized_pnl": float(realized_pnl),
         "trade_return": trade_return,
-        "position_after": updated_quantity,
+        "fees_paid": float(position.fees_paid),
+        "resolution_outcome": (
+            float(position.resolution_outcome) if position.resolution_outcome is not None else None
+        ),
+        "exit_reason": exit_reason,
     }
 
 
-def _apply_fill(
+def _fills_to_table(fills: list[exec_models.SimulatedFill]) -> pa.Table:
+    if not fills:
+        return _empty_table(_FILLS_SCHEMA)
+    rows = [
+        {
+            "ts_event": time_utils.ensure_utc(fill.timestamp),
+            "instrument_id": fill.order.instrument_id,
+            "direction": fill.order.side.value,
+            "size": float(fill.fill_size),
+            "price": float(fill.fill_price),
+            "fee": float(fill.fee),
+            "slippage": float(fill.slippage),
+        }
+        for fill in fills
+    ]
+    return pa.Table.from_pylist(rows, schema=_FILLS_SCHEMA)
+
+
+def _equity_to_table(result: result_mod.BacktestResult) -> pa.Table:
+    if result.equity_snapshots:
+        rows = [
+            {
+                "ts_event": time_utils.ensure_utc(ts),
+                "equity": float(equity),
+                "cash": float(cash),
+                "positions_value": float(positions_value),
+            }
+            for ts, equity, cash, positions_value in result.equity_snapshots
+        ]
+        return pa.Table.from_pylist(rows, schema=_EQUITY_SCHEMA)
+
+    if not result.equity_curve:
+        return _empty_table(_EQUITY_SCHEMA)
+
+    rows = [
+        {
+            "ts_event": time_utils.ensure_utc(ts),
+            "equity": float(equity),
+            "cash": float(result.final_portfolio.cash),
+            "positions_value": float(result.final_portfolio.equity - result.final_portfolio.cash),
+        }
+        for ts, equity in result.equity_curve
+    ]
+    return pa.Table.from_pylist(rows, schema=_EQUITY_SCHEMA)
+
+
+def _infer_rebalance_frequency(market_table: pa.Table) -> str:
+    if market_table.num_rows < 2:
+        return "1D"
+
+    ts = pd.to_datetime(market_table.column("ts_event").to_pandas(), utc=True, errors="coerce")
+    deltas = ts.sort_values().diff().dropna()
+    positive = deltas[deltas > pd.Timedelta(0)]
+    if positive.empty:
+        return "1D"
+    seconds = max(int(positive.min().total_seconds()), 1)
+    return f"{seconds}s"
+
+
+def _normalize_timestamps(values: pd.Series) -> pd.Series:
+    timestamps = pd.to_datetime(values, utc=True, errors="coerce")
+    return timestamps
+
+
+def _table_from_frame(frame: pd.DataFrame, schema: pa.Schema) -> pa.Table:
+    if frame.empty:
+        return _empty_table(schema)
+    return pa.Table.from_pandas(frame.reset_index(drop=True), schema=schema, preserve_index=False)
+
+
+def _empty_table(schema: pa.Schema) -> pa.Table:
+    return pa.table({name: [] for name in schema.names}, schema=schema)
+
+
+def _target_quantity(
     *,
-    current_quantity: float,
-    current_avg_cost: float,
-    trade_quantity: float,
-    execution_price: float,
-) -> tuple[float, float | None, float, float]:
-    if abs(current_quantity) <= _EPSILON:
-        return 0.0, None, trade_quantity, execution_price
+    equity: Decimal,
+    price: Decimal,
+    zscore: float,
+    spec: StrategySpec,
+) -> Decimal:
+    direction = _direction_from_zscore(zscore, spec)
+    if direction == 0 or price <= _ZERO_D:
+        return _ZERO_D
+    notional = equity * Decimal(str(spec.target_weight)) * Decimal(str(direction))
+    return notional / price
 
-    if (current_quantity > 0) == (trade_quantity > 0):
-        new_quantity = current_quantity + trade_quantity
-        new_avg_cost = (
-            abs(current_quantity) * current_avg_cost + abs(trade_quantity) * execution_price
-        ) / max(abs(new_quantity), _EPSILON)
-        return 0.0, None, new_quantity, new_avg_cost
 
-    closed_quantity = min(abs(current_quantity), abs(trade_quantity))
-    if current_quantity > 0:
-        realized_pnl = closed_quantity * (execution_price - current_avg_cost)
-    else:
-        realized_pnl = closed_quantity * (current_avg_cost - execution_price)
+def _direction_from_zscore(zscore: float, spec: StrategySpec) -> int:
+    if spec.family == "zscore_momentum":
+        if zscore >= spec.threshold:
+            return 1
+        if zscore <= -spec.threshold:
+            return -1
+        return 0
 
-    closed_notional = closed_quantity * max(current_avg_cost, _EPSILON)
-    trade_return = realized_pnl / closed_notional if closed_notional > _EPSILON else None
-    new_quantity = current_quantity + trade_quantity
-    if abs(new_quantity) <= _EPSILON:
-        return realized_pnl, trade_return, 0.0, 0.0
-    if (new_quantity > 0) == (current_quantity > 0):
-        return realized_pnl, trade_return, new_quantity, current_avg_cost
-    return realized_pnl, trade_return, new_quantity, execution_price
+    if zscore <= -spec.threshold:
+        return 1
+    if zscore >= spec.threshold:
+        return -1
+    return 0
+
+
+def _signed_position_size(
+    position: portfolio_models.PositionState | None,
+) -> Decimal:
+    if position is None:
+        return _ZERO_D
+    if position.side == portfolio_models.Side.LONG:
+        return position.size
+    return -position.size
+
+
+def _select_default_zscore_column(columns: pd.Index | list[str]) -> str | None:
+    candidates = sorted(
+        column_name
+        for column_name in columns
+        if column_name.startswith("price_zscore_")
+    )
+    if not candidates:
+        return None
+    return candidates[0]
+
+
+def _select_price_column(columns: pd.Index | list[str]) -> str | None:
+    if "price" in columns:
+        return "price"
+    candidates = sorted(
+        column_name
+        for column_name in columns
+        if column_name.startswith("price_mean_")
+    )
+    if not candidates:
+        return None
+    return candidates[0]
+
+
+def _coerce_float(value: object, *, default: float) -> float:
+    if value is None:
+        return default
+    if isinstance(value, int | float | Decimal):
+        return float(value)
+    if not isinstance(value, str):
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
 
 
 def _resolve_strategy_spec(
@@ -733,8 +851,9 @@ def _resolve_strategy_spec(
     params: dict[str, float] | None = None,
     *,
     max_position_pct: float | None = None,
-    fee_bps: float = 0.0,
-    slippage_bps: float = 0.0,
+    fee_bps: float,
+    slippage_bps: float,
+    zscore_column: str,
 ) -> StrategySpec:
     normalized = strategy_id.strip().lower()
     params = params or {}
@@ -750,6 +869,7 @@ def _resolve_strategy_spec(
             target_weight=target_weight,
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
+            zscore_column=zscore_column,
         )
     if normalized.startswith("zscore"):
         return StrategySpec(
@@ -759,144 +879,12 @@ def _resolve_strategy_spec(
             target_weight=target_weight,
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
+            zscore_column=zscore_column,
         )
     raise BacktestRunError(
         f"Unsupported strategy_id '{strategy_id}'. "
         "Built-in support currently covers the zscore_* strategy family."
     )
-
-
-def _apply_slippage(
-    price: float,
-    *,
-    quantity_delta: float,
-    slippage_bps: float,
-) -> float:
-    if slippage_bps <= 0:
-        return price
-
-    slip_fraction = slippage_bps / 10_000.0
-    adjusted = price * (1.0 + slip_fraction if quantity_delta > 0 else 1.0 - slip_fraction)
-    return min(max(adjusted, _EPSILON), 1.0)
-
-
-def _direction_from_zscore(
-    zscore: float,
-    strategy_spec: StrategySpec,
-) -> strategy_models.SignalDirection:
-    if strategy_spec.family == "zscore_momentum":
-        if zscore >= strategy_spec.threshold:
-            return strategy_models.SignalDirection.LONG
-        if zscore <= -strategy_spec.threshold:
-            return strategy_models.SignalDirection.SHORT
-        return strategy_models.SignalDirection.FLAT
-
-    if zscore <= -strategy_spec.threshold:
-        return strategy_models.SignalDirection.LONG
-    if zscore >= strategy_spec.threshold:
-        return strategy_models.SignalDirection.SHORT
-    return strategy_models.SignalDirection.FLAT
-
-
-def _vectorized_directions(zscores: pd.Series, strategy_spec: StrategySpec) -> pd.Series:
-    directions = pd.Series(
-        strategy_models.SignalDirection.FLAT.value,
-        index=zscores.index,
-        dtype="object",
-    )
-    if strategy_spec.family == "zscore_momentum":
-        directions.loc[zscores >= strategy_spec.threshold] = (
-            strategy_models.SignalDirection.LONG.value
-        )
-        directions.loc[zscores <= -strategy_spec.threshold] = (
-            strategy_models.SignalDirection.SHORT.value
-        )
-        return directions
-
-    directions.loc[zscores <= -strategy_spec.threshold] = strategy_models.SignalDirection.LONG.value
-    directions.loc[zscores >= strategy_spec.threshold] = strategy_models.SignalDirection.SHORT.value
-    return directions
-
-
-def _finalize_simulation(
-    trades: list[dict[str, object]],
-    equity_rows: list[dict[str, object]],
-) -> tuple[pa.Table, pa.Table]:
-    trades_table = (
-        pa.Table.from_pylist(trades, schema=_TRADES_SCHEMA)
-        if trades
-        else pa.table({name: [] for name in _TRADES_SCHEMA.names}, schema=_TRADES_SCHEMA)
-    )
-    equity_table = (
-        pa.Table.from_pylist(equity_rows, schema=_EQUITY_SCHEMA)
-        if equity_rows
-        else pa.table({name: [] for name in _EQUITY_SCHEMA.names}, schema=_EQUITY_SCHEMA)
-    )
-    return trades_table, equity_table
-
-
-def _empty_simulation() -> tuple[pa.Table, pa.Table]:
-    return (
-        pa.table({name: [] for name in _TRADES_SCHEMA.names}, schema=_TRADES_SCHEMA),
-        pa.table({name: [] for name in _EQUITY_SCHEMA.names}, schema=_EQUITY_SCHEMA),
-    )
-
-
-def _mark_to_market(
-    positions: dict[str, float],
-    last_prices: dict[str, float],
-) -> float:
-    return sum(
-        quantity * last_prices.get(instrument_id, 0.0)
-        for instrument_id, quantity in positions.items()
-    )
-
-
-def _target_notional(
-    equity: float,
-    target_weight: float,
-    direction: strategy_models.SignalDirection,
-) -> float:
-    if direction == strategy_models.SignalDirection.LONG:
-        return equity * target_weight
-    if direction == strategy_models.SignalDirection.SHORT:
-        return -equity * target_weight
-    return 0.0
-
-
-def _coerce_float(value: object, *, default: float) -> float:
-    if value is None:
-        return default
-    if isinstance(value, float):
-        if pd.isna(value):
-            return default
-        return value
-    if isinstance(value, int | Decimal):
-        return float(value)
-    if not isinstance(value, str):
-        return default
-    try:
-        converted = float(value)
-    except ValueError:
-        return default
-    if pd.isna(converted):
-        return default
-    return converted
-
-
-def _coerce_price(value: object) -> float:
-    price = _coerce_float(value, default=_DEFAULT_PRICE)
-    if price <= 0:
-        return _DEFAULT_PRICE
-    return price
-
-
-def _coerce_timestamp(value: object) -> datetime:
-    if isinstance(value, pd.Timestamp):
-        return time_utils.ensure_utc(value.to_pydatetime())
-    if isinstance(value, datetime):
-        return time_utils.ensure_utc(value)
-    raise BacktestRunError(f"Backtest encountered a non-datetime timestamp value: {value!r}")
 
 
 def resolve_strategy_recipe(
@@ -973,9 +961,8 @@ def _discover_factor_pack_ids() -> set[str]:
 def normalize_recipe_strategy_params(params: dict[str, Any]) -> dict[str, float]:
     normalized: dict[str, float] = {}
     for key, value in params.items():
-        if not isinstance(value, int | float):
-            continue
-        normalized[str(key)] = float(value)
+        if isinstance(value, int | float):
+            normalized[str(key)] = float(value)
     if "threshold" not in normalized and "zscore_threshold" in normalized:
         normalized["threshold"] = normalized["zscore_threshold"]
     return normalized
@@ -1010,9 +997,16 @@ def _validate_recipe_feature_contract(
     recipe: strategy_recipe_mod.StrategyRecipeManifest,
     feature_manifest: feature_runner_mod.FeatureManifest,
     features_df: pd.DataFrame,
-) -> str | None:
+) -> str:
     if not recipe.factor_pack_ids:
-        return None
+        zscore_column = _select_default_zscore_column(features_df.columns)
+        if zscore_column is None:
+            raise BacktestRunError(
+                f"Strategy recipe '{recipe.recipe_id}' does not expose a "
+                "'price_zscore_*' feature required by the built-in zscore strategies."
+            )
+        return zscore_column
+
     if len(recipe.factor_pack_ids) != 1:
         raise BacktestRunError(
             "BacktestRunner currently supports strategy recipes with exactly one "

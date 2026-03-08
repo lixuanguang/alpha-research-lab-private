@@ -18,10 +18,12 @@ Expected columns produced by :class:`~alpha_core.research.backtest_runner.Backte
 
 * ``instrument_id``   — canonical market ID
 * ``direction``       — ``"long"`` / ``"short"``
-* ``price``           — fill price (probability space, 0-1)
+* ``price``           — entry probability for the completed trade thesis
+* ``exit_price``      — exit / close probability when available
 * ``size``            — number of contracts
-* ``realized_pnl``    — closed PnL (0 for open positions)
-* ``ts_event``        — fill timestamp (UTC)
+* ``realized_pnl``    — closed PnL for the completed trade thesis
+* ``entry_time``      — entry timestamp (UTC)
+* ``ts_event``        — exit / close timestamp (UTC)
 
 Optional columns (enriched by dataset metadata):
 
@@ -64,7 +66,7 @@ class PMMetrics(BaseModel):
     calibration_error: float = Field(
         description="Expected Calibration Error (ECE); 0 = perfectly calibrated"
     )
-    calibration_bins: list[dict] = Field(
+    calibration_bins: list[dict[str, float | int]] = Field(
         default_factory=list,
         description="Per-bin calibration data: {bin_start, bin_end, avg_predicted, avg_actual, count}",  # noqa: E501
     )
@@ -108,97 +110,50 @@ def compute_pm_metrics(
     Parameters
     ----------
     trades_df:
-        One row per fill.  See module docstring for expected columns.
+        One row per completed trade thesis or resolved position.
     starting_cash:
         Initial cash for return normalisation in category Sharpe.
     """
     if trades_df.empty:
         return PMMetrics(brier_score=0.0, log_loss=0.0, calibration_error=0.0)
 
-    # ------------------------------------------------------------------ #
-    # Compute probabilistic metrics when resolution_outcome is available
-    # ------------------------------------------------------------------ #
+    resolved = _resolved_trade_frame(trades_df)
+
     bs = 0.0
     ll = 0.0
     ece = 0.0
-    cal_bins: list[dict] = []
+    cal_bins: list[dict[str, float | int]] = []
+    if not resolved.empty:
+        predictions = resolved["forecast_prob"].to_numpy(dtype=float)
+        outcomes = resolved["forecast_outcome"].to_numpy(dtype=float)
+        bs = brier_score(predictions, outcomes)
+        ll = log_loss_score(predictions, outcomes)
+        ece = expected_calibration_error(predictions, outcomes)
+        cal_bins = calibration_curve(predictions, outcomes)
 
-    if "resolution_outcome" in trades_df.columns and "price" in trades_df.columns:
-        resolved_mask = trades_df["resolution_outcome"].notna()
-        resolved = trades_df[resolved_mask].copy()
-        if not resolved.empty:
-            preds = pd.to_numeric(resolved["price"], errors="coerce").fillna(0.5).to_numpy().copy()
-            raw_outcomes = pd.to_numeric(resolved["resolution_outcome"], errors="coerce").to_numpy()
-            # For short positions, flip the prediction direction
-            if "direction" in resolved.columns:
-                short_mask = resolved["direction"].str.lower() == "short"
-                preds[short_mask.to_numpy()] = 1.0 - preds[short_mask.to_numpy()]
-            valid = ~np.isnan(raw_outcomes)
-            if valid.sum() > 0:
-                preds_v = preds[valid]
-                outcomes_v = raw_outcomes[valid]
-                bs = brier_score(preds_v, outcomes_v)
-                ll = log_loss_score(preds_v, outcomes_v)
-                ece = expected_calibration_error(preds_v, outcomes_v)
-                cal_bins = calibration_curve(preds_v, outcomes_v)
-
-    # ------------------------------------------------------------------ #
-    # Resolution PnL and accuracy
-    # ------------------------------------------------------------------ #
     res_pnl = _ZERO_D
-    res_count = 0
+    res_count = len(resolved.index)
     res_accuracy = 0.0
-
-    if "resolution_outcome" in trades_df.columns and "realized_pnl" in trades_df.columns:
-        res_df = trades_df[trades_df["resolution_outcome"].notna()]
-        if not res_df.empty:
-            pnl_series = pd.to_numeric(res_df["realized_pnl"], errors="coerce").fillna(0.0)
+    if not resolved.empty:
+        correct_side = (resolved["forecast_prob"] >= 0.5) == (
+            resolved["forecast_outcome"] >= 0.5
+        )
+        res_accuracy = round(float(correct_side.mean()), 6)
+        if "realized_pnl" in resolved.columns:
+            pnl_series = pd.to_numeric(resolved["realized_pnl"], errors="coerce").fillna(0.0)
             res_pnl = Decimal(str(round(float(pnl_series.sum()), 8)))
-            res_count = len(res_df)
-            res_accuracy = round(float((pnl_series > _EPSILON).mean()), 6)
 
-    # ------------------------------------------------------------------ #
-    # Average entry/exit probability
-    # ------------------------------------------------------------------ #
     avg_entry = _ZERO_D
     avg_exit = _ZERO_D
+    entry_probs = _thesis_probability_series(trades_df, price_column="price")
+    if not entry_probs.empty:
+        avg_entry = Decimal(str(round(float(entry_probs.mean()), 8)))
 
-    if "price" in trades_df.columns and "direction" in trades_df.columns:
-        prices = pd.to_numeric(trades_df["price"], errors="coerce").dropna()
-        if not prices.empty:
-            avg_entry = Decimal(str(round(float(prices.mean()), 8)))
-        # Heuristic: longs close at high price, shorts close at low price
-        if "realized_pnl" in trades_df.columns:
-            _pnl_abs = pd.to_numeric(trades_df["realized_pnl"], errors="coerce").abs()
-            _closed_mask = _pnl_abs > _EPSILON
-            closed = trades_df[_closed_mask]
-            if not closed.empty and "price" in closed.columns:
-                exit_prices = pd.to_numeric(closed["price"], errors="coerce").dropna()
-                if not exit_prices.empty:
-                    avg_exit = Decimal(str(round(float(exit_prices.mean()), 8)))
+    exit_probs = _thesis_probability_series(trades_df, price_column="exit_price")
+    if not exit_probs.empty:
+        avg_exit = Decimal(str(round(float(exit_probs.mean()), 8)))
 
-    # ------------------------------------------------------------------ #
-    # Category breakdown
-    # ------------------------------------------------------------------ #
-    cat_breakdown: dict[str, dict[str, float]] = {}
-
-    if "category" in trades_df.columns:
-        for cat, grp in trades_df.groupby("category", sort=False):
-            cat_sharpe = _category_sharpe(grp, starting_cash)
-            cat_brier = 0.0
-            if "resolution_outcome" in grp.columns and "price" in grp.columns:
-                r_grp = grp[grp["resolution_outcome"].notna()]
-                if not r_grp.empty:
-                    p = pd.to_numeric(r_grp["price"], errors="coerce").fillna(0.5).to_numpy()
-                    o = pd.to_numeric(r_grp["resolution_outcome"], errors="coerce").to_numpy()
-                    valid = ~np.isnan(o)
-                    if valid.sum() > 0:
-                        cat_brier = brier_score(p[valid], o[valid])
-            cat_breakdown[str(cat)] = {
-                "sharpe": round(cat_sharpe, 4),
-                "brier": round(cat_brier, 6),
-                "trade_count": float(len(grp)),
-            }
+    cat_breakdown = _category_breakdown(trades_df, starting_cash)
 
     return PMMetrics(
         brier_score=round(bs, 6),
@@ -212,6 +167,75 @@ def compute_pm_metrics(
         avg_prob_at_exit=avg_exit,
         category_breakdown=cat_breakdown,
     )
+
+
+def _resolved_trade_frame(trades_df: pd.DataFrame) -> pd.DataFrame:
+    required = {"price", "resolution_outcome"}
+    if not required.issubset(trades_df.columns):
+        return pd.DataFrame()
+
+    frame = trades_df.copy()
+    frame["price"] = pd.to_numeric(frame["price"], errors="coerce")
+    frame["resolution_outcome"] = pd.to_numeric(frame["resolution_outcome"], errors="coerce")
+    if "direction" in frame.columns:
+        frame["direction"] = frame["direction"].astype(str).str.lower()
+    else:
+        frame["direction"] = "long"
+
+    frame = frame.dropna(subset=["price", "resolution_outcome"]).reset_index(drop=True)
+    if frame.empty:
+        return frame
+
+    shorts = frame["direction"] == "short"
+    frame["forecast_prob"] = np.where(shorts, 1.0 - frame["price"], frame["price"]).clip(0.0, 1.0)
+    frame["forecast_outcome"] = np.where(
+        shorts,
+        1.0 - frame["resolution_outcome"],
+        frame["resolution_outcome"],
+    )
+    return frame
+
+
+def _thesis_probability_series(
+    trades_df: pd.DataFrame,
+    *,
+    price_column: str,
+) -> pd.Series:
+    if price_column not in trades_df.columns:
+        return pd.Series(dtype=float)
+
+    prices = pd.to_numeric(trades_df[price_column], errors="coerce")
+    if "direction" not in trades_df.columns:
+        return prices.dropna().clip(0.0, 1.0)
+
+    direction = trades_df["direction"].astype(str).str.lower()
+    thesis_probs = np.where(direction == "short", 1.0 - prices, prices)
+    thesis_series = pd.Series(thesis_probs, index=trades_df.index, dtype=float)
+    return thesis_series.dropna().clip(0.0, 1.0)
+
+
+def _category_breakdown(
+    trades_df: pd.DataFrame,
+    starting_cash: float,
+) -> dict[str, dict[str, float]]:
+    if "category" not in trades_df.columns:
+        return {}
+
+    breakdown: dict[str, dict[str, float]] = {}
+    for category, group in trades_df.groupby("category", sort=False):
+        resolved_group = _resolved_trade_frame(group)
+        category_brier = 0.0
+        if not resolved_group.empty:
+            category_brier = brier_score(
+                resolved_group["forecast_prob"].to_numpy(dtype=float),
+                resolved_group["forecast_outcome"].to_numpy(dtype=float),
+            )
+        breakdown[str(category)] = {
+            "sharpe": round(_category_sharpe(group, starting_cash), 4),
+            "brier": round(category_brier, 6),
+            "trade_count": float(len(group.index)),
+        }
+    return breakdown
 
 
 def _category_sharpe(grp: pd.DataFrame, starting_cash: float) -> float:
