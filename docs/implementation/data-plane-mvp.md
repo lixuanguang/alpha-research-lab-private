@@ -1699,6 +1699,11 @@ directly, and it binds the dataset build to the exact silver partition refs
 declared by that handoff instead of re-expanding the window from metadata
 alone. That closes the ingestion run -> handoff manifest -> dataset build path
 without duplicating the window/venue/event-type contract at the call site.
+`tests/integration/test_research_build_dataset.py` now includes an unmocked
+storage-backed integration test that writes real silver partitions, emits a
+real ingestion run + handoff manifest, invokes `build-dataset --handoff-manifest`
+via the CLI, and asserts that only the handed-off partition refs are materialized
+into the gold dataset.
 
 This future section is complete when:
 

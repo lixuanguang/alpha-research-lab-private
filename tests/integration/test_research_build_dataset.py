@@ -11,15 +11,18 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 
 import apps.research.main as research_main
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from click.testing import CliRunner
 
+import alpha_core.events.models as event_models
 import alpha_core.instruments.master as master_mod
 import alpha_core.instruments.models as instrument_models
 import alpha_core.quality.gap_detector as gap_mod
@@ -30,7 +33,9 @@ import alpha_core.research.universe as universe_mod
 import alpha_core.storage.handoff_manifest as handoff_mod
 import alpha_core.storage.lineage as lineage_mod
 import alpha_core.storage.parquet_reader as reader_mod
+import alpha_core.storage.parquet_writer as writer_mod
 import alpha_core.storage.run_artifact_emitter as emitter_mod
+import alpha_core.utils.ids as ids_utils
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -58,6 +63,32 @@ def _make_market(venue: str, market_id: str, outcomes: list[str]) -> instrument_
         first_seen=_BASE - timedelta(days=1),
         last_updated=_BASE,
     )
+
+
+def _make_trade(
+    *,
+    trade_index: int,
+    ts_event: datetime,
+    venue: str = "p",
+    market_id: str = "m1",
+    outcome_id: str = "yes",
+) -> event_models.CanonicalTrade:
+    payload: dict[str, object] = {
+        "instrument_id": f"{venue}:{market_id}:{outcome_id}",
+        "venue_id": venue,
+        "event_type": event_models.EventType.TRADE,
+        "ts_event": ts_event,
+        "ts_record": ts_event + timedelta(seconds=1),
+        "schema_version": 1,
+        "price": Decimal("0.50") + Decimal(trade_index) / Decimal("100"),
+        "size": Decimal("10"),
+        "side": event_models.TradeSide.BUY
+        if trade_index % 2 == 0
+        else event_models.TradeSide.SELL,
+        "trade_id": f"trade-{trade_index}",
+    }
+    payload["event_id"] = ids_utils.generate_event_id(payload)
+    return event_models.CanonicalTrade.model_validate(payload)
 
 
 def _silver_trades(n: int = 20) -> pa.Table:
@@ -89,6 +120,12 @@ def _silver_trades(n: int = 20) -> pa.Table:
         },
         schema=schema,
     )
+
+
+def _persist_instrument_master(storage_root: Path) -> None:
+    master = master_mod.MarketMaster()
+    master.register_market(_make_market("p", "m1", ["yes"]))
+    master.persist(storage_root / "instruments.parquet")
 
 
 def _make_wired_builder(tmp_path: Path) -> tuple[builder_mod.DatasetBuilder, Path]:
@@ -511,6 +548,107 @@ def test_execute_consumes_dataset_ready_handoff_from_ingestion_run(
     lineage_run = lineage_mod.LineageStore(storage_root).get_run(ingestion_run_id)
     assert lineage_run is not None
     assert payload["run_id"] in lineage_run.downstream_run_ids
+
+
+def test_execute_consumes_handoff_end_to_end_from_real_storage(tmp_path: Path) -> None:
+    storage_root = tmp_path
+    _persist_instrument_master(storage_root)
+
+    writer = writer_mod.ParquetEventWriter(storage_root)
+    writer.write_trades(
+        [
+            _make_trade(trade_index=1, ts_event=_BASE + timedelta(hours=1)),
+            _make_trade(trade_index=2, ts_event=_BASE + timedelta(hours=2)),
+            _make_trade(trade_index=3, ts_event=_BASE + timedelta(days=1, hours=1)),
+        ]
+    )
+
+    lineage_store = lineage_mod.LineageStore(storage_root)
+    ingestion_run = lineage_store.start_run(
+        "p",
+        "polling",
+        options=lineage_mod.StartRunOptions(
+            run_id="ingest-handoff-e2e-001",
+            event_types=["trades"],
+            config_snapshot={"mode": "poll"},
+        ),
+    )
+    watermark = _BASE + timedelta(days=1, hours=1)
+    lineage_store.complete_run(
+        ingestion_run.run_id,
+        counts={"trades": 3},
+        errors=[],
+        cursor_watermark_utc=watermark,
+        resume_safe=True,
+    )
+
+    handed_off_partition = "silver/trades/venue=p/date=2026-01-01"
+    handoff_manifest = handoff_mod.build_handoff_manifest(
+        venue="p",
+        source_run_ids=[ingestion_run.run_id],
+        window_start=_BASE,
+        window_end=_END,
+        event_types=["trades"],
+        quality_status=handoff_mod.QualityStatus(passed=True),
+        gap_status=handoff_mod.GapStatus(gap_free=True, max_gap_hours=0.0),
+        watermarks=handoff_mod.WatermarkInfo(
+            max_ts_event=watermark,
+            max_ts_record=watermark + timedelta(seconds=1),
+        ),
+        partition_refs=[handed_off_partition],
+        handoff_id="handoff-e2e-001",
+    )
+    handoff_path = handoff_mod.HandoffManifestStore(storage_root).save(handoff_manifest)
+    lineage_store.mark_dataset_ready(ingestion_run.run_id, handoff_manifest_path=str(handoff_path))
+    completed_ingestion_run = lineage_store.get_run(ingestion_run.run_id)
+    assert completed_ingestion_run is not None
+    emitter_mod.emit_ingestion_run_artifacts(
+        ingestion_run=completed_ingestion_run,
+        storage_root=storage_root,
+        partition_refs={"silver_trades": handed_off_partition},
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        research_main.main,
+        [
+            "--format",
+            "json",
+            "build-dataset",
+            "--name",
+            "handoff_storage_e2e",
+            "--handoff-manifest",
+            ingestion_run.run_id,
+            "--skip-quality-pass",
+            "--allow-gaps",
+            "--storage-root",
+            str(storage_root),
+            "--execute",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    payload = json.loads(result.output)
+    assert payload["row_counts"]["trades"] == 2
+
+    run_manifest = manifest_mod.read_run_manifest(
+        storage_root / "runs" / payload["run_id"] / "manifest.json"
+    )
+    assert run_manifest.parent_run_id == ingestion_run.run_id
+    assert run_manifest.artifacts["handoff_manifest"] == str(handoff_path)
+    assert run_manifest.artifacts["handoff_id"] == handoff_manifest.handoff_id
+
+    gold_trades = pq.read_table(
+        storage_root / "gold" / "datasets" / payload["dataset_id"] / "trades.parquet"
+    )
+    trade_ids = gold_trades.column("trade_id").to_pylist()
+    assert gold_trades.num_rows == 2
+    assert set(trade_ids) == {"trade-1", "trade-2"}
+    assert "trade-3" not in trade_ids
+
+    linked_run = lineage_store.get_run(ingestion_run.run_id)
+    assert linked_run is not None
+    assert payload["run_id"] in linked_run.downstream_run_ids
 
 
 def test_execute_handoff_build_reads_exact_partition_refs(
