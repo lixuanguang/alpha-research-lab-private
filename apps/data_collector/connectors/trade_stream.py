@@ -21,6 +21,10 @@ class TradeWatchAdapter(Protocol):
 
     def watch_trades(self, outcome_id: str) -> AsyncIterator[list[event_models.CanonicalTrade]]: ...
 
+    def trade_stream_capabilities(self) -> dict[str, bool]:
+        """Optional: declare sequence/latency capability for this trade feed."""
+        ...
+
 
 @dataclass(slots=True)
 class TradeStreamOptions:
@@ -31,8 +35,25 @@ class TradeStreamOptions:
     emit: connector_lifecycle.EmitCallback | None = None
 
 
+def _resolve_stream_capabilities(adapter: object) -> dict[str, bool]:
+    """Read capability flags from adapter if available, else return conservative defaults."""
+    fn = getattr(adapter, "trade_stream_capabilities", None)
+    if callable(fn):
+        value = fn()
+        if isinstance(value, dict):
+            return {
+                "sequence_id": bool(value.get("sequence_id", False)),
+                "latency_metadata": bool(value.get("latency_metadata", False)),
+            }
+    return {"sequence_id": False, "latency_metadata": False}
+
+
 def _make_gap_marker(
-    outcome_id: str, venue: str, ts: datetime
+    outcome_id: str,
+    venue: str,
+    ts: datetime,
+    *,
+    stream_capabilities: dict[str, bool],
 ) -> event_models.CanonicalMetadataUpdate:
     """Synthetic event marking a potential sequence break caused by reconnection."""
     return event_models.CanonicalMetadataUpdate.model_validate(
@@ -42,8 +63,13 @@ def _make_gap_marker(
             "ts_event": ts,
             "ts_record": ts,
             "ts_receive": ts,
+            "sequence_id_capable": stream_capabilities["sequence_id"],
+            "latency_metadata_capable": stream_capabilities["latency_metadata"],
             "is_reconnect_gap": True,
-            "fields_changed": {"event": "reconnect_gap"},
+            "fields_changed": {
+                "event": "reconnect_gap",
+                "stream_capabilities": stream_capabilities,
+            },
         }
     )
 
@@ -84,6 +110,7 @@ class TradeStreamConnector(connector_streaming.OutcomeStreamingConnector):
         )
         self._adapter = adapter
         self._heartbeat_monitor = resolved_options.heartbeat_monitor
+        self._stream_capabilities = _resolve_stream_capabilities(adapter)
         # Outcomes currently awaiting a gap-marker emit (set on reconnect).
         self._pending_gaps: set[str] = set()
         self._session_count: int = 0  # incremented each time _on_reset fires
@@ -124,7 +151,12 @@ class TradeStreamConnector(connector_streaming.OutcomeStreamingConnector):
             # Emit gap marker before first real batch after a reconnect.
             if outcome_id in self._pending_gaps:
                 self._pending_gaps.discard(outcome_id)
-                gap = _make_gap_marker(outcome_id, venue=self.venue, ts=ts_receive)
+                gap = _make_gap_marker(
+                    outcome_id,
+                    venue=self.venue,
+                    ts=ts_receive,
+                    stream_capabilities=self._stream_capabilities,
+                )
                 await self._emit_events([gap])
 
             # Enrich each event with local receive timestamp.
@@ -137,4 +169,9 @@ class TradeStreamConnector(connector_streaming.OutcomeStreamingConnector):
             await self._emit_events(enriched)
 
 
-__all__ = ["TradeStreamConnector", "TradeStreamOptions", "TradeWatchAdapter"]
+__all__ = [
+    "TradeStreamConnector",
+    "TradeStreamOptions",
+    "TradeWatchAdapter",
+    "_resolve_stream_capabilities",
+]

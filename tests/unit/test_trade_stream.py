@@ -246,3 +246,132 @@ def test_start_and_stop() -> None:
 
     asyncio.run(_run())
     assert connector.state == connector_types.ConnectorState.STOPPED
+
+
+# ---------------------------------------------------------------------------
+# Microstructure — 11.1
+# ---------------------------------------------------------------------------
+
+
+def test_ts_receive_stamped_on_emitted_trades() -> None:
+    """Every emitted trade must carry a non-None ts_receive (local receipt clock)."""
+    adapter = _MockAdapter()
+    adapter.batches["kalshi:m:yes"] = [[_trade("t1"), _trade("t2")]]
+    collector = _EventCollector()
+    connector = trade_stream_mod.TradeStreamConnector(
+        adapter,
+        outcome_ids=["kalshi:m:yes"],
+        options=_stream_options(emit=collector),
+    )
+    asyncio.run(connector.stream_loop())
+    trades = [e for e in collector.events if isinstance(e, event_models.CanonicalTrade)]
+    assert len(trades) == 2
+    for t in trades:
+        assert t.ts_receive is not None, "ts_receive must be stamped at receive time"
+    # All trades in a batch share the same receive timestamp (sampled once per batch).
+    assert trades[0].ts_receive == trades[1].ts_receive
+
+
+def test_sequence_id_preserved_through_stream() -> None:
+    """sequence_id set by the adapter must survive the ts_receive enrichment step."""
+    adapter = _MockAdapter()
+    ts = _NOW
+    # Let the model auto-generate event_id (sequence_id is excluded from the hash).
+    trade_with_seq = event_models.CanonicalTrade.model_validate(
+        {
+            "instrument_id": "kalshi:market-a:yes",
+            "venue_id": "kalshi",
+            "event_type": event_models.EventType.TRADE,
+            "ts_event": ts,
+            "ts_record": ts + timedelta(milliseconds=50),
+            "schema_version": 1,
+            "price": Decimal("0.50"),
+            "size": Decimal("1"),
+            "side": event_models.TradeSide.BUY,
+            "trade_id": "seq-trade",
+            "sequence_id": "1234567",
+        }
+    )
+    adapter.batches["kalshi:m:yes"] = [[trade_with_seq]]
+    collector = _EventCollector()
+    connector = trade_stream_mod.TradeStreamConnector(
+        adapter,
+        outcome_ids=["kalshi:m:yes"],
+        options=_stream_options(emit=collector),
+    )
+    asyncio.run(connector.stream_loop())
+    result = [e for e in collector.events if isinstance(e, event_models.CanonicalTrade)]
+    assert len(result) == 1
+    assert result[0].sequence_id == "1234567"
+
+
+def test_gap_marker_not_emitted_on_initial_connection() -> None:
+    """No gap marker on the very first connection; only on subsequent reconnects."""
+    adapter = _MockAdapter()
+    adapter.batches["kalshi:m:yes"] = [[_trade("t1")]]
+    collector = _EventCollector()
+    connector = trade_stream_mod.TradeStreamConnector(
+        adapter,
+        outcome_ids=["kalshi:m:yes"],
+        options=_stream_options(emit=collector),
+    )
+    asyncio.run(connector.stream_loop())
+    markers = [e for e in collector.events if isinstance(e, event_models.CanonicalMetadataUpdate)]
+    assert markers == []
+
+
+def test_reconnect_emits_gap_marker_with_capabilities() -> None:
+    """After a disconnect, a gap marker with capability flags is emitted per outcome."""
+    call_count = 0
+    connector_ref: list[trade_stream_mod.TradeStreamConnector] = []
+    collector = _EventCollector()
+
+    class _CapableFailOnceAdapter:
+        def venue_name(self) -> str:
+            return "kalshi"
+
+        def trade_stream_capabilities(self) -> dict[str, bool]:
+            return {"sequence_id": True, "latency_metadata": False}
+
+        async def watch_trades(
+            self, outcome_id: str
+        ) -> AsyncIterator[list[event_models.CanonicalTrade]]:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ConnectionError("stream dropped")
+            yield [_trade("t1")]
+            connector_ref[0]._stop_event.set()
+
+    connector = trade_stream_mod.TradeStreamConnector(
+        _CapableFailOnceAdapter(),
+        outcome_ids=["kalshi:m:yes"],
+        options=_stream_options(emit=collector),
+    )
+    connector_ref.append(connector)
+    asyncio.run(asyncio.wait_for(connector._run_stream(), timeout=2.0))
+
+    markers = [e for e in collector.events if isinstance(e, event_models.CanonicalMetadataUpdate)]
+    assert len(markers) == 1
+    m = markers[0]
+    assert m.is_reconnect_gap is True
+    assert m.sequence_id_capable is True
+    assert m.latency_metadata_capable is False
+    assert m.fields_changed["stream_capabilities"]["sequence_id"] is True
+
+
+def test_resolve_stream_capabilities_defaults_when_no_method() -> None:
+    """Adapters without trade_stream_capabilities() default to all-False."""
+    caps = trade_stream_mod._resolve_stream_capabilities(_MockAdapter())
+    assert caps == {"sequence_id": False, "latency_metadata": False}
+
+
+def test_resolve_stream_capabilities_reads_adapter_values() -> None:
+    """_resolve_stream_capabilities returns the dict provided by the adapter."""
+
+    class _SeqAdapter:
+        def trade_stream_capabilities(self) -> dict[str, bool]:
+            return {"sequence_id": True, "latency_metadata": True}
+
+    caps = trade_stream_mod._resolve_stream_capabilities(_SeqAdapter())
+    assert caps == {"sequence_id": True, "latency_metadata": True}
