@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import subprocess  # nosec B404 - used only for git metadata, no user input
+import subprocess  # nosec B404
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -83,7 +83,8 @@ def capture_git_commit() -> str | None:
     if git_executable is None:
         return None
     try:
-        result = subprocess.run(  # nosec B603 - hardcoded args, no user input
+        # Git metadata capture uses a fixed executable path and fixed argv only.
+        result = subprocess.run(  # nosec B603
             [git_executable, "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,

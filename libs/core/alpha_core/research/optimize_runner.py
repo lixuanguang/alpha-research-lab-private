@@ -571,8 +571,8 @@ def _expand_parameter_space(config: OptimizeConfig) -> list[dict[str, float]]:
     if config.search_mode == "grid":
         return all_combos[: config.max_trials]
 
-    # Random: shuffle with seed, then take max_trials.
-    rng = random.Random(config.seed)  # nosec B311 - deterministic research sweep, not crypto
+    # Random search here is intentionally seeded for deterministic research reproducibility.
+    rng = random.Random(config.seed)  # nosec B311
     rng.shuffle(all_combos)
     return all_combos[: config.max_trials]
 
