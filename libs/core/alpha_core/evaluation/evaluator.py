@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,7 +39,7 @@ import alpha_core.evaluation.financial as financial_mod
 import alpha_core.evaluation.pm_metrics as pm_metrics_mod
 
 #: Increment whenever EvaluationReport fields change.
-EVALUATION_REPORT_SCHEMA_VERSION: int = 1
+EVALUATION_REPORT_SCHEMA_VERSION: int = 2
 
 _ZERO_D = Decimal("0")
 
@@ -69,6 +69,10 @@ class EvaluationReport(BaseModel):
     monthly_returns: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Monthly return table: [{year, month, return}]",
+    )
+    equity_curve: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Full equity-curve rows persisted for round-trip reporting.",
     )
     best_trades: list[dict[str, Any]] = Field(
         default_factory=list,
@@ -124,6 +128,7 @@ class BacktestEvaluator:
         pm = pm_metrics_mod.compute_pm_metrics(trades_df, starting_cash)
         equity_summary = _equity_curve_summary(equity_df, starting_cash)
         monthly = _monthly_returns(equity_df)
+        equity_curve = _equity_curve_rows(equity_df)
         best, worst = _top_trades(trades_df, n=5)
 
         return EvaluationReport(
@@ -133,6 +138,7 @@ class BacktestEvaluator:
             pm_specific=pm,
             equity_curve_summary=equity_summary,
             monthly_returns=monthly,
+            equity_curve=equity_curve,
             best_trades=best,
             worst_trades=worst,
             parent_run_id=parent_run_id,
@@ -245,6 +251,24 @@ def _monthly_returns(equity_df: pd.DataFrame) -> list[dict[str, Any]]:
     for ts, ret in monthly_ret.items():
         rows.append({"year": ts.year, "month": ts.month, "return": round(float(ret), 6)})
     return rows
+
+
+def _equity_curve_rows(equity_df: pd.DataFrame) -> list[dict[str, Any]]:
+    if equity_df.empty:
+        return []
+
+    frame = equity_df.copy()
+    if "ts_event" in frame.columns:
+        frame["ts_event"] = pd.to_datetime(frame["ts_event"], utc=True, errors="coerce")
+    for column in ("equity", "cash", "positions_value"):
+        if column in frame.columns:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+
+    sort_columns = [column for column in ("ts_event",) if column in frame.columns]
+    if sort_columns:
+        frame = frame.sort_values(sort_columns, kind="stable")
+    frame = frame.where(pd.notna(frame), None)
+    return cast(list[dict[str, Any]], frame.to_dict(orient="records"))
 
 
 def _top_trades(

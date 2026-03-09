@@ -22,6 +22,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import alpha_core.evaluation.evaluator as evaluator_mod
+import alpha_core.research.artifact_store as artifact_store_mod
 
 
 class ReportNotFoundError(KeyError):
@@ -41,8 +42,15 @@ class ReportWriter:
         Root of the artifact tree (e.g. ``Path("data")``).
     """
 
-    def __init__(self, storage_root: Path) -> None:
+    def __init__(
+        self,
+        storage_root: Path,
+        store: artifact_store_mod.FilesystemArtifactStore | None = None,
+    ) -> None:
         self._root = Path(storage_root)
+        self._store = (
+            store if store is not None else artifact_store_mod.FilesystemArtifactStore(self._root)
+        )
 
     # ------------------------------------------------------------------ #
     # Write
@@ -55,12 +63,13 @@ class ReportWriter:
 
             {storage_root}/runs/{run_id}/stage_outputs/report.json
         """
-        out_dir = self._stage_outputs(run_id)
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        report_path = out_dir / "report.json"
-        self._atomic_write(report_path, report.model_dump_json(indent=2))
-        return report_path
+        self._store.put(
+            run_id,
+            "report.json",
+            report.model_dump_json(indent=2).encode("utf-8"),
+            overwrite=True,
+        )
+        return self._store.path_for(run_id, "report.json")
 
     # ------------------------------------------------------------------ #
     # Load
@@ -79,14 +88,11 @@ class ReportWriter:
         ReportNotFoundError
             If ``report.json`` does not exist for *run_id*.
         """
-        report_path = self._stage_outputs(run_id) / "report.json"
-        if not report_path.exists():
-            raise ReportNotFoundError(
-                f"report.json not found for run_id={run_id!r} (looked in {report_path})"
-            )
-        return evaluator_mod.EvaluationReport.model_validate_json(
-            report_path.read_text(encoding="utf-8")
-        )
+        try:
+            payload = self._store.get(run_id, "report.json").decode("utf-8")
+        except artifact_store_mod.ArtifactNotFoundError as exc:
+            raise ReportNotFoundError(f"report.json not found for run_id={run_id!r}") from exc
+        return evaluator_mod.EvaluationReport.model_validate_json(payload)
 
     # ------------------------------------------------------------------ #
     # List
@@ -104,22 +110,9 @@ class ReportWriter:
         for run_dir in sorted(runs_dir.iterdir()):
             if not run_dir.is_dir():
                 continue
-            if (run_dir / "stage_outputs" / "report.json").exists():
+            if self._store.exists(run_dir.name, "report.json"):
                 result.append(run_dir.name)
         return result
-
-    # ------------------------------------------------------------------ #
-    # Helpers
-    # ------------------------------------------------------------------ #
-
-    def _stage_outputs(self, run_id: str) -> Path:
-        return self._root / "runs" / run_id / "stage_outputs"
-
-    @staticmethod
-    def _atomic_write(path: Path, text: str) -> None:
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(text, encoding="utf-8")
-        tmp.replace(path)
 
 
 __all__ = ["ReportNotFoundError", "ReportWriter"]

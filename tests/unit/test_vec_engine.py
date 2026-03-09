@@ -160,6 +160,7 @@ class TestVecBacktestConfig:
         c = VecBacktestConfig(dataset_id="myds")
         assert c.initial_cash == Decimal("10000")
         assert c.fee_bps == _ZERO
+        assert c.resolution_fee_bps == _ZERO
         assert c.position_sizing == "equal_weight"
         assert c.max_positions == 50
 
@@ -268,6 +269,22 @@ class TestFeeApplication:
             _default_config(fee_bps=Decimal("0"), initial_cash=Decimal("1000"))
         ).run(_BuyAllStrategy(), _MockDataset(_make_trades_table(rows)))
         assert result.final_portfolio.cash < no_fee_result.final_portfolio.cash
+
+    def test_resolution_fee_reduces_cash_after_settlement(self) -> None:
+        rows = [(_T0, "a", 0.5), (_T1, "a", 0.6)]
+        result = VecBacktestEngine(
+            _default_config(
+                initial_cash=Decimal("1000"),
+                resolution_fee_bps=Decimal("100"),
+            )
+        ).run(
+            _AlwaysLongStrategy(),
+            _MockDataset(_make_trades_table(rows)),
+            resolution_prices={"a": (Decimal("1"), _T1)},
+        )
+
+        assert result.final_portfolio.cash.quantize(Decimal("0.01")) == Decimal("1490.00")
+        assert result.closed_positions[0].fees_paid == Decimal("10.000000")
 
 
 # ---------------------------------------------------------------------------

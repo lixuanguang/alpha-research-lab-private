@@ -79,6 +79,10 @@ def test_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.schema_version == report.schema_version
     assert loaded.financial.sharpe_ratio == report.financial.sharpe_ratio
     assert loaded.pm_specific.brier_score == report.pm_specific.brier_score
+    assert (
+        loaded.model_dump(mode="json")["equity_curve"]
+        == report.model_dump(mode="json")["equity_curve"]
+    )
 
 
 def test_write_does_not_create_metrics_json(tmp_path: Path) -> None:

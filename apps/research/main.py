@@ -17,6 +17,7 @@ import apps.research.commands.build_features as build_features_cmd
 import apps.research.commands.catalog as catalog_cmd
 import apps.research.commands.common as cmd_common
 import apps.research.commands.evaluate as evaluate_cmd
+import apps.research.commands.listing as listing_cmd
 import apps.research.commands.optimize as optimize_cmd
 import apps.research.commands.promote as promote_cmd
 import apps.research.commands.report as report_cmd
@@ -81,6 +82,9 @@ main.add_command(backtest_cmd.backtest_command)
 main.add_command(evaluate_cmd.evaluate_command)
 main.add_command(report_cmd.report_command)
 main.add_command(optimize_cmd.optimize_command)
+main.add_command(listing_cmd.list_datasets_command)
+main.add_command(listing_cmd.list_features_command)
+main.add_command(listing_cmd.list_backtests_command)
 # LA-018: governance & promotion
 main.add_command(session_cmd.session_group)
 main.add_command(catalog_cmd.catalog_group)

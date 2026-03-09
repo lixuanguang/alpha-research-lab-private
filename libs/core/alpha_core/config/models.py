@@ -76,6 +76,10 @@ class Settings(BaseModel):
     storage: StorageConfig
     log_level: LogLevel = "INFO"
     feature_flags: dict[str, bool] = Field(default_factory=dict)
+    research: ResearchConfig = Field(
+        default_factory=lambda: ResearchConfig(),
+        description="Research-plane defaults layered on top of the shared settings model.",
+    )
     profile: profiles_mod.ProfileName | None = Field(
         default=None,
         description=(
@@ -108,7 +112,12 @@ class ResearchConfig(BaseModel):
         ge=Decimal("0"),
         description="Default fixed slippage in basis points.",
     )
-    default_engine: Literal["event", "vec"] = Field(
+    default_resolution_fee_bps: Decimal = Field(
+        default=Decimal("0"),
+        ge=Decimal("0"),
+        description="Default prediction-market settlement fee in basis points.",
+    )
+    default_engine: Literal["event", "vectorized"] = Field(
         default="event",
         description="Backtest engine used when --engine is not specified.",
     )
@@ -121,3 +130,6 @@ class ResearchConfig(BaseModel):
         default="backtests",
         description="Sub-path under the storage root where backtest artifacts live.",
     )
+
+
+Settings.model_rebuild()

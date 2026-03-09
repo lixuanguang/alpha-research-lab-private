@@ -11,7 +11,7 @@ from apps.research.backtester.engine import EventBacktestConfig, EventBacktestEn
 from apps.research.backtester.result import BacktestResult, make_backtest_id
 from apps.research.backtester.strategy import Strategy, StrategyState
 
-from alpha_core.execution.models import BacktestOrderIntent
+from alpha_core.execution.models import BacktestOrderIntent, FeeSchedule
 from alpha_core.portfolio.models import Side
 
 # ---------------------------------------------------------------------------
@@ -228,6 +228,21 @@ class TestResolution:
 
         assert [fill.timestamp for fill in result.trades] == [_T0]
         assert result.final_portfolio.positions == {}
+
+    def test_resolution_fee_reduces_settlement_cash(self) -> None:
+        table = _make_trades_table([(_T0, "a", 0.3), (_T1, "a", 0.3)])
+        config = _default_config(
+            initial_cash=Decimal("1000"),
+            fee_schedule=FeeSchedule(resolution_fee_bps=Decimal("100")),
+        )
+        result = EventBacktestEngine(config).run(
+            _BuyOnceStrategy(),
+            _MockDataset(table),
+            resolution_prices={"a": (Decimal("1"), _T1)},
+        )
+
+        assert result.final_portfolio.cash.quantize(Decimal("0.01")) == Decimal("1003.45")
+        assert result.closed_positions[0].fees_paid == Decimal("0.050000")
 
 
 class TestFills:

@@ -161,6 +161,10 @@ def test_write_load_round_trip_with_canonical_report_only(tmp_path: Path) -> Non
     assert loaded.financial.sharpe_ratio == pytest.approx(report.financial.sharpe_ratio, abs=1e-9)
     assert loaded.financial.win_rate == pytest.approx(report.financial.win_rate, abs=1e-9)
     assert loaded.pm_specific.brier_score == pytest.approx(report.pm_specific.brier_score, abs=1e-9)
+    assert (
+        loaded.model_dump(mode="json")["equity_curve"]
+        == report.model_dump(mode="json")["equity_curve"]
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -74,6 +74,11 @@ class ExecutionTemplate(BaseModel):
         ge=0,
         description="Estimated slippage in basis points.",
     )
+    resolution_fee_bps: float = Field(
+        default=0.0,
+        ge=0,
+        description="Prediction-market settlement fee in basis points.",
+    )
     fill_model: str = Field(
         default="immediate",
         description="Fill model identifier (e.g. 'immediate', 'vwap_approx').",

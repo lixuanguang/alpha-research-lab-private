@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,45 @@ def test_load_default_repo_config_validates() -> None:
     assert settings.project_name == "alpha-research-lab"
     assert settings.storage.base_path.name == "data"
     assert any(venue.name == "polymarket" for venue in settings.venues)
+
+
+def test_load_settings_populates_research_defaults(temp_config_tree: Path) -> None:
+    settings = config_loader.load_settings(config_dir=temp_config_tree)
+
+    assert settings.research.default_initial_cash == Decimal("10000")
+    assert settings.research.default_fee_bps == Decimal("0")
+    assert settings.research.default_resolution_fee_bps == Decimal("0")
+    assert settings.research.default_engine == "event"
+
+
+def test_research_section_merges_from_yaml(temp_config_tree: Path) -> None:
+    (temp_config_tree / "default.yaml").write_text(
+        "\n".join(
+            [
+                "project_name: alpha-research-lab",
+                "log_level: INFO",
+                "storage:",
+                "  base_path: data",
+                "research:",
+                "  default_initial_cash: 25000",
+                "  default_fee_bps: 4",
+                "  default_resolution_fee_bps: 9",
+                "  default_engine: vectorized",
+                "venues:",
+                "  - name: polymarket",
+                "    exchange_class: Polymarket",
+                "    rate_limit_rpm: 60",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = config_loader.load_settings(config_dir=temp_config_tree)
+
+    assert settings.research.default_initial_cash == Decimal("25000")
+    assert settings.research.default_fee_bps == Decimal("4")
+    assert settings.research.default_resolution_fee_bps == Decimal("9")
+    assert settings.research.default_engine == "vectorized"
 
 
 def test_environment_overlay_merges_correctly(temp_config_tree: Path) -> None:

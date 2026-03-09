@@ -74,6 +74,7 @@ def test_evaluate_produces_all_required_fields() -> None:
     assert isinstance(report.pm_specific, PMMetrics)
     assert isinstance(report.equity_curve_summary, dict)
     assert isinstance(report.monthly_returns, list)
+    assert isinstance(report.equity_curve, list)
     assert isinstance(report.best_trades, list)
     assert isinstance(report.worst_trades, list)
 
@@ -190,3 +191,7 @@ def test_evaluation_report_json_round_trip() -> None:
     assert loaded.backtest_id == report.backtest_id
     assert loaded.financial.sharpe_ratio == report.financial.sharpe_ratio
     assert loaded.pm_specific.brier_score == report.pm_specific.brier_score
+    assert (
+        loaded.model_dump(mode="json")["equity_curve"]
+        == report.model_dump(mode="json")["equity_curve"]
+    )

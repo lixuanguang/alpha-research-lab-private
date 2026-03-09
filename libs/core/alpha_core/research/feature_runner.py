@@ -26,6 +26,7 @@ import alpha_core.features.base as feature_base
 import alpha_core.features.factor_pack as factor_pack_mod
 import alpha_core.features.pm_specific as pm_features_mod
 import alpha_core.instruments.master as master_mod
+import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.dataset_builder_io as dataset_builder_io
 import alpha_core.research.manifest as manifest_mod
@@ -301,14 +302,16 @@ class FeatureRunner:
         effective_payload: dict[str, Any],
         parent_run_id: str | None,
     ) -> None:
-        feature_manifest_path = self._store.prepare_path(
+        feature_manifest_path = artifact_paths.artifact_key_path(
+            self._storage_root,
             feature_manifest.run_id,
             "feature_manifest.json",
         )
         feature_manifest.artifacts["feature_manifest"] = str(feature_manifest_path)
-        feature_manifest_path.write_text(
-            feature_manifest.model_dump_json(indent=2),
-            encoding="utf-8",
+        self._store.put(
+            feature_manifest.run_id,
+            "feature_manifest.json",
+            feature_manifest.model_dump_json(indent=2).encode("utf-8"),
         )
         feature_manifest.artifacts["feature_set_version"] = config.feature_set_version
         feature_manifest.artifacts["dataset_id"] = dataset_id

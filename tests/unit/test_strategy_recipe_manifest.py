@@ -61,6 +61,7 @@ class TestSubTemplatesSchema:
         et = ExecutionTemplate()
         assert et.fee_bps == pytest.approx(5.0)
         assert et.slippage_bps == pytest.approx(2.0)
+        assert et.resolution_fee_bps == pytest.approx(0.0)
         assert et.fill_model == "immediate"
 
     def test_risk_custom_values(self) -> None:
@@ -231,12 +232,17 @@ class TestStrategyRecipeIO:
     def test_json_round_trip_preserves_execution_template(self, tmp_path: Path) -> None:
         recipe = _make_recipe(
             recipe_id="exec_rt",
-            exec_kwargs={"fee_bps": 8.0, "fill_model": "vwap_approx"},
+            exec_kwargs={
+                "fee_bps": 8.0,
+                "resolution_fee_bps": 3.0,
+                "fill_model": "vwap_approx",
+            },
         )
         dest = tmp_path / "exec_rt.json"
         save_strategy_recipe(recipe, dest)
         raw = json.loads(dest.read_text())
         assert raw["execution_template"]["fee_bps"] == pytest.approx(8.0)
+        assert raw["execution_template"]["resolution_fee_bps"] == pytest.approx(3.0)
         assert raw["execution_template"]["fill_model"] == "vwap_approx"
 
 

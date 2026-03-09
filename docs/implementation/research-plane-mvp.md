@@ -1514,7 +1514,7 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 | | Registry topological sort | < 10ms for 50 features |
 | | PM features handle missing data | No crashes, NaN propagation |
 | **Backtesting** | Event engine 10K events | < 5s |
-| | Vectorised engine 10K × 50 instruments | < 3s |
+| | Vectorised engine 10K rows × 50 instruments | < 3s |
 | | Parameter sweep 20 combos | < 60s |
 | **Execution simulation** | Fill price respects book | 100% — no fills at impossible prices |
 | | Resolution payoff | Exact 0/1 settlement |
@@ -1532,28 +1532,38 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 | | Exit behavior | Non-zero on validation/contract failure |
 | **Congruence** | Event vs vec engine | Within 1% on same data/strategy |
 
+Runtime budgets are encoded in `tests/integration/test_research_plane_perf.py`
+and run with `pytest tests/integration/test_research_plane_perf.py --run-perf`.
+
+Current validated repo status (2026-03-09):
+
+- `ruff check .` → 0 errors
+- `mypy libs/core apps tests --strict` → 0 errors
+- `pytest tests/ -q --cov=alpha_core --cov=apps` → 2162 passed, 10 skipped, 92.35% coverage (2172 collected)
+- `pytest tests/integration/test_research_plane_perf.py --run-perf -q` → 8 passed
+
 ### Acceptance Criteria (Definition of Done)
 
 The Research Plane MVP is **complete** when all of the following are true:
 
-- [x] `ruff check . && mypy libs/core apps/ --strict` — 0 errors
-- [ ] `pytest tests/ -v` — all tests green, ≥ 730 total, ≥ 85% coverage
-- [ ] Dataset builder produces gold datasets with zero look-ahead leakage
-- [ ] Universe manager respects market lifecycle at each point in time
-- [ ] Feature registry computes all primitives + 7 PM-specific features with dependency resolution
-- [ ] Event-driven backtester runs tick-by-tick with fill simulation, resolution handling, and portfolio tracking
-- [ ] Vectorised backtester runs cross-sectional with rebalance-frequency grid
-- [ ] Execution simulator handles market + limit orders, fees, slippage, PM resolution fees
-- [ ] Portfolio tracker maintains correct PnL (realised, unrealised, resolution) to 10 decimal places
-- [ ] Evaluation suite produces Sharpe, Brier, log-loss, calibration, and resolution decomposition
-- [ ] Report writer persists and round-trips all metrics and equity curve data
-- [ ] 3 example strategies exist and produce non-trivial results on sample data
-- [ ] CLI works: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize`, `list-*`
-- [ ] All research CLI commands support `--format json` and deterministic exit codes
-- [ ] Every stage emits a run manifest and artifact index under `data/runs/{run_id}/`
-- [ ] Artifact persistence is routed through a stable store abstraction (filesystem backend for MVP)
+- [x] `ruff check . && mypy libs/core apps tests --strict` — 0 errors
+- [x] `pytest tests/ -q --cov=alpha_core --cov=apps` — 2162 passed, 10 skipped, 92.35% coverage, 2172 collected
+- [x] Dataset builder produces gold datasets with zero look-ahead leakage
+- [x] Universe manager respects market lifecycle at each point in time
+- [x] Feature registry computes all primitives + 7 PM-specific features with dependency resolution
+- [x] Event-driven backtester runs tick-by-tick with fill simulation, resolution handling, and portfolio tracking
+- [x] Vectorised backtester runs cross-sectional with rebalance-frequency grid
+- [x] Execution simulator handles market + limit orders, fees, slippage, PM resolution fees
+- [x] Portfolio tracker maintains correct PnL (realised, unrealised, resolution) to 10 decimal places
+- [x] Evaluation suite produces Sharpe, Brier, log-loss, calibration, and resolution decomposition
+- [x] Report writer persists and round-trips all metrics and equity curve data
+- [x] 3 example strategies exist and produce non-trivial results on sample data
+- [x] CLI works: `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize`, `list-datasets`, `list-features`, `list-backtests`
+- [x] All research CLI commands support `--format json` and deterministic exit codes
+- [x] Every stage emits a run manifest and artifact index under `data/runs/{run_id}/`
+- [x] Artifact persistence is routed through a stable store abstraction (filesystem backend for MVP)
 - [x] All existing foundation + data plane tests still pass (0 regressions)
-- [ ] Config system extended for research settings (backward compatible)
+- [x] Config system extended for research settings (backward compatible)
 
 ---
 

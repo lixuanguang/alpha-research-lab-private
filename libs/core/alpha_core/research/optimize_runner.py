@@ -394,9 +394,17 @@ class OptimizeRunner:
         effective_payload: dict[str, Any],
         parent_run_id: str | None,
     ) -> None:
-        manifest_path = self._store.prepare_path(manifest.run_id, "optimize_manifest.json")
+        manifest_path = artifact_paths.artifact_key_path(
+            self._storage_root,
+            manifest.run_id,
+            "optimize_manifest.json",
+        )
         manifest.artifacts["optimize_manifest"] = str(manifest_path)
-        manifest_path.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+        self._store.put(
+            manifest.run_id,
+            "optimize_manifest.json",
+            manifest.model_dump_json(indent=2).encode("utf-8"),
+        )
         manifest_mod.persist_run_record(
             storage_root=self._storage_root,
             run_context=completed_context,
@@ -420,10 +428,12 @@ class OptimizeRunner:
         artifact_map: dict[str, str] = {}
 
         # Trial registry — JSONL
-        jsonl_path = self._store.prepare_path(optimize_run_id, "trial_registry.jsonl")
-        with jsonl_path.open("w", encoding="utf-8") as fh:
-            for record in records:
-                fh.write(record.model_dump_json() + "\n")
+        self._store.put(
+            optimize_run_id,
+            "trial_registry.jsonl",
+            "".join(record.model_dump_json() + "\n" for record in records).encode("utf-8"),
+        )
+        jsonl_path = self._store.path_for(optimize_run_id, "trial_registry.jsonl")
         artifact_map["trial_registry_jsonl"] = str(jsonl_path)
 
         # Trial registry — Parquet
@@ -432,22 +442,24 @@ class OptimizeRunner:
         artifact_map["trial_registry_parquet"] = str(parquet_path)
 
         # Leaderboard JSON
-        leaderboard_path = self._store.prepare_path(optimize_run_id, "leaderboard.json")
-        leaderboard_path.write_text(
+        self._store.put(
+            optimize_run_id,
+            "leaderboard.json",
             json.dumps(
                 [r.model_dump(mode="json") for r in leaderboard],
                 indent=2,
                 sort_keys=True,
                 default=str,
-            ),
-            encoding="utf-8",
+            ).encode("utf-8"),
         )
+        leaderboard_path = self._store.path_for(optimize_run_id, "leaderboard.json")
         artifact_map["leaderboard"] = str(leaderboard_path)
 
         # Best-run manifest reference
         if best_record is not None:
-            best_ref_path = self._store.prepare_path(optimize_run_id, "best_manifest.json")
-            best_ref_path.write_text(
+            self._store.put(
+                optimize_run_id,
+                "best_manifest.json",
                 json.dumps(
                     {
                         "best_backtest_run_id": best_record.backtest_run_id,
@@ -463,9 +475,9 @@ class OptimizeRunner:
                     },
                     indent=2,
                     sort_keys=True,
-                ),
-                encoding="utf-8",
+                ).encode("utf-8"),
             )
+            best_ref_path = self._store.path_for(optimize_run_id, "best_manifest.json")
             artifact_map["best_manifest"] = str(best_ref_path)
 
         return artifact_map

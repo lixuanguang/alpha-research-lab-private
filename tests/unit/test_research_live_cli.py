@@ -74,6 +74,9 @@ def test_research_cli_help_lists_stage_commands() -> None:
     assert "evaluate" in result.output
     assert "report" in result.output
     assert "optimize" in result.output
+    assert "list-datasets" in result.output
+    assert "list-features" in result.output
+    assert "list-backtests" in result.output
 
 
 def test_research_build_dataset_plan_only_emits_run_summary(tmp_path: Path) -> None:

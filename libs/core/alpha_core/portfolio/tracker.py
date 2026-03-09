@@ -117,6 +117,7 @@ class PortfolioTracker:
         instrument_id: str,
         resolved_price: Decimal,
         timestamp: datetime | None = None,
+        fee: Decimal = _ZERO,
     ) -> None:
         """Handle prediction-market resolution.
 
@@ -135,18 +136,21 @@ class PortfolioTracker:
             # Receive payoff.
             payoff = pos.size * resolved_price
             pnl = pos.size * (resolved_price - pos.entry_price)
-            self._cash += payoff
+            self._cash += payoff - fee
         else:  # SHORT
             # Pay out to counterparty.
             payoff = pos.size * resolved_price
             pnl = pos.size * (pos.entry_price - resolved_price)
-            self._cash -= payoff
+            self._cash -= payoff + fee
+
+        self._total_fees += fee
 
         settled = pos.model_copy(
             update={
                 "current_price": resolved_price,
                 "realised_pnl": pnl,
                 "unrealised_pnl": _ZERO,
+                "fees_paid": pos.fees_paid + fee,
                 "closed_at": resolved_at,
                 "last_updated": resolved_at,
                 "resolution_outcome": resolved_price,

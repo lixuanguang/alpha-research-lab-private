@@ -22,6 +22,7 @@ import alpha_core.config.paths as config_paths
 import alpha_core.execution.models as exec_models
 import alpha_core.features.factor_pack as factor_pack_mod
 import alpha_core.portfolio.models as portfolio_models
+import alpha_core.research.artifact_paths as artifact_paths
 import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.feature_runner as feature_runner_mod
 import alpha_core.research.manifest as manifest_mod
@@ -97,6 +98,7 @@ class BacktestConfig(BaseModel):
     strategy_recipe_version: str | None = Field(default=None)
     fee_bps: float = Field(default=0.0, ge=0.0)
     slippage_bps: float = Field(default=0.0, ge=0.0)
+    resolution_fee_bps: float = Field(default=0.0, ge=0.0)
     max_position_pct: float | None = Field(default=None, gt=0.0, le=1.0)
 
     @field_validator("dataset_id", "feature_set_version", "strategy_id")
@@ -152,6 +154,7 @@ class StrategySpec:
     target_weight: float
     fee_bps: float
     slippage_bps: float
+    resolution_fee_bps: float
     zscore_column: str
 
 
@@ -440,11 +443,18 @@ class BacktestRunner:
                 max_position_pct=config.max_position_pct,
                 fee_bps=config.fee_bps,
                 slippage_bps=config.slippage_bps,
+                resolution_fee_bps=config.resolution_fee_bps,
                 zscore_column=zscore_column,
             )
             return resolved_recipe, strategy_spec
 
-        strategy_params, fee_bps, slippage_bps, max_position_pct = _merge_recipe_defaults(
+        (
+            strategy_params,
+            fee_bps,
+            slippage_bps,
+            resolution_fee_bps,
+            max_position_pct,
+        ) = _merge_recipe_defaults(
             config=config,
             recipe=resolved_recipe,
         )
@@ -461,6 +471,7 @@ class BacktestRunner:
             max_position_pct=max_position_pct,
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
+            resolution_fee_bps=resolution_fee_bps,
             zscore_column=zscore_column,
         )
         return resolved_recipe, strategy_spec
@@ -480,7 +491,8 @@ class BacktestRunner:
                 feature_set=config.feature_set_version,
                 initial_cash=Decimal(str(config.starting_cash)),
                 fee_schedule=exec_models.FeeSchedule(
-                    taker_fee_bps=Decimal(str(strategy_spec.fee_bps))
+                    taker_fee_bps=Decimal(str(strategy_spec.fee_bps)),
+                    resolution_fee_bps=Decimal(str(strategy_spec.resolution_fee_bps)),
                 ),
                 slippage_model="fixed",
                 slippage_params={"bps": strategy_spec.slippage_bps},
@@ -494,6 +506,7 @@ class BacktestRunner:
             feature_set=config.feature_set_version,
             initial_cash=Decimal(str(config.starting_cash)),
             fee_bps=Decimal(str(strategy_spec.fee_bps)),
+            resolution_fee_bps=Decimal(str(strategy_spec.resolution_fee_bps)),
             rebalance_frequency=_infer_rebalance_frequency(market_table),
         )
         vec_engine = vec_engine_mod.VecBacktestEngine(vec_config)
@@ -583,9 +596,17 @@ class BacktestRunner:
         parent_run_id: str,
         backtest_manifest: BacktestManifest,
     ) -> None:
-        manifest_path = self._store.prepare_path(backtest_manifest.run_id, "backtest_manifest.json")
+        manifest_path = artifact_paths.artifact_key_path(
+            self._storage_root,
+            backtest_manifest.run_id,
+            "backtest_manifest.json",
+        )
         backtest_manifest.artifacts["backtest_manifest"] = str(manifest_path)
-        manifest_path.write_text(backtest_manifest.model_dump_json(indent=2), encoding="utf-8")
+        self._store.put(
+            backtest_manifest.run_id,
+            "backtest_manifest.json",
+            backtest_manifest.model_dump_json(indent=2).encode("utf-8"),
+        )
         manifest_mod.persist_run_record(
             storage_root=self._storage_root,
             run_context=run_context,
@@ -864,6 +885,7 @@ def _resolve_strategy_spec(
     max_position_pct: float | None = None,
     fee_bps: float,
     slippage_bps: float,
+    resolution_fee_bps: float,
     zscore_column: str,
 ) -> StrategySpec:
     normalized = strategy_id.strip().lower()
@@ -880,6 +902,7 @@ def _resolve_strategy_spec(
             target_weight=target_weight,
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
+            resolution_fee_bps=resolution_fee_bps,
             zscore_column=zscore_column,
         )
     if normalized.startswith("zscore"):
@@ -890,6 +913,7 @@ def _resolve_strategy_spec(
             target_weight=target_weight,
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
+            resolution_fee_bps=resolution_fee_bps,
             zscore_column=zscore_column,
         )
     raise BacktestRunError(
@@ -983,7 +1007,7 @@ def _merge_recipe_defaults(
     *,
     config: BacktestConfig,
     recipe: strategy_recipe_mod.StrategyRecipeManifest,
-) -> tuple[dict[str, float], float, float, float | None]:
+) -> tuple[dict[str, float], float, float, float, float | None]:
     provided_fields = config.model_fields_set
     strategy_params = normalize_recipe_strategy_params(recipe.strategy_params)
     strategy_params.update(config.strategy_params)
@@ -994,12 +1018,17 @@ def _merge_recipe_defaults(
         if "slippage_bps" in provided_fields
         else recipe.execution_template.slippage_bps
     )
+    resolution_fee_bps = (
+        config.resolution_fee_bps
+        if "resolution_fee_bps" in provided_fields
+        else recipe.execution_template.resolution_fee_bps
+    )
     max_position_pct = (
         config.max_position_pct
         if "max_position_pct" in provided_fields
         else recipe.risk_template.max_position_pct
     )
-    return strategy_params, fee_bps, slippage_bps, max_position_pct
+    return strategy_params, fee_bps, slippage_bps, resolution_fee_bps, max_position_pct
 
 
 def _validate_recipe_feature_contract(

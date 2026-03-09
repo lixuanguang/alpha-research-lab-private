@@ -98,6 +98,7 @@ def backtest_command(
     strategy_params: dict[str, float] = {}
     fee_bps = 0.0
     slippage_bps = 0.0
+    resolution_fee_bps = 0.0
     max_position_pct = None
     if strategy_recipe_id is not None:
         try:
@@ -113,6 +114,7 @@ def backtest_command(
         )
         fee_bps = resolved_recipe.execution_template.fee_bps
         slippage_bps = resolved_recipe.execution_template.slippage_bps
+        resolution_fee_bps = resolved_recipe.execution_template.resolution_fee_bps
         max_position_pct = resolved_recipe.risk_template.max_position_pct
 
     try:
@@ -129,6 +131,7 @@ def backtest_command(
             strategy_params=strategy_params,
             fee_bps=fee_bps,
             slippage_bps=slippage_bps,
+            resolution_fee_bps=resolution_fee_bps,
             max_position_pct=max_position_pct,
         )
     except ValidationError as exc:

@@ -178,6 +178,24 @@ class TestResolution:
         tracker.apply_resolution("unknown", Decimal("1"))
         assert tracker.state().cash == cash_before
 
+    def test_resolution_fee_reduces_cash_and_accumulates_fees(self) -> None:
+        tracker = PortfolioTracker(Decimal("1000"))
+        tracker.apply_fill(
+            _fill(
+                side=Side.LONG,
+                size=Decimal("10"),
+                fill_price=Decimal("0.3"),
+                fee=Decimal("0.2"),
+            )
+        )
+        tracker.apply_resolution("a", Decimal("1"), fee=Decimal("0.1"))
+
+        state = tracker.state()
+        assert state.cash == Decimal("1006.7")
+        assert state.total_fees == Decimal("0.3")
+        hist = tracker.position_history()
+        assert hist[0].fees_paid == Decimal("0.3")
+
 
 class TestMarkToMarket:
     def test_mtm_updates_unrealised_pnl(self) -> None:

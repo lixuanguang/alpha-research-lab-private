@@ -31,6 +31,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+import alpha_core.execution.fees as fees_mod
 import alpha_core.execution.models as exec_models
 import alpha_core.portfolio.models as portfolio_models
 import alpha_core.portfolio.tracker as tracker_mod
@@ -58,6 +59,7 @@ class VecBacktestConfig(BaseModel):
     feature_set: str | None = None
     initial_cash: Decimal = Field(default=Decimal("10000"), gt=_ZERO)
     fee_bps: Decimal = Field(default=_ZERO, ge=_ZERO)
+    resolution_fee_bps: Decimal = Field(default=_ZERO, ge=_ZERO)
     position_sizing: Literal["equal_weight", "kelly", "fixed_size"] = "equal_weight"
     rebalance_frequency: str = Field(default="1D", min_length=1)
     max_positions: int = Field(default=50, gt=0)
@@ -137,6 +139,9 @@ class VecBacktestEngine:
         tracker = tracker_mod.PortfolioTracker(self._config.initial_cash)
         all_fills: list[exec_models.SimulatedFill] = []
         resolved_set: set[str] = set()
+        resolution_fee_schedule = exec_models.FeeSchedule(
+            resolution_fee_bps=self._config.resolution_fee_bps
+        )
 
         # Get rebalance bar boundaries.
         rebalance_bars = self._get_rebalance_bars(df)
@@ -154,7 +159,17 @@ class VecBacktestEngine:
             if resolution_prices:
                 for res_instr, (res_price, res_at) in resolution_prices.items():
                     if res_instr not in resolved_set and bar_ts >= res_at:
-                        tracker.apply_resolution(res_instr, res_price, timestamp=res_at)
+                        resolution_fee = _resolution_fee_for_position(
+                            resolution_fee_schedule,
+                            tracker.state(timestamp=bar_ts).positions.get(res_instr),
+                            res_price,
+                        )
+                        tracker.apply_resolution(
+                            res_instr,
+                            res_price,
+                            timestamp=res_at,
+                            fee=resolution_fee,
+                        )
                         resolved_set.add(res_instr)
 
             # Build feature snapshot for this bar.
@@ -548,6 +563,16 @@ def _last_ts(df: pd.DataFrame) -> datetime:
     """Return the last execution timestamp in the DataFrame as UTC-aware datetime."""
     last = df[_sequence_column_from_df(df)].iloc[-1]
     return _to_utc_datetime(last)
+
+
+def _resolution_fee_for_position(
+    fee_schedule: exec_models.FeeSchedule,
+    position: portfolio_models.PositionState | None,
+    resolved_price: Decimal,
+) -> Decimal:
+    if position is None:
+        return _ZERO
+    return fees_mod.total_resolution_fee(fee_schedule, position.size, resolved_price)
 
 
 __all__ = ["VecBacktestConfig", "VecBacktestEngine"]

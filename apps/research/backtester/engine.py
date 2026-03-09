@@ -28,6 +28,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+import alpha_core.execution.fees as fees_mod
 import alpha_core.execution.models as exec_models
 import alpha_core.execution.simulator as sim_mod
 import alpha_core.execution.slippage as slippage_mod
@@ -149,8 +150,18 @@ class EventBacktestEngine:
             if resolution_prices:
                 for res_instr, (res_price, res_at) in resolution_prices.items():
                     if res_instr not in resolved_set and ts >= res_at:
+                        resolution_fee = _resolution_fee_for_position(
+                            self._config.fee_schedule,
+                            tracker.state(timestamp=ts).positions.get(res_instr),
+                            res_price,
+                        )
                         strategy.on_resolution(res_instr, res_price)
-                        tracker.apply_resolution(res_instr, res_price, timestamp=res_at)
+                        tracker.apply_resolution(
+                            res_instr,
+                            res_price,
+                            timestamp=res_at,
+                            fee=resolution_fee,
+                        )
                         resolved_set.add(res_instr)
 
             # --- Update feature state ---
@@ -361,6 +372,16 @@ def _to_datetime(value: Any) -> datetime:
         return value
     # Fallback: treat as epoch microseconds.
     return datetime.fromtimestamp(float(value) / 1e6, tz=UTC)
+
+
+def _resolution_fee_for_position(
+    fee_schedule: exec_models.FeeSchedule,
+    position: portfolio_models.PositionState | None,
+    resolved_price: Decimal,
+) -> Decimal:
+    if position is None:
+        return _ZERO
+    return fees_mod.total_resolution_fee(fee_schedule, position.size, resolved_price)
 
 
 __all__ = ["EventBacktestConfig", "EventBacktestEngine"]
