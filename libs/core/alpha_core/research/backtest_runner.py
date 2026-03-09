@@ -660,8 +660,7 @@ def _build_lagged_feature_table(features_df: pd.DataFrame) -> pa.Table:
     lagged = lagged.dropna(subset=["_sequence_ts"]).sort_values(sort_columns, kind="stable")
     unique_times = pd.Index(lagged["_sequence_ts"].drop_duplicates().sort_values())
     next_global_time = {
-        unique_times[index]: unique_times[index + 1]
-        for index in range(len(unique_times) - 1)
+        unique_times[index]: unique_times[index + 1] for index in range(len(unique_times) - 1)
     }
     lagged["ts_available"] = lagged["_sequence_ts"].map(next_global_time)
     lagged = lagged.dropna(subset=["ts_available"]).drop(columns=["_sequence_ts"])

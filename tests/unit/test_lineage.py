@@ -468,14 +468,20 @@ def test_get_latest_cursor_returns_highest_watermark_run(tmp_path: Path) -> None
 
     r1 = store.start_run("kalshi", "polling", options=lineage.StartRunOptions(run_id="r1"))
     store.complete_run(
-        r1.run_id, counts={}, cursor_type="ts_event",
-        cursor_watermark_utc=earlier, resume_safe=True,
+        r1.run_id,
+        counts={},
+        cursor_type="ts_event",
+        cursor_watermark_utc=earlier,
+        resume_safe=True,
     )
 
     r2 = store.start_run("kalshi", "polling", options=lineage.StartRunOptions(run_id="r2"))
     store.complete_run(
-        r2.run_id, counts={}, cursor_type="ts_event",
-        cursor_watermark_utc=later, resume_safe=True,
+        r2.run_id,
+        counts={},
+        cursor_type="ts_event",
+        cursor_watermark_utc=later,
+        resume_safe=True,
     )
 
     result = store.get_latest_cursor("kalshi")
@@ -491,14 +497,24 @@ def test_get_latest_cursor_filters_by_event_type(tmp_path: Path) -> None:
     trades_run = store.start_run(
         "kalshi", "polling", options=lineage.StartRunOptions(run_id="t1", event_types=["trades"])
     )
-    store.complete_run(trades_run.run_id, counts={}, cursor_type="ts_event",
-                       cursor_watermark_utc=_watermark(2026, 3, 2), resume_safe=True)
+    store.complete_run(
+        trades_run.run_id,
+        counts={},
+        cursor_type="ts_event",
+        cursor_watermark_utc=_watermark(2026, 3, 2),
+        resume_safe=True,
+    )
 
     ohlcv_run = store.start_run(
         "kalshi", "polling", options=lineage.StartRunOptions(run_id="o1", event_types=["ohlcv"])
     )
-    store.complete_run(ohlcv_run.run_id, counts={}, cursor_type="ts_event",
-                       cursor_watermark_utc=_watermark(2026, 3, 5), resume_safe=True)
+    store.complete_run(
+        ohlcv_run.run_id,
+        counts={},
+        cursor_type="ts_event",
+        cursor_watermark_utc=_watermark(2026, 3, 5),
+        resume_safe=True,
+    )
 
     # Asking for "trades" must only return the trades run, not the later ohlcv run.
     result = store.get_latest_cursor("kalshi", "trades")
@@ -518,9 +534,7 @@ def test_get_latest_cursor_excludes_runs_without_watermark(tmp_path: Path) -> No
     no_cursor = store.start_run("kalshi", "polling", options=lineage.StartRunOptions(run_id="nc"))
     store.complete_run(no_cursor.run_id, counts={"trades": 10})
 
-    with_cursor = store.start_run(
-        "kalshi", "polling", options=lineage.StartRunOptions(run_id="wc")
-    )
+    with_cursor = store.start_run("kalshi", "polling", options=lineage.StartRunOptions(run_id="wc"))
     store.complete_run(
         with_cursor.run_id,
         counts={"trades": 20},
@@ -539,8 +553,13 @@ def test_get_latest_cursor_is_venue_scoped(tmp_path: Path) -> None:
     store = lineage.LineageStore(tmp_path)
 
     pm = store.start_run("polymarket", "polling", options=lineage.StartRunOptions(run_id="pm"))
-    store.complete_run(pm.run_id, counts={}, cursor_type="ts_event",
-                       cursor_watermark_utc=_watermark(2026, 3, 10), resume_safe=True)
+    store.complete_run(
+        pm.run_id,
+        counts={},
+        cursor_type="ts_event",
+        cursor_watermark_utc=_watermark(2026, 3, 10),
+        resume_safe=True,
+    )
 
     assert store.get_latest_cursor("kalshi") is None
     result = store.get_latest_cursor("polymarket")
@@ -551,6 +570,7 @@ def test_get_latest_cursor_is_venue_scoped(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
 
 def _watermark(year: int, month: int, day: int) -> datetime:
     return datetime(year, month, day, tzinfo=UTC)

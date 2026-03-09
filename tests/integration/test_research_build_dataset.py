@@ -82,9 +82,7 @@ def _make_trade(
         "schema_version": 1,
         "price": Decimal("0.50") + Decimal(trade_index) / Decimal("100"),
         "size": Decimal("10"),
-        "side": event_models.TradeSide.BUY
-        if trade_index % 2 == 0
-        else event_models.TradeSide.SELL,
+        "side": event_models.TradeSide.BUY if trade_index % 2 == 0 else event_models.TradeSide.SELL,
         "trade_id": f"trade-{trade_index}",
     }
     payload["event_id"] = ids_utils.generate_event_id(payload)
@@ -447,7 +445,7 @@ def test_execute_manifest_counts_match_silver(
                 str(storage_root),
                 "--execute",
             ],
-    )
+        )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     trades_count = data["extra"]["row_counts"].get("trades", 0)

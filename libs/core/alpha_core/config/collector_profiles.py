@@ -195,7 +195,7 @@ BUILTIN_COLLECTOR_PROFILES: dict[CollectorProfileName, CollectorProfile] = {
         health_gate_strict=True,
         restart_policy="conservative",
         max_reconnect_attempts=None,  # unlimited — never give up in production
-        heartbeat_timeout=60.0,       # tighter window for earlier stale detection
+        heartbeat_timeout=60.0,  # tighter window for earlier stale detection
         reconnect_backoff_base=1.0,
         reconnect_backoff_max=60.0,
     ),
@@ -225,9 +225,7 @@ def get_collector_profile(name: CollectorProfileName | str) -> CollectorProfile:
         key = CollectorProfileName(name)
     except ValueError:
         valid = ", ".join(p.value for p in CollectorProfileName)
-        raise ValueError(
-            f"Unknown collector profile {name!r}. Valid profiles: {valid}"
-        ) from None
+        raise ValueError(f"Unknown collector profile {name!r}. Valid profiles: {valid}") from None
     return BUILTIN_COLLECTOR_PROFILES[key]
 
 
