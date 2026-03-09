@@ -47,7 +47,7 @@ Deliver the **repo scaffold, canonical data model, instrument master, configurat
 - Completed steps: **F1, F2, F3, F4, F5, F6**
 - Integrated baseline work: **microstructure, contract, and operability items folded into section 5**
 - Remaining foundation steps: **None**
-- Current quality gate snapshot: `ruff check .` and `mypy libs/core apps tests --strict` passing locally; `pytest tests/ -q` is green (`2083 passed, 10 skipped`)
+- Current quality gate snapshot: `ruff check .` and `mypy libs/core apps tests --strict` passing locally; `pytest tests/ -q` is green (`2151 passed, 10 skipped`)
 - Foundation artifact lock added: `data/schemas/canonical_event_v1.json` and `tests/unit/test_foundation_requirements.py`
 - Security hardening update: GitHub Actions workflow pins `actions/checkout`, `actions/setup-python`, and `actions/cache` to immutable commit SHAs
 - Post-foundation maintenance note: config loading internals are now split across `alpha_core.config._merge` and `alpha_core.config._overrides`, with `alpha_core.config.loader` kept as the public orchestration entrypoint

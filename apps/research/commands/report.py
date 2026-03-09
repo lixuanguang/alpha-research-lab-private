@@ -18,6 +18,7 @@ from typing import Any
 import click
 
 import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.evaluate_runner as evaluate_runner_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
@@ -101,19 +102,20 @@ def report_command(
         session_id=cmd_common.get_session_id(ctx),
     )
 
-    report_suffix = "json" if report_format == "json" else "md"
+    report_key = "rendered_report.json" if report_format == "json" else "report.md"
     report_path = artifact_paths.artifact_key_path(
         resolved_root,
         run_context.run_id,
-        f"report.{report_suffix}",
+        report_key,
     )
-    report_path.parent.mkdir(parents=True, exist_ok=True)
     report_text = (
         json.dumps(report_payload, indent=2, sort_keys=True)
         if report_format == "json"
         else _render_markdown(report_payload)
     )
-    report_path.write_text(report_text, encoding="utf-8")
+    store = artifact_store_mod.FilesystemArtifactStore(resolved_root)
+    store.put(run_context.run_id, report_key, report_text.encode("utf-8"))
+    report_path = store.path_for(run_context.run_id, report_key)
 
     completed_context = run_context_mod.close_run_context(run_context)
     artifact_map: dict[str, str] = {
@@ -129,29 +131,18 @@ def report_command(
         parent_run_id=evaluation_run_id,
     )
 
-    if fmt == "json":
-        click.echo(
-            json.dumps(
-                {
-                    "run_type": "report",
-                    "status": "materialized",
-                    "run_id": run_context.run_id,
-                    "evaluation_run_id": report_payload["evaluation_run_id"],
-                    "report_format": report_payload["report_format"],
-                    "report_path": str(report_path),
-                    "summary": report_payload.get("summary", {}),
-                },
-                indent=2,
-            )
-        )
-        return
-    click.echo(
-        f"run_type=report  status=materialized  run_id={run_context.run_id}  "
-        f"format={report_payload['report_format']}"
+    cmd_common.emit_materialized_summary(
+        storage_root=resolved_root,
+        run_id=run_context.run_id,
+        extra={
+            "evaluation_run_id": report_payload["evaluation_run_id"],
+            "metrics_profile": report_payload["metrics_profile"],
+            "report_format": report_payload["report_format"],
+            "report_path": str(report_path),
+            "summary": report_payload.get("summary", {}),
+        },
+        fmt=fmt,
     )
-    click.echo(f"report={report_path}")
-    for key, value in report_payload.get("summary", {}).items():
-        click.echo(f"  {key}={value}")
 
 
 # ---------------------------------------------------------------------------

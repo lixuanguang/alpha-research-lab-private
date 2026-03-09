@@ -244,7 +244,7 @@ The table below maps each research notebook section to the canonical CLI command
 | Feature engineering (rolling zscore, mean, std, volume) | `build-features` | `--dataset-id`, `--feature-set-version`, `--lookback-bars`, `--parent-run-id` | `features.parquet`, `feature_manifest.json` under `runs/{run_id}/` |
 | Event-driven backtest / strategy simulation | `backtest` | `--dataset-id`, `--strategy-id`, `--parent-run-id`, `--engine`, `--starting-cash` | `trades.parquet`, `equity.parquet`, `backtest_manifest.json` under `runs/{run_id}/` |
 | Scorecard, Sharpe, drawdown, win-rate metrics | `evaluate` | `--backtest-run-id`, `--metrics-profile` (`pm_core` \| `minimal` \| `microstructure`) | `metrics.json`, `metrics.parquet` under `runs/{run_id}/` |
-| Summary report / export block | `report` | `--evaluation-run-id`, `--report-format` (`json` \| `markdown`) | `report.json` or `report.md` under `runs/{run_id}/` |
+| Summary report / export block | `report` | `--evaluation-run-id`, `--report-format` (`json` \| `markdown`) | `rendered_report.json` or `report.md` under `runs/{run_id}/` |
 | Parameter sweep / grid search | `optimize` *(planned LA-010)* | `--dataset-id`, `--feature-set`, `--strategy-id` | trial registry, leaderboard parquet |
 
 ### 8.2 Full Pipeline Example

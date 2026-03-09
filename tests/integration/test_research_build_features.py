@@ -430,11 +430,14 @@ def test_execute_json_output_schema(storage_root_with_dataset: Path) -> None:
     data = json.loads(result.output)
     assert data["run_type"] == "feature_build"
     assert data["status"] == "materialized"
-    assert data["dataset_id"] == _DATASET_ID
-    assert data["feature_set_version"] == "v1"
-    assert isinstance(data["row_count"], int)
-    assert isinstance(data["feature_count"], int)
-    assert isinstance(data["feature_names"], list)
+    assert "summary_version" in data
+    assert "artifact_keys" in data
+    extra = data["extra"]
+    assert extra["dataset_id"] == _DATASET_ID
+    assert extra["feature_set_version"] == "v1"
+    assert isinstance(extra["row_count"], int)
+    assert isinstance(extra["feature_count"], int)
+    assert isinstance(extra["feature_names"], list)
 
 
 def test_run_manifest_links_feature_artifacts(storage_root_with_dataset: Path) -> None:
@@ -560,7 +563,7 @@ def test_execute_empty_dataset_manifest_row_count_is_zero(
     )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
-    assert data["row_count"] == 0
+    assert data["extra"]["row_count"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -630,7 +633,7 @@ def test_execute_resolves_dataset_by_name(storage_root_with_named_dataset: Path)
     )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
-    assert data["dataset_id"] == _DATASET_ID
+    assert data["extra"]["dataset_id"] == _DATASET_ID
 
 
 def test_invalid_lookback_bars_exits_nonzero() -> None:

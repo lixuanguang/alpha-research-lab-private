@@ -13,6 +13,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -597,6 +598,33 @@ class TestLiveCliSurface:
         )
         manifest_path = Path(manifest_line.split("=", maxsplit=1)[1].strip())
         assert manifest_path.exists()
+
+    def test_run_execute_persists_strategy_id_in_run_record(self, tmp_path: Path) -> None:
+        runner = click.testing.CliRunner()
+        result = runner.invoke(
+            live_main.main,
+            [
+                "run",
+                "--instrument",
+                _INSTRUMENT_A,
+                "--strategy-id",
+                "zscore_v1",
+                "--storage-root",
+                str(tmp_path),
+                "--execute",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        manifest_line = next(
+            line for line in result.output.splitlines() if line.startswith("manifest=")
+        )
+        manifest_path = Path(manifest_line.split("=", maxsplit=1)[1].strip())
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert manifest_payload["artifacts"]["strategy_id"] == "zscore_v1"
+
+        config_path = manifest_path.parent / "config.json"
+        config_payload = json.loads(config_path.read_text(encoding="utf-8"))
+        assert config_payload["strategy_id"] == "zscore_v1"
 
     def test_run_with_zero_cycles_exits_nonzero(self, tmp_path: Path) -> None:
         runner = click.testing.CliRunner()

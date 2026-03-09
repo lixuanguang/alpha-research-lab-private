@@ -100,21 +100,37 @@ class TestMarketOrderFills:
 
 
 class TestLimitOrderFills:
-    def test_limit_order_fills_at_limit_price(self) -> None:
-        """LIMIT orders use limit_price as the reference; always fills."""
+    def test_long_limit_order_does_not_fill_above_limit(self) -> None:
         sim = ExecutionSimulator(slippage_model=FixedSlippage(bps=_ZERO))
         order = _limit_order(limit_price=Decimal("0.5"))
         fill = sim.simulate_fill(order, last_trade_price=Decimal("0.7"), timestamp=_T0)
-        assert fill is not None
-        assert fill.fill_price == Decimal("0.500000")
+        assert fill is None
 
-    def test_limit_order_with_slippage(self) -> None:
+    def test_short_limit_order_does_not_fill_below_limit(self) -> None:
+        sim = ExecutionSimulator(slippage_model=FixedSlippage(bps=_ZERO))
+        order = _limit_order(side=Side.SHORT, limit_price=Decimal("0.5"))
+        fill = sim.simulate_fill(order, last_trade_price=Decimal("0.4"), timestamp=_T0)
+        assert fill is None
+
+    def test_marketable_limit_order_fills_at_observed_price(self) -> None:
+        sim = ExecutionSimulator(slippage_model=FixedSlippage(bps=_ZERO))
+        order = _limit_order(side=Side.LONG, limit_price=Decimal("0.5"))
+        fill = sim.simulate_fill(order, last_trade_price=Decimal("0.4"), timestamp=_T0)
+        assert fill is not None
+        assert fill.fill_price == Decimal("0.400000")
+
+    def test_limit_order_slippage_is_clamped_to_limit(self) -> None:
         sim = ExecutionSimulator(slippage_model=FixedSlippage(bps=Decimal("10")))
         order = _limit_order(side=Side.LONG, limit_price=Decimal("0.5"))
         fill = sim.simulate_fill(order, last_trade_price=Decimal("0.5"), timestamp=_T0)
         assert fill is not None
-        # ref = limit_price = 0.5; slip = 0.0005; fill = 0.5005
-        assert fill.fill_price == Decimal("0.500500")
+        assert fill.fill_price == Decimal("0.500000")
+
+    def test_limit_order_without_market_reference_does_not_fill(self) -> None:
+        sim = ExecutionSimulator(slippage_model=FixedSlippage(bps=_ZERO))
+        order = _limit_order(side=Side.LONG, limit_price=Decimal("0.5"))
+        fill = sim.simulate_fill(order, last_trade_price=None, timestamp=_T0)
+        assert fill is None
 
 
 class TestFeeApplication:

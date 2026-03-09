@@ -7,7 +7,6 @@ Use ``main.add_command(optimize_command)`` in ``apps/research/main.py``.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import click
@@ -240,39 +239,24 @@ def optimize_command(
     except optimize_runner_mod.OptimizeRunError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if fmt == "json":
-        click.echo(
-            json.dumps(
-                {
-                    "run_type": "optimize",
-                    "status": "materialized",
-                    "run_id": manifest.run_id,
-                    "dataset_id": manifest.dataset_id,
-                    "feature_set_version": manifest.feature_set_version,
-                    "strategy_id": manifest.strategy_id,
-                    "search_mode": manifest.search_mode,
-                    "objective": manifest.objective,
-                    "total_trials": manifest.total_trials,
-                    "feasible_trials": manifest.feasible_trials,
-                    "best_backtest_run_id": manifest.best_backtest_run_id,
-                    "best_objective_value": manifest.best_objective_value,
-                    "built_at": manifest.built_at.isoformat(),
-                },
-                indent=2,
-            )
-        )
-        return
-
-    click.echo(f"run_type=optimize  status=materialized  run_id={manifest.run_id}")
-    click.echo(
-        f"trials={manifest.total_trials}  feasible={manifest.feasible_trials}  "
-        f"objective={manifest.objective}"
+    cmd_common.emit_materialized_summary(
+        storage_root=resolved_root,
+        run_id=manifest.run_id,
+        extra={
+            "dataset_id": manifest.dataset_id,
+            "feature_set_version": manifest.feature_set_version,
+            "strategy_id": manifest.strategy_id,
+            "search_mode": manifest.search_mode,
+            "objective": manifest.objective,
+            "objective_minimize": manifest.objective_minimize,
+            "total_trials": manifest.total_trials,
+            "feasible_trials": manifest.feasible_trials,
+            "best_backtest_run_id": manifest.best_backtest_run_id,
+            "best_objective_value": manifest.best_objective_value,
+            "built_at": manifest.built_at.isoformat(),
+        },
+        fmt=fmt,
     )
-    if manifest.best_objective_value is not None:
-        click.echo(
-            f"best_value={manifest.best_objective_value:.4f}  "
-            f"best_run={manifest.best_backtest_run_id}"
-        )
 
 
 __all__ = ["optimize_command"]

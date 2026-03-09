@@ -206,3 +206,79 @@ def test_build_delays_fill_until_strictly_later_timestamp(tmp_path: Path) -> Non
     ).to_pandas()
     assert not trades.empty
     assert trades.iloc[0]["ts_event"] > _BASE
+
+
+def test_build_event_engine_trades_multiple_instruments(tmp_path: Path) -> None:
+    _write_recipe_features(
+        tmp_path,
+        factor_pack_id="momentum",
+        frame=pd.DataFrame(
+            {
+                "instrument_id": ["p:m1:yes", "p:m2:yes", "p:m1:yes", "p:m2:yes"],
+                "ts_event": [
+                    _BASE,
+                    _BASE,
+                    _BASE + timedelta(hours=1),
+                    _BASE + timedelta(hours=1),
+                ],
+                "price": [0.50, 0.40, 0.51, 0.41],
+                "price_zscore_20": [2.0, -2.0, 2.0, -2.0],
+                "price_zscore_50": [2.0, -2.0, 2.0, -2.0],
+                "rolling_return_10": [0.01, 0.01, 0.01, 0.01],
+                "rolling_return_20": [0.02, 0.02, 0.02, 0.02],
+            }
+        ),
+    )
+
+    runner = backtest_runner_mod.BacktestRunner(tmp_path)
+    manifest = runner.build(
+        backtest_runner_mod.BacktestConfig(
+            dataset_id="ds_001",
+            feature_set_version="v1",
+            strategy_id="zscore_v1",
+            engine="event",
+        ),
+        parent_run_id=_FEATURE_RUN_ID,
+    )
+
+    trades = pq.read_table(
+        artifact_paths.artifact_key_path(tmp_path, manifest.run_id, "trades.parquet")
+    ).to_pandas()
+    assert set(trades["instrument_id"]) == {"p:m1:yes", "p:m2:yes"}
+
+
+def test_build_uses_next_global_timestamp_for_feature_availability(tmp_path: Path) -> None:
+    _write_recipe_features(
+        tmp_path,
+        factor_pack_id="momentum",
+        frame=pd.DataFrame(
+            {
+                "instrument_id": ["p:m1:yes", "p:m2:yes"],
+                "ts_event": [
+                    _BASE,
+                    _BASE + timedelta(hours=1),
+                ],
+                "price": [0.50, 0.60],
+                "price_zscore_20": [2.0, 0.0],
+                "price_zscore_50": [2.0, 0.0],
+                "rolling_return_10": [0.01, 0.01],
+                "rolling_return_20": [0.02, 0.02],
+            }
+        ),
+    )
+
+    runner = backtest_runner_mod.BacktestRunner(tmp_path)
+    manifest = runner.build(
+        backtest_runner_mod.BacktestConfig(
+            dataset_id="ds_001",
+            feature_set_version="v1",
+            strategy_id="zscore_v1",
+            engine="event",
+        ),
+        parent_run_id=_FEATURE_RUN_ID,
+    )
+
+    trades = pq.read_table(
+        artifact_paths.artifact_key_path(tmp_path, manifest.run_id, "trades.parquet")
+    ).to_pandas()
+    assert list(trades["instrument_id"]) == ["p:m1:yes"]

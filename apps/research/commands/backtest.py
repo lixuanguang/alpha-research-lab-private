@@ -7,7 +7,6 @@ Use ``main.add_command(backtest_command)`` in ``apps/research/main.py``.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import cast
 
@@ -158,35 +157,20 @@ def backtest_command(
     except backtest_runner_mod.BacktestRunError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if fmt == "json":
-        click.echo(
-            json.dumps(
-                {
-                    "run_type": "backtest",
-                    "status": "materialized",
-                    "run_id": manifest.run_id,
-                    "dataset_id": manifest.dataset_id,
-                    "feature_set_version": manifest.feature_set_version,
-                    "strategy_id": manifest.strategy_id,
-                    "engine": manifest.engine,
-                    "built_at": manifest.built_at.isoformat(),
-                    "trade_count": manifest.trade_count,
-                    "final_equity": manifest.final_equity,
-                    "total_return": manifest.total_return,
-                },
-                indent=2,
-            )
-        )
-        return
-    click.echo(
-        f"run_type=backtest  status=materialized  run_id={manifest.run_id}  "
-        f"strategy_id={manifest.strategy_id}"
-    )
-    click.echo(
-        f"trades={manifest.trade_count}  "
-        f"total_return={manifest.total_return:.4f}  "
-        f"final_equity={manifest.final_equity:.2f}  "
-        f"built_at={manifest.built_at.isoformat()}"
+    cmd_common.emit_materialized_summary(
+        storage_root=resolved_root,
+        run_id=manifest.run_id,
+        extra={
+            "dataset_id": manifest.dataset_id,
+            "feature_set_version": manifest.feature_set_version,
+            "strategy_id": manifest.strategy_id,
+            "engine": manifest.engine,
+            "built_at": manifest.built_at.isoformat(),
+            "trade_count": manifest.trade_count,
+            "final_equity": manifest.final_equity,
+            "total_return": manifest.total_return,
+        },
+        fmt=fmt,
     )
 
 

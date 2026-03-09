@@ -183,32 +183,41 @@ class _EventZScoreStrategy(strategy_mod.Strategy):
         if not state.features:
             return []
 
-        instrument_id, feature_row = next(iter(state.features.items()))
-        price = state.execution_prices.get(instrument_id, state.latest_prices.get(instrument_id))
-        if price is None or price <= _ZERO_D:
-            return []
+        orders: list[exec_models.BacktestOrderIntent] = []
+        for instrument_id in state.universe:
+            feature_row = state.features.get(instrument_id)
+            if feature_row is None:
+                continue
 
-        zscore = _coerce_float(feature_row.get(self._spec.zscore_column), default=0.0)
-        current_qty = _signed_position_size(state.portfolio.positions.get(instrument_id))
-        target_qty = _target_quantity(
-            equity=state.portfolio.equity,
-            price=price,
-            zscore=zscore,
-            spec=self._spec,
-        )
-        delta = target_qty - current_qty
-        if abs(delta) <= Decimal(str(_EPSILON)):
-            return []
-
-        side = portfolio_models.Side.LONG if delta > _ZERO_D else portfolio_models.Side.SHORT
-        return [
-            exec_models.BacktestOrderIntent(
-                instrument_id=instrument_id,
-                side=side,
-                size=abs(delta),
-                order_type="market",
+            price = state.execution_prices.get(
+                instrument_id,
+                state.latest_prices.get(instrument_id),
             )
-        ]
+            if price is None or price <= _ZERO_D:
+                continue
+
+            zscore = _coerce_float(feature_row.get(self._spec.zscore_column), default=0.0)
+            current_qty = _signed_position_size(state.portfolio.positions.get(instrument_id))
+            target_qty = _target_quantity(
+                equity=state.portfolio.equity,
+                price=price,
+                zscore=zscore,
+                spec=self._spec,
+            )
+            delta = target_qty - current_qty
+            if abs(delta) <= Decimal(str(_EPSILON)):
+                continue
+
+            side = portfolio_models.Side.LONG if delta > _ZERO_D else portfolio_models.Side.SHORT
+            orders.append(
+                exec_models.BacktestOrderIntent(
+                    instrument_id=instrument_id,
+                    side=side,
+                    size=abs(delta),
+                    order_type="market",
+                )
+            )
+        return orders
 
     def on_resolution(
         self,
@@ -649,7 +658,12 @@ def _build_lagged_feature_table(features_df: pd.DataFrame) -> pa.Table:
         lagged["ts_event"] = _normalize_timestamps(lagged["ts_event"])
         sort_columns.append("ts_event")
     lagged = lagged.dropna(subset=["_sequence_ts"]).sort_values(sort_columns, kind="stable")
-    lagged["ts_available"] = lagged.groupby("instrument_id", sort=False)["_sequence_ts"].shift(-1)
+    unique_times = pd.Index(lagged["_sequence_ts"].drop_duplicates().sort_values())
+    next_global_time = {
+        unique_times[index]: unique_times[index + 1]
+        for index in range(len(unique_times) - 1)
+    }
+    lagged["ts_available"] = lagged["_sequence_ts"].map(next_global_time)
     lagged = lagged.dropna(subset=["ts_available"]).drop(columns=["_sequence_ts"])
     return pa.Table.from_pandas(lagged.reset_index(drop=True), preserve_index=False)
 

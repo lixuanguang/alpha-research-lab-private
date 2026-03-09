@@ -8,7 +8,6 @@ to register this command under the ``research`` CLI group.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -464,37 +463,21 @@ def build_dataset_command(
     except builder_mod.DatasetBuildError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if fmt == "json":
-        click.echo(
-            json.dumps(
-                {
-                    "run_type": "dataset_build",
-                    "status": "materialized",
-                    "run_id": manifest.run_id,
-                    "dataset_id": manifest.dataset_id,
-                    "name": manifest.config.name,
-                    "built_at": manifest.built_at.isoformat(),
-                    "row_counts": manifest.row_counts,
-                    "instrument_count": manifest.instrument_count,
-                    "date_range": [
-                        manifest.date_range[0].isoformat(),
-                        manifest.date_range[1].isoformat(),
-                    ],
-                },
-                indent=2,
-            )
-        )
-        return
-    click.echo(
-        f"run_type=dataset_build  status=materialized  "
-        f"run_id={manifest.run_id}  "
-        f"dataset_id={manifest.dataset_id}  "
-        f"name={manifest.config.name}"
-    )
-    click.echo(
-        f"rows={manifest.row_counts}  "
-        f"instruments={manifest.instrument_count}  "
-        f"built_at={manifest.built_at.isoformat()}"
+    cmd_common.emit_materialized_summary(
+        storage_root=resolved_root,
+        run_id=manifest.run_id,
+        extra={
+            "dataset_id": manifest.dataset_id,
+            "name": manifest.config.name,
+            "built_at": manifest.built_at.isoformat(),
+            "row_counts": manifest.row_counts,
+            "instrument_count": manifest.instrument_count,
+            "date_range": [
+                manifest.date_range[0].isoformat(),
+                manifest.date_range[1].isoformat(),
+            ],
+        },
+        fmt=fmt,
     )
 
 

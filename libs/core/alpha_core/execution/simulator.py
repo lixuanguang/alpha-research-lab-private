@@ -277,7 +277,13 @@ class ExecutionSimulator:
             :class:`~alpha_core.execution.models.SimulatedFill` or ``None``.
         """
         ts = timestamp or datetime.now(tz=UTC)
-        ref_price = self._reference_price(order, last_trade_price)
+        ref_price = self._reference_price(
+            order,
+            book=book,
+            last_trade_price=last_trade_price,
+        )
+        if ref_price is None:
+            return None
 
         # For LIMIT orders, check if the price is reachable.
         if order.order_type == "limit" and order.limit_price is not None:
@@ -292,8 +298,12 @@ class ExecutionSimulator:
         # Apply slippage adversely.
         if order.side == portfolio_models.Side.LONG:
             fill_price = ref_price + slip
+            if order.order_type == "limit" and order.limit_price is not None:
+                fill_price = min(fill_price, order.limit_price)
         else:
             fill_price = ref_price - slip
+            if order.order_type == "limit" and order.limit_price is not None:
+                fill_price = max(fill_price, order.limit_price)
 
         # Clamp to probability space.
         fill_price = max(_ZERO, min(_ONE, fill_price)).quantize(_PRICE_PREC)
@@ -312,13 +322,42 @@ class ExecutionSimulator:
     @staticmethod
     def _reference_price(
         order: exec_models.BacktestOrderIntent,
+        *,
+        book: object | None,
         last_trade_price: Decimal | None,
-    ) -> Decimal:
-        if order.limit_price is not None:
-            return order.limit_price
+    ) -> Decimal | None:
         if last_trade_price is not None:
             return last_trade_price
+        book_price = _best_book_price(book, side=order.side)
+        if book_price is not None:
+            return book_price
+        if order.order_type == "limit":
+            return None
         return Decimal("0.5")
+
+
+def _best_book_price(
+    book: object | None,
+    *,
+    side: portfolio_models.Side,
+) -> Decimal | None:
+    if book is None:
+        return None
+
+    levels = getattr(book, "asks" if side == portfolio_models.Side.LONG else "bids", None) or []
+    if not levels:
+        return None
+
+    first_level = levels[0]
+    if isinstance(first_level, tuple):
+        if not first_level:
+            return None
+        price = first_level[0]
+    else:
+        price = getattr(first_level, "price", None)
+    if price is None:
+        return None
+    return Decimal(str(price))
 
 
 __all__ = [

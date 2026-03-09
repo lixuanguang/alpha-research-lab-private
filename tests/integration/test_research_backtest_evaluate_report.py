@@ -417,10 +417,13 @@ class TestBacktest:
         data = json.loads(result.output)
         assert data["run_type"] == "backtest"
         assert data["status"] == "materialized"
+        assert "summary_version" in data
+        assert "artifact_keys" in data
         assert "run_id" in data
-        assert "trade_count" in data
-        assert "final_equity" in data
-        assert "total_return" in data
+        extra = data["extra"]
+        assert "trade_count" in extra
+        assert "final_equity" in extra
+        assert "total_return" in extra
 
     def test_run_manifest_links_artifacts(self, storage_with_features: Path) -> None:
         bt_run_id = _run_backtest(storage_with_features)
@@ -472,7 +475,7 @@ class TestBacktest:
         )
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
-        assert data["engine"] == "vectorized"
+        assert data["extra"]["engine"] == "vectorized"
 
     def test_empty_features_exits_zero(self, storage_with_empty_features: Path) -> None:
         """Empty feature input must not crash — produces zero trades."""
@@ -496,7 +499,7 @@ class TestBacktest:
         )
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
-        assert data["trade_count"] == 0
+        assert data["extra"]["trade_count"] == 0
 
     def test_missing_parent_run_id_exits_nonzero(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -754,8 +757,9 @@ class TestEvaluate:
         data = json.loads(result.output)
         assert data["run_type"] == "evaluate"
         assert data["status"] == "materialized"
-        assert "metrics" in data
-        metrics = data["metrics"]
+        assert "summary_version" in data
+        assert "artifact_keys" in data
+        metrics = data["extra"]["metrics"]
         for key in ("total_return", "trade_count", "sharpe_ratio", "max_drawdown", "win_rate"):
             assert key in metrics, f"Expected metric '{key}' in pm_core output"
 
@@ -778,10 +782,10 @@ class TestEvaluate:
             ],
         )
         data = json.loads(result.output)
-        assert "total_return" in data["metrics"]
-        assert "trade_count" in data["metrics"]
+        assert "total_return" in data["extra"]["metrics"]
+        assert "trade_count" in data["extra"]["metrics"]
         # Minimal profile must NOT include sharpe_ratio.
-        assert "sharpe_ratio" not in data["metrics"]
+        assert "sharpe_ratio" not in data["extra"]["metrics"]
 
     def test_run_manifest_links_to_backtest(self, storage_with_features: Path) -> None:
         bt_run_id = _run_backtest(storage_with_features)
@@ -829,7 +833,7 @@ class TestEvaluate:
         )
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
-        assert data["metrics"]["trade_count"] == 0.0
+        assert data["extra"]["metrics"]["trade_count"] == 0.0
 
 
 # ===========================================================================
@@ -876,9 +880,9 @@ class TestReport:
         ev_run_id = _run_evaluate(storage_with_features, bt_run_id)
         rpt_run_id = _run_report(storage_with_features, ev_run_id)
         report_path = artifact_paths.artifact_key_path(
-            storage_with_features, rpt_run_id, "report.json"
+            storage_with_features, rpt_run_id, "rendered_report.json"
         )
-        assert report_path.exists(), "report.json must be written"
+        assert report_path.exists(), "rendered_report.json must be written"
 
     def test_execute_json_output_has_summary(self, storage_with_features: Path) -> None:
         bt_run_id = _run_backtest(storage_with_features)
@@ -901,8 +905,10 @@ class TestReport:
         data = json.loads(result.output)
         assert data["run_type"] == "report"
         assert data["status"] == "materialized"
-        assert "summary" in data
-        assert "evaluation_run_id" in data
+        assert "summary_version" in data
+        assert "artifact_keys" in data
+        assert "summary" in data["extra"]
+        assert "evaluation_run_id" in data["extra"]
 
     def test_report_file_is_deterministic(self, storage_with_features: Path) -> None:
         """Same evaluation_run_id must produce identical report payloads."""
@@ -939,7 +945,7 @@ class TestReport:
         d1 = json.loads(r1.output)
         d2 = json.loads(r2.output)
         # Summary values must be identical across two invocations.
-        assert d1["summary"] == d2["summary"]
+        assert d1["extra"]["summary"] == d2["extra"]["summary"]
 
     def test_markdown_report_is_written(self, storage_with_features: Path) -> None:
         bt_run_id = _run_backtest(storage_with_features)

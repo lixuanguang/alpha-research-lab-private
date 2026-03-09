@@ -27,9 +27,7 @@ Several Foundation and Data Plane contracts from this guide are already document
 
 ## 1.2 What Is Still Outstanding
 
-- Harmonize materialized research CLI JSON/text payloads so they sit on top of the shared run-summary/stage-outcome contract rather than hand-built per command.
 - Decide whether the optional research `run-pipeline` alias is worth adding, or remove it from the design references entirely.
-- Reuse `ArtifactStore` more broadly in live/runtime paths instead of mixing the abstraction with direct artifact-path writes.
 - Continue product hardening in the stage plans: richer PM-native execution realism, deeper PM-specific evaluation metrics, and stronger promotion/live readiness workflows.
 
 ---
@@ -44,9 +42,9 @@ As of today:
 - Research and live entrypoints expose first-class Click command groups (`apps/research/main.py`, `apps/live_system/main.py`), including governance and promotion commands (`session`, `catalog`, `promote`).
 - Gold dataset materialization, feature builds, backtest/evaluate/report, filesystem-backed artifact storage, optimize workflows, runtime profiles, and live dry-run/runtime scaffolds are available through first-class modules.
 - CI smoke coverage for the research command chain is in place, and the optional acceleration boundary/parity harness is delivered.
-- The main open areas are now PM-native execution realism, deeper evaluation metrics, broader live artifact-store reuse, and CLI payload consistency.
+- The main open areas are now PM-native execution realism, deeper evaluation metrics, and stronger promotion/live readiness workflows.
 
-Implication: the largest leverage is now in **execution realism, evaluation hardening, and cross-stage contract cleanup**.
+Implication: the largest leverage is now in **execution realism, evaluation hardening, and promotion/live readiness**.
 
 ---
 
@@ -75,7 +73,7 @@ Implication: the largest leverage is now in **execution realism, evaluation hard
 
 **Lean lesson:** Every run carries strong metadata and standardized outputs.
 
-**Status in this repo:** Implemented for dataset, feature, backtest, evaluate, report, optimize, and live manifests. Remaining work is harmonizing all emitted CLI payloads on top of those contracts.
+**Status in this repo:** Implemented for dataset, feature, backtest, evaluate, report, optimize, and live manifests, with shared run-summary emission across the research and live CLI surfaces.
 
 **Bring over:**
 - `RunContext` object passed through dataset/feature/backtest/eval/live stages
@@ -99,7 +97,7 @@ Implication: the largest leverage is now in **execution realism, evaluation hard
 
 **Lean lesson:** CLI is the main interface for repeatable workflows.
 
-**Status in this repo:** Implemented for `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize`, `session`, `catalog`, and `promote`. Remaining ergonomics are the optional `run-pipeline` alias and harmonized materialized payloads.
+**Status in this repo:** Implemented for `build-dataset`, `build-features`, `backtest`, `evaluate`, `report`, `optimize`, `session`, `catalog`, and `promote`. Remaining ergonomics are the optional `run-pipeline` alias and any future CLI batching sugar.
 
 **Bring over:**
 - Implement `apps/research/main.py` group commands:
@@ -138,7 +136,7 @@ Implication: the largest leverage is now in **execution realism, evaluation hard
 
 **Lean lesson:** Research/backtest/live should share persisted objects through one abstraction.
 
-**Status in this repo:** Implemented with a filesystem-backed `ArtifactStore`. Remaining work is broader live reuse and any future non-filesystem backends.
+**Status in this repo:** Implemented with a filesystem-backed `ArtifactStore`. Remaining work is any future non-filesystem backends and broader adoption where command-layer atomic writes still make sense.
 
 **Bring over:**
 - `ArtifactStore` interface over local filesystem first

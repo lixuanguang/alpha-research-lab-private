@@ -451,7 +451,7 @@ def _filter_table_by_universe_snapshots(
     *,
     snapshots: list[universe_mod.UniverseSnapshot],
 ) -> pa.Table:
-    time_column = "ts_available" if "ts_available" in table.schema.names else "ts_event"
+    time_column = "ts_event" if "ts_event" in table.schema.names else "ts_available"
     required_columns = {"instrument_id", time_column}
     if table.num_rows == 0 or not required_columns.issubset(table.schema.names):
         return table

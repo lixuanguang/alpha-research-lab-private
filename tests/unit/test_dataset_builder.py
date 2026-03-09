@@ -391,6 +391,49 @@ class TestDatasetBuilderBuild:
         assert result.num_rows == 1
         assert result.column("ts_event").to_pylist() == [first_seen + timedelta(hours=1)]
 
+    def test_late_recorded_trade_keeps_trade_time_universe_membership(self, tmp_path: Path) -> None:
+        resolution_time = _BASE + timedelta(hours=12)
+        master = master_mod.MarketMaster()
+        master.register_market(
+            _make_market(
+                "p",
+                "resolved_market",
+                ["yes"],
+                first_seen=_BASE - timedelta(days=1),
+                last_updated=resolution_time,
+                lifecycle=instrument_models.MarketLifecycle.RESOLVED,
+                resolution_date=resolution_time,
+            )
+        )
+        trade_table = pa.table(
+            {
+                "event_id": ["late_trade"],
+                "instrument_id": ["p:resolved_market:yes"],
+                "venue_id": ["p"],
+                "event_type": ["trade"],
+                "ts_event": [_BASE + timedelta(hours=1)],
+                "ts_record": [_BASE + timedelta(days=2)],
+                "price": [0.5],
+                "size": [10.0],
+            }
+        )
+        builder = _make_builder(tmp_path, master, trade_table=trade_table)
+        config = dataset_mod.DatasetConfig(
+            name="late_recorded_trade_membership",
+            start=_BASE,
+            end=_END,
+            require_quality_pass=False,
+        )
+
+        manifest = builder.build(config)
+        gold_path = (
+            builder_io.dataset_directory(tmp_path / "gold" / "datasets", manifest.dataset_id)
+            / "trades.parquet"
+        )
+        result = pq.read_table(gold_path)
+        assert result.num_rows == 1
+        assert result.column("instrument_id").to_pylist() == ["p:resolved_market:yes"]
+
     def test_instruments_outside_universe_excluded(self, tmp_path: Path) -> None:
         """Instruments not in the universe snapshot should be stripped."""
         master = master_mod.MarketMaster()

@@ -1,13 +1,13 @@
 # Alpha Research Lab — Research Plane MVP Implementation Plan
 
 > **Stage:** 3 of 8 · Entrypoint C: Research & Backtesting  
-> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete; repo-wide quality gates green at `pytest tests/ -q` = `2083 passed, 10 skipped`)
+> **Prerequisites:** Foundation (complete, with all validated baseline work folded into the implementation steps) + Data Plane MVP (complete; repo-wide quality gates green at `pytest tests/ -q` = `2151 passed, 10 skipped`)
 > **Focus:** Point-in-time dataset assembly, prediction-market feature engineering, event-driven + vectorized backtesting, PM-specific evaluation metrics  
 > **Estimated Effort:** 220–420 hours (single engineer)  
 > **Environment:** Python 3.11 (conda `py311`)  
 > **Lean adoption alignment (March 7, 2026):** This plan incorporates the architecture deltas in `README.LEAN_ADOPTION.md` and issue tracking in `docs/implementation/lean-adoption-issue-backlog.md`.
 > **Implementation status (March 8, 2026):** Dataset/feature/backtest/evaluate/report/optimize workflows delivered. R5 complete: `alpha_core.evaluation` package with `FinancialMetrics`, `PMMetrics` (Brier, log-loss, ECE, resolution decomposition, category breakdown), `BacktestEvaluator`, schema-versioned `EvaluationReport`, and `apps.research.reporting` (ReportWriter, comparisons). PM-native feature builds now enrich trade data from point-in-time instrument metadata and optional book snapshots using availability-safe joins, the event backtester exposes the full per-instrument feature state promised by its strategy contract, and `build-dataset` can consume dataset-ready handoff contracts directly from the Data Plane while binding itself to the exact silver partitions declared by that handoff. Additional regression coverage has been added for PM-native feature builds, lifecycle handling, portfolio accounting, and handoff-driven dataset assembly.
-> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2083 passed, 10 skipped`).
+> **Current quality gate snapshot (validated March 8, 2026):** `ruff check .` (pass), `mypy libs/core apps tests --strict` (pass), `pytest tests/ -q` (`2151 passed, 10 skipped`).
 
 ---
 
@@ -362,7 +362,7 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 ### Implementation Progress
 
 > Last updated: March 7, 2026 — Lean Adoption P1 milestone complete.  
-> Test suite: **952 passed, 10 skipped** (full test run, no failures).
+> Test suite: **2151 passed, 10 skipped** (full test run, no failures).
 
 #### R1 — Dataset Builder & Universe Manager
 
@@ -415,9 +415,9 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
 - [x] `alpha_core.evaluation.calibration` — `calibration_curve`, `expected_calibration_error`, `brier_score`, `log_loss_score` — pure-NumPy, zero-dependency (`libs/core/alpha_core/evaluation/calibration.py`)
 - [x] `alpha_core.evaluation.pm_metrics` — `PMMetrics`, `compute_pm_metrics` (Brier score, log-loss, ECE, resolution PnL, resolution accuracy, avg entry/exit prob, per-category breakdown) (`libs/core/alpha_core/evaluation/pm_metrics.py`)
 - [x] `alpha_core.evaluation.evaluator` — `EvaluationReport` (schema-versioned), `BacktestEvaluator.evaluate()`, `BacktestEvaluator.evaluate_result()`, `BacktestEvaluator.compare()` (`libs/core/alpha_core/evaluation/evaluator.py`)
-- [x] `apps.research.reporting.writer` — `ReportWriter` (write/load/list round-trip, atomic writes, flat metrics.json) (`apps/research/reporting/writer.py`)
+- [x] `apps.research.reporting.writer` — `ReportWriter` (write/load/list round-trip, atomic writes, canonical `EvaluationReport` persistence) (`apps/research/reporting/writer.py`)
 - [x] `apps.research.reporting.comparisons` — `compare_reports`, `rank_reports`, `pivot_metric` (`apps/research/reporting/comparisons.py`)
-- [x] Unit tests: `tests/unit/test_financial_metrics.py` (17 tests), `tests/unit/test_calibration.py` (16 tests), `tests/unit/test_pm_metrics.py` (15 tests), `tests/unit/test_evaluator.py` (12 tests), `tests/unit/test_report_writer.py` (8 tests)
+- [x] Unit tests: `tests/unit/test_financial_metrics.py` (17 tests), `tests/unit/test_calibration.py` (16 tests), `tests/unit/test_pm_metrics.py` (15 tests), `tests/unit/test_evaluator.py` (12 tests), `tests/unit/test_report_writer.py` (9 tests)
 - [x] Integration test: `tests/integration/test_evaluation_pipeline.py` (5 tests — full evaluate → write → load → compare chain)
 
 #### R6 — Research CLI & Integration Wiring
@@ -1249,16 +1249,11 @@ If you are currently implementing **R1**, prioritize the R1 contract items below
        def __init__(self, storage_root: Path): ...
        
        def write(self, report: EvaluationReport) -> Path:
-           """Write to backtests/{backtest_id}/:
-           - config.json
-           - trades.parquet
-           - positions.parquet
-           - equity.parquet
-           - metrics.json
+           """Write to runs/{run_id}/stage_outputs/:
            - report.json
            """
        
-       def load(self, backtest_id: str) -> EvaluationReport: ...
+       def load(self, run_id: str) -> EvaluationReport: ...
        def list_reports(self) -> list[str]: ...
    ```
 

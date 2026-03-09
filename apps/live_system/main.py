@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 import alpha_core.config.profiles as config_profiles
+import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_summary as run_summary_mod
 import apps.live_system.runtime as live_runtime
 
@@ -125,6 +126,7 @@ def run_command(
             live_runtime.LiveRunRequest(
                 instruments=list(instruments),
                 cycles=cycles,
+                strategy_id=strategy_id,
                 storage_root=resolved_storage_root,
                 execute=execute,
             )
@@ -132,9 +134,10 @@ def run_command(
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    artifact_keys = (
-        sorted(["config", "live_summary", "manifest"]) if outcome.manifest_path is not None else []
-    )
+    artifact_keys = []
+    if outcome.manifest_path is not None:
+        manifest = manifest_mod.read_run_manifest(outcome.manifest_path)
+        artifact_keys = list(manifest.artifacts)
     summary = run_summary_mod.RunSummary(
         run_id=outcome.run_id,
         run_type="live",

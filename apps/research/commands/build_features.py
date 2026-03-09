@@ -8,7 +8,6 @@ to register this command under the ``research`` CLI group.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import click
@@ -126,32 +125,18 @@ def build_features_command(
     except feature_runner_mod.FeatureRunError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if fmt == "json":
-        click.echo(
-            json.dumps(
-                {
-                    "run_type": "feature_build",
-                    "status": "materialized",
-                    "run_id": manifest.run_id,
-                    "dataset_id": manifest.dataset_id,
-                    "feature_set_version": manifest.feature_set_version,
-                    "built_at": manifest.built_at.isoformat(),
-                    "row_count": manifest.row_count,
-                    "feature_count": manifest.feature_count,
-                    "feature_names": manifest.feature_names,
-                },
-                indent=2,
-            )
-        )
-        return
-    click.echo(
-        f"run_type=feature_build  status=materialized  "
-        f"run_id={manifest.run_id}  feature_set_version={manifest.feature_set_version}"
-    )
-    click.echo(
-        f"dataset_id={manifest.dataset_id}  "
-        f"rows={manifest.row_count}  features={manifest.feature_count}  "
-        f"built_at={manifest.built_at.isoformat()}"
+    cmd_common.emit_materialized_summary(
+        storage_root=resolved_root,
+        run_id=manifest.run_id,
+        extra={
+            "dataset_id": manifest.dataset_id,
+            "feature_set_version": manifest.feature_set_version,
+            "built_at": manifest.built_at.isoformat(),
+            "row_count": manifest.row_count,
+            "feature_count": manifest.feature_count,
+            "feature_names": manifest.feature_names,
+        },
+        fmt=fmt,
     )
 
 

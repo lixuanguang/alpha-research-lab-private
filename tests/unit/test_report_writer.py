@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -82,18 +81,14 @@ def test_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.pm_specific.brier_score == report.pm_specific.brier_score
 
 
-def test_write_creates_metrics_json(tmp_path: Path) -> None:
+def test_write_does_not_create_metrics_json(tmp_path: Path) -> None:
     writer = ReportWriter(tmp_path)
     report = _make_report()
     run_id = "run_metrics_check"
     writer.write(report, run_id)
 
     metrics_path = tmp_path / "runs" / run_id / "stage_outputs" / "metrics.json"
-    assert metrics_path.exists()
-    data = json.loads(metrics_path.read_text())
-    assert "sharpe_ratio" in data
-    assert "brier_score" in data
-    assert "backtest_id" in data
+    assert not metrics_path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +128,15 @@ def test_list_reports_sorted(tmp_path: Path) -> None:
         writer.write(_make_report(backtest_id=rid), rid)
     listed = writer.list_reports()
     assert listed == sorted(listed)
+
+
+def test_list_reports_ignores_rendered_report_artifacts(tmp_path: Path) -> None:
+    stage_outputs = tmp_path / "runs" / "rendered_only" / "stage_outputs"
+    stage_outputs.mkdir(parents=True)
+    (stage_outputs / "rendered_report.json").write_text("{}", encoding="utf-8")
+
+    writer = ReportWriter(tmp_path)
+    assert writer.list_reports() == []
 
 
 # ---------------------------------------------------------------------------

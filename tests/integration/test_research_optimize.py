@@ -460,11 +460,12 @@ class TestOptimizeExecute:
         )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
-        for key in ("run_type", "status", "run_id", "total_trials", "feasible_trials", "objective"):
+        for key in ("run_type", "status", "run_id", "summary_version", "artifact_keys", "extra"):
             assert key in payload, f"missing key: {key}"
         assert payload["run_type"] == "optimize"
         assert payload["status"] == "materialized"
-        assert payload["total_trials"] == 2
+        assert payload["extra"]["total_trials"] == 2
+        assert payload["extra"]["objective"] == "sharpe_ratio"
 
     def test_missing_feature_run_id_exits_nonzero(self, tmp_path: Path) -> None:
         runner = CliRunner()
@@ -765,7 +766,7 @@ class TestConstraintFiltering:
         )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
-        assert payload["feasible_trials"] == 0
+        assert payload["extra"]["feasible_trials"] == 0
 
     def test_leaderboard_empty_when_all_constrained(self, storage_with_features: Path) -> None:
         runner = CliRunner()
@@ -831,8 +832,8 @@ class TestFailedTrials:
         )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
-        assert payload["total_trials"] == 2
-        assert payload["feasible_trials"] == 0
+        assert payload["extra"]["total_trials"] == 2
+        assert payload["extra"]["feasible_trials"] == 0
 
         registry_path = next(tmp_path.rglob("trial_registry.jsonl"))
         rows = [json.loads(line) for line in registry_path.read_text().splitlines() if line.strip()]
@@ -886,7 +887,7 @@ class TestMaxTrialsCap:
         )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
-        assert payload["total_trials"] == 2
+        assert payload["extra"]["total_trials"] == 2
 
 
 # ---------------------------------------------------------------------------

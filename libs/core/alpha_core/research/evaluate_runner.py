@@ -103,17 +103,15 @@ class EvaluateRunner:
             starting_cash=backtest_manifest.starting_cash,
         )
 
-        metrics_json_path = report_path.with_name("metrics.json")
-        metrics_parquet_path = self._store.prepare_path(run_context.run_id, "metrics.parquet")
-        metrics_json_path.write_text(
-            json.dumps(
-                {"metrics_profile": metrics_profile, "metrics": metrics},
-                indent=2,
-                sort_keys=True,
-                allow_nan=False,
-            ),
-            encoding="utf-8",
+        metrics_payload = json.dumps(
+            {"metrics_profile": metrics_profile, "metrics": metrics},
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
         )
+        self._store.put(run_context.run_id, "metrics.json", metrics_payload.encode("utf-8"))
+        metrics_json_path = self._store.path_for(run_context.run_id, "metrics.json")
+        metrics_parquet_path = self._store.prepare_path(run_context.run_id, "metrics.parquet")
         pq.write_table(
             pa.Table.from_pandas(
                 pd.DataFrame([{"metric": key, "value": value} for key, value in metrics.items()]),
@@ -142,8 +140,12 @@ class EvaluateRunner:
             parent_run_id=parent_run_id or backtest_run_id,
         )
 
-        manifest_path = self._store.prepare_path(run_context.run_id, "evaluate_manifest.json")
-        manifest_path.write_text(evaluate_manifest.model_dump_json(indent=2), encoding="utf-8")
+        self._store.put(
+            run_context.run_id,
+            "evaluate_manifest.json",
+            evaluate_manifest.model_dump_json(indent=2).encode("utf-8"),
+        )
+        manifest_path = self._store.path_for(run_context.run_id, "evaluate_manifest.json")
         artifact_map["evaluate_manifest"] = str(manifest_path)
 
         manifest_mod.persist_run_record(

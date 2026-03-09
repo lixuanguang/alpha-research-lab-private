@@ -228,6 +228,31 @@ def test_live_run_plan_only_emits_summary(tmp_path: Path) -> None:
     assert "orders_emitted=6" in result.output
 
 
+def test_live_run_execute_json_uses_persisted_artifact_keys(tmp_path: Path) -> None:
+    runner = click.testing.CliRunner()
+    result = runner.invoke(
+        live_main.main,
+        [
+            "--format",
+            "json",
+            "run",
+            "--instrument",
+            "polymarket:market-a:yes",
+            "--strategy-id",
+            "zscore_v1",
+            "--storage-root",
+            str(tmp_path),
+            "--execute",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["artifact_keys"] == ["config", "live_summary", "strategy_id"]
+    assert "manifest" not in payload["artifact_keys"]
+    assert payload["extra"]["strategy_id"] == "zscore_v1"
+
+
 def test_live_status_reports_materialized_run(tmp_path: Path) -> None:
     runner = click.testing.CliRunner()
     run_result = runner.invoke(

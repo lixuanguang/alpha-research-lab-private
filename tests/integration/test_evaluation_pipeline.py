@@ -10,7 +10,6 @@ Tests the full R5 pipeline:
 
 from __future__ import annotations
 
-import json
 import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -133,7 +132,7 @@ def test_evaluation_pipeline_all_metrics_present(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_write_load_round_trip_with_metrics_json(tmp_path: Path) -> None:
+def test_write_load_round_trip_with_canonical_report_only(tmp_path: Path) -> None:
     trades_df = _make_realistic_trades(n=50)
     equity_df = _make_equity_curve(trades_df)
 
@@ -153,7 +152,7 @@ def test_write_load_round_trip_with_metrics_json(tmp_path: Path) -> None:
     # Files are created
     assert report_path.exists()
     metrics_path = tmp_path / "runs" / run_id / "stage_outputs" / "metrics.json"
-    assert metrics_path.exists()
+    assert not metrics_path.exists()
 
     # Reload and verify
     loaded = writer.load(run_id)
@@ -162,22 +161,6 @@ def test_write_load_round_trip_with_metrics_json(tmp_path: Path) -> None:
     assert loaded.financial.sharpe_ratio == pytest.approx(report.financial.sharpe_ratio, abs=1e-9)
     assert loaded.financial.win_rate == pytest.approx(report.financial.win_rate, abs=1e-9)
     assert loaded.pm_specific.brier_score == pytest.approx(report.pm_specific.brier_score, abs=1e-9)
-
-    # Flat metrics JSON has correct keys
-    metrics_data = json.loads(metrics_path.read_text())
-    required_keys = {
-        "sharpe_ratio",
-        "sortino_ratio",
-        "calmar_ratio",
-        "max_drawdown",
-        "win_rate",
-        "profit_factor",
-        "brier_score",
-        "log_loss",
-        "calibration_error",
-        "resolution_count",
-    }
-    assert required_keys.issubset(set(metrics_data.keys()))
 
 
 # ---------------------------------------------------------------------------

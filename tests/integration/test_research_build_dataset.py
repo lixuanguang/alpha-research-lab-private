@@ -378,10 +378,13 @@ def test_execute_json_output_has_dataset_id(
     data = json.loads(result.output)
     assert data["status"] == "materialized"
     assert data["run_type"] == "dataset_build"
-    assert "dataset_id" in data
-    assert len(data["date_range"]) == 2
-    assert "row_counts" in data
-    assert "instrument_count" in data
+    assert "summary_version" in data
+    assert "artifact_keys" in data
+    extra = data["extra"]
+    assert "dataset_id" in extra
+    assert len(extra["date_range"]) == 2
+    assert "row_counts" in extra
+    assert "instrument_count" in extra
 
 
 def test_execute_writes_gold_parquet(
@@ -444,10 +447,10 @@ def test_execute_manifest_counts_match_silver(
                 str(storage_root),
                 "--execute",
             ],
-        )
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
-    trades_count = data["row_counts"].get("trades", 0)
+    trades_count = data["extra"]["row_counts"].get("trades", 0)
     # Expect the 20 synthetic rows we injected via _silver_trades().
     assert trades_count == 20
 
@@ -629,7 +632,7 @@ def test_execute_consumes_handoff_end_to_end_from_real_storage(tmp_path: Path) -
     assert result.exit_code == 0, result.output
 
     payload = json.loads(result.output)
-    assert payload["row_counts"]["trades"] == 2
+    assert payload["extra"]["row_counts"]["trades"] == 2
 
     run_manifest = manifest_mod.read_run_manifest(
         storage_root / "runs" / payload["run_id"] / "manifest.json"
@@ -639,7 +642,7 @@ def test_execute_consumes_handoff_end_to_end_from_real_storage(tmp_path: Path) -
     assert run_manifest.artifacts["handoff_id"] == handoff_manifest.handoff_id
 
     gold_trades = pq.read_table(
-        storage_root / "gold" / "datasets" / payload["dataset_id"] / "trades.parquet"
+        storage_root / "gold" / "datasets" / payload["extra"]["dataset_id"] / "trades.parquet"
     )
     trade_ids = gold_trades.column("trade_id").to_pylist()
     assert gold_trades.num_rows == 2
@@ -681,7 +684,7 @@ def test_execute_handoff_build_reads_exact_partition_refs(
         )
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
-    assert payload["row_counts"]["trades"] == 3
+    assert payload["extra"]["row_counts"]["trades"] == 3
     reader.read_partition_refs.assert_called_once()
     reader.read_trades.assert_not_called()
 

@@ -12,7 +12,10 @@ import yaml
 
 import alpha_core.config._merge as config_merge
 import alpha_core.config.profiles as config_profiles
+import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
+import alpha_core.research.run_summary as run_summary_mod
 import apps.research.runtime as runtime_mod
 
 OutputFormat = Literal["text", "json"]
@@ -108,9 +111,38 @@ def emit_planned_outcome(
     )
 
 
+def emit_materialized_summary(
+    *,
+    storage_root: Path,
+    run_id: str,
+    extra: dict[str, Any] | None,
+    fmt: OutputFormat,
+) -> None:
+    """Emit the shared materialized run summary for a completed research command."""
+    manifest_path = artifact_paths.run_manifest_path(storage_root, run_id)
+    try:
+        manifest = manifest_mod.read_run_manifest(manifest_path)
+    except Exception as exc:
+        raise click.ClickException(
+            f"Run manifest for '{run_id}' could not be loaded from '{manifest_path}': {exc}"
+        ) from exc
+
+    summary = run_summary_mod.RunSummary.from_run_context(
+        manifest.run,
+        status="materialized",
+        artifact_keys=list(manifest.artifacts),
+        extra=extra,
+    )
+    if fmt == "json":
+        click.echo(summary.as_json_str())
+        return
+    click.echo(summary.as_text())
+
+
 __all__ = [
     "OutputFormat",
     "build_run_payload",
+    "emit_materialized_summary",
     "emit_outcome",
     "emit_planned_outcome",
     "get_output_format",

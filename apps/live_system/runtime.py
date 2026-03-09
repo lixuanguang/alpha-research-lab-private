@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import alpha_core.research.artifact_paths as artifact_paths
+import alpha_core.research.artifact_store as artifact_store_mod
 import alpha_core.research.manifest as manifest_mod
 import alpha_core.research.run_context as run_context_mod
 import alpha_core.strategy_framework.engine as strategy_engine
@@ -41,6 +42,7 @@ log = logging.getLogger(__name__)
 class LiveRunRequest:
     instruments: list[str]
     cycles: int
+    strategy_id: str
     storage_root: Path
     execute: bool
 
@@ -334,9 +336,17 @@ def run_live_scaffold(request: LiveRunRequest) -> LiveRunOutcome:
     if request.cycles <= 0:
         raise ValueError("`cycles` must be > 0")
     instruments = _normalize_instruments(request.instruments)
-    payload = {"cycles": request.cycles, "instruments": instruments}
+    payload = {
+        "cycles": request.cycles,
+        "instruments": instruments,
+        "strategy_id": request.strategy_id,
+    }
     run_context = run_context_mod.make_run_context("live", config_payload=payload)
-    orders_emitted = _simulate_orders(instruments=instruments, cycles=request.cycles)
+    orders_emitted = _simulate_orders(
+        instruments=instruments,
+        cycles=request.cycles,
+        strategy_id=request.strategy_id,
+    )
     if not request.execute:
         return LiveRunOutcome(
             run_id=run_context.run_id,
@@ -348,31 +358,31 @@ def run_live_scaffold(request: LiveRunRequest) -> LiveRunOutcome:
         )
 
     completed_context = run_context_mod.close_run_context(run_context)
-    run_root = artifact_paths.run_root(request.storage_root, completed_context.run_id)
-    run_root.mkdir(parents=True, exist_ok=True)
-
-    config_path = artifact_paths.run_config_path(request.storage_root, completed_context.run_id)
-    config_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-
-    summary_path = artifact_paths.artifact_key_path(
-        request.storage_root,
-        completed_context.run_id,
-        "live_summary.json",
-    )
-    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    store = artifact_store_mod.FilesystemArtifactStore(request.storage_root)
     summary_payload = {
         "cycles": request.cycles,
         "instruments": instruments,
         "orders_emitted": orders_emitted,
+        "strategy_id": request.strategy_id,
     }
-    summary_path.write_text(json.dumps(summary_payload, indent=2, sort_keys=True), encoding="utf-8")
-
-    artifacts = {"config": str(config_path), "live_summary": str(summary_path)}
-    artifact_paths.write_artifacts_index(request.storage_root, completed_context.run_id, artifacts)
-
-    manifest = manifest_mod.RunManifest(run=completed_context, artifacts=artifacts)
+    store.put(
+        completed_context.run_id,
+        "live_summary.json",
+        json.dumps(summary_payload, indent=2, sort_keys=True).encode("utf-8"),
+    )
+    summary_path = store.path_for(completed_context.run_id, "live_summary.json")
+    artifacts = {
+        "live_summary": str(summary_path),
+        "strategy_id": request.strategy_id,
+    }
+    manifest_mod.persist_run_record(
+        storage_root=request.storage_root,
+        run_context=completed_context,
+        config_payload=payload,
+        artifacts=artifacts,
+        parent_run_id=None,
+    )
     manifest_path = artifact_paths.run_manifest_path(request.storage_root, completed_context.run_id)
-    manifest_mod.write_run_manifest(manifest_path, manifest)
     return LiveRunOutcome(
         run_id=completed_context.run_id,
         status="materialized",
@@ -416,9 +426,9 @@ def list_recent_live_runs(storage_root: Path, *, limit: int = 5) -> list[LiveRun
     return outcomes
 
 
-def _simulate_orders(*, instruments: list[str], cycles: int) -> int:
+def _simulate_orders(*, instruments: list[str], cycles: int, strategy_id: str) -> int:
     """Run N strategy cycles via LiveRuntime and return total orders emitted."""
-    runtime = LiveRuntime(LiveRuntimeConfig(instruments=instruments))
+    runtime = LiveRuntime(LiveRuntimeConfig(instruments=instruments, strategy_id=strategy_id))
     runtime.startup()
     orders_total = 0
     try:
