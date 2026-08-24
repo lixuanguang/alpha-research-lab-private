@@ -1,29 +1,57 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
-      - id: ruff-format
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.14.1
-    hooks:
-      - id: mypy
-        args: [--strict, --config-file=pyproject.toml]
-        additional_dependencies:
-          - pydantic>=2.0
-          - types-PyYAML
-          - types-python-dateutil
+      - id: uv-lock
+        name: verify uv lock
+        entry: uv lock --check
+        language: system
+        files: ^(\.python-version|pyproject\.toml|uv\.lock)$
         pass_filenames: false
-        files: ^libs/
 
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
-    hooks:
+      - id: ruff
+        name: ruff check
+        entry: uv run --frozen ruff check --fix --exit-non-zero-on-fix
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format
+        language: system
+        types: [python]
+
+      - id: mypy
+        name: mypy
+        entry: uv run --frozen mypy --strict src tests
+        language: system
+        files: ^(pyproject\.toml|src/.*\.py|tests/.*\.py)$
+        pass_filenames: false
+
       - id: trailing-whitespace
+        name: trim trailing whitespace
+        entry: uv run --frozen trailing-whitespace-fixer
+        language: system
+        types: [text]
+
       - id: end-of-file-fixer
+        name: fix end of files
+        entry: uv run --frozen end-of-file-fixer
+        language: system
+        types: [text]
+
       - id: check-yaml
+        name: check yaml
+        entry: uv run --frozen check-yaml
+        language: system
+        types: [yaml]
+
       - id: check-toml
+        name: check toml
+        entry: uv run --frozen check-toml
+        language: system
+        types: [toml]
+
       - id: check-added-large-files
-        args: [--maxkb=500]
+        name: check added large files
+        entry: uv run --frozen check-added-large-files --maxkb=500
+        language: system

@@ -15,12 +15,27 @@ interoperability requirements justify native code.
 ## Current status
 
 The repository is in the design and engineering-foundation stage. Architecture,
-contracts, roadmap, and coding standards are tracked; runtime packages and the
-root build interface remain implementation work beginning with Phase 0.
+contracts, roadmap, and coding standards are tracked. The initial Python package
+and locked development environment are implemented; the root build interface and
+domain runtime capabilities remain Phase 0 and later implementation work.
 
 Live capital deployment is not authorized by this repository. The highest planned
 initial outcome is a reproducible, independently reviewed, paper-ready candidate
 with shadow reconciliation and tested recovery controls.
+
+## Development environment
+
+The repository pins uv 0.12.5 and CPython 3.12.14. From a clean checkout with uv
+available, create the complete locked development environment with:
+
+```sh
+uv sync --frozen
+```
+
+The tracked `.python-version`, `pyproject.toml`, and `uv.lock` are authoritative.
+uv installs the pinned interpreter when it is unavailable and rejects an
+incompatible uv version. Root format, lint, type-check, test, and smoke commands
+are intentionally deferred to `ENG-02`.
 
 ## Documentation map
 

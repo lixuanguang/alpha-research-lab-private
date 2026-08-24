@@ -21,7 +21,6 @@ pip-wheel-metadata/
 venv/
 env/
 ENV/
-.python-version
 
 # -----------------------------------------------------------------------------
 # Conda / Jupyter
@@ -34,6 +33,7 @@ ENV/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.uv-cache/
 .coverage
 .coverage*
 .coverage.*
