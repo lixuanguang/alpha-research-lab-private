@@ -6,6 +6,16 @@ This document defines the implementation sequence and review standards for a cry
 
 The first workload is a transparent crypto factor-residual strategy. It is an acceptance test for the platform, not the platform architecture. Shared contracts must also support equities, futures, FX, options, volatility, and fixed-income relative value without rewriting the research, artifact, governance, or deployment layers.
 
+## Architectural basis and limits
+
+This is a proposed architecture for this repository, not a description of any trading firm's proprietary systems. Public material establishes some useful patterns but does not disclose complete internal directory layouts or deployment controls:
+
+- Jane Street has described a large OCaml-and-Python monorepo, a dedicated build-systems function, Dune-based builds, and reproducible Python deployment environments.
+- Hudson River Trading has described majority-monorepo development, C++/Python research and trading systems, distributed cached builds and tests, and large-scale Prometheus monitoring.
+- Citadel Securities publicly describes trading systems, research and simulation infrastructure, core platforms, and SRE, but does not publicly establish that all of those systems use one monorepo.
+
+Accordingly, the choices below are engineering recommendations derived from public evidence and general systems practice. They must not be presented as claims that a named firm uses the same tools or repository structure.
+
 ## Intended audience
 
 This guide is for the people who design, implement, review, validate, operate, and eventually approve the platform:
@@ -17,7 +27,7 @@ This guide is for the people who design, implement, review, validate, operate, a
 - Independent reviewers verifying that research results are reproducible and free from implementation leakage.
 - Portfolio managers and risk owners deciding whether a candidate is suitable for shadow, paper, or capital allocation.
 
-The guide assumes familiarity with Python, probability, statistics, optimization, financial markets, and time-series research. It does not assume that the reader already knows the internal platform conventions; those conventions must be explicit here and enforceable in code.
+The guide assumes familiarity with Python, probability, statistics, optimization, financial markets, and time-series research. Contributors to native components also need the applicable Rust or C++ knowledge. It does not assume that the reader already knows the internal platform conventions; those conventions must be explicit here and enforceable in code and build metadata.
 
 ## Design targets
 
@@ -25,12 +35,14 @@ The platform is intended to make the following statements demonstrably true:
 
 1. A result can be reproduced from immutable source data, a pinned code revision, a complete configuration, and a recorded environment.
 2. A historical decision uses only information that was available at the simulated decision time.
-3. The same feature, signal, risk, portfolio, accounting, and execution components can be used in research and shadow operation.
+3. Research and shadow operation use the same authoritative feature, signal, risk, portfolio, accounting, and execution logic, or independently implemented components that pass the same versioned conformance suite.
 4. Gross alpha, systematic exposure, financing, execution, capacity, and operational assumptions are evaluated jointly.
-5. Every attempted research variant remains visible, including failed, rejected, and superseded variants.
+5. Every governed experiment that informs candidate selection, promotion, or final out-of-sample evaluation remains visible, including failed, rejected, and superseded variants.
 6. A promoted model has explicit intended use, limitations, ownership, monitoring, fallback, and retirement rules.
 7. Adding an asset class primarily requires new instrument definitions, data adapters, valuation engines, lifecycle rules, and venue adapters rather than changes to the research-governance core.
 8. Failures are explicit. Missing data, stale risk, infeasible optimization, unavailable borrow, incomplete fills, and model degradation must not silently fall back to optimistic assumptions.
+9. Every deployed program is traceable to an immutable artifact built from a source revision, build target, pinned toolchain, declared dependencies, and resolved non-secret configuration.
+10. Python, Rust, and C++ components can coexist without duplicating economic rules or forcing the entire repository onto one release cycle.
 
 ## Guiding principles
 
@@ -44,7 +56,7 @@ Look-ahead prevention cannot depend on researcher discipline alone. Dataset join
 
 ### Research-production parity is tested
 
-Shared source code is necessary but not sufficient. The platform must reconcile research predictions, target positions, risk estimates, orders, fills, costs, and P&L against shadow operation.
+Shared source code is useful but not sufficient. The platform must reconcile research predictions, target positions, risk estimates, orders, fills, costs, and P&L against shadow operation. Where research and shadow use different language implementations, a versioned conformance suite and golden event streams must establish equivalent behavior within declared numerical tolerances.
 
 ### Interfaces follow economic responsibilities
 
@@ -62,10 +74,12 @@ Data audits, feature diagnostics, model comparisons, risk validation, optimizer 
 
 ### Initial scope
 
-- Python modular monolith with explicit, tested interfaces.
+- Domain-oriented monorepo with a Python-first modular implementation and explicit, tested interfaces.
+- Rust or C++ targets only where profiling, safety, interoperability, or latency requirements justify native code.
+- One documented build and test entrypoint, pinned toolchains and dependencies, and immutable artifact identities.
 - Crypto spot and perpetual-futures data, with Binance as the first historical adapter.
 - Batch ingestion before streaming; vectorized simulation before event-driven replay.
-- Immutable raw data, point-in-time datasets, reproducible research runs, and complete trial history.
+- Immutable raw data, point-in-time datasets, reproducible research runs, and complete governed trial history for formal comparison and candidate selection.
 - Paper and shadow trading as production-platform capabilities.
 - Parquet for analytical data and SQLite for initial metadata, with storage interfaces that permit object storage and PostgreSQL later.
 
@@ -73,6 +87,7 @@ Data audits, feature diagnostics, model comparisons, risk validation, optimizer 
 
 - Live capital deployment and broker/exchange certification.
 - Microservice decomposition, Kafka, Kubernetes, and distributed compute until workload evidence requires them.
+- A low-latency native trading path until strategy requirements and measurements justify it.
 - Low-latency market making, full queue-position simulation, and on-chain execution engines.
 - Paid institutional datasets unless a research stage cannot be validated credibly without them.
 
@@ -95,7 +110,7 @@ Data audits, feature diagnostics, model comparisons, risk validation, optimizer 
                     artifacts, governance, telemetry
 ```
 
-The three entrypoints must call the same domain, feature, valuation, risk, portfolio, accounting, and execution components. Research-only substitutes for production logic are prohibited unless explicitly labeled as approximations and reconciled later.
+The three entrypoints are logical composition roots, not necessarily separate network services. They use the same authoritative domain, feature, valuation, risk, portfolio, accounting, and execution logic wherever practical. A separate implementation is allowed only when the boundary and reason are explicit, both implementations satisfy the same contract and golden tests, and their outputs are reconciled. Research-only approximations must be labeled and cannot be promoted as production-equivalent evidence.
 
 ### Data entrypoint responsibilities
 
@@ -123,7 +138,7 @@ The research entrypoint assembles point-in-time data and produces reviewable evi
 5. Fit all transformations and models inside the applicable training interval.
 6. Produce forecasts, residuals, risk estimates, portfolio intents, target positions, and simulated orders.
 7. Run vectorized or event-driven simulation using the shared ledger and cost models.
-8. Record every attempted configuration and retain all artifacts.
+8. Record every configuration admitted to a formal comparison, candidate-selection process, or final out-of-sample evaluation and retain the required artifacts.
 9. Generate standardized data, signal, model, risk, execution, capacity, stress, and governance reports.
 
 ### Shadow entrypoint responsibilities
@@ -138,7 +153,7 @@ The shadow entrypoint exercises the production path without deploying capital. I
 6. Maintain positions, cash, margin, and P&L from execution reports.
 7. Apply operational limits and kill switches.
 8. Reconcile observed behavior against the candidate backtest.
-9. Emit metrics, logs, traces, alerts, and review artifacts.
+9. Emit metrics, logs, traces where appropriate, alerts, and review artifacts without blocking latency-sensitive processing.
 
 ### Component-boundary rules
 
@@ -163,6 +178,16 @@ Every pipeline run declares one of the following modes:
 | Historical replay | Historical canonical events | Event replay | Paper adapter | Production-path validation |
 | Shadow | Live canonical events | Wall clock | Paper adapter | Operational and reconciliation evidence |
 | Live | Live canonical events | Wall clock | Authorized venue adapter | Outside this guideline until separately approved |
+
+### Execution planes
+
+The monorepo is one source and dependency graph, not one runtime. Deployment requirements differ by plane:
+
+- **Research plane:** interactive and batch workloads, historical data, experiment scheduling, and elastic CPU/GPU compute. Containers or a cluster scheduler may be appropriate here after measured demand exists.
+- **Trading plane:** replay, shadow, paper, and any future live processes. Latency-sensitive services may require static native binaries, controlled hosts, CPU/NUMA policy, and restricted background work rather than a general container orchestrator.
+- **Control plane:** artifact promotion, configuration, inventory, service discovery, secrets, dashboards, alerts, and audit history. It must remain able to stop or roll back a trading process even when that process is unhealthy.
+
+All planes share schemas, artifact provenance, ownership metadata, and observability conventions. They do not have to share a scheduler, packaging format, release cadence, or programming language.
 
 ## Required shared contracts
 
@@ -240,7 +265,7 @@ Resolving a specification produces a dataset manifest containing exact partition
 - Labels declare horizon, observation interval, and overlap semantics.
 - Scaling, neutralization, imputation, feature selection, and hyperparameters are fitted inside the training window.
 - Model adapters share dataset, split, prediction, artifact, and diagnostic contracts.
-- Failed and rejected trials remain in an append-only trial ledger.
+- Failed and rejected governed trials remain in an append-only trial ledger. Disposable local debugging runs need not be registered unless their results influence a research decision.
 - Final out-of-sample data is locked before candidate selection.
 
 #### Registry responsibilities
@@ -260,7 +285,7 @@ Resolving a specification produces a dataset manifest containing exact partition
 
 An experiment run ID is derived from the resolved dataset manifest, code revision, environment identity, complete configuration, registered component versions, and random seeds. Wall-clock time is metadata and must not be part of deterministic identity.
 
-The trial ledger records the hypothesis family, researcher, parent experiment, reason for the trial, all reported metrics, outcome, and any later invalidation. Deleting or rewriting an unfavorable trial is prohibited.
+For governed experiments, the trial ledger records the hypothesis family, researcher, parent experiment, reason for the trial, all reported metrics, outcome, and any later invalidation. Deleting or rewriting an unfavorable governed trial is prohibited; corrections append a new record and preserve the earlier one.
 
 ### Valuation, accounting, and risk
 
@@ -335,47 +360,133 @@ market state
 
 ## Repository layout
 
+Organize by economic or platform responsibility first and by language second. A global `python/`, `rust/`, or `cpp/` tree would separate implementations that share an owner and contract. The target layout is:
+
 ```text
-src/alpha_research/
-  domain/          # identifiers, instruments, events, orders, cashflows
-  data/            # connectors, normalization, storage, lineage, quality
-  datasets/        # point-in-time assembly, universes, labels, splits
-  features/        # feature contracts, registry, transforms
-  models/          # factor, predictive, residual, and model registry
-  valuation/       # market state, pricers, curves, surfaces, sensitivities
-  risk/            # covariance, scenario risk, stress, limits
-  portfolio/       # intents, constraints, static/dynamic optimizers
-  backtest/        # clocks, vectorized simulation, event replay
-  execution/       # orders, fills, costs, venue and paper adapters
-  accounting/      # positions, cash, P&L, financing, reconciliation
-  governance/      # trials, OOS locks, model cards, promotion
-  reporting/       # research, risk, execution, and monitoring reports
-apps/
-  ingest.py
-  research.py
-  shadow.py
-tests/
-  unit/
+build_defs/                  # tracked build rules, pinned toolchains, CI helpers
+third_party/                 # dependency locks, patches, license metadata
+schemas/                     # language-neutral market, order, risk, telemetry contracts
+libs/                        # narrow shared domain and infrastructure libraries
+  instruments/
+  time/
+  orderbook/
+  valuation/
+  risk/
+  accounting/
+  telemetry/
+data/
+  connectors/
+  normalization/
+  datasets/
+  quality/
+  lineage/
+  fixtures/                  # tiny, reviewable fixtures; never bulk market data
+research/
+  sdk/
+  features/
+  models/
+  experiments/
+  notebooks/                 # interfaces and reports, not sole production logic
+strategies/
+  <asset-class>/<strategy>/
+    core/                    # authoritative strategy logic
+    simulation/              # historical adapter and scenario tests
+    live_adapter/            # shadow/paper/live integration boundary
+    config/
+    monitoring/              # strategy dashboards, alerts, and runbooks
+simulation/
+  replay/
+  exchange_models/
+  costs/
+trading/
+  market_data/
+  execution/
+  pretrade_risk/
+  reconciliation/
+platform/
+  compute/
+  artifacts/
+  deployment/
+  configuration/
+  service_discovery/
+observability/
+  exporters/
+  dashboards/
+  alerts/
+  runbooks/
+governance/                  # trial policy, model cards, promotion, audit contracts
+reporting/                   # research, risk, execution, and operational reports
+apps/                        # thin composition roots only
+tests/                       # cross-package suites; unit tests stay with owning targets
   contract/
   integration/
   golden/
-data/fixtures/     # tiny, reviewable test fixtures only
+docs/                        # architecture decisions, contracts, and operator guidance
 ```
+
+The initial Python implementation may keep closely related packages under one `src/alpha_research/` distribution until there is a real second deployable or language target. The conceptual ownership and dependency boundaries above still apply; empty directories and speculative services should not be scaffolded merely to resemble the target layout.
+
+When one component needs multiple languages, keep them below the owning domain package:
+
+```text
+libs/orderbook/
+  api/                       # schema and compatibility tests
+  python/
+  rust/
+  cpp/
+  tests/                     # cross-language golden and differential tests
+```
+
+Bulk data, experiment outputs, compiler outputs, deployment artifacts, and secrets do not belong in Git. The repository contains their schemas, manifests, build definitions, and retention policies.
 
 ### Dependency direction
 
 The intended dependency direction is:
 
 ```text
-domain
-  <- data, datasets, valuation, accounting
-  <- features, models, risk
-  <- portfolio, backtest, execution
-  <- governance, reporting
-  <- application entrypoints
+schemas
+  -> foundational libraries
+  -> domain libraries and strategy cores
+  -> simulation, data, and venue adapters
+  -> application entrypoints
+
+platform and observability consume declared interfaces and artifact metadata;
+they do not own strategy economics.
 ```
 
-Circular package dependencies are prohibited. Shared helpers belong in a narrowly named package only after at least two legitimate consumers exist; a generic `utils` dumping ground should be avoided.
+Research code may depend on production-capable domain libraries; production targets may not depend on notebooks, ad hoc experiments, or research-only approximations. Circular package dependencies are prohibited. Build-target visibility and automated dependency checks enforce these rules. Shared helpers belong in a narrowly named package only after at least two legitimate consumers exist; a generic `utils` dumping ground should be avoided.
+
+### Polyglot build and interoperability
+
+- The repository exposes one root-level interface for build, test, lint, and formatting even when language-specific tools perform the underlying work.
+- Every build target declares direct dependencies, owners, runtime platform, and visibility. Directory proximity does not grant dependency access.
+- Python interpreters and packages, Rust toolchains and crates, C/C++ compilers and libraries, code generators, and system dependencies are pinned. Developer-machine installations are not implicit build inputs.
+- Once native targets are introduced, adopt a hermetic multi-language build graph such as Bazel, Buck2, Pants, or an equivalently capable internal system through an architecture decision. Bazel is a suitable default candidate, not an assertion about a named firm's internal tooling.
+- Remote caching and remote execution are scale optimizations added after build hermeticity and cache correctness are established.
+- Language package managers remain useful for resolving ecosystems, but their lockfiles and outputs are inputs to the repository build graph rather than independent release authorities.
+- Cross-process boundaries use versioned schemas and compatibility tests. Control-plane RPC and latency-sensitive data-plane transport may use different encodings.
+- In-process Rust/C++ boundaries use a narrow stable C ABI or a reviewed interoperability layer. Do not expose STL containers, Rust-owned collections, exceptions, or allocator ownership across an undocumented ABI.
+- Python bindings should expose coarse, batch-oriented native operations. Repeated fine-grained FFI calls can erase the expected performance benefit.
+
+### Artifact and release model
+
+The monorepo does not have one version or one firm-wide release. Each deployable target produces an independently versioned immutable artifact identified by at least:
+
+- Source revision and build target.
+- Toolchain and declared dependency digests.
+- Schema and generated-code versions.
+- Target platform and build mode.
+- Artifact digest and provenance record.
+
+CI builds each deployable target once. A target promoted from shadow to paper and, if separately approved, live operation keeps the same digest; it is not rebuilt from an environment branch. Historical simulation may be a different adapter target, but it must identify the exact shared-core revision or artifact and pass reconciliation against the promoted target. Environment configuration is independently versioned, validated, and linked to the deployment record. Secret values remain outside both source and artifact manifests.
+
+### Ownership and access
+
+- Every build target has an accountable owner and backup owner. Shared schemas, risk controls, deployment rules, and toolchains require reviews from their domain owners.
+- Source-code visibility is separate from runtime authority. Permission to read or modify research code does not grant access to market-data entitlements, deployment systems, trading credentials, or capital.
+- Secrets and sensitive datasets remain outside Git. Repository paths contain only references, schemas, synthetic fixtures, and access-policy metadata.
+- Narrow package visibility, ownership rules, and deployment authorization limit blast radius without giving up atomic cross-component changes.
+- A change to a public schema or language boundary includes compatibility, migration, and rollback evidence for every affected consumer selected from the dependency graph.
 
 ### Configuration conventions
 
@@ -398,16 +509,16 @@ Circular package dependencies are prohibited. Shared helpers belong in a narrowl
 
 ## Merge-request policy
 
-- Implementation MRs have a maximum of 299 additions plus deletions, including their tests, fixtures, configuration, inline documentation, and generated files.
-- Target 150-250 changed lines so review feedback does not breach the hard limit.
-- One behavior or contract per MR; broad scaffolding and opportunistic refactors are rejected.
+- Implementation MRs contain the smallest coherent change that can be implemented, tested, reviewed, and rolled back safely. There is no universal line-count limit: generated schemas, migrations, and cross-language contract changes have different review costs from ordinary source edits.
+- One behavior or contract per MR where practical; broad scaffolding and opportunistic refactors are rejected.
 - Every MR names one human-readable invariant and includes a deterministic acceptance test.
 - Network tests use recorded fixtures in CI; a separate bounded smoke test verifies the real provider.
-- Binary fixtures and large generated lockfiles are not permitted in ordinary code MRs.
+- Large generated, vendored, formatting-only, or mechanical changes are isolated from semantic changes and reviewed with the owning generator or transformation command.
+- Binary fixtures are allowed only when a text fixture cannot exercise the relevant format and the fixture is small, non-sensitive, documented, and reproducibly generated or independently verified.
 - Public interfaces require contract tests before receiving a second implementation.
 - Each MR must leave all previously completed acceptance gates green.
 
-The 299-line limit applies to implementation MRs. Documentation-only MRs are exempt when additional detail materially improves correctness, reviewability, operations, or governance. A documentation exemption must not be used to hide executable code, generated schemas, large fixtures, or mechanical source rewrites.
+CI selects affected targets and their reverse dependencies from the declared build graph. Repository-wide tests remain available for changes to foundational schemas, toolchains, build rules, or other high-blast-radius components and for scheduled validation.
 
 ### Required MR description
 
@@ -415,16 +526,16 @@ Every implementation MR description includes:
 
 1. Its stable platform or research-replication MR ID.
 2. The single behavior or contract introduced.
-3. The exact reading-guide requirement: week, annotated section, Core 32 reading, or §08 deliverable.
-4. Why the change is required by that source and which later steps depend on it.
+3. The tracked requirement or roadmap item: MR ID, week, section, or deliverable, plus the primary paper or venue specification when applicable.
+4. Why the change is required and which later steps depend on it.
 5. The invariant a human reviewer should verify.
 6. Files and public interfaces changed.
 7. Test commands, expected evidence artifact, and acceptance gate affected.
 8. Failure and rollback behavior.
 9. Known omissions or follow-up work.
-10. Changed-line count, excluding only an approved documentation exemption.
+10. Any generated or mechanical content and the command or tool that produced it.
 
-An MR may cite more than one reading-guide requirement, but it must have one primary requirement and one primary verification claim. Research-replication MRs also name the exact paper or specification being replicated, the deviations from the source design, and the artifact paths containing the result. A citation without executable evidence or a deterministic review procedure does not establish traceability.
+An MR may cite more than one requirement, but it must have one primary requirement and one primary verification claim. Research-replication MRs also name the exact paper or specification being replicated, the deviations from the source design, and the artifact paths containing the result. A citation without executable evidence or a deterministic review procedure does not establish traceability.
 
 ### Review order
 
@@ -440,16 +551,16 @@ Reviewers should inspect changes in this order:
 
 ## Implementation roadmap
 
-Every implementation MR has a stable global ID. IDs are never reused, even if an MR is abandoned or superseded. The reading-guide column uses `W01`-`W16` for the sixteen-week program and section numbers for the annotated syllabus, minimum specification, and deliverables.
+Every implementation MR has a stable global ID. IDs are never reused, even if an MR is abandoned or superseded. The research-program linkage column uses `W01`-`W16` for the sixteen-week program and retains section numbers from the source planning material as provenance. The capability, human-verification statement, acceptance gate, and tracked references in this README are normative; an unavailable local source document is not required to implement or review an MR.
 
 Platform MRs build reusable capabilities. They do not by themselves constitute completion of a research week; the research-replication MRs defined later produce the required empirical evidence.
 
 ### Wave 0: engineering spine
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
-| `MR-ENG-001` | Repository, pinned environment, package import, and test smoke check | All weeks; §06.3 reproducible environments | Clean checkout installs and the smoke test passes |
-| `MR-ENG-002` | CI, static checks, and 299-line implementation diff gate | All weeks; §06.3 CI/CD; §07.7 independent review | A 299-line fixture change passes and a 300-line change fails |
+| `MR-ENG-001` | Root build interface, pinned Python environment, package import, and test smoke check | All weeks; §06.3 reproducible environments | Clean checkout installs and the smoke test passes without undeclared host dependencies |
+| `MR-ENG-002` | Affected-target CI, static checks, build-graph validation, and scheduled full validation | All weeks; §06.3 CI/CD; §07.7 independent review | A leaf change tests its target and reverse dependencies; a foundational schema change selects all affected consumers |
 | `MR-ENG-003` | Typed configuration, precedence, and secret references | W16; §06.3 workflow controls; §07.7 governance | Unknown keys fail and resolved non-secret configuration is complete |
 | `MR-ENG-004` | Canonical identifiers, UTC, decimal precision, currency, and units | W02; §07.1 point-in-time data; §07.4 sign conventions | Invalid timestamps, units, currency, and precision fail explicitly |
 | `MR-ENG-005` | Content hashing, run manifests, and deterministic run identity | W02, W15-W16; §07.1 lineage; §07.7 governance | Same inputs produce the same ID; one-byte change produces a new ID |
@@ -460,7 +571,7 @@ Platform MRs build reusable capabilities. They do not by themselves constitute c
 
 ### Wave 1: asset-neutral domain foundation
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
 | `MR-DOM-001` | Versioned `ContractSpec` hierarchy | W02, W14; §04.14; §07.1, §07.6 | Cash, perpetual, future, option, FX-forward, and cashflow fixtures round-trip |
 | `MR-DOM-002` | Typed `MarketEvent` union and schema validation | W02, W13-W14; §06.3; §07.1 | Payload/type mismatches and incompatible schema versions fail |
@@ -477,7 +588,7 @@ Platform MRs build reusable capabilities. They do not by themselves constitute c
 
 ### Wave 2: first end-to-end crypto research slice
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
 | `MR-CRY-001` | Canonical crypto bars and funding events | W01-W03, W14; §04.14; §07.1 | Fixture values preserve event time, prices, volumes, and funding sign |
 | `MR-CRY-002` | Immutable local bronze store | W02; §07.1; §08 data audit | Existing raw objects cannot be overwritten |
@@ -494,7 +605,7 @@ Platform MRs build reusable capabilities. They do not by themselves constitute c
 
 ### Wave 3: point-in-time data platform
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
 | `MR-DATA-001` | Bitemporal metadata catalog and raw-revision history | W02; §07.1; §08 data audit | Actual-time and knowledge-time queries return the expected versions |
 | `MR-DATA-002` | Historical archive catalog and lifecycle ingestion | W02; §04.12; §07.1 | Delisted or inactive contracts remain historically discoverable |
@@ -510,7 +621,7 @@ Platform MRs build reusable capabilities. They do not by themselves constitute c
 
 ### Wave 4: research and model platform
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
 | `MR-RES-001` | Feature, label, signal, and dataset registries | W05; §04.4-§04.5; §07.2-§07.3 | Required mechanism, horizon, availability, decay, and owner metadata is enforced |
 | `MR-RES-002` | Rolling and expanding splits | W07-W09, W15; §04.6, §04.12; §07.2 | All boundaries match the declared retraining and test cadence |
@@ -527,7 +638,7 @@ Platform MRs build reusable capabilities. They do not by themselves constitute c
 
 ### Wave 5: risk and portfolio platform
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
 | `MR-PORT-001` | Sample and shrinkage covariance | W10; §04.7; §07.4 | Closed-form fixtures and positive-semidefinite checks pass |
 | `MR-PORT-002` | Factor and sparse-residual covariance | W10; §04.3, §04.7; §07.4 | Factor-plus-residual reconstruction and sparsity tests pass |
@@ -543,7 +654,7 @@ Platform MRs build reusable capabilities. They do not by themselves constitute c
 
 ### Wave 6: execution, financing, and capacity
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
 | `MR-EXEC-001` | Order, fill, cancel, reject, and position state machine | W13-W14, W16; §04.9-§04.11; §07.5-§07.6 | Impossible transitions and duplicate economic orders are rejected |
 | `MR-EXEC-002` | Deterministic event replay and timestamp ordering | W13, W16; §04.9-§04.10; §07.5, §07.7 | Replaying identical events produces identical state and artifacts |
@@ -559,24 +670,24 @@ Platform MRs build reusable capabilities. They do not by themselves constitute c
 
 ### Wave 7: governance, shadow production, and operations
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
-| `MR-GOV-001` | Append-only experiment and trial ledger | W05-W16; §04.12; §07.2, §07.7 | Failed and rejected variants cannot be deleted or hidden |
+| `MR-GOV-001` | Append-only governed experiment and trial ledger | W05-W16; §04.12; §07.2, §07.7 | Failed and rejected variants used in formal comparison or selection cannot be deleted or hidden |
 | `MR-GOV-002` | Block bootstrap and multiple-testing corrections | W15; §04.12; §07.2, §07.7 | Dependence blocks and the complete candidate family are retained |
 | `MR-GOV-003` | Frozen final-OOS dataset, configuration, and access log | W15-W16; §04.12; §07.2, §07.7; §08 OOS package | Candidate inputs cannot drift and every OOS access is recorded |
 | `MR-GOV-004` | Model artifact registry and model card | W15-W16; §07.7; §08 production model card | Owner, intended use, limitations, dependencies, and thresholds are required |
 | `MR-GOV-005` | Promotion state machine | W15-W16; §07.7; §08 decision rules | Invalid state transitions and missing approvals fail |
-| `MR-GOV-006` | Shadow runner using shared production-path components | W16; §07.7; §08 OOS/model-card artifacts | Research-only substitutes are detected by component identity |
+| `MR-GOV-006` | Shadow runner using authoritative or conformant production-path components | W16; §07.7; §08 OOS/model-card artifacts | Component identity or conformance-suite evidence detects unapproved research substitutes |
 | `MR-GOV-007` | Backtest-to-shadow reconciliation | W16; §07.5, §07.7; §08 final OOS package | Forecast, target, order, fill, cost, and P&L differences attribute fully |
 | `MR-GOV-008` | Operational kill switches | W16; §07.6-§07.7 | Stale data, risk failure, infeasibility, rejects, and P&L breaches trigger |
 | `MR-GOV-009` | Metrics, logs, traces, dashboards, and alerts | W09, W16; §06.3; §07.7 | One candidate run is observable from market data through P&L |
-| `MR-GOV-010` | Containers, health checks, rollback, replay, and runbooks | W16; §06.3-§06.4; §07.7 | Operator completes stop, rollback, replay, and recovery drill |
+| `MR-GOV-010` | Immutable deployment artifacts, health checks, rollback, replay, and runbooks | W16; §06.3-§06.4; §07.7 | Operator promotes one artifact digest and completes stop, rollback, replay, and recovery drills |
 
-**Wave 7 exit criteria:** a frozen candidate can run in historical replay and shadow using shared production-path code; every prediction-to-fill difference is attributable; configured kill switches are exercised in tests; an operator can identify, stop, roll back, replay, and recover a failed deployment from the runbook.
+**Wave 7 exit criteria:** a frozen candidate can run in historical replay and shadow using the same authoritative artifacts or approved conformant components; every prediction-to-fill difference is attributable; configured kill switches are exercised in tests; an operator can identify, stop, roll back, replay, and recover a failed deployment from the runbook.
 
 ### Wave 8: asset-class adapters
 
-| MR ID | Capability | Reading-guide linkage | Human verification |
+| MR ID | Capability | Research-program linkage | Human verification |
 | --- | --- | --- | --- |
 | `MR-ASSET-001` | Equity delayed-SIP entitlement and data adapter | §04.1-§04.13; §06.1-§06.2; §07.1 | Actual entitlement is probed and adapter passes connector contracts |
 | `MR-ASSET-002` | Equity sessions, IDs, corporate actions, PIT universe, and borrow gate | W02, W14; §04.11-§04.12; §07.1, §07.6 | Rename, split, delisting, and unavailable-borrow fixtures pass |
@@ -591,7 +702,7 @@ Platform MRs build reusable capabilities. They do not by themselves constitute c
 
 ## Research-replication MR roadmap
 
-Platform capability and research evidence are separate concerns. The following MRs run on top of the platform and correspond directly to the reading guide's sixteen-week replication program. Each research MR records its parent hypothesis, dataset ID, registered component versions, and all trial outcomes.
+Platform capability and research evidence are separate concerns. The following MRs run on top of the platform and form the tracked sixteen-week replication program. Each research MR records its parent hypothesis, dataset ID, registered component versions, and all governed trial outcomes.
 
 ### Week 1: strategy map and transparent baseline
 
@@ -719,7 +830,7 @@ Platform capability and research evidence are separate concerns. The following M
 | --- | --- | --- | --- |
 | `MR-REP-W16-01` | Evaluate the frozen candidate on untouched OOS | Arnott, Harvey, and Markowitz; Jensen et al. (2026) | Access log, locked results, attribution, stress, and failure analysis |
 | `MR-REP-W16-02` | Run capital-convergence, crowding, and correlated-deleveraging scenarios | Shleifer and Vishny (1997); Khandani and Lo (2011); Lou and Polk (2022) | Capital withdrawal, factor overlap, liquidity withdrawal, correlated impact, and drawdown stress |
-| `MR-REP-W16-03` | Deliver shadow reconciliation and PM-ready package | Jensen et al. (2026); reading-guide §08 | Capacity frontier, model card, monitoring, reconciliation, and promotion decision |
+| `MR-REP-W16-03` | Deliver shadow reconciliation and PM-ready package | Jensen et al. (2026); §08 deliverable | Capacity frontier, model card, monitoring, reconciliation, and promotion decision |
 
 ## Research-program acceptance map
 
@@ -755,9 +866,9 @@ Platform capability and research evidence are separate concerns. The following M
 
 The program may pause at any week if its required platform capability or evidence is incomplete. A later research week must not be used to justify bypassing an earlier data, accounting, or governance gate.
 
-## Reading-guide traceability
+## Research-program traceability
 
-The reading guide is treated as a set of research requirements, not as a software backlog. The platform MR IDs identify reusable enabling code. The `MR-REP-*` IDs identify the empirical work that closes a reading requirement. A paper is complete only when the cited research MR's evidence is reproducible; merging its supporting platform code is necessary but insufficient.
+The research program is a set of evidence requirements, not merely a software backlog. The platform MR IDs identify reusable enabling code. The `MR-REP-*` IDs identify the empirical work that closes a research requirement. A paper-based replication is complete only when the cited research MR's evidence is reproducible; merging its supporting platform code is necessary but insufficient.
 
 ### Core 32 reading-to-MR crosswalk
 
@@ -800,7 +911,7 @@ This crosswalk assigns every Core 32 reading to evidence work, but it does not i
 
 ### Annotated research-problem crosswalk
 
-| Reading-guide section | Platform MR families | Primary research MR IDs | Completion evidence |
+| Research-program section | Platform MR families | Primary research MR IDs | Completion evidence |
 | --- | --- | --- | --- |
 | §04.1 Foundations: predictability and limits to arbitrage | `MR-CRY-*`, `MR-RES-002`-`004`, `MR-GOV-001` | `MR-REP-W01-*`, `MR-REP-W16-02` | Transparent baseline, formal profit decomposition, and convergence-capital stress |
 | §04.2 Core statistical arbitrage, residual trading, and crowding | `MR-RES-005`-`007`, `MR-RES-010`, `MR-PORT-009` | `MR-REP-W03-03`, `MR-REP-W09-01`, `MR-REP-W16-02` | Residual reconstruction, convergence diagnostics, crowding state, and unwind stress |
@@ -862,7 +973,7 @@ No research candidate may graduate merely because all its week-specific MRs merg
 
 ## Acceptance gates
 
-1. **Foundation gate:** clean install, deterministic identities, contract fixtures, and CI line limit pass.
+1. **Foundation gate:** clean install, deterministic identities, contract fixtures, build-graph validation, and affected-target CI pass.
 2. **Data gate:** raw-to-silver reproduction, revision retention, point-in-time queries, and historical universe tests pass.
 3. **Research gate:** future perturbations do not change past features, transforms, models, or membership.
 4. **Accounting gate:** cash, positions, fees, funding, settlement, and P&L reconcile exactly on golden fixtures.
@@ -913,7 +1024,7 @@ Integration tests exercise bounded workflows across packages:
 - Candidate artifact -> historical replay -> paper gateway -> reconciliation.
 - Data correction -> lineage impact -> invalidation and rebuild.
 
-External services are replaced with deterministic containers or recorded responses in CI. Live provider smoke tests are bounded, non-destructive, separately labeled, and never required for ordinary unit-test execution.
+External services are replaced with deterministic fakes, local processes, containers, or recorded responses in CI as appropriate. Live provider smoke tests are bounded, non-destructive, separately labeled, and never required for ordinary unit-test execution.
 
 ### Golden tests
 
@@ -944,7 +1055,7 @@ Where exact expected values are insufficient, test invariants such as:
 
 ### Performance tests
 
-Performance tests begin only after correctness gates pass. Benchmarks record dataset size, event count, instruments, hardware, runtime, peak memory, and code revision. A performance optimization must preserve golden results or document an explicitly accepted numerical tolerance.
+Performance tests begin only after correctness gates pass. Benchmarks record dataset size, event count, instruments, toolchain, artifact digest, hardware, runtime, peak memory, and code revision. Regression gates for latency-sensitive targets run on controlled hardware with pinned power, CPU, NUMA, and background-load policy; results from arbitrary shared CI hosts are diagnostic only. A performance optimization must preserve golden results or document an explicitly accepted numerical tolerance.
 
 ## Operational requirements
 
@@ -968,7 +1079,9 @@ At minimum, expose:
 - Orders, acknowledgements, fills, cancels, rejects, fill ratios, latency, slippage, and implementation shortfall.
 - P&L, funding, financing, fees, impact, drawdown, reconciliation residual, and kill-switch state.
 
-Metrics use stable names and units. High-cardinality identifiers belong in logs or traces rather than unbounded metric labels.
+Metrics use stable names and units. High-cardinality identifiers belong in logs or traces rather than unbounded metric labels. Telemetry identifies the source revision, artifact digest, strategy or service, configuration version, environment, region, venue, and host where applicable.
+
+Latency-sensitive components publish telemetry through bounded, non-blocking paths such as counters or ring buffers drained by a separate thread or process. Observability backpressure must not block market-data handling, risk enforcement, order submission, or a kill switch. Dropped telemetry is itself measured and alerted.
 
 ### Failure and degradation policy
 
@@ -978,7 +1091,7 @@ Each application defines behavior for missing data, stale data, unavailable meta
 
 - Data publication is atomic and previous valid versions remain addressable.
 - Candidate promotion is reversible without deleting evidence.
-- Application deployments retain a known-good image and compatible configuration.
+- Application deployments retain a known-good artifact and compatible configuration; the artifact may be a native binary, archive, package, or container image.
 - State recovery procedures identify the authoritative event and ledger sources.
 - Runbooks include detection, containment, rollback, replay, reconciliation, escalation, and post-incident evidence.
 - Recovery drills use test or paper environments and record observed recovery time and unresolved gaps.
@@ -990,7 +1103,7 @@ Each application defines behavior for missing data, stale data, unavailable meta
 - Research processes do not receive trading credentials.
 - Production candidate artifacts and promotion actions have authenticated ownership and audit history.
 - Sensitive account, position, order, and vendor-entitlement data is not included in public fixtures or logs.
-- Dependency versions and container bases are pinned and scanned through the approved CI process.
+- Toolchains, dependency versions, and any container bases are pinned and scanned through the approved CI process.
 - Destructive data operations require explicit targets, authorization, and recoverable backups or version history.
 - Live execution, withdrawals, custody, and key-management controls require a separate security design and approval.
 
@@ -1063,9 +1176,9 @@ The cross-asset gate must include an end-to-end option strategy that:
 5. Accounts for premiums, fees, financing, margin, exercise, and settlement.
 6. Attributes P&L to delta, gamma, vega, theta, execution, financing, and residual.
 7. Revalues under spot, volatility, skew, term-structure, liquidity, and margin shocks.
-8. Runs unchanged through research, final OOS, shadow, and paper entrypoints.
+8. Runs through research, final OOS, shadow, and paper entrypoints using the same contracts and authoritative or conformant economic logic, with only environment adapters changing.
 
-Any required modification to the shared ledger, dataset engine, backtest clock, registry, or promotion workflow fails the portability test and requires an abstraction review.
+An asset-specialized or breaking modification to the shared ledger, dataset engine, backtest clock, registry, or promotion workflow fails the portability test and requires an abstraction review. An additive change that expresses a genuinely asset-neutral capability may proceed after contract and regression review.
 
 ### Required options-portability evidence
 
@@ -1078,7 +1191,7 @@ Any required modification to the shared ledger, dataset engine, backtest clock, 
 - P&L explain for delta, gamma, vega, theta, curve/rate, execution, financing, and residual.
 - Scenario cube covering underlying gaps, volatility level, skew, term structure, correlation, liquidity, and margin.
 - Vectorized/event replay comparison under aligned assumptions.
-- Historical-research/shadow comparison using the same registered components.
+- Historical-research/shadow comparison using the same registered artifacts or approved conformant components.
 
 ## Research and promotion governance
 
@@ -1086,7 +1199,7 @@ Any required modification to the shared ledger, dataset engine, backtest clock, 
 
 | State | Meaning | Minimum requirement |
 | --- | --- | --- |
-| Exploration | Idea is being investigated | Registered hypothesis and complete trial recording |
+| Exploration | Idea is being investigated | Registered hypothesis; governed runs begin when results enter formal comparison or selection |
 | Replication | Published or internal baseline is reproduced | Source specification, known differences, reproducible artifact |
 | Candidate research | Model competes under common evaluation | Point-in-time data, common splits, costs, risk, portfolio and stress |
 | Frozen candidate | Selection is complete | Immutable dataset, configuration, code, artifacts and decision rules |
@@ -1128,7 +1241,7 @@ Material findings are artifacts linked to the candidate. Approval does not delet
 
 ## Documentation requirements
 
-Documentation is part of the implementation and may exceed the code-MR line limit when detail improves correctness or operations. Required maintained documents include:
+Documentation is part of the implementation and is reviewed for correctness and operational impact. Required maintained documents include:
 
 - Architecture and dependency decisions.
 - Canonical schemas, units, timestamps, and lifecycle semantics.
@@ -1165,14 +1278,26 @@ A successful backtest alone is never completion evidence.
 
 Live capital deployment is outside this guideline. It requires a separate review of legal access, exchange and broker agreements, credentials, operational ownership, capital limits, and explicit authorization.
 
-## Companion references
+## References
 
-- `Institutional-Grade Multi-Asset Alpha Research Implementation Framework.pdf` for the original shared-core, three-entrypoint, provenance, bias-control, and production-operability design.
-- `Institutional_Statistical_Arbitrage_Reading_List_2026.pdf` for the research sequence, minimum evidence package, required deliverables, and promotion questions.
+The local PDFs used during early drafting are not tracked by this repository and are therefore not normative dependencies. Requirements needed to implement or review the platform must be stated in tracked documentation.
+
+### Public architecture evidence
+
+- [Jane Street: How we accidentally built a better build system for OCaml](https://blog.janestreet.com/how-we-accidentally-built-a-better-build-system-for-ocaml-index/) for its publicly stated monorepo scale, Dune migration, build caching, and dedicated build-systems work.
+- [Jane Street: Building reproducible Python environments with XARs](https://blog.janestreet.com/building-reproducible-python-environments-with-xars/) for immutable Python environments, native-language integration, and stable versus continuously updated environment tags.
+- [HRT: Inside HRT's Python Fork](https://www.hudsonrivertrading.com/hrtbeat/inside-hrts-python-fork/) for its publicly stated majority-monorepo development and the costs of globally importable Python modules at scale.
+- [HRT: Engineering and Interviewing at HRT](https://www.hudsonrivertrading.com/hrtbeat/engineering-and-interviewing-at-hrt/) for its public distinction between research and live-trading engineering, platform and embedded teams, and C++/Python responsibilities.
+- [HRT: Scaling Prometheus to Billions of Samples a Second](https://www.hudsonrivertrading.com/hrtbeat/scaling-prometheus/) for horizontally scaled, highly available monitoring across research and live environments.
+- [Citadel Securities Engineering](https://www.citadelsecurities.com/careers/engineering/) for its public descriptions of trading systems, research and simulation, core platforms, and SRE. This source does not establish a Citadel Securities monorepo or a specific build tool.
+
+### Technical references
+
+- [Bazel](https://bazel.build/) and [Bazel hermeticity](https://bazel.build/basics/hermeticity) for a reference multi-language build graph, pinned inputs, reproducibility, caching, and remote execution.
 - [Apache Parquet](https://parquet.apache.org/) for portable columnar storage.
 - [Apache Arrow](https://arrow.apache.org/overview/) for future cross-language in-memory interchange.
 - [FIX Trading Community](https://www.fixtrading.org/standards/) for established instrument, order, execution, and multi-leg concepts.
 - [OCC equity options specifications](https://www.theocc.com/clearance-and-settlement/clearing/equity-options-product-specifications) for equity-option exercise, assignment, and contract behavior.
 - [CME contract specifications](https://www.cmegroup.com/education/courses/introduction-to-futures/learn-about-contract-specifications) for futures multipliers, delivery, expiration, and settlement concepts.
 
-References inform the platform contracts but do not override effective venue rules, broker agreements, legal requirements, or internally approved policies.
+References inform the platform contracts but do not override effective venue rules, broker agreements, legal requirements, measurements from this system, or internally approved policies.
