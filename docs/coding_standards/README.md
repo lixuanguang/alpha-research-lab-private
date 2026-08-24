@@ -11,6 +11,11 @@ The standards apply to new code and to code materially changed by a patch. They
 do not require unrelated legacy code to be rewritten. When a touched area cannot
 meet a rule, keep the exception narrow and document the reason and follow-up.
 
+Standards apply at the build-target boundary. The repository is organized by
+economic or platform responsibility first and implementation language second;
+co-located Python, Rust, and C/C++ targets may implement or expose one domain
+contract without sharing a release cadence or runtime.
+
 ## Language guides
 
 - [Python](python.md)
@@ -52,27 +57,35 @@ Before editing, an agent MUST:
    current working-tree changes.
 3. State any assumption that materially affects behavior. Resolve facts from the
    repository rather than inventing APIs, schemas, dependencies, or commands.
-4. Choose the smallest coherent change that satisfies the request.
+4. Identify affected build targets, owners, reverse dependencies, generated code,
+   schemas, serialized formats, and FFI/ABI consumers.
+5. Choose the smallest coherent change that satisfies the request.
 
 While editing, an agent MUST:
 
 1. Preserve unrelated user changes and avoid broad formatting or refactoring.
-2. Follow established package boundaries and dependency direction.
+2. Follow established package boundaries, build-target visibility, ownership,
+   and dependency direction.
 3. Update tests and documentation when behavior or a public contract changes.
 4. Keep generated files out of hand-written patches unless the project explicitly
    tracks them; use the owning generator instead.
-5. Stop and report a conflict when safe behavior depends on unavailable domain
+5. Update conformance, compatibility, migration, and rollback evidence when a
+   schema, serialized representation, or language boundary changes.
+6. Stop and report a conflict when safe behavior depends on unavailable domain
    knowledge or authorization.
 
 Before declaring completion, an agent MUST:
 
 1. Review the diff for scope, secrets, debugging code, dead code, and accidental
    generated artifacts.
-2. Run the narrowest relevant tests plus the configured formatter, linter, and
-   type/static checks for the affected language.
-3. Run broader tests when the change affects shared contracts, serialization,
-   persistence, concurrency, numerical logic, or security boundaries.
-4. Report what changed, what was validated, and any check that could not run.
+2. Run the narrowest affected build targets through the repository's documented
+   root interface, plus the configured formatter, linter, and type/static checks.
+3. Run reverse-dependency or broader tests when the change affects shared
+   contracts, build rules, toolchains, serialization, persistence, concurrency,
+   numerical logic, or security boundaries.
+4. For a deployable target, verify that its artifact identity and provenance do
+   not depend on undeclared host state or secret values.
+5. Report what changed, what was validated, and any check that could not run.
 
 Passing automated checks is necessary but does not replace reasoning about
 correctness, information leakage, numerical behavior, or failure modes.
@@ -92,6 +105,9 @@ correctness, information leakage, numerical behavior, or failure modes.
 
 - A business rule, schema, constant, or algorithm SHOULD have one authoritative
   implementation.
+- When two languages must implement the same contract, either bind one
+  authoritative implementation or require versioned golden and differential
+  tests. Source similarity alone is not proof of equivalent behavior.
 - Extract duplication when the repeated code represents the same concept and is
   likely to change together.
 - Do not force superficially similar behavior into a shared abstraction when its
@@ -137,6 +153,51 @@ relationship with a stable contract.
   whose only purpose is to re-export unrelated objects.
 - Public interfaces SHOULD accept domain concepts rather than loose bags of
   primitives.
+- Research targets MAY depend on production-capable domain libraries. Production
+  targets MUST NOT depend on notebooks, ad hoc experiments, or research-only
+  approximations.
+
+## Monorepo targets, builds, and artifacts
+
+- A build target is the unit of dependency, ownership, testing, artifact creation,
+  and deployment. A directory is not automatically a public dependency surface.
+- Each target MUST declare its direct dependencies, visibility, owner, supported
+  runtime platform, and generated inputs according to repository tooling.
+- Builds MUST use pinned interpreters, compilers, standard libraries, package
+  dependencies, and code generators. Developer-machine installations and ambient
+  environment variables MUST NOT be undeclared inputs.
+- The repository MUST provide one documented root interface for build, test,
+  lint, and formatting. Language-native tools MAY remain available for fast local
+  iteration, but they do not override the repository build graph.
+- Generated source MUST identify its generator and inputs. Do not mix a large
+  generated rewrite with an unrelated semantic change.
+- A monorepo does not imply one version or release. Each deployable target produces
+  an immutable artifact with source, target, toolchain, dependency, schema,
+  platform, and build-mode provenance.
+- The same deployable target is built once and promoted by artifact digest across
+  applicable environments. Environment-specific configuration is validated and
+  versioned separately; secret values never enter source or artifact identity.
+- Source visibility does not grant runtime authority. Market-data entitlements,
+  deployment rights, credentials, and capital permissions remain separate.
+
+## Cross-language contracts
+
+- Organize code by owning domain and keep language-specific implementations below
+  that boundary. Do not create global language silos that duplicate economic
+  rules without explicit ownership.
+- Cross-process interfaces MUST use versioned schemas with compatibility tests.
+  Schema changes account for old and new readers, migration, rollback, and every
+  affected consumer selected from the dependency graph.
+- In-process Rust/C++ integration MUST use a narrow C ABI or a reviewed
+  interoperability layer. Ownership, allocator, lifetime, alignment, error,
+  unwinding, threading, and version rules MUST be explicit.
+- Language-native collections, exceptions, references, trait objects, class
+  layouts, and other unstable representations MUST NOT cross an undocumented ABI.
+- Python/native bindings SHOULD expose coarse or batch-oriented operations.
+  Measure boundary conversion and call overhead before assuming native code is
+  faster.
+- Independent language implementations of one contract MUST share fixtures and
+  pass differential or conformance tests within documented numerical tolerances.
 
 ## Functions, modules, and public interfaces
 
@@ -195,6 +256,12 @@ Language-specific casing is defined in each guide. In every language:
   idempotent behavior.
 - Logs MUST be structured where supported and use stable event names. Avoid log
   spam inside hot loops and do not log the same failure at every layer.
+- Operational telemetry SHOULD identify the source revision, artifact digest,
+  target, configuration version, environment, and safe domain identifiers needed
+  for reconciliation.
+- Telemetry from a latency-sensitive path MUST be bounded and non-blocking. A slow
+  collector MUST NOT delay market data, risk enforcement, order handling, or a
+  kill switch; dropped telemetry MUST itself be observable.
 - Assertions express internal invariants; they are not a substitute for validating
   user, file, network, or market data.
 
@@ -207,6 +274,8 @@ Language-specific casing is defined in each guide. In every language:
 - Use parameterized queries and structured process APIs. Never construct commands
   or queries through unchecked string interpolation.
 - Apply least privilege and minimize the lifetime and scope of sensitive data.
+- Keep source access, data entitlements, artifact promotion, deployment authority,
+  and trading credentials as distinct permissions.
 - Use established cryptographic libraries and algorithms; never design custom
   cryptography.
 - Destructive and externally visible operations MUST have explicit scope,
@@ -244,6 +313,10 @@ Language-specific casing is defined in each guide. In every language:
 - Use integration tests for component boundaries and a small number of end-to-end
   tests for critical paths. Do not replace focused tests with a large end-to-end
   suite.
+- CI SHOULD select affected targets and reverse dependencies from the build graph.
+  Foundational schema, toolchain, and build-rule changes require broader validation.
+- Cross-language implementations and bindings MUST run shared contract, golden,
+  and differential tests; each side passing isolated unit tests is insufficient.
 - Property, fuzz, or generative tests SHOULD cover parsers, serializers, numeric
   invariants, state machines, and other broad input spaces.
 - A test MUST fail for the reason it claims to verify; avoid weak assertions and
@@ -260,6 +333,9 @@ Before approval, verify that:
 - Security, concurrency, numerical, and time semantics were considered.
 - Tests would detect a realistic regression and are deterministic.
 - Public documentation and examples match the implementation.
+- Build-target dependencies, visibility, owners, schema compatibility, and
+  artifact provenance are correct for the change.
+- Cross-language behavior is authoritative or covered by conformance evidence;
+  ABI ownership and failure rules are explicit.
 - Formatting, lint, static/type checks, tests, and build checks pass.
 - No secrets, debug statements, commented-out code, or accidental artifacts remain.
-

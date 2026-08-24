@@ -7,30 +7,45 @@ Cargo configuration. It supplements the shared [coding standards](README.md) and
 the official Rust API Guidelines.
 
 Use the edition and minimum supported Rust version declared by the workspace.
-For a new workspace, choose the current stable edition/toolchain supported by the
-deployment environment and record it explicitly. Do not change the edition or
-minimum supported version in an unrelated patch.
+For a new workspace, select an edition and toolchain supported by the deployment
+environment, dependencies, and repository build system, then pin them explicitly.
+Do not infer `stable` from the developer machine or change the edition or minimum
+supported version in an unrelated patch.
 
 ## Required tooling
 
-A normal Rust change MUST run the configured equivalents of:
+The repository's root build/test interface and target graph are authoritative.
+When the owning target exposes a Cargo workspace for local iteration, a normal
+Rust change MUST run the configured equivalents of:
 
-```bash
+```text
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-cargo doc --workspace --all-features --no-deps
+cargo clippy --workspace --all-targets <feature-flags> -- -D warnings
+cargo test --workspace <feature-flags>
+cargo doc --workspace <feature-flags> --no-deps
 ```
 
 Run examples, doctests, feature-specific builds, benchmarks, Miri, fuzzers,
 sanitizers, `cargo audit`, or `cargo deny` when configured or relevant to the risk.
-Check important supported feature combinations rather than assuming
-`--all-features` represents every valid build.
+The `<feature-flags>` placeholder is illustrative. Check the supported feature
+matrix; use `--all-features` only when that is a valid configuration and do not
+assume it represents every supported build.
 
 Do not add a crate merely to avoid a few clear lines of standard-library code.
 New dependencies MUST have a current need, compatible license, acceptable
 maintenance/security posture, and intentionally selected features. Commit
-`Cargo.lock` for binaries/applications and follow workspace policy for libraries.
+`Cargo.lock` for binaries/applications when Cargo owns resolution, and follow the
+repository build graph's lock/import policy when another system owns resolution.
+
+- The compiler, target triple, standard library, linker, sysroot, code generators,
+  Cargo configuration, and target CPU/features MUST be pinned build inputs.
+- `build.rs`, procedural macros, and generators MUST be deterministic for declared
+  inputs and MUST NOT fetch from the network or depend on undeclared host tools,
+  directories, environment variables, timestamps, or locale.
+- Do not enable host CPU features implicitly for portable artifacts. Model CPU
+  variants as explicit platform targets and test dispatch on supported hosts.
+- A deployable artifact records source, target, toolchain, dependency, schema,
+  platform, feature-set, panic-mode, and symbol/debug-artifact provenance.
 
 ## Formatting, modules, and imports
 
@@ -160,6 +175,18 @@ Additional rules:
 - No panic may unwind across an FFI boundary. Translate failures to the boundary's
   explicit result convention.
 - FFI ownership and allocation/deallocation side MUST be documented and paired.
+- Prefer opaque handles for complex Rust state. Create, borrow/retain where
+  applicable, and destroy operations MUST define thread safety and invalid-handle
+  behavior.
+- Error codes crossing an ABI MUST be stable and machine-readable. Diagnostic
+  strings and returned buffers need explicit encoding, allocator, capacity,
+  lifetime, and release rules.
+- Callbacks MUST document calling thread, reentrancy, lifetime, cancellation, and
+  whether they may re-enter Rust or the foreign runtime.
+- Python bindings MUST document GIL behavior and MUST NOT call Python APIs while
+  the GIL is released. No panic may unwind across the binding boundary; external
+  failures return structured Rust errors that translate into stable Python
+  exception categories.
 - Unsafe and low-level code SHOULD run under Miri, sanitizers, and/or fuzzing as
   applicable.
 
@@ -197,8 +224,28 @@ Additional rules:
   wrapping arithmetic MUST reflect the explicit domain contract, not convenience.
 - Floating-point code MUST define handling for `NaN`, infinity, signed zero, and
   tolerance-based comparisons.
+- Floating-point contraction, reassociation, fast-math, flush-to-zero, and SIMD
+  choices are semantic decisions. They require numerical conformance tests and
+  MUST NOT enter financial, risk, or accounting code through an unrelated
+  optimization change.
 - Randomized work MUST accept or construct from an explicit reproducible seed when
   results need to be repeatable.
+
+### Latency-sensitive targets
+
+- A latency claim requires a representative benchmark on controlled hardware with
+  recorded CPU, NUMA, power, compiler, artifact, feature-set, and background-load
+  configuration. Shared CI timing is diagnostic only.
+- Hot paths MUST NOT perform unbounded allocation, blocking I/O, DNS, process
+  creation, synchronous logging, or metrics export. Use bounded queues or
+  preallocated telemetry with an explicit overflow policy.
+- Observability backpressure MUST NOT delay market data, risk checks, order
+  handling, or a kill switch. Dropped observations remain measurable.
+- Lock-free code, custom allocators, busy polling, pinning, huge pages, and unsafe
+  SIMD require measurements, documented invariants, failure behavior, and a safe
+  reference implementation or conformance oracle where practical.
+- Performance improvements MUST preserve shared golden results or declare and
+  justify numerical differences.
 
 ## Documentation
 
@@ -224,6 +271,8 @@ Additional rules:
 - Use property tests for parsers, round trips, state machines, arithmetic invariants,
   and broad input spaces when beneficial.
 - Use fuzzing for untrusted parsers, binary formats, and unsafe boundaries.
+- Foreign consumers and alternate-language implementations MUST run shared
+  contract, golden, and differential tests across the supported ABI/schema matrix.
 - Concurrency tests SHOULD use controlled synchronization rather than sleeps and
   timing assumptions. Model checking tools are encouraged for subtle protocols.
 - Tests MUST be deterministic and independent of ordering, timezone, locale,
@@ -239,3 +288,7 @@ Additional rules:
 - Every unsafe operation has a complete safety argument and safe encapsulation.
 - Async tasks, locks, cancellation, and shutdown have explicit ownership.
 - Public APIs and serialized/FFI representations account for compatibility.
+- Toolchain, target CPU/features, dependencies, panic mode, and generated inputs
+  are declared rather than inherited from the host.
+- Latency-sensitive telemetry is bounded and non-blocking, and performance evidence
+  comes from controlled hardware.

@@ -3,8 +3,9 @@
 ## Scope and baseline
 
 This guide applies to Python source, tests, scripts, and configuration-owned Python
-snippets. The repository baseline is Python 3.11 unless `pyproject.toml` declares
-a stricter target.
+snippets. Use the interpreter and language level pinned by the owning build target
+and root toolchain configuration. Do not infer a version from the developer's
+machine or float to the latest interpreter in an unrelated change.
 
 Code MUST follow:
 
@@ -18,14 +19,17 @@ style choice more specific. Do not hand-format code against `ruff format`.
 
 ## Required tooling
 
-For a normal Python change, run the configured equivalents of:
+The repository's root build/test interface and target graph are authoritative.
+For local iteration, run the configured equivalents below against affected Python
+targets and their reverse dependencies. The placeholders are illustrative, not
+literal repository paths:
 
-```bash
-ruff check .
-ruff format --check .
-mypy libs/ apps/ --strict
-pytest tests/ -v
-bandit -q -c pyproject.toml -r libs/core apps
+```text
+ruff check <affected-paths>
+ruff format --check <affected-paths>
+mypy --strict <affected-packages>
+pytest <affected-tests>
+bandit -q -c <config> -r <affected-source>  # when configured
 ```
 
 During iteration, scoped commands are encouraged. Before completion, run every
@@ -45,12 +49,36 @@ narrow as possible and include a reason when that reason is not self-evident.
   tool.
 - Imports MUST appear at module scope unless a local import is required to break a
   proven cycle, avoid an optional dependency, or defer a measured cost.
+- Modules MUST NOT rely on an unrelated package having imported a transitive
+  submodule first. Import every direct dependency explicitly.
+- Import-time work MUST be bounded and free of operational side effects: do not
+  perform network access, bulk data loading, process creation, registration with
+  external systems, or other operational actions merely by importing a module.
 - Import groups are standard library, third party, then local application code.
 - Use absolute imports across packages. Relative imports MAY be used within a
   cohesive private subpackage when they improve stability.
 - Never use wildcard imports.
 - Modules SHOULD expose a focused public surface. Do not use `__all__` to disguise
   an unfocused module.
+
+## Packages and environments
+
+- A Python package is owned and depended on through its build target; being
+  importable from the monorepo does not make it a supported public API.
+- Declare direct Python and native dependencies in build metadata and the owning
+  lock or resolution input. Do not depend on packages present incidentally in a
+  mutable shared environment.
+- Deployable Python environments MUST be reproducible and immutable. Their
+  identity includes the interpreter, dependency lock, native libraries, schemas,
+  and owning source/build targets.
+- Production targets MUST NOT import notebooks, experiment entrypoints, or
+  research-only convenience packages. Move promoted logic into an owned library.
+- Avoid a repository-wide package that automatically imports every internal
+  module. Explicit imports and narrow package surfaces reduce startup cost,
+  dependency ambiguity, and accidental coupling.
+- Build and test modules as normal packages. Do not make path mutation,
+  `PYTHONPATH`, the working directory, or editable installs an undeclared runtime
+  requirement.
 
 ## Naming
 
@@ -82,8 +110,9 @@ Additional rules:
 - All public functions, methods, class attributes, and module-level variables MUST
   be typed. Private functions SHOULD be fully typed; strict `mypy` is the default.
 - Annotate return types explicitly, including `-> None`.
-- Use modern Python 3.11 syntax such as `list[str]`, `X | None`, and protocols from
-  `typing` rather than obsolete aliases.
+- Use syntax supported by the pinned minimum interpreter. Prefer built-in generics
+  such as `list[str]`, union syntax such as `X | None`, and protocols from `typing`
+  when that minimum version supports them; do not silently raise the runtime floor.
 - Prefer precise domain types, enums, `Literal`, `NewType`, dataclasses, or validated
   models over unstructured dictionaries and tuples.
 - Use `Protocol` for behavioral structural contracts. Use abstract base classes
@@ -99,6 +128,9 @@ Additional rules:
   default argument.
 - Distinguish absent, empty, zero, and unknown values. Do not make a parameter
   optional merely for caller convenience when absence is invalid.
+- Generated schema types and binding stubs are boundary representations. Translate
+  them into domain types rather than allowing generated or native-library details
+  to spread through research and portfolio logic.
 
 ## Functions and control flow
 
@@ -185,6 +217,25 @@ Additional rules:
 - Point-in-time research code MUST never fit, normalize, select, or impute using
   future observations. Add future-perturbation tests for time-dependent features.
 
+## Native extensions and cross-language behavior
+
+- Python bindings are adapters around an owned Rust or C++ target, not a second
+  implementation by default. Keep economic logic on one authoritative side of
+  the boundary where practical.
+- Define ownership and lifetime for every borrowed buffer, capsule, memory view,
+  callback, and native handle. A Python object MUST NOT outlive native storage it
+  views, and native code MUST NOT retain borrowed Python references without the
+  required ownership operation.
+- Document GIL assumptions. Release it only while native code cannot call Python
+  APIs and while every borrowed Python-owned buffer or handle has a valid lifetime
+  and concurrency guarantee; reacquire it before calling Python.
+- Native exceptions, panics, and error codes MUST be translated into stable Python
+  exception categories without unwinding across the ABI.
+- Prefer vectorized or batch APIs over per-row or per-event boundary calls. Measure
+  serialization, copying, conversion, and GIL overhead with representative data.
+- A Python fallback and native implementation of the same contract MUST run shared
+  golden and differential tests within a justified tolerance.
+
 ## Documentation
 
 - Public modules, classes, functions, and methods MUST have useful docstrings unless
@@ -211,6 +262,9 @@ Additional rules:
   `pytest.raises`.
 - Mock at owned boundaries, not deep inside third-party implementation details.
   Prefer small fakes for stable domain protocols.
+- Tests for native bindings MUST cover ownership, buffer lifetime, dtype/shape,
+  exception translation, empty inputs, non-contiguous inputs where supported, and
+  repeated initialization/shutdown.
 - Use `tmp_path`, injected clocks, and local deterministic fixtures rather than
   real user directories, wall clocks, networks, or credentials.
 - Floating-point assertions MUST use justified absolute/relative tolerances.
@@ -220,9 +274,11 @@ Additional rules:
 
 - The code is `ruff`-formatted and lint-clean without unjustified suppressions.
 - Strict type checking passes and untyped boundary data is narrowed immediately.
+- Imports are direct and side-effect free; package dependencies are declared in
+  the owning build target and reproducible environment.
 - Public names and docstrings follow PEP 8/257 and domain vocabulary.
 - No mutable defaults, naive timestamps, uncontrolled randomness, or hidden I/O
   remain.
 - Exceptions preserve causes and resources are managed by narrow context managers.
+- Native bindings have explicit ownership, GIL, error, and conformance evidence.
 - Tests cover behavior, boundaries, and regression/failure paths.
-

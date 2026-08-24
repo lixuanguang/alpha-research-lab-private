@@ -6,9 +6,9 @@ This guide applies to C and C++ source, headers, tests, build definitions, and
 foreign-function boundaries. It supplements the shared [coding standards](README.md).
 
 Use the language version declared by the nearest build configuration. For a new
-component with no established baseline, prefer C17 or later for C and C++20 or
-later for C++, subject to supported compilers and deployment targets. Do not change
-the language version as part of an unrelated patch.
+component with no established baseline, select and record a version supported by
+the pinned compiler, standard library, dependencies, and deployment targets. Do
+not infer a version from the developer machine or change it in an unrelated patch.
 
 C and C++ are different languages. Do not write a lowest-common-denominator hybrid
 or compile the same implementation as both languages. Shared boundaries MUST use
@@ -16,14 +16,14 @@ an explicitly C-compatible ABI.
 
 ## Required tooling and build policy
 
-The repository's build system is authoritative. A normal change MUST run the
-applicable equivalents of:
+The repository's root build/test interface and target graph are authoritative;
+CMake, Ninja, or another local generator is not assumed. A normal change MUST run
+the owning build and test targets plus the configured equivalents below. The
+placeholders are illustrative:
 
-```bash
+```text
 clang-format --dry-run --Werror <changed-files>
 clang-tidy <changed-files> -- <compile-flags>
-cmake --build <build-directory>
-ctest --test-dir <build-directory> --output-on-failure
 ```
 
 Use the compilation database produced by the build; do not invent include paths or
@@ -40,6 +40,16 @@ FFI, or non-trivial indexing:
 
 Do not edit generated sources or vendored third-party code to satisfy local style.
 Regenerate or isolate warnings at the dependency boundary.
+
+- Compiler, linker, standard-library, sysroot, code-generator, and target-CPU
+  settings MUST be pinned build inputs.
+- Do not use host-dependent flags such as `-march=native` for a portable artifact.
+  CPU features belong in an explicit platform target, and dispatch behavior needs
+  tests on every supported class of host.
+- Headers and libraries MUST be consumed through declared build targets. Ambient
+  include paths, linker search paths, and undeclared system packages are prohibited.
+- A deployable binary records source, target, toolchain, dependency, schema,
+  platform, build-mode, and symbol/debug-artifact provenance.
 
 ## Files, formatting, and headers
 
@@ -202,6 +212,9 @@ them, such as `timeout_ms` or `buffer_size_bytes`.
   SHOULD use `memcpy` where required to avoid aliasing violations.
 - Floating-point comparisons MUST use scale-appropriate tolerances. Explicitly
   handle `NaN`, infinity, signed zero, and non-associativity where relevant.
+- Floating-point contraction, reassociation, flush-to-zero, and fast-math flags are
+  semantic decisions. They require numerical conformance tests and MUST NOT enter
+  financial, risk, or accounting code through an unrelated optimization change.
 - Do not use `memcpy`, `memset`, or byte serialization on non-trivially-copyable C++
   types.
 - Binary formats MUST define byte order, size, alignment, version, and validation.
@@ -233,6 +246,33 @@ them, such as `timeout_ms` or `buffer_size_bytes`.
 - ABI-visible structs MUST define ownership, alignment, versioning, and compatible
   extension behavior.
 - Validate all pointers, lengths, enum values, and handles received across FFI.
+- Use opaque handles when either side owns complex state. The API MUST pair create,
+  retain/borrow where applicable, and destroy operations and specify which allocator
+  releases every returned buffer.
+- ABI error results MUST be stable and machine-readable. Diagnostic strings have
+  explicit encoding, ownership, lifetime, and truncation behavior.
+- Callbacks MUST document calling thread, reentrancy, lifetime, cancellation, and
+  whether they may call back into the library.
+- Rust or Python bindings MUST test ABI version mismatch, invalid handles, null and
+  zero-length inputs, allocation failure where injectable, and repeated teardown.
+
+## Latency-sensitive code
+
+- A latency claim requires a representative benchmark on controlled hardware with
+  recorded CPU, NUMA, power, compiler, artifact, and background-load configuration.
+  Results from arbitrary shared CI hosts are diagnostic only.
+- Hot-path code MUST NOT perform unbounded allocation, blocking I/O, DNS, process
+  creation, synchronous logging, or metrics export. Move such work outside the
+  critical path or through a bounded queue with an explicit overflow policy.
+- Bounded telemetry uses preallocated counters or buffers where required. Collector
+  backpressure MUST NOT delay market data, risk checks, order handling, or a kill
+  switch, and dropped observations remain measurable.
+- CPU affinity, busy polling, huge pages, preallocation, lock-free structures, and
+  custom allocators require measurement, an owner, failure behavior, and a simpler
+  correctness reference where practical.
+- Performance changes MUST preserve shared golden results or declare and justify
+  numerical differences. Benchmark improvement does not waive sanitizer,
+  conformance, recovery, or risk-control tests.
 
 ## Documentation and testing
 
@@ -244,6 +284,8 @@ them, such as `timeout_ms` or `buffer_size_bytes`.
   transfer, cleanup after partial failure, and error propagation.
 - Parsers and binary interfaces SHOULD have fuzz tests and a retained regression
   corpus.
+- Cross-language consumers MUST run shared contract and differential tests against
+  the same fixtures and ABI/schema version matrix.
 - C++ value types SHOULD test copy/move behavior when custom special members exist.
 - Concurrency tests MUST avoid timing-only assertions; use synchronization to make
   the intended interleaving deterministic where possible.
@@ -255,6 +297,10 @@ them, such as `timeout_ms` or `buffer_size_bytes`.
 - Ownership, borrowing, nullability, sizes, units, and cleanup are explicit.
 - No undefined behavior, unchecked narrowing, unsafe length arithmetic, or ABI
   exception leak is present.
+- Toolchain, CPU features, dependencies, and ABI/schema versions are declared build
+  inputs rather than host assumptions.
 - RAII/rule-of-zero is used in C++; C cleanup is correct after partial failure.
 - Concurrency has a clear lifetime, synchronization, and lock-order policy.
+- Latency-sensitive telemetry is bounded and non-blocking, and performance evidence
+  comes from controlled hardware.
 - Formatter, static analysis, tests, and applicable sanitizers pass.
