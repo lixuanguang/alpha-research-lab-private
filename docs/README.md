@@ -413,14 +413,18 @@ The 299-line limit applies to implementation MRs. Documentation-only MRs are exe
 
 Every implementation MR description includes:
 
-1. The single behavior or contract introduced.
-2. Why it is required by the platform roadmap or a research-program stage.
-3. The invariant a human reviewer should verify.
-4. Files and public interfaces changed.
-5. Test commands and expected evidence.
-6. Failure and rollback behavior.
-7. Known omissions or follow-up work.
-8. Changed-line count, excluding only an approved documentation exemption.
+1. Its stable platform or research-replication MR ID.
+2. The single behavior or contract introduced.
+3. The exact reading-guide requirement: week, annotated section, Core 32 reading, or §08 deliverable.
+4. Why the change is required by that source and which later steps depend on it.
+5. The invariant a human reviewer should verify.
+6. Files and public interfaces changed.
+7. Test commands, expected evidence artifact, and acceptance gate affected.
+8. Failure and rollback behavior.
+9. Known omissions or follow-up work.
+10. Changed-line count, excluding only an approved documentation exemption.
+
+An MR may cite more than one reading-guide requirement, but it must have one primary requirement and one primary verification claim. Research-replication MRs also name the exact paper or specification being replicated, the deviations from the source design, and the artifact paths containing the result. A citation without executable evidence or a deterministic review procedure does not establish traceability.
 
 ### Review order
 
@@ -436,168 +440,425 @@ Reviewers should inspect changes in this order:
 
 ## Implementation roadmap
 
-Each numbered item below is one merge request.
+Every implementation MR has a stable global ID. IDs are never reused, even if an MR is abandoned or superseded. The reading-guide column uses `W01`-`W16` for the sixteen-week program and section numbers for the annotated syllabus, minimum specification, and deliverables.
+
+Platform MRs build reusable capabilities. They do not by themselves constitute completion of a research week; the research-replication MRs defined later produce the required empirical evidence.
 
 ### Wave 0: engineering spine
 
-1. Repository, pinned environment, package import, and test smoke check.
-2. CI, static checks, and the 299-line diff gate.
-3. Typed configuration, environment precedence, and secret references.
-4. Canonical identifiers, UTC handling, decimal precision, currency, and units.
-5. Content hashing, run manifests, and deterministic run identity.
-6. Atomic artifact store with idempotent lookup and retention metadata.
-7. Structured CLI results, errors, logs, and correlation IDs.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-ENG-001` | Repository, pinned environment, package import, and test smoke check | All weeks; §06.3 reproducible environments | Clean checkout installs and the smoke test passes |
+| `MR-ENG-002` | CI, static checks, and 299-line implementation diff gate | All weeks; §06.3 CI/CD; §07.7 independent review | A 299-line fixture change passes and a 300-line change fails |
+| `MR-ENG-003` | Typed configuration, precedence, and secret references | W16; §06.3 workflow controls; §07.7 governance | Unknown keys fail and resolved non-secret configuration is complete |
+| `MR-ENG-004` | Canonical identifiers, UTC, decimal precision, currency, and units | W02; §07.1 point-in-time data; §07.4 sign conventions | Invalid timestamps, units, currency, and precision fail explicitly |
+| `MR-ENG-005` | Content hashing, run manifests, and deterministic run identity | W02, W15-W16; §07.1 lineage; §07.7 governance | Same inputs produce the same ID; one-byte change produces a new ID |
+| `MR-ENG-006` | Atomic artifact store with idempotent lookup and retention metadata | W01-W16; §06.3 experiment tracking; §08 deliverables | Interrupted writes are invisible and retries do not duplicate artifacts |
+| `MR-ENG-007` | Structured CLI results, errors, logs, and correlation IDs | W16; §07.6 operational controls; §07.7 evaluation | One run is traceable across CLI output, logs, and artifacts |
 
 **Wave 0 exit criteria:** a clean checkout installs reproducibly; all tests and static checks run from one documented command; two identical fixture runs produce the same run and artifact identities; a one-byte configuration or input change produces a different identity; secrets and wall-clock timestamps do not affect deterministic hashes.
 
 ### Wave 1: asset-neutral domain foundation
 
-1. Versioned `ContractSpec` hierarchy with cash, perpetual, future, and option fixtures.
-2. Typed `MarketEvent` union and schema-version validation.
-3. Four-time availability semantics and point-in-time query predicate.
-4. Calendar, session, business-day, day-count, and settlement conventions.
-5. Multi-currency cash, contract-quantity positions, and scheduled cashflows.
-6. `MarketState`, `ValuationEngine`, and sensitivity protocols.
-7. Instrument lifecycle for listing, roll, expiry, exercise, assignment, and settlement.
-8. Covariance and full-revaluation scenario-risk protocols.
-9. `StrategyOutput`, `PortfolioIntent`, dimensioned constraints, and order protocols.
-10. Basket/multi-leg orders, margin, collateral, financing, borrow, and hedge protocols.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-DOM-001` | Versioned `ContractSpec` hierarchy | W02, W14; §04.14; §07.1, §07.6 | Cash, perpetual, future, option, FX-forward, and cashflow fixtures round-trip |
+| `MR-DOM-002` | Typed `MarketEvent` union and schema validation | W02, W13-W14; §06.3; §07.1 | Payload/type mismatches and incompatible schema versions fail |
+| `MR-DOM-003` | Event, recorded, available, and effective time semantics | W02-W09; §07.1-§07.2 | A late correction cannot enter an earlier decision-time query |
+| `MR-DOM-004` | Calendar, session, day-count, and settlement conventions | W01-W02, W13-W14; §06.4; §07.1, §07.6 | Known sessions, holidays, accrual dates, and settlements match fixtures |
+| `MR-DOM-005` | Multi-currency cash, contract positions, and scheduled cashflows | W01, W13-W14; §07.5-§07.6 | Futures, options, funding, and FX cashflows reconcile to NAV |
+| `MR-DOM-006` | `MarketState`, valuation, and sensitivity protocols | W10-W14; §04.7-§04.10, §04.14 | Cash and option reference pricers pass value and finite-difference tests |
+| `MR-DOM-007` | Listing, roll, expiry, exercise, assignment, and settlement lifecycle | W02, W14; §04.11, §04.14; §07.1, §07.6 | Golden lifecycle paths produce exact positions and cashflows |
+| `MR-DOM-008` | Covariance and full-revaluation scenario-risk protocols | W10, W14, W16; §04.7; §07.4, §07.7 | Linear scenario risk agrees with covariance risk in the limiting case |
+| `MR-DOM-009` | Strategy output, portfolio intent, constraints, and order protocols | W01, W11-W13; §04.8-§04.10; §07.4-§07.5 | Return, spread, Greek, and quantity intents pass shared contracts |
+| `MR-DOM-010` | Multi-leg orders, margin, collateral, financing, borrow, and hedges | W13-W14; §04.9, §04.11, §04.14; §07.5-§07.6 | A partially filled option spread exposes correct leg risk and margin |
 
 **Wave 1 exit criteria:** contract fixtures represent an equity, perpetual future, dated future, European option, American option, FX forward, and fixed cashflow; their quantities, currencies, multipliers, lifecycle dates, and settlement methods survive serialization; multi-currency ledger and lifecycle golden tests reconcile without asset-specific branches in shared accounting.
 
 ### Wave 2: first end-to-end crypto research slice
 
-1. Canonical bars and funding events.
-2. Immutable local bronze store.
-3. Binance archive downloader with retry, checksum, and atomic promotion.
-4. Kline and funding parsers with UTC and decimal validation.
-5. Silver Parquet writer and deterministic reader.
-6. Dataset specification and 24/7 resampling.
-7. Pure feature-function contract and future-perturbation test.
-8. Minimal vectorized simulation clock with delayed fills.
-9. Position, cash, P&L, fees, and funding ledger.
-10. Baseline metrics, attribution, run manifest, and report.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-CRY-001` | Canonical crypto bars and funding events | W01-W03, W14; §04.14; §07.1 | Fixture values preserve event time, prices, volumes, and funding sign |
+| `MR-CRY-002` | Immutable local bronze store | W02; §07.1; §08 data audit | Existing raw objects cannot be overwritten |
+| `MR-CRY-003` | Binance archive download, retry, checksum, and atomic promotion | W02; §06.4; §07.1 | A bit-flipped file fails and no partial object becomes visible |
+| `MR-CRY-004` | Kline and funding parsers | W01-W03, W14; §07.1, §07.6 | Known CSV rows produce exact UTC and decimal canonical events |
+| `MR-CRY-005` | Silver Parquet writer and deterministic reader | W02; §06.3; §07.1 | Write/read preserves schema, ordering, timezone, and hash |
+| `MR-CRY-006` | Dataset specification and 24/7 resampling | W01-W03; §07.1-§07.2 | Known minute data aggregates exactly and gaps remain explicit |
+| `MR-CRY-007` | Pure feature contract and future-perturbation test | W03-W09; §07.2-§07.3 | Changing future data cannot alter prior feature values |
+| `MR-CRY-008` | Minimal vectorized clock with delayed fills | W01, W13; §07.1, §07.5 | No order fills on the bar used to calculate its signal |
+| `MR-CRY-009` | Position, cash, P&L, fee, and funding ledger | W01, W13-W14; §07.5-§07.6 | Hand-calculated long/short funding and trading P&L reconcile |
+| `MR-CRY-010` | Baseline metrics, attribution, manifest, and report | W01, W16; §07.7; §08 baseline and OOS artifacts | Gross minus costs and funding equals reported net P&L |
 
 **Wave 2 exit criteria:** a small Binance fixture runs raw-to-report from one CLI command; signals cannot trade on their own input bar; positive funding makes longs pay and shorts receive; gross P&L, costs, funding, and net P&L reconcile exactly; repeated runs produce identical manifests and reports.
 
 ### Wave 3: point-in-time data platform
 
-1. Bitemporal metadata catalog and raw-revision history.
-2. Historical archive catalog and instrument lifecycle ingestion.
-3. Mark, index, premium, trade, quote, and funding ingestion.
-4. Declarative data-quality contract and crypto quality suite.
-5. Point-in-time reader and as-of join implementation.
-6. Time-varying universe snapshots with liquidity and history eligibility.
-7. Data-lineage and universe-audit report.
-8. Idempotent backfill, replay, interruption, and restart behavior.
-9. Scheduled ingestion state, late-data handling, and degraded partitions.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-DATA-001` | Bitemporal metadata catalog and raw-revision history | W02; §07.1; §08 data audit | Actual-time and knowledge-time queries return the expected versions |
+| `MR-DATA-002` | Historical archive catalog and lifecycle ingestion | W02; §04.12; §07.1 | Delisted or inactive contracts remain historically discoverable |
+| `MR-DATA-003` | Mark, index, premium, trade, quote, and funding ingestion | W02-W03, W13-W14; §06.2; §07.1, §07.5 | Cross-event timestamps and instrument IDs align on a golden fixture |
+| `MR-DATA-004` | Declarative quality contract and crypto quality suite | W02; §06.3; §07.1; §08 data audit | Duplicate, gap, stale, OHLC, and funding failures have correct severity |
+| `MR-DATA-005` | Point-in-time reader and as-of joins | W02-W09; §07.1-§07.2 | Future revisions and releases cannot enter earlier datasets |
+| `MR-DATA-006` | Time-varying universe snapshots | W01-W03; §04.12; §07.1 | Future listing and liquidity changes cannot alter earlier membership |
+| `MR-DATA-007` | Data-lineage and universe-audit report | W02; §07.1; §08 data and universe audit | Every derived row resolves to canonical and raw partition identities |
+| `MR-DATA-008` | Idempotent backfill, replay, interruption, and restart | W02, W16; §06.3; §07.7 | Interrupted and uninterrupted runs publish identical partitions |
+| `MR-DATA-009` | Scheduled ingestion, late data, and degraded partitions | W02, W16; §06.3; §07.6-§07.7 | Late data follows declared republish and promotion-blocking rules |
 
 **Wave 3 exit criteria:** an independent reviewer can reconstruct silver data and a historical universe from bronze manifests; future corrections, listings, liquidity, and metadata cannot alter earlier decisions at an earlier knowledge cutoff; interrupted backfills restart without duplicates or missing partitions; hard-quality failures block publication.
 
 ### Wave 4: research and model platform
 
-1. Feature, label, signal, and dataset registries.
-2. Rolling/expanding splits plus purging and embargo.
-3. Train-only transforms, neutralization, and missing-data policies.
-4. Factor-model protocol with observable-factor and rolling-PCA baselines.
-5. Residual construction and convergence-signal pipeline.
-6. Signal dossier with mechanism, horizon, decay, turnover, and failure mode.
-7. Common linear, regularized, tree, forest, and neural-model adapter.
-8. Rolling training, inference, artifact, and seed handling.
-9. Common model bake-off using identical data, splits, costs, and constraints.
-10. Regime, stability, calibration, monotonicity, and long/short diagnostics.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-RES-001` | Feature, label, signal, and dataset registries | W05; §04.4-§04.5; §07.2-§07.3 | Required mechanism, horizon, availability, decay, and owner metadata is enforced |
+| `MR-RES-002` | Rolling and expanding splits | W07-W09, W15; §04.6, §04.12; §07.2 | All boundaries match the declared retraining and test cadence |
+| `MR-RES-003` | Purging and embargo | W07-W09, W15; §04.12; §07.2 | No training label overlaps validation or test labels |
+| `MR-RES-004` | Train-only transforms, neutralization, and missing-data policies | W06, W08; §04.4-§04.5; §07.2-§07.3 | Future outliers and missing values cannot alter past fitted transforms |
+| `MR-RES-005` | Factor-model protocol and observable-factor baseline | W03-W04; §04.3; §07.3 | Factor returns, exposures, and residuals reconstruct asset returns |
+| `MR-RES-006` | Rolling-PCA factor baseline | W03; §04.2-§04.3; §07.3 | Deterministic sign convention and future-perturbation tests pass |
+| `MR-RES-007` | Residual construction and convergence-signal pipeline | W03-W04; §04.2-§04.3 | Common plus residual return reconstructs original return within tolerance |
+| `MR-RES-008` | Signal dossier and failure-mode schema | W05-W06; §04.4; §07.3; §08 signal dossier | Formula, mechanism, horizon, decay, turnover, and risks are mandatory |
+| `MR-RES-009` | Common predictive-model adapter and rolling trainer | W07-W08; §04.5; §07.2 | Linear, elastic-net, tree, forest, and MLP use identical data and splits |
+| `MR-RES-010` | Model bake-off, regime, stability, and long/short diagnostics | W07-W09; §04.5-§04.6; §07.3; §08 model bake-off | Same costs and constraints are used; conditional tables are predeclared |
 
 **Wave 4 exit criteria:** observable-factor, PCA-residual, linear, regularized, tree, forest, and neural baselines can run through the same dataset and rolling-evaluation contracts; perturbing future data leaves past features, transformations, models, and predictions unchanged; all attempted configurations appear in the trial ledger.
 
 ### Wave 5: risk and portfolio platform
 
-1. Sample, shrinkage, factor, and sparse-residual covariance implementations.
-2. Forecast-versus-realized risk, tail, concentration, and stability validation.
-3. Gross, net, factor, position, liquidity, turnover, venue, and exposure constraints.
-4. Static constrained optimizer with unit and sign tests.
-5. Shadow prices, transfer diagnostics, and binding-frequency reporting.
-6. Safe fallbacks for stale risk, missing inputs, and infeasibility.
-7. Dynamic trading protocol and linear cost-aware baseline.
-8. Multi-period convex optimizer and limiting-case tests.
-9. Factor, covariance, liquidity, funding, crowding, and unwind stresses.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-PORT-001` | Sample and shrinkage covariance | W10; §04.7; §07.4 | Closed-form fixtures and positive-semidefinite checks pass |
+| `MR-PORT-002` | Factor and sparse-residual covariance | W10; §04.3, §04.7; §07.4 | Factor-plus-residual reconstruction and sparsity tests pass |
+| `MR-PORT-003` | Realized-risk, tail, concentration, and stability validation | W10; §04.7; §07.4; §08 risk validation | Forecast risk is assessed through realized portfolio outcomes |
+| `MR-PORT-004` | Dimensioned portfolio constraints | W11-W12; §04.8; §07.4 | Gross, net, factor, position, liquidity, turnover, and venue limits test independently |
+| `MR-PORT-005` | Static constrained optimizer | W11; §04.8; §07.4 | Units, signs, feasibility, and comparative statics pass |
+| `MR-PORT-006` | Shadow prices, transfer diagnostics, and binding frequency | W11; §04.8; §07.4; §08 optimizer validation | Each binding constraint has an attributed marginal cost |
+| `MR-PORT-007` | Safe fallbacks for stale, missing, or infeasible inputs | W11-W12, W16; §07.4, §07.6 | Registered fallback is deterministic and fail-safe |
+| `MR-PORT-008` | Dynamic trading and multi-period optimization | W12; §04.8; §07.4-§07.5 | One-period limiting case and trading-speed comparative statics pass |
+| `MR-PORT-009` | Factor, covariance, liquidity, funding, crowding, and unwind stress | W10-W16; §04.2, §04.7-§04.9; §07.4, §07.7 | Named stresses revalue the complete portfolio and reconcile losses |
 
 **Wave 5 exit criteria:** covariance forecasts are evaluated by realized portfolio outcomes; every constraint has unit, sign, feasibility, and comparative-static tests; binding constraints expose shadow costs; infeasible or stale inputs follow a safe deterministic fallback; the dynamic optimizer trades more slowly when costs rise or alpha decays more slowly.
 
 ### Wave 6: execution, financing, and capacity
 
-1. Canonical order, fill, cancel, reject, and position state machine.
-2. Deterministic event-replay engine and equal-timestamp ordering.
-3. Spread, fee, rebate, delay, partial-fill, and opportunity-cost models.
-4. Impact, participation, urgency, and cross-impact protocols.
-5. Capacity curves across capital, participation, holding period, and stress.
-6. Crypto margin, liquidation, funding, and financing implementation.
-7. Transaction-cost analysis and decision-to-fill reconciliation.
-8. Vectorized/event-driven parity suite under equivalent assumptions.
-9. Paper execution adapter with idempotent client-order handling.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-EXEC-001` | Order, fill, cancel, reject, and position state machine | W13-W14, W16; §04.9-§04.11; §07.5-§07.6 | Impossible transitions and duplicate economic orders are rejected |
+| `MR-EXEC-002` | Deterministic event replay and timestamp ordering | W13, W16; §04.9-§04.10; §07.5, §07.7 | Replaying identical events produces identical state and artifacts |
+| `MR-EXEC-003` | Spread, fee, rebate, delay, partial-fill, and opportunity cost | W13; §04.9; §07.5 | Hand-calculated implementation-shortfall example reconciles |
+| `MR-EXEC-004` | Impact, participation, urgency, and cross-impact | W13; §04.9-§04.10; §07.5 | Cost increases sensibly with size and urgency; units are explicit |
+| `MR-EXEC-005` | Capacity curves across capital, participation, horizon, and stress | W13, W16; §04.9; §07.5; §08 capacity report | Every configured capital scale appears with net return and risk |
+| `MR-EXEC-006` | Crypto margin, liquidation, funding, and financing | W14; §04.11, §04.14; §07.6 | Margin, funding, and forced-deleveraging fixtures reconcile |
+| `MR-EXEC-007` | Transaction-cost analysis and decision-to-fill reconciliation | W13, W16; §04.9; §07.5; §08 cost model | Decision price through fill and ledger P&L reconcile exactly |
+| `MR-EXEC-008` | Vectorized/event-driven parity | W13, W16; §07.5, §07.7 | Both engines agree when execution assumptions are equivalent |
+| `MR-EXEC-009` | Paper execution adapter and idempotent client orders | W16; §07.5-§07.7 | Retries cannot duplicate orders; rejects and partial fills remain explicit |
 
 **Wave 6 exit criteria:** canonical order state cannot enter an impossible transition; execution retries cannot create duplicate economic orders; vectorized and event-driven results match when assumptions match; implementation shortfall reconciles from decision price to ledger P&L; capacity is reported as a curve with uncertainty and stress, not a single number.
 
 ### Wave 7: governance, shadow production, and operations
 
-1. Append-only experiment and trial ledger.
-2. Block bootstrap, multiple-testing, and research-wide trial accounting.
-3. Frozen final-OOS dataset, configuration, and access log.
-4. Model artifact registry, model card, ownership, and limitations.
-5. Promotion state machine: research, candidate, shadow, paper, retired.
-6. Shadow runner using shared feature, model, risk, and portfolio code.
-7. Backtest-to-shadow forecast, target, order, fill, cost, and P&L reconciliation.
-8. Kill switches for stale data, risk failure, infeasibility, rejects, and abnormal P&L.
-9. Metrics, structured logs, traces, dashboards, and alert thresholds.
-10. Container deployment, health checks, rollback, replay, and runbooks.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-GOV-001` | Append-only experiment and trial ledger | W05-W16; §04.12; §07.2, §07.7 | Failed and rejected variants cannot be deleted or hidden |
+| `MR-GOV-002` | Block bootstrap and multiple-testing corrections | W15; §04.12; §07.2, §07.7 | Dependence blocks and the complete candidate family are retained |
+| `MR-GOV-003` | Frozen final-OOS dataset, configuration, and access log | W15-W16; §04.12; §07.2, §07.7; §08 OOS package | Candidate inputs cannot drift and every OOS access is recorded |
+| `MR-GOV-004` | Model artifact registry and model card | W15-W16; §07.7; §08 production model card | Owner, intended use, limitations, dependencies, and thresholds are required |
+| `MR-GOV-005` | Promotion state machine | W15-W16; §07.7; §08 decision rules | Invalid state transitions and missing approvals fail |
+| `MR-GOV-006` | Shadow runner using shared production-path components | W16; §07.7; §08 OOS/model-card artifacts | Research-only substitutes are detected by component identity |
+| `MR-GOV-007` | Backtest-to-shadow reconciliation | W16; §07.5, §07.7; §08 final OOS package | Forecast, target, order, fill, cost, and P&L differences attribute fully |
+| `MR-GOV-008` | Operational kill switches | W16; §07.6-§07.7 | Stale data, risk failure, infeasibility, rejects, and P&L breaches trigger |
+| `MR-GOV-009` | Metrics, logs, traces, dashboards, and alerts | W09, W16; §06.3; §07.7 | One candidate run is observable from market data through P&L |
+| `MR-GOV-010` | Containers, health checks, rollback, replay, and runbooks | W16; §06.3-§06.4; §07.7 | Operator completes stop, rollback, replay, and recovery drill |
 
 **Wave 7 exit criteria:** a frozen candidate can run in historical replay and shadow using shared production-path code; every prediction-to-fill difference is attributable; configured kill switches are exercised in tests; an operator can identify, stop, roll back, replay, and recover a failed deployment from the runbook.
 
 ### Wave 8: asset-class adapters
 
-1. Equity delayed-SIP entitlement test and market-data adapter.
-2. Equity sessions, identifiers, corporate actions, point-in-time universe, and borrow gate.
-3. Futures contract, roll, multiplier, variation-margin, and delivery adapter.
-4. FX spot/forward, settlement, swap-points, and multi-currency adapter.
-5. Option chain, symbology, quote, trade, mark, and lifecycle adapter.
-6. Curve and volatility-surface builders with no-arbitrage checks.
-7. Option pricer and analytic-versus-finite-difference Greek tests.
-8. Fixed-income cashflow, accrual, clean/dirty price, curve, and DV01 adapter.
+| MR ID | Capability | Reading-guide linkage | Human verification |
+| --- | --- | --- | --- |
+| `MR-ASSET-001` | Equity delayed-SIP entitlement and data adapter | §04.1-§04.13; §06.1-§06.2; §07.1 | Actual entitlement is probed and adapter passes connector contracts |
+| `MR-ASSET-002` | Equity sessions, IDs, corporate actions, PIT universe, and borrow gate | W02, W14; §04.11-§04.12; §07.1, §07.6 | Rename, split, delisting, and unavailable-borrow fixtures pass |
+| `MR-ASSET-003` | Futures contract, roll, multiplier, margin, and delivery adapter | §04.14; §07.1, §07.5-§07.6 | Listed contracts remain intact and derived rolls reconcile |
+| `MR-ASSET-004` | FX spot/forward, settlement, swap-points, and currency adapter | §04.14; §07.4-§07.6 | Spot and forward carry, settlement, cash, and translation reconcile |
+| `MR-ASSET-005` | Option chain, symbology, quotes, marks, and lifecycle adapter | §04.10, §04.14; §07.1, §07.5-§07.6 | Chain identity and exercise/assignment/expiry golden tests pass |
+| `MR-ASSET-006` | Curve and volatility-surface builders with arbitrage checks | §04.3, §04.7, §04.14; §07.4 | Input knots reproduce and parity/calendar/butterfly checks execute |
+| `MR-ASSET-007` | Option pricer and analytic/finite-difference Greeks | §04.7-§04.10, §04.14; §07.4-§07.5 | Price identities and Greek tolerances pass across bounded fixtures |
+| `MR-ASSET-008` | Fixed-income cashflows, accrual, prices, curves, and DV01 | §04.14; §07.1, §07.4-§07.6 | Cashflows, clean/dirty price, and DV01 reconcile to references |
 
 **Wave 8 exit criteria:** each adapter passes shared connector, instrument, lifecycle, valuation, accounting, risk, portfolio, and execution contract tests; the option portability test passes; no shared research, ledger, registry, or promotion interface changes merely to accommodate an asset-class adapter.
 
+## Research-replication MR roadmap
+
+Platform capability and research evidence are separate concerns. The following MRs run on top of the platform and correspond directly to the reading guide's sixteen-week replication program. Each research MR records its parent hypothesis, dataset ID, registered component versions, and all trial outcomes.
+
+### Week 1: strategy map and transparent baseline
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W01-01` | Freeze horizon, universe, decision price, delay, benchmark, and gross-to-net identity | Lehmann; Lo and MacKinlay; Hogan et al. | Signed strategy specification and accounting identity fixture |
+| `MR-REP-W01-02` | Replicate a short-horizon reversal baseline | Lehmann (1990) | Published-style and corrected point-in-time/costed results |
+| `MR-REP-W01-03` | Decompose contrarian profit and evaluate statistical-arbitrage conditions | Lo and MacKinlay (1990); Hogan et al. (2004) | Own-return, cross-autocovariance, lead-lag, and long-horizon profit diagnostics |
+
+### Week 2: point-in-time data and instrument master
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W02-01` | Audit source lineage, timestamps, revisions, and availability rules | Shumway; Chen and Zimmermann documentation | Field-level source and availability map with unresolved issues |
+| `MR-REP-W02-02` | Audit identifier and instrument lifecycle history | Shumway (1997); Open Source Asset Pricing documentation | Rename, listing, delisting/expiry, status, and terminal-value tests |
+| `MR-REP-W02-03` | Reconcile universe membership, missing intervals, adjustments, and terminal events | Shumway; Chen and Zimmermann | Sample counts, continuity breaks, exclusions, and point-in-time universe artifact |
+
+### Week 3: observable factors and PCA residuals
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W03-01` | Implement and validate transparent observable factors | Fama and French (1993) | Factor definitions, exposures, reconstruction, and stability report |
+| `MR-REP-W03-02` | Select and estimate rolling latent-factor dimension | Bai and Ng (2002) | Per-window factor-count criteria and sensitivity analysis |
+| `MR-REP-W03-03` | Replicate PCA and observable-factor residual convergence | Avellaneda and Lee (2010) | Residual covariance, predictability, turnover, factor contamination, and costed comparison |
+
+### Week 4: conditional and pricing-relevant factors
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W04-01` | Implement an IPCA conditional-factor challenger | Kelly, Pruitt, and Su (2019) | Conditional loadings, factor stability, residual alpha, and baseline comparison |
+| `MR-REP-W04-02` | Implement pricing-relevant or risk-premium PCA challenger | Lettau and Pelger (2020) | Variance versus pricing-relevance comparison and residual diagnostics |
+| `MR-REP-W04-03` | Evaluate candidate factors under omitted-factor risk | Giglio and Xiu (2021) | Omitted-factor-robust alpha/exposure comparison across regimes |
+
+### Week 5: signal library and economic hypotheses
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W05-01` | Register signal hypotheses and publication/availability dates | Green, Hand, and Zhang; Hou, Xue, and Zhang; Chen and Zimmermann | Complete dossiers with formula, mechanism, horizon, decay, missingness, turnover, and risks |
+| `MR-REP-W05-02` | Reproduce a selected transparent signal set | Hou, Xue, and Zhang (2020); Chen and Zimmermann (2022) | Published, corrected, and crypto-adapted definitions with explained differences |
+| `MR-REP-W05-03` | Measure signal decay, turnover, correlation, and incremental coverage | Chen and Zimmermann; Jensen, Kelly, and Pedersen; Feng, Giglio, and Xiu | Decay curves, correlation clusters, missingness, replication dispersion, and redundancy report |
+
+### Week 6: normalization and neutralization
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W06-01` | Compare winsorization, robust scaling, and rank transforms | Fama and MacBeth; Green, Hand, and Zhang | Train-only parameter history and sensitivity of signal shape |
+| `MR-REP-W06-02` | Implement factor, industry/sector, country, liquidity, and volatility neutralization | Fama and MacBeth (1973); Kozak, Nagel, and Santosh | Pre/post exposure, residual alpha, and stability evidence |
+| `MR-REP-W06-03` | Evaluate signal orthogonalization and incremental information | Feng, Giglio, and Xiu (2020) | Alpha lost, risk removed, incremental IC, and ordering-sensitivity report |
+
+### Week 7: predictive-model benchmark matrix
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W07-01` | Run linear and elastic-net baselines | Gu, Kelly, and Xiu (2020) | Common-split forecast, calibration, turnover, and net-portfolio metrics |
+| `MR-REP-W07-02` | Run boosted-tree and random-forest challengers | Gu, Kelly, and Xiu; Freyberger et al. | Identical-data model comparison, feature stability, and capacity effects |
+| `MR-REP-W07-03` | Run MLP challenger and complete common bake-off | Gu, Kelly, and Xiu (2020); Chen, Pelger, and Zhu | Seed dispersion, ablation, model stability, and locked validation ranking |
+
+### Week 8: missing data and representation learning
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W08-01` | Benchmark complete-case, cross-sectional, and temporal imputation | Bryzgalova, Lerner, Lettau, and Pelger (2025) | Missingness map and downstream common-objective comparison |
+| `MR-REP-W08-02` | Add model-based imputation and missingness indicators | Missing Financial Data; Missing Data in Asset Pricing Panels | Leakage tests, imputation stability, and missingness-feature value |
+| `MR-REP-W08-03` | Implement nonlinear latent-representation and end-to-end frontier challengers | Gu, Kelly, and Xiu (2021); Guijarro-Ordonez, Pelger, and Zanotti (2025) | Autoencoder and deep-stat-arb challengers versus PCA/IPCA on costs, borrow, turnover, stability, ablation, and interpretation |
+
+### Week 9: conditional forecast evaluation and regimes
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W09-01` | Build predeclared conditional performance tables | Giacomini and White; Hamilton | Performance by volatility, liquidity, trend, crowding, and event state |
+| `MR-REP-W09-02` | Estimate structural-break and parameter-instability diagnostics | Bai and Perron; Andrews | Break dates, uncertainty, rolling stability, and no-hindsight interpretation |
+| `MR-REP-W09-03` | Freeze live degradation and regime-response rules | Giacomini and White; Bai and Perron | Precommitted alert, de-risk, retraining, and kill thresholds |
+
+### Week 10: covariance and risk-model validation
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W10-01` | Compare sample and shrinkage covariance forecasts | Ledoit and Wolf (2004) | Realized risk, tail, turnover, concentration, and calibration comparison |
+| `MR-REP-W10-02` | Compare factor and sparse-residual covariance forecasts | Fan, Liao, and Mincheva (2013) | Eigenstructure, residual dependence, stability, and runtime report |
+| `MR-REP-W10-03` | Validate risk models through downstream portfolios | Ledoit and Wolf; POET; Jagannathan and Ma | Optimizer stability, constraint interaction, and stressed realized risk |
+
+### Week 11: static portfolio construction
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W11-01` | Implement rank-weighted and simple diversification baselines | DeMiguel, Garlappi, and Uppal | Baseline return, risk, turnover, concentration, and robustness |
+| `MR-REP-W11-02` | Implement constrained mean-variance portfolio | Markowitz; Grinold; Clarke, de Silva, and Thorley | Objective, units, signs, feasibility, and comparative statics |
+| `MR-REP-W11-03` | Attribute forecast-to-portfolio transfer and constraint costs | Clarke, de Silva, and Thorley | Transfer coefficient, shadow costs, binding frequency, and fallback evidence |
+
+### Week 12: dynamic cost-aware trading
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W12-01` | Replicate dynamic trading with predictable returns and costs | Garleanu and Pedersen (2013) | Trading-rate response to persistence, risk, and cost |
+| `MR-REP-W12-02` | Implement multi-period constrained optimization | Boyd et al. (2017) | Horizon, terminal-value, constraint, and limiting-case tests |
+| `MR-REP-W12-03` | Compare implementable efficient frontiers | Jensen, Kelly, Malamud, and Pedersen (2026) | Net frontier by risk, turnover, costs, and model class |
+
+### Week 13: execution, impact, and capacity
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W13-01` | Reconcile decision-to-fill implementation shortfall | Perold; Frazzini, Israel, and Moskowitz | Delay, spread, impact, opportunity cost, fee, and residual attribution |
+| `MR-REP-W13-02` | Calibrate and stress execution-impact models | Almgren and Chriss (2000); Gatheral | Participation, urgency, volatility, size, and model-pathology checks |
+| `MR-REP-W13-03` | Produce capacity and drawdown curves across capital | Frazzini, Israel, and Moskowitz; Detzel et al. | Net return, drawdown, participation, and uncertainty by capital scale |
+
+### Week 14: financing, borrow, and short-side stress
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W14-01` | Reconcile crypto funding, margin, and financing regimes | D'Avolio as financing analogue; venue specifications | Funding state, margin utilization, liquidation, and concentration report |
+| `MR-REP-W14-02` | Implement historical equity-borrow study when data is available | D'Avolio (2002); Cohen, Diether, and Malloy | Availability, fee, locate, utilization, recall, and missing-not-at-random analysis |
+| `MR-REP-W14-03` | Run short squeeze, fee jump, recall, margin, and funding stresses | Engelberg, Reed, and Ringgenberg (2018) | Severe but plausible short-book and financing stress report |
+
+### Week 15: multiple testing and governance
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W15-01` | Reconcile the complete trial family and freeze selection protocol | Lo and MacKinlay; Arnott, Harvey, and Markowitz | Trial-family manifest, degrees of freedom, selection rule, and freeze record |
+| `MR-REP-W15-02` | Apply reality-check and superior-predictive-ability tests | White (2000); Hansen (2005) | Model-family-adjusted evidence with dependence-preserving resampling |
+| `MR-REP-W15-03` | Apply hurdle rates and document governance decision | Harvey, Liu, and Zhu (2016); Bailey and Lopez de Prado | Corrected evidence, model card draft, reviewer findings, and kill criteria |
+
+### Week 16: integrated OOS and shadow package
+
+| Research MR ID | Research change | Required reading | Required evidence |
+| --- | --- | --- | --- |
+| `MR-REP-W16-01` | Evaluate the frozen candidate on untouched OOS | Arnott, Harvey, and Markowitz; Jensen et al. (2026) | Access log, locked results, attribution, stress, and failure analysis |
+| `MR-REP-W16-02` | Run capital-convergence, crowding, and correlated-deleveraging scenarios | Shleifer and Vishny (1997); Khandani and Lo (2011); Lou and Polk (2022) | Capital withdrawal, factor overlap, liquidity withdrawal, correlated impact, and drawdown stress |
+| `MR-REP-W16-03` | Deliver shadow reconciliation and PM-ready package | Jensen et al. (2026); reading-guide §08 | Capacity frontier, model card, monitoring, reconciliation, and promotion decision |
+
 ## Research-program acceptance map
 
-| Program stage | Required platform waves | Required evidence |
-| --- | --- | --- |
-| Weeks 1-2: baseline and data | 0-3 | Reproducible costed baseline plus point-in-time data and universe audit |
-| Weeks 3-9: factors, signals, ML, regimes | 4 | Registered models under common rolling evaluation and diagnostics |
-| Weeks 10-12: risk and portfolio | 5 | Realized-risk validation, constraints, optimizer diagnostics, dynamic trading |
-| Weeks 13-14: execution and financing | 6 | TCA, capacity, funding/margin, partial fills, and stress evidence |
-| Weeks 15-16: governance and shadow | 7 | Complete trials, locked OOS, promotion package, shadow reconciliation |
-| Other asset classes | 1 and 8 | New adapters pass shared contracts without core rewrites |
+| Program stage | Required platform waves | Research MR range | Required evidence |
+| --- | --- | --- | --- |
+| Weeks 1-2: baseline and data | 0-3 | `MR-REP-W01-*` to `MR-REP-W02-*` | Reproducible costed baseline plus point-in-time data and universe audit |
+| Weeks 3-9: factors, signals, ML, regimes | 4 | `MR-REP-W03-*` to `MR-REP-W09-*` | Registered models under common rolling evaluation and diagnostics |
+| Weeks 10-12: risk and portfolio | 5 | `MR-REP-W10-*` to `MR-REP-W12-*` | Realized-risk validation, constraints, optimizer diagnostics, dynamic trading |
+| Weeks 13-14: execution and financing | 6 | `MR-REP-W13-*` to `MR-REP-W14-*` | TCA, capacity, funding/margin, partial fills, and stress evidence |
+| Weeks 15-16: governance and shadow | 7 | `MR-REP-W15-*` to `MR-REP-W16-*` | Complete trials, locked OOS, promotion package, shadow reconciliation |
+| Other asset classes | 1 and 8 | Asset-specific extension MRs | New adapters pass shared contracts without core rewrites |
 
 ### Week-by-week enablement
 
-| Week | Research objective | Platform capability used | Required artifact |
-| --- | --- | --- | --- |
-| 1 | Strategy map and transparent baseline | Dataset specification, delayed simulation clock, shared ledger, baseline report | Horizon, universe, decision-price convention, gross-to-net identity, costed baseline |
-| 2 | Point-in-time data and instrument master | Bitemporal catalog, instrument lifecycle, quality suite, universe snapshots, lineage | Data-lineage map, identifier tests, timestamp audit, lifecycle and gap report |
-| 3 | Observable and PCA residual baselines | Factor-model protocol, PCA, residual pipeline, diagnostics | Factor stability, residual covariance, turnover, residual predictability |
-| 4 | Conditional and pricing-relevant factors | Replaceable factor implementations, common splits and artifacts | Challenger comparison, omitted-factor exposure, loading stability |
-| 5 | Signal library and hypotheses | Feature/signal registries and dossier schema | Versioned signal definitions, mechanisms, horizons, decay, missingness, turnover |
-| 6 | Normalization and neutralization | Train-only transformation pipeline and dimensioned exposure reporting | Alpha removed, risk removed, orthogonalization and stability evidence |
-| 7 | Predictive-model benchmark matrix | Common model adapter, rolling trainer, model bake-off | Identical-split IC, calibration, turnover, stability, and net-value comparison |
-| 8 | Missing data and representation | Registered missing-data policies and leakage tests | Complete-case and imputation comparison with missingness diagnostics |
-| 9 | Forecast evaluation and regimes | Conditional diagnostics and predeclared slices | Volatility, liquidity, trend, crowding, and break-condition tables |
-| 10 | Risk model | Covariance implementations, realized-risk validation, scenario engine | Calibration, tails, concentration, eigenstructure, optimizer stability |
-| 11 | Static portfolio construction | Constraint system, static optimizer, shadow-price diagnostics | Transfer coefficient, constraint costs, feasibility and fallback evidence |
-| 12 | Dynamic cost-aware trading | Dynamic and multi-period optimizer contracts | Trading-speed comparative statics and net-value comparison |
-| 13 | Execution, impact, and capacity | Event replay, cost/impact models, TCA, capacity generator | Implementation shortfall and net frontier across capital scales |
-| 14 | Borrow, financing, and short-side stress | Financing, funding, margin, borrow, recall and lifecycle interfaces | Financing attribution, availability, squeeze, margin, and concentration stress |
-| 15 | Multiple testing and governance | Complete trial ledger, bootstrap/correction tools, candidate freeze | Locked selection protocol, research degrees of freedom, independent review record |
-| 16 | Integrated OOS and shadow package | Promotion state, shadow runner, reconciliation, telemetry, runbooks | Untouched OOS, attribution, capacity, stress, model card, shadow reconciliation |
+| Week | Research objective | Required platform MR IDs | Research MR IDs | Required artifact |
+| --- | --- | --- | --- | --- |
+| 1 | Strategy map and transparent baseline | `MR-ENG-001`, `MR-ENG-005`-`007`; `MR-DOM-004`-`005`, `MR-DOM-009`; `MR-CRY-001`, `MR-CRY-006`, `MR-CRY-008`-`010` | `MR-REP-W01-01`-`03` | Horizon, universe, decision-price convention, gross-to-net identity, costed baseline |
+| 2 | Point-in-time data and instrument master | `MR-ENG-004`-`006`; `MR-DOM-001`-`004`, `MR-DOM-007`; `MR-CRY-002`-`006`; `MR-DATA-001`-`009` | `MR-REP-W02-01`-`03` | Data-lineage map, identifier tests, timestamp audit, lifecycle and gap report |
+| 3 | Observable and PCA residual baselines | `MR-CRY-006`-`007`; `MR-DATA-003`, `MR-DATA-005`-`006`; `MR-RES-002`-`007` | `MR-REP-W03-01`-`03` | Factor stability, residual covariance, turnover, residual predictability |
+| 4 | Conditional and pricing-relevant factors | `MR-DATA-005`-`006`; `MR-RES-002`-`007`, `MR-GOV-001` | `MR-REP-W04-01`-`03` | Challenger comparison, omitted-factor exposure, loading stability |
+| 5 | Signal library and hypotheses | `MR-DATA-005`-`006`; `MR-RES-001`-`004`, `MR-RES-008`; `MR-GOV-001` | `MR-REP-W05-01`-`03` | Versioned signal definitions, mechanisms, horizons, decay, missingness, turnover |
+| 6 | Normalization and neutralization | `MR-RES-001`, `MR-RES-004`, `MR-RES-008`; `MR-GOV-001` | `MR-REP-W06-01`-`03` | Alpha removed, risk removed, orthogonalization and stability evidence |
+| 7 | Predictive-model benchmark matrix | `MR-RES-002`-`004`, `MR-RES-009`-`010`; `MR-GOV-001` | `MR-REP-W07-01`-`03` | Identical-split IC, calibration, turnover, stability, and net-value comparison |
+| 8 | Missing data and representation | `MR-RES-002`-`004`, `MR-RES-009`-`010`; `MR-GOV-001` | `MR-REP-W08-01`-`03` | Complete-case and imputation comparison with missingness diagnostics |
+| 9 | Forecast evaluation and regimes | `MR-RES-002`-`003`, `MR-RES-010`; `MR-GOV-001`, `MR-GOV-009` | `MR-REP-W09-01`-`03` | Volatility, liquidity, trend, crowding, and break-condition tables |
+| 10 | Risk model | `MR-DOM-008`; `MR-PORT-001`-`003`, `MR-PORT-009` | `MR-REP-W10-01`-`03` | Calibration, tails, concentration, eigenstructure, optimizer stability |
+| 11 | Static portfolio construction | `MR-DOM-009`; `MR-PORT-003`-`007` | `MR-REP-W11-01`-`03` | Transfer coefficient, constraint costs, feasibility and fallback evidence |
+| 12 | Dynamic cost-aware trading | `MR-DOM-009`; `MR-PORT-004`-`008` | `MR-REP-W12-01`-`03` | Trading-speed comparative statics and net-value comparison |
+| 13 | Execution, impact, and capacity | `MR-DOM-009`-`010`; `MR-EXEC-001`-`005`, `MR-EXEC-007`-`008` | `MR-REP-W13-01`-`03` | Implementation shortfall and net frontier across capital scales |
+| 14 | Borrow, financing, and short-side stress | `MR-DOM-005`, `MR-DOM-007`, `MR-DOM-010`; `MR-EXEC-001`, `MR-EXEC-006`; `MR-ASSET-002` | `MR-REP-W14-01`-`03` | Financing attribution, availability, squeeze, margin, and concentration stress |
+| 15 | Multiple testing and governance | `MR-ENG-005`-`006`; `MR-RES-002`-`003`; `MR-GOV-001`-`005` | `MR-REP-W15-01`-`03` | Locked selection protocol, research degrees of freedom, independent review record |
+| 16 | Integrated OOS and shadow package | `MR-ENG-003`, `MR-ENG-005`-`007`; `MR-PORT-007`, `MR-PORT-009`; `MR-EXEC-001`-`009`; `MR-GOV-003`-`010` | `MR-REP-W16-01`-`03` | Untouched OOS, attribution, capacity, stress, model card, shadow reconciliation |
 
 The program may pause at any week if its required platform capability or evidence is incomplete. A later research week must not be used to justify bypassing an earlier data, accounting, or governance gate.
+
+## Reading-guide traceability
+
+The reading guide is treated as a set of research requirements, not as a software backlog. The platform MR IDs identify reusable enabling code. The `MR-REP-*` IDs identify the empirical work that closes a reading requirement. A paper is complete only when the cited research MR's evidence is reproducible; merging its supporting platform code is necessary but insufficient.
+
+### Core 32 reading-to-MR crosswalk
+
+| # | Core reading and desk purpose | Primary platform support | Research evidence MR IDs |
+| --- | --- | --- | --- |
+| 1 | Lehmann (1990), short-horizon reversal baseline | `MR-CRY-006`-`010` | `MR-REP-W01-02` |
+| 2 | Lo and MacKinlay (1990), return-dependence decomposition | `MR-RES-002`-`004`, `MR-CRY-010` | `MR-REP-W01-03` |
+| 3 | Shleifer and Vishny (1997), capital and convergence risk | `MR-PORT-009`, `MR-EXEC-005`, `MR-GOV-008` | `MR-REP-W16-02` |
+| 4 | Hogan, Jarrow, Teo, and Warachka (2004), formal statistical-arbitrage definition | `MR-ENG-005`-`006`, `MR-CRY-010`, `MR-GOV-001` | `MR-REP-W01-01`, `MR-REP-W01-03` |
+| 5 | Avellaneda and Lee (2010), factor-residual stat-arb baseline | `MR-RES-005`-`007` | `MR-REP-W03-03` |
+| 6 | Khandani and Lo (2011), correlated-deleveraging case study | `MR-PORT-009`, `MR-EXEC-004`-`005` | `MR-REP-W16-02` |
+| 7 | Lou and Polk (2022), arbitrage-crowding state variable | `MR-RES-010`, `MR-PORT-009`, `MR-EXEC-005` | `MR-REP-W09-01`, `MR-REP-W16-02` |
+| 8 | Guijarro-Ordonez, Pelger, and Zanotti (2025), end-to-end frontier challenger | `MR-RES-009`-`010`, `MR-PORT-008`, `MR-GOV-001` | `MR-REP-W08-03`, `MR-REP-W16-01` |
+| 9 | Fama and French (1993), transparent observable-factor baseline | `MR-RES-005` | `MR-REP-W03-01` |
+| 10 | Bai and Ng (2002), latent-factor dimension selection | `MR-RES-006` | `MR-REP-W03-02` |
+| 11 | Kelly, Pruitt, and Su (2019), conditional factor model | `MR-RES-005`, `MR-RES-007` | `MR-REP-W04-01` |
+| 12 | Lettau and Pelger (2020), pricing-relevant latent factors | `MR-RES-005`-`007` | `MR-REP-W04-02` |
+| 13 | Giglio and Xiu (2021), omitted-factor-robust evaluation | `MR-RES-005`, `MR-RES-010` | `MR-REP-W04-03` |
+| 14 | Gu, Kelly, and Xiu (2021), nonlinear latent representation | `MR-RES-009`-`010` | `MR-REP-W08-03` |
+| 15 | Fama and MacBeth (1973), cross-sectional diagnostics | `MR-RES-004`, `MR-RES-008`, `MR-RES-010` | `MR-REP-W06-01`, `MR-REP-W06-02` |
+| 16 | Hou, Xue, and Zhang (2020), large anomaly replication | `MR-RES-001`, `MR-RES-008` | `MR-REP-W05-02` |
+| 17 | Chen and Zimmermann (2022), open signal-data/code benchmark | `MR-DATA-005`-`007`, `MR-RES-001`, `MR-RES-008` | `MR-REP-W05-01`, `MR-REP-W05-02` |
+| 18 | Jensen, Kelly, and Pedersen (2023), global replication discipline | `MR-ENG-005`-`006`, `MR-GOV-001` | `MR-REP-W05-03`, `MR-REP-W15-01` |
+| 19 | Gu, Kelly, and Xiu (2020), machine-learning benchmark matrix | `MR-RES-002`-`004`, `MR-RES-009`-`010` | `MR-REP-W07-01`-`03` |
+| 20 | Chen, Pelger, and Zhu (2024), no-arbitrage deep-factor model | `MR-RES-005`, `MR-RES-009`-`010` | `MR-REP-W07-03`, `MR-REP-W08-03` |
+| 21 | Bryzgalova, Lerner, Lettau, and Pelger (2025), systematic missing-data treatment | `MR-RES-004`, `MR-RES-009`-`010` | `MR-REP-W08-01`, `MR-REP-W08-02` |
+| 22 | Ledoit and Wolf (2004), covariance-shrinkage baseline | `MR-PORT-001`, `MR-PORT-003` | `MR-REP-W10-01` |
+| 23 | Fan, Liao, and Mincheva (2013), factor plus sparse-residual risk | `MR-PORT-002`-`003` | `MR-REP-W10-02`, `MR-REP-W10-03` |
+| 24 | Garleanu and Pedersen (2013), dynamic cost-aware trading | `MR-PORT-008` | `MR-REP-W12-01` |
+| 25 | Boyd et al. (2017), multi-period constrained optimizer | `MR-PORT-004`-`008` | `MR-REP-W12-02` |
+| 26 | Jensen, Kelly, Malamud, and Pedersen (2026), net-of-cost ML portfolio frontier | `MR-PORT-008`, `MR-EXEC-005`, `MR-GOV-003` | `MR-REP-W12-03`, `MR-REP-W16-01` |
+| 27 | Almgren and Chriss (2000), execution risk-impact benchmark | `MR-EXEC-003`-`004` | `MR-REP-W13-02` |
+| 28 | Frazzini, Israel, and Moskowitz (2018), institutional trading-cost evidence | `MR-EXEC-003`-`005`, `MR-EXEC-007` | `MR-REP-W13-01`, `MR-REP-W13-03` |
+| 29 | D'Avolio (2002), stock-loan market foundation | `MR-DOM-010`, `MR-EXEC-006`, `MR-ASSET-002` | `MR-REP-W14-02` |
+| 30 | Engelberg, Reed, and Ringgenberg (2018), recall and squeeze tail risk | `MR-PORT-009`, `MR-EXEC-006` | `MR-REP-W14-03` |
+| 31 | White (2000), data-snooping correction | `MR-GOV-001`-`002` | `MR-REP-W15-02` |
+| 32 | Harvey, Liu, and Zhu (2016), factor-zoo hurdle rates | `MR-GOV-001`-`002`, `MR-GOV-005` | `MR-REP-W15-03` |
+
+This crosswalk assigns every Core 32 reading to evidence work, but it does not imply equal implementation size. Foundational papers usually define a deterministic baseline or diagnostic. Frontier papers remain challengers and cannot displace transparent baselines without passing the same data, cost, borrow, risk, capacity, and governance tests.
+
+### Annotated research-problem crosswalk
+
+| Reading-guide section | Platform MR families | Primary research MR IDs | Completion evidence |
+| --- | --- | --- | --- |
+| §04.1 Foundations: predictability and limits to arbitrage | `MR-CRY-*`, `MR-RES-002`-`004`, `MR-GOV-001` | `MR-REP-W01-*`, `MR-REP-W16-02` | Transparent baseline, formal profit decomposition, and convergence-capital stress |
+| §04.2 Core statistical arbitrage, residual trading, and crowding | `MR-RES-005`-`007`, `MR-RES-010`, `MR-PORT-009` | `MR-REP-W03-03`, `MR-REP-W09-01`, `MR-REP-W16-02` | Residual reconstruction, convergence diagnostics, crowding state, and unwind stress |
+| §04.3 Factor models and latent representations | `MR-RES-005`-`007`, `MR-RES-009`-`010`, `MR-PORT-002` | `MR-REP-W03-*`, `MR-REP-W04-*`, `MR-REP-W08-03` | Observable, PCA, IPCA, pricing-relevant, and nonlinear challenger comparison |
+| §04.4 Cross-sectional signals and anomaly replication | `MR-RES-001`, `MR-RES-004`, `MR-RES-008` | `MR-REP-W05-*`, `MR-REP-W06-*` | Versioned hypotheses, corrected replications, decay, neutralization, and incremental value |
+| §04.5 Machine learning and high-dimensional prediction | `MR-RES-002`-`004`, `MR-RES-009`-`010` | `MR-REP-W07-*`, `MR-REP-W08-*` | Common-split model bake-off, leakage checks, ablations, seeds, and net utility |
+| §04.6 Forecast evaluation and regime instability | `MR-RES-002`-`003`, `MR-RES-010`, `MR-GOV-009` | `MR-REP-W09-*` | Conditional forecast tables, structural breaks, and precommitted degradation rules |
+| §04.7 Risk models and covariance estimation | `MR-DOM-008`, `MR-PORT-001`-`003`, `MR-PORT-009` | `MR-REP-W10-*` | Forecast-versus-realized risk, tail, stability, concentration, and stress |
+| §04.8 Portfolio construction and dynamic trading | `MR-DOM-009`, `MR-PORT-004`-`008` | `MR-REP-W11-*`, `MR-REP-W12-*` | Baseline and optimized portfolios, shadow costs, fallbacks, and dynamic response |
+| §04.9 Transaction costs, impact, execution, and capacity | `MR-EXEC-001`-`009` | `MR-REP-W13-*` | Implementation-shortfall reconciliation, calibrated impact, and capacity curves |
+| §04.10 Market microstructure and intraday alpha | `MR-DATA-003`, `MR-EXEC-001`-`004`, `MR-EXEC-007` | `MR-REP-W13-01`, `MR-REP-W13-02` | Timestamp/order-state correctness and decision-to-fill evidence; queue models require later extension MRs |
+| §04.11 Short selling, borrow, and financing | `MR-DOM-010`, `MR-EXEC-006`, `MR-ASSET-002` | `MR-REP-W14-*` | Historical availability/fees or crypto funding analogue plus severe short-side stress |
+| §04.12 Backtest integrity, multiple testing, and research governance | `MR-DATA-005`-`006`, `MR-RES-002`-`003`, `MR-GOV-001`-`010` | `MR-REP-W15-*`, `MR-REP-W16-01`, `MR-REP-W16-03` | Complete trial ledger, locked OOS, independent review, model card, and shadow reconciliation |
+| §04.13 Alternative data, text, and economic networks | `MR-DATA-001`, `MR-DATA-004`-`007`, `MR-RES-001`, `MR-RES-004` | Strategy-specific extension MRs | Timestamped availability, entity/link history, ablations, incremental value, and licensed reproducibility |
+| §04.14 Cross-asset extensions | `MR-DOM-*`, `MR-ASSET-*` | Asset-specific extension MRs | Shared-contract, lifecycle, accounting, valuation, risk, execution, and promotion tests |
+
+Section §04.13 and specialized intraday queue modeling are intentionally not mandatory for the first crypto stat-arb candidate. When introduced, their research IDs use the next allocated extension sequence and must point back to the relevant §04 row, §07 controls, and §08 artifact; they may not be folded invisibly into an existing MR.
+
+### Minimum institutional specification crosswalk
+
+| Requirement | Primary platform MR IDs | Evidence-producing research MR IDs | Blocking gate |
+| --- | --- | --- | --- |
+| §07.1 Point-in-time data and universe | `MR-ENG-004`-`006`, `MR-DOM-001`-`004`, `MR-DOM-007`, `MR-DATA-001`-`009` | `MR-REP-W02-*` | Data gate |
+| §07.2 Labels, splits, and model selection | `MR-RES-001`-`004`, `MR-RES-009`, `MR-GOV-001`-`003` | `MR-REP-W07-*`, `MR-REP-W08-*`, `MR-REP-W15-01` | Research and governance gates |
+| §07.3 Alpha diagnostics | `MR-RES-005`-`010` | `MR-REP-W03-*` to `MR-REP-W09-*` | Research gate |
+| §07.4 Risk model and portfolio construction | `MR-DOM-008`-`009`, `MR-PORT-001`-`009` | `MR-REP-W10-*` to `MR-REP-W12-*` | Portfolio gate |
+| §07.5 Costs, execution, and capacity | `MR-CRY-008`-`009`, `MR-EXEC-001`-`009` | `MR-REP-W13-*`, `MR-REP-W16-03` | Execution gate |
+| §07.6 Borrow, funding, and operational constraints | `MR-DOM-005`, `MR-DOM-007`, `MR-DOM-010`, `MR-EXEC-006`, `MR-EXEC-009`, `MR-GOV-008`, `MR-ASSET-002` | `MR-REP-W14-*`, `MR-REP-W16-03` | Execution and production gates |
+| §07.7 Evaluation and governance | `MR-ENG-005`-`007`, `MR-PORT-009`, `MR-GOV-001`-`010` | `MR-REP-W15-*`, `MR-REP-W16-*` | Governance and production gates |
+
+No research candidate may graduate merely because all its week-specific MRs merged. Each §07 row is a blocking control, and the MR evidence must be reviewed against the named gate before promotion.
+
+### Required-deliverable crosswalk
+
+| §08 artifact | Platform MR IDs that produce or govern it | Research MR IDs that populate it | Human promotion check |
+| --- | --- | --- | --- |
+| Data and universe audit | `MR-DATA-001`-`009` | `MR-REP-W02-*` | No unresolved lookahead or unexplained discontinuity; versions pinned |
+| Baseline replication | `MR-CRY-006`-`010` | `MR-REP-W01-*` | Published-style and corrected costed results reproduce independently |
+| Signal dossier | `MR-RES-001`, `MR-RES-008` | `MR-REP-W05-*`, `MR-REP-W06-*` | Formula, timing, mechanism, decay, asymmetry, risks, and incremental value present |
+| Model bake-off | `MR-RES-002`-`004`, `MR-RES-009`-`010` | `MR-REP-W07-*`, `MR-REP-W08-*` | Locked net portfolio utility and stability, not in-sample fit, select the model |
+| Risk model validation | `MR-DOM-008`, `MR-PORT-001`-`003` | `MR-REP-W10-*` | Realized risk is calibrated and optimizer behavior is stable with limitations documented |
+| Optimizer validation | `MR-PORT-004`-`008` | `MR-REP-W11-*`, `MR-REP-W12-*` | Units/signs, feasibility, shadow prices, comparative statics, and fallback pass |
+| Execution and cost model | `MR-EXEC-001`-`004`, `MR-EXEC-007`-`008` | `MR-REP-W13-01`, `MR-REP-W13-02` | Backtest assumptions reconcile to observed shadow fills with uncertainty |
+| Borrow and short report | `MR-DOM-010`, `MR-EXEC-006`, `MR-ASSET-002` | `MR-REP-W14-*` | Short book survives severe plausible fee, funding, recall, squeeze, and margin states |
+| Capacity and crowding report | `MR-PORT-009`, `MR-EXEC-004`-`005` | `MR-REP-W13-03`, `MR-REP-W16-02` | Proposed capital is below average and stressed capacity limits |
+| Final OOS package | `MR-GOV-003`, `MR-GOV-006`-`007` | `MR-REP-W16-01`, `MR-REP-W16-03` | Locked statistical, economic, operational, stress, and drawdown criteria pass |
+| Production model card | `MR-GOV-004`-`005`, `MR-GOV-008`-`010` | `MR-REP-W15-03`, `MR-REP-W16-03` | Research, PM, risk, execution, technology, and governance approvals are complete |
+
+### §08.1 decision-rule ownership
+
+| Decision question | Principal MR evidence | Fail or de-risk trigger |
+| --- | --- | --- |
+| Is the alpha real? | `MR-REP-W01-*`, `MR-REP-W05-*`, `MR-REP-W09-*`, `MR-REP-W15-*`, `MR-REP-W16-01` | Sign or ordering depends on one period, tail, survivor universe, or post-hoc cleaning |
+| Is it incremental? | `MR-REP-W05-03`, `MR-REP-W06-03`, `MR-REP-W11-03` | Standalone value disappears after existing signals, netting, and constraints |
+| Is it implementable? | `MR-REP-W12-*`, `MR-REP-W13-*`, `MR-REP-W14-*` | Turnover, impact, delay, financing, or unavailable shorts consume the gross result |
+| Is risk understood? | `MR-REP-W09-*`, `MR-REP-W10-*`, `MR-REP-W14-03`, `MR-REP-W16-02` | Neutrality relies only on historical beta or average volatility |
+| Is complexity justified? | `MR-REP-W07-*`, `MR-REP-W08-*`, `MR-REP-W12-03` | Gain is caused by leakage, missingness artifacts, unstable features, seeds, or uncosted turnover |
+| Can it be operated? | `MR-REP-W02-*`, `MR-REP-W15-03`, `MR-REP-W16-03` | Pipeline needs manual fixes, unavailable historical inputs, or unobservable live states |
 
 ## Acceptance gates
 
