@@ -1,3 +1,0 @@
-log_level: WARNING
-feature_flags:
-  dry_run: true

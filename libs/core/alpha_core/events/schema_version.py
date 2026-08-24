@@ -1,3 +1,0 @@
-"""Canonical event schema version constants."""
-
-CANONICAL_EVENT_SCHEMA_VERSION = 1

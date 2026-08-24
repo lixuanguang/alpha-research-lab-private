@@ -1,1 +1,0 @@
-"""Research application entrypoint package."""
