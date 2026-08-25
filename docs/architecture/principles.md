@@ -104,4 +104,3 @@ compute, runtime lanes, deployment, observability, persistence, or event orderin
 requires an ADR under the [architecture governance process](governance.md).
 Changes also update affected contracts, tests, compatibility, migration, rollback,
 operations, and roadmap evidence in the same reviewable sequence.
-

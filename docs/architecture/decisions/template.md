@@ -50,4 +50,3 @@ maximum decision latency, and evidence needed to prove recovery.
 
 List required reviewers, tests, benchmarks, target-environment evidence, approval
 links, exceptions, and the next review trigger/date.
-

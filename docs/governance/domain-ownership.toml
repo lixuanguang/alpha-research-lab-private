@@ -1,0 +1,140 @@
+schema_version = 1
+roadmap_package = "A03"
+operating_track = "solo_bootstrap"
+package_status = "partial"
+codeowners_path = "CODEOWNERS"
+unmatched_path_policy = "reject"
+author_may_satisfy_independent_review = false
+
+[forge_enforcement]
+protected_branch = "main"
+require_code_owner_review = true
+require_approval_after_last_push = true
+verification_status = "pending"
+evidence = ""
+
+[[domains]]
+domain_id = "repository_platform"
+patterns = ["*", "/.github/", "/core/", "/src/", "/tests/"]
+accountable_role = "platform"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["platform"]
+independent_review_roles = []
+escalation_roles = ["domain_architecture", "security"]
+
+[[domains]]
+domain_id = "documentation_governance"
+patterns = ["/docs/"]
+accountable_role = "domain_architecture"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["domain_architecture"]
+independent_review_roles = []
+escalation_roles = ["platform", "compliance"]
+
+[[domains]]
+domain_id = "schemas"
+patterns = ["/schemas/"]
+accountable_role = "domain_architecture"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["domain_architecture", "data_platform", "data_quality"]
+independent_review_roles = ["data_quality"]
+escalation_roles = ["platform", "security"]
+
+[[domains]]
+domain_id = "data"
+patterns = ["/data/"]
+accountable_role = "data_platform"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["data_platform", "data_quality"]
+independent_review_roles = ["data_quality"]
+escalation_roles = ["domain_architecture", "security"]
+
+[[domains]]
+domain_id = "research"
+patterns = ["/research/", "/strategies/"]
+accountable_role = "quantitative_research"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["quantitative_research", "model_validation"]
+independent_review_roles = ["model_validation"]
+escalation_roles = ["risk", "platform"]
+
+[[domains]]
+domain_id = "simulation"
+patterns = ["/simulation/"]
+accountable_role = "simulation"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["simulation", "quantitative_research"]
+independent_review_roles = ["quantitative_research"]
+escalation_roles = ["risk", "platform"]
+
+[[domains]]
+domain_id = "portfolio"
+patterns = ["/portfolio/"]
+accountable_role = "portfolio_research"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["portfolio_research", "risk_engineering"]
+independent_review_roles = ["risk_engineering"]
+escalation_roles = ["independent_risk", "platform"]
+
+[[domains]]
+domain_id = "risk"
+patterns = ["/risk/"]
+accountable_role = "risk_engineering"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["risk_engineering", "independent_risk"]
+independent_review_roles = ["independent_risk"]
+escalation_roles = ["security", "sre"]
+
+[[domains]]
+domain_id = "trading"
+patterns = ["/trading/"]
+accountable_role = "trading_engineering"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["trading_engineering", "independent_risk", "sre"]
+independent_review_roles = ["independent_risk", "sre"]
+escalation_roles = ["security", "platform"]
+
+[[domains]]
+domain_id = "platform_runtime"
+patterns = ["/platform/", "/environments/", "/tools/"]
+accountable_role = "platform"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["platform", "sre", "security"]
+independent_review_roles = ["sre", "security"]
+escalation_roles = ["independent_risk", "domain_architecture"]
+
+[[domains]]
+domain_id = "assets"
+patterns = ["/assets/"]
+accountable_role = "asset_domain"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["asset_domain", "risk_engineering"]
+independent_review_roles = ["risk_engineering"]
+escalation_roles = ["independent_risk", "trading_engineering"]
+
+[[domains]]
+domain_id = "security"
+patterns = ["/platform/secrets/", "/secrets/"]
+accountable_role = "security"
+codeowners = ["@lixuanguang"]
+required_review_roles = ["security", "platform"]
+independent_review_roles = ["platform"]
+escalation_roles = ["compliance", "sre"]
+
+[[findings]]
+finding_id = "A03-F01"
+owner_role = "platform"
+unavailable_evidence = "Independent forge principals and escalation rotations are not provisioned."
+closure_condition = "Provision named role principals, replace the solo CODEOWNER mappings, and verify repository write and review separation."
+
+[[findings]]
+finding_id = "A03-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected-main Code Owner enforcement and author-ineligible independent approval evidence are unavailable from the local checkout."
+closure_condition = "The external forge enforces Code Owner review and approval after the last push; a non-author reviewer exercises each protected-path class on the exact commit."
+
+[[findings]]
+finding_id = "A03-F03"
+owner_role = "security"
+unavailable_evidence = "Independent security review of the ownership and escalation policy is unavailable during solo bootstrap."
+closure_condition = "A named Security reviewer resolves findings and records commit-bound approval of the policy and CODEOWNERS mapping."

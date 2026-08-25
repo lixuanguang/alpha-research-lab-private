@@ -64,4 +64,3 @@ alert behavior, then restore the last verified collector path on divergence.
 Platform/SRE and security review naming, correlation, loss, sensitive-data,
 cardinality, performance, retention, and synthetic-alert evidence. Revisit when
 J01 selects concrete backends or a hot-path budget changes.
-

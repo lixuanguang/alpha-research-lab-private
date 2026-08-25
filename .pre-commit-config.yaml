@@ -27,6 +27,13 @@ repos:
         files: ^(pyproject\.toml|src/.*\.py|tests/.*\.py)$
         pass_filenames: false
 
+      - id: ownership-governance
+        name: check ownership governance
+        entry: uv run --frozen python -m alpha_research.ownership_governance
+        language: system
+        files: ^(CODEOWNERS|docs/governance/domain-ownership\.(md|toml)|src/alpha_research/ownership_governance\.py|tests/engineering/test_ownership_governance\.py)$
+        pass_filenames: false
+
       - id: trailing-whitespace
         name: trim trailing whitespace
         entry: uv run --frozen trailing-whitespace-fixer

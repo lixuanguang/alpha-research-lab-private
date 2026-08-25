@@ -63,4 +63,3 @@ representation is deprecated.
 Review when C08 supplies compatibility matrices, generated-client digests, replay
 fixtures, and measured serialization evidence. Domain, data, and platform owners
 must challenge unsafe unknown-field or time/unit behavior.
-
