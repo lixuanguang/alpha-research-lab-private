@@ -2,18 +2,23 @@
 
 ## Purpose and implementation rule
 
-These contracts define the semantic boundaries that research, simulation, shadow,
-and future asset-class adapters must share. They describe the target model, not a
-requirement to implement every variant in the first phase.
+These contracts define the thin waist shared by research, replay, paper, shadow,
+canary, live operation, and every asset package. They are subordinate to the
+[implementation blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
+and describe target behavior, not capabilities already implemented in the
+bootstrap package.
 
-The first vertical slice implements only the cash/spot and perpetual-futures
-variants required by the crypto baseline. Futures, options, FX, fixed income, and
-specialized market-making behavior are added through the extension gates below.
-Do not build a speculative universal hierarchy before a real consumer exists.
+Canonical cross-asset contracts are established in wave C before platform
+components specialize them. Asset implementations are certified separately in
+wave L. A narrow first digital-asset workload may implement only the variants it
+uses, but it may not replace the canonical model with crypto-only semantics or
+delay the shared contracts until after a vertical slice.
 
 ## Instruments and market events
 
-- `InstrumentId` is internal and stable. Vendor symbols are effective-dated aliases.
+- `InstrumentId` is internal and stable. It is not a ticker. Economic instrument,
+  listing, contract, share class, derivative series, venue symbol, and vendor
+  identifier are distinct concepts with validity-dated, source-attributed mappings.
 - `ContractSpec` is versioned. Its implemented variants declare quantity unit,
   price unit, multiplier, currencies, tick/lot rules, lifecycle, and settlement.
 - A derivative references internal underlying identifiers rather than vendor text.
@@ -41,20 +46,34 @@ Do not build a speculative universal hierarchy before a real consumer exists.
 
 | Field | Meaning | Example |
 | --- | --- | --- |
-| `ts_event` | When the source says the event occurred | Exchange trade timestamp |
-| `ts_recorded` | When this version first entered the platform | Ingestion receipt time |
-| `ts_available` | Earliest time a strategy could use the information | Release plus processing delay |
-| `ts_effective` | When the event changes economic state | Split or parameter effective time |
+| `ts_event` | When the economic or market event occurred, with source precision | Exchange trade timestamp |
+| `source_sequence` / `source_revision` | Source ordering or file/version identity | Feed sequence or vendor revision |
+| `ts_received` | When the platform first received the payload | Gateway receipt timestamp |
+| `ts_ingested` | When the record entered governed storage | Raw-landing timestamp |
+| `ts_knowledge` | Earliest time the platform could have known and used this version | Receipt plus validated processing delay |
+| `valid_from` / `valid_to` | Business period for which reference state applies | Contract specification effective interval |
 
-Point-in-time queries use `ts_available <= decision_time` and the latest record
-version known at the requested knowledge cutoff. Event time alone is never proof
-of availability.
+For a decision at `decision_time`, every input must satisfy
+`ts_knowledge <= decision_time`. Point-in-time queries select the applicable
+valid-time record from the revisions known at the requested knowledge cutoff.
+Event, receipt, ingestion, knowledge, and valid time are never interchangeable.
+Records also carry source and transformation versions, checksum, correction
+lineage, clock quality, timezone, and convention metadata where applicable.
 
 ## Data and lineage
 
-- Bronze objects preserve original payloads and checksums and are append-only.
-- Silver partitions contain canonical, versioned events and reference data.
-- Gold datasets are deterministic products of explicit specifications.
+- Raw objects preserve original payloads, checksums, arrival metadata,
+  license/entitlement tags, encryption, and retention class and are immutable.
+- Canonical publications contain normalized versioned events and reference data
+  with source pointers, deterministic transformations, units, time semantics, and
+  quality status.
+- Curated point-in-time datasets are deterministic products of explicit
+  specifications, as-of joins, universe membership, revision policy, and snapshot
+  digests.
+- Online-serving records have bounded freshness, explicit state/fallback,
+  version identity, feature parity, and telemetry.
+- Corrections are an append-only stream carrying old/new value, reason, knowledge
+  time, and the affected datasets, models, and releases.
 - Corrections create revisions while preserving earlier recorded state.
 - Every result identifies raw partitions, dataset specification, code/artifact,
   configuration, component versions, dependencies, and random seeds.
@@ -62,11 +81,13 @@ of availability.
 
 ### Storage tiers
 
-| Tier | Contents | Mutability | Purpose |
+| State | Contents | Required properties |
 | --- | --- | --- | --- |
-| Bronze | Original files/responses/packets and checksums | Append-only | Audit and reprocessing |
-| Silver | Canonical events and reference data | Versioned publication | Shared input |
-| Gold | Universes, bars, features, labels, curves, model panels | Rebuildable/content-addressed | Reproducible research |
+| Raw immutable | Original files, responses, packets, checksums, and source metadata | Append-only source of record, entitlement and retention controls |
+| Canonical normalized | Cross-asset events and master/reference data | Versioned schemas, source pointers, deterministic transforms, explicit units/time |
+| Curated point-in-time | Universes, bars, features, labels, curves, and model panels | As-of semantics, revision policy, lineage, reproducible digest |
+| Online serving | Current features, reference state, and events | Freshness bound, parity, state/fallback, release identity |
+| Correction stream | Controlled restatements and impact metadata | Append-only old/new versions, reason, knowledge time, idempotent backfill |
 
 ### Dataset specification
 
@@ -95,6 +116,11 @@ a file or policy creates a new dataset identity.
 
 ## Research and model contracts
 
+- Before model search, every strategy proposal records its economic mechanism and
+  falsifiable hypothesis; target/sign/horizon and label availability; decision
+  and execution horizons; universe and rebalance; benchmark; portfolio/risk
+  structure; expected turnover, liquidity, borrow, financing, and capacity;
+  metrics and rejection criteria; intended mode; monitoring; and kill conditions.
 - Features are time-consistent functions registered by name and version.
 - Labels declare horizon, observation interval, overlap, price convention,
   execution delay, and missing policy.
@@ -159,6 +185,9 @@ trial cannot be deleted or rewritten because its outcome is unfavorable.
 
 ## Strategy, portfolio, and execution
 
+- The shared strategy kernel is pure, typed, deterministic logic with injected
+  clocks, state, data, risk, and execution adapters. Research, replay, paper,
+  shadow, canary, and live use this same kernel.
 - Strategy output expresses forecasts, scores, target risks, spreads, or quantities
   with horizon, confidence, and validity metadata.
 - Portfolio intent converts strategy output into dimensioned desired exposures or
@@ -168,6 +197,10 @@ trial cannot be deleted or rewritten because its outcome is unfavorable.
 - Fallback behavior for stale risk, missing inputs, or infeasibility is registered,
   deterministic, and conservative.
 - Execution converts portfolio intent to canonical order state and venue actions.
+- The independent risk-decision service consumes authoritative positions and
+  pending orders outside the strategy process. Timeouts, stale inputs, unavailable
+  limits, or missing authorization take a documented safe state, generally
+  fail-closed for new risk. The strategy cannot alter its own envelope.
 
 ### Execution guarantees
 
@@ -214,8 +247,12 @@ source-reference metadata.
 
 ## Asset-class extension gates
 
-Asset support is added only after the core crypto path passes its operational gate
-and a concrete research need exists.
+Asset contracts are additive specializations of the canonical core. Implementation
+begins only after the C-K foundations on which the selected L package depends are
+stable. Each asset requires identity/lifecycle, market/reference data,
+point-in-time history, accounting, costs, execution, risk, margin/collateral,
+reconciliation, monitoring, runbooks, and failure scenarios. Unsupported behavior
+must be explicit; silent generic fallbacks are prohibited.
 
 ### Equities
 
@@ -267,3 +304,9 @@ as a specialized subsystem. Do not force them into the medium-frequency simulato
 Treat finality, reorgs, gas, nonces, custody, AMM state, oracles, MEV, bridging, and
 transaction failure as specialized execution/accounting contracts, not a minor
 connector variation.
+
+Before any digital-asset certification, also require 24/7 operational coverage,
+token/chain/venue identity, forks and redenominations, exchange/custody credit,
+funding and liquidation behavior, stablecoin FX, transfer/custody state, and
+venue/chain outage and liquidation-cascade scenarios. Digital assets remain
+optional and separately governed even when they are the first research workload.
