@@ -2,6 +2,7 @@
 
 UV := uv
 PYTHON_PATHS := src tests
+SOURCE_ENV := PYTHONPATH=src
 
 .PHONY: sync lock-check format format-check lint typecheck architecture-check ownership-check change-risk-check security test smoke build check
 
@@ -24,22 +25,22 @@ typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
 
 architecture-check:
-	$(UV) run --frozen python -m alpha_research.architecture_governance
+	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.architecture_governance
 
 ownership-check:
-	$(UV) run --frozen python -m alpha_research.ownership_governance
+	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.ownership_governance
 
 change-risk-check:
-	$(UV) run --frozen python -m alpha_research.change_risk
+	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.change_risk
 
 security:
 	$(UV) run --frozen bandit -q -c pyproject.toml -r src
 
 test:
-	$(UV) run --frozen pytest -q
+	$(SOURCE_ENV) $(UV) run --frozen pytest -q
 
 smoke:
-	$(UV) run --frozen python -c "import alpha_research"
+	$(SOURCE_ENV) $(UV) run --frozen python -c "import alpha_research"
 
 build:
 	$(UV) build --no-sources

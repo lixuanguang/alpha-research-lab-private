@@ -54,12 +54,12 @@ def test_check_runs_every_configured_non_mutating_command() -> None:
         "uv run --frozen ruff check src tests",
         "uv run --frozen ruff format --check src tests",
         "uv run --frozen mypy --strict src tests",
-        "uv run --frozen python -m alpha_research.architecture_governance",
-        "uv run --frozen python -m alpha_research.ownership_governance",
-        "uv run --frozen python -m alpha_research.change_risk",
+        "PYTHONPATH=src uv run --frozen python -m alpha_research.architecture_governance",
+        "PYTHONPATH=src uv run --frozen python -m alpha_research.ownership_governance",
+        "PYTHONPATH=src uv run --frozen python -m alpha_research.change_risk",
         "uv run --frozen bandit -q -c pyproject.toml -r src",
-        "uv run --frozen pytest -q",
-        'uv run --frozen python -c "import alpha_research"',
+        "PYTHONPATH=src uv run --frozen pytest -q",
+        'PYTHONPATH=src uv run --frozen python -c "import alpha_research"',
         "uv build --no-sources",
     ]
 
