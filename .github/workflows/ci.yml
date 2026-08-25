@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   package:
-    name: ENG-01 package
+    name: Bootstrap package
     runs-on: ubuntu-latest
 
     steps:
