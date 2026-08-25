@@ -87,16 +87,24 @@ audit obligation.
 
 Point-in-time causality, immutable artifact identity, independent hard risk, and
 kill capability are the four non-waivable live-capital controls. The approval
-validator rejects an R4 merge whenever one appears in the waiver set, even when
-reviewer counts otherwise pass. It also rejects duplicate reviewer identities,
-missing reviewer groups, an author presented as independent, and fewer than the
-class minimum approvals.
+validator requires the original change input, reclassifies it under the
+authoritative policy, and rejects a stale, altered, or caller-constructed decision
+that does not match that result. Reviewer and waiver checks use only the
+recomputed decision. The validator also rejects an R4 merge whenever a hard
+control appears in the waiver set, duplicate reviewer identities, missing reviewer
+groups, an author presented as independent, or fewer than the class minimum
+approvals.
 
-The current API validates identities and role claims supplied by a caller. The
-external forge remains authoritative for authenticated identity, approval after
-the last push, protected-branch enforcement, and retained exact-commit evidence.
-A05 will define the MR and SHA-bound evidence inputs; A04 does not pre-empt that
-separate package.
+Callers of `validate_merge_approvals()` must pass the classification facts through
+the required `change=` argument together with the decision returned by
+`classify_change()`. This binding is a repository-local integrity check; it does
+not authenticate whether the input facts describe the exact proposed commit.
+
+The current API still validates identities, role claims, and classification facts
+supplied by a caller. The external forge remains authoritative for authenticated
+identity, approval after the last push, protected-branch enforcement, and retained
+exact-commit evidence. A05 will define the MR and SHA-bound evidence inputs; A04
+does not pre-empt that separate package.
 
 ## Enforcement and repository evidence
 
@@ -105,7 +113,8 @@ boundary, and reclassifies the retained R0-R4 sample changes. The same command i
 included in the root check, pre-commit, and hosted-CI definitions. Focused tests
 cover success, mixed-dimension boundaries, capital escalation, conditional gates,
 unknown values, declared downgrades, policy weakening, insufficient or duplicate
-review evidence, author independence, and R4 hard-control waivers.
+review evidence, decision/input mismatch, author independence, and R4 hard-control
+waivers.
 
 Local success proves deterministic repository behavior only. It does not prove
 that the hosted forge ran the exact commit or that unavailable independent roles

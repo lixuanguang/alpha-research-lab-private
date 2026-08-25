@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -212,11 +213,13 @@ def test_conditional_gate_facts_become_mandatory(
 def test_r4_requires_distinct_review_groups_and_independent_approvers(
     policy: ChangeRiskPolicy,
 ) -> None:
-    decision = classify_change(_change_for(RiskClass.R4), policy)
+    change = _change_for(RiskClass.R4)
+    decision = classify_change(change, policy)
 
     validate_merge_approvals(
         decision,
         _r4_approvals(),
+        change=change,
         waived_controls=(),
         policy=policy,
     )
@@ -225,13 +228,48 @@ def test_r4_requires_distinct_review_groups_and_independent_approvers(
         validate_merge_approvals(
             decision,
             [ReviewApproval("owner", frozenset({"domain_owner"}))],
+            change=change,
+            waived_controls=(),
+            policy=policy,
+        )
+
+
+def test_approval_validation_rejects_a_decision_for_another_change(
+    policy: ChangeRiskPolicy,
+) -> None:
+    capital_change = _change_for(RiskClass.R4)
+    untrusted_decision = classify_change(_change_for(RiskClass.R0), policy)
+
+    with pytest.raises(ChangeRiskPolicyError, match="does not match the deterministic result"):
+        validate_merge_approvals(
+            untrusted_decision,
+            [ReviewApproval("owner", frozenset({"code_owner"}))],
+            change=capital_change,
+            waived_controls=(),
+            policy=policy,
+        )
+
+
+def test_approval_validation_rejects_same_class_decision_tampering(
+    policy: ChangeRiskPolicy,
+) -> None:
+    change = _change_for(RiskClass.R4)
+    trusted_decision = classify_change(change, policy)
+    tampered_decision = replace(trusted_decision, minimum_approvals=1)
+
+    with pytest.raises(ChangeRiskPolicyError, match="does not match the deterministic result"):
+        validate_merge_approvals(
+            tampered_decision,
+            [ReviewApproval("owner", frozenset({"domain_owner"}))],
+            change=change,
             waived_controls=(),
             policy=policy,
         )
 
 
 def test_author_cannot_satisfy_an_independent_r4_group(policy: ChangeRiskPolicy) -> None:
-    decision = classify_change(_change_for(RiskClass.R4), policy)
+    change = _change_for(RiskClass.R4)
+    decision = classify_change(change, policy)
     approvals = list(_r4_approvals())
     approvals[1] = ReviewApproval(
         "risk",
@@ -244,18 +282,21 @@ def test_author_cannot_satisfy_an_independent_r4_group(policy: ChangeRiskPolicy)
         validate_merge_approvals(
             decision,
             approvals,
+            change=change,
             waived_controls=(),
             policy=policy,
         )
 
 
 def test_r4_rejects_a_waived_hard_control(policy: ChangeRiskPolicy) -> None:
-    decision = classify_change(_change_for(RiskClass.R4), policy)
+    change = _change_for(RiskClass.R4)
+    decision = classify_change(change, policy)
 
     with pytest.raises(ChangeRiskPolicyError, match="cannot waive hard controls"):
         validate_merge_approvals(
             decision,
             _r4_approvals(),
+            change=change,
             waived_controls=("kill_capability",),
             policy=policy,
         )
@@ -264,7 +305,8 @@ def test_r4_rejects_a_waived_hard_control(policy: ChangeRiskPolicy) -> None:
 def test_one_multi_role_reviewer_cannot_satisfy_multiple_r4_groups(
     policy: ChangeRiskPolicy,
 ) -> None:
-    decision = classify_change(_change_for(RiskClass.R4), policy)
+    change = _change_for(RiskClass.R4)
+    decision = classify_change(change, policy)
     approvals = (
         ReviewApproval(
             "multi-role",
@@ -280,13 +322,15 @@ def test_one_multi_role_reviewer_cannot_satisfy_multiple_r4_groups(
         validate_merge_approvals(
             decision,
             approvals,
+            change=change,
             waived_controls=(),
             policy=policy,
         )
 
 
 def test_duplicate_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy) -> None:
-    decision = classify_change(_change_for(RiskClass.R2), policy)
+    change = _change_for(RiskClass.R2)
+    decision = classify_change(change, policy)
     approvals = (
         ReviewApproval("same", frozenset({"code_owner"})),
         ReviewApproval(
@@ -300,6 +344,7 @@ def test_duplicate_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy
         validate_merge_approvals(
             decision,
             approvals,
+            change=change,
             waived_controls=(),
             policy=policy,
         )

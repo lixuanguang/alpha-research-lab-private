@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from alpha_research.change_risk.classification import classify_change
 from alpha_research.change_risk.constraints import ROLE_PATTERN
 from alpha_research.change_risk.models import (
+    ChangeRiskInput,
     ChangeRiskPolicy,
     ChangeRiskPolicyError,
     ClassificationDecision,
@@ -18,20 +20,27 @@ def validate_merge_approvals(
     decision: ClassificationDecision,
     approvals: Sequence[ReviewApproval],
     *,
+    change: ChangeRiskInput,
     waived_controls: Sequence[str],
     policy: ChangeRiskPolicy,
 ) -> None:
-    """Reject insufficient review or a prohibited R4 hard-control waiver."""
+    """Reject an unbound decision, insufficient review, or a prohibited waiver."""
     findings: list[str] = []
+    trusted_decision = classify_change(change, policy)
+    if decision != trusted_decision:
+        findings.append(
+            "classification decision does not match the deterministic result for change input"
+        )
+
     reviewer_ids = [approval.reviewer_id for approval in approvals]
     if any(not reviewer_id.strip() for reviewer_id in reviewer_ids):
         findings.append("reviewer_id must not be empty")
     if len(reviewer_ids) != len(set(reviewer_ids)):
         findings.append("reviewer approvals must have distinct identities")
-    if len(set(reviewer_ids)) < decision.minimum_approvals:
+    if len(set(reviewer_ids)) < trusted_decision.minimum_approvals:
         findings.append(
-            f"{decision.risk_class.value} requires at least "
-            f"{decision.minimum_approvals} distinct approvers"
+            f"{trusted_decision.risk_class.value} requires at least "
+            f"{trusted_decision.minimum_approvals} distinct approvers"
         )
     for approval in approvals:
         if not approval.roles or any(
@@ -42,12 +51,12 @@ def validate_merge_approvals(
     eligible_independent = [
         approval for approval in approvals if approval.independent and not approval.is_author
     ]
-    if len(eligible_independent) < decision.minimum_independent_approvals:
+    if len(eligible_independent) < trusted_decision.minimum_independent_approvals:
         findings.append(
-            f"{decision.risk_class.value} requires at least "
-            f"{decision.minimum_independent_approvals} independent approvers"
+            f"{trusted_decision.risk_class.value} requires at least "
+            f"{trusted_decision.minimum_independent_approvals} independent approvers"
         )
-    for group in decision.reviewer_groups:
+    for group in trusted_decision.reviewer_groups:
         matches = [
             approval
             for approval in approvals
@@ -56,14 +65,14 @@ def validate_merge_approvals(
         ]
         if len(matches) < group.minimum_approvals:
             findings.append(f"reviewer group {group.group_id!r} is unsatisfied")
-    if not _reviewer_groups_have_distinct_approvers(decision.reviewer_groups, approvals):
+    if not _reviewer_groups_have_distinct_approvers(trusted_decision.reviewer_groups, approvals):
         findings.append("reviewer groups require distinct qualifying identities")
 
-    class_policy = policy.class_policy(decision.risk_class)
+    class_policy = policy.class_policy(trusted_decision.risk_class)
     waived_hard_controls = policy.hard_controls & set(waived_controls)
     if waived_hard_controls and not class_policy.hard_control_waiver_allowed:
         findings.append(
-            f"{decision.risk_class.value} cannot waive hard controls: "
+            f"{trusted_decision.risk_class.value} cannot waive hard controls: "
             f"{sorted(waived_hard_controls)}"
         )
     if findings:
