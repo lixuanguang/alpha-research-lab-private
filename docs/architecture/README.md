@@ -1,317 +1,275 @@
 # Monorepo Architecture
 
-## Purpose
+## Purpose and status
 
-This document defines the target structure and dependency model for the alpha
-research monorepo. It describes how research, simulation, shadow operation,
-deployment, and monitoring fit together while allowing Python, Rust, and C/C++
-targets to evolve independently.
+This document defines the target architecture and dependency model for the
+institutional quantitative monorepo. It is subordinate to the
+[implementation blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
+and describes target state, not capabilities already present in the bootstrap
+repository.
 
-Detailed domain contracts are in [contracts.md](contracts.md). Testing,
+Detailed semantic boundaries are in [contracts.md](contracts.md). Testing,
 operations, security, and promotion controls are in
-[operations.md](operations.md). Delivery order is defined by the
+[operations.md](operations.md). Delivery order is in the
 [implementation roadmap](../roadmap/README.md).
 
-## Architectural basis and limits
+The design is an independent target architecture informed by public engineering,
+SRE, software-supply-chain, model-risk, and algorithmic-trading principles. It is
+not a reconstruction of any firm's proprietary systems.
 
-This is a proposed architecture for this repository, not a reconstruction of a
-trading firm's proprietary systems. Public material supports several patterns:
+## Architectural thesis
 
-- Jane Street has described a large OCaml-and-Python monorepo, dedicated build
-  tooling, Dune-based builds, and reproducible Python environments.
-- Hudson River Trading has described majority-monorepo development, C++/Python
-  research and trading systems, distributed cached builds and tests, and
-  large-scale Prometheus monitoring.
-- Citadel Securities publicly describes trading systems, research and simulation,
-  core platforms, and SRE, but does not publicly establish a firm-wide monorepo or
-  build tool.
+Use one source of truth for code, contracts, lineage, ownership, and change
+governance while maintaining multiple deployables, security zones, performance
+profiles, runtime lanes, and failure domains. Monorepo does not mean monolith.
 
-The choices below are recommendations derived from those public signals and
-general systems practice. They must not be presented as claims that a named firm
-uses the same repository layout or tools.
+The platform is defined by seven invariants:
 
-## Architectural principles
+1. Point-in-time causality.
+2. One shared strategy kernel across research, replay, paper, shadow, canary, and
+   live modes.
+3. Immutable, signed release identity.
+4. Independent risk controls outside the strategy process.
+5. Deterministic replay of market, reference, order, fill, state, and control
+   events.
+6. Complete mandatory evidence before promotion.
+7. Correlated monitoring of the full technical and economic chain.
 
-1. **Correctness before scale.** Start with deterministic, single-process paths
-   and small golden datasets. Add distribution or native optimization only after
-   measurement establishes a requirement.
-2. **Point-in-time behavior is enforced.** Availability semantics belong in data
-   and evaluation contracts, not researcher convention.
-3. **Research/live parity is tested.** Prefer one authoritative implementation.
-   When languages differ, require versioned conformance tests and reconciliation.
-4. **Domain first, language second.** Ownership follows instruments, data, risk,
-   strategy, execution, and operations rather than global language silos.
-5. **The monorepo is a dependency graph, not one release.** Targets have explicit
-   dependencies, owners, artifacts, and deployment cadences.
-6. **Evidence is an artifact.** Data audits, experiments, models, reports,
-   deployments, and operational decisions carry immutable provenance.
-7. **Failure is explicit.** Missing or stale data, invalid risk, infeasibility,
-   partial execution, and degradation never select an optimistic fallback silently.
-
-## Logical architecture
+## Control plane, data plane, and runtime lanes
 
 ```text
-                               shared contracts
-                                      |
-          +---------------------------+---------------------------+
-          |                           |                           |
-    data entrypoint            research entrypoint          shadow entrypoint
-          |                           |                           |
-   bronze -> silver          point-in-time datasets          live/replay events
-          |                  features and models                    |
-   quality + lineage         risk and portfolio               paper execution
-          |                  backtests and reports             reconciliation
-          +---------------------------+---------------------------+
-                                      |
-                      artifacts, governance, telemetry
+                            control plane
+       research SDK | evidence/registry | MR/CI | promotion | monitoring
+                                  |
+                                  v
+                              data plane
+  sources -> immutable raw -> canonical events/master -> PIT lakehouse
+                                                    -> online serving/event bus
+                                  |
+                                  v
+                             runtime lanes
+         batch/HPC | standard live services | low-latency controlled hosts
+                                  |
+                    independent risk gateway
+                                  |
+                       OMS/EMS and venue adapters
 ```
 
-These are logical composition roots, not necessarily network services. The
-initial implementation can be a Python modular application with multiple command
-entrypoints. A split into processes or services requires a measured isolation,
-reliability, scaling, or latency need.
+- The **control plane** manages experiments, evidence, artifacts, configuration,
+  promotion, deployment, audit, and monitoring.
+- The **data plane** preserves raw inputs, canonical events, temporal master data,
+  point-in-time snapshots, corrections, lineage, and bounded-freshness serving.
+- The **batch/HPC lane** supports research and batch production.
+- The **standard live lane** supports event-driven services, normally through
+  Kubernetes or an equivalent orchestrator.
+- The **low-latency lane** uses immutable packages and tightly controlled hosts
+  when measurements justify it. The hot path excludes general-purpose
+  control-plane dependencies but still reports the same release identity, consumes
+  compatible schemas, obeys external risk, and emits bounded audit/telemetry.
 
-### Data entrypoint
+Schedulers, security zones, packaging, and performance budgets may differ by lane.
+Contracts, evidence, independent risk, activation envelopes, audit, rollback, and
+SLO requirements do not.
 
-The data path discovers or receives source records, records source identity and
-retrieval metadata, writes immutable bronze objects, normalizes canonical events,
-runs quality checks, publishes silver partitions atomically, and updates lineage.
-Batch, scheduled, and streaming ingestion are orchestration modes around the same
-connector and normalizer contracts.
+## The thin waist
 
-### Research entrypoint
+The stable integration surface consists of:
 
-The research path resolves an immutable dataset, constructs a point-in-time
-universe, computes registered features and labels, creates rolling splits, fits
-training-only transformations, produces forecasts and positions, simulates
-orders/fills/accounting, and records governed trials and evidence artifacts.
+1. Canonical identifiers, units, timestamps, and event contracts.
+2. A strategy-kernel interface separating features, forecasts, targets, and
+   execution intent.
+3. An independent risk-decision contract.
+4. A release-manifest and evidence schema.
+5. Correlated telemetry and audit-event schemas.
 
-### Shadow entrypoint
+Asset-specific lifecycles, venue protocols, storage engines, transports, and
+runtime implementations evolve behind adapters. They may not contaminate this
+stable surface with private symbol maps, infrastructure assumptions, or compiled
+environment branches.
 
-The shadow path consumes live or replayed canonical events, loads an immutable
-candidate and configuration, uses authoritative or conformant strategy/risk logic,
-sends intents to a paper gateway, maintains the ledger, applies kill switches,
-reconciles against research, and emits operational evidence.
-
-## Runtime modes
-
-| Mode | Data | Clock | Execution | Purpose |
-| --- | --- | --- | --- | --- |
-| Unit/golden | Tiny fixture | Deterministic | Fake | Exact correctness |
-| Historical research | Immutable partitions | Simulated | Vector or event model | Research |
-| Historical replay | Canonical events | Replay | Paper adapter | Production-path validation |
-| Shadow | Live canonical events | Wall clock | Paper adapter | Operational evidence |
-| Paper | Live canonical events | Wall clock | Controlled paper venue | Execution exercise |
-| Live | Live canonical events | Wall clock | Authorized venue | Separately approved and out of scope |
-
-Every run records its mode. Mode-dependent behavior belongs in adapters and
-configuration, not hidden branches inside economic logic.
-
-## Execution planes
-
-- **Research plane:** interactive and batch work, historical data, experiment
-  scheduling, and elastic CPU/GPU compute. Containers or a cluster scheduler may
-  be appropriate after measured demand exists.
-- **Trading plane:** replay, shadow, paper, and any future live processes.
-  Latency-sensitive targets may require native binaries, controlled hosts,
-  CPU/NUMA policy, and restricted background work.
-- **Control plane:** artifact promotion, configuration, inventory, discovery,
-  secrets, dashboards, alerts, audit history, and out-of-band stop controls.
-
-The planes share schemas, provenance, ownership, and telemetry conventions. They
-need not share a scheduler, packaging format, language, or release cadence.
-
-## Component boundaries
-
-- Connectors may depend on vendor SDKs; domain, research, risk, and portfolio
-  targets may not.
-- Canonical types may not import storage, network, dataframe, optimizer, or web
-  frameworks.
-- Features depend on canonical datasets and declared market state, not connectors
-  or future partitions.
-- Models consume registered features and labels; they do not query vendors.
-- Portfolio targets consume forecasts, risk, costs, positions, and constraints;
-  they do not place venue orders.
-- Execution adapters translate order intent into venue requests and execution
-  reports; they do not decide strategy targets.
-- Accounting is authoritative for positions, cash, cashflows, and realized P&L.
-- Reports consume registered artifacts rather than recomputing research logic.
-- Production targets may not depend on notebooks, ad hoc experiments, or
-  research-only approximations.
-- Application entrypoints compose targets; reusable business logic does not live
-  in `apps/`.
-
-The intended dependency direction is:
+## Permitted dependency direction
 
 ```text
-schemas
-  -> foundational libraries
-  -> domain libraries and strategy cores
-  -> data, simulation, and venue adapters
-  -> application entrypoints
-
-platform and observability consume declared interfaces and artifact metadata;
-they do not own strategy economics.
+schemas -> core libraries -----------------------------------------------+
+              |                                                         |
+              +-> data --------------------------------------------------+
+              +-> research -> strategy kernel ---------------------------+
+              +-> simulation --------------------------------------------+
+              +-> portfolio and risk ------------------------------------+
+              +-> trading -----------------------------------------------+
+                                                                        v
+                     strategy and asset packages -> certification suites
+                                                                        |
+                     platform registry/deploy/telemetry -----------------+
 ```
 
-Circular target dependencies are prohibited. Target visibility and dependency
-checks enforce the direction.
+The build graph must be acyclic and enforce these restrictions:
 
-## Target repository layout
+- Schemas and foundational libraries never depend on research, strategy,
+  trading, or deployment packages.
+- Production strategy packages never import notebooks, ad hoc analysis folders,
+  research-only approximations, or workstation configuration.
+- Features and models consume canonical point-in-time data, not vendor APIs.
+- Portfolio construction produces targets; it does not place orders.
+- Independent risk and kill paths do not depend on the strategy process being
+  healthy.
+- Venue-specific behavior is isolated behind certified adapters.
+- Asset-specific accounting and lifecycle implementations conform to canonical
+  interfaces and carry golden fixtures.
+- Environment-specific configuration is validated data, not compiled conditional
+  logic.
+- Application entrypoints compose targets; reusable economic logic does not live
+  in composition roots.
+
+## Runtime modes and parity
+
+| Mode | Capital | Data/clock | Required relationship |
+| --- | --- | --- | --- |
+| Unit/golden | None | Tiny fixture, deterministic clock | Exact or declared numeric oracle |
+| Research | None | Immutable PIT snapshot, simulated clock | Shared kernel and component manifests |
+| Deterministic replay | None | Canonical event log, replay clock | Decision/state trace parity |
+| Paper | None | Live data, controlled paper execution | Full order lifecycle and recovery |
+| Shadow | None | Live data, executable orders suppressed | Shared kernel, risk decisions, trace comparison |
+| Canary | Bounded | Live data and venue | Signed minimal activation envelope |
+| Production | Approved | Live data and venue | Full certified envelope and controls |
+
+Mode differences belong in injected adapters and configuration. Deployment and
+activation are separate: a deployed process remains unable to trade until an
+independently authorized activation envelope is applied.
+
+## Reference repository layout
 
 ```text
-build_defs/                  # tracked build rules, toolchains, CI helpers
-third_party/                 # locks, patches, licenses
-schemas/                     # market, order, risk, and telemetry contracts
-libs/
-  instruments/
-  time/
-  orderbook/
-  valuation/
+/
+  MODULE.bazel
+  .gitlab-ci.yml             # or forge-equivalent governed pipelines
+  CODEOWNERS
+  docs/
+    architecture/
+    runbooks/
+    controls/
+  schemas/
+    identity/ market/ reference/ order/ fill/ position/ risk/ audit/
+  core/
+    time/ ids/ units/ numerics/ serialization/ randomness/ telemetry/
+  data/
+    contracts/ connectors/ normalization/ quality/ point_in_time/
+    lineage/ catalog/ replay/ corrections/
+  research/
+    sdk/ datasets/ features/ labels/ experiments/ models/ reports/
+  simulation/
+    engine/ market_models/ fills/ costs/ scenarios/ accounting/
+  portfolio/
+    forecasts/ optimizers/ constraints/ allocation/
   risk/
-  accounting/
-  telemetry/
-data/
-  connectors/
-  normalization/
-  datasets/
-  quality/
-  lineage/
-  fixtures/                  # tiny reviewable fixtures only
-research/
-  sdk/
-  features/
-  models/
-  experiments/
-  notebooks/                 # interfaces, not sole production logic
-strategies/
-  <asset-class>/<strategy>/
-    core/
-    simulation/
-    live_adapter/
-    config/
-    monitoring/
-simulation/
-  replay/
-  exchange_models/
-  costs/
-trading/
-  market_data/
-  execution/
-  pretrade_risk/
-  reconciliation/
-platform/
-  compute/
-  artifacts/
-  deployment/
-  configuration/
-  service_discovery/
-observability/
-  exporters/
-  dashboards/
-  alerts/
-  runbooks/
-governance/
-reporting/
-apps/                        # thin composition roots
-tests/                       # cross-target contract/integration/golden suites
-docs/
+    models/ pretrade/ limits/ stress/ liquidity/ reconciliation/
+  trading/
+    strategy_kernel/ runtime/ oms/ ems/ fix/ venue_adapters/ drop_copy/
+  platform/
+    registry/ promotion/ config/ deploy/ observability/ secrets/
+  assets/
+    equities/ futures/ options/ fx/ rates/ credit/ digital_assets/
+  strategies/
+    cross_sectional/ stat_arb/ market_making/ execution/ volatility/
+  tests/
+    unit/ property/ golden/ replay/ scenario/ integration/ load/ chaos/
+  environments/
+    dev/ ci/ replay/ staging/ paper/ shadow/ canary/ production/
+  tools/
+    cli/ codegen/ migrations/ evidence/ release/
 ```
 
-This is a target topology, not a request to create empty directories. The first
-Python slice may stay under `src/alpha_research/` until a real second deployable or
-language target exists. Unit tests stay with their owning targets; top-level tests
-exercise cross-target contracts.
+This is the target created by B01 and later packages, not a request to create empty
+directories. The current `src/alpha_research/` tree is a bootstrap package and
+must migrate into the governed target graph without preserving an obsolete
+Python-only topology. Bulk datasets, trial outputs, compiler outputs, deployable
+artifacts, and secrets stay outside Git; Git retains schemas, manifests, build
+definitions, synthetic fixtures, and policies.
 
-When one component needs multiple languages, keep them together:
+## Build and reproducibility architecture
 
-```text
-libs/orderbook/
-  api/                       # schema and compatibility tests
-  python/
-  rust/
-  cpp/
-  tests/                     # cross-language golden/differential tests
-```
+The target build is a pinned, hermetic Bazel graph for Python, C++ and/or Rust,
+Protobuf, SQL generation, and documentation. A Nix flake or equivalent developer
+environment provides reproducible local prerequisites. The current uv lock remains
+an input for the bootstrap Python target until B02-B03 replace or import it into
+the canonical graph.
 
-Bulk data, experiment outputs, compiler outputs, deployment artifacts, and secrets
-do not belong in Git. Git contains their schemas, manifests, build definitions,
-synthetic fixtures, and retention policies.
+The build system must:
 
-## Build and polyglot interoperability
+- Declare source, toolchain, dependencies, generated inputs, environment, target
+  platform, visibility, and ownership explicitly.
+- Sandbox actions and reject undeclared workstation inputs or runtime package
+  installation.
+- Produce content-addressed artifacts and reproducible generation outputs.
+- Run affected-target tests for speed and full merged-result/merge-train testing
+  for integration safety.
+- Support authenticated remote cache/execution only after cache isolation,
+  correctness, deterministic seeds, and local fallback are demonstrated.
+- Emit provenance, SPDX-compatible SBOMs, checksums, test evidence, signatures,
+  and policy-verifiable attestations.
 
-- The repository exposes one root interface for build, test, lint, and formatting.
-- Every target declares direct dependencies, visibility, owners, runtime platform,
-  toolchain, and generated inputs.
-- Python interpreters/packages, Rust toolchains/crates, C/C++ compilers/libraries,
-  code generators, and system dependencies are pinned.
-- A hermetic multi-language graph such as Bazel, Buck2, Pants, or an equivalent
-  internal system is adopted only when native or multiple deployable targets make
-  it necessary. The choice requires an architecture decision record.
-- Remote caching and execution follow hermeticity and cache-correctness evidence;
-  they are not Phase 0 prerequisites.
-- Cross-process APIs use versioned schemas. Control-plane RPC and a latency-sensitive
-  data plane may use different encodings while sharing semantic conformance tests.
-- In-process Rust/C++ integration uses a narrow C ABI or reviewed interop layer.
-  Ownership, allocator, lifetime, layout, errors, unwinding, and threading are
-  explicit.
-- Python/native APIs are coarse or batch-oriented and account for conversion,
-  copying, buffer lifetime, and GIL costs.
+Cross-process APIs use versioned schemas, normally Protobuf for contracts and
+Arrow/Parquet for analytical interchange. In-process Rust/C++ integration uses a
+narrow reviewed ABI with explicit allocation, lifetime, errors, unwinding,
+threading, layout, and version rules. Cross-language implementations share golden,
+differential, and compatibility suites.
 
-## Artifact and release model
+## Data and platform reference architecture
 
-Each deployable target creates an immutable artifact whose provenance includes:
+Reference technologies include an Iceberg-style point-in-time lakehouse,
+Kafka/Redpanda-class event transport, MLflow-class registry, OpenLineage-class
+lineage, Kubernetes/GitOps for standard services, immutable bare-metal deployment
+for ultra-low latency, and OpenTelemetry with Prometheus/Grafana-class monitoring.
+Alternatives are permitted only when they preserve the corresponding invariants,
+evidence, SLOs, and failure controls.
 
-- Source revision and target.
-- Toolchain and dependency digests.
-- Schema and generated-code versions.
-- Platform, CPU requirements, feature set, and build mode.
-- Artifact digest and symbol/debug-artifact identity where applicable.
+No single database or transport is expected to serve research, online decisions,
+order routing, audit, and monitoring equally well.
 
-A target is built once and promoted by digest across applicable environments. A
-historical simulator may be a separate adapter target, but it records the exact
-shared-core revision or artifact and reconciles against the promoted target.
-Configuration is separately versioned and validated. Secret values are excluded
-from source, artifacts, deterministic identity, and logs.
+## Immutable release and activation model
 
-## Ownership, configuration, and schema evolution
+A release is a signed manifest containing at least:
 
-- Every target has an accountable owner and backup owner.
-- Shared schemas, risk controls, build rules, and deployment definitions require
-  their domain owners' review.
-- Source visibility is separate from data entitlement and deployment authority.
-- Configuration rejects unknown keys, records resolved non-secret values, makes
-  units explicit, and references secrets by name.
-- Schema additions require old/new reader tests. Renames, semantic changes, type
-  changes, or unit changes require a new version and migration/rollback plan.
-- Previously published data is never edited in place to match a new schema.
-- A public schema or language-boundary change includes compatibility evidence for
-  every affected consumer selected from the build graph.
+- Repository commit, reviewed MR identifiers, build platform, toolchain,
+  dependency lock, provenance, SBOM, signature, and artifact digest.
+- Model, feature graph, dataset snapshot references, schema versions, random-state
+  policy, and validation report.
+- Configuration and limit digests plus environment, accounts, venues, assets,
+  universe, capital, and schedule.
+- Required service versions and compatibility range.
+- Dashboards, alerts, runbooks, rollback target, kill procedure, evidence bundle,
+  waivers, and approvals.
 
-## Required architecture decisions
+Build once and promote by digest. Mutable tags and workstation artifacts are not
+deployable identities. Every live process continuously reports its release and
+includes it in decision, risk, order, fill, audit, and telemetry events.
 
-Create an ADR before committing to any of the following:
+Rollback covers binary, model, feature graph, configuration, limits, schema
+compatibility, and state. Schema/state changes use expand-migrate-contract,
+dual-read/write when required, and explicit backward-compatibility windows.
 
-- A root multi-language build system or remote execution service.
-- A service/process split or new message transport.
-- A native rewrite or new in-process language boundary.
-- A distributed compute scheduler or storage migration.
-- A new production artifact format or deployment substrate.
-- A breaking schema, persistence, or event-ordering change.
+## Ownership and architecture decisions
 
-Each ADR records the measured problem, alternatives, decision, migration,
-rollback, owners, and evidence required to revisit the choice.
+Every package, schema, dataset, model, strategy, service, limit, venue adapter,
+environment, and release has an accountable owner and criticality. Source access,
+data entitlement, deployment authority, credentials, and capital permissions are
+separate.
+
+Create an ADR before a cross-cutting choice involving build tooling, languages,
+schemas, storage, a service/process split, message transport, native boundary,
+distributed compute, deployment substrate, observability, persistence, or event
+ordering. Record the measured problem, alternatives, decision, consequences,
+migration, rollback, owners, review date, and reversal plan.
 
 ## Public references
 
-- [Jane Street on its Dune migration](https://blog.janestreet.com/how-we-accidentally-built-a-better-build-system-for-ocaml-index/)
-- [Jane Street on reproducible Python environments](https://blog.janestreet.com/building-reproducible-python-environments-with-xars/)
-- [HRT on its Python monorepo environment](https://www.hudsonrivertrading.com/hrtbeat/inside-hrts-python-fork/)
-- [HRT on research and trading engineering](https://www.hudsonrivertrading.com/hrtbeat/engineering-and-interviewing-at-hrt/)
-- [HRT on scaling Prometheus](https://www.hudsonrivertrading.com/hrtbeat/scaling-prometheus/)
+- [Why Google stores billions of lines of code in one repository](https://research.google/pubs/why-google-stores-billions-of-lines-of-code-in-a-single-repository/)
+- [Bazel hermeticity](https://bazel.build/basics/hermeticity)
+- [Nix and NixOS](https://nixos.org/)
+- [Jane Street code review](https://www.janestreet.com/tech-talks/janestreet-code-review/)
+- [Jane Street reproducible Python environments](https://blog.janestreet.com/building-reproducible-python-environments-with-xars/)
+- [Hudson River Trading engineering](https://www.hudsonrivertrading.com/work-at-hrt/)
 - [Citadel Securities engineering](https://www.citadelsecurities.com/careers/engineering/)
-- [Bazel](https://bazel.build/) and
-  [hermeticity](https://bazel.build/basics/hermeticity)
 
-References inform the design but do not override effective venue rules, legal
-requirements, measured system behavior, or internally approved policy.
+References inform the design but do not override the blueprint, effective venue
+rules, legal requirements, measured behavior, or approved internal policy.

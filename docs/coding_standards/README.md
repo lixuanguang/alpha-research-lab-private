@@ -7,6 +7,11 @@ and validate code in this repository. They are written as executable guidance:
 an implementation should be reviewable against individual rules without relying
 on unstated conventions.
 
+They implement, and are subordinate to, the root
+[Institutional Multi-Asset Quant Monorepo Blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf).
+The blueprint's invariants, R0-R4 change classes, QG01-QG15 gates, independent
+approvals, and non-waivable controls cannot be weakened by local style guidance.
+
 The standards apply to new code and to code materially changed by a patch. They
 do not require unrelated legacy code to be rewritten. When a touched area cannot
 meet a rule, keep the exception narrow and document the reason and follow-up.
@@ -59,7 +64,14 @@ Before editing, an agent MUST:
    repository rather than inventing APIs, schemas, dependencies, or commands.
 4. Identify affected build targets, owners, reverse dependencies, generated code,
    schemas, serialized formats, and FFI/ABI consumers.
-5. Choose the smallest coherent change that satisfies the request.
+5. Assign or confirm the R0-R4 risk class, applicable QG01-QG15 gates, required
+   independent reviewers, rollout mode, and evidence retention.
+6. Confirm the MR is Ready: linked roadmap item, scope/non-goals, impact analysis,
+   thresholds, migration, rollout, rollback, monitoring, runbook, dependencies,
+   and reviewer availability.
+7. Choose the smallest coherent change that satisfies the request. Prefer one
+   logical behavior change and keep non-generated changes near or below 400 lines
+   where practical; otherwise provide the required split or migration rationale.
 
 While editing, an agent MUST:
 
@@ -71,7 +83,9 @@ While editing, an agent MUST:
    tracks them; use the owning generator instead.
 5. Update conformance, compatibility, migration, and rollback evidence when a
    schema, serialized representation, or language boundary changes.
-6. Stop and report a conflict when safe behavior depends on unavailable domain
+6. Keep deployment separate from activation; a merged change or deployed artifact
+   MUST NOT expand a capital or risk envelope.
+7. Stop and report a conflict when safe behavior depends on unavailable domain
    knowledge or authorization.
 
 Before declaring completion, an agent MUST:
@@ -86,6 +100,9 @@ Before declaring completion, an agent MUST:
 4. For a deployable target, verify that its artifact identity and provenance do
    not depend on undeclared host state or secret values.
 5. Report what changed, what was validated, and any check that could not run.
+6. Confirm mandatory gates, approvals, evidence links, release identity,
+   monitoring, post-deploy checks, and expiry/removal dates required by the change
+   class. A merged MR is not automatically a production release.
 
 Passing automated checks is necessary but does not replace reasoning about
 correctness, information leakage, numerical behavior, or failure modes.
@@ -166,9 +183,11 @@ relationship with a stable contract.
 - Builds MUST use pinned interpreters, compilers, standard libraries, package
   dependencies, and code generators. Developer-machine installations and ambient
   environment variables MUST NOT be undeclared inputs.
-- The repository MUST provide one documented root interface for build, test,
-  lint, and formatting. Language-native tools MAY remain available for fast local
-  iteration, but they do not override the repository build graph.
+- The target repository MUST provide one documented root interface backed by the
+  pinned hermetic Bazel graph introduced in B02. The current uv/Make interface is
+  transitional bootstrap tooling. Language-native tools MAY remain available for
+  fast local iteration, but they do not override Bazel ownership, dependency,
+  affected-target, merged-result, provenance, or artifact checks.
 - Generated source MUST identify its generator and inputs. Do not mix a large
   generated rewrite with an unrelated semantic change.
 - A monorepo does not imply one version or release. Each deployable target produces
@@ -177,6 +196,9 @@ relationship with a stable contract.
 - The same deployable target is built once and promoted by artifact digest across
   applicable environments. Environment-specific configuration is validated and
   versioned separately; secret values never enter source or artifact identity.
+- Every deployable release also carries signed provenance, an SPDX-compatible
+  SBOM, schema/model/data/config/limit identities, evidence and approvals. It may
+  be activated only through an independently authorized envelope.
 - Source visibility does not grant runtime authority. Market-data entitlements,
   deployment rights, credentials, and capital permissions remain separate.
 

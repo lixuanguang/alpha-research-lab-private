@@ -200,9 +200,11 @@ Additional rules:
 
 ## Data, time, and numerical code
 
-- Use timezone-aware timestamps and normalize platform event time to UTC. The
-  distinction among event, recorded, available, and effective time MUST remain
-  explicit where relevant.
+- Use timezone-aware timestamps and normalize platform event time to UTC. Preserve
+  the distinction among source event time, platform receipt time, ingestion time,
+  knowledge time, and reference-data valid time, along with source sequence or
+  revision, clock quality, and timezone/convention metadata. Historical decisions
+  MUST enforce `ts_knowledge <= decision_time`.
 - Use `Decimal` or integer minor units for exact monetary arithmetic according to
   the domain contract; construct decimals from strings, not binary floats.
 - Declare array/dataframe shape, index, column, dtype, units, and missing-value

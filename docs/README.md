@@ -1,167 +1,190 @@
 # Alpha Research Platform
 
-## Purpose
+## Purpose and authority
 
-This repository is the design and implementation workspace for a crypto-first,
-production-oriented statistical-arbitrage platform. The target lifecycle covers
-point-in-time data, feature/model research, portfolio construction, realistic
-execution, validation, governance, shadow trading, and operational monitoring.
+This repository is the implementation workspace for an institutional multi-asset,
+multi-strategy quantitative platform spanning research, deterministic simulation,
+portfolio construction and risk, trading, controlled deployment, monitoring, and
+governance.
 
-The first workload is a transparent crypto factor-residual strategy. It is a
-vertical acceptance test for the platform, not the permanent architecture. The
-platform is Python-first and may add Rust or C++ only when measurement, safety, or
-interoperability requirements justify native code.
+The root
+[Institutional Multi-Asset Quant Monorepo Blueprint](../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
+is the authoritative implementation guideline. Its `MUST`, `SHOULD`, and `MAY`
+requirements govern this documentation. The documents under `docs/` refine that
+guideline for this repository; they do not weaken its invariants or quality gates.
+
+The first proposed workload is a transparent digital-asset factor-residual
+strategy. It is a deliberately narrow platform certification path, not the
+permanent architecture or permission to skip the separately governed digital-asset
+certification package. The first production target remains one asset class, one
+strategy family, one or two venues or brokers, bounded capital, and a
+non-ultra-low-latency lane unless latency is the strategy's measured edge.
 
 ## Current status
 
-The repository is in the design and engineering-foundation stage. Architecture,
-contracts, roadmap, and coding standards are tracked. The initial Python package,
-locked development environment, and root command interface are implemented;
-domain runtime capabilities remain Phase 0 and later implementation work.
+The repository is at the bootstrap stage. It currently contains architecture,
+contracts, governance, roadmaps, coding standards, a minimal Python package, a
+locked uv environment, and a transitional Make interface. It does not yet contain
+the blueprint's Bazel build graph, canonical contracts, data plane, simulator,
+independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
+asset certification evidence.
 
-Live capital deployment is not authorized by this repository. The highest planned
-initial outcome is a reproducible, independently reviewed, paper-ready candidate
-with shadow reconciliation and tested recovery controls.
+Existing Python bootstrap work is useful input to waves A and B, but it does not
+by itself satisfy milestone M0. A wave is complete only when its exit evidence is
+demonstrated in the target environment.
+
+This repository never grants trading authority merely by merging code. Capital
+exposure requires the complete applicable R4 evidence, independent approvals, a
+signed activation envelope, bounded canary, tested rollback and kill paths, and
+the applicable legal, compliance, venue, security, operational-risk, and capital
+authorizations.
 
 ## Development environment
 
-The repository pins uv 0.12.5 and CPython 3.12.14. From a clean checkout with uv
-available, create the complete locked development environment with:
+The current bootstrap pins uv 0.12.5 and CPython 3.12.14. From a clean checkout
+with uv available, create the current locked Python environment with:
 
 ```sh
 uv sync --frozen
 ```
 
-The tracked `.python-version`, `pyproject.toml`, and `uv.lock` are authoritative.
-uv installs the pinned interpreter when it is unavailable and rejects an
-incompatible uv version. `make sync` provides the same locked setup through the
-root command interface.
+The tracked `.python-version`, `pyproject.toml`, and `uv.lock` are authoritative
+for this bootstrap package. `make sync` provides the same setup through the
+transitional root interface.
 
-Use these root commands for development and validation:
+Current root commands are:
 
 | Command | Behavior |
 | --- | --- |
-| `make format` | Format Python source and tests in place |
-| `make format-check` | Verify formatting without changing files |
+| `make format` | Format current Python source and tests in place |
+| `make format-check` | Verify current Python formatting |
 | `make lint` | Run Ruff lint checks |
 | `make typecheck` | Run strict mypy checks |
-| `make security` | Run Bandit against production Python source |
-| `make test` | Run the deterministic test suite |
-| `make smoke` | Import the installed package in the locked environment |
-| `make build` | Build the source distribution and wheel |
-| `make check` | Verify the lock, run all checks and smoke, then build the package |
+| `make security` | Run Bandit against current production Python source |
+| `make test` | Run the current deterministic test suite |
+| `make smoke` | Import the installed bootstrap package |
+| `make build` | Build the current Python source distribution and wheel |
+| `make check` | Verify the lock, run all current checks, smoke-test, and build |
 
-Running `make` without a target is equivalent to `make check`. The root commands
-delegate environment and tool resolution to the pinned uv configuration; the
-language-native commands remain available for narrow local iteration.
+Running `make` without a target is currently equivalent to `make check`.
+
+This interface is not the target monorepo build architecture. Wave B introduces a
+pinned, hermetic Bazel graph for Python, C++ and/or Rust, Protobuf, SQL generation,
+and documentation, plus a Nix flake or equivalent reproducible developer
+environment. Once those packages are implemented, the repository root interface
+must delegate to that graph and preserve affected-target and merged-result checks.
 
 ## Documentation map
 
 | Document | Purpose |
 | --- | --- |
-| [Monorepo architecture](architecture/README.md) | Runtime planes, component boundaries, repository layout, polyglot builds, artifacts, ownership |
-| [Platform contracts](architecture/contracts.md) | Instruments, time, data lineage, research/model, accounting, risk, execution, source and asset-extension contracts |
-| [Quality and operations](architecture/operations.md) | Testing, observability, failure, recovery, security, promotion, independent review, definition of done |
-| [Implementation roadmap](roadmap/README.md) | Dependency-ordered platform phases, work packages, exit criteria, conditional scaling/cross-asset work |
-| [Research program](roadmap/research-program.md) | Sixteen evidence stages from baseline through frozen OOS and shadow package |
+| [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
+| [Platform contracts](architecture/contracts.md) | Identity, time, data states, research/model, accounting, risk, execution, and asset-extension contracts |
+| [Quality and operations](architecture/operations.md) | Criticality, MR risk classes, QG01-QG15, observability, recovery, security, promotion, waivers, and definition of done |
+| [Implementation roadmap](roadmap/README.md) | The 12 waves and 96 dependency-ordered implementation MR packages |
+| [Research program](roadmap/research-program.md) | Strategy-research evidence stages subordinate to platform and promotion gates |
 | [Coding standards](coding_standards/README.md) | Shared engineering rules and Python, C/C++, and Rust guides |
 
-The architecture and operational documents are normative for target behavior. The
-roadmaps define delivery order and may be revised when measured evidence changes a
-dependency or invalidates an assumption. Architecture changes require an ADR and
-updates to affected contracts, tests, and roadmap packages.
+Architecture changes require an ADR and corresponding contract, compatibility,
+test, migration, rollback, operations, and roadmap updates.
 
-## Design goals
+## Non-negotiable invariants
 
-The platform should make these statements demonstrably true:
+The platform must make all seven blueprint invariants demonstrably true:
 
-1. A result is reproducible from immutable source data, source/artifact revision,
-   complete non-secret configuration, pinned environment, component versions, and
-   seeds.
-2. A historical decision uses only information available at its simulated
-   decision time.
-3. Research, replay, and shadow use authoritative economic logic or independently
-   implemented targets that pass versioned conformance tests.
-4. Alpha, exposure, financing, execution, capacity, and operational assumptions
-   are evaluated jointly.
-5. Governed experiments informing selection or promotion remain visible,
-   including failed, rejected, and superseded variants.
-6. A candidate has an owner, intended use, limitations, monitoring, fallback,
-   kill, recovery, and retirement rules.
-7. Every deployed target is traceable to an immutable artifact and independently
-   versioned configuration.
-8. Missing/stale data, invalid risk, infeasibility, unavailable financing,
-   incomplete fills, and degradation cannot choose an optimistic fallback silently.
-9. Python, Rust, and C++ targets can coexist without duplicating economic rules or
-   forcing one repository-wide release.
-10. A new asset class extends domain and adapter contracts without rewriting the
-    research-governance core.
+1. **Point-in-time causality:** every decision input, universe, price, feature,
+   label, corporate action, and reference lookup is queryable as known at the
+   decision timestamp.
+2. **One strategy kernel:** research, replay, paper, shadow, canary, and live use
+   the same decision logic; adapters inject mode-specific behavior.
+3. **Immutable release identity:** code, build, model, data references, schemas,
+   configuration, limits, evidence, and approvals form a signed manifest.
+4. **Risk outside the strategy:** independent gates, limits, throttles, and kill
+   switches remain able to constrain a faulty strategy process.
+5. **Deterministic replay:** market, reference, order, fill, state, and control
+   events have specified ordering, clocks, and random streams.
+6. **Evidence before promotion:** every mandatory gate passes before promotion;
+   backtest performance cannot compensate for a failed control.
+7. **Monitor the economic chain:** platform, data, model, execution, risk, TCA,
+   capacity, and PnL health are correlated to the exact release.
 
-## Guiding principles
+Monorepo means one source of truth for code, contracts, lineage, ownership, and
+change governance. It does not mean one deployable, one runtime, one security
+zone, one performance profile, or one failure domain.
 
-- **Correctness before scale:** begin with deterministic single-process paths and
-  small golden datasets.
-- **Vertical slice before abstraction:** complete the minimal crypto raw-to-report
-  path before designing broad multi-asset hierarchies.
-- **Point-in-time behavior is a platform property:** data and evaluation contracts
-  enforce availability.
-- **Research/live parity is tested:** shared source is useful but not sufficient;
-  reconciliation and conformance provide evidence.
-- **Domain first, language second:** repository ownership follows economic and
-  platform responsibility.
-- **Transparent baselines persist:** complex challengers never erase simple
-  reference models.
-- **Evidence is an artifact:** audits, trials, reports, deployments, and decisions
-  are versioned outputs.
-- **Operational authority is separate:** source access does not grant data,
-  deployment, credential, or capital permissions.
+## Target scope
 
-## Initial scope
+The target platform includes:
 
-- Python-first modular implementation in a domain-oriented monorepo.
-- Crypto spot and perpetual-futures data, beginning with Binance historical data.
-- Batch ingestion before scheduling/streaming.
-- Vectorized simulation before event-driven replay.
-- Immutable bronze data, canonical Parquet, point-in-time datasets, and local
-  metadata/artifact stores.
-- Transparent factors/residuals, common model evaluation, risk/portfolio,
-  execution/financing, governed trials, shadow, and paper controls.
-- One documented root interface for build, test, lint, formatting, and smoke runs.
+- Canonical multi-asset identifiers, units, timestamps, lifecycle, market,
+  reference, order, fill, position, risk, audit, and telemetry contracts.
+- Immutable raw landing, canonical normalization, point-in-time datasets,
+  corrections, lineage, quality, entitlements, and online serving.
+- A research SDK, committed trial ledger, leakage-resistant evaluation, model
+  registry, model cards, and independent validation.
+- A deterministic event simulator, accounting, calibrated execution and cost
+  models, capacity, portfolio construction, and stress testing.
+- An external pre-trade risk gateway, resilient OMS/EMS, certified venue adapters,
+  drop copy, reconciliation, throttles, degraded modes, and kill switches.
+- Immutable release manifests and distinct standard-service and low-latency
+  deployment lanes, with deployment separated from activation.
+- Correlated OpenTelemetry-class observability, SLOs, TCA/PnL attribution,
+  runbooks, incident response, disaster recovery, and audit reconstruction.
+- Reusable asset and strategy certification packages. Digital assets are optional
+  and separately governed, as are cash equities, futures, listed options, FX,
+  rates, and credit.
 
-## Deferred and conditional scope
+Named technologies in the blueprint are reference choices. A substitution is
+valid only when it preserves the same contracts, evidence, isolation, security,
+reproducibility, and operational controls.
 
-- Live capital, broker/exchange certification, custody, and key management.
-- Microservices, Kafka, Kubernetes, remote execution, and distributed compute
-  until workload evidence requires them.
-- Rust/C++ or specialized hardware until profiling and an ADR justify them.
-- Low-latency market making, full queue-position simulation, and on-chain execution.
-- Equities, futures, FX, options, and fixed income until the crypto operational gate
-  passes and a concrete research/data need exists.
+## Explicit non-goals
+
+- One universal runtime or latency profile for every strategy and asset class.
+- One database for research, order routing, audit, and monitoring.
+- Promotion based only on Sharpe ratio, PnL, or a weighted readiness score.
+- Manual production deployment, notebook execution, workstation artifacts, or
+  runtime package installation.
+- Monitoring detached from limits, rollback, incident ownership, and economic
+  attribution.
+- A claim that engineering process or controls guarantee investment performance.
 
 ## Delivery overview
 
 ```text
-P0 engineering foundation
-  -> P1 minimal crypto vertical slice
-    -> P2 point-in-time data
-      -> P3 governed research/models
-        -> P4 risk/portfolio
-          -> P5 replay/execution/capacity
-            -> P6 shadow/promotion/recovery
-              +-> P7 scale/polyglot (evidence-gated)
-              +-> P8 cross-asset (evidence-gated)
+A governance -----> B build platform
+       |                    |
+       +-------> C canonical contracts
+                        -> D data platform
+                        -> E research platform
+                        -> F simulation
+                        -> G portfolio and independent risk
+                        -> H trading runtime
+                        -> I deployment
+                        -> J observability
+                        -> K security and governance
+                        -> L asset and strategy certification
 ```
 
-The current next milestone is
-[Phase 0: engineering foundation](roadmap/README.md#phase-0-engineering-foundation).
-Research stages begin only when their corresponding platform gates pass.
+The 96 packages are grouped into twelve waves, A through L. Governance, build,
+contracts, security, and observability begin early; they are not cleanup phases.
+The critical path is canonical contracts, point-in-time data, deterministic
+simulation, portfolio/risk, trading runtime, controlled deployment, and finally
+asset/strategy certification. See the [implementation roadmap](roadmap/README.md).
 
 ## Working agreement
 
-- Use the nearest coding standard and target owner review.
-- Keep changes coherent and verifiable; there is no arbitrary changed-line limit.
-- Record commands, fixtures, artifacts, failure behavior, and rollback evidence.
-- Preserve unrelated work and generated-file ownership.
-- Update architecture, contracts, roadmap, and operator documentation in the same
-  change when behavior or a public boundary changes.
-- A successful backtest alone is never completion or promotion evidence.
+- Assign every change an R0-R4 risk class and run all mandatory QG01-QG15 gates
+  applicable to that class.
+- Prefer one logical behavior change per MR. Keep non-generated changes near or
+  below 400 lines where practical; larger work needs a split plan, a generated-code
+  explanation, or an approved indivisible-migration rationale.
+- Require a linked roadmap item, owner, scope/non-goals, impact analysis, evidence
+  plan, rollout, rollback, monitoring, runbook, and available reviewers before
+  implementation.
+- Preserve dependency direction, target ownership, immutable evidence, and
+  research/live kernel parity.
+- Update architecture, contracts, roadmap, tests, and operator documentation in
+  the same change when behavior or a public boundary changes.
+- A merged MR is not automatically a release, a deployed artifact is not
+  automatically activated, and a successful backtest is never promotion evidence.

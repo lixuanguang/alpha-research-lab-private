@@ -1,258 +1,287 @@
 # Quality, Operations, and Governance
 
-## Purpose
+## Purpose and authority
 
-This document defines the evidence required to trust, operate, promote, recover,
-and retire platform capabilities and research candidates. It complements the
-[monorepo architecture](README.md) and [platform contracts](contracts.md).
+This document defines the evidence required to review, build, operate, promote,
+recover, and retire platform capabilities and strategies. It implements the
+[blueprint's](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
+service tiers, change classes, QG01-QG15 catalog, promotion controls, and
+definition of done. A score or favorable PnL cannot compensate for a failed
+mandatory control.
 
-## Test strategy
+## Service criticality
 
-### Unit tests
+| Tier | Examples | Minimum posture |
+| --- | --- | --- |
+| T0 | Pre-trade risk, OMS, kill switches, venue sessions, authoritative positions | Independent control path, fail-closed defaults, deterministic recovery, active on-call, game days, strict changes |
+| T1 | Live strategy runtime, market data, feature serving, model service, deployment control | Tight SLOs, shadow/canary, state recovery, release identity, data/model monitoring |
+| T2 | Batch research, simulation clusters, catalog, experiment services | Reproducible jobs, quotas, restore, lineage, quality monitoring; availability may be lower than T0/T1 |
+| T3 | Documentation, examples, offline utilities | Version control, ownership, and impact-appropriate tests |
 
-Unit tests cover pure behavior and local failure semantics, including:
+Every service, dataset, strategy, model, control, and change records its owner,
+criticality, dependencies, and evidence-retention class.
 
-- Identifier, unit, currency, sign, precision, and timestamp validation.
-- Parser boundaries, schema mismatches, missing/non-finite values, and empty input.
-- Feature, label, model, risk, optimizer, execution, and accounting invariants.
-- Retry, idempotency, state transition, and registered fallback behavior.
+## Merge-request governance
 
-Unit tests are deterministic and do not use live networks, credentials, user
-directories, wall-clock time, or uncontrolled randomness.
+### Risk classes
 
-### Contract tests
+| Class | Typical change | Required review and rollout |
+| --- | --- | --- |
+| R0 | Documentation or non-functional metadata | One Code Owner; automated checks; fast lane |
+| R1 | Research-only code with no shared-data or production dependency | Research owner plus peer; reproducible batch test; no production promotion |
+| R2 | Shared library, schema, dataset, feature, or model candidate | Code Owner plus independent domain/data/model reviewer; merged-result, compatibility, replay, and impact evidence |
+| R3 | Paper/shadow runtime, deployment tooling, non-capital production service | Code Owner plus platform/SRE and security as applicable; staging, failure injection, shadow or synthetic validation |
+| R4 | Capital-at-risk strategy, OMS, risk, venue, limits, production access, or kill switch | Domain owner, independent risk/model validation, platform/SRE, security/compliance as applicable, dual-control activation; full certification and bounded canary |
 
-Every replaceable boundary has a reusable suite. Examples include connectors,
-storage, dataset readers, models, valuation, risk, optimizers, cost models,
-execution gateways, artifact stores, and cross-language bindings.
+Risk classification considers capital at risk, blast radius, data/model
+materiality, security privilege, and reversibility. It must be deterministic and
+policy-enforced; authors cannot lower a class to avoid gates.
 
-A second implementation is not accepted before the common contract suite exists.
-Cross-language implementations use identical fixtures and differential tests.
+### Definition of Ready
 
-### Integration tests
+Implementation starts only when the MR has:
 
-Bounded workflows cover:
+- A linked roadmap item or issue, owner, risk class, and impacted systems.
+- Explicit scope and non-goals.
+- An approved ADR for cross-cutting changes.
+- Data, model, schema, security, entitlement, regulatory, and model-risk impact
+  analysis as applicable.
+- Test and benchmark plans with acceptance thresholds.
+- Migration, rollout, rollback, monitoring, and runbook plans.
+- Dependency and reviewer availability.
 
-- Source fixture → bronze → normalization → silver → quality/lineage.
-- Dataset → features → model → forecast artifact.
-- Forecast → risk/portfolio → target → orders → fills → ledger → report.
-- Candidate artifact → historical replay → paper gateway → reconciliation.
-- Data correction → lineage impact → invalidation → rebuild.
+### Required MR shape
 
-External systems use deterministic fakes, local processes, containers, or recorded
-responses as appropriate. Live smoke tests are bounded, non-destructive, separately
-labeled, and never required for ordinary unit execution.
+Prefer one logical behavior change with tests and evidence. Keep non-generated
+changes near or below 400 lines where practical. Larger work needs a split plan,
+a generated-code explanation, or an explicitly approved indivisible-migration
+rationale. Do not combine broad refactoring, schema migration, model change, and
+production activation unless their coordinated sequence is itself the reviewed
+change.
 
-### Golden tests
+### Quality gate catalog
 
-Small human-auditable fixtures establish exact reference behavior for:
+| Gate | Control objective | Representative blocking evidence |
+| --- | --- | --- |
+| QG01 | Source hygiene | Format, lint, types, warnings-as-errors, forbidden APIs; suppressions have owner and expiry |
+| QG02 | Hermeticity/reproducibility | Pinned/sandboxed build, deterministic generation, digest comparison, provenance |
+| QG03 | Functional correctness | Unit, contract, state-machine, serialization, boundary, and error-path tests on affected and merged result |
+| QG04 | Property/numerical correctness | Invariants, metamorphic/perturbation tests, NaN/Inf policy, conditioning, numeric tolerance report |
+| QG05 | Schema/data/PIT integrity | Compatibility, freshness, completeness, uniqueness, causal as-of, universe, revision, lineage, dataset fingerprint |
+| QG06 | Research/model validity | Registered metrics/baselines, nested time splits, trial ledger, multiple-testing controls, ablations, stability, independent report |
+| QG07 | Costs/capacity | Calibrated spread, fees, impact, latency, borrow/funding, liquidity, participation, and stress sensitivity |
+| QG08 | Portfolio/risk controls | Exposure, limit, stress, margin, concentration, liquidity, fallback tests, and independent risk approval |
+| QG09 | Integration/scenario | Replay, OMS/venue, disconnect, duplicate, gap, bust/correct, reconciliation, paper/shadow trace matrix |
+| QG10 | Performance | Signed tail-latency, throughput, jitter, memory, CPU/allocation, startup/recovery, and query budgets |
+| QG11 | Resilience | Crash/restart, backpressure, failover, degraded mode, backup/restore, chaos, clock/data failure, RTO/RPO evidence |
+| QG12 | Security/supply chain | SAST, secrets, dependencies, vulnerabilities, licenses, SBOM, signature, provenance, IAM, network; no unaccepted critical finding |
+| QG13 | Documentation/governance | ADRs, APIs, examples, model card, runbook, control mapping, ownership, valid links and checked examples |
+| QG14 | Observability/SLO | Metrics, logs, traces, audit, dashboards, alerts, cardinality, SLO, owner, and synthetic alert evidence |
+| QG15 | Deployment/promotion | Staging/merged result, paper, shadow, canary, rollout/rollback, activation envelope, signed release manifest, post-deploy validation |
 
-- Event normalization and time availability.
-- Funding, fees, fills, cash, position, and P&L identities.
-- Lifecycle and settlement once an asset class is implemented.
-- Vectorized/event replay parity under aligned assumptions.
-- Cross-language schema/ABI behavior.
+### Mandatory gates and approvers
 
-Golden updates include the reason, generator or calculation, reviewer, and expected
-semantic change. Snapshot churn is not evidence of correctness.
+| Class | Mandatory gates | Minimum approvers |
+| --- | --- | --- |
+| R0 | QG01, QG13 | One Code Owner |
+| R1 | QG01-QG06, QG13; QG10 when computationally material | Research owner plus peer |
+| R2 | QG01-QG06, QG09-QG14; QG07-QG08 when economically/risk relevant | Code Owner plus independent data/model/domain reviewer |
+| R3 | QG01-QG05, QG09-QG15; QG06-QG08 when model/trading relevant | Code Owner, platform/SRE, security as applicable |
+| R4 | QG01-QG15 | Domain owner, independent risk/model validation, platform/SRE, security/compliance as applicable; dual control for activation |
 
-### Property, metamorphic, fuzz, and security tests
+Applicability is evidence, not discretion to ignore a required gate. When a gate
+is conditionally applicable, the MR records the rationale.
 
-Use broad-input testing for parsers, serialization, state machines, numerical
-invariants, and unsafe boundaries. Important properties include:
+### Waivers
 
-- Perturbing future data cannot alter earlier features, membership, fits, or
+A waiver records a unique ID, failed gate, rationale, affected release and scope,
+compensating controls, owner, approvers, expiry, and remediation MR. It appears in
+the release manifest and monitoring. Indefinite waivers are prohibited. Causal
+integrity, immutable artifact identity, independent hard risk, and kill capability
+cannot be waived for live capital.
+
+## Test and evidence strategy
+
+### Unit, contract, and integration tests
+
+- Unit tests cover identifiers, units, timestamp validation, parsers, numerical
+  behavior, features, models, risk, optimizers, order/accounting invariants,
+  idempotency, and safe fallbacks without live networks or uncontrolled clocks.
+- Every replaceable boundary has a reusable contract suite. Cross-language
+  implementations use the same fixtures and differential tests.
+- Integration workflows include raw landing through canonical publication and
+  lineage; PIT dataset through model artifact; forecast through portfolio, risk,
+  orders, fills, ledger, and report; release through replay/paper/shadow; and data
+  correction through impact, invalidation, and idempotent rebuild.
+
+### Golden, property, numerical, and adversarial tests
+
+Small human-auditable fixtures cover event normalization, lifecycle, accounting,
+order states, replay parity, and cross-language schemas/ABI. Property,
+metamorphic, fuzz, and leakage tests cover at least:
+
+- Future-data perturbations cannot change earlier features, membership, fits, or
   decisions.
-- Reordering independent events does not change economic state.
-- Retrying an idempotent operation cannot duplicate economic state.
-- Equivalent currency representations produce equivalent base-currency NAV.
-- Accounting identities hold across generated fill/cashflow sequences.
-- Analytic sensitivities approach finite-difference values as shock size shrinks.
-- A one-period dynamic optimizer matches the equivalent static formulation.
+- Retries and duplicate event IDs cannot duplicate economic state.
+- Accounting conservation, unit/sign conventions, and currency translation hold.
+- Terminal orders cannot transition again; delayed/out-of-order messages are
+  deterministic.
+- Equivalent representations and limiting cases produce equivalent results within
+  declared tolerances.
+- Unsafe symbol, revision, lifecycle, stale-data, queue/fill, and cost assumptions
+  fail dedicated attack fixtures.
 
-### Performance tests
+### Performance and resilience
 
-Correctness gates pass before performance work. Benchmarks record workload,
-dataset/event size, instruments, toolchain, artifact digest, hardware, runtime,
-latency distribution, and peak memory.
+Benchmarks record workload, data/event size, instruments, toolchain, artifact
+digest, hardware, runtime, tail distribution, CPU, allocations, memory, jitter,
+and recovery. Latency gates run on controlled hosts; shared-CI timings are
+diagnostic. Optimization never waives correctness, sanitizer, conformance,
+security, recovery, or risk evidence.
 
-Latency regression gates run on controlled hardware with pinned CPU, NUMA, power,
-and background-load policy. Shared CI timings are diagnostic only. An optimization
-preserves golden results or declares and justifies a numerical difference.
+Resilience tests inject crash/restart, duplicate and missing messages,
+backpressure, split brain, venue/data loss, clock degradation, partial migration,
+backup/restore, and failover. Every tier has owned RTO and RPO targets, and restore
+is verified rather than inferred from backup completion.
 
-## Idempotency, replay, and state authority
+## State authority, failure, and reconciliation
 
 - Ingestion, publication, scheduling, order submission, reconciliation, and
   reporting use stable idempotency keys.
-- Interrupted work resumes from recorded state or restarts safely.
-- Replaying canonical events with fixed artifacts and configuration produces the
-  same state.
-- Corrections, cancels, rejects, and errors are explicit events, not dropped noise.
-- Operators can locate every dataset, experiment, candidate, and report depending
-  on a defective source partition.
-- Each workflow identifies the authoritative event log, ledger, manifest, and
-  ownership boundary used for recovery.
+- Canonical events with fixed release/configuration replay to the same state.
+- Corrections, cancels, rejects, busts, and errors are explicit events.
+- Each workflow identifies the authoritative log, ledger, position source,
+  manifest, checkpoint, fencing mechanism, and recovery owner.
+- T0 recovery reconciles venue, broker, drop-copy, clearing, position, cash, and
+  order records before reactivation.
 
-## Observability
+For missing/stale data, unavailable metadata or limits, schema mismatch, storage
+failure, model load failure, infeasibility, venue rejection, incomplete fills, or
+reconciliation breach, an application may fail closed, pause with state, enter a
+bounded visible degraded/hedge-only mode, use a registered conservative fallback,
+or flatten through an authorized process. Silent continuation is prohibited.
 
-At minimum, expose:
+## Deployment, activation, and promotion
 
-- Source/canonical freshness, gaps, corrections, rejects, and quality state.
-- Dataset, feature, model, optimizer, and report duration/failure counts.
-- Feature/prediction distributions, missingness, model age, and candidate version.
-- Applicable gross/net/factor/liquidity/currency/Greek/DV01/margin exposures.
-- Order lifecycle, rejects, fill ratios, latency, slippage, and implementation
-  shortfall.
-- P&L, fees, impact, funding, financing, drawdown, reconciliation residual, and
-  kill-switch state.
+### Release manifest
 
-Telemetry includes source revision, artifact digest, strategy/service,
-configuration, environment, region, venue, and host where applicable. Stable names
-and units are mandatory. High-cardinality identifiers belong in logs or traces,
-not unbounded metric labels.
+A signed immutable release manifest contains repository/MR identity, build
+platform and provenance, dependency lock, SBOM, signature and artifact digest;
+model, feature graph, data snapshot, schemas, random-state policy and validation;
+configuration and limit digests; environment, account, venue, asset, universe,
+capital and schedule; service compatibility; evidence, dashboards, alerts,
+runbooks, rollback, kill procedure, waivers, and approvals.
 
-Latency-sensitive targets publish through bounded, non-blocking counters or
-buffers. Collector backpressure must not delay market data, risk enforcement,
-order handling, or a kill switch. Dropped telemetry is measured and alerted.
+Build once and promote by digest. Production never deploys a mutable tag or a
+workstation artifact. Every running process reports release identity in decisions,
+risk decisions, orders, fills, audit events, and telemetry.
 
-Dashboards, alerts, and runbooks are versioned with the owning service or strategy.
-An alert names its owner, severity, response, escalation, and recovery condition.
+### Promotion state machine
 
-## Failure and degradation policy
+```text
+research -> deterministic replay -> certification -> paper -> shadow
+                                                        |
+                                                        v
+                                                   bounded canary
+                                                        |
+                                                        v
+                                                    production
 
-Each application defines behavior for missing/stale data, unavailable metadata,
-schema mismatch, storage failure, model load failure, stale risk, infeasibility,
-venue rejection, incomplete fills, and reconciliation breach.
+any technical/control breach -> disabled or rolled back -> re-certification
+```
 
-Permitted actions are:
+Capital exposure increases only with progressively stronger evidence. Paper
+exercises the full order lifecycle without capital. Shadow consumes live data but
+suppresses executable messages. Canary limits capital, instruments, venues,
+schedule, order size, participation, or strategy allocation to a signed envelope.
 
-- Fail closed.
-- Pause and retain state.
-- Degrade with an explicit visible flag and bounded scope.
-- Use a registered conservative fallback.
-- Flatten through an authorized process.
+Deployment and activation are distinct. Rollout begins with replay and synthetic
+probes, then paper, shadow, bounded canary, and approved production. Guardrails
+connect to automatic disable or operator escalation.
 
-Silent continuation is prohibited. A fallback records why it activated, affected
-scope, input/artifact identities, owner, and return-to-normal condition.
+Rollback includes binary, model, feature graph, configuration, limits, schema
+compatibility, and state. An old binary that cannot read current state is not a
+rollback. Migrations use expand-migrate-contract, dual-read/write where needed,
+and explicit compatibility windows.
 
-## Recovery and rollback
+## Observability, SLOs, and incidents
 
-- Data publication is atomic and prior valid versions remain addressable.
-- Candidate promotion is reversible without deleting evidence.
-- Deployments retain a known-good artifact and compatible configuration.
-- Runbooks cover detection, containment, stop, rollback, replay, reconciliation,
-  escalation, and post-incident evidence.
-- Recovery drills use test or paper environments and record observed recovery time,
-  data loss if any, manual steps, and unresolved gaps.
-- Kill switches are tested from outside the strategy process so that an unhealthy
-  process cannot disable its only stop mechanism.
+### Monitoring planes
 
-## Security and access control
-
-- Secrets remain outside Git and resolve through a documented provider.
-- Historical data, live data, paper execution, artifact promotion, and any future
-  live execution use distinct least-privilege credentials.
-- Research processes do not receive trading credentials.
-- Source visibility does not grant data entitlement or deployment authority.
-- Candidate artifacts and promotion actions have authenticated ownership and audit
-  history.
-- Fixtures and logs exclude sensitive account, order, position, and entitlement
-  data.
-- Toolchains, dependencies, and container bases where used are pinned, licensed,
-  and scanned through approved CI.
-- Destructive operations have explicit targets, authorization, and recoverable
-  backups or version history.
-- Live trading, withdrawals, custody, and key management require a separate legal,
-  security, and operational design.
-
-## Research and promotion states
-
-| State | Meaning | Minimum evidence |
+| Plane | Signals | Control actions |
 | --- | --- | --- |
-| Exploration | Idea under investigation | Hypothesis; governed recording begins before formal comparison |
-| Replication | Baseline reproduced | Source, differences, dataset, reproducible artifact |
-| Candidate research | Competes under common evaluation | Point-in-time data, splits, costs, risk, stress |
-| Frozen candidate | Selection complete | Immutable inputs, artifacts, decision rules |
-| Final OOS | Frozen candidate evaluated | Access log, untouched outcome, failure analysis |
-| Shadow | Production path without capital | Monitoring, reconciliation, ownership, kill rules |
-| Paper | Controlled order lifecycle | Execution controls, recovery, TCA, incident handling |
-| Retired | No longer eligible | Reason, effective time, replacement, retained evidence |
+| Platform | Availability, errors, tail latency, throughput, saturation, queue, memory, clock, recovery | Restart, failover, add capacity, rollback, shift traffic |
+| Data | Freshness, gaps, duplicates, schema, revisions, PIT, entitlements, cross-source breaks | Quarantine, source failover, stale mode, stop affected strategies, backfill |
+| Feature/model | Missingness, drift, calibration, residuals, score distribution, inference latency, state divergence | Review, conservative fallback, reduce scope, disable, controlled retraining |
+| Trading/execution | Decision/order rate, rejects, cancels, fills, slippage, queue, adverse selection, venue health | Throttle, reroute, cancel, hedge-only, venue/strategy kill |
+| Risk | Positions, exposure, limit use, stress, margin, liquidity, drawdown, reconciliation | Block new risk, reduce, hedge, kill, escalate |
+| Economic | Gross/net PnL, alpha capture, spread, fees, impact, timing, funding, borrow, hedge/FX residual, capacity decay | Recalibrate, update costs, reduce allocation, retire |
 
-State transitions are explicit and validated. A candidate cannot skip a blocking
-gate because a later-stage metric is attractive.
+Telemetry correlates release, strategy, model, config, data snapshot, account,
+asset, venue, order, environment, host, and incident. Stable names and units are
+mandatory; unbounded identifiers stay out of metric labels. Hot-path telemetry is
+bounded and non-blocking, and dropped telemetry is itself monitored.
 
-## Promotion evidence
+SLOs are tier-, strategy-horizon-, and economic-impact-specific. They cover
+availability, latency, freshness, correctness, recovery, and durability and use
+multi-window error-budget burn rather than unrealistic 100-percent targets.
 
-Promotion considers the whole system:
+TCA/PnL decomposes at least signal, spread, fees, impact, timing, funding, borrow,
+hedge, FX, and reconciliation residual by release, strategy, model, asset, venue,
+account, and order cohort. Simulated-versus-realized gaps feed cost models,
+capacity limits, and research conclusions.
 
-- Data integrity, point-in-time behavior, lineage, coverage, and biases.
-- Economic mechanism, horizon, decay, capacity, and failure mode.
-- Forecast calibration, stability, monotonicity, and long/short asymmetry.
-- Incremental value after existing signals, netting, and constraints.
-- Realized risk calibration, exposures, tails, and stress.
-- Optimizer feasibility, comparative statics, shadow prices, and fallback behavior.
-- Net results after applicable fees, spread, impact, delay, funding, financing,
-  borrow, and taxes.
-- Capacity across capital, participation, liquidity, and stressed conditions.
-- Multiple-testing evidence and the complete governed research path.
-- Final-OOS outcome against precommitted rules.
-- Shadow reconciliation, data drift, order behavior, incidents, and recovery drills.
+Every actionable alert has severity, owner, control/SLO, threshold rationale,
+deduplication key, runbook, safe action, escalation, and closure evidence. Alerts
+without an owner or action remain dashboards, not pages.
 
-No candidate is promoted solely because historical Sharpe exceeds a threshold.
-Thresholds are precommitted for the strategy, horizon, data quality, capacity
-objective, and risk budget.
+Incidents follow detect, contain, preserve evidence, reconcile, communicate,
+recover, verify, and learn. Postmortems record exact release/data/state/control
+behavior, economic impact, contributing factors, and why tests or alerts failed;
+corrective actions add automated tests or controls, not only prose.
 
-## Independent review
+## Security, access, and model risk
 
-An independent reviewer must be able to reconstruct the result without private
-researcher state and records:
+- Pinned dependencies, hermetic hosted builds, signed provenance,
+  SPDX-compatible SBOMs, digest deployment, policy verification, protected source,
+  and independent review are the minimum supply-chain posture.
+- Human production access is read-only by default. Write/activation access is
+  just-in-time, time-bounded, strongly authenticated, authorized, logged, and
+  dual-controlled for material actions.
+- Workload identities are specific and short-lived. Research credentials cannot
+  place orders; strategies cannot modify their limits; secrets never enter source,
+  images, manifests, deterministic identity, or logs.
+- Networks separate research, data, control, trading, risk, and management paths;
+  exceptions for low latency are documented and compensated.
+- Model materiality reflects exposure, purpose, complexity, interconnectedness,
+  and change sensitivity. Validation is proportionate but independent and covers
+  conceptual soundness, data, implementation, outcomes, limitations, sensitivity,
+  benchmarks, OOS/OOT, monitoring, change control, and retirement.
+- Legal and regulatory mappings are jurisdiction-specific and reviewed by the
+  relevant functions; documentation examples are not legal advice.
 
-1. Dataset and universe reproduction.
-2. Code, build target, artifact, and configuration findings.
-3. Leakage, sign, unit, timestamp, and accounting checks.
-4. Comparison with transparent baselines and challengers.
-5. Unresolved data, model, execution, operational, or governance risks.
-6. Conditions required before promotion and the owner of each condition.
+## Independent review and definition of done
 
-Material findings are retained with the candidate. Approval does not delete
-dissenting evidence.
+An independent reviewer must be able to reconstruct the path from hypothesis and
+trial ledger through data, code, build, model, simulation, risk, approvals,
+deployment, decisions, orders, incidents, rollback, and retirement without private
+workstation state.
 
-## Documentation requirements
+An MR or capability is done only when all applicable conditions hold:
 
-Maintain:
+- Code and tests merge through the required affected-target and merged-result
+  pipelines with mandatory approvals.
+- Contracts, types, units, timestamps, lifecycle, owners, consumers, and
+  compatibility are documented.
+- Functional, property/numerical, PIT, research, cost, risk, scenario, performance,
+  resilience, security, documentation, observability, and deployment evidence
+  required by its class passes.
+- Immutable artifact and release identity are available; evidence is retained.
+- Migration, rollout, rollback, stop/kill, degradation, and recovery are tested.
+- Monitoring is active, post-deploy checks pass, and temporary flags, migrations,
+  waivers, and limitations have owners and removal or expiry dates.
+- Runbooks, model cards, control maps, and operator documentation are current.
 
-- Architecture decisions and dependency boundaries.
-- Schemas, units, timestamps, lifecycle, and compatibility rules.
-- Source specifications and limitations.
-- Dataset, feature, label, model, risk, cost, and portfolio registry references.
-- Operator commands, configuration, deployment, monitoring, rollback, and replay.
-- Research methodology, metrics, promotion rules, and model-card templates.
-- Asset-class conventions and portability evidence.
-- Incident reviews, invalidations, migrations, and deprecations.
-
-Commands are executable or explicitly illustrative. Documentation changes that
-alter economic or operational behavior receive the same owner review as code.
-
-## Definition of done
-
-A capability is complete only when all applicable statements hold:
-
-- Responsibility, contract, owner, and consumers are documented.
-- Types, units, currency, signs, precision, time, and lifecycle are explicit.
-- Deterministic unit tests cover normal, boundary, and failure paths.
-- Replaceable or cross-language boundaries have contract/conformance tests.
-- At least one bounded integration or human-auditable golden test exists.
-- Time-dependent behavior has future-perturbation or equivalent leakage tests.
-- Idempotency, interruption, retry, correction, and replay are defined.
-- Failure, fallback, degradation, and stop behavior are tested.
-- Artifacts contain complete lineage and deterministic identities.
-- Metrics, logs, alerts, and operator-visible failures exist where applicable.
-- Security, compatibility, migration, and rollback implications are reviewed.
-- Performance is measured on critical paths using appropriate hardware.
-- User, reviewer, and operator documentation is current.
-- The applicable roadmap exit criteria and acceptance gates pass.
-- Known limitations and deferred work have owners or explicit decision points.
-
-A successful backtest alone is never completion evidence. Live capital deployment
-is outside this definition and requires separate legal, venue, credential, risk,
-capital, and operational authorization.
+A merged MR is not automatically a release. A deployed artifact is not
+automatically activated. A backtest or weighted score is never a substitute for a
+hard gate, and repository implementation does not itself authorize capital.

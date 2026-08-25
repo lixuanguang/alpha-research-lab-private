@@ -2,10 +2,12 @@
 
 ## Purpose
 
-This document sequences the empirical work needed to evaluate the first crypto
-factor-residual candidate. It is subordinate to the platform
-[implementation gates](README.md) and the
-[promotion controls](../architecture/operations.md#research-and-promotion-states).
+This document sequences the empirical work for the proposed first digital-asset
+factor-residual candidate. Digital assets are an optional, separately governed
+asset package under L05; choosing them for the first workload does not make the
+platform crypto-specific or waive any C-K foundation. This program is subordinate
+to the 96 platform [implementation packages](README.md) and the
+[promotion controls](../architecture/operations.md#deployment-activation-and-promotion).
 
 The stages are ordered research gates, not calendar promises. A stage pauses when
 its platform dependency, data quality, or required evidence is incomplete. Later
@@ -24,26 +26,31 @@ results cannot waive earlier leakage, accounting, or governance failures.
 - Freeze data, code/artifacts, configuration, decision rules, thresholds, and
   candidate family before final OOS.
 - Do not access final OOS merely to decide what to try next.
+- Use the shared strategy kernel and declared adapters for research, deterministic
+  replay, paper, shadow, canary, and live; do not rewrite selected logic during a
+  production hand-off.
 - Every stage produces a reproducible artifact, not only a narrative conclusion.
 
 ## Platform enablement map
 
-| Research stage | Minimum platform state | Blocking gate |
+| Research stage | Minimum implementation packages | Blocking evidence |
 | --- | --- | --- |
-| R01 baseline | P0 and P1 complete | Economic slice |
-| R02 data audit | P2 complete | Data |
-| R03-R09 factors/signals/models | P3 complete | Research |
-| R10-R11 risk/static portfolio | P4 complete | Portfolio |
-| R12-R14 dynamic trading/execution/financing | P5 complete | Execution |
-| R15 governance/freeze | P6 `GOV-01`-`GOV-04` ready | Governance |
-| R16 final OOS/shadow | P6 complete through shadow/recovery evidence | Operations |
+| R01 registered baseline | E01-E04 plus applicable F03/F06 accounting and cost contracts | Reproducible PIT raw-to-report baseline |
+| R02 data audit | C01-C08 and D01-D08 | Snapshot, lineage, correction, entitlement, and leakage evidence |
+| R03-R09 factors/signals/models | E03-E08 | Trial-complete independent research report |
+| R10-R12 risk and portfolio | F06 and G01-G04 | Accounting, cost, risk, constraints, fallback, and stress evidence |
+| R13-R14 execution/financing | F03-F08 and applicable G controls | Replay parity, calibrated cost/capacity, lifecycle and financing evidence |
+| R15 governance/freeze | E02, E06, E08, and K07 | Complete trial family, independent validation, immutable freeze |
+| R16 final OOS/certification | R15 plus applicable E08/F08/G08/H01/K07 gates | One-time final OOS and certification decision package |
 
 Work may prototype earlier on synthetic fixtures, but its result is not eligible
 for a later-stage claim until the required platform gate passes.
 
 ## R01: strategy definition and transparent baseline
 
-**Entry:** P1 raw-to-report slice passes.
+**Entry:** the research contract, trial ledger, PIT dataset API, accounting, and
+cost conventions required for a reproducible raw-to-report baseline pass their
+applicable E/F gates.
 
 Work packages:
 
@@ -62,11 +69,12 @@ timing and plausible costs. Otherwise stop or reformulate before adding models.
 
 ## R02: point-in-time data and instrument audit
 
-**Entry:** P2 data gate passes.
+**Entry:** applicable canonical-contract and point-in-time data packages C01-D08
+pass.
 
 Work packages:
 
-- `REP-02A`: reproduce raw-to-silver lineage, identifiers, aliases, timestamp
+- `REP-02A`: reproduce raw-to-canonical lineage, identifiers, aliases, timestamp
   semantics, and funding/contract metadata.
 - `REP-02B`: audit historical membership, gaps, duplicates, stale periods,
   revisions, delistings/inactive contracts, and exclusion reasons.
@@ -81,7 +89,7 @@ look-ahead or survivorship path can change the result materially.
 
 ## R03: observable-factor and PCA residual baselines
 
-**Entry:** P3 factor, split, and transform contracts are ready.
+**Entry:** E03-E06 feature, split, transform, and evaluation contracts pass.
 
 Work packages:
 
@@ -156,7 +164,7 @@ reason and does not gain from future distribution information.
 
 ## R07: predictive-model benchmark matrix
 
-**Entry:** common rolling trainer and model adapter pass P3.
+**Entry:** the E05-E06 common model adapters and evaluation controls pass.
 
 Work packages:
 
@@ -216,7 +224,7 @@ time and every response is operationally implementable.
 
 ## R10: covariance and risk-model validation
 
-**Entry:** P4 covariance and risk evaluation targets pass.
+**Entry:** G03 risk-model and covariance contracts pass.
 
 Work packages:
 
@@ -233,7 +241,8 @@ selected estimator improves a declared operational decision.
 
 ## R11: static portfolio construction
 
-**Entry:** P4 constraints, optimizer, diagnostics, and fallback pass.
+**Entry:** G01-G04 portfolio contracts, optimizer diagnostics, constraints, and
+fallback behavior pass.
 
 Work packages:
 
@@ -252,8 +261,8 @@ hiding risk or costs behind constraint interactions.
 
 ## R12: dynamic cost-aware trading
 
-**Entry:** R11 selects a stable static reference, P4 dynamic limiting tests pass,
-and P5 supplies the execution-cost contract used for net comparison.
+**Entry:** R11 selects a stable static reference, G04 limiting tests pass, and F06
+supplies the calibrated execution-cost contract used for net comparison.
 
 Work packages:
 
@@ -271,7 +280,8 @@ dynamic policy survives reasonable cost/forecast error.
 
 ## R13: execution, impact, and capacity
 
-**Entry:** P5 replay, state machine, cost, TCA, and parity tests pass.
+**Entry:** F05-F08 replay, state-machine, cost, scenario, TCA, and parity tests
+pass.
 
 Work packages:
 
@@ -290,8 +300,10 @@ not dependent on an unobservable fill assumption.
 
 ## R14: financing, margin, and short-side stress
 
-**Entry:** P5 crypto funding/margin state passes. Equity borrow is not a dependency
-for the first crypto candidate; it becomes mandatory only for an equity extension.
+**Entry:** applicable F03/F06 accounting, funding, margin, and lifecycle state plus
+the selected asset certification fixtures pass. Equity borrow is not applicable to
+a digital-asset candidate, but exchange/custody credit, liquidation, stablecoin FX,
+and venue/chain outage evidence are mandatory under L05.
 
 Work packages:
 
@@ -310,7 +322,8 @@ conservatively and the candidate survives predeclared operational limits.
 
 ## R15: multiple testing, selection freeze, and independent review
 
-**Entry:** the candidate family is closed and P6 governance primitives are ready.
+**Entry:** the candidate family is closed and E02, E06, E08, and K07 governance and
+independent-validation controls are ready.
 
 Work packages:
 
@@ -327,9 +340,12 @@ freeze manifest, access policy, model card draft, dissenting findings, and owner
 Advance only if selection would have chosen the same candidate using only evidence
 available before final OOS and every blocking review condition is closed.
 
-## R16: final OOS and shadow package
+## R16: final OOS and certification package
 
-**Entry:** R15 freeze is complete and P6 shadow/operations gate passes.
+**Entry:** R15 freeze is complete; the final-OOS access control is active; and the
+applicable E08, F08, G08, H01, and K07 certification gates pass. Paper and shadow
+are subsequent operational promotion stages, not prerequisites for opening the
+final OOS set.
 
 Work packages:
 
@@ -337,15 +353,18 @@ Work packages:
   access log and complete outcome, including failure.
 - `REP-16B`: run crowding, capital withdrawal, liquidity withdrawal, correlated
   impact, funding/margin, and drawdown scenarios.
-- `REP-16C`: reconcile research, replay, and shadow from forecast through target,
-  order, fill, costs, cash, positions, and P&L; deliver the decision package.
+- `REP-16C`: reconcile research and deterministic replay from forecast through
+  target, simulated order/fill, costs, cash, positions, and P&L; deliver the
+  certification decision package and parity expectations for later paper/shadow.
 
-Required evidence: untouched OOS, attribution, capacity frontier, stress, model
-card, operational incidents, monitoring, reconciliation, review findings, and a
-promote/de-risk/reject decision.
+Required evidence: untouched OOS with access log, attribution, capacity frontier,
+stress, model card, reconciliation, review findings, and a
+certify/de-risk/reject decision. H07, I, J, and K subsequently add paper/shadow,
+operational incidents, recovery, monitoring, security, and activation evidence.
 
-Completion does not authorize live capital. The highest outcome in this repository
-is paper-ready evidence under the separately documented operational controls.
+Completion does not authorize live capital. A certified candidate must still pass
+paper, shadow, bounded canary, release-manifest, independent-risk, security, SLO,
+recovery, rollback, venue/asset certification, and dual-control activation gates.
 
 ## Required research deliverables
 

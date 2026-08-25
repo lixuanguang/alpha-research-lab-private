@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "alpha-research-lab"
 version = "0.1.0"
-description = "Crypto-first statistical-arbitrage research platform"
+description = "Institutional multi-asset quantitative research platform"
 readme = "docs/README.md"
 requires-python = "==3.12.*"
 classifiers = ["Private :: Do Not Upload"]

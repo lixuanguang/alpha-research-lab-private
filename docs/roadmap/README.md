@@ -1,329 +1,286 @@
 # Implementation Roadmap
 
-## Purpose
+## Purpose and authority
 
-This is the delivery plan for the crypto-first alpha research platform. It turns
-the [architecture](../architecture/README.md),
-[contracts](../architecture/contracts.md), and
-[operational controls](../architecture/operations.md) into dependency-ordered,
-verifiable work.
+This is the repository view of the
+[institutional blueprint's](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
+12 waves and 96 logical implementation merge-request packages. It replaces the
+obsolete P0-P8/`ENG-*`/`CRY-*` phase plan. The companion
+[research program](research-program.md) sequences strategy evidence but remains
+subordinate to these platform gates.
 
-The companion [research program](research-program.md) describes empirical work.
-Platform completion and research evidence are separate: merging infrastructure is
-not evidence that a strategy works, and a promising notebook is not evidence that
-the platform is safe to operate.
+Each row below is a logical MR package. If it exceeds reviewable size, split it
+into code, migration, backfill, and rollout MRs while preserving the ID as an epic.
+Prefer one logical behavior change and keep non-generated changes near or below
+400 lines where practical. Every MR inherits its R0-R4 approvers and mandatory
+QG01-QG15 evidence from
+[quality and operations](../architecture/operations.md).
 
-## Roadmap corrections and rationale
+A wave is complete only when exit evidence is demonstrated in the target
+environment. Code merge, a favorable metric, or a dashboard score alone does not
+complete a package.
 
-The earlier plan implemented a broad equity/futures/options/FX domain hierarchy
-before the first crypto end-to-end slice. That ordering was inconsistent with
-correctness-first and YAGNI. This roadmap changes the sequence:
+## Milestones
 
-```text
-P0 foundation
-   -> P1 minimal crypto vertical slice
-      -> P2 point-in-time data hardening
-         -> P3 governed research and models
-            -> P4 risk and portfolio
-               -> P5 replay, execution, financing, capacity
-                  -> P6 shadow, promotion, operations
-                     +-> P7 scale/polyglot optimization (conditional)
-                     +-> P8 cross-asset expansion (conditional)
-```
-
-Only the critical path P0-P6 is required for the first shadow-ready candidate.
-P7 and P8 require explicit entry evidence. A small native performance target may
-be pulled forward after P1 profiling, but it does not justify a repository-wide
-build-system migration by itself.
-
-## How to execute the roadmap
-
-### Phases are gates, not calendar promises
-
-Phase numbers express dependency order. Work may overlap when dependencies and
-owners are clear, but a later phase cannot be declared complete while an earlier
-blocking gate is open. The research program's numbered stages are likewise a
-sequence, not a guarantee of one stage per week.
-
-### Work-package status
-
-Track every package with one of:
-
-| Status | Meaning |
-| --- | --- |
-| Planned | Defined here but not yet dependency-ready |
-| Ready | Dependencies and acceptance procedure are available |
-| In progress | Owner and implementation/review work are active |
-| Validated | Evidence exists and the phase reviewer accepted it |
-| Blocked | Named dependency or decision prevents progress |
-| Superseded | Replaced, with the replacement and reason retained |
-
-Work-package IDs are capability identifiers, not mandatory one-PR limits. A
-package may need several coherent pull requests; use suffixes in the tracker if
-needed. IDs become stable when implementation starts and are never silently reused.
-
-### Pull-request requirements
-
-Each implementation PR states:
-
-1. Work-package ID and single primary behavior.
-2. Dependencies and affected targets/owners.
-3. Human-readable invariant.
-4. Interfaces, schemas, generated files, and migrations changed.
-5. Exact validation commands and expected evidence.
-6. Failure, rollback, and compatibility behavior.
-7. Known omissions and follow-up packages.
-
-There is no universal line-count limit. Generated or mechanical changes are
-separated from semantic changes, and every PR leaves completed gates green.
-
-## Phase 0: engineering foundation
-
-**Goal:** make a clean checkout deterministic, testable, and attributable before
-building research behavior.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
+| Milestone | Waves | Outcome | Do not proceed until |
 | --- | --- | --- | --- |
-| `ENG-01` | Pin Python/tool dependencies and define the initial package | — | Clean environment installs without undeclared host packages |
-| `ENG-02` | Root commands for format, lint, type-check, test, and smoke run | `ENG-01` | One documented interface runs all configured checks |
-| `ENG-03` | CI, pre-commit alignment, affected-target selection, scheduled full validation | `ENG-02` | Leaf and foundational-change selection fixtures pass |
-| `ENG-04` | Typed configuration, precedence, environment profiles, secret references | `ENG-01` | Unknown keys fail; resolved non-secret config is complete |
-| `ENG-05` | Core IDs, UTC/time semantics, currency, decimal precision, and units | `ENG-01` | Invalid values fail; round-trip/golden tests pass |
-| `ENG-06` | Content hashing, run manifests, and deterministic identity | `ENG-04`, `ENG-05` | Same inputs match; one-byte semantic change changes identity |
-| `ENG-07` | Atomic local artifact store and retention metadata | `ENG-06` | Interrupted writes remain invisible; retries do not duplicate |
-| `ENG-08` | Structured CLI outcomes, errors, logs, and correlation IDs | `ENG-04`, `ENG-06` | One fixture run traces from command to logs/artifacts |
-| `ENG-09` | ADR template and owner/decision registry | — | A sample build/storage decision can be proposed and reviewed |
-| `ENG-10` | Dependency lock, provenance, license, and vulnerability baseline | `ENG-01`, `ENG-02` | Resolved dependencies and exceptions are reviewable and reproducible |
+| M0 - Governed source | A-B | Protected monorepo, hermetic build, evidence pipeline, signed artifacts | Ownership, risk classes, reproducibility, and supply-chain controls are live |
+| M1 - Causal research | C-E | Canonical contracts, PIT data, experiment ledger, robust evaluation | Leakage suite, snapshot reproducibility, and independent research report pass |
+| M2 - Executable simulation | F-G | Deterministic market/execution simulation, accounting/costs, portfolio, independent risk | Replay parity, accounting, cost calibration, risk, and stress pass |
+| M3 - Safe production path | H-K | OMS/adapters, paper/shadow, immutable deployment, SLOs, security, model governance | Recovery, kill, shadow, rollback, DR, and audit evidence pass |
+| M4 - Capital scale | L | Asset/strategy certification, controlled canary, scale-up | No critical finding; live reconciliation, capacity, and operational review approve each increase |
 
-**Exit gate:** a clean checkout installs reproducibly; root checks pass; two
-identical fixture runs have identical identities; changed inputs change identity;
-secret values and wall-clock time do not affect deterministic hashes; resolved
-dependencies and their provenance are recorded.
+## Wave A - Governance foundation
 
-**Explicit non-goals:** Bazel, Rust/C++, remote execution, distributed compute,
-Kubernetes, streaming ingestion, and live credentials.
-
-## Phase 1: minimal crypto vertical slice
-
-**Goal:** prove raw-to-report economic correctness with the smallest spot/perpetual
-contract set before building generic multi-asset abstractions.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
-| --- | --- | --- | --- |
-| `CRY-01` | Minimal cash/spot and perpetual instrument specifications | `ENG-05` | Instrument, multiplier, currency, tick/lot fixtures round-trip |
-| `CRY-02` | Canonical bar and funding events with four-time semantics | `CRY-01` | Known source rows preserve values, signs, and timestamps |
-| `CRY-03` | Immutable local bronze store | `ENG-07` | Existing raw objects cannot be overwritten |
-| `CRY-04` | Binance archive download with retry, checksum, and atomic publication | `CRY-03` | Corrupt/partial downloads never publish |
-| `CRY-05` | Kline/funding normalizers and deterministic silver Parquet | `CRY-02`, `CRY-04` | Read/write preserves schema, order, timezone, decimals, hash |
-| `CRY-06` | Minimal dataset specification and 24/7 resampling | `CRY-05` | Aggregation is exact; gaps remain explicit |
-| `CRY-07` | Pure feature contract and future-perturbation test | `CRY-06` | Future changes cannot alter prior features |
-| `CRY-08` | Vectorized clock with explicit decision/fill delay | `CRY-06` | An order cannot fill on its input signal bar |
-| `CRY-09` | Quantity/cash/P&L/fee/funding ledger | `CRY-01`, `CRY-08` | Hand-calculated long/short examples reconcile |
-| `CRY-10` | Transparent factor-residual baseline, manifest, attribution, report | `CRY-07`, `CRY-09` | Raw-to-report command is deterministic; gross-to-net reconciles |
-
-**Exit gate:** one tiny Binance fixture runs from immutable raw input to a
-reviewable report; no look-ahead or same-bar fill is possible; funding, fees, cash,
-positions, and P&L reconcile exactly; repeated runs are identical.
-
-**Replan trigger:** if the slice cannot fit a modular Python process, document the
-measured constraint before adding services or native code.
-
-## Phase 2: point-in-time data hardening
-
-**Goal:** make source revision, historical universe, correction, and restart
-behavior independently reproducible.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
-| --- | --- | --- | --- |
-| `DATA-01` | Bitemporal metadata and raw-revision catalog | `CRY-03`, `ENG-06` | Event-time and knowledge-time queries return expected versions |
-| `DATA-02` | Historical instrument/alias/lifecycle catalog for supported crypto | `CRY-01`, `DATA-01` | Inactive/delisted contracts remain historically discoverable |
-| `DATA-03` | Trades, quotes, mark, index, premium, and funding ingestion as needed | `CRY-05` | IDs and timestamps align across golden events |
-| `DATA-04` | Declarative quality rules and severity policy | `DATA-01`, `DATA-03` | Duplicate/gap/stale/OHLC/funding failures classify correctly |
-| `DATA-05` | Point-in-time reader and as-of joins | `DATA-01`, `DATA-02` | Future records/revisions cannot enter earlier decisions |
-| `DATA-06` | Time-varying universe and eligibility snapshots | `DATA-02`, `DATA-05` | Future listing/liquidity cannot alter earlier membership |
-| `DATA-07` | Lineage and universe audit report | `DATA-04`-`DATA-06` | Derived rows resolve to silver and bronze identities |
-| `DATA-08` | Idempotent backfill, interruption, resume, and replay | `DATA-04`, `ENG-07` | Interrupted and uninterrupted publication is identical |
-| `DATA-09` | Scheduled state, late data, degradation, republish policy | `DATA-08` | Late/degraded partitions follow declared blocking rules |
-| `DATA-10` | Schema compatibility matrix, migration, and old/new reader fixtures | `DATA-01`, `DATA-05` | Supported old/new readers pass; unsupported versions fail clearly |
-
-**Exit gate:** an independent reviewer reconstructs silver data and a historical
-universe from manifests; future corrections/listings do not alter earlier
-knowledge; interrupted backfills recover without duplicates or omissions; hard
-quality failures block publication; schema evolution has tested migration and
-rollback behavior.
-
-## Phase 3: governed research and model platform
-
-**Goal:** compare transparent and complex models under one leakage-resistant,
-fully recorded evaluation contract.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
-| --- | --- | --- | --- |
-| `RES-01` | Dataset, feature, label, signal, and model registries | `DATA-07` | Required availability, units, horizon, mechanism, owner enforced |
-| `RES-02` | Append-only governed experiment/trial ledger | `ENG-06`, `RES-01` | Formal failed/rejected trials cannot be hidden or rewritten |
-| `RES-03` | Rolling/expanding splits with retraining cadence | `RES-01` | All interval boundaries match configuration |
-| `RES-04` | Purging, embargo, and overlapping-label controls | `RES-03` | Training labels cannot overlap validation/test labels |
-| `RES-05` | Train-only scaling, neutralization, imputation, and selection | `RES-03`, `RES-04` | Future outliers/missing values cannot alter fitted transforms |
-| `RES-06` | Observable-factor and rolling-PCA baselines | `RES-05`, `CRY-10` | Return reconstruction, factor stability, deterministic PCA sign pass |
-| `RES-07` | Residual/convergence pipeline and signal dossier | `RES-06` | Common plus residual reconstructs returns; decay/turnover documented |
-| `RES-08` | Common model adapter and rolling trainer | `RES-03`-`RES-05` | Linear, regularized, tree/forest, and optional MLP share splits |
-| `RES-09` | Seed/artifact handling, bake-off, regime/stability diagnostics | `RES-02`, `RES-08` | Comparisons use identical data/costs; tables are predeclared |
-| `RES-10` | Research evidence package and independent reproduction command | `RES-06`-`RES-09` | Reviewer rebuilds a selected run without private state |
-
-**Exit gate:** all evaluated models use identical point-in-time datasets and
-rolling protocols; future perturbation leaves historical outputs unchanged;
-governed trials are complete; transparent baselines remain in every comparison;
-an independent reviewer reproduces the evidence package. Rankings remain
-provisional until P5 supplies execution, financing, and capacity evidence; the
-governed candidate family is not pruned retroactively to the eventual winner.
-
-**Scope rule:** advanced ML is a challenger, not a prerequisite. If linear and
-PCA baselines do not survive costs and stability checks, do not proceed to a model
-zoo merely to search for a favorable result.
-
-## Phase 4: risk and portfolio construction
-
-**Goal:** turn forecasts into dimensioned, constrained, explainable positions with
-safe failure behavior.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
-| --- | --- | --- | --- |
-| `PORT-01` | Sample and shrinkage covariance baselines | `RES-03` | Closed-form fixtures and PSD policy pass |
-| `PORT-02` | Factor plus residual covariance | `RES-06`, `PORT-01` | Factor/residual reconstruction and stability pass |
-| `PORT-03` | Forecast-vs-realized risk, tails, concentration, stability | `PORT-01`, `PORT-02` | Risk is judged by realized portfolio outcomes |
-| `PORT-04` | Typed strategy output, portfolio intent, and dimensioned constraints | `CRY-09`, `RES-09`, `PORT-03` | Units, signs, boundaries, and independent constraints pass |
-| `PORT-05` | Static constrained optimizer | `PORT-04` | Feasibility and comparative statics pass |
-| `PORT-06` | Shadow prices, transfer diagnostics, binding frequency | `PORT-05` | Every binding constraint has attributed marginal cost |
-| `PORT-07` | Conservative fallbacks for stale/missing/infeasible inputs | `PORT-05` | Registered fallback is deterministic and fail-safe |
-| `PORT-08` | Dynamic trading interface, simple declared cost baseline, and one-period limit | `CRY-10`, `PORT-05`, `PORT-07` | Higher costs/slower decay reduce trading speed as expected |
-| `PORT-09` | Factor, liquidity, funding, crowding, and unwind stress | `PORT-03`, `PORT-08` | Complete portfolio revalues and loss attribution reconciles |
-
-**Exit gate:** realized risk validates forecasts; constraints have explicit units
-and diagnostics; infeasible/stale inputs cannot produce optimistic positions; the
-optimizer passes limiting cases and comparative statics under the declared simple
-cost baseline; stress losses reconcile. Net dynamic-policy claims wait for P5.
-
-## Phase 5: replay, execution, financing, and capacity
-
-**Goal:** replace optimistic execution assumptions with deterministic event paths,
-cost attribution, and capacity evidence.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
-| --- | --- | --- | --- |
-| `EXEC-01` | Order/ack/fill/cancel/reject/correction state machine | `CRY-09` | Impossible transitions and duplicate economics fail |
-| `EXEC-02` | Deterministic event replay and equal-time ordering | `DATA-03`, `EXEC-01` | Identical events produce identical state/artifacts |
-| `EXEC-03` | Spread, fee, rebate, delay, partial-fill, opportunity-cost models | `EXEC-02` | Hand-calculated implementation shortfall reconciles |
-| `EXEC-04` | Impact, participation, urgency, uncertainty, cross-impact interface | `EXEC-03` | Cost responds sensibly to size/urgency; units explicit |
-| `EXEC-05` | Capacity curves across capital, participation, horizon, stress | `PORT-09`, `EXEC-04` | Every scale reports net return/risk with uncertainty |
-| `EXEC-06` | Crypto margin, liquidation, funding, and financing state | `CRY-09`, `EXEC-01` | Margin/funding/deleveraging golden paths reconcile |
-| `EXEC-07` | Decision-to-fill TCA and ledger reconciliation | `EXEC-03`, `EXEC-06` | Decision price through fill and P&L reconcile |
-| `EXEC-08` | Vectorized/event-driven parity under aligned assumptions | `CRY-08`, `EXEC-02`, `EXEC-03` | Engines agree within declared tolerance |
-| `EXEC-09` | Paper gateway with idempotent client-order handling | `EXEC-01`, `EXEC-02` | Retries cannot duplicate; partial/reject states explicit |
-
-**Exit gate:** event replay is deterministic; order state cannot become impossible;
-vector and event engines agree when assumptions match; TCA reconciles; financing
-and margin are explicit; capacity is a curve with uncertainty, not one number.
-
-## Phase 6: shadow operation, promotion, and recovery
-
-**Goal:** operate a frozen candidate without capital using immutable artifacts,
-observable controls, and tested recovery.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
-| --- | --- | --- | --- |
-| `GOV-01` | Block bootstrap and multiple-testing policy over governed trials | `RES-02`, `RES-09` | Complete candidate family and dependence blocks retained |
-| `GOV-02` | Frozen final-OOS dataset/config/rules and access log | `RES-10`, `GOV-01` | Inputs cannot drift; every access is recorded |
-| `GOV-03` | Candidate artifact registry and model card | `ENG-07`, `PORT-09`, `EXEC-05` | Owner, use, limits, dependencies, thresholds required |
-| `GOV-04` | Validated promotion/retirement state machine | `GOV-02`, `GOV-03` | Invalid transitions and missing approvals fail |
-| `GOV-05` | Live/shadow market-data adapter, reconnect, gap/freshness state | `DATA-03`, `DATA-09`, `EXEC-02` | Recorded/live canonical parity and reconnect/gap fixtures pass |
-| `GOV-06` | Build-once artifact packaging/promotion and shadow health checks | `GOV-03`, `GOV-04` | Same digest promotes; provenance/configuration link is complete |
-| `GOV-07` | Shadow runner using authoritative/conformant targets | `EXEC-09`, `GOV-05`, `GOV-06` | Artifact/component identity excludes research substitutes |
-| `GOV-08` | Research/replay/shadow forecast-to-P&L reconciliation | `GOV-07`, `EXEC-07` | Differences attribute fully or block promotion |
-| `GOV-09` | Kill switches for data, risk, infeasibility, rejects, and P&L | `PORT-07`, `GOV-05`, `GOV-07` | Every trigger is exercised, including out-of-process stop |
-| `GOV-10` | Metrics, logs, dashboards, alerts, and runbook ownership | `ENG-08`, `GOV-05`, `GOV-07` | One candidate is traceable from source data through P&L |
-| `GOV-11` | Rollback, replay, recovery, and incident drills in paper | `GOV-08`-`GOV-10` | Operator recovers; RTO, data loss, manual steps, gaps recorded |
-
-**Exit gate:** a frozen candidate runs in replay and shadow using authoritative or
-approved conformant artifacts; recorded and live event adapters agree; stale/gap
-state is visible; differences reconcile; kill switches work; operators can
-identify, stop, roll back, replay, reconcile, and recover the system; final OOS
-remains untouched until precommitted criteria and approvals exist.
-
-## Phase 7: scale and polyglot optimization — conditional
-
-**Entry evidence:** P1 has an end-to-end benchmark; the measured bottleneck cannot
-be solved acceptably through algorithm/data-layout improvements in the current
-runtime; the expected benefit and operational cost have owners.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
-| --- | --- | --- | --- |
-| `SCALE-01` | Reproducible workload and bottleneck profile | Relevant completed phase | Profile and target SLO reproduce on controlled hardware |
-| `SCALE-02` | ADR: algorithm/layout, multiprocessing, Rust, C++, service, or hardware option | `SCALE-01` | Alternatives, benefit, complexity, migration, rollback reviewed |
-| `SCALE-03` | Hermetic multi-language target/toolchain graph if selected | `SCALE-02` | Local/CI outputs match; host dependencies excluded |
-| `SCALE-04` | Native or alternate implementation behind existing contract | `SCALE-02`, optionally `SCALE-03` | Shared golden/differential/ABI tests pass |
-| `SCALE-05` | Controlled-hardware performance regression gate | `SCALE-04` | SLO and numerical-equivalence thresholds enforced |
-| `SCALE-06` | Remote cache/execution if build latency warrants it | `SCALE-03` | Cache correctness, isolation, auth, fallback measured |
-| `SCALE-07` | Distributed research compute if workload warrants it | `SCALE-01` | Determinism, retries, quotas, lineage, local fallback pass |
-| `SCALE-08` | Monitoring sharding/HA if ingestion/query limits warrant it | `GOV-10` | Failure loses bounded visibility; HA drill passes |
-
-**Exit gate:** the new path demonstrates material measured benefit, preserves
-contract/golden results or approved tolerances, has immutable provenance, and can
-fall back or roll back without invalidating research evidence.
-
-## Phase 8: cross-asset expansion — conditional
-
-**Entry evidence:** P6 passes for the crypto candidate, a concrete asset-class
-research need exists, adequate point-in-time data is available, and domain owners
-accept the legal/operational scope.
-
-| ID | Deliverable | Depends on | Acceptance evidence |
-| --- | --- | --- | --- |
-| `ASSET-01` | Equity sessions, IDs, corporate actions, universe, borrow | P6 plus equity source/data gate | Rename/split/delisting/borrow fixtures and source audit pass |
-| `ASSET-02` | Futures contracts, rolls, margin, settlement, delivery | P6 plus futures source/data gate | Listed history remains intact; roll/variation margin reconcile |
-| `ASSET-03` | FX spot/forward, settlement, funding, multi-currency | P6 plus FX source/data gate | Carry, settlement, cash, translation reconcile |
-| `ASSET-04` | Option chain, symbology, lifecycle, margin | P6 plus options source/data gate | Identity, chain, exercise/assignment/expiry tests pass |
-| `ASSET-05` | Curves/surfaces, pricer, Greeks, arbitrage checks | `ASSET-04` | Price identities and finite-difference tolerances pass |
-| `ASSET-06` | Fixed-income schedules, curves, prices, DV01 | P6 plus rates source/data gate | Cashflow, clean/dirty price, and DV01 references reconcile |
-| `ASSET-07` | End-to-end options portability test | `ASSET-04`, `ASSET-05` | Research-to-shadow multi-leg lifecycle/stress evidence passes |
-
-Each source/data gate extends the P2 point-in-time, quality, lineage, and restart
-contracts for that asset. It is not permission to reuse crypto assumptions. Each
-adapter receives its own work-package breakdown before implementation.
-
-**Exit gate:** the selected adapter passes connector, instrument, lifecycle,
-valuation, accounting, risk, portfolio, execution, governance, and operational
-contracts without an asset-specialized breaking change to the shared research or
-promotion core.
-
-## Cross-phase acceptance gates
-
-| Gate | Required evidence | Blocks |
+| ID | Objective | Depends on |
 | --- | --- | --- |
-| Foundation | Clean install, root checks, deterministic identity/artifacts | All implementation |
-| Economic slice | Raw-to-report golden reconciliation | General platform expansion |
-| Data | PIT queries/universe, revision retention, lineage, restart | Governed model comparison |
-| Research | Leakage tests, complete governed trials, reproducible bake-off | Candidate selection |
-| Accounting | Cash/position/fee/funding/settlement identities | Portfolio and execution claims |
-| Portfolio | Risk calibration, constraint tests, fallbacks, stress | Capacity and shadow |
-| Execution | Replay parity, state machine, TCA, financing, capacity | Shadow promotion |
-| Governance | Multiple testing, frozen OOS, model card, review | Final OOS |
-| Operations | Reconciliation, kill, observability, rollback/recovery | Paper-ready status |
-| Scale | Profile, ADR, conformance, controlled benchmark | Native/distributed default path |
-| Cross-asset | Source audit plus full shared-contract suite | Asset-class production claim |
+| A01 | Repository charter and monorepo boundary | - |
+| A02 | Architecture principles, ADR framework, dependency/deprecation/exception rules | A01 |
+| A03 | Domain ownership and CODEOWNERS with independent-review paths | A01-A02 |
+| A04 | Deterministic R0-R4 change-risk classification and policy-as-code | A02-A03 |
+| A05 | MR template and SHA-bound machine-readable evidence bundle | A04 |
+| A06 | Data, model, strategy, service, limit, venue, release, and control inventories | A01-A05 |
+| A07 | Threat model and jurisdiction-tailored regulatory control map | A02, A06 |
+| A08 | Program dependency graph and owned baseline KPIs | A01-A07 |
 
-## Roadmap health checks
+**Wave evidence:** protected source, approved charter and ADR process, complete
+ownership, enforced change classes, reconstructable evidence, inventories, threat
+model, and non-vanity program metrics.
 
-Revisit the plan when:
+## Wave B - Build platform and software supply chain
 
-- A work package cannot state deterministic acceptance evidence.
-- Two phases implement the same economic rule independently.
-- An abstraction has no current consumer.
-- A later phase requires hidden manual state from an earlier one.
-- Tooling cost exceeds the measured problem it is intended to solve.
-- Data quality cannot support the research claim.
-- Research results depend materially on an untracked trial, post-hoc rule, or
-  unavailable source.
-- Operational recovery depends on the unhealthy process being recovered.
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| B01 | Repository skeleton and automated dependency constraints | A02-A05 |
+| B02 | Bazel hermetic toolchains for Python, C++ and/or Rust, Protobuf, SQL, and docs | B01 |
+| B03 | Nix flake or equivalent hermetic developer environments | B02 |
+| B04 | Language standards, static quality, sanitizers, numeric tolerances, codegen policy | B02-B03 |
+| B05 | CI fast lane, affected-target analysis, secrets and schema checks | B01-B04 |
+| B06 | Authenticated remote cache/execution, sharding, and flake control | B05 |
+| B07 | Dependency, vulnerability, license, approved-registry, and no-runtime-install policy | B02-B06 |
+| B08 | Provenance, SPDX SBOM, signing, attestations, and digest verification | B07, A07 |
 
-The applicable [definition of done](../architecture/operations.md#definition-of-done)
-and [coding standards](../coding_standards/README.md) apply to every work package.
+**Wave evidence:** clean sandboxed local/CI builds have identical digests,
+undeclared inputs fail, affected-target selection matches full builds, flaky tests
+cannot pass silently, locks are complete, and unsigned or mutable artifacts are
+rejected.
+
+## Wave C - Canonical multi-asset contracts
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| C01 | Stable instrument identity and temporal symbology mappings | B01-B05 |
+| C02 | Venue, session, calendar, market-status, and timezone contracts | C01 |
+| C03 | Typed units, currencies, prices, quantities, and conventions | C01-C02 |
+| C04 | Event, receipt, ingestion, knowledge, valid-time, sequence, and bitemporal model | C01-C03 |
+| C05 | Versioned market, reference, and lifecycle event schemas | C01-C04 |
+| C06 | Order, execution, and fill state machines with idempotency | C01-C05 |
+| C07 | Position, cash, PnL, exposure, and limit schemas | C03, C05-C06 |
+| C08 | Schema registry, compatibility policy, golden fixtures, migrations, deprecation | C01-C07 |
+
+**Wave evidence:** lifecycle ambiguity, symbol reuse, unit errors, host-local time,
+future knowledge, invalid transitions, accounting-sign errors, and unsupported
+schema changes are caught by golden, property, compatibility, and replay tests.
+
+## Wave D - Point-in-time data platform
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| D01 | Immutable entitled raw landing with checksums, retention, and encryption | B08, C04 |
+| D02 | Connector SDK with checkpoints, backpressure, idempotency, dead letters, replay | D01, C05 |
+| D03 | Deterministic canonical normalization and cross-source reconciliation | D01-D02, C08 |
+| D04 | Temporal reference/master data service and vendor-priority rules | C01-C05, D03 |
+| D05 | Data-quality framework, publication policy, dataset SLOs, runbooks | D02-D04 |
+| D06 | PIT dataset builder, as-of joins, universe history, reproducible snapshots | C04, D03-D05 |
+| D07 | Lineage, catalog, entitlements, usage/cost accounting, retention | D01-D06, A06 |
+| D08 | Replay, corrections, backfills, downstream impact, and reconciliation | D06-D07 |
+
+**Wave evidence:** immutable source integrity, recoverable connector faults,
+source-to-canonical lineage, no private symbol maps, quality-triggered
+quarantine/degrade/stop, adversarial leakage rejection, reproducible snapshot
+digests, entitlement propagation, and idempotent impact-aware correction.
+
+## Wave E - Research and model platform
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| E01 | Research SDK and explicit runtime context without global/workstation state | B, C, D06 |
+| E02 | Immutable experiment and committed trial ledger | E01, A06 |
+| E03 | Versioned dataset, feature, label, transformation, and universe APIs | D06-D08, E01-E02 |
+| E04 | Time-series splits, purging, embargo, walk-forward, nested selection, final OOS lock | E03 |
+| E05 | Baseline, model, calibration, ensemble, serialization, and inference adapters | E03-E04 |
+| E06 | Evaluation, robustness, ablation, DSR/PBO/FDR, and multiple-testing controls | E02-E05 |
+| E07 | Reproducible local/cluster/cloud-HPC runner with quotas, resume, cache, cost | E01-E06, B06 |
+| E08 | Model registry, research report, promotion card, independent validation | E02-E07, B08 |
+
+**Wave evidence:** notebook, batch, and CI semantics agree; trial deletion is
+prevented; offline features reproduce; split/leakage attacks pass; declared
+baselines remain; uncertainty is dependence-aware and trial-adjusted; distributed
+runs are bounded/restartable; no promotion card has mutable or missing evidence.
+
+## Wave F - Deterministic simulation
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| F01 | Deterministic event-driven simulator and extensible asset/venue models | C, D08, E01 |
+| F02 | Injected clocks, named random streams, checkpoints, state, and causality guards | F01, C04 |
+| F03 | Accounting, corporate action, expiry, roll, settlement, and FX engine | F01-F02, C07, D04 |
+| F04 | Market-state/order-book simulator for sessions, auctions, limits, and bad books | F01-F03, D03-D05 |
+| F05 | OMS, fill, queue, execution, outage, bust/correct, and drop-copy simulator | C06, F04 |
+| F06 | Spread, fee, impact, borrow, funding, margin, and capacity models | F03-F05, D07 |
+| F07 | Multi-venue latency, failure, regime, degradation, and counterfactual scenarios | F04-F06 |
+| F08 | Research/simulation/paper/live parity, golden strategies, performance budgets | F01-F07 |
+
+**Wave evidence:** event ordering and randomness are reproducible, checkpointed
+runs equal uninterrupted runs, future access hard-fails, accounting reconciles,
+fill/cost models are calibrated with conservative bands, scenario catalogs cover
+normal/stressed/pathological states, and unexplained parity deltas block progress.
+
+## Wave G - Portfolio and independent risk
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| G01 | Signal-to-target API separating forecast, portfolio, and execution policy | E05, F08, C07 |
+| G02 | Authoritative intraday position, cash, pending-order, inventory, exposure service | C07, F03, G01 |
+| G03 | Versioned risk-model, covariance, scenario, liquidity, and quality interfaces | G02, E06 |
+| G04 | Optimizer/constraint library with diagnostics and explainable fallback | G01-G03, F06 |
+| G05 | External fail-closed pre-trade risk gateway | C06-C07, G02-G04 |
+| G06 | Hierarchical limits, stress, drawdown, liquidity, margin, and collateral | G03-G05 |
+| G07 | Independent global/strategy/asset/venue/account/instrument kills and degraded modes | G05-G06, H04 preparation |
+| G08 | Independent risk/PnL/control recomputation, breaks, sign-off, evidence retention | G02-G07, F06 |
+
+**Wave evidence:** stage substitution is possible, authoritative state reconciles,
+risk numerics and optimizer behavior are explainable, unavailable risk fails safe,
+limits reconcile across accounts, kill paths work during process/data failure, and
+material breaks block scale-up.
+
+## Wave H - Trading runtime and connectivity
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| H01 | Shared typed deterministic strategy kernel for research through live | E01, G01, F08 |
+| H02 | Live runtime, scheduling, dependency injection, readiness, health, resource limits | H01, B08, I preparation |
+| H03 | Durable state, checkpoint/replay, idempotency, duplicate suppression, fencing | H02, C06 |
+| H04 | Production OMS lifecycle, drop-copy comparison, aging, audited operator controls | C06, H03, G05 |
+| H05 | FIX/native session adapter SDK, time sync, throttles, recovery, conformance | H04, C08 |
+| H06 | One production-grade venue adapter with independent drop copy and reconciliation | H05, D02, G08 |
+| H07 | Paper broker and shadow router with executable-message suppression | H01-H06, J preparation |
+| H08 | Bounded canary/live activation certification and dual-control enablement | H07, G07, I, J, K |
+
+**Wave evidence:** the same kernel runs in every mode; incompatible startup fails;
+restart cannot duplicate orders; all OMS/session/venue anomalies reconcile;
+secrets stay external; shadow cannot emit executable messages; activation cannot
+exceed the signed envelope and rolls back safely.
+
+## Wave I - Immutable deployment and recovery
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| I01 | Signed release manifest and immutable artifact registry | B08, E08, C08 |
+| I02 | Dev/CI/replay/staging/paper/shadow/canary/prod separation and one-way promotion | I01, A04 |
+| I03 | Typed configuration, validation, secret references, staged flags, expiry, digests | I01-I02, C08 |
+| I04 | Short-lived service identities, secrets, privileged control plane, break glass | A07, B08, I02 |
+| I05 | GitOps deployment lane for standard services | I01-I04, H02 |
+| I06 | Immutable bare-metal low-latency lane with host/clock attestation | I01-I04, H02, H05 |
+| I07 | Progressive rollout, schema/state migration, coordinated multidimensional rollback | I05-I06, C08 |
+| I08 | Tiered backup, verified restore, DR, failover, and break-glass exercises | I01-I07, G07 |
+
+**Wave evidence:** manifests reject mutable/incomplete state, no stage rebuilds,
+config drift/unknown values fail, no static production secret exists, only signed
+artifacts deploy, host/clock drift blocks low-latency activation, mixed-version and
+failed migrations recover, and RTO/RPO restores are verified.
+
+## Wave J - Observability, SLOs, and incident control
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| J01 | OpenTelemetry-based trace/metric/log/audit substrate and retention | B01, H02, I01 |
+| J02 | Metric/log/trace naming, units, cardinality, clock-skew, sensitive-data policy | J01, C03-C04 |
+| J03 | Tiered SLIs/SLOs, error budgets, burn alerts, and release freeze policy | J01-J02, A03-A04 |
+| J04 | Data freshness, quality, lineage, entitlement, PIT, and clock monitors | D05-D08, J01-J03 |
+| J05 | Feature/model/strategy/regime drift, calibration, and state monitoring | E08, H01, J01-J04 |
+| J06 | Execution quality, TCA, capacity, and full PnL attribution | F06, H06, G08, J01-J05 |
+| J07 | Alert routing, runbooks, immutable audit stream, and operator UX | J03-J06, A06 |
+| J08 | Synthetic probes, game days, incident response, and postmortem-to-test loop | J04-J07, I08, G07 |
+
+**Wave evidence:** every release/strategy/account/asset/venue/order/incident
+correlates end to end; cardinality is bounded; SLOs reflect trading impact; stale
+data changes control state; model monitoring avoids noisy-PnL auto-actions;
+simulated/realized costs reconcile; alerts reach owners; game days close corrective
+actions with tests.
+
+## Wave K - Security, access, model risk, and audit
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| K01 | RBAC, JIT access, separation of duties, session recording, two-person control | A03-A07, I04 |
+| K02 | Research/data/control/trading/risk/management network segmentation and egress | K01, I05-I06 |
+| K03 | Enforced reviewed-source, hermetic-build, provenance, SBOM, signature, digest policy | B07-B08, I01 |
+| K04 | Encryption, secrets/keys, rotation, revocation, ownership, backup-key controls | I04, K01-K03 |
+| K05 | Vulnerability, license, dependency, exploitability, patch, and end-of-life operations | B07, K03 |
+| K06 | Data entitlement, privacy, geographic/user restriction, retention/deletion controls | D01, D07, K01 |
+| K07 | Model materiality, inventory, independent validation, findings, monitoring, retirement | E08, J05, A06 |
+| K08 | Compliance evidence mapping, control tests, retention, and audit reconstruction | A07, K01-K07, J07 |
+
+**Wave evidence:** production is read-only by default; network policy isolation is
+tested; tampered artifacts fail; key rotation stays within budget; critical
+exposures and license obligations have owned dispositions; entitlements propagate
+through lineage; material models cannot self-validate; a release reconstructs from
+hypothesis through orders and rollback.
+
+## Wave L - Asset and strategy certification
+
+| ID | Objective | Depends on |
+| --- | --- | --- |
+| L01 | Cash-equities certification | C-K |
+| L02 | Futures certification | C-K |
+| L03 | Listed-options and volatility certification | C-K |
+| L04 | FX, rates, and credit certification | C-K |
+| L05 | Optional, separately governed digital-assets certification | C-K |
+| L06 | Cross-sectional, time-series, and statistical-arbitrage templates | E-K and selected L01/L02/L04 assets |
+| L07 | Market-making, execution, and volatility-strategy templates | F-K and selected L01-L04 assets |
+| L08 | Institutional-readiness review and controlled capital scale-up | L01-L07 |
+
+Each asset certification covers identity/lifecycle, calendars/conventions,
+market/reference and PIT data, accounting, cost, execution, risk,
+margin/collateral, reconciliation, monitoring, runbooks, and failure scenarios.
+Each strategy manifest declares target/horizon, universe, feature graph, model,
+portfolio/execution policy, accounts, venues, capital/limits, state, data, SLOs,
+alerts, rollback, recovery, and owner.
+
+**Wave evidence:** asset-specific golden/stress/paper/shadow/canary cases pass;
+unsupported behavior is explicit; at least one governed strategy reproduces from
+ledger to shadow; hard risk remains external; readiness has no critical finding;
+capital increases only after stable live reconciliation and signed review.
+
+## Wave exit reviews
+
+At every wave boundary, review evidence using a real representative sample, not
+only unit fixtures. Include at least one normal scenario, data correction, venue
+or service failure, state recovery, risk breach, rollback, and audit
+reconstruction. Open critical findings block the next capital-exposure milestone.
+
+Practical parallel ownership is:
+
+- Platform/build: A, B, and I foundations.
+- Data/reference: C, D, and asset lifecycle.
+- Research/simulation: E, F, and strategy templates.
+- Portfolio/risk/trading: G, H, and venue certification.
+- SRE/security/governance: J, K, DR, and evidence.
+- Asset pods: L, starting with one narrow target only after C-K foundations are
+  stable.
+
+Do not create a hand-off team that rewrites research for production. Researchers
+and engineers remain jointly accountable through shadow and early live operation;
+the shared kernel is the production path.
+
+## Current repository mapping
+
+The existing uv lock, Python package, Make checks, and engineering tests are
+bootstrap evidence relevant to B02-B05. They do not yet meet the Bazel, Nix or
+equivalent, ownership, risk-class, affected-target, merged-result, provenance,
+SBOM, signing, or admission requirements and therefore are not marked validated.
+Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
+`SCALE-*`, and `ASSET-*` platform IDs are superseded by A01-L08. Research-stage
+`R01-R16` identifiers remain local to the companion empirical program and are not
+implementation MR IDs.
