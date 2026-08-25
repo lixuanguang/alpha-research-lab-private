@@ -15,7 +15,20 @@ evidence = ""
 
 [[domains]]
 domain_id = "repository_platform"
-patterns = ["*", "/.github/", "/core/", "/src/", "/tests/"]
+patterns = [
+    "/.gitignore",
+    "/.pre-commit-config.yaml",
+    "/.python-version",
+    "/CODEOWNERS",
+    "/Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf",
+    "/Makefile",
+    "/pyproject.toml",
+    "/uv.lock",
+    "/.github/",
+    "/core/",
+    "/src/",
+    "/tests/",
+]
 accountable_role = "platform"
 codeowners = ["@lixuanguang"]
 required_review_roles = ["platform"]

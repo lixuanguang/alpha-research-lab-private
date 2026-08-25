@@ -1,5 +1,12 @@
 # Generated manually from docs/governance/domain-ownership.toml; validated by ownership-check.
-* @lixuanguang
+/.gitignore @lixuanguang
+/.pre-commit-config.yaml @lixuanguang
+/.python-version @lixuanguang
+/CODEOWNERS @lixuanguang
+/Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf @lixuanguang
+/Makefile @lixuanguang
+/pyproject.toml @lixuanguang
+/uv.lock @lixuanguang
 /.github/ @lixuanguang
 /core/ @lixuanguang
 /src/ @lixuanguang

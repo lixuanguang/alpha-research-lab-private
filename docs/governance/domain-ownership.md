@@ -17,6 +17,10 @@ independent-review roles, escalation roles, forge enforcement, and open findings
 The root `CODEOWNERS` file must mirror its ordered patterns and principals exactly.
 The ownership checker rejects mapping drift, missing required domains, role
 conflicts, and any non-ignored repository path without an owner.
+Catch-all patterns are prohibited because they would make the configured
+`unmatched_path_policy = "reject"` ineffective. Root files are enumerated
+explicitly, so a new root file or top-level domain fails closed until ownership is
+recorded deliberately.
 
 ## Review and escalation policy
 

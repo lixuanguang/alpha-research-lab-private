@@ -94,20 +94,33 @@ def test_codeowners_must_match_the_ordered_register(tmp_path: Path) -> None:
 
 
 def test_policy_rejects_an_orphaned_repository_path(tmp_path: Path) -> None:
+    root, _, _ = _policy_fixture(tmp_path)
+
+    with pytest.raises(OwnershipGovernanceError, match="orphan.txt.*no CODEOWNER"):
+        validate_repository(root, repository_paths=("orphan.txt",))
+
+
+def test_policy_rejects_catch_all_path_ownership(tmp_path: Path) -> None:
     root, register, codeowners = _policy_fixture(tmp_path)
     register.write_text(
         register.read_text(encoding="utf-8").replace(
-            'patterns = ["*", "/.github/", "/core/", "/src/", "/tests/"]',
-            'patterns = ["/.github/", "/core/", "/src/", "/tests/"]',
+            "patterns = [\n",
+            'patterns = [\n    "*",\n',
+            1,
         ),
         encoding="utf-8",
     )
     codeowners.write_text(
-        codeowners.read_text(encoding="utf-8").replace("* @lixuanguang\n", ""),
+        codeowners.read_text(encoding="utf-8").replace(
+            "# Generated manually from docs/governance/domain-ownership.toml; "
+            "validated by ownership-check.\n",
+            "# Generated manually from docs/governance/domain-ownership.toml; "
+            "validated by ownership-check.\n* @lixuanguang\n",
+        ),
         encoding="utf-8",
     )
 
-    with pytest.raises(OwnershipGovernanceError, match="orphan.txt.*no CODEOWNER"):
+    with pytest.raises(OwnershipGovernanceError, match="catch-all CODEOWNERS pattern"):
         validate_repository(root, repository_paths=("orphan.txt",))
 
 

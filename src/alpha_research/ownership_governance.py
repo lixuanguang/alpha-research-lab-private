@@ -207,6 +207,11 @@ def validate_repository(
             findings.append(
                 f"{context}: patterns, codeowners, and escalation_roles cannot be empty"
             )
+        if "*" in patterns:
+            findings.append(
+                f"{context}: catch-all CODEOWNERS pattern '*' is incompatible with "
+                "unmatched_path_policy 'reject'"
+            )
         if accountable_role not in required:
             findings.append(f"{context}: accountable_role must be a required reviewer")
         if not set(independent) <= set(required):
