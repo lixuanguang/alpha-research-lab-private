@@ -15,8 +15,8 @@ interoperability requirements justify native code.
 ## Current status
 
 The repository is in the design and engineering-foundation stage. Architecture,
-contracts, roadmap, and coding standards are tracked. The initial Python package
-and locked development environment are implemented; the root build interface and
+contracts, roadmap, and coding standards are tracked. The initial Python package,
+locked development environment, and root command interface are implemented;
 domain runtime capabilities remain Phase 0 and later implementation work.
 
 Live capital deployment is not authorized by this repository. The highest planned
@@ -34,8 +34,26 @@ uv sync --frozen
 
 The tracked `.python-version`, `pyproject.toml`, and `uv.lock` are authoritative.
 uv installs the pinned interpreter when it is unavailable and rejects an
-incompatible uv version. Root format, lint, type-check, test, and smoke commands
-are intentionally deferred to `ENG-02`.
+incompatible uv version. `make sync` provides the same locked setup through the
+root command interface.
+
+Use these root commands for development and validation:
+
+| Command | Behavior |
+| --- | --- |
+| `make format` | Format Python source and tests in place |
+| `make format-check` | Verify formatting without changing files |
+| `make lint` | Run Ruff lint checks |
+| `make typecheck` | Run strict mypy checks |
+| `make security` | Run Bandit against production Python source |
+| `make test` | Run the deterministic test suite |
+| `make smoke` | Import the installed package in the locked environment |
+| `make build` | Build the source distribution and wheel |
+| `make check` | Verify the lock, run all checks and smoke, then build the package |
+
+Running `make` without a target is equivalent to `make check`. The root commands
+delegate environment and tool resolution to the pinned uv configuration; the
+language-native commands remain available for narrow local iteration.
 
 ## Documentation map
 
