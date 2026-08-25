@@ -13,6 +13,11 @@ operations, security, and promotion controls are in
 [operations.md](operations.md). Delivery order is in the
 [implementation roadmap](../roadmap/README.md).
 
+Normative design principles and dependency rules are in
+[principles.md](principles.md). Cross-cutting choices follow the
+[architecture governance process](governance.md) and remain traceable in the
+[decision log](decisions/README.md).
+
 The design is an independent target architecture informed by public engineering,
 SRE, software-supply-chain, model-risk, and algorithmic-trading principles. It is
 not a reconstruction of any firm's proprietary systems.
@@ -260,6 +265,12 @@ schemas, storage, a service/process split, message transport, native boundary,
 distributed compute, deployment substrate, observability, persistence, or event
 ordering. Record the measured problem, alternatives, decision, consequences,
 migration, rollback, owners, review date, and reversal plan.
+
+The A02 framework, lifecycle, deprecation policy, exception process, template,
+initial proposals, and deferred solo-bootstrap findings are maintained through
+the [architecture governance process](governance.md). Proposed ADRs guide bounded
+implementation but are not accepted until their required commit-bound approval
+evidence exists.
 
 ## Public references
 
