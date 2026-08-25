@@ -63,4 +63,3 @@ activation, reconcile state, and restore the last verified multidimensional set.
 Platform, SRE, security, and independent risk reviewers apply according to risk
 class. Revisit with I01 registry evidence and before any production-capable
 deployment or activation mechanism is accepted.
-

@@ -93,6 +93,7 @@ Current root commands are:
 | `make lint` | Run Ruff lint checks |
 | `make typecheck` | Run strict mypy checks |
 | `make architecture-check` | Lint ADRs, the decision log, and repository-local documentation links |
+| `make ownership-check` | Validate A03 ownership, independent-review policy, CODEOWNERS, and path coverage |
 | `make security` | Run Bandit against current production Python source |
 | `make test` | Run the current deterministic test suite |
 | `make smoke` | Import the installed bootstrap package |
@@ -112,6 +113,7 @@ must delegate to that graph and preserve affected-target and merged-result check
 | Document | Purpose |
 | --- | --- |
 | [Repository charter and boundaries](governance/repository-charter.md) | A01 source/governance scope, naming, external-system boundary, repository dispositions, and pending acceptance evidence |
+| [Domain ownership](governance/domain-ownership.md) | A03 accountable domains, CODEOWNERS, independent-review and escalation policy, enforcement, and findings |
 | [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |

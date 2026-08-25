@@ -63,4 +63,3 @@ state, telemetry, and failure behavior before any activation.
 Platform/SRE review requires workload budgets, failure domains, dependency and
 telemetry profiles, recovery tests, and measured justification. Review before any
 low-latency I06 implementation or change in first-target latency posture.
-

@@ -64,4 +64,3 @@ retain fixtures needed to reconcile affected artifacts.
 Review at each first native boundary and when controlled benchmarks contradict
 the runtime choice. Required reviewers include the owning domain and platform;
 security and SRE participate according to the resulting risk class.
-

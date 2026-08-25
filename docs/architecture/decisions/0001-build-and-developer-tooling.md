@@ -64,4 +64,3 @@ replacement ADR demonstrating equivalent hermeticity and evidence before cutover
 Platform Code Owner review, clean bootstrap, sandbox/undeclared-input tests,
 cross-environment digest comparison, and rollback evidence are required by
 B02-B03. Review this proposal when those measured results exist.
-

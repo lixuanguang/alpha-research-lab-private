@@ -97,4 +97,3 @@ does not migrate schemas, data, state, runtimes, or credentials. Rollback requir
 a reviewed revert or superseding ADR and must preserve the decision history and
 findings. Hosted-CI execution and Code Owner approval remain external evidence;
 their absence keeps A02 partial under solo bootstrap.
-

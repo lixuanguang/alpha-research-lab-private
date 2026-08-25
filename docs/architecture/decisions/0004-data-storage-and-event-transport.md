@@ -63,4 +63,3 @@ last verified reader/writer set within its compatibility window.
 Data, platform, security, and SRE owners review product selections with PIT,
 throughput, restore, entitlement, cost, and failure evidence. Revisit before D01
 selects an external control plane or persistence product.
-
