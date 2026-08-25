@@ -46,6 +46,9 @@ jobs:
       - name: Check ownership governance
         run: uv run --frozen python -m alpha_research.ownership_governance
 
+      - name: Check change-risk policy
+        run: uv run --frozen python -m alpha_research.change_risk
+
       - name: Check security
         run: uv run --frozen bandit -q -c pyproject.toml -r src
 
