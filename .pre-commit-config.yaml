@@ -34,6 +34,13 @@ repos:
         files: ^(CODEOWNERS|docs/governance/domain-ownership\.(md|toml)|src/alpha_research/ownership_governance\.py|tests/engineering/test_ownership_governance\.py)$
         pass_filenames: false
 
+      - id: change-risk-policy
+        name: check change-risk policy
+        entry: uv run --frozen python -m alpha_research.change_risk
+        language: system
+        files: ^(docs/README\.md|docs/governance/change-risk-(classification\.md|policy\.toml)|src/alpha_research/change_risk/[a-z_]+\.py|tests/engineering/test_change_risk\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        pass_filenames: false
+
       - id: trailing-whitespace
         name: trim trailing whitespace
         entry: uv run --frozen trailing-whitespace-fixer

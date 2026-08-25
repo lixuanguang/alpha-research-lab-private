@@ -23,6 +23,7 @@ REQUIRED_APPROVER_ROLES = {
     "security",
     "compliance",
 }
+REQUIRED_OPEN_FINDING_IDS = ["A01-F01", "A01-F02", "A01-F03"]
 
 
 def _load_register() -> dict[str, object]:
@@ -50,6 +51,12 @@ def _require_string(container: dict[str, object], key: str) -> str:
     return value
 
 
+def _require_nonempty_string(container: dict[str, object], key: str) -> str:
+    value = _require_string(container, key)
+    assert value.strip(), f"{key} must not be empty"
+    return value
+
+
 def test_charter_contains_every_a01_principal_artifact() -> None:
     charter = CHARTER_PATH.read_text(encoding="utf-8")
     normalized_charter = " ".join(charter.split())
@@ -61,6 +68,7 @@ def test_charter_contains_every_a01_principal_artifact() -> None:
         "## Repository disposition rules",
         "## Naming conventions",
         "## Source governance policy",
+        "## Open findings",
         "## Non-goals",
     ):
         assert heading in charter
@@ -68,6 +76,8 @@ def test_charter_contains_every_a01_principal_artifact() -> None:
     assert "source and governance boundary, not one deployable" in normalized_charter
     assert "No direct push to `main` is allowed" in charter
     assert all(classification in charter for classification in ALLOWED_CLASSIFICATIONS)
+    assert "| Accountable owner role | Platform |" in charter
+    assert all(finding_id in charter for finding_id in REQUIRED_OPEN_FINDING_IDS)
 
 
 def test_solo_bootstrap_track_cannot_claim_institutional_acceptance() -> None:
@@ -137,15 +147,29 @@ def test_acceptance_cannot_close_without_inventory_controls_and_approvals() -> N
     register = _load_register()
     approvals = _require_table_list(register, "approvals")
     acceptance = _require_table(register, "acceptance")
+    findings = _require_table_list(register, "findings")
     protected_branch = _require_table(register, "protected_branch")
     source_authority = _require_table(register, "source_authority")
+
+    assert register["operating_track"] == "solo_bootstrap"
+    assert register["accountable_owner_role"] == "platform"
+    assert register["inventory_attestation_owner"] == "platform"
+    assert acceptance["package_status"] == "partial"
 
     assert {_require_string(item, "role") for item in approvals} == REQUIRED_APPROVER_ROLES
     assert all(
         _require_string(item, "status") in {"pending", "approved", "rejected"} for item in approvals
     )
+    finding_ids = [_require_nonempty_string(finding, "finding_id") for finding in findings]
+    assert len(finding_ids) == len(set(finding_ids))
+    for finding in findings:
+        assert _require_nonempty_string(finding, "owner_role")
+        assert _require_nonempty_string(finding, "unavailable_evidence")
+        assert _require_nonempty_string(finding, "closure_condition")
 
     if _require_string(acceptance, "package_status") == "validated":
+        assert not findings
+        assert acceptance["open_finding_ids"] == []
         assert register["inventory_complete"] is True
         assert source_authority["tracked_in_git"] is True
         assert protected_branch["verification_status"] == "verified"
@@ -155,4 +179,5 @@ def test_acceptance_cannot_close_without_inventory_controls_and_approvals() -> N
         )
     else:
         assert acceptance["package_status"] == "partial"
-        assert acceptance["open_findings"]
+        assert finding_ids == REQUIRED_OPEN_FINDING_IDS
+        assert acceptance["open_finding_ids"] == finding_ids

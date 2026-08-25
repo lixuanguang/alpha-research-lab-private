@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -12,6 +13,16 @@ from urllib.parse import unquote, urlsplit
 _DECISION_FILENAME = re.compile(r"^(?P<identifier>[0-9]{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 _MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\((?P<destination>[^)]+)\)")
 _METADATA_ROW = re.compile(r"^\|\s*(?P<key>[^|]+?)\s*\|\s*(?P<value>[^|]+?)\s*\|\s*$")
+_DECISION_LOG_ROW = re.compile(
+    r"^\|\s*(?P<identifier>[0-9]{4})\s*"
+    r"\|\s*\[(?P<title>[^\]]+)\]\((?P<filename>[^)]+)\)\s*"
+    r"\|\s*(?P<status>[^|]+?)\s*"
+    r"\|\s*(?P<owner>[^|]+?)\s*"
+    r"\|\s*(?P<review_date>[^|]+?)\s*\|$"
+)
+_COMMIT_BOUND_APPROVAL = re.compile(
+    r"^commit=(?P<commit>[0-9a-f]{40}|[0-9a-f]{64});\s*approval=(?P<url>\S+)$"
+)
 _REQUIRED_METADATA = (
     "Roadmap package",
     "Status",
@@ -32,6 +43,16 @@ _REQUIRED_SECTIONS = (
     "Review and evidence",
 )
 _ALLOWED_STATUSES = {"Proposed", "Accepted", "Rejected", "Deprecated", "Superseded"}
+
+
+@dataclass(frozen=True)
+class _DecisionLogEntry:
+    identifier: str
+    title: str
+    filename: str
+    status: str
+    owner: str
+    review_date: str
 
 
 class ArchitectureGovernanceError(ValueError):
@@ -73,6 +94,14 @@ def _parse_date(value: str, *, field: str, path: Path, findings: list[str]) -> d
         return None
 
 
+def _has_commit_bound_approval(value: str) -> bool:
+    match = _COMMIT_BOUND_APPROVAL.fullmatch(value)
+    if match is None:
+        return False
+    approval = urlsplit(match.group("url"))
+    return approval.scheme == "https" and bool(approval.netloc) and approval.username is None
+
+
 def validate_adr(path: Path, *, expected_identifier: int, template: bool = False) -> None:
     """Validate one ADR's identity, metadata, required sections, and lifecycle fields."""
     text = path.read_text(encoding="utf-8")
@@ -109,8 +138,11 @@ def validate_adr(path: Path, *, expected_identifier: int, template: bool = False
         )
         if decision_date is not None and review_date is not None and review_date <= decision_date:
             findings.append(f"{path}: Review date must be after Decision date")
-        if status == "Accepted" and metadata["Approval evidence"].casefold().startswith("pending"):
-            findings.append(f"{path}: Accepted ADRs require non-pending approval evidence")
+        if status == "Accepted" and not _has_commit_bound_approval(metadata["Approval evidence"]):
+            findings.append(
+                f"{path}: Accepted ADRs require 'commit=<40-or-64-hex>; "
+                "approval=<HTTPS evidence URL>'"
+            )
 
     previous_position = -1
     for section in _REQUIRED_SECTIONS:
@@ -127,6 +159,85 @@ def validate_adr(path: Path, *, expected_identifier: int, template: bool = False
 
     if findings:
         raise ArchitectureGovernanceError(findings)
+
+
+def _decision_log_entries(
+    log_path: Path, log: str, findings: list[str]
+) -> tuple[_DecisionLogEntry, ...]:
+    block = _section_body(log, "Decision records")
+    if block is None:
+        findings.append(f"{log_path}: missing required section '## Decision records'")
+        return ()
+
+    entries: list[_DecisionLogEntry] = []
+    for line in block.splitlines():
+        if re.match(r"^\|\s*[0-9]{4}\s*\|", line) is None:
+            continue
+        match = _DECISION_LOG_ROW.fullmatch(line)
+        if match is None:
+            findings.append(f"{log_path}: malformed decision record row: {line}")
+            continue
+        entries.append(
+            _DecisionLogEntry(
+                identifier=match.group("identifier"),
+                title=match.group("title").strip(),
+                filename=match.group("filename").strip(),
+                status=match.group("status").strip(),
+                owner=match.group("owner").strip(),
+                review_date=match.group("review_date").strip(),
+            )
+        )
+    return tuple(entries)
+
+
+def _validate_decision_log(
+    log_path: Path, log: str, decisions: Sequence[Path], findings: list[str]
+) -> None:
+    entries = _decision_log_entries(log_path, log, findings)
+    entries_by_identifier: dict[str, _DecisionLogEntry] = {}
+    for entry in entries:
+        if entry.identifier in entries_by_identifier:
+            findings.append(f"{log_path}: duplicate decision record {entry.identifier}")
+        else:
+            entries_by_identifier[entry.identifier] = entry
+
+    expected_identifiers = {path.name[:4] for path in decisions}
+    for entry in entries:
+        if entry.identifier not in expected_identifiers:
+            findings.append(f"{log_path}: unexpected decision record {entry.identifier}")
+
+    for path in decisions:
+        identifier = path.name[:4]
+        indexed_entry = entries_by_identifier.get(identifier)
+        if indexed_entry is None:
+            findings.append(f"{log_path}: missing decision record {identifier}")
+            continue
+
+        text = path.read_text(encoding="utf-8")
+        title_match = re.search(
+            rf"^# ADR {identifier}: (?P<title>.+?)\s*$", text, flags=re.MULTILINE
+        )
+        expected_title = "" if title_match is None else title_match.group("title")
+        metadata = _metadata(text)
+        expected_values = {
+            "title": expected_title,
+            "filename": path.name,
+            "status": metadata.get("Status", ""),
+            "owner": metadata.get("Decision owner", ""),
+            "review date": metadata.get("Review date", ""),
+        }
+        actual_values = {
+            "title": indexed_entry.title,
+            "filename": indexed_entry.filename,
+            "status": indexed_entry.status,
+            "owner": indexed_entry.owner,
+            "review date": indexed_entry.review_date,
+        }
+        for field, expected in expected_values.items():
+            if actual_values[field] != expected:
+                findings.append(
+                    f"{log_path}: decision {identifier} {field} does not match {path.name}"
+                )
 
 
 def validate_decision_directory(directory: Path) -> tuple[Path, ...]:
@@ -166,6 +277,7 @@ def validate_decision_directory(directory: Path) -> tuple[Path, ...]:
         findings.append(f"{log_path}: decision log is missing")
     else:
         log = log_path.read_text(encoding="utf-8")
+        _validate_decision_log(log_path, log, decisions, findings)
         for path in decisions:
             if log.count(f"({path.name})") != 1:
                 findings.append(f"{log_path}: must link decision '{path.name}' exactly once")

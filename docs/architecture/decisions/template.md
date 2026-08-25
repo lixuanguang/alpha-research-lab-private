@@ -10,7 +10,7 @@
 | Decision date | YYYY-MM-DD |
 | Review date | YYYY-MM-DD |
 | Supersedes | None or ADR link |
-| Approval evidence | Pending or commit-bound approval link |
+| Approval evidence | Pending or `commit=<40-or-64-hex>; approval=<HTTPS evidence URL>` |
 
 ## Context
 

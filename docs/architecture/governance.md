@@ -44,9 +44,12 @@ cross-cutting choice in code.
    history to hide an earlier choice.
 
 Allowed statuses are `Proposed`, `Accepted`, `Rejected`, `Deprecated`, and
-`Superseded`. Accepted ADRs require non-pending approval evidence. The A02 checker
-rejects malformed records, gaps in numbering, unlogged ADRs, and broken
-repository-local documentation links.
+`Superseded`. Accepted ADRs require approval evidence in the exact form
+`commit=<40-or-64-hex>; approval=<HTTPS evidence URL>` so a free-form assertion
+cannot change lifecycle status. The URL remains externally verified evidence; its
+presence is not proof that the forge approved the commit. The A02 checker rejects
+malformed records, gaps in numbering, unlogged ADRs, and broken repository-local
+documentation links.
 
 ## Deprecation policy
 

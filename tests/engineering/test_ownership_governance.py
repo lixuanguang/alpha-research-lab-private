@@ -94,21 +94,89 @@ def test_codeowners_must_match_the_ordered_register(tmp_path: Path) -> None:
 
 
 def test_policy_rejects_an_orphaned_repository_path(tmp_path: Path) -> None:
+    root, _, _ = _policy_fixture(tmp_path)
+
+    with pytest.raises(OwnershipGovernanceError, match="orphan.txt.*no CODEOWNER"):
+        validate_repository(root, repository_paths=("orphan.txt",))
+
+
+def test_policy_rejects_catch_all_path_ownership(tmp_path: Path) -> None:
     root, register, codeowners = _policy_fixture(tmp_path)
     register.write_text(
         register.read_text(encoding="utf-8").replace(
-            'patterns = ["*", "/.github/", "/core/", "/src/", "/tests/"]',
-            'patterns = ["/.github/", "/core/", "/src/", "/tests/"]',
+            "patterns = [\n",
+            'patterns = [\n    "*",\n',
+            1,
         ),
         encoding="utf-8",
     )
     codeowners.write_text(
-        codeowners.read_text(encoding="utf-8").replace("* @lixuanguang\n", ""),
+        codeowners.read_text(encoding="utf-8").replace(
+            "# Generated manually from docs/governance/domain-ownership.toml; "
+            "validated by ownership-check.\n",
+            "# Generated manually from docs/governance/domain-ownership.toml; "
+            "validated by ownership-check.\n* @lixuanguang\n",
+        ),
         encoding="utf-8",
     )
 
-    with pytest.raises(OwnershipGovernanceError, match="orphan.txt.*no CODEOWNER"):
+    with pytest.raises(OwnershipGovernanceError, match="catch-all CODEOWNERS pattern"):
         validate_repository(root, repository_paths=("orphan.txt",))
+
+
+def test_policy_rejects_broader_pattern_after_narrow_security_pattern(
+    tmp_path: Path,
+) -> None:
+    root, register, codeowners = _policy_fixture(tmp_path)
+    policy = register.read_text(encoding="utf-8")
+    policy = policy.replace(
+        'patterns = ["/trading/"]',
+        'patterns = ["/trading/", "/platform/secrets/"]',
+    ).replace(
+        'patterns = ["/platform/secrets/", "/secrets/"]',
+        'patterns = ["/secrets/"]',
+    )
+    register.write_text(policy, encoding="utf-8")
+
+    entries = codeowners.read_text(encoding="utf-8")
+    entries = entries.replace("/platform/secrets/ @lixuanguang\n", "")
+    entries = entries.replace(
+        "/trading/ @lixuanguang\n",
+        "/trading/ @lixuanguang\n/platform/secrets/ @lixuanguang\n",
+    )
+    codeowners.write_text(entries, encoding="utf-8")
+
+    with pytest.raises(OwnershipGovernanceError, match="broader CODEOWNERS pattern"):
+        validate_repository(root, repository_paths=())
+
+
+def test_partial_policy_requires_the_registered_a03_findings(tmp_path: Path) -> None:
+    root, register, _ = _policy_fixture(tmp_path)
+    policy = register.read_text(encoding="utf-8").replace(
+        'finding_id = "A03-F02"',
+        'finding_id = "A03-OTHER"',
+    )
+    register.write_text(policy, encoding="utf-8")
+
+    with pytest.raises(OwnershipGovernanceError, match="partial status requires findings"):
+        validate_repository(root, repository_paths=())
+
+
+def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> None:
+    root, register, _ = _policy_fixture(tmp_path)
+    policy = register.read_text(encoding="utf-8").split("[[findings]]", maxsplit=1)[0]
+    policy = policy.replace(
+        'package_status = "partial"',
+        'package_status = "validated"\nfindings = []',
+    ).replace(
+        'verification_status = "pending"\nevidence = ""',
+        'verification_status = "verified"\n'
+        'evidence = "https://forge.example/protected-main-evidence"',
+    )
+    register.write_text(policy, encoding="utf-8")
+
+    with pytest.raises(OwnershipGovernanceError, match="solo_bootstrap.*cannot claim validated"):
+        validate_repository(root, repository_paths=())
 
 
 def test_command_fails_closed_when_policy_is_missing(

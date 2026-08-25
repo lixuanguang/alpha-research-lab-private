@@ -24,6 +24,7 @@ def _adr_text(
     owner: str = "platform",
     decision_date: str = "2026-08-25",
     review_date: str = "2026-11-25",
+    approval_evidence: str = "Pending; test fixture",
     include_reversal: bool = True,
 ) -> str:
     sections = [
@@ -57,7 +58,7 @@ def _adr_text(
 | Decision date | {decision_date} |
 | Review date | {review_date} |
 | Supersedes | None |
-| Approval evidence | Pending; test fixture |
+| Approval evidence | {approval_evidence} |
 
 {section_text}
 """
@@ -82,7 +83,7 @@ def test_repository_architecture_governance_is_valid() -> None:
     [
         ("Draft", "platform", "unsupported ADR status"),
         ("Proposed", "Unassigned", "must name an accountable role"),
-        ("Accepted", "platform", "require non-pending approval evidence"),
+        ("Accepted", "platform", "require 'commit="),
     ],
 )
 def test_adr_lint_rejects_invalid_lifecycle_metadata(
@@ -119,6 +120,31 @@ def test_adr_lint_rejects_missing_reversal_plan(tmp_path: Path) -> None:
         validate_adr(path, expected_identifier=1)
 
 
+def test_accepted_adr_requires_commit_bound_https_approval(tmp_path: Path) -> None:
+    path = tmp_path / "0001-test-decision.md"
+    path.write_text(
+        _adr_text(
+            status="Accepted",
+            approval_evidence=(
+                f"commit={'a' * 40}; approval=https://forge.example/reviews/approved"
+            ),
+        ),
+        encoding="utf-8",
+    )
+
+    validate_adr(path, expected_identifier=1)
+
+    path.write_text(
+        _adr_text(
+            status="Accepted",
+            approval_evidence=f"commit={'a' * 40}; approval=http://forge.example/insecure",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ArchitectureGovernanceError, match="HTTPS evidence URL"):
+        validate_adr(path, expected_identifier=1)
+
+
 def test_decision_log_rejects_unlogged_and_noncontiguous_records(tmp_path: Path) -> None:
     directory = tmp_path / "decisions"
     directory.mkdir()
@@ -131,6 +157,80 @@ def test_decision_log_rejects_unlogged_and_noncontiguous_records(tmp_path: Path)
 
     assert "contiguous" in str(captured.value)
     assert "must link decision" in str(captured.value)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ("[Test decision]", "[Wrong title]", "title does not match"),
+        ("(0001-test-decision.md)", "(0001-wrong.md)", "filename does not match"),
+        ("| Proposed |", "| Accepted |", "status does not match"),
+        ("| platform |", "| wrong_owner |", "owner does not match"),
+        ("| 2026-11-25 |", "| 2026-12-01 |", "review date does not match"),
+    ],
+)
+def test_decision_log_rejects_adr_metadata_drift(
+    tmp_path: Path, old: str, new: str, message: str
+) -> None:
+    directory = tmp_path / "decisions"
+    directory.mkdir()
+    (directory / "template.md").write_text(_adr_text(identifier=0), encoding="utf-8")
+    (directory / "0001-test-decision.md").write_text(_adr_text(), encoding="utf-8")
+    row = "| 0001 | [Test decision](0001-test-decision.md) | " "Proposed | platform | 2026-11-25 |"
+    log = f"""# Decision log
+
+## Decision records
+
+| ID | Decision | Status | Owner | Review date |
+| --- | --- | --- | --- | --- |
+{row.replace(old, new)}
+"""
+    (directory / "README.md").write_text(log, encoding="utf-8")
+
+    with pytest.raises(ArchitectureGovernanceError, match=message):
+        validate_decision_directory(directory)
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        ("", "missing decision record 0001"),
+        (
+            "| 0001 | [Test decision](0001-test-decision.md) | "
+            "Proposed | platform | 2026-11-25 |\n"
+            "| 0001 | [Test decision](0001-test-decision.md) | "
+            "Proposed | platform | 2026-11-25 |",
+            "duplicate decision record 0001",
+        ),
+        (
+            "| 0001 | [Test decision](0001-test-decision.md) | "
+            "Proposed | platform | 2026-11-25 |\n"
+            "| 0002 | [Unexpected](0002-unexpected.md) | "
+            "Proposed | platform | 2026-11-25 |",
+            "unexpected decision record 0002",
+        ),
+        ("| 0001 | malformed |", "malformed decision record row"),
+    ],
+)
+def test_decision_log_rejects_invalid_record_structure(
+    tmp_path: Path, rows: str, message: str
+) -> None:
+    directory = tmp_path / "decisions"
+    directory.mkdir()
+    (directory / "template.md").write_text(_adr_text(identifier=0), encoding="utf-8")
+    (directory / "0001-test-decision.md").write_text(_adr_text(), encoding="utf-8")
+    log = f"""# Decision log
+
+## Decision records
+
+| ID | Decision | Status | Owner | Review date |
+| --- | --- | --- | --- | --- |
+{rows}
+"""
+    (directory / "README.md").write_text(log, encoding="utf-8")
+
+    with pytest.raises(ArchitectureGovernanceError, match=message):
+        validate_decision_directory(directory)
 
 
 def test_decision_directory_rejects_uncontrolled_markdown_filename(tmp_path: Path) -> None:

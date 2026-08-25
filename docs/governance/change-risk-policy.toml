@@ -1,0 +1,238 @@
+schema_version = 1
+roadmap_package = "A04"
+operating_track = "solo_bootstrap"
+package_status = "partial"
+author_may_lower_classification = false
+author_may_satisfy_independent_review = false
+hard_controls = [
+  "point_in_time_causality",
+  "immutable_artifact_identity",
+  "independent_hard_risk",
+  "kill_capability",
+]
+
+[dimensions]
+capital_at_risk = [
+  { value = false, minimum_class = "R0" },
+  { value = true, minimum_class = "R4" },
+]
+blast_radius = [
+  { value = "documentation_only", minimum_class = "R0" },
+  { value = "research_only", minimum_class = "R1" },
+  { value = "shared_domain", minimum_class = "R2" },
+  { value = "non_capital_runtime", minimum_class = "R3" },
+  { value = "capital_path", minimum_class = "R4" },
+]
+data_model_materiality = [
+  { value = "none", minimum_class = "R0" },
+  { value = "research_local", minimum_class = "R1" },
+  { value = "shared_or_candidate", minimum_class = "R2" },
+  { value = "production_serving", minimum_class = "R3" },
+  { value = "capital_decision", minimum_class = "R4" },
+]
+security_privilege = [
+  { value = "none", minimum_class = "R0" },
+  { value = "research_scoped", minimum_class = "R1" },
+  { value = "shared_sensitive", minimum_class = "R2" },
+  { value = "nonproduction_privileged", minimum_class = "R3" },
+  { value = "production_or_market_access", minimum_class = "R4" },
+]
+reversibility = [
+  { value = "immediate", minimum_class = "R0" },
+  { value = "reproducible_recompute", minimum_class = "R1" },
+  { value = "compatibility_window", minimum_class = "R2" },
+  { value = "staged_operational_rollback", minimum_class = "R3" },
+  { value = "capital_state_reconciliation", minimum_class = "R4" },
+]
+
+[risk_classes.R0]
+mandatory_gates = ["QG01", "QG13"]
+conditional_gate_rules = []
+minimum_approvals = 1
+minimum_independent_approvals = 0
+minimum_activation_approvals = 0
+hard_control_waiver_allowed = true
+rollout_modes = ["fast_lane"]
+evidence_retention_class = "source_governance_record"
+reviewer_groups = [
+  { group_id = "code_owner", roles = ["code_owner"], minimum_approvals = 1, independent = false },
+]
+
+[risk_classes.R1]
+mandatory_gates = ["QG01", "QG02", "QG03", "QG04", "QG05", "QG06", "QG13"]
+conditional_gate_rules = [
+  { trigger = "computationally_material", gates = ["QG10"] },
+]
+minimum_approvals = 2
+minimum_independent_approvals = 1
+minimum_activation_approvals = 0
+hard_control_waiver_allowed = true
+rollout_modes = ["reproducible_batch", "no_production_promotion"]
+evidence_retention_class = "governed_research_lifecycle"
+reviewer_groups = [
+  { group_id = "research_owner", roles = ["research_owner"], minimum_approvals = 1, independent = false },
+  { group_id = "peer", roles = ["peer"], minimum_approvals = 1, independent = true },
+]
+
+[risk_classes.R2]
+mandatory_gates = [
+  "QG01",
+  "QG02",
+  "QG03",
+  "QG04",
+  "QG05",
+  "QG06",
+  "QG09",
+  "QG10",
+  "QG11",
+  "QG12",
+  "QG13",
+  "QG14",
+]
+conditional_gate_rules = [
+  { trigger = "economically_or_risk_relevant", gates = ["QG07", "QG08"] },
+]
+minimum_approvals = 2
+minimum_independent_approvals = 1
+minimum_activation_approvals = 0
+hard_control_waiver_allowed = true
+rollout_modes = ["merged_result", "compatibility_replay", "impact_analysis"]
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+reviewer_groups = [
+  { group_id = "code_owner", roles = ["code_owner"], minimum_approvals = 1, independent = false },
+  { group_id = "independent_domain", roles = ["data_reviewer", "model_validation", "domain_reviewer"], minimum_approvals = 1, independent = true },
+]
+
+[risk_classes.R3]
+mandatory_gates = [
+  "QG01",
+  "QG02",
+  "QG03",
+  "QG04",
+  "QG05",
+  "QG09",
+  "QG10",
+  "QG11",
+  "QG12",
+  "QG13",
+  "QG14",
+  "QG15",
+]
+conditional_gate_rules = [
+  { trigger = "model_or_trading_relevant", gates = ["QG06", "QG07", "QG08"] },
+]
+minimum_approvals = 3
+minimum_independent_approvals = 2
+minimum_activation_approvals = 0
+hard_control_waiver_allowed = true
+rollout_modes = ["staging", "failure_injection", "shadow_or_synthetic"]
+evidence_retention_class = "deployable_service_lifecycle"
+reviewer_groups = [
+  { group_id = "code_owner", roles = ["code_owner"], minimum_approvals = 1, independent = false },
+  { group_id = "platform_operations", roles = ["platform", "sre"], minimum_approvals = 1, independent = true },
+  { group_id = "security", roles = ["security"], minimum_approvals = 1, independent = true },
+]
+
+[risk_classes.R4]
+mandatory_gates = [
+  "QG01",
+  "QG02",
+  "QG03",
+  "QG04",
+  "QG05",
+  "QG06",
+  "QG07",
+  "QG08",
+  "QG09",
+  "QG10",
+  "QG11",
+  "QG12",
+  "QG13",
+  "QG14",
+  "QG15",
+]
+conditional_gate_rules = []
+minimum_approvals = 4
+minimum_independent_approvals = 3
+minimum_activation_approvals = 2
+hard_control_waiver_allowed = false
+rollout_modes = [
+  "full_certification",
+  "paper",
+  "shadow",
+  "bounded_canary",
+  "signed_activation",
+  "rehearsed_rollback",
+]
+evidence_retention_class = "release_activation_and_audit_lifecycle"
+reviewer_groups = [
+  { group_id = "domain_owner", roles = ["domain_owner"], minimum_approvals = 1, independent = false },
+  { group_id = "independent_control", roles = ["independent_risk", "model_validation"], minimum_approvals = 1, independent = true },
+  { group_id = "platform_operations", roles = ["platform", "sre"], minimum_approvals = 1, independent = true },
+  { group_id = "security_compliance", roles = ["security", "compliance"], minimum_approvals = 1, independent = true },
+]
+
+[[sample_changes]]
+change_id = "documentation-only"
+capital_at_risk = false
+blast_radius = "documentation_only"
+data_model_materiality = "none"
+security_privilege = "none"
+reversibility = "immediate"
+expected_class = "R0"
+
+[[sample_changes]]
+change_id = "isolated-research"
+capital_at_risk = false
+blast_radius = "research_only"
+data_model_materiality = "research_local"
+security_privilege = "research_scoped"
+reversibility = "reproducible_recompute"
+expected_class = "R1"
+
+[[sample_changes]]
+change_id = "shared-model-candidate"
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "shared_sensitive"
+reversibility = "compatibility_window"
+economically_or_risk_relevant = true
+expected_class = "R2"
+
+[[sample_changes]]
+change_id = "non-capital-runtime"
+capital_at_risk = false
+blast_radius = "non_capital_runtime"
+data_model_materiality = "production_serving"
+security_privilege = "nonproduction_privileged"
+reversibility = "staged_operational_rollback"
+model_or_trading_relevant = true
+expected_class = "R3"
+
+[[sample_changes]]
+change_id = "capital-risk-control"
+capital_at_risk = true
+blast_radius = "capital_path"
+data_model_materiality = "capital_decision"
+security_privilege = "production_or_market_access"
+reversibility = "capital_state_reconciliation"
+expected_class = "R4"
+
+[[findings]]
+finding_id = "A04-F01"
+owner_role = "platform_ci"
+unavailable_evidence = "PR #5 retains successful exact-commit hosted CI, but the target branch is not protected, so protected-forge evidence remains unavailable."
+closure_condition = "The exact reviewed commit passes the change-risk policy job in the protected external forge and retains the result."
+
+[[findings]]
+finding_id = "A04-F02"
+owner_role = "platform"
+unavailable_evidence = "Protected-forge enforcement of classifier output, reviewer groups, and gate selection is unavailable during repository-local implementation."
+closure_condition = "Exercise representative R0-R4 changes in the protected forge and prove that a downgrade, a single-approver R4 change, and an R4 hard-control waiver are blocked."
+
+[[findings]]
+finding_id = "A04-F03"
+owner_role = "security"
+unavailable_evidence = "Independent Security, SRE/promotion-control, and Independent Risk review are unavailable during solo bootstrap."
+closure_condition = "Named independent reviewers resolve findings and record commit-bound approval of the classifier, R4 controls, rollout mapping, and retention mapping."
