@@ -18,6 +18,8 @@ Repository-local A02 evidence comprises the
 [governance/deprecation/exception process](../governance.md), this log, the
 [ADR template](template.md), the initial proposed decisions below, and the
 deterministic checker and tests executed by the root and CI interfaces.
+The checker fails closed when a log row's ID, title, link target, status, owner,
+or review date differs from its ADR metadata.
 
 The seven records remain `Proposed` because solo-bootstrap implementation cannot
 manufacture Code Owner acceptance. This package is therefore partial even when
