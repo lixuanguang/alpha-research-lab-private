@@ -20,6 +20,52 @@ A wave is complete only when exit evidence is demonstrated in the target
 environment. Code merge, a favorable metric, or a dashboard score alone does not
 complete a package.
 
+## Solo-bootstrap execution overlay
+
+The repository currently has one maintainer. Until the required team and
+independent review functions exist, implementation may use a provisional
+solo-bootstrap track. This overlay changes the execution status of work, not the
+roadmap dependency graph, package exit criteria, quality gates, promotion rules,
+or definition of institutional completion.
+
+Two states must remain distinct:
+
+- **Provisionally implemented:** the smallest coherent package behavior and all
+  repository-local evidence within the maintainer's control are complete, while
+  explicitly identified organizational or external acceptance evidence is
+  deferred. Its package status remains `partial`.
+- **Validated:** every required artifact, test, compatibility check, target-
+  environment exercise, approval, and exit-evidence item exists. Only this state
+  completes a dependency for institutional validation or a wave exit.
+
+Solo-bootstrap work may move to the next provisional package only when:
+
+1. The predecessor's required repository-local artifacts and deterministic tests
+   exist and pass.
+2. No missing technical prerequisite, architectural decision, schema, migration,
+   safety control, or locally enforceable security control is being deferred.
+3. Every remaining finding genuinely requires an unavailable independent role,
+   organization, external control plane, or target acceptance environment.
+4. The new package can be implemented and tested coherently without pretending
+   the predecessor is validated or absorbing a separate missing technical package.
+
+Each provisional package records its risk class, applicable gates, completed
+evidence, deferred evidence, owner, closure condition, and explicit non-goals.
+The maintainer may cover implementation roles but must not manufacture independent
+risk, model-validation, SRE, security, compliance, legal, venue, or capital-owner
+approval.
+
+Solo bootstrap never permits production credentials, external executable order
+flow, deployment or activation authority, capital exposure, or expansion of a
+venue, account, instrument, or risk envelope. Paper, shadow, canary, live, release,
+and promotion claims retain all original gates and target-environment evidence.
+
+When the team forms, provisional packages are reviewed in original dependency
+order. Deferred gates are executed, findings are remediated, and commit-bound
+approvals are recorded before any package becomes `validated`. Provisional work
+is not grandfathered, and a later provisional implementation cannot compensate
+for a failed earlier hard gate.
+
 ## Milestones
 
 | Milestone | Waves | Outcome | Do not proceed until |

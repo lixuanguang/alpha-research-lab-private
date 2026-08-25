@@ -39,6 +39,38 @@ signed activation envelope, bounded canary, tested rollback and kill paths, and
 the applicable legal, compliance, venue, security, operational-risk, and capital
 authorizations.
 
+## Current operating mode: solo bootstrap
+
+The repository currently operates on an explicit **solo-bootstrap track** while
+one maintainer is developing the platform and independent functional reviewers
+are not yet available. This track separates provisional engineering progress from
+institutional acceptance; it does not mark missing approvals as passed or weaken
+the blueprint's eventual gates.
+
+During solo bootstrap:
+
+- Repository-local artifacts, tests, documentation, compatibility, deterministic
+  behavior, and safety controls that can be completed by one maintainer remain
+  mandatory.
+- Work may advance provisionally in roadmap order after its technical dependencies
+  are implemented and verified. Missing evidence may be deferred only when it
+  genuinely requires an unavailable independent reviewer, organization, external
+  control plane, or target acceptance environment.
+- A deferred gate is recorded as an open finding with its required reviewer,
+  environment, evidence, and closure condition. The maintainer does not approve
+  the same change repeatedly under fictional independent roles.
+- A provisionally implemented package remains `partial`; it does not complete a
+  dependency for institutional validation, complete a wave, or satisfy a promotion
+  milestone.
+- No solo-bootstrap result authorizes external market access, production
+  deployment or activation, credentials, capital, venue/account/risk expansion,
+  or a claim of institutional readiness.
+
+The track ends when accountable owners and required independent reviewers are
+available. They must review provisional work in dependency order, run the missing
+gates in the required environments, resolve findings, and record commit-bound
+approvals. No provisional result is grandfathered into `validated` status.
+
 ## Development environment
 
 The current bootstrap pins uv 0.12.5 and CPython 3.12.14. From a clean checkout
@@ -175,6 +207,8 @@ asset/strategy certification. See the [implementation roadmap](roadmap/README.md
 
 ## Working agreement
 
+- Apply the [solo-bootstrap execution overlay](roadmap/README.md#solo-bootstrap-execution-overlay)
+  until the repository records that the team-based review model is active.
 - Assign every change an R0-R4 risk class and run all mandatory QG01-QG15 gates
   applicable to that class.
 - Prefer one logical behavior change per MR. Keep non-generated changes near or
