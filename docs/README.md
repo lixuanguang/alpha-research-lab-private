@@ -78,6 +78,7 @@ must delegate to that graph and preserve affected-target and merged-result check
 
 | Document | Purpose |
 | --- | --- |
+| [Repository charter and boundaries](governance/repository-charter.md) | A01 source/governance scope, naming, external-system boundary, repository dispositions, and pending acceptance evidence |
 | [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
 | [Platform contracts](architecture/contracts.md) | Identity, time, data states, research/model, accounting, risk, execution, and asset-extension contracts |
 | [Quality and operations](architecture/operations.md) | Criticality, MR risk classes, QG01-QG15, observability, recovery, security, promotion, waivers, and definition of done |
