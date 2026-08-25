@@ -92,6 +92,7 @@ Current root commands are:
 | `make format-check` | Verify current Python formatting |
 | `make lint` | Run Ruff lint checks |
 | `make typecheck` | Run strict mypy checks |
+| `make architecture-check` | Lint ADRs, the decision log, and repository-local documentation links |
 | `make security` | Run Bandit against current production Python source |
 | `make test` | Run the current deterministic test suite |
 | `make smoke` | Import the installed bootstrap package |
@@ -112,6 +113,9 @@ must delegate to that graph and preserve affected-target and merged-result check
 | --- | --- |
 | [Repository charter and boundaries](governance/repository-charter.md) | A01 source/governance scope, naming, external-system boundary, repository dispositions, and pending acceptance evidence |
 | [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
+| [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
+| [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
+| [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |
 | [Platform contracts](architecture/contracts.md) | Identity, time, data states, research/model, accounting, risk, execution, and asset-extension contracts |
 | [Quality and operations](architecture/operations.md) | Criticality, MR risk classes, QG01-QG15, observability, recovery, security, promotion, waivers, and definition of done |
 | [Implementation roadmap](roadmap/README.md) | The 12 waves and 96 dependency-ordered implementation MR packages |

@@ -3,7 +3,7 @@
 UV := uv
 PYTHON_PATHS := src tests
 
-.PHONY: sync lock-check format format-check lint typecheck security test smoke build check
+.PHONY: sync lock-check format format-check lint typecheck architecture-check security test smoke build check
 
 sync:
 	$(UV) sync --frozen
@@ -23,6 +23,9 @@ lint:
 typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
 
+architecture-check:
+	$(UV) run --frozen python -m alpha_research.architecture_governance
+
 security:
 	$(UV) run --frozen bandit -q -c pyproject.toml -r src
 
@@ -35,4 +38,4 @@ smoke:
 build:
 	$(UV) build --no-sources
 
-check: lock-check lint format-check typecheck security test smoke build
+check: lock-check lint format-check typecheck architecture-check security test smoke build
