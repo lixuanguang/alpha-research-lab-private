@@ -37,14 +37,19 @@ all repository-local checks pass.
 | 0006 | [Deployment and activation](0006-deployment-and-activation.md) | Proposed | Platform | 2026-11-25 |
 | 0007 | [Observability substrate](0007-observability-substrate.md) | Proposed | Platform | 2026-11-25 |
 
+## Closed validation evidence
+
+| Finding | Evidence | Result |
+| --- | --- | --- |
+| A02-F02 | [PR #5 hosted validation record](https://github.com/lixuanguang/alpha-research-lab-private/pull/5) | The PR record binds its exact head commit to the retained successful architecture-governance job |
+
 ## Open findings
 
 | Finding | Owner | Unavailable evidence | Closure condition |
 | --- | --- | --- | --- |
 | A02-F01 | Platform Code Owner | Independent commit-bound review and acceptance of the principles, process, and proposed ADRs | A named Code Owner reviews the exact change, resolves findings, records approval, and changes accepted records deliberately |
-| A02-F02 | Platform/CI owner | Hosted CI execution in the external forge control plane | The exact reviewed commit passes the explicit architecture-governance job and retained evidence links the result |
 
-These findings are not waivers. A02 remains partial until both close; later
+This finding is not a waiver. A02 remains partial until it closes; later
 provisional packages cannot convert the records to accepted or claim a wave exit.
 
 ## Review split plan

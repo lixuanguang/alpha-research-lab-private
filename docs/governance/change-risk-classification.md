@@ -147,7 +147,7 @@ repository-local operational signal.
 
 | Finding | Owner | Unavailable evidence | Closure condition |
 | --- | --- | --- | --- |
-| A04-F01 | Platform/CI | Hosted-CI execution and retained exact-commit result | The reviewed commit passes the change-risk job in the protected external forge and retains the result |
+| A04-F01 | Platform/CI | PR #5 retains successful exact-commit hosted CI, but the target branch is not protected | The reviewed commit passes the change-risk job in the protected external forge and retains the result |
 | A04-F02 | Platform | Protected-forge consumption and enforcement of classifier output | Representative R0-R4 exercises prove a downgrade, a single-approver R4 change, and an R4 hard-control waiver are blocked |
 | A04-F03 | Security | Independent Security, SRE/promotion-control, and Independent Risk review | Named reviewers resolve findings and record commit-bound approval of the classifier and mappings |
 

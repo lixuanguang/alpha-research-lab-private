@@ -222,7 +222,7 @@ expected_class = "R4"
 [[findings]]
 finding_id = "A04-F01"
 owner_role = "platform_ci"
-unavailable_evidence = "Hosted-CI execution and retained exact-commit evidence are unavailable from the local checkout."
+unavailable_evidence = "PR #5 retains successful exact-commit hosted CI, but the target branch is not protected, so protected-forge evidence remains unavailable."
 closure_condition = "The exact reviewed commit passes the change-risk policy job in the protected external forge and retains the result."
 
 [[findings]]
