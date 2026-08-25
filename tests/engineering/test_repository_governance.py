@@ -154,6 +154,7 @@ def test_acceptance_cannot_close_without_inventory_controls_and_approvals() -> N
     assert register["operating_track"] == "solo_bootstrap"
     assert register["accountable_owner_role"] == "platform"
     assert register["inventory_attestation_owner"] == "platform"
+    assert acceptance["package_status"] == "partial"
 
     assert {_require_string(item, "role") for item in approvals} == REQUIRED_APPROVER_ROLES
     assert all(

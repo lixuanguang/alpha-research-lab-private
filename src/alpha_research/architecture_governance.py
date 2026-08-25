@@ -20,6 +20,9 @@ _DECISION_LOG_ROW = re.compile(
     r"\|\s*(?P<owner>[^|]+?)\s*"
     r"\|\s*(?P<review_date>[^|]+?)\s*\|$"
 )
+_COMMIT_BOUND_APPROVAL = re.compile(
+    r"^commit=(?P<commit>[0-9a-f]{40}|[0-9a-f]{64});\s*approval=(?P<url>\S+)$"
+)
 _REQUIRED_METADATA = (
     "Roadmap package",
     "Status",
@@ -91,6 +94,14 @@ def _parse_date(value: str, *, field: str, path: Path, findings: list[str]) -> d
         return None
 
 
+def _has_commit_bound_approval(value: str) -> bool:
+    match = _COMMIT_BOUND_APPROVAL.fullmatch(value)
+    if match is None:
+        return False
+    approval = urlsplit(match.group("url"))
+    return approval.scheme == "https" and bool(approval.netloc) and approval.username is None
+
+
 def validate_adr(path: Path, *, expected_identifier: int, template: bool = False) -> None:
     """Validate one ADR's identity, metadata, required sections, and lifecycle fields."""
     text = path.read_text(encoding="utf-8")
@@ -127,8 +138,11 @@ def validate_adr(path: Path, *, expected_identifier: int, template: bool = False
         )
         if decision_date is not None and review_date is not None and review_date <= decision_date:
             findings.append(f"{path}: Review date must be after Decision date")
-        if status == "Accepted" and metadata["Approval evidence"].casefold().startswith("pending"):
-            findings.append(f"{path}: Accepted ADRs require non-pending approval evidence")
+        if status == "Accepted" and not _has_commit_bound_approval(metadata["Approval evidence"]):
+            findings.append(
+                f"{path}: Accepted ADRs require 'commit=<40-or-64-hex>; "
+                "approval=<HTTPS evidence URL>'"
+            )
 
     previous_position = -1
     for section in _REQUIRED_SECTIONS:

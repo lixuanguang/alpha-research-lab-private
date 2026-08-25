@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from unicodedata import normalize
 
 from alpha_research.change_risk.classification import classify_change
 from alpha_research.change_risk.constraints import ROLE_PATTERN
@@ -32,21 +33,12 @@ def validate_merge_approvals(
             "classification decision does not match the deterministic result for change input"
         )
 
-    reviewer_ids = [approval.reviewer_id for approval in approvals]
-    if any(not reviewer_id.strip() for reviewer_id in reviewer_ids):
-        findings.append("reviewer_id must not be empty")
-    if len(reviewer_ids) != len(set(reviewer_ids)):
-        findings.append("reviewer approvals must have distinct identities")
+    reviewer_ids = _validate_approval_inputs(approvals, findings=findings)
     if len(set(reviewer_ids)) < trusted_decision.minimum_approvals:
         findings.append(
             f"{trusted_decision.risk_class.value} requires at least "
             f"{trusted_decision.minimum_approvals} distinct approvers"
         )
-    for approval in approvals:
-        if not approval.roles or any(
-            ROLE_PATTERN.fullmatch(role) is None for role in approval.roles
-        ):
-            findings.append(f"reviewer {approval.reviewer_id!r} has invalid roles")
 
     eligible_independent = [
         approval for approval in approvals if approval.independent and not approval.is_author
@@ -65,7 +57,9 @@ def validate_merge_approvals(
         ]
         if len(matches) < group.minimum_approvals:
             findings.append(f"reviewer group {group.group_id!r} is unsatisfied")
-    if not _reviewer_groups_have_distinct_approvers(trusted_decision.reviewer_groups, approvals):
+    if not _reviewer_groups_have_distinct_approvers(
+        trusted_decision.reviewer_groups, approvals, reviewer_ids
+    ):
         findings.append("reviewer groups require distinct qualifying identities")
 
     class_policy = policy.class_policy(trusted_decision.risk_class)
@@ -79,8 +73,57 @@ def validate_merge_approvals(
         raise ChangeRiskPolicyError("\n".join(findings))
 
 
+def validate_activation_approvals(
+    decision: ClassificationDecision,
+    approvals: Sequence[ReviewApproval],
+    *,
+    change: ChangeRiskInput,
+    policy: ChangeRiskPolicy,
+) -> None:
+    """Reject an unbound activation decision or insufficient dual control."""
+    findings: list[str] = []
+    trusted_decision = classify_change(change, policy)
+    if decision != trusted_decision:
+        findings.append(
+            "classification decision does not match the deterministic result for change input"
+        )
+
+    reviewer_ids = _validate_approval_inputs(approvals, findings=findings)
+    if len(set(reviewer_ids)) < trusted_decision.minimum_activation_approvals:
+        findings.append(
+            f"{trusted_decision.risk_class.value} activation requires at least "
+            f"{trusted_decision.minimum_activation_approvals} distinct approvers"
+        )
+    if findings:
+        raise ChangeRiskPolicyError("\n".join(findings))
+
+
+def _canonical_reviewer_id(reviewer_id: str) -> str:
+    """Canonicalize a caller identity for deterministic distinctness checks."""
+    return normalize("NFKC", reviewer_id).strip().casefold()
+
+
+def _validate_approval_inputs(
+    approvals: Sequence[ReviewApproval], *, findings: list[str]
+) -> tuple[str, ...]:
+    """Validate role claims and return canonical reviewer identities."""
+    reviewer_ids = tuple(_canonical_reviewer_id(approval.reviewer_id) for approval in approvals)
+    if any(not reviewer_id for reviewer_id in reviewer_ids):
+        findings.append("reviewer_id must not be empty")
+    if len(reviewer_ids) != len(set(reviewer_ids)):
+        findings.append("reviewer approvals must have distinct identities after canonicalization")
+    for approval in approvals:
+        if not approval.roles or any(
+            ROLE_PATTERN.fullmatch(role) is None for role in approval.roles
+        ):
+            findings.append(f"reviewer {approval.reviewer_id!r} has invalid roles")
+    return reviewer_ids
+
+
 def _reviewer_groups_have_distinct_approvers(
-    groups: Sequence[ReviewerGroup], approvals: Sequence[ReviewApproval]
+    groups: Sequence[ReviewerGroup],
+    approvals: Sequence[ReviewApproval],
+    reviewer_ids: Sequence[str],
 ) -> bool:
     slots = tuple(group for group in groups for _ in range(group.minimum_approvals))
 
@@ -88,13 +131,13 @@ def _reviewer_groups_have_distinct_approvers(
         if slot_index == len(slots):
             return True
         group = slots[slot_index]
-        for approval in approvals:
+        for approval, reviewer_id in zip(approvals, reviewer_ids, strict=True):
             is_eligible = (
-                approval.reviewer_id not in used_reviewer_ids
+                reviewer_id not in used_reviewer_ids
                 and bool(approval.roles & group.roles)
                 and (not group.independent or (approval.independent and not approval.is_author))
             )
-            if is_eligible and assign(slot_index + 1, used_reviewer_ids | {approval.reviewer_id}):
+            if is_eligible and assign(slot_index + 1, used_reviewer_ids | {reviewer_id}):
                 return True
         return False
 

@@ -24,6 +24,7 @@ def _adr_text(
     owner: str = "platform",
     decision_date: str = "2026-08-25",
     review_date: str = "2026-11-25",
+    approval_evidence: str = "Pending; test fixture",
     include_reversal: bool = True,
 ) -> str:
     sections = [
@@ -57,7 +58,7 @@ def _adr_text(
 | Decision date | {decision_date} |
 | Review date | {review_date} |
 | Supersedes | None |
-| Approval evidence | Pending; test fixture |
+| Approval evidence | {approval_evidence} |
 
 {section_text}
 """
@@ -82,7 +83,7 @@ def test_repository_architecture_governance_is_valid() -> None:
     [
         ("Draft", "platform", "unsupported ADR status"),
         ("Proposed", "Unassigned", "must name an accountable role"),
-        ("Accepted", "platform", "require non-pending approval evidence"),
+        ("Accepted", "platform", "require 'commit="),
     ],
 )
 def test_adr_lint_rejects_invalid_lifecycle_metadata(
@@ -116,6 +117,31 @@ def test_adr_lint_rejects_missing_reversal_plan(tmp_path: Path) -> None:
     path.write_text(_adr_text(include_reversal=False), encoding="utf-8")
 
     with pytest.raises(ArchitectureGovernanceError, match="Reversal plan"):
+        validate_adr(path, expected_identifier=1)
+
+
+def test_accepted_adr_requires_commit_bound_https_approval(tmp_path: Path) -> None:
+    path = tmp_path / "0001-test-decision.md"
+    path.write_text(
+        _adr_text(
+            status="Accepted",
+            approval_evidence=(
+                f"commit={'a' * 40}; approval=https://forge.example/reviews/approved"
+            ),
+        ),
+        encoding="utf-8",
+    )
+
+    validate_adr(path, expected_identifier=1)
+
+    path.write_text(
+        _adr_text(
+            status="Accepted",
+            approval_evidence=f"commit={'a' * 40}; approval=http://forge.example/insecure",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ArchitectureGovernanceError, match="HTTPS evidence URL"):
         validate_adr(path, expected_identifier=1)
 
 

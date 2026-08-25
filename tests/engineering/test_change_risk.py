@@ -16,6 +16,7 @@ from alpha_research.change_risk import (
     classify_change,
     load_policy,
     main,
+    validate_activation_approvals,
     validate_merge_approvals,
     validate_repository,
 )
@@ -162,6 +163,24 @@ def test_declared_downgrade_is_rejected_and_conservative_escalation_is_allowed(
     assert decision.drivers == ("declared_class",)
 
 
+def test_conservative_escalation_preserves_computed_conditional_gates(
+    policy: ChangeRiskPolicy,
+) -> None:
+    base = _change_for(RiskClass.R2)
+    computed_change = replace(base, economically_or_risk_relevant=True)
+    escalated_change = replace(
+        computed_change,
+        declared_class=RiskClass.R3,
+    )
+
+    computed = classify_change(computed_change, policy)
+    escalated = classify_change(escalated_change, policy)
+
+    assert escalated.risk_class is RiskClass.R3
+    assert set(computed.mandatory_gates) <= set(escalated.mandatory_gates)
+    assert {"QG06", "QG07", "QG08"} <= set(escalated.mandatory_gates)
+
+
 def test_unknown_dimension_value_fails_closed(policy: ChangeRiskPolicy) -> None:
     change = ChangeRiskInput(
         capital_at_risk=False,
@@ -230,6 +249,42 @@ def test_r4_requires_distinct_review_groups_and_independent_approvers(
             [ReviewApproval("owner", frozenset({"domain_owner"}))],
             change=change,
             waived_controls=(),
+            policy=policy,
+        )
+
+
+def test_r4_activation_requires_two_distinct_canonical_identities(
+    policy: ChangeRiskPolicy,
+) -> None:
+    change = _change_for(RiskClass.R4)
+    decision = classify_change(change, policy)
+
+    validate_activation_approvals(
+        decision,
+        (
+            ReviewApproval("operations", frozenset({"sre"})),
+            ReviewApproval("risk", frozenset({"independent_risk"})),
+        ),
+        change=change,
+        policy=policy,
+    )
+
+    with pytest.raises(ChangeRiskPolicyError, match="activation requires at least 2"):
+        validate_activation_approvals(
+            decision,
+            (ReviewApproval("operations", frozenset({"sre"})),),
+            change=change,
+            policy=policy,
+        )
+
+    with pytest.raises(ChangeRiskPolicyError, match="after canonicalization"):
+        validate_activation_approvals(
+            decision,
+            (
+                ReviewApproval("Alice", frozenset({"sre"})),
+                ReviewApproval(" alice ", frozenset({"independent_risk"})),
+            ),
+            change=change,
             policy=policy,
         )
 
@@ -350,6 +405,28 @@ def test_duplicate_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy
         )
 
 
+def test_canonical_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy) -> None:
+    change = _change_for(RiskClass.R2)
+    decision = classify_change(change, policy)
+    approvals = (
+        ReviewApproval("Alice", frozenset({"code_owner"})),
+        ReviewApproval(
+            " alice ",
+            frozenset({"domain_reviewer"}),
+            independent=True,
+        ),
+    )
+
+    with pytest.raises(ChangeRiskPolicyError, match="after canonicalization"):
+        validate_merge_approvals(
+            decision,
+            approvals,
+            change=change,
+            waived_controls=(),
+            policy=policy,
+        )
+
+
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
@@ -393,6 +470,28 @@ def test_partial_policy_cannot_hide_open_findings(tmp_path: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
     with pytest.raises(ChangeRiskPolicyError, match="findings"):
+        load_policy(path)
+
+
+def test_partial_policy_requires_the_registered_a04_findings(tmp_path: Path) -> None:
+    path = _mutated_policy(tmp_path, 'finding_id = "A04-F02"', 'finding_id = "A04-OTHER"')
+
+    with pytest.raises(ChangeRiskPolicyError, match="partial status requires findings"):
+        load_policy(path)
+
+
+def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> None:
+    path = tmp_path / "change-risk-policy.toml"
+    text = POLICY_PATH.read_text(encoding="utf-8").split("[[findings]]", maxsplit=1)[0]
+    text = text.replace(
+        'package_status = "partial"',
+        'package_status = "validated"\n'
+        'validation_evidence = ["https://forge.example/evidence"]\n'
+        "findings = []",
+    )
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ChangeRiskPolicyError, match="solo_bootstrap.*cannot claim validated"):
         load_policy(path)
 
 

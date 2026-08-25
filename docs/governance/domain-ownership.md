@@ -20,7 +20,9 @@ conflicts, and any non-ignored repository path without an owner.
 Catch-all patterns are prohibited because they would make the configured
 `unmatched_path_policy = "reject"` ineffective. Root files are enumerated
 explicitly, so a new root file or top-level domain fails closed until ownership is
-recorded deliberately.
+recorded deliberately. For overlapping prefix patterns, the checker requires the
+broader rule to precede the narrower rule so last-match routing cannot silently
+replace a security owner with a broader domain owner.
 
 ## Review and escalation policy
 

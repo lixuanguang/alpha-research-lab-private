@@ -7,7 +7,17 @@ from alpha_research.change_risk.models import (
     ChangeRiskPolicy,
     ChangeRiskPolicyError,
     ClassificationDecision,
+    RiskClassPolicy,
 )
+
+
+def _required_gates(change: ChangeRiskInput, class_policy: RiskClassPolicy) -> set[str]:
+    """Return mandatory and active conditional gates for one class policy."""
+    gates = set(class_policy.mandatory_gates)
+    for rule in class_policy.conditional_gate_rules:
+        if change.trigger_is_active(rule.trigger):
+            gates.update(rule.gates)
+    return gates
 
 
 def classify_change(change: ChangeRiskInput, policy: ChangeRiskPolicy) -> ClassificationDecision:
@@ -28,11 +38,13 @@ def classify_change(change: ChangeRiskInput, policy: ChangeRiskPolicy) -> Classi
             final = change.declared_class
             drivers = ("declared_class",)
 
+    computed_policy = policy.class_policy(computed)
     class_policy = policy.class_policy(final)
-    gates = set(class_policy.mandatory_gates)
-    for rule in class_policy.conditional_gate_rules:
-        if change.trigger_is_active(rule.trigger):
-            gates.update(rule.gates)
+    gates = _required_gates(change, class_policy)
+    if final is not computed:
+        # A conservative declaration may add controls but must not discard the
+        # gates required by the facts that produced the computed class.
+        gates.update(_required_gates(change, computed_policy))
     ordered_gates = tuple(sorted(gates, key=lambda gate: int(gate[2:])))
     return ClassificationDecision(
         risk_class=final,

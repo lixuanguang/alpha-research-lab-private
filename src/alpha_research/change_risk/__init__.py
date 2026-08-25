@@ -6,7 +6,10 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from alpha_research.change_risk.approvals import validate_merge_approvals
+from alpha_research.change_risk.approvals import (
+    validate_activation_approvals,
+    validate_merge_approvals,
+)
 from alpha_research.change_risk.classification import classify_change
 from alpha_research.change_risk.models import (
     ChangeRiskInput,
@@ -38,6 +41,7 @@ __all__ = [
     "classify_change",
     "load_policy",
     "main",
+    "validate_activation_approvals",
     "validate_merge_approvals",
     "validate_repository",
 ]

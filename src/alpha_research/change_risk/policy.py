@@ -12,6 +12,7 @@ from alpha_research.change_risk.constraints import (
     BLUEPRINT_CONDITIONAL_GATES,
     BLUEPRINT_REQUIRED_GATES,
     EXPECTED_DIMENSIONS,
+    EXPECTED_OPEN_FINDING_IDS,
     EXPECTED_RETENTION_CLASSES,
     EXPECTED_REVIEWER_GROUPS,
     EXPECTED_ROLLOUT_MODES,
@@ -305,9 +306,15 @@ def load_policy(path: Path) -> ChangeRiskPolicy:
 
     package_status = root.get("package_status")
     if package_status == "partial":
-        if not findings:
-            raise ChangeRiskPolicyError(f"{path}: partial status requires open findings")
+        if tuple(findings) != EXPECTED_OPEN_FINDING_IDS:
+            raise ChangeRiskPolicyError(
+                f"{path}: partial status requires findings {list(EXPECTED_OPEN_FINDING_IDS)!r}"
+            )
     elif package_status == "validated":
+        if root.get("operating_track") == "solo_bootstrap":
+            raise ChangeRiskPolicyError(
+                f"{path}: solo_bootstrap packages cannot claim validated status"
+            )
         if findings:
             raise ChangeRiskPolicyError(
                 f"{path}: validated status requires retained evidence and no findings"

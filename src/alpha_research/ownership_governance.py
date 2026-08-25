@@ -27,6 +27,7 @@ _REQUIRED_DOMAINS = {
     "simulation",
     "trading",
 }
+_REQUIRED_OPEN_FINDING_IDS = ("A03-F01", "A03-F02", "A03-F03")
 _ROLE = re.compile(r"^[a-z][a-z0-9_]*$")
 _PRINCIPAL = re.compile(r"^@[A-Za-z0-9][A-Za-z0-9-]*(?:/[A-Za-z0-9][A-Za-z0-9-]*)?$")
 
@@ -104,6 +105,13 @@ def _matches(pattern: str, repository_path: str) -> bool:
     )
 
 
+def _prefix_pattern_contains(broader: str, narrower: str) -> bool:
+    """Return whether a directory pattern contains a different narrower pattern."""
+    if broader == "*" or not broader.endswith("/") or broader == narrower:
+        return False
+    return narrower.removeprefix("/").startswith(broader.removeprefix("/"))
+
+
 def _repository_paths(repository_root: Path) -> tuple[str, ...]:
     git_executable = shutil.which("git")
     if git_executable is None:
@@ -159,6 +167,10 @@ def validate_repository(
     if package_status == "validated":
         if forge.get("verification_status") != "verified" or not forge.get("evidence"):
             findings.append(f"{registry_path}: validated status requires verified forge evidence")
+        if registry.get("operating_track") == "solo_bootstrap":
+            findings.append(
+                f"{registry_path}: solo_bootstrap packages cannot claim validated status"
+            )
         if open_findings:
             findings.append(f"{registry_path}: validated status cannot retain open findings")
     elif package_status != "partial" or not open_findings:
@@ -176,6 +188,16 @@ def validate_repository(
             findings.append(
                 f"{registry_path}: each finding requires an id, owner, evidence, and closure"
             )
+    finding_ids = tuple(
+        cast(str, finding["finding_id"])
+        for finding in open_findings
+        if isinstance(finding.get("finding_id"), str)
+    )
+    if package_status == "partial" and finding_ids != _REQUIRED_OPEN_FINDING_IDS:
+        findings.append(
+            f"{registry_path}: partial status requires findings "
+            f"{list(_REQUIRED_OPEN_FINDING_IDS)!r}"
+        )
 
     domains = _table_list(registry, "domains")
     if domains is None:
@@ -227,6 +249,15 @@ def validate_repository(
                 findings.append(f"{context}: duplicate CODEOWNERS pattern {pattern!r}")
             seen_patterns.add(pattern)
             expected_entries.append((pattern, tuple(codeowners)))
+
+    ordered_patterns = tuple(pattern for pattern, _ in expected_entries)
+    for narrower_index, narrower in enumerate(ordered_patterns):
+        for broader in ordered_patterns[narrower_index + 1 :]:
+            if _prefix_pattern_contains(broader, narrower):
+                findings.append(
+                    f"{registry_path}: broader CODEOWNERS pattern {broader!r} must precede "
+                    f"narrower pattern {narrower!r} so last-match routing stays fail-closed"
+                )
 
     domain_set = set(domain_ids)
     if domain_set != _REQUIRED_DOMAINS or len(domain_ids) != len(domain_set):

@@ -29,7 +29,9 @@ required class = max(capital at risk, blast radius, data/model materiality,
 
 An author may declare a higher class conservatively. A declaration below the
 computed class is rejected rather than silently corrected. Conditional facts add
-gates but never remove a class gate:
+gates but never remove a class gate. When the declared class is higher, the final
+gate set is the union of the computed class requirements and declared class
+requirements:
 
 - Computationally material R1 work adds QG10.
 - Economically or risk-relevant R2 work adds QG07-QG08.
@@ -64,7 +66,8 @@ The R3 and R4 mappings deliberately require distinct operational and security
 review identities rather than leaving applicability to the author. R4 requires at
 least four distinct merge approvers, at least three independent approvers, and at
 least two distinct activation approvers. The author cannot satisfy an independent
-review group.
+review group. Reviewer identities are normalized with Unicode NFKC, surrounding
+whitespace removal, and case folding before any distinctness or group assignment.
 
 The retention classes are minimum semantic lifecycles:
 
@@ -95,6 +98,11 @@ control appears in the waiver set, duplicate reviewer identities, missing review
 groups, an author presented as independent, or fewer than the class minimum
 approvals.
 
+`validate_activation_approvals()` separately recomputes and binds the decision,
+validates canonical identities and roles, and enforces the class activation
+minimum. R4 therefore cannot pass repository-local activation validation with one
+identity or two textual variants of the same identity.
+
 Callers of `validate_merge_approvals()` must pass the classification facts through
 the required `change=` argument together with the decision returned by
 `classify_change()`. This binding is a repository-local integrity check; it does
@@ -112,9 +120,10 @@ does not pre-empt that separate package.
 boundary, and reclassifies the retained R0-R4 sample changes. The same command is
 included in the root check, pre-commit, and hosted-CI definitions. Focused tests
 cover success, mixed-dimension boundaries, capital escalation, conditional gates,
-unknown values, declared downgrades, policy weakening, insufficient or duplicate
-review evidence, decision/input mismatch, author independence, and R4 hard-control
-waivers.
+unknown values, declared downgrades, gate preservation during conservative
+escalation, policy weakening, insufficient or canonically duplicate review
+evidence, decision/input mismatch, author independence, activation dual control,
+and R4 hard-control waivers.
 
 Local success proves deterministic repository behavior only. It does not prove
 that the hosted forge ran the exact commit or that unavailable independent roles
@@ -156,7 +165,8 @@ independently without changing the stable public API or command:
 - `change_risk/models.py` owns immutable domain values and policy types.
 - `change_risk/policy.py` parses TOML and validates the complete policy.
 - `change_risk/classification.py` contains the pure highest-dimension classifier.
-- `change_risk/approvals.py` enforces distinct reviewers and hard-control waivers.
+- `change_risk/approvals.py` enforces canonical distinct reviewers, activation
+  dual control, and hard-control waivers.
 - `change_risk/constraints.py` retains non-negotiable blueprint lower bounds
   separately from the mutable TOML policy.
 
