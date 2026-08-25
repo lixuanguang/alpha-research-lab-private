@@ -5,8 +5,10 @@
 | Field | Value |
 | --- | --- |
 | Roadmap package | A01 |
-| Status | Proposed; acceptance evidence is incomplete |
-| Accountable owner | Unassigned; required before approval |
+| Operating track | Solo bootstrap |
+| Charter status | Proposed |
+| Package status | Partial |
+| Accountable owner role | Platform |
 | Change risk | R0 with package-specific QG12 and QG13 evidence |
 | Machine-readable register | [System boundaries](system-boundaries.toml) |
 
@@ -122,10 +124,26 @@ inventory; a tracked authoritative blueprint; and verified protected-branch
 enforcement. Pending evidence is explicit in the register and must not be treated
 as a waiver or approval.
 
+The Platform role owns A01 implementation and disposition of its findings during
+solo bootstrap. That accountable implementation role is not an institutional
+approval and cannot substitute for any required independent or cross-functional
+review.
+
 Adoption is a governance change only. It does not move code, alter a runtime, or
 activate trading. Rollback is a reviewed revert of this charter and register; it
 cannot be used to erase evidence or silently restore direct-push authority. No
 runtime monitoring or runbook changes are introduced by A01.
+
+## Open findings
+
+| Finding | Owner | Unavailable evidence | Closure condition |
+| --- | --- | --- | --- |
+| A01-F01 | Platform | Organization-wide repository inventory attestation | A named Platform owner attests the complete repository inventory and every repository has exactly one reviewed `migrate`, `bridge`, or `retain` disposition |
+| A01-F02 | Platform/CI | Independently inspectable protected-main enforcement | The external forge proves direct pushes and bypasses are blocked and retains the branch-rule evidence |
+| A01-F03 | Platform | Commit-bound cross-functional approval | Named Platform, Quantitative Research, Trading Engineering, Risk, SRE, Security, and Compliance reviewers resolve findings and approve the exact reviewed commit |
+
+These findings are not waivers or approvals. A01 remains partial until all three
+close with the required external evidence.
 
 ## Non-goals
 
