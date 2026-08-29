@@ -49,6 +49,13 @@ jobs:
       - name: Check change-risk policy
         run: uv run --frozen python -m alpha_research.change_risk
 
+      - name: Check merge-request and evidence policy
+        run: uv run --frozen python -m alpha_research.evidence
+
+      - name: Lint pull-request body
+        if: github.event_name == 'pull_request'
+        run: uv run --frozen python -m alpha_research.evidence --github-event "$GITHUB_EVENT_PATH"
+
       - name: Check security
         run: uv run --frozen bandit -q -c pyproject.toml -r src
 
