@@ -58,6 +58,9 @@ jobs:
       - name: Check threat and regulatory control map
         run: uv run --frozen python -m alpha_research.security_controls
 
+      - name: Check program dependency and KPI governance
+        run: uv run --frozen python -m alpha_research.program_governance
+
       - name: Lint pull-request body
         if: github.event_name == 'pull_request'
         run: uv run --frozen python -m alpha_research.evidence --github-event "$GITHUB_EVENT_PATH"

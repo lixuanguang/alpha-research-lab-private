@@ -38,13 +38,13 @@ Adding a real resource changes the kind to `populated` in the same change.
 
 ## Current population
 
-The current repository has seven provisional controls: A01 through A07. All other
+The current repository has eight provisional controls: A01 through A08. All other
 kinds are explicitly empty because the corresponding canonical data, research,
 risk, trading, deployment, and release packages do not yet exist. A Git commit,
 wheel, research roadmap, evidence fixture, or proposed strategy is not silently
 promoted into a dataset, model, strategy, service, limit, venue, or release.
 
-All seven control records remain `provisional`. Their source checks are active
+All eight control records remain `provisional`. Their source checks are active
 repository-local controls, but they are not institutionally validated, deployed,
 released, or activated resources.
 

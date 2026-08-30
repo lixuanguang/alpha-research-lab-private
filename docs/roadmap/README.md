@@ -150,7 +150,7 @@ digests, entitlement propagation, and idempotent impact-aware correction.
 
 | ID | Objective | Depends on |
 | --- | --- | --- |
-| E01 | Research SDK and explicit runtime context without global/workstation state | B, C, D06 |
+| E01 | Research SDK and explicit runtime context without global/workstation state | B01-B08, C01-C08, D06 |
 | E02 | Immutable experiment and committed trial ledger | E01, A06 |
 | E03 | Versioned dataset, feature, label, transformation, and universe APIs | D06-D08, E01-E02 |
 | E04 | Time-series splits, purging, embargo, walk-forward, nested selection, final OOS lock | E03 |
@@ -168,7 +168,7 @@ runs are bounded/restartable; no promotion card has mutable or missing evidence.
 
 | ID | Objective | Depends on |
 | --- | --- | --- |
-| F01 | Deterministic event-driven simulator and extensible asset/venue models | C, D08, E01 |
+| F01 | Deterministic event-driven simulator and extensible asset/venue models | C01-C08, D08, E01 |
 | F02 | Injected clocks, named random streams, checkpoints, state, and causality guards | F01, C04 |
 | F03 | Accounting, corporate action, expiry, roll, settlement, and FX engine | F01-F02, C07, D04 |
 | F04 | Market-state/order-book simulator for sessions, auctions, limits, and bad books | F01-F03, D03-D05 |
@@ -192,7 +192,7 @@ normal/stressed/pathological states, and unexplained parity deltas block progres
 | G04 | Optimizer/constraint library with diagnostics and explainable fallback | G01-G03, F06 |
 | G05 | External fail-closed pre-trade risk gateway | C06-C07, G02-G04 |
 | G06 | Hierarchical limits, stress, drawdown, liquidity, margin, and collateral | G03-G05 |
-| G07 | Independent global/strategy/asset/venue/account/instrument kills and degraded modes | G05-G06, H04 preparation |
+| G07 | Independent global/strategy/asset/venue/account/instrument kills and degraded modes | G05-G06, H04 |
 | G08 | Independent risk/PnL/control recomputation, breaks, sign-off, evidence retention | G02-G07, F06 |
 
 **Wave evidence:** stage substitution is possible, authoritative state reconciles,
@@ -205,13 +205,13 @@ material breaks block scale-up.
 | ID | Objective | Depends on |
 | --- | --- | --- |
 | H01 | Shared typed deterministic strategy kernel for research through live | E01, G01, F08 |
-| H02 | Live runtime, scheduling, dependency injection, readiness, health, resource limits | H01, B08, I preparation |
+| H02 | Live runtime, scheduling, dependency injection, readiness, health, resource limits | H01, B08, I01-I04 |
 | H03 | Durable state, checkpoint/replay, idempotency, duplicate suppression, fencing | H02, C06 |
 | H04 | Production OMS lifecycle, drop-copy comparison, aging, audited operator controls | C06, H03, G05 |
 | H05 | FIX/native session adapter SDK, time sync, throttles, recovery, conformance | H04, C08 |
 | H06 | One production-grade venue adapter with independent drop copy and reconciliation | H05, D02, G08 |
-| H07 | Paper broker and shadow router with executable-message suppression | H01-H06, J preparation |
-| H08 | Bounded canary/live activation certification and dual-control enablement | H07, G07, I, J, K |
+| H07 | Paper broker and shadow router with executable-message suppression | H01-H06, J01-J03 |
+| H08 | Bounded canary/live activation certification and dual-control enablement | H07, G07, I01-K08 |
 
 **Wave evidence:** the same kernel runs in every mode; incompatible startup fails;
 restart cannot duplicate orders; all OMS/session/venue anomalies reconcile;
@@ -278,13 +278,13 @@ hypothesis through orders and rollback.
 
 | ID | Objective | Depends on |
 | --- | --- | --- |
-| L01 | Cash-equities certification | C-K |
-| L02 | Futures certification | C-K |
-| L03 | Listed-options and volatility certification | C-K |
-| L04 | FX, rates, and credit certification | C-K |
-| L05 | Optional, separately governed digital-assets certification | C-K |
-| L06 | Cross-sectional, time-series, and statistical-arbitrage templates | E-K and selected L01/L02/L04 assets |
-| L07 | Market-making, execution, and volatility-strategy templates | F-K and selected L01-L04 assets |
+| L01 | Cash-equities certification | C01-K08 |
+| L02 | Futures certification | C01-K08 |
+| L03 | Listed-options and volatility certification | C01-K08 |
+| L04 | FX, rates, and credit certification | C01-K08 |
+| L05 | Optional, separately governed digital-assets certification | C01-K08 |
+| L06 | Cross-sectional, time-series, and statistical-arbitrage templates | E01-K08; any of L01, L02, L04 |
+| L07 | Market-making, execution, and volatility-strategy templates | F01-K08; any of L01-L04 |
 | L08 | Institutional-readiness review and controlled capital scale-up | L01-L07 |
 
 Each asset certification covers identity/lifecycle, calendars/conventions,
@@ -322,9 +322,9 @@ the shared kernel is the production path.
 
 ## Current repository mapping
 
-Repository-local implementations and deterministic checks now exist for A01-A07.
+Repository-local implementations and deterministic checks now exist for A01-A08.
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
-through A07 pass, while their recorded organization, protected-forge,
+through A08 pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
 remains open. This does not validate wave A or authorize a wave exit.
 
