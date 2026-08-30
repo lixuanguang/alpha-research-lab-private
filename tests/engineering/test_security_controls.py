@@ -52,7 +52,7 @@ def _repository_fixture(tmp_path: Path) -> Path:
         Path("docs/governance/threat-model.md"),
         Path("tests/engineering/test_security_controls.py"),
         Path("docs/governance/evidence/examples/a07-r2-partial/manifest.toml"),
-        Path("docs/governance/evidence/examples/a07-r2-partial/reports/" "contract-and-tests.txt"),
+        Path("docs/governance/evidence/examples/a07-r2-partial/reports/contract-and-tests.txt"),
         Path(
             "docs/governance/evidence/examples/a07-r2-partial/reports/"
             "documentation-and-monitoring.txt"

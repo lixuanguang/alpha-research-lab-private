@@ -324,7 +324,7 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
         state = states.get(inventory_id, 0)
         if state == 1:
             start = trail.index(inventory_id)
-            cycles.append(" -> ".join(trail[start:] + (inventory_id,)))
+            cycles.append(" -> ".join((*trail[start:], inventory_id)))
             return
         if state == 2:
             return

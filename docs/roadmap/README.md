@@ -336,3 +336,184 @@ Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by A01-L08. Research-stage
 `R01-R16` identifiers remain local to the companion empirical program and are not
 implementation MR IDs.
+
+## Migration and reuse overlay
+
+This overlay translates the target architecture into a build-versus-buy sequence
+so implementation packages reuse maintained libraries without outsourcing the
+platform's stable contracts. It is subordinate to the package graph above and to
+the ADR process. A named tool is a reviewed candidate, not an accepted dependency,
+release instruction, or permission to skip B07 admission. The owning package must
+reconfirm the current stable release, Python 3.12 and target-platform support,
+license, provenance, vulnerabilities, transitive/native dependencies, deterministic
+behavior, performance, operations, rollback, and exit criteria before adoption.
+
+The version references in the package tables are survey baselines reviewed on
+2026-08-30. They make the recommendation reproducible; they are not floating
+constraints. Exact
+pins enter only through the owning change, lock, build graph, admission record,
+and evidence bundle. Release candidates stay outside certification and production
+paths unless a separately reviewed compatibility lane exercises them.
+
+B02-B06 necessarily bootstrap the machinery that B07 later enforces. Each new
+build/CI tool introduced before B07 must therefore carry a provisional dependency
+record with the intended B07 owner, purpose, exact source and digest, license,
+vulnerability review, supported platforms, transitive/native dependencies, and
+rollback. B07 validates and migrates those records into the final admission
+control; it does not retroactively excuse an undocumented bootstrap dependency.
+
+The platform owns the thin waist even when a library supplies an implementation:
+
+- C owns canonical identity, unit, time, event, order, accounting, and schema
+  compatibility semantics.
+- D owns point-in-time, correction, entitlement, publication, dataset identity,
+  and lineage semantics.
+- E owns immutable trial identity, split/leakage definitions, final-OOS locking,
+  promotion evidence, and model lifecycle authority.
+- F-H own deterministic ordering, clocks, accounting, execution, authoritative
+  state, external risk, OMS behavior, kill paths, activation, and parity.
+- I-K own release, configuration, observability, security, audit, and operational
+  authority. A vendor registry, workflow engine, dashboard, or framework cannot
+  grant promotion, deployment, activation, market, credential, or capital access.
+
+### Package columns are authoritative
+
+Every Wave A-L row carries the reviewed delivery, library/tool candidate, and
+incorporation boundary or restriction beside its dependencies. These columns are
+the authoritative shortlist, narrower-role, and restricted-tool mapping; there
+is no parallel tool catalog to reconcile.
+
+The A03/A05-A08 seam-hardening prerequisite is repository-locally implemented and
+independently rechecked. It does not close any existing external finding. After
+the pre-B01 toolchain refresh gate passes, the expanded B01 row makes `B01a` the
+next solo-ready implementation slice and keeps `B01b` and `B01c` in the same
+logical package rather than creating parallel roadmap IDs.
+
+## Pre-B01 toolchain refresh gate
+
+This is a mandatory sequencing gate after the completed pre-B01 governance fixes
+and before B01a or any other package implementation. It is not a new A-L package,
+does not alter the dependency DAG, and does not complete B04. B04 owns new
+engineering standards and Hypothesis adoption; this gate refreshes only the
+current repository toolchain.
+
+Upgrade one compatibility cluster at a time, regenerate the lock, update exact-
+pin contract tests, record release-note and rule/output deltas, run all affected
+checks, and retain the prior pins and lock as the rollback point. Major-version
+and broad rule-set changes must not be mixed with a new build system, a new
+library, package implementation, or domain behavior. All clusters and final
+repository validation must pass before B01a begins.
+
+| Tool | Current exact pin | 2026-08-30 survey baseline | Migration rule |
+| --- | --- | --- | --- |
+| Pydantic | 2.13.5 | 2.13.5 | No refresh; preserve ADR-0008 construction and serialization tests |
+| uv | 0.12.7 | 0.12.7 | Patch-only bootstrap change or import through B02; prove lock and build equivalence |
+| Hatchling | 1.32.0 | 1.32.0 | Upgrade with wheel/sdist content and metadata comparison before B02 retirement |
+| mypy | 2.3.1 | 2.3.1 | Dedicated major-version MR; resolve diagnostics without broad suppressions |
+| pytest | 9.1.1 | 9.1.1 | Dedicated major-version MR with plugin compatibility and deterministic test-output review |
+| pytest-cov | 7.1.0 | 7.1.0 | Upgrade with pytest; coverage remains diagnostic and never substitutes for requirement evidence |
+| Ruff | 0.16.5 | 0.16.5 | Dedicated rule-diff/format-diff MR; no mass behavioral refactor |
+| Bandit | 1.9.4 | 1.9.4 | Rebaseline findings with owned, narrow suppressions only |
+| pre-commit | 4.6.2 | 4.6.2 | Upgrade with all-file hook execution in local and hosted validation |
+| pre-commit-hooks | 6.0.0 | 6.0.0 | Refresh with pre-commit; preserve local-hook behavior and all-file hygiene |
+
+Reconfirm every baseline when this gate starts; no table entry authorizes a blind
+upgrade. Pydantic remains a runtime dependency rather than a toolchain upgrade,
+and all transitive packages remain subject to B07 admission.
+
+The gate passed on the 2026-08-30 macOS arm64/Python 3.12 evidence baseline. The
+[executed refresh record](pre-b01-toolchain-refresh.md) retains release-gap,
+cluster, rollback, output, and artifact evidence. This result does not close any
+A01-A08 external finding or complete B01 or B04.
+
+## Recommended adoption order
+
+1. Preserve the completed pre-B01 governance hardening and all open institutional
+   findings.
+2. Complete the pre-B01 toolchain refresh gate, one compatibility cluster at a
+   time, with exact pins, lock/evidence updates, and full repository validation.
+3. Implement B01a-B01c: define the graph, migrate governance tooling out of the
+   future runtime wheel, and enforce source/target ownership before adding new
+   dependencies.
+4. Implement B02 with `rules_python`, the refreshed uv lock as a transitional
+   resolution input, and Buf-backed Protobuf/code-generation targets. Keep Make
+   as a tested delegating rollback interface.
+5. Implement B03 clean-machine reproducibility.
+6. Implement B04 engineering standards and add Hypothesis to the property/state-
+   machine testing target; do not repeat the existing-tool refresh.
+7. Implement B05 fast/full CI and schema compatibility, then B06 remote execution
+   only after deterministic local fallback and cache isolation pass.
+8. Implement B07 admission before introducing the analytical, orchestration,
+   experiment, optimization, provider, or trading candidates above.
+9. Implement B08 SBOM, provenance, signing, and verification before durable data
+   or release artifacts depend on the new graph.
+10. Introduce each remaining library only in its owning C-J package through a
+   narrow adapter and contract suite. Do not create a repository-wide dependency
+   bundle or install every table candidate in advance.
+11. Run the NautilusTrader comparison only after C contracts and initial F golden
+    fixtures exist; otherwise the framework, rather than the repository's
+    contracts, would define the comparison.
+
+## First implementation prompt: pre-B01 toolchain refresh
+
+The first implementation request should reference this roadmap rather than copy a
+parallel technology plan. Use the following prompt for the next change:
+
+```text
+Implement the mandatory pre-B01 toolchain refresh in this repository. Do not
+begin B01a or any later package implementation in this task.
+
+Treat docs/roadmap/README.md as authoritative. Read and follow:
+- "Solo-bootstrap execution overlay";
+- "Migration and reuse overlay" and "Package columns are authoritative";
+- "Pre-B01 toolchain refresh gate"; and
+- "Recommended adoption order".
+
+Also follow docs/architecture/principles.md, docs/architecture/README.md,
+docs/architecture/governance.md, ADR-0001, docs/architecture/operations.md,
+and the A03-A08 governance/evidence contracts.
+
+First capture the clean baseline: exact interpreter and tool versions, `uv lock
+--check`, `make check`, `uv run --frozen pre-commit run --all-files`, built
+wheel/sdist contents and metadata, and current CLI/golden outputs affected by
+linting, typing, testing, security, governance, and packaging.
+
+Reconfirm the latest compatible stable releases from official release notes and
+package metadata. Exclude release candidates, prereleases, abandoned packages,
+and versions that do not support Python 3.12 or the repository's target platform.
+Preserve `requires-python ==3.12.*` and the current Pydantic runtime pin unless a
+separately documented compatibility requirement proves a change is necessary.
+
+Refresh these compatibility clusters independently and in this order:
+1. uv;
+2. Hatchling in both `[build-system]` and the dev dependency group;
+3. pytest with pytest-cov;
+4. Ruff;
+5. mypy;
+6. Bandit; and
+7. pre-commit with pre-commit-hooks.
+
+For each cluster, update every exact declaration in `pyproject.toml`, regenerate
+`uv.lock`, and update exact-pin contract tests and documentation. Read the release
+notes across the entire version gap. Record configuration/rule/default/output
+changes, plugin and Python compatibility, transitive/native dependency changes,
+and the prior pins plus lock as the rollback point. Make only the smallest
+compatibility edits needed for the upgraded tool. Do not weaken checks, add broad
+suppressions, lower coverage, rewrite working domain/governance behavior, or mix
+clusters merely to make a failure disappear. If a latest stable release cannot
+pass, retain or roll back that cluster and document the precise blocker and the
+newest passing version rather than bypassing a gate.
+
+After each cluster, run its focused checks plus `uv lock --check`. At the end,
+run `make check`, `uv run --frozen pre-commit run --all-files`, rebuild the wheel
+and sdist with `uv build --no-sources`, compare package contents and metadata with
+the baseline, and verify CI and local commands remain equivalent. Update the
+survey baselines/date in the roadmap to the versions actually evidenced.
+
+Do not add Bazel, Buf, Nix, Hypothesis, domain libraries, topology work, or any
+B01-B04 feature. Preserve all A01-A08 behavior, public CLI JSON, package status
+`partial`, and open external findings. Report results per cluster, exact final
+pins, commands and outcomes, compatibility edits, unresolved blockers, rollback
+points, and confirmation that the pre-B01 gate either passed completely or remains
+open. Do not claim B01 or B04 completion.
+```

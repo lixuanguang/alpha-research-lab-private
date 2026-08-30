@@ -85,7 +85,7 @@ def _parse_dimension(name: str, value: object) -> DimensionPolicy:
         minimum = _risk_class(
             entry.get("minimum_class"), context=f"dimensions.{name}[{index}].minimum_class"
         )
-        typed_value = cast(bool | str, level_value)
+        typed_value = level_value
         if any(
             type(existing) is type(typed_value) and existing == typed_value
             for existing, _ in levels
@@ -346,7 +346,7 @@ def _load_policy(path: Path) -> ChangeRiskPolicy:
         hard_controls=hard_controls,
         author_may_lower_classification=False,
         author_may_satisfy_independent_review=False,
-        package_status=cast(str, package_status),
+        package_status=package_status,
         samples=samples,
         findings=tuple(findings),
     )

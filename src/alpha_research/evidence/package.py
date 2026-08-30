@@ -20,8 +20,7 @@ def validate_package_evidence(manifest: EvidenceManifest, profile: PackageEviden
         findings.append(f"{context} roadmap ID must be {package_id}")
     if manifest.owner_role != profile.accountable_owner_role:
         findings.append(
-            f"{context} owner must match accountable owner role "
-            f"{profile.accountable_owner_role!r}"
+            f"{context} owner must match accountable owner role {profile.accountable_owner_role!r}"
         )
     if manifest.risk_class != profile.risk_class.value:
         findings.append(f"{context} risk class must be {profile.risk_class.value}")

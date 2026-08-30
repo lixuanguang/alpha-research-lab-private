@@ -453,7 +453,7 @@ def _dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
         state = states.get(package_id, 0)
         if state == 1:
             start = trail.index(package_id)
-            cycles.append(" -> ".join(trail[start:] + (package_id,)))
+            cycles.append(" -> ".join((*trail[start:], package_id)))
             return
         if state == 2:
             return

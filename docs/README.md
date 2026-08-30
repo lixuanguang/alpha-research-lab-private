@@ -75,7 +75,7 @@ approvals. No provisional result is grandfathered into `validated` status.
 
 ## Development environment
 
-The current bootstrap pins uv 0.12.5 and CPython 3.12.14. From a clean checkout
+The current bootstrap pins uv 0.12.7 and CPython 3.12.14. From a clean checkout
 with uv available, create the current locked Python environment with:
 
 ```sh

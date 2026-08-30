@@ -352,7 +352,7 @@ def test_author_cannot_satisfy_an_independent_r4_group(policy: ChangeRiskPolicy)
         is_author=True,
     )
 
-    with pytest.raises(ChangeRiskPolicyError, match="independent_control.*unsatisfied"):
+    with pytest.raises(ChangeRiskPolicyError, match=r"independent_control.*unsatisfied"):
         validate_merge_approvals(
             decision,
             approvals,
@@ -510,7 +510,7 @@ def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> 
     )
     path.write_text(text, encoding="utf-8")
 
-    with pytest.raises(ChangeRiskPolicyError, match="solo_bootstrap.*cannot claim validated"):
+    with pytest.raises(ChangeRiskPolicyError, match=r"solo_bootstrap.*cannot claim validated"):
         load_policy(path)
 
 

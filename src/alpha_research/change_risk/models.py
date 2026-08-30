@@ -13,7 +13,7 @@ class ChangeRiskPolicyError(ValueError):
     """Report invalid policy, classification, or approval evidence."""
 
 
-class RiskClass(str, Enum):
+class RiskClass(str, Enum):  # noqa: UP042 - StrEnum changes str(member) behavior.
     """Ordered institutional change-risk classes."""
 
     R0 = "R0"

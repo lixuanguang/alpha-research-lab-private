@@ -99,7 +99,7 @@ def test_codeowners_must_match_the_ordered_register(tmp_path: Path) -> None:
 def test_policy_rejects_an_orphaned_repository_path(tmp_path: Path) -> None:
     root, _, _ = _policy_fixture(tmp_path)
 
-    with pytest.raises(OwnershipGovernanceError, match="orphan.txt.*no CODEOWNER"):
+    with pytest.raises(OwnershipGovernanceError, match=r"orphan.txt.*no CODEOWNER"):
         validate_repository(root, repository_paths=("orphan.txt",))
 
 
@@ -231,7 +231,7 @@ def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> 
     )
     register.write_text(policy, encoding="utf-8")
 
-    with pytest.raises(OwnershipGovernanceError, match="solo_bootstrap.*cannot claim validated"):
+    with pytest.raises(OwnershipGovernanceError, match=r"solo_bootstrap.*cannot claim validated"):
         validate_repository(root, repository_paths=())
 
 
