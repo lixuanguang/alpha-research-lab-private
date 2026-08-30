@@ -377,10 +377,26 @@ def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
         if wave_match is not None:
             current_wave = wave_match.group(1)
             continue
-        row_match = re.fullmatch(r"\| ([A-L]0[1-8]) \| (.+) \| (.+) \|", line)
-        if row_match is None:
+        if re.match(r"\| [A-L]0[1-8] \|", line) is None:
             continue
-        package_id, objective, expression = row_match.groups()
+        row_match = re.fullmatch(
+            r"\| ([A-L]0[1-8]) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|",
+            line,
+        )
+        if row_match is None:
+            raise ProgramGovernanceError(
+                [
+                    "roadmap package rows must declare objective, library/tool, "
+                    "incorporation boundary, and dependencies"
+                ]
+            )
+        package_id, objective, library, boundary, expression = (
+            value.strip() for value in row_match.groups()
+        )
+        if not library or not boundary:
+            raise ProgramGovernanceError(
+                [f"{package_id}: library/tool and incorporation boundary cannot be empty"]
+            )
         if current_wave != package_id[0]:
             raise ProgramGovernanceError(
                 [f"{package_id}: roadmap row is outside its Wave {package_id[0]} section"]

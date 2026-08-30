@@ -132,7 +132,7 @@ must delegate to that graph and preserve affected-target and merged-result check
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |
 | [Platform contracts](architecture/contracts.md) | Identity, time, data states, research/model, accounting, risk, execution, and asset-extension contracts |
 | [Quality and operations](architecture/operations.md) | Criticality, MR risk classes, QG01-QG15, observability, recovery, security, promotion, waivers, and definition of done |
-| [Implementation roadmap](roadmap/README.md) | The 12 waves and 96 dependency-ordered implementation MR packages |
+| [Implementation roadmap](roadmap/README.md) | The 12 waves and 96 dependency-ordered packages with delivery slices, tool ownership/restrictions, a pre-B01 toolchain-refresh gate, adoption order, and first refresh prompt |
 | [Research program](roadmap/research-program.md) | Strategy-research evidence stages subordinate to platform and promotion gates |
 | [Coding standards](coding_standards/README.md) | Shared engineering rules and Python, C/C++, and Rust guides |
 
