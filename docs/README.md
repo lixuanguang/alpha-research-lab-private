@@ -23,8 +23,9 @@ non-ultra-low-latency lane unless latency is the strategy's measured edge.
 ## Current status
 
 The repository is at the bootstrap stage. It currently contains architecture,
-contracts, governance, roadmaps, coding standards, a minimal Python package, a
-locked uv environment, and a transitional Make interface. It does not yet contain
+contracts, governance, a versioned repository-local resource inventory, a threat
+and regulatory control map, roadmaps, coding standards, a minimal Python package,
+a locked uv environment, and a transitional Make interface. It does not yet contain
 the blueprint's Bazel build graph, canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
@@ -96,6 +97,8 @@ Current root commands are:
 | `make ownership-check` | Validate A03 ownership, independent-review policy, CODEOWNERS, and path coverage |
 | `make change-risk-check` | Validate A04 R0-R4 classification, gates, reviewers, rollout, retention, samples, and findings |
 | `make evidence-check` | Validate A05 MR fields, SHA-bound evidence manifests, artifact digests, examples, and findings |
+| `make inventory-check` | Validate and query the A06 versioned resource inventory, ownership, lineage, dependencies, retention, status, and evidence links |
+| `make security-controls-check` | Validate and query the A07 threat model, control ownership and evidence, trust boundaries, abuse cases, and non-conclusive jurisdiction map |
 | `make security` | Run Bandit against current production Python source |
 | `make test` | Run the current deterministic test suite |
 | `make smoke` | Import the installed bootstrap package |
@@ -118,6 +121,8 @@ must delegate to that graph and preserve affected-target and merged-result check
 | [Domain ownership](governance/domain-ownership.md) | A03 accountable domains, CODEOWNERS, independent-review and escalation policy, enforcement, and findings |
 | [Change-risk classification](governance/change-risk-classification.md) | A04 deterministic R0-R4 policy, gates, reviewers, rollout, retention, enforcement, and findings |
 | [MR template and evidence bundle](governance/merge-evidence.md) | A05 required MR fields, SHA-bound evidence manifest, validator, examples, enforcement, and findings |
+| [Governed resource inventory](governance/resource-inventory.md) | A06 stable inventory identities, current resource population, query contract, validation, and findings |
+| [Threat model and regulatory control map](governance/threat-model.md) | A07 assets, trust boundaries, abuse cases, privileged actions, control ownership and tests, evidence, jurisdiction profiles, and findings |
 | [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |

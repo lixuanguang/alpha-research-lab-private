@@ -1,0 +1,1 @@
+Synthetic A07 fixture: assumptions, limitations, official-source verification dates, applicability-review due dates, partial status, query interfaces, operations, and open findings remain explicit monitoring signals.

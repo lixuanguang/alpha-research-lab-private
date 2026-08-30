@@ -1,0 +1,303 @@
+schema_version = 1
+roadmap_package = "A06"
+operating_track = "solo_bootstrap"
+package_status = "partial"
+accountable_owner_role = "platform"
+catalog_version = 1
+as_of_date = "2026-08-30"
+inventory_scope = "Repository-local governed resources visible in this checkout; organization and external control-plane reconciliation remains open."
+maximum_items = 10000
+query_workload_iterations = 10000
+query_workload_budget_ms = 1000
+local_evidence_manifest_path = "docs/governance/evidence/examples/a06-r2-partial/manifest.toml"
+local_evidence_commit_sha = "2222222222222222222222222222222222222222"
+supported_kinds = [
+  "dataset",
+  "model",
+  "strategy",
+  "service",
+  "limit",
+  "venue",
+  "release",
+  "control",
+]
+open_finding_ids = ["A06-F01", "A06-F02", "A06-F03"]
+
+[[kind_states]]
+kind = "dataset"
+population_status = "empty"
+owner_role = "data_platform"
+rationale = "No canonical or curated dataset has been implemented; bootstrap fixtures are governance evidence, not datasets."
+
+[[kind_states]]
+kind = "model"
+population_status = "empty"
+owner_role = "quantitative_research"
+rationale = "No governed model candidate or model artifact exists in the bootstrap repository."
+
+[[kind_states]]
+kind = "strategy"
+population_status = "empty"
+owner_role = "quantitative_research"
+rationale = "No governed strategy kernel or strategy package exists; the research program is a roadmap, not a registered strategy."
+
+[[kind_states]]
+kind = "service"
+population_status = "empty"
+owner_role = "platform"
+rationale = "Repository checks are offline governance controls, not deployed runtime services."
+
+[[kind_states]]
+kind = "limit"
+population_status = "empty"
+owner_role = "risk_engineering"
+rationale = "No executable limit set or risk envelope exists in the bootstrap repository."
+
+[[kind_states]]
+kind = "venue"
+population_status = "empty"
+owner_role = "trading_engineering"
+rationale = "No venue adapter, venue session, account, or venue authorization has been implemented."
+
+[[kind_states]]
+kind = "release"
+population_status = "empty"
+owner_role = "platform"
+rationale = "Git commits and bootstrap wheels are not signed immutable platform releases."
+
+[[kind_states]]
+kind = "control"
+population_status = "populated"
+owner_role = "platform"
+rationale = "A01-A07 provide repository-local governance controls with explicit provisional status."
+
+[[items]]
+inventory_id = "inv.control.governance.a01_repository_boundary"
+kind = "control"
+record_version = 1
+name = "A01 repository charter and monorepo boundary"
+owner_role = "platform"
+criticality = "T3"
+status = "provisional"
+dependencies = []
+retention_class = "source_governance_record"
+source_paths = [
+  "docs/governance/repository-charter.md",
+  "docs/governance/system-boundaries.toml",
+]
+lineage_refs = [
+  "docs/governance/repository-charter.md",
+  "docs/governance/system-boundaries.toml",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = ["docs/governance/repository-charter.md"]
+review_due_on = "2026-11-30"
+
+[[items]]
+inventory_id = "inv.control.governance.a02_architecture_governance"
+kind = "control"
+record_version = 1
+name = "A02 architecture decision governance"
+owner_role = "platform"
+criticality = "T3"
+status = "provisional"
+dependencies = ["inv.control.governance.a01_repository_boundary"]
+retention_class = "source_governance_record"
+source_paths = [
+  "docs/architecture/principles.md",
+  "docs/architecture/governance.md",
+  "docs/architecture/decisions/README.md",
+  "src/alpha_research/architecture_governance.py",
+]
+lineage_refs = [
+  "inv.control.governance.a01_repository_boundary",
+  "docs/architecture/principles.md",
+  "docs/architecture/governance.md",
+  "docs/architecture/decisions/README.md",
+  "src/alpha_research/architecture_governance.py",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = ["docs/architecture/decisions/README.md"]
+review_due_on = "2026-11-30"
+
+[[items]]
+inventory_id = "inv.control.governance.a03_ownership_governance"
+kind = "control"
+record_version = 1
+name = "A03 domain ownership and independent-review routing"
+owner_role = "platform"
+criticality = "T3"
+status = "provisional"
+dependencies = [
+  "inv.control.governance.a01_repository_boundary",
+  "inv.control.governance.a02_architecture_governance",
+]
+retention_class = "source_governance_record"
+source_paths = [
+  "docs/governance/domain-ownership.md",
+  "docs/governance/domain-ownership.toml",
+  "src/alpha_research/ownership_governance.py",
+]
+lineage_refs = [
+  "inv.control.governance.a01_repository_boundary",
+  "inv.control.governance.a02_architecture_governance",
+  "docs/governance/domain-ownership.md",
+  "docs/governance/domain-ownership.toml",
+  "src/alpha_research/ownership_governance.py",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = ["docs/governance/domain-ownership.md"]
+review_due_on = "2026-11-30"
+
+[[items]]
+inventory_id = "inv.control.governance.a04_change_risk"
+kind = "control"
+record_version = 1
+name = "A04 deterministic change-risk classification"
+owner_role = "platform"
+criticality = "T3"
+status = "provisional"
+dependencies = [
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a03_ownership_governance",
+]
+retention_class = "source_governance_record"
+source_paths = [
+  "docs/governance/change-risk-classification.md",
+  "docs/governance/change-risk-policy.toml",
+  "src/alpha_research/change_risk/__init__.py",
+]
+lineage_refs = [
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a03_ownership_governance",
+  "docs/governance/change-risk-classification.md",
+  "docs/governance/change-risk-policy.toml",
+  "src/alpha_research/change_risk/__init__.py",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = ["docs/governance/change-risk-classification.md"]
+review_due_on = "2026-11-30"
+
+[[items]]
+inventory_id = "inv.control.governance.a05_merge_evidence"
+kind = "control"
+record_version = 1
+name = "A05 merge-request and SHA-bound evidence governance"
+owner_role = "platform"
+criticality = "T3"
+status = "provisional"
+dependencies = ["inv.control.governance.a04_change_risk"]
+retention_class = "source_governance_record"
+source_paths = [
+  "docs/governance/merge-evidence.md",
+  "docs/governance/merge-evidence-policy.toml",
+  "src/alpha_research/evidence/__init__.py",
+]
+lineage_refs = [
+  "inv.control.governance.a04_change_risk",
+  "docs/governance/merge-evidence.md",
+  "docs/governance/merge-evidence-policy.toml",
+  "src/alpha_research/evidence/__init__.py",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = ["docs/governance/merge-evidence.md"]
+review_due_on = "2026-11-30"
+
+[[items]]
+inventory_id = "inv.control.governance.a06_resource_inventory"
+kind = "control"
+record_version = 1
+name = "A06 governed resource inventory"
+owner_role = "platform"
+criticality = "T3"
+status = "provisional"
+dependencies = [
+  "inv.control.governance.a01_repository_boundary",
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a03_ownership_governance",
+  "inv.control.governance.a04_change_risk",
+  "inv.control.governance.a05_merge_evidence",
+]
+retention_class = "shared_contract_compatibility_lifecycle"
+source_paths = [
+  "docs/governance/resource-inventory.md",
+  "docs/governance/resource-inventory.toml",
+  "src/alpha_research/inventory/registry.py",
+  "tests/engineering/test_inventory_governance.py",
+]
+lineage_refs = [
+  "inv.control.governance.a01_repository_boundary",
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a03_ownership_governance",
+  "inv.control.governance.a04_change_risk",
+  "inv.control.governance.a05_merge_evidence",
+  "docs/governance/resource-inventory.md",
+  "docs/governance/resource-inventory.toml",
+  "src/alpha_research/inventory/registry.py",
+  "tests/engineering/test_inventory_governance.py",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = [
+  "docs/governance/resource-inventory.md",
+  "docs/governance/evidence/examples/a06-r2-partial/manifest.toml",
+]
+review_due_on = "2026-11-30"
+
+[[items]]
+inventory_id = "inv.control.governance.a07_security_controls"
+kind = "control"
+record_version = 1
+name = "A07 threat and regulatory control map"
+owner_role = "security"
+criticality = "T3"
+status = "provisional"
+dependencies = [
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a06_resource_inventory",
+]
+retention_class = "shared_contract_compatibility_lifecycle"
+source_paths = [
+  "docs/governance/security-control-map.toml",
+  "docs/governance/threat-model.md",
+  "src/alpha_research/security_controls/registry.py",
+  "tests/engineering/test_security_controls.py",
+]
+lineage_refs = [
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a06_resource_inventory",
+  "docs/governance/security-control-map.toml",
+  "docs/governance/threat-model.md",
+  "src/alpha_research/security_controls/registry.py",
+  "tests/engineering/test_security_controls.py",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = [
+  "docs/governance/threat-model.md",
+  "docs/governance/evidence/examples/a07-r2-partial/manifest.toml",
+]
+review_due_on = "2026-11-30"
+
+[[findings]]
+finding_id = "A06-F01"
+owner_role = "platform"
+unavailable_evidence = "Organization-wide and external control-plane inventory reconciliation is unavailable while A01-F01 remains open and no external registries are connected."
+closure_condition = "Named resource owners reconcile every kind and explicit empty declaration against organization and target-system inventories, resolving all omissions and stale records."
+
+[[findings]]
+finding_id = "A06-F02"
+owner_role = "platform"
+unavailable_evidence = "Repository-local stale-owner and missing-lineage mutations block validation, but protected merged-result execution and exact-commit retention remain unavailable from the local checkout."
+closure_condition = "The protected forge runs the inventory check on the exact reviewed merged result and retains corresponding pass and blocking-mutation evidence."
+
+[[findings]]
+finding_id = "A06-F03"
+owner_role = "model_validation"
+unavailable_evidence = "Independent data, model, domain, and operational review of inventory completeness and retention is unavailable during solo bootstrap."
+closure_condition = "Named independent reviewers resolve findings and record commit-bound approval of the catalog contract, current population, empty-kind claims, and closure criteria."

@@ -1,0 +1,137 @@
+schema_version = 1
+bundle_id = "a06-r2-partial"
+roadmap_id = "A06"
+commit_sha = "2222222222222222222222222222222222222222"
+owner_role = "platform"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = []
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["A06-F01", "A06-F02", "A06-F03"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "none"
+reversibility = "compatibility_window"
+computationally_material = true
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Synthetic source-hygiene evidence exercises the governed A06 code and catalog."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "Repeated equivalent queries exercise byte-identical deterministic output."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Success, boundary, invalid-input, and failure tests exercise inventory behavior."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Inventory identity, dependency, population, and bound invariants fail closed."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "Lineage and positive and negative deployment-evidence linkage are exercised."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "Empty research kinds are explicit and no model or research result is claimed."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "Root, pre-commit, and hosted-CI interfaces invoke the same A06 validator."
+evidence_ids = ["integration-and-performance"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "Catalog-size and deterministic query-workload budgets are executable tests."
+evidence_ids = ["integration-and-performance"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Malformed and inconsistent inventory state fails closed and supports Git revert."
+evidence_ids = ["resilience-and-security"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Path containment, credential-free HTTPS, and artifact digests are enforced."
+evidence_ids = ["resilience-and-security"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "The contract, status, interfaces, and limitations are retained in documentation."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "JSON query limits and owned stale-state findings are monitoring signals."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[artifacts]]
+evidence_id = "contract-and-tests"
+artifact_type = "test_report"
+path = "reports/contract-and-tests.txt"
+sha256 = "7851b0a9002150fe3ea268e57defec33e6e71f44847871e42bae0d59b5eec3cb"
+
+[[artifacts]]
+evidence_id = "integration-and-performance"
+artifact_type = "test_report"
+path = "reports/integration-and-performance.txt"
+sha256 = "1828f0a63d6a4802078b10e6e0a7617a850a36ce1a14122b5129baee9af65fec"
+
+[[artifacts]]
+evidence_id = "resilience-and-security"
+artifact_type = "test_report"
+path = "reports/resilience-and-security.txt"
+sha256 = "2193bd241d92799aede9b703b5e36ddd38242ad8dfdd65d1c9496cec96bd61e7"
+
+[[artifacts]]
+evidence_id = "documentation-and-monitoring"
+artifact_type = "test_report"
+path = "reports/documentation-and-monitoring.txt"
+sha256 = "9b02db42ef309797aecce1ebe5159f681a462cf482c0aff49b3a0cc562e582e0"
+
+[[findings]]
+finding_id = "A06-F01"
+owner_role = "platform"
+unavailable_evidence = "The synthetic fixture cannot reconcile organization or external control-plane inventories."
+closure_condition = "Named owners reconcile every kind and empty declaration against organization and target-system inventories."
+
+[[findings]]
+finding_id = "A06-F02"
+owner_role = "platform"
+unavailable_evidence = "Local invalid mutations block validation, but the fixture is not a protected merged-result or exact-commit forge record."
+closure_condition = "Protected CI retains exact-commit pass and corresponding blocking-mutation evidence."
+
+[[findings]]
+finding_id = "A06-F03"
+owner_role = "model_validation"
+unavailable_evidence = "The synthetic fixture cannot provide independent data, model, domain, or operations review."
+closure_condition = "Named independent reviewers resolve findings and approve the exact A06 catalog and evidence."

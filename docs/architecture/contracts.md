@@ -148,6 +148,15 @@ a file or policy creates a new dataset identity.
 | Portfolio policy | Objective, constraints, solver, rebalance, fallback |
 | Candidate | All component versions, dataset, selection evidence, owner |
 
+The repository-level [A06 resource inventory](../governance/resource-inventory.md)
+assigns every governed dataset, model, strategy, service, limit, venue, release,
+and control a stable inventory identity plus a versioned record. Domain registries
+introduced later retain their specialized identifiers and map them to that stable
+inventory identity. Every inventory record carries ownership, criticality,
+dependencies, retention, lifecycle status, source and lineage references, and
+deployment status/evidence. An explicitly empty kind is owned and justified; it
+is not populated with a placeholder resource.
+
 ### Experiment identity
 
 An experiment identity derives from the dataset manifest, source/artifact revision,

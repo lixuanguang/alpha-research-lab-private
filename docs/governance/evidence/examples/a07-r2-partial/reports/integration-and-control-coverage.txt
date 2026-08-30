@@ -1,0 +1,1 @@
+Synthetic A07 fixture: root automation, pre-commit, hosted CI, trust boundaries, privileged actions, control ownership, test procedures, fail-safe responses, and roadmap implementation packages are repository-locally linked.

@@ -1,0 +1,803 @@
+schema_version = 1
+roadmap_package = "A07"
+operating_track = "solo_bootstrap"
+package_status = "partial"
+accountable_owner_role = "security"
+risk_class = "R2"
+dependency_package_ids = ["A02", "A06"]
+applicable_gate_ids = [
+  "QG01",
+  "QG02",
+  "QG03",
+  "QG04",
+  "QG05",
+  "QG06",
+  "QG09",
+  "QG10",
+  "QG11",
+  "QG12",
+  "QG13",
+  "QG14",
+]
+as_of_date = "2026-08-30"
+legal_advice = false
+jurisdiction_applicability_authority = "qualified_legal_compliance"
+local_evidence_manifest_path = "docs/governance/evidence/examples/a07-r2-partial/manifest.toml"
+local_evidence_commit_sha = "3333333333333333333333333333333333333333"
+open_finding_ids = ["A07-F01", "A07-F02", "A07-F03", "A07-F04"]
+
+[[assets]]
+asset_id = "ASSET01"
+name = "Governed source and review evidence"
+owner_role = "platform"
+security_objectives = ["integrity", "authenticity", "accountability"]
+
+[[assets]]
+asset_id = "ASSET02"
+name = "Build inputs, artifacts, provenance, and registry state"
+owner_role = "platform"
+security_objectives = ["integrity", "authenticity", "reproducibility"]
+
+[[assets]]
+asset_id = "ASSET03"
+name = "Market, reference, research, and entitlement metadata"
+owner_role = "data_platform"
+security_objectives = ["confidentiality", "integrity", "causal_correctness"]
+
+[[assets]]
+asset_id = "ASSET04"
+name = "Models, features, trials, and validation evidence"
+owner_role = "quantitative_research"
+security_objectives = ["integrity", "reproducibility", "independent_challenge"]
+
+[[assets]]
+asset_id = "ASSET05"
+name = "Configuration, limits, credentials, and activation authority"
+owner_role = "security"
+security_objectives = ["confidentiality", "integrity", "least_privilege"]
+
+[[assets]]
+asset_id = "ASSET06"
+name = "Risk decisions, orders, fills, positions, and kill state"
+owner_role = "independent_risk"
+security_objectives = ["integrity", "availability", "independence"]
+
+[[assets]]
+asset_id = "ASSET07"
+name = "Venue, broker, account, and market-access sessions"
+owner_role = "trading_engineering"
+security_objectives = ["authorization", "integrity", "recoverability"]
+
+[[assets]]
+asset_id = "ASSET08"
+name = "Audit, telemetry, surveillance, and incident evidence"
+owner_role = "compliance"
+security_objectives = ["integrity", "availability", "non_repudiation"]
+
+[[boundaries]]
+boundary_id = "TB01"
+name = "Contributor to governed source"
+source_zone = "developer_workstation_and_automation"
+destination_zone = "protected_forge"
+asset_ids = ["ASSET01"]
+trust_change = "Untrusted proposed content becomes reviewable source only after exact-commit checks and required independent approval."
+owner_role = "platform"
+control_ids = ["A07-C01", "A07-C12"]
+
+[[boundaries]]
+boundary_id = "TB02"
+name = "Reviewed source to artifact registry"
+source_zone = "protected_forge_and_hosted_build"
+destination_zone = "immutable_artifact_registry"
+asset_ids = ["ASSET01", "ASSET02"]
+trust_change = "Reviewed source and explicit inputs become attestable artifacts without mutable or workstation-derived identity."
+owner_role = "security"
+control_ids = ["A07-C02", "A07-C12"]
+
+[[boundaries]]
+boundary_id = "TB03"
+name = "External data to governed data plane"
+source_zone = "vendor_venue_broker_and_public_sources"
+destination_zone = "raw_canonical_and_point_in_time_data"
+asset_ids = ["ASSET03"]
+trust_change = "Externally supplied payloads enter an entitled, immutable, checksummed, revision-aware causal record."
+owner_role = "data_platform"
+control_ids = ["A07-C04", "A07-C09"]
+
+[[boundaries]]
+boundary_id = "TB04"
+name = "Research to promotion registry"
+source_zone = "research_and_experiment_environment"
+destination_zone = "model_evidence_and_promotion_control"
+asset_ids = ["ASSET03", "ASSET04"]
+trust_change = "Exploratory output becomes a governed candidate only through immutable trials, validation, and complete lineage."
+owner_role = "model_validation"
+control_ids = ["A07-C05", "A07-C12"]
+
+[[boundaries]]
+boundary_id = "TB05"
+name = "Deployment control to runtime authority"
+source_zone = "deployment_and_identity_control_plane"
+destination_zone = "runtime_lanes_and_activation_envelope"
+asset_ids = ["ASSET02", "ASSET05"]
+trust_change = "A verified artifact may be deployed without receiving trading authority; privileged activation remains separately authorized."
+owner_role = "security"
+control_ids = ["A07-C03", "A07-C07", "A07-C11"]
+
+[[boundaries]]
+boundary_id = "TB06"
+name = "Strategy to independent risk and order control"
+source_zone = "strategy_process"
+destination_zone = "independent_risk_gateway_and_oms"
+asset_ids = ["ASSET05", "ASSET06"]
+trust_change = "Strategy intent cannot alter its own limits or bypass external fail-closed risk decisions."
+owner_role = "independent_risk"
+control_ids = ["A07-C06", "A07-C07"]
+
+[[boundaries]]
+boundary_id = "TB07"
+name = "Order management to external market"
+source_zone = "oms_ems_and_adapter"
+destination_zone = "venue_broker_clearing_and_drop_copy"
+asset_ids = ["ASSET06", "ASSET07", "ASSET08"]
+trust_change = "Authorized orders cross into external state requiring conformance, conduct safeguards, sequence recovery, and independent reconciliation."
+owner_role = "trading_engineering"
+control_ids = ["A07-C06", "A07-C08", "A07-C09", "A07-C10"]
+
+[[boundaries]]
+boundary_id = "TB08"
+name = "Runtime to audit and monitoring"
+source_zone = "data_model_risk_and_trading_runtimes"
+destination_zone = "telemetry_audit_surveillance_and_incident_systems"
+asset_ids = ["ASSET06", "ASSET08"]
+trust_change = "Operational and economic activity becomes attributable evidence whose loss or tampering must itself be detected."
+owner_role = "sre"
+control_ids = ["A07-C09", "A07-C10", "A07-C11"]
+
+[[threats]]
+threat_id = "A07-T01"
+title = "Source-governance bypass"
+category = "privileged_access"
+actor = "malicious_or_compromised_contributor"
+abuse_case = "Push or approve unreviewed source, lower a risk class, or detach evidence from the exact reviewed commit."
+impact = "Uncontrolled code or policy enters the governed source and can contaminate every downstream artifact."
+boundary_ids = ["TB01"]
+asset_ids = ["ASSET01"]
+control_ids = ["A07-C01", "A07-C12"]
+owner_role = "platform"
+
+[[threats]]
+threat_id = "A07-T02"
+title = "Dependency or artifact substitution"
+category = "software_supply_chain"
+actor = "compromised_dependency_build_worker_or_registry"
+abuse_case = "Substitute a mutable dependency, tamper with build output, forge provenance, or promote a digest different from the reviewed artifact."
+impact = "Unreviewed executable behavior can reach a runtime while appearing to originate from governed source."
+boundary_ids = ["TB02", "TB05"]
+asset_ids = ["ASSET01", "ASSET02", "ASSET05"]
+control_ids = ["A07-C02", "A07-C03"]
+owner_role = "security"
+
+[[threats]]
+threat_id = "A07-T03"
+title = "Unauthorized data use or exfiltration"
+category = "data_entitlement"
+actor = "insider_compromised_workload_or_misconfigured_service"
+abuse_case = "Read, copy, retain, publish, or derive from data outside the licensed user, geography, purpose, or retention scope."
+impact = "Vendor rights, privacy, confidentiality, and downstream model or release eligibility are breached."
+boundary_ids = ["TB03", "TB04"]
+asset_ids = ["ASSET03", "ASSET04"]
+control_ids = ["A07-C04", "A07-C09"]
+owner_role = "data_platform"
+
+[[threats]]
+threat_id = "A07-T04"
+title = "Causal data poisoning or silent correction"
+category = "data_entitlement"
+actor = "faulty_or_malicious_source_or_pipeline"
+abuse_case = "Backfill future knowledge, rewrite source history, corrupt symbology, or publish an untracked correction."
+impact = "Research, models, decisions, risk, and audit reconstruction become causally incorrect or irreproducible."
+boundary_ids = ["TB03"]
+asset_ids = ["ASSET03", "ASSET04"]
+control_ids = ["A07-C04", "A07-C09"]
+owner_role = "data_quality"
+
+[[threats]]
+threat_id = "A07-T05"
+title = "Hidden selection or self-validation"
+category = "model_risk"
+actor = "incentivized_researcher_or_compromised_research_process"
+abuse_case = "Delete failed trials, inspect frozen OOS data, change acceptance rules after results, or approve a material model without independent challenge."
+impact = "A biased or invalid candidate can be represented as validated and influence portfolio or trading decisions."
+boundary_ids = ["TB04"]
+asset_ids = ["ASSET03", "ASSET04"]
+control_ids = ["A07-C05", "A07-C12"]
+owner_role = "model_validation"
+
+[[threats]]
+threat_id = "A07-T06"
+title = "Unauthorized model or feature substitution"
+category = "model_risk"
+actor = "compromised_registry_operator_or_runtime"
+abuse_case = "Replace model, feature graph, dataset, configuration, or limits behind a mutable alias after validation."
+impact = "Runtime behavior diverges from the certified candidate and its declared limitations or monitoring."
+boundary_ids = ["TB04", "TB05"]
+asset_ids = ["ASSET02", "ASSET04", "ASSET05"]
+control_ids = ["A07-C02", "A07-C05", "A07-C07"]
+owner_role = "model_validation"
+
+[[threats]]
+threat_id = "A07-T07"
+title = "Risk or kill-control bypass"
+category = "privileged_access"
+actor = "faulty_or_compromised_strategy_operator_or_control_plane"
+abuse_case = "Disable, evade, race, or alter pre-trade limits, throttles, venue authorization, or kill state from the strategy path."
+impact = "Orders or exposures can exceed the independently authorized envelope or continue during unsafe state."
+boundary_ids = ["TB05", "TB06", "TB07"]
+asset_ids = ["ASSET05", "ASSET06", "ASSET07"]
+control_ids = ["A07-C03", "A07-C06", "A07-C09"]
+owner_role = "independent_risk"
+
+[[threats]]
+threat_id = "A07-T08"
+title = "Disorderly quoting or manipulative order pattern"
+category = "market_integrity"
+actor = "faulty_or_misused_algorithm"
+abuse_case = "Generate spoofing, layering, momentum ignition, quote stuffing, marking, or other patterns that may mislead or disorder a market."
+impact = "Market integrity, venue rules, legal obligations, capital, and the firm's license or reputation may be harmed."
+boundary_ids = ["TB06", "TB07", "TB08"]
+asset_ids = ["ASSET06", "ASSET07", "ASSET08"]
+control_ids = ["A07-C06", "A07-C07", "A07-C08", "A07-C09"]
+owner_role = "compliance"
+
+[[threats]]
+threat_id = "A07-T09"
+title = "Self-trading or coordinated false activity"
+category = "market_integrity"
+actor = "misconfigured_strategies_related_accounts_or_malicious_operator"
+abuse_case = "Create wash-like or matched activity, self-trades, fictitious liquidity, or coordinated orders across accounts, venues, or strategies."
+impact = "A false appearance of activity or price can be created and exposure or surveillance records can be misleading."
+boundary_ids = ["TB07", "TB08"]
+asset_ids = ["ASSET06", "ASSET07", "ASSET08"]
+control_ids = ["A07-C06", "A07-C08", "A07-C09"]
+owner_role = "compliance"
+
+[[threats]]
+threat_id = "A07-T10"
+title = "Audit or surveillance suppression"
+category = "privileged_access"
+actor = "compromised_runtime_or_privileged_operator"
+abuse_case = "Drop, alter, delay, or selectively retain decisions, orders, risk results, approvals, alerts, or operator actions."
+impact = "Controls cannot detect or reconstruct misconduct, failure, exposure, or the exact release responsible."
+boundary_ids = ["TB08"]
+asset_ids = ["ASSET06", "ASSET08"]
+control_ids = ["A07-C03", "A07-C08", "A07-C09", "A07-C11"]
+owner_role = "security"
+
+[[threats]]
+threat_id = "A07-T11"
+title = "External session or state failure"
+category = "operational_resilience"
+actor = "venue_broker_network_clock_or_service_failure"
+abuse_case = "Deliver duplicate, missing, delayed, or out-of-order messages; lose session state; diverge drop copy; or fail during partial deployment."
+impact = "Duplicate orders, phantom positions, uncontrolled retry, or unsafe recovery can occur."
+boundary_ids = ["TB07", "TB08"]
+asset_ids = ["ASSET06", "ASSET07", "ASSET08"]
+control_ids = ["A07-C06", "A07-C09", "A07-C10"]
+owner_role = "sre"
+
+[[threats]]
+threat_id = "A07-T12"
+title = "Credential or privileged-session compromise"
+category = "privileged_access"
+actor = "external_attacker_insider_or_compromised_workload"
+abuse_case = "Steal a static secret, reuse an over-broad identity, bypass dual control, or move laterally from research into production or market access."
+impact = "An unauthorized identity can alter source, data, releases, limits, activation, or external orders."
+boundary_ids = ["TB01", "TB03", "TB05", "TB07"]
+asset_ids = ["ASSET01", "ASSET03", "ASSET05", "ASSET07"]
+control_ids = ["A07-C01", "A07-C03", "A07-C04", "A07-C11"]
+owner_role = "security"
+
+[[controls]]
+control_id = "A07-C01"
+title = "Protected source and independent review"
+domain = "source_governance"
+owner_role = "platform"
+independent_review_roles = ["security"]
+objective = "Bind changes, risk classification, evidence, and required approvals to the exact reviewed commit and reject direct or author-only acceptance."
+control_functions = ["prevent", "detect"]
+implementation_packages = ["A03", "A04", "A05"]
+implementation_status = "planned"
+test_procedure = "Exercise direct-push, post-approval mutation, missing-owner, classification-downgrade, and insufficient-review cases on protected main."
+fail_safe_response = "Block merge and retain the failed exact-commit evidence until required independent review succeeds."
+evidence_source_ids = ["A07-EV05"]
+
+[[controls]]
+control_id = "A07-C02"
+title = "Hermetic provenance and immutable artifact verification"
+domain = "software_supply_chain"
+owner_role = "security"
+independent_review_roles = ["platform"]
+objective = "Build only declared pinned inputs, emit provenance and SBOMs, sign immutable digests, and reject mutable or unverifiable artifacts."
+control_functions = ["prevent", "detect", "respond"]
+implementation_packages = ["B07", "B08", "K03"]
+implementation_status = "planned"
+test_procedure = "Attempt dependency substitution, undeclared input, artifact tamper, forged provenance, mutable tag, and revoked-signing-key admission."
+fail_safe_response = "Reject the artifact, halt promotion, revoke affected keys, and rebuild from the last trusted source and toolchain."
+evidence_source_ids = ["A07-EV06"]
+
+[[controls]]
+control_id = "A07-C03"
+title = "Least privilege, JIT elevation, and dual control"
+domain = "privileged_access"
+owner_role = "security"
+independent_review_roles = ["platform", "compliance"]
+objective = "Separate source, data, artifact, deployment, activation, limit, and market-access authority with short-lived attributable identities."
+control_functions = ["prevent", "detect", "respond"]
+implementation_packages = ["I04", "K01", "K04"]
+implementation_status = "planned"
+test_procedure = "Exercise expired, dormant, cross-environment, author-only, and single-approver privileged actions plus break-glass expiry and review."
+fail_safe_response = "Deny the action, revoke the session or credential, preserve evidence, and require separately authorized recovery."
+evidence_source_ids = ["A07-EV07"]
+
+[[controls]]
+control_id = "A07-C04"
+title = "Data entitlement, immutable landing, and lineage enforcement"
+domain = "data_entitlement"
+owner_role = "data_platform"
+independent_review_roles = ["data_quality", "security"]
+objective = "Propagate licensed user, geography, purpose, retention, and derivation restrictions through immutable raw, canonical, dataset, model, and release lineage."
+control_functions = ["prevent", "detect", "respond"]
+implementation_packages = ["D01", "D07", "K06"]
+implementation_status = "planned"
+test_procedure = "Attempt unauthorized read, geographic or user-scope violation, derived-data promotion without rights, deletion, and silent source correction."
+fail_safe_response = "Deny access or promotion, quarantine affected products, preserve lineage, and invalidate or delete only through the authorized process."
+evidence_source_ids = ["A07-EV08"]
+
+[[controls]]
+control_id = "A07-C05"
+title = "Model inventory, immutable trials, and independent validation"
+domain = "model_risk"
+owner_role = "model_validation"
+independent_review_roles = ["risk_engineering"]
+objective = "Record materiality, intended use, lineage, every governed trial, limitations, independent challenge, monitoring, change control, and retirement."
+control_functions = ["prevent", "detect", "respond"]
+implementation_packages = ["E02", "E08", "K07"]
+implementation_status = "planned"
+test_procedure = "Attempt trial deletion, final-OOS reuse, self-validation, mutable alias substitution, missing lineage, and promotion with open blocking findings."
+fail_safe_response = "Reject or de-risk the candidate, freeze affected use, preserve the full trial record, and require independent revalidation."
+evidence_source_ids = ["A07-EV09"]
+
+[[controls]]
+control_id = "A07-C06"
+title = "Independent pre-trade risk, authorization, and kill controls"
+domain = "trading_risk"
+owner_role = "independent_risk"
+independent_review_roles = ["security", "trading_engineering"]
+objective = "Keep deterministic limits, venue and account authorization, throttles, and kill state external to the strategy and fail closed for new risk."
+control_functions = ["prevent", "detect", "respond", "recover"]
+implementation_packages = ["G05", "G07", "J08"]
+implementation_status = "planned"
+test_procedure = "Inject stale positions, missing limits, timeout, strategy compromise, message burst, unauthorized venue, kill command duplication, and control-channel loss."
+fail_safe_response = "Block new risk, cancel or hedge under policy, activate the appropriate kill, reconcile, and require explicit recovery authorization."
+evidence_source_ids = ["A07-EV10"]
+
+[[controls]]
+control_id = "A07-C07"
+title = "Algorithm testing, controlled deployment, and activation separation"
+domain = "algorithm_lifecycle"
+owner_role = "trading_engineering"
+independent_review_roles = ["independent_risk", "compliance"]
+objective = "Test intended and prohibited behavior under normal and stressed conditions, suppress executable shadow messages, and keep deployment outside activation authority."
+control_functions = ["prevent", "detect", "respond"]
+implementation_packages = ["H07", "H08", "I07"]
+implementation_status = "planned"
+test_procedure = "Run conformance, simulation, disorderly-market, venue-failure, shadow-suppression, bounded-canary, guardrail, and rollback scenarios."
+fail_safe_response = "Block activation or disable the running envelope, preserve traces, roll back the compatible release set, and re-certify."
+evidence_source_ids = ["A07-EV11"]
+
+[[controls]]
+control_id = "A07-C08"
+title = "Market-conduct safeguards and surveillance"
+domain = "market_integrity"
+owner_role = "compliance"
+independent_review_roles = ["independent_risk", "trading_engineering"]
+objective = "Assess strategy conduct risks, constrain prohibited order patterns, monitor cross-account and cross-venue behavior, and route alerts for independent investigation."
+control_functions = ["prevent", "detect", "respond"]
+implementation_packages = ["G05", "G07", "J06", "J07", "K08"]
+implementation_status = "planned"
+test_procedure = "Replay spoofing, layering, self-trade, matched-order, quote-stuffing, marking, and false-liquidity scenarios with documented false-positive handling."
+fail_safe_response = "Throttle or stop affected activity, preserve orders and context, escalate to Compliance and Trading Risk, and require reviewed closure before restart."
+evidence_source_ids = ["A07-EV12"]
+
+[[controls]]
+control_id = "A07-C09"
+title = "Immutable audit, independent reconciliation, and evidence correlation"
+domain = "audit_and_reconciliation"
+owner_role = "compliance"
+independent_review_roles = ["security", "independent_risk"]
+objective = "Correlate exact release, data, model, config, limits, decisions, risk, orders, fills, positions, privileged actions, incidents, and rollback."
+control_functions = ["detect", "respond", "recover"]
+implementation_packages = ["G08", "J01", "J07", "K08"]
+implementation_status = "planned"
+test_procedure = "Reconstruct a sample release end to end and inject missing, duplicate, altered, delayed, and divergent order, fill, position, and audit records."
+fail_safe_response = "Stop new risk on material divergence, preserve evidence, reconcile from independent sources, and close breaks under dual control."
+evidence_source_ids = ["A07-EV13"]
+
+[[controls]]
+control_id = "A07-C10"
+title = "State recovery, external reconciliation, and disaster exercises"
+domain = "operational_resilience"
+owner_role = "sre"
+independent_review_roles = ["trading_engineering", "independent_risk"]
+objective = "Recover deterministic state without duplicate orders or silent loss and reconcile authoritative external records before reactivation."
+control_functions = ["prevent", "detect", "respond", "recover"]
+implementation_packages = ["H03", "I08", "J08"]
+implementation_status = "planned"
+test_procedure = "Inject crash, restart, split brain, venue disconnect, sequence gap, clock degradation, partial migration, backup restore, and site failure."
+fail_safe_response = "Remain disabled, restore the last compatible state, reconcile venue, broker, clearing, orders, positions, and cash, then require explicit reactivation."
+evidence_source_ids = ["A07-EV14"]
+
+[[controls]]
+control_id = "A07-C11"
+title = "Secrets, workload identity, network segmentation, and egress control"
+domain = "security_architecture"
+owner_role = "security"
+independent_review_roles = ["platform", "sre"]
+objective = "Keep secrets external and short-lived, bind identities to workloads, and isolate research, data, control, risk, trading, and management paths."
+control_functions = ["prevent", "detect", "respond", "recover"]
+implementation_packages = ["I04", "K02", "K04"]
+implementation_status = "planned"
+test_procedure = "Attempt secret-in-source, revoked-key use, cross-zone access, unapproved egress, lateral movement, and rotation during degraded operation."
+fail_safe_response = "Deny access, revoke and rotate credentials, isolate the workload, disable affected authority, and preserve incident evidence."
+evidence_source_ids = ["A07-EV07", "A07-EV14"]
+
+[[controls]]
+control_id = "A07-C12"
+title = "Threat and control-map contract integrity"
+domain = "governance"
+owner_role = "security"
+independent_review_roles = ["independent_risk", "compliance"]
+objective = "Keep every asset, boundary, abuse case, control owner, test, evidence source, jurisdiction source, applicability status, and finding explicit and cross-referenced."
+control_functions = ["prevent", "detect", "respond"]
+implementation_packages = ["A07"]
+implementation_status = "repository_local"
+test_procedure = "Run deterministic parser, cross-reference, ownership, path, URL, jurisdiction, applicability, evidence-manifest, and adversarial mutation tests."
+fail_safe_response = "Fail the repository check and keep A07 partial until the map and evidence are corrected and independently reviewed."
+evidence_source_ids = ["A07-EV01", "A07-EV02", "A07-EV03", "A07-EV04", "A07-EV05"]
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV01"
+name = "Authoritative A07 machine-readable control map"
+source_type = "repository_policy"
+status = "available"
+owner_role = "security"
+location = "docs/governance/security-control-map.toml"
+required_packages = []
+closure_condition = ""
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV02"
+name = "A07 threat-model and regulatory-mapping package record"
+source_type = "repository_documentation"
+status = "available"
+owner_role = "security"
+location = "docs/governance/threat-model.md"
+required_packages = []
+closure_condition = ""
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV03"
+name = "Deterministic and adversarial A07 tests"
+source_type = "test_suite"
+status = "available"
+owner_role = "platform"
+location = "tests/engineering/test_security_controls.py"
+required_packages = []
+closure_condition = ""
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV04"
+name = "Synthetic SHA-bound partial A07 evidence bundle"
+source_type = "evidence_manifest"
+status = "available"
+owner_role = "security"
+location = "docs/governance/evidence/examples/a07-r2-partial/manifest.toml"
+required_packages = []
+closure_condition = ""
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV05"
+name = "Protected-forge exact-commit controls and approvals"
+source_type = "forge_evidence"
+status = "deferred"
+owner_role = "platform"
+location = ""
+required_packages = ["A03", "A04", "A05"]
+closure_condition = "Protected main retains exact-commit pass and blocking exercises with non-author Code Owner and required independent approvals."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV06"
+name = "SBOM, provenance, signature, and tamper-admission evidence"
+source_type = "artifact_attestation"
+status = "deferred"
+owner_role = "security"
+location = ""
+required_packages = ["B08", "K03"]
+closure_condition = "The target artifact registry rejects tampered, unsigned, unprovenanced, mutable, and revoked-key artifacts."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV07"
+name = "IAM, JIT, dual-control, secret-rotation, and session evidence"
+source_type = "access_control_evidence"
+status = "deferred"
+owner_role = "security"
+location = ""
+required_packages = ["I04", "K01", "K04"]
+closure_condition = "The target identity and secret control planes pass least-privilege, expiry, dual-control, break-glass, revocation, and rotation exercises."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV08"
+name = "Entitlement, lineage, retention, and deletion evidence"
+source_type = "data_control_evidence"
+status = "deferred"
+owner_role = "data_platform"
+location = ""
+required_packages = ["D01", "D07", "K06"]
+closure_condition = "Target data controls demonstrate denial, lineage propagation, derived-data rights, retention, and authorized deletion."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV09"
+name = "Independent model validation and findings evidence"
+source_type = "model_validation_report"
+status = "deferred"
+owner_role = "model_validation"
+location = ""
+required_packages = ["E08", "K07"]
+closure_condition = "A named independent validator reviews materiality, intended use, trials, lineage, limitations, outcomes, monitoring, and retirement."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV10"
+name = "Risk-decision replay and kill-switch game-day evidence"
+source_type = "risk_control_evidence"
+status = "deferred"
+owner_role = "independent_risk"
+location = ""
+required_packages = ["G05", "G07", "J08"]
+closure_condition = "The target risk path deterministically blocks unsafe intent and its independent kill works during strategy, data, and control-channel failures."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV11"
+name = "Algorithm conformance, simulation, shadow, canary, and rollback evidence"
+source_type = "algorithm_certification"
+status = "deferred"
+owner_role = "trading_engineering"
+location = ""
+required_packages = ["H07", "H08", "I07"]
+closure_condition = "The target acceptance environments prove conformance, stressed behavior, executable-message suppression, bounded activation, and compatible rollback."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV12"
+name = "Market-conduct risk assessment and surveillance exercise evidence"
+source_type = "surveillance_evidence"
+status = "deferred"
+owner_role = "compliance"
+location = ""
+required_packages = ["J06", "J07", "K08"]
+closure_condition = "Compliance and Trading Risk approve conduct scenarios, alert ownership, investigation workflow, false-positive handling, escalation, and closure evidence."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV13"
+name = "Independent reconciliation and audit reconstruction evidence"
+source_type = "audit_evidence"
+status = "deferred"
+owner_role = "compliance"
+location = ""
+required_packages = ["G08", "J07", "K08"]
+closure_condition = "A target release is reconstructed from hypothesis through orders, fills, privileged actions, incidents, and rollback using independent sources."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV14"
+name = "Recovery, restore, failover, and external reconciliation evidence"
+source_type = "recovery_evidence"
+status = "deferred"
+owner_role = "sre"
+location = ""
+required_packages = ["I08", "J08"]
+closure_condition = "Target-environment recovery meets owned RTO and RPO and reconciles venue, broker, clearing, order, position, cash, and key state before reactivation."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV15"
+name = "Qualified jurisdiction applicability and control-completeness opinion"
+source_type = "legal_compliance_review"
+status = "deferred"
+owner_role = "compliance"
+location = ""
+required_packages = ["A07", "K08"]
+closure_condition = "Qualified Legal and Compliance reviewers determine entity, activity, product, venue, account, and territorial applicability and approve the tailored control obligations."
+
+[[authority_sources]]
+source_id = "A07-SRC-GB-01"
+jurisdiction_id = "GB"
+authority = "Financial Conduct Authority"
+title = "FCA Handbook MAR 7A - Algorithmic trading"
+citation = "MAR 7A.3, including systems and controls, testing, monitoring, notifications, and records"
+source_class = "binding_rule"
+url = "https://handbook.fca.org.uk/handbook/mar7a?timeline=true"
+last_verified_on = "2026-08-30"
+
+[[authority_sources]]
+source_id = "A07-SRC-GB-02"
+jurisdiction_id = "GB"
+authority = "Financial Conduct Authority"
+title = "Multi-firm review of algorithmic trading controls"
+citation = "Published 21 August 2025; governance, development and testing, risk controls, and market-abuse surveillance observations"
+source_class = "supervisory_guidance"
+url = "https://www.fca.org.uk/publications/multi-firm-reviews/algorithmic-trading-controls-high-level-observations"
+last_verified_on = "2026-08-30"
+
+[[authority_sources]]
+source_id = "A07-SRC-GLOBAL-01"
+jurisdiction_id = "GLOBAL"
+authority = "National Institute of Standards and Technology"
+title = "Secure Software Development Framework Version 1.1"
+citation = "NIST SP 800-218, February 2022"
+source_class = "reference_framework"
+url = "https://csrc.nist.gov/pubs/sp/800/218/final"
+last_verified_on = "2026-08-30"
+
+[[authority_sources]]
+source_id = "A07-SRC-SG-01"
+jurisdiction_id = "SG"
+authority = "Singapore Attorney-General's Chambers"
+title = "Securities and Futures Act 2001 - prohibited market conduct"
+citation = "Sections 197-201, including false trading, market manipulation, false or misleading statements, inducement, and deceptive devices"
+source_class = "statute"
+url = "https://sso.agc.gov.sg/Act/SFA2001?ProvIds=pr197-%2Cpr198-%2Cpr199-%2Cpr200-%2Cpr201-"
+last_verified_on = "2026-08-30"
+
+[[authority_sources]]
+source_id = "A07-SRC-US-01"
+jurisdiction_id = "US"
+authority = "U.S. Securities and Exchange Commission"
+title = "Risk Management Controls for Brokers or Dealers With Market Access"
+citation = "Exchange Act Rule 15c3-5 adopting release"
+source_class = "binding_rule"
+url = "https://www.sec.gov/rules-regulations/2011/06/risk-management-controls-brokers-or-dealers-market-access"
+last_verified_on = "2026-08-30"
+
+[[authority_sources]]
+source_id = "A07-SRC-US-02"
+jurisdiction_id = "US"
+authority = "Federal Reserve, FDIC, and OCC"
+title = "Supervisory Guidance on Model Risk Management"
+citation = "SR 26-2, 17 April 2026"
+source_class = "supervisory_guidance"
+url = "https://www.federalreserve.gov/frrs/guidance/supervisory-guidance-on-model-risk-management.htm"
+last_verified_on = "2026-08-30"
+
+[[jurisdictions]]
+jurisdiction_id = "GB"
+name = "United Kingdom"
+scope = "Potential UK-regulated algorithmic-trading activity; entity, permission, venue, instrument, and territorial facts are not established by this repository."
+applicability_status = "requires_legal_review"
+legal_owner_role = "compliance"
+source_ids = ["A07-SRC-GB-01", "A07-SRC-GB-02"]
+review_due_on = "2026-11-30"
+
+[[jurisdictions]]
+jurisdiction_id = "GLOBAL"
+name = "Non-jurisdictional engineering baseline"
+scope = "Voluntary secure-software reference only; it is not a legal applicability determination or substitute for binding requirements."
+applicability_status = "reference_only"
+legal_owner_role = "security"
+source_ids = ["A07-SRC-GLOBAL-01"]
+review_due_on = "2026-11-30"
+
+[[jurisdictions]]
+jurisdiction_id = "SG"
+name = "Singapore"
+scope = "Potential Singapore capital-markets activity; entity, licence, product, organised-market, account, and territorial facts are not established by this repository."
+applicability_status = "requires_legal_review"
+legal_owner_role = "compliance"
+source_ids = ["A07-SRC-SG-01"]
+review_due_on = "2026-11-30"
+
+[[jurisdictions]]
+jurisdiction_id = "US"
+name = "United States federal"
+scope = "Potential broker-dealer market access or supervised banking-model use; entity status, activity, product, and regulator are not established by this repository."
+applicability_status = "requires_legal_review"
+legal_owner_role = "compliance"
+source_ids = ["A07-SRC-US-01", "A07-SRC-US-02"]
+review_due_on = "2026-11-30"
+
+[[regulatory_mappings]]
+mapping_id = "A07-MAP-GB-01"
+jurisdiction_id = "GB"
+topic = "Algorithmic systems, testing, limits, continuity, monitoring, and records"
+source_ids = ["A07-SRC-GB-01"]
+control_ids = ["A07-C06", "A07-C07", "A07-C09", "A07-C10"]
+applicability_status = "requires_legal_review"
+applicability_rationale = "MAR 7A scope depends on whether a regulated firm engages in covered algorithmic trading and on its permissions and activities; no such conclusion is made here."
+owner_role = "compliance"
+evidence_source_ids = ["A07-EV15"]
+
+[[regulatory_mappings]]
+mapping_id = "A07-MAP-GB-02"
+jurisdiction_id = "GB"
+topic = "Algorithm governance, controlled deployment, risk controls, and market-abuse surveillance"
+source_ids = ["A07-SRC-GB-02"]
+control_ids = ["A07-C05", "A07-C06", "A07-C07", "A07-C08", "A07-C09"]
+applicability_status = "requires_legal_review"
+applicability_rationale = "The FCA review describes existing expectations and observations for relevant firms; qualified review must identify which underlying requirements apply."
+owner_role = "compliance"
+evidence_source_ids = ["A07-EV15"]
+
+[[regulatory_mappings]]
+mapping_id = "A07-MAP-GLOBAL-01"
+jurisdiction_id = "GLOBAL"
+topic = "Secure software development and supply-chain risk"
+source_ids = ["A07-SRC-GLOBAL-01"]
+control_ids = ["A07-C01", "A07-C02", "A07-C03", "A07-C11", "A07-C12"]
+applicability_status = "reference_only"
+applicability_rationale = "NIST SSDF is adopted as an engineering reference and is not represented as a binding rule or legal conclusion."
+owner_role = "security"
+evidence_source_ids = ["A07-EV01", "A07-EV03"]
+
+[[regulatory_mappings]]
+mapping_id = "A07-MAP-SG-01"
+jurisdiction_id = "SG"
+topic = "False trading, manipulation, misleading conduct, and deceptive devices"
+source_ids = ["A07-SRC-SG-01"]
+control_ids = ["A07-C06", "A07-C07", "A07-C08", "A07-C09"]
+applicability_status = "requires_legal_review"
+applicability_rationale = "Application of the cited SFA provisions depends on facts about the conduct, product, market, entity, and territory; the map supplies engineering controls, not a legal classification."
+owner_role = "compliance"
+evidence_source_ids = ["A07-EV15"]
+
+[[regulatory_mappings]]
+mapping_id = "A07-MAP-US-01"
+jurisdiction_id = "US"
+topic = "Broker-dealer market-access financial and regulatory risk controls"
+source_ids = ["A07-SRC-US-01"]
+control_ids = ["A07-C03", "A07-C06", "A07-C09"]
+applicability_status = "requires_legal_review"
+applicability_rationale = "Rule 15c3-5 applies to broker-dealers with market access under its definitions; this repository does not establish broker-dealer status or covered market access."
+owner_role = "compliance"
+evidence_source_ids = ["A07-EV15"]
+
+[[regulatory_mappings]]
+mapping_id = "A07-MAP-US-02"
+jurisdiction_id = "US"
+topic = "Risk-based model development, validation, monitoring, and governance"
+source_ids = ["A07-SRC-US-02"]
+control_ids = ["A07-C05", "A07-C09"]
+applicability_status = "requires_legal_review"
+applicability_rationale = "SR 26-2 is supervisory guidance for covered banking organizations and expressly uses a tailored risk-based approach; repository adoption is proportional engineering guidance unless qualified review determines applicability."
+owner_role = "compliance"
+evidence_source_ids = ["A07-EV15"]
+
+[[findings]]
+finding_id = "A07-F01"
+owner_role = "security"
+unavailable_evidence = "Organization-wide systems, identities, data entitlements, privileged actions, external control planes, and market-access paths cannot be reconciled while A01-F01 and A06-F01 remain open."
+closure_condition = "Named Security and Platform owners reconcile this map against complete organization and target-system inventories and add or resolve every omitted boundary, asset, actor, privileged action, and evidence source."
+
+[[findings]]
+finding_id = "A07-F02"
+owner_role = "independent_risk"
+unavailable_evidence = "Independent Security and Trading Risk review of threat completeness, abuse cases, control independence, fail-safe behavior, and evidence tests is unavailable during solo bootstrap."
+closure_condition = "Named non-author Security and Trading Risk reviewers resolve findings and approve the exact A07 commit and control map."
+
+[[findings]]
+finding_id = "A07-F03"
+owner_role = "compliance"
+unavailable_evidence = "Qualified Legal and Compliance determination of entity, activity, product, venue, account, territorial, licensing, recordkeeping, and regulatory applicability is unavailable during solo bootstrap."
+closure_condition = "Qualified Legal and Compliance reviewers tailor the jurisdiction set to actual operating facts, confirm current authoritative sources and obligations, resolve gaps, and approve the exact mapping; the result remains documented as legal advice only in the controlled legal record, not inferred by this repository."
+
+[[findings]]
+finding_id = "A07-F04"
+owner_role = "platform"
+unavailable_evidence = "Repository-local validation and adversarial mutations are available, but protected merged-result execution and retained exact-commit evidence are unavailable from this checkout."
+closure_condition = "Protected CI runs the A07 validator and full required checks on the exact reviewed merged result and retains corresponding pass and blocking-mutation evidence."
