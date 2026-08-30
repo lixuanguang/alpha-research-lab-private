@@ -1,0 +1,89 @@
+schema_version = 1
+bundle_id = "a05-example-valid"
+roadmap_id = "A05"
+commit_sha = "1111111111111111111111111111111111111111"
+owner_role = "platform"
+risk_class = "R0"
+evidence_retention_class = "source_governance_record"
+additional_required_gates = ["QG15"]
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["A05-F01", "A05-F02"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "documentation_only"
+data_model_materiality = "none"
+security_privilege = "none"
+reversibility = "immediate"
+computationally_material = false
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R0"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Synthetic source-hygiene evidence exercises artifact verification."
+evidence_ids = ["source-hygiene"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Synthetic success and failure behavior exercise manifest validation."
+evidence_ids = ["sha-binding"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Artifact path containment, commit binding, and digests exercise integrity controls."
+evidence_ids = ["sha-binding"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "The complete example MR and governance report validate end to end."
+evidence_ids = ["example-mr", "documentation-governance"]
+
+[[gates]]
+gate_id = "QG15"
+status = "passed"
+rationale = "The fixture proves exact expected-SHA binding without claiming forge acceptance."
+evidence_ids = ["sha-binding"]
+
+[[artifacts]]
+evidence_id = "source-hygiene"
+artifact_type = "test_report"
+path = "reports/source-hygiene.txt"
+sha256 = "d836802b4c2f29fd53c8bde98f7e2ce096ebee76d986422d3be8fde0b2652316"
+
+[[artifacts]]
+evidence_id = "example-mr"
+artifact_type = "mr_body"
+path = "mr.md"
+sha256 = "16c1647dbab44620d6dfbdbf50ada355034d3cf240c9060a78911a29c9ff3975"
+
+[[artifacts]]
+evidence_id = "documentation-governance"
+artifact_type = "test_report"
+path = "reports/documentation-governance.txt"
+sha256 = "a139a3327062b0d6875d3661bae721413dc0301441e29c47c7790b96a47bbf65"
+
+[[artifacts]]
+evidence_id = "sha-binding"
+artifact_type = "test_report"
+path = "reports/sha-binding.txt"
+sha256 = "fadd5acc4ed6ac72ae4fda405b1bbd14bcd3d9045f66c42356cb2751b4166710"
+
+[[findings]]
+finding_id = "A05-F01"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected-forge enforcement is unavailable to this synthetic repository fixture."
+closure_condition = "Retain exact-commit pass and missing-field block evidence from protected pull-request CI."
+
+[[findings]]
+finding_id = "A05-F02"
+owner_role = "platform"
+unavailable_evidence = "The synthetic fixture cannot provide commit-bound Code Owner approval."
+closure_condition = "A named Code Owner approves the exact reviewed A05 commit after resolving findings."

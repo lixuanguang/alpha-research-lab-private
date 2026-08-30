@@ -1,0 +1,296 @@
+"""Deterministic and adversarial tests for A05 evidence governance."""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from alpha_research.change_risk import load_policy as load_change_risk_policy
+from alpha_research.evidence import (
+    EvidenceGovernanceError,
+    load_policy,
+    main,
+    validate_github_event,
+    validate_manifest,
+    validate_mr_body,
+    validate_repository,
+    validate_template,
+)
+
+REPOSITORY_ROOT = Path(__file__).parents[2]
+POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "merge-evidence-policy.toml"
+CHANGE_POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "change-risk-policy.toml"
+EXAMPLE_ROOT = REPOSITORY_ROOT / "docs" / "governance" / "evidence" / "examples" / "a05-valid"
+EXAMPLE_SHA = "1" * 40
+
+
+def _bundle_fixture(tmp_path: Path) -> Path:
+    bundle = tmp_path / "bundle"
+    shutil.copytree(EXAMPLE_ROOT, bundle)
+    return bundle
+
+
+def _replace(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    assert old in text
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+def _validate_fixture_manifest(bundle: Path) -> None:
+    validate_manifest(
+        bundle / "manifest.toml",
+        expected_commit_sha=EXAMPLE_SHA,
+        change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
+    )
+
+
+def test_repository_a05_policy_template_and_example_validate_end_to_end() -> None:
+    policy, manifest = validate_repository(REPOSITORY_ROOT)
+
+    assert policy.package_status == "partial"
+    assert len(policy.fields) == 29
+    assert set(policy.mandatory_package_gates) == {"QG01", "QG13", "QG15"}
+    assert manifest.commit_sha == EXAMPLE_SHA
+    assert manifest.open_finding_ids == ("A05-F01", "A05-F02")
+
+
+def test_template_must_match_policy_order_and_markers() -> None:
+    policy = load_policy(POLICY_PATH)
+    template = (REPOSITORY_ROOT / policy.template_path).read_text(encoding="utf-8")
+
+    validate_template(template, policy)
+
+    with pytest.raises(EvidenceGovernanceError, match="headings and order"):
+        validate_template(template.replace("### Scope", "### Changed scope", 1), policy)
+    with pytest.raises(EvidenceGovernanceError, match="required:scope"):
+        validate_template(template.replace("<!-- required:scope -->", "", 1), policy)
+
+
+def test_mr_linter_rejects_missing_duplicate_and_placeholder_fields() -> None:
+    policy = load_policy(POLICY_PATH)
+    valid = (EXAMPLE_ROOT / "mr.md").read_text(encoding="utf-8")
+    validate_mr_body(valid, policy)
+
+    missing = valid.replace("### Scope", "### Missing scope", 1)
+    with pytest.raises(EvidenceGovernanceError, match="missing required MR field 'Scope'"):
+        validate_mr_body(missing, policy)
+
+    duplicate = valid + "\n### Scope\nA second scope is not permitted.\n"
+    with pytest.raises(EvidenceGovernanceError, match="duplicate required MR field 'Scope'"):
+        validate_mr_body(duplicate, policy)
+
+    placeholder = valid.replace(
+        "Platform.",
+        "<!-- the comment is ignored -->\nTBD",
+        1,
+    )
+    with pytest.raises(EvidenceGovernanceError, match="empty or placeholder-only"):
+        validate_mr_body(placeholder, policy)
+
+
+def test_github_event_lints_body_and_requires_full_head_sha(tmp_path: Path) -> None:
+    policy = load_policy(POLICY_PATH)
+    body = (EXAMPLE_ROOT / "mr.md").read_text(encoding="utf-8")
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"pull_request": {"body": body, "head": {"sha": EXAMPLE_SHA}}}),
+        encoding="utf-8",
+    )
+
+    assert validate_github_event(event, policy) == EXAMPLE_SHA
+
+    event.write_text(
+        json.dumps({"pull_request": {"body": body, "head": {"sha": "short"}}}),
+        encoding="utf-8",
+    )
+    with pytest.raises(EvidenceGovernanceError, match="full lowercase SHA"):
+        validate_github_event(event, policy)
+
+
+def test_manifest_rejects_expected_commit_mismatch(tmp_path: Path) -> None:
+    bundle = _bundle_fixture(tmp_path)
+
+    with pytest.raises(EvidenceGovernanceError, match="does not match expected commit"):
+        validate_manifest(
+            bundle / "manifest.toml",
+            expected_commit_sha="2" * 40,
+            change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
+        )
+
+
+def test_manifest_rejects_artifact_tampering(tmp_path: Path) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    (bundle / "reports" / "sha-binding.txt").write_text("tampered\n", encoding="utf-8")
+
+    with pytest.raises(EvidenceGovernanceError, match="SHA-256 mismatch"):
+        _validate_fixture_manifest(bundle)
+
+
+@pytest.mark.parametrize("unsafe_path", ["../outside.txt", "/tmp/outside.txt"])
+def test_manifest_rejects_artifact_path_escape(tmp_path: Path, unsafe_path: str) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    _replace(
+        bundle / "manifest.toml", 'path = "reports/source-hygiene.txt"', f'path = "{unsafe_path}"'
+    )
+
+    with pytest.raises(EvidenceGovernanceError, match="escapes the bundle"):
+        _validate_fixture_manifest(bundle)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ('risk_class = "R0"', 'risk_class = "R1"', "does not match A04 classification"),
+        (
+            'evidence_retention_class = "source_governance_record"',
+            'evidence_retention_class = "short_lived"',
+            "does not match A04 classification",
+        ),
+        ('gate_id = "QG13"', 'gate_id = "QG02"', "required gates are missing"),
+        (
+            'evidence_ids = ["source-hygiene"]',
+            'evidence_ids = ["unknown-evidence"]',
+            "unknown evidence",
+        ),
+    ],
+)
+def test_manifest_recomputes_risk_and_rejects_missing_or_unknown_evidence(
+    tmp_path: Path, old: str, new: str, message: str
+) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    _replace(bundle / "manifest.toml", old, new)
+
+    with pytest.raises(EvidenceGovernanceError, match=message):
+        _validate_fixture_manifest(bundle)
+
+
+def test_required_gate_cannot_be_not_applicable(tmp_path: Path) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    _replace(bundle / "manifest.toml", 'status = "passed"', 'status = "not_applicable"')
+
+    with pytest.raises(EvidenceGovernanceError, match="required gates cannot be not_applicable"):
+        _validate_fixture_manifest(bundle)
+
+
+def test_partial_bundle_requires_owned_findings(tmp_path: Path) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    manifest = bundle / "manifest.toml"
+    text = manifest.read_text(encoding="utf-8").split("\n[[findings]]", maxsplit=1)[0]
+    text = text.replace(
+        'open_finding_ids = ["A05-F01", "A05-F02"]',
+        "open_finding_ids = []",
+    )
+    text = text.replace("approvals = []", "approvals = []\nfindings = []")
+    manifest.write_text(text + "\n", encoding="utf-8")
+
+    with pytest.raises(EvidenceGovernanceError, match="partial bundle requires"):
+        _validate_fixture_manifest(bundle)
+
+
+def test_accepted_bundle_requires_commit_bound_class_approvals(tmp_path: Path) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    manifest = bundle / "manifest.toml"
+    text = manifest.read_text(encoding="utf-8").split("\n[[findings]]", maxsplit=1)[0]
+    text = text.replace('bundle_status = "partial"', 'bundle_status = "accepted"')
+    text = text.replace(
+        'open_finding_ids = ["A05-F01", "A05-F02"]',
+        "open_finding_ids = []",
+    )
+    text = text.replace("approvals = []", "approvals = []\nfindings = []")
+    manifest.write_text(text + "\n", encoding="utf-8")
+
+    with pytest.raises(EvidenceGovernanceError, match="requires at least 1 distinct approvers"):
+        _validate_fixture_manifest(bundle)
+
+
+def test_accepted_bundle_passes_with_commit_bound_class_approval(tmp_path: Path) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    manifest = bundle / "manifest.toml"
+    text = manifest.read_text(encoding="utf-8").split("\n[[findings]]", maxsplit=1)[0]
+    text = text.replace('bundle_status = "partial"', 'bundle_status = "accepted"')
+    text = text.replace(
+        'open_finding_ids = ["A05-F01", "A05-F02"]',
+        "open_finding_ids = []",
+    )
+    approval = f"""findings = []
+
+[[approvals]]
+reviewer_id = "code-owner"
+roles = ["code_owner"]
+independent = false
+is_author = false
+status = "approved"
+commit_sha = "{EXAMPLE_SHA}"
+evidence_url = "https://forge.example/reviews/a05-fixture"
+"""
+    text = text.replace("approvals = []", approval.rstrip())
+    manifest.write_text(text + "\n", encoding="utf-8")
+
+    validated = validate_manifest(
+        manifest,
+        expected_commit_sha=EXAMPLE_SHA,
+        change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
+    )
+
+    assert validated.bundle_status == "accepted"
+    assert len(validated.approvals) == 1
+    assert validated.approvals[0].status == "approved"
+
+
+def test_policy_cannot_weaken_a05_gates_or_hide_findings(tmp_path: Path) -> None:
+    policy = tmp_path / "merge-evidence-policy.toml"
+    policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    _replace(policy, '["QG01", "QG13", "QG15"]', '["QG01", "QG13"]')
+    with pytest.raises(EvidenceGovernanceError, match="requires QG01, QG13, and QG15"):
+        load_policy(policy)
+
+    policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    _replace(policy, 'finding_id = "A05-F02"', 'finding_id = "A05-OTHER"')
+    with pytest.raises(EvidenceGovernanceError, match="partial status requires findings"):
+        load_policy(policy)
+
+
+def test_evidence_checker_is_integrated_with_repository_automation() -> None:
+    command = "python -m alpha_research.evidence"
+    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
+    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert command in makefile
+    assert command in pre_commit
+    assert command in continuous_integration
+    assert "--github-event" in continuous_integration
+    for module in ("ownership_governance", "change_risk", "evidence"):
+        assert f"env PYTHONPATH=src uv run --frozen python -m alpha_research.{module}" in pre_commit
+
+
+def test_command_reports_missing_policy_and_usage_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert main([str(tmp_path)]) == 1
+    assert "merge-evidence-policy.toml" in capsys.readouterr().err
+
+    assert main([str(REPOSITORY_ROOT), "--manifest", "only-a-path"]) == 2
+    assert "usage:" in capsys.readouterr().err
+
+
+def test_command_accepts_repository_relative_mr_and_manifest_paths() -> None:
+    assert (
+        main(
+            [
+                str(REPOSITORY_ROOT),
+                "--mr-body",
+                "docs/governance/evidence/examples/a05-valid/mr.md",
+                "--manifest",
+                "docs/governance/evidence/examples/a05-valid/manifest.toml",
+                "--expected-commit-sha",
+                EXAMPLE_SHA,
+            ]
+        )
+        == 0
+    )

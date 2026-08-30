@@ -29,16 +29,23 @@ repos:
 
       - id: ownership-governance
         name: check ownership governance
-        entry: uv run --frozen python -m alpha_research.ownership_governance
+        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.ownership_governance
         language: system
         files: ^(CODEOWNERS|docs/governance/domain-ownership\.(md|toml)|src/alpha_research/ownership_governance\.py|tests/engineering/test_ownership_governance\.py)$
         pass_filenames: false
 
       - id: change-risk-policy
         name: check change-risk policy
-        entry: uv run --frozen python -m alpha_research.change_risk
+        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.change_risk
         language: system
         files: ^(docs/README\.md|docs/governance/change-risk-(classification\.md|policy\.toml)|src/alpha_research/change_risk/[a-z_]+\.py|tests/engineering/test_change_risk\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        pass_filenames: false
+
+      - id: evidence-governance
+        name: check merge-request and evidence governance
+        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.evidence
+        language: system
+        files: ^(\.github/pull_request_template\.md|docs/README\.md|docs/governance/(change-risk-policy\.toml|merge-evidence(-policy\.toml|\.md)|evidence/examples/.*)|src/alpha_research/evidence/[a-z_]+\.py|tests/engineering/test_evidence_governance\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
       - id: trailing-whitespace

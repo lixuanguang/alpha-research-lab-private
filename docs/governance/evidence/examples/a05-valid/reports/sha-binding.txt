@@ -1,0 +1,1 @@
+Synthetic A05 fixture: manifest commit binding and artifact digests validated.
