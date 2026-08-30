@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from math import ceil
+from typing import Self
+
+from pydantic import field_validator, model_validator
+
+from alpha_research._models import ImmutableModel
 
 
 class ProgramGovernanceError(ValueError):
@@ -15,8 +19,7 @@ class ProgramGovernanceError(ValueError):
         super().__init__("\n".join(self.findings))
 
 
-@dataclass(frozen=True)
-class PackageNode:
+class PackageNode(ImmutableModel):
     """One implementation package in the authoritative roadmap DAG."""
 
     package_id: str
@@ -36,8 +39,7 @@ class PackageNode:
         }
 
 
-@dataclass(frozen=True)
-class PackageState:
+class PackageState(ImmutableModel):
     """Repository-local implementation state for one roadmap package."""
 
     package_id: str
@@ -69,8 +71,7 @@ class PackageState:
         }
 
 
-@dataclass(frozen=True)
-class MetricDefinition:
+class MetricDefinition(ImmutableModel):
     """Owned non-vanity KPI definition and automatic event contract."""
 
     metric_id: str
@@ -97,6 +98,16 @@ class MetricDefinition:
     target_value: float | None
     target_approval_evidence: str | None
     hard_gate_substitute: bool
+
+    @field_validator("scale", "baseline_value", "target_value", mode="before")
+    @classmethod
+    def exact_float(cls, value: object) -> float | None:
+        """Reject implicit integer-to-float conversion on direct construction."""
+        if value is None:
+            return None
+        if type(value) is not float:
+            raise ValueError("value must be a float")
+        return value
 
     def as_json(self) -> dict[str, object]:
         """Return the stable dashboard representation."""
@@ -128,8 +139,7 @@ class MetricDefinition:
         }
 
 
-@dataclass(frozen=True)
-class MetricObservation:
+class MetricObservation(ImmutableModel):
     """One automatically emitted duration or ratio observation."""
 
     event_id: str
@@ -144,14 +154,32 @@ class MetricObservation:
     numerator: float | None
     denominator: float | None
 
+    @field_validator("numerator", "denominator", mode="before")
+    @classmethod
+    def exact_float(cls, value: object) -> float | None:
+        """Reject implicit integer-to-float conversion on direct construction."""
+        if value is None:
+            return None
+        if type(value) is not float:
+            raise ValueError("value must be a float")
+        return value
+
+    @model_validator(mode="after")
+    def positive_utc_window(self) -> Self:
+        """Require an ordered UTC interval for every direct construction path."""
+        if self.window_start.tzinfo != UTC or self.window_end.tzinfo != UTC:
+            raise ValueError("observation window must use UTC datetimes")
+        if self.window_end <= self.window_start:
+            raise ValueError("observation window must be positive")
+        return self
+
     @property
     def duration_seconds(self) -> float:
         """Return the observed interval duration."""
         return (self.window_end - self.window_start).total_seconds()
 
 
-@dataclass(frozen=True)
-class MetricSummary:
+class MetricSummary(ImmutableModel):
     """Deterministic aggregation result for one KPI."""
 
     metric_id: str
@@ -159,6 +187,16 @@ class MetricSummary:
     observation_count: int
     value: float | None
     unit: str
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def exact_float(cls, value: object) -> float | None:
+        """Reject implicit integer-to-float conversion on direct construction."""
+        if value is None:
+            return None
+        if type(value) is not float:
+            raise ValueError("value must be a float")
+        return value
 
     def as_json(self) -> dict[str, object]:
         """Return the stable dashboard representation."""
@@ -171,8 +209,7 @@ class MetricSummary:
         }
 
 
-@dataclass(frozen=True)
-class ProgramGovernance:
+class ProgramGovernance(ImmutableModel):
     """Validated A08 graph, state, KPI definitions, and findings."""
 
     schema_version: int

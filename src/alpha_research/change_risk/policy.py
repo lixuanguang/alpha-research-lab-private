@@ -6,6 +6,8 @@ import tomllib
 from pathlib import Path
 from typing import cast
 
+from pydantic import ValidationError
+
 from alpha_research.change_risk.classification import classify_change
 from alpha_research.change_risk.constraints import (
     APPLICABILITY_TRIGGERS,
@@ -114,7 +116,12 @@ def _parse_reviewer_group(value: dict[str, object], *, context: str) -> Reviewer
     )
     if minimum < 1:
         raise ChangeRiskPolicyError(f"{context}.minimum_approvals must be at least one")
-    return ReviewerGroup(group_id, frozenset(roles), minimum, independent)
+    return ReviewerGroup(
+        group_id=group_id,
+        roles=frozenset(roles),
+        minimum_approvals=minimum,
+        independent=independent,
+    )
 
 
 def _parse_class(risk_class: RiskClass, value: object) -> RiskClassPolicy:
@@ -142,7 +149,7 @@ def _parse_class(risk_class: RiskClass, value: object) -> RiskClassPolicy:
         )
         if any(GATE_PATTERN.fullmatch(gate) is None for gate in rule_gates):
             raise ChangeRiskPolicyError(f"{context}.conditional_gate_rules[{index}] has bad gate")
-        conditional_rules.append(ConditionalGateRule(trigger, rule_gates))
+        conditional_rules.append(ConditionalGateRule(trigger=trigger, gates=rule_gates))
     actual_conditional = {rule.trigger: set(rule.gates) for rule in conditional_rules}
     if actual_conditional != BLUEPRINT_CONDITIONAL_GATES[risk_class.value]:
         raise ChangeRiskPolicyError(f"{context}.conditional_gate_rules must match the blueprint")
@@ -252,10 +259,10 @@ def _sample_change(value: dict[str, object], *, index: int) -> SampleChange:
         model_or_trading_relevant=optional_flags["model_or_trading_relevant"],
     )
     expected = _risk_class(value.get("expected_class"), context=f"{context}.expected_class")
-    return SampleChange(change_id, change, expected)
+    return SampleChange(change_id=change_id, change=change, expected_class=expected)
 
 
-def load_policy(path: Path) -> ChangeRiskPolicy:
+def _load_policy(path: Path) -> ChangeRiskPolicy:
     """Load and validate the complete A04 policy and its retained sample changes."""
     try:
         parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -351,3 +358,11 @@ def load_policy(path: Path) -> ChangeRiskPolicy:
                 f"got {actual.value}"
             )
     return policy
+
+
+def load_policy(path: Path) -> ChangeRiskPolicy:
+    """Load the A04 policy while preserving its public domain-error contract."""
+    try:
+        return _load_policy(path)
+    except ValidationError as error:
+        raise ChangeRiskPolicyError(f"{path}: policy model validation failed") from error

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import field_serializer, field_validator
+
+from alpha_research._models import ImmutableModel
 from alpha_research.change_risk import ChangeRiskInput, ReviewApproval
 
 
@@ -16,16 +18,14 @@ class EvidenceGovernanceError(ValueError):
         super().__init__("\n".join(self.findings))
 
 
-@dataclass(frozen=True)
-class MrField:
+class MrField(ImmutableModel):
     """One required merge-request field and its Markdown heading."""
 
     key: str
     heading: str
 
 
-@dataclass(frozen=True)
-class EvidencePolicy:
+class EvidencePolicy(ImmutableModel):
     """Authoritative repository-local A05 policy."""
 
     template_path: Path
@@ -38,9 +38,16 @@ class EvidencePolicy:
     package_status: str
     finding_ids: tuple[str, ...]
 
+    @field_validator("template_path", "example_mr_body_path", "example_manifest_path")
+    @classmethod
+    def repository_relative_path(cls, value: Path) -> Path:
+        """Reject paths that cannot represent repository-contained policy inputs."""
+        if value.is_absolute() or ".." in value.parts:
+            raise ValueError("path must stay inside the repository")
+        return value
 
-@dataclass(frozen=True)
-class GateEvidence:
+
+class GateEvidence(ImmutableModel):
     """One quality-gate disposition in an evidence manifest."""
 
     gate_id: str
@@ -49,8 +56,7 @@ class GateEvidence:
     evidence_ids: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class ArtifactEvidence:
+class ArtifactEvidence(ImmutableModel):
     """One immutable bundle artifact reference."""
 
     evidence_id: str
@@ -59,8 +65,7 @@ class ArtifactEvidence:
     sha256: str
 
 
-@dataclass(frozen=True)
-class ApprovalEvidence:
+class ApprovalEvidence(ImmutableModel):
     """One retained approval record bound to the manifest commit."""
 
     reviewer_id: str
@@ -70,6 +75,11 @@ class ApprovalEvidence:
     status: str
     commit_sha: str
     evidence_url: str
+
+    @field_serializer("roles", when_used="json")
+    def sorted_roles(self, roles: frozenset[str]) -> tuple[str, ...]:
+        """Serialize an unordered immutable set deterministically."""
+        return tuple(sorted(roles))
 
     def as_review_approval(self) -> ReviewApproval:
         """Return the A04 approval view used for accepted-bundle enforcement."""
@@ -81,8 +91,7 @@ class ApprovalEvidence:
         )
 
 
-@dataclass(frozen=True)
-class EvidenceManifest:
+class EvidenceManifest(ImmutableModel):
     """Validated, SHA-bound evidence-manifest contents."""
 
     bundle_id: str

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
+
+from alpha_research._models import ImmutableModel
 
 
 class SecurityControlError(ValueError):
@@ -14,8 +15,7 @@ class SecurityControlError(ValueError):
         super().__init__("\n".join(self.findings))
 
 
-@dataclass(frozen=True)
-class ProtectedAsset:
+class ProtectedAsset(ImmutableModel):
     """One governed asset or authority represented in the threat model."""
 
     asset_id: str
@@ -33,8 +33,7 @@ class ProtectedAsset:
         }
 
 
-@dataclass(frozen=True)
-class TrustBoundary:
+class TrustBoundary(ImmutableModel):
     """One change in trust, authority, or security zone."""
 
     boundary_id: str
@@ -60,8 +59,7 @@ class TrustBoundary:
         }
 
 
-@dataclass(frozen=True)
-class ThreatScenario:
+class ThreatScenario(ImmutableModel):
     """One abuse case with explicit affected assets and controls."""
 
     threat_id: str
@@ -91,8 +89,7 @@ class ThreatScenario:
         }
 
 
-@dataclass(frozen=True)
-class SecurityControl:
+class SecurityControl(ImmutableModel):
     """One owned, testable preventive, detective, or responsive control."""
 
     control_id: str
@@ -126,8 +123,7 @@ class SecurityControl:
         }
 
 
-@dataclass(frozen=True)
-class EvidenceSource:
+class EvidenceSource(ImmutableModel):
     """One available or explicitly deferred source of control evidence."""
 
     evidence_source_id: str
@@ -153,8 +149,7 @@ class EvidenceSource:
         }
 
 
-@dataclass(frozen=True)
-class AuthoritySource:
+class AuthoritySource(ImmutableModel):
     """One official legal, supervisory, or reference-framework source."""
 
     source_id: str
@@ -180,8 +175,7 @@ class AuthoritySource:
         }
 
 
-@dataclass(frozen=True)
-class JurisdictionProfile:
+class JurisdictionProfile(ImmutableModel):
     """A jurisdiction-specific scope awaiting qualified applicability review."""
 
     jurisdiction_id: str
@@ -205,8 +199,7 @@ class JurisdictionProfile:
         }
 
 
-@dataclass(frozen=True)
-class RegulatoryMapping:
+class RegulatoryMapping(ImmutableModel):
     """A non-conclusive mapping from one authority source to platform controls."""
 
     mapping_id: str
@@ -234,8 +227,7 @@ class RegulatoryMapping:
         }
 
 
-@dataclass(frozen=True)
-class SecurityControlMap:
+class SecurityControlMap(ImmutableModel):
     """Validated A07 package contract and queryable control map."""
 
     schema_version: int

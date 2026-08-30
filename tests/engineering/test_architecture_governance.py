@@ -75,6 +75,7 @@ def test_repository_architecture_governance_is_valid() -> None:
         "0005-runtime-lanes.md",
         "0006-deployment-and-activation.md",
         "0007-observability-substrate.md",
+        "0008-pydantic-boundary-models.md",
     ]
 
 

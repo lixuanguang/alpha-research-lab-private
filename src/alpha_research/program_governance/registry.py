@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
 from alpha_research.change_risk import load_policy as load_change_risk_policy
 from alpha_research.evidence import validate_manifest
 from alpha_research.program_governance.models import (
@@ -334,7 +336,7 @@ def _parse_dependency_expression(
     return dependencies, groups
 
 
-def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
+def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
     """Parse the 96-package roadmap tables into an exact DAG."""
     lines = path.read_text(encoding="utf-8").splitlines()
     current_wave: str | None = None
@@ -381,6 +383,14 @@ def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
     if findings:
         raise ProgramGovernanceError(findings)
     return tuple(packages)
+
+
+def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
+    """Load the roadmap while preserving its public domain-error contract."""
+    try:
+        return _load_roadmap(path)
+    except ValidationError as error:
+        raise ProgramGovernanceError([f"{path}: roadmap model validation failed"]) from error
 
 
 def _dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
@@ -614,7 +624,7 @@ def _parse_findings(value: object) -> tuple[str, ...]:
     return tuple(identifiers)
 
 
-def load_program(
+def _load_program(
     path: Path,
     *,
     repository_root: Path,
@@ -699,7 +709,24 @@ def load_program(
     )
 
 
-def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
+def load_program(
+    path: Path,
+    *,
+    repository_root: Path,
+    ownership_register_path: Path | None = None,
+) -> ProgramGovernance:
+    """Load A08 governance while preserving its public domain-error contract."""
+    try:
+        return _load_program(
+            path,
+            repository_root=repository_root,
+            ownership_register_path=ownership_register_path,
+        )
+    except ValidationError as error:
+        raise ProgramGovernanceError([f"{path}: program model validation failed"]) from error
+
+
+def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
     """Load strict JSONL events and deduplicate identical retries by event ID."""
     if path.stat().st_size > _MAX_OBSERVATION_FILE_BYTES:
         raise ProgramGovernanceError(["observation input exceeds the governed byte limit"])
@@ -813,6 +840,14 @@ def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metric
             )
         previous_end[key] = observation.window_end
     return tuple(observations)
+
+
+def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
+    """Load KPI events while preserving their public domain-error contract."""
+    try:
+        return _load_observations(path, program=program)
+    except ValidationError as error:
+        raise ProgramGovernanceError([f"{path}: observation model validation failed"]) from error
 
 
 def _validate_local_evidence(repository_root: Path, program: ProgramGovernance) -> None:

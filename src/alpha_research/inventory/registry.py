@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
 from alpha_research.change_risk import load_policy as load_change_risk_policy
 from alpha_research.evidence import validate_manifest
 from alpha_research.inventory.models import (
@@ -225,7 +227,14 @@ def _parse_kind_states(
             findings.append(f"{context}.population_status is unsupported")
         if owner_role not in ownership_roles:
             findings.append(f"{context}: stale ownership role {owner_role!r}")
-        states.append(KindPopulation(kind, population_status, owner_role, rationale))
+        states.append(
+            KindPopulation(
+                kind=kind,
+                population_status=population_status,
+                owner_role=owner_role,
+                rationale=rationale,
+            )
+        )
     if tuple(state.kind for state in states) != RESOURCE_KINDS:
         findings.append(
             f"kind_states must declare each supported kind in order: {RESOURCE_KINDS!r}"
@@ -298,7 +307,7 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
     return tuple(dict.fromkeys(cycles))
 
 
-def load_inventory(
+def _load_inventory(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> ResourceInventory:
     """Load and validate a complete A06 inventory against repository state."""
@@ -479,6 +488,20 @@ def load_inventory(
         items=items,
         finding_ids=tuple(finding_ids),
     )
+
+
+def load_inventory(
+    path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
+) -> ResourceInventory:
+    """Load the A06 inventory while preserving its public domain-error contract."""
+    try:
+        return _load_inventory(
+            path,
+            repository_root=repository_root,
+            ownership_register_path=ownership_register_path,
+        )
+    except ValidationError as error:
+        raise InventoryGovernanceError([f"{path}: inventory model validation failed"]) from error
 
 
 def _validate_local_evidence(repository_root: Path, inventory: ResourceInventory) -> None:

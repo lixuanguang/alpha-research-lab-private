@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
 from alpha_research.change_risk import (
     ChangeRiskInput,
     ChangeRiskPolicy,
@@ -144,7 +146,14 @@ def _parse_gates(value: object) -> tuple[GateEvidence, ...]:
             raise EvidenceGovernanceError([f"{context}.status is unsupported"])
         if status == "passed" and not evidence_ids:
             raise EvidenceGovernanceError([f"{context}: passed gate requires evidence_ids"])
-        gates.append(GateEvidence(gate_id, status, rationale, evidence_ids))
+        gates.append(
+            GateEvidence(
+                gate_id=gate_id,
+                status=status,
+                rationale=rationale,
+                evidence_ids=evidence_ids,
+            )
+        )
     if len({gate.gate_id for gate in gates}) != len(gates):
         raise EvidenceGovernanceError(["gate IDs must be unique"])
     return tuple(gates)
@@ -273,7 +282,7 @@ def _verify_artifacts(path: Path, artifacts: tuple[ArtifactEvidence, ...]) -> No
             )
 
 
-def validate_manifest(
+def _validate_manifest(
     path: Path,
     *,
     expected_commit_sha: str,
@@ -417,3 +426,20 @@ def validate_manifest(
         artifacts=artifacts,
         approvals=approvals,
     )
+
+
+def validate_manifest(
+    path: Path,
+    *,
+    expected_commit_sha: str,
+    change_policy: ChangeRiskPolicy,
+) -> EvidenceManifest:
+    """Validate evidence while preserving the public domain-error contract."""
+    try:
+        return _validate_manifest(
+            path,
+            expected_commit_sha=expected_commit_sha,
+            change_policy=change_policy,
+        )
+    except ValidationError as error:
+        raise EvidenceGovernanceError([f"{path}: manifest model validation failed"]) from error

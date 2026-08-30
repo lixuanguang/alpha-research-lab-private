@@ -7,6 +7,8 @@ import tomllib
 from pathlib import Path
 from typing import cast
 
+from pydantic import ValidationError
+
 from alpha_research.evidence.models import EvidenceGovernanceError, EvidencePolicy, MrField
 
 _GATE = re.compile(r"^QG(?:0[1-9]|1[0-5])$")
@@ -55,7 +57,7 @@ def _relative_path(value: object, *, context: str) -> Path:
     return path
 
 
-def load_policy(path: Path) -> EvidencePolicy:
+def _load_policy(path: Path) -> EvidencePolicy:
     """Load and validate the authoritative A05 policy."""
     try:
         parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -102,7 +104,7 @@ def load_policy(path: Path) -> EvidencePolicy:
             raise EvidenceGovernanceError([f"mr_fields[{index}].key must be lower_snake_case"])
         if not isinstance(heading, str) or not heading.strip():
             raise EvidenceGovernanceError([f"mr_fields[{index}].heading must not be empty"])
-        fields.append(MrField(field_key, heading))
+        fields.append(MrField(key=field_key, heading=heading))
     if not fields:
         raise EvidenceGovernanceError([f"{path}: mr_fields must not be empty"])
     if len({field.key for field in fields}) != len(fields):
@@ -142,3 +144,11 @@ def load_policy(path: Path) -> EvidencePolicy:
         package_status="partial",
         finding_ids=tuple(finding_ids),
     )
+
+
+def load_policy(path: Path) -> EvidencePolicy:
+    """Load the A05 policy while preserving its public domain-error contract."""
+    try:
+        return _load_policy(path)
+    except ValidationError as error:
+        raise EvidenceGovernanceError([f"{path}: policy model validation failed"]) from error

@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
 from alpha_research.change_risk import load_policy as load_change_risk_policy
 from alpha_research.evidence import validate_manifest
 from alpha_research.security_controls.models import (
@@ -509,7 +511,7 @@ def _parse_mappings(value: object) -> tuple[RegulatoryMapping, ...]:
     )
 
 
-def load_control_map(
+def _load_control_map(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> SecurityControlMap:
     """Load and validate the complete A07 threat and regulatory control map."""
@@ -886,6 +888,20 @@ def load_control_map(
         regulatory_mappings=regulatory_mappings,
         finding_ids=tuple(finding_ids),
     )
+
+
+def load_control_map(
+    path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
+) -> SecurityControlMap:
+    """Load the A07 map while preserving its public domain-error contract."""
+    try:
+        return _load_control_map(
+            path,
+            repository_root=repository_root,
+            ownership_register_path=ownership_register_path,
+        )
+    except ValidationError as error:
+        raise SecurityControlError([f"{path}: control-map model validation failed"]) from error
 
 
 def _validate_local_evidence(repository_root: Path, control_map: SecurityControlMap) -> None:

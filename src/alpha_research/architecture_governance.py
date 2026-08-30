@@ -5,10 +5,13 @@ from __future__ import annotations
 import re
 import sys
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+
+from pydantic import ValidationError
+
+from alpha_research._models import ImmutableModel
 
 _DECISION_FILENAME = re.compile(r"^(?P<identifier>[0-9]{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 _MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\((?P<destination>[^)]+)\)")
@@ -45,8 +48,7 @@ _REQUIRED_SECTIONS = (
 _ALLOWED_STATUSES = {"Proposed", "Accepted", "Rejected", "Deprecated", "Superseded"}
 
 
-@dataclass(frozen=True)
-class _DecisionLogEntry:
+class _DecisionLogEntry(ImmutableModel):
     identifier: str
     title: str
     filename: str
@@ -334,12 +336,22 @@ def validate_local_links(repository_root: Path, documents: Iterable[Path]) -> No
         raise ArchitectureGovernanceError(findings)
 
 
-def validate_repository(repository_root: Path) -> tuple[Path, ...]:
+def _validate_repository(repository_root: Path) -> tuple[Path, ...]:
     """Run every repository-local A02 architecture governance check."""
     root = repository_root.resolve()
     decisions = validate_decision_directory(root / "docs" / "architecture" / "decisions")
     validate_local_links(root, sorted((root / "docs").rglob("*.md")))
     return decisions
+
+
+def validate_repository(repository_root: Path) -> tuple[Path, ...]:
+    """Run A02 checks while preserving the public domain-error contract."""
+    try:
+        return _validate_repository(repository_root)
+    except ValidationError as error:
+        raise ArchitectureGovernanceError(
+            [f"{repository_root}: architecture model validation failed"]
+        ) from error
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
