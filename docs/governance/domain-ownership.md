@@ -47,7 +47,9 @@ principals when the organization establishes the team-based operating model.
 
 `make ownership-check` validates the register, `CODEOWNERS`, role separation, and
 coverage of tracked plus non-ignored files. Pre-commit and hosted CI invoke the
-same command. Local success proves policy consistency only; protected-branch
+same command. The pre-commit ownership hook runs for every staged repository
+change so added, moved, or renamed paths cannot bypass complete Git-visible path
+coverage. Local success proves policy consistency only; protected-branch
 configuration, principal resolution, review identity, and approvals live in the
 external forge and remain pending in A03-F01 through A03-F03.
 

@@ -47,6 +47,8 @@ from alpha_research.evidence import (
     EvidencePolicy,
     GateEvidence,
     MrField,
+    PackageEvidenceProfile,
+    PackageGateRequirement,
 )
 from alpha_research.evidence import (
     validate_repository as validate_evidence,
@@ -147,6 +149,28 @@ def test_every_migrated_model_constructs_and_round_trips_strictly() -> None:
         owner="Platform",
         review_date="2026-11-30",
     )
+    package_profile = PackageEvidenceProfile(
+        roadmap_package_id="A06",
+        accountable_owner_role="platform",
+        risk_class=RiskClass.R2,
+        classification_facts=ChangeRiskInput(
+            capital_at_risk=False,
+            blast_radius="shared_domain",
+            data_model_materiality="shared_or_candidate",
+            security_privilege="none",
+            reversibility="compatibility_window",
+            computationally_material=True,
+            economically_or_risk_relevant=False,
+            model_or_trading_relevant=False,
+            declared_class=RiskClass.R2,
+        ),
+        gate_requirements=(PackageGateRequirement(gate_id="QG01", status="passed"),),
+        expected_package_status="partial",
+        expected_finding_ids=("A06-F01",),
+        approvals_permitted=False,
+        waivers_permitted=False,
+        additional_required_gates_permitted=False,
+    )
 
     models: list[ImmutableModel] = [
         decision_entry,
@@ -161,6 +185,9 @@ def test_every_migrated_model_constructs_and_round_trips_strictly() -> None:
         approval,
         evidence_policy,
         *evidence_policy.fields,
+        package_profile,
+        *package_profile.gate_requirements,
+        package_profile.classification_facts,
         manifest,
         *manifest.gates,
         *manifest.artifacts,
@@ -198,6 +225,8 @@ def test_every_migrated_model_constructs_and_round_trips_strictly() -> None:
         MrField,
         EvidencePolicy,
         GateEvidence,
+        PackageGateRequirement,
+        PackageEvidenceProfile,
         ArtifactEvidence,
         ApprovalEvidence,
         EvidenceManifest,

@@ -13,8 +13,15 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
+from alpha_research.change_risk import ChangeRiskInput, RiskClass
 from alpha_research.change_risk import load_policy as load_change_risk_policy
-from alpha_research.evidence import validate_manifest
+from alpha_research.evidence import (
+    EvidenceGovernanceError,
+    PackageEvidenceProfile,
+    PackageGateRequirement,
+    validate_manifest,
+    validate_package_evidence,
+)
 from alpha_research.program_governance.models import (
     MetricDefinition,
     MetricObservation,
@@ -50,6 +57,30 @@ APPLICABLE_GATE_IDS = (
 )
 
 _EXPECTED_FINDING_IDS = ("A08-F01", "A08-F02", "A08-F03")
+_LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
+    roadmap_package_id="A08",
+    accountable_owner_role="platform",
+    risk_class=RiskClass.R2,
+    classification_facts=ChangeRiskInput(
+        capital_at_risk=False,
+        blast_radius="shared_domain",
+        data_model_materiality="shared_or_candidate",
+        security_privilege="none",
+        reversibility="compatibility_window",
+        computationally_material=True,
+        economically_or_risk_relevant=False,
+        model_or_trading_relevant=False,
+        declared_class=RiskClass.R2,
+    ),
+    gate_requirements=tuple(
+        PackageGateRequirement(gate_id=gate_id, status="passed") for gate_id in APPLICABLE_GATE_IDS
+    ),
+    expected_package_status="partial",
+    expected_finding_ids=_EXPECTED_FINDING_IDS,
+    approvals_permitted=False,
+    waivers_permitted=False,
+    additional_required_gates_permitted=False,
+)
 _PACKAGE_ID = re.compile(r"^[A-L](?:0[1-8])$")
 _METRIC_ID = re.compile(r"^kpi\.[a-z][a-z0-9_]*$")
 _TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -864,19 +895,10 @@ def _validate_local_evidence(repository_root: Path, program: ProgramGovernance) 
         )
     except (OSError, ValueError) as error:
         raise ProgramGovernanceError([f"A08 local evidence bundle: {error}"]) from error
-    findings: list[str] = []
-    if manifest.roadmap_id != "A08" or manifest.risk_class != "R2":
-        findings.append("A08 local evidence bundle must be roadmap A08 risk R2")
-    if manifest.bundle_status != "partial" or manifest.approvals:
-        findings.append("A08 synthetic evidence must remain partial and contain no approvals")
-    if manifest.open_finding_ids != program.finding_ids:
-        findings.append("A08 local evidence bundle must retain the program findings exactly")
-    if tuple(sorted(gate.gate_id for gate in manifest.gates)) != tuple(sorted(APPLICABLE_GATE_IDS)):
-        findings.append("A08 local evidence bundle must record every applicable gate")
-    if any(gate.status != "passed" for gate in manifest.gates):
-        findings.append("A08 local evidence bundle must pass each repository-local gate")
-    if findings:
-        raise ProgramGovernanceError(findings)
+    try:
+        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+    except EvidenceGovernanceError as error:
+        raise ProgramGovernanceError(error.findings) from error
 
 
 def validate_repository(repository_root: Path) -> ProgramGovernance:

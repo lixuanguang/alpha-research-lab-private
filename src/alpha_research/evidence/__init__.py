@@ -17,12 +17,15 @@ from alpha_research.evidence.models import (
     EvidencePolicy,
     GateEvidence,
     MrField,
+    PackageEvidenceProfile,
+    PackageGateRequirement,
 )
 from alpha_research.evidence.mr import (
     validate_github_event,
     validate_mr_body,
     validate_template,
 )
+from alpha_research.evidence.package import validate_package_evidence
 from alpha_research.evidence.policy import load_policy
 
 __all__ = [
@@ -33,11 +36,14 @@ __all__ = [
     "EvidencePolicy",
     "GateEvidence",
     "MrField",
+    "PackageEvidenceProfile",
+    "PackageGateRequirement",
     "load_policy",
     "main",
     "validate_github_event",
     "validate_manifest",
     "validate_mr_body",
+    "validate_package_evidence",
     "validate_repository",
     "validate_template",
 ]

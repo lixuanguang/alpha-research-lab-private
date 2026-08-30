@@ -72,9 +72,12 @@ kind state is explicitly `empty`. Repeated equivalent queries must produce
 byte-identical JSON. A synthetic partial R2 bundle under
 [`evidence/examples/a06-r2-partial`](evidence/examples/a06-r2-partial/manifest.toml)
 exercises A04 classification, all applicable gate records, artifact digests, and
-the exact A06 finding set. Its all-`2` SHA is deliberately synthetic: the bundle
-is repository-local validator evidence, not a commit, review, protected-forge
-result, approval, release, deployment, or activation record.
+the exact A06 finding set. An immutable package profile also binds its accountable
+owner, every classification fact, exact gate status, partial status, and forbids
+approvals, waivers, or caller-added gates. Its all-`2` SHA is deliberately
+synthetic: the bundle is repository-local validator evidence, not a commit,
+review, protected-forge result, approval, release, deployment, or activation
+record.
 
 ## Quality-gate evidence
 

@@ -145,7 +145,9 @@ asset/boundary/control/evidence coverage, implementation status and packages,
 repository path containment, credential-free HTTPS authority URLs pinned to the
 official publisher host, source/profile consistency, legal-mapping ownership and
 review evidence, non-conclusive applicability status, bounded review dates, exact
-findings, and the owner/risk/gate-bound synthetic evidence bundle.
+findings, and a typed immutable synthetic-evidence profile binding the accountable
+owner, every classification fact, exact gate statuses, partial findings, and the
+prohibition on approvals, waivers, or caller-added gates.
 
 The CLI emits byte-stable JSON and supports one filter at a time:
 

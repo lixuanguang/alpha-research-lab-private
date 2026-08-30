@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Literal
 
-from pydantic import field_serializer, field_validator
+from pydantic import field_serializer, field_validator, model_validator
 
 from alpha_research._models import ImmutableModel
-from alpha_research.change_risk import ChangeRiskInput, ReviewApproval
+from alpha_research.change_risk import ChangeRiskInput, ReviewApproval, RiskClass
+
+_GATE = re.compile(r"^QG(?:0[1-9]|1[0-5])$")
+_FINDING_ID = re.compile(r"^(?P<package>[A-L]0[1-8])-F[0-9]{2}$")
+_PACKAGE_ID = re.compile(r"^[A-L]0[1-8]$")
+_ROLE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class EvidenceGovernanceError(ValueError):
@@ -54,6 +61,76 @@ class GateEvidence(ImmutableModel):
     status: str
     rationale: str
     evidence_ids: tuple[str, ...]
+
+
+class PackageGateRequirement(ImmutableModel):
+    """Required disposition for one gate in a package-evidence profile."""
+
+    gate_id: str
+    status: Literal["deferred", "failed", "not_applicable", "passed"]
+
+    @field_validator("gate_id")
+    @classmethod
+    def valid_gate_id(cls, value: str) -> str:
+        """Require a canonical quality-gate identifier."""
+        if _GATE.fullmatch(value) is None:
+            raise ValueError("gate_id must be QG01-QG15")
+        return value
+
+
+class PackageEvidenceProfile(ImmutableModel):
+    """Exact package contract for validating synthetic local evidence."""
+
+    roadmap_package_id: str
+    accountable_owner_role: str
+    risk_class: RiskClass
+    classification_facts: ChangeRiskInput
+    gate_requirements: tuple[PackageGateRequirement, ...]
+    expected_package_status: Literal["partial", "validated"]
+    expected_finding_ids: tuple[str, ...]
+    approvals_permitted: bool
+    waivers_permitted: bool
+    additional_required_gates_permitted: bool
+
+    @field_validator("roadmap_package_id")
+    @classmethod
+    def valid_package_id(cls, value: str) -> str:
+        """Require a canonical roadmap package identifier."""
+        if _PACKAGE_ID.fullmatch(value) is None:
+            raise ValueError("roadmap_package_id must be A01-L08")
+        return value
+
+    @field_validator("accountable_owner_role")
+    @classmethod
+    def valid_owner_role(cls, value: str) -> str:
+        """Require the same role syntax used by evidence manifests."""
+        if _ROLE.fullmatch(value) is None:
+            raise ValueError("accountable_owner_role must be lower_snake_case")
+        return value
+
+    @model_validator(mode="after")
+    def coherent_profile(self) -> PackageEvidenceProfile:
+        """Reject ambiguous or internally inconsistent profile bindings."""
+        gate_ids = tuple(requirement.gate_id for requirement in self.gate_requirements)
+        if not gate_ids or len(gate_ids) != len(set(gate_ids)):
+            raise ValueError("gate_requirements must contain unique gates")
+        if self.classification_facts.declared_class is not self.risk_class:
+            raise ValueError("classification_facts.declared_class must match risk_class")
+        if len(self.expected_finding_ids) != len(set(self.expected_finding_ids)):
+            raise ValueError("expected_finding_ids must contain unique values")
+        if self.expected_package_status == "partial" and not self.expected_finding_ids:
+            raise ValueError("partial package profiles require expected_finding_ids")
+        if self.expected_package_status == "validated" and self.expected_finding_ids:
+            raise ValueError("validated package profiles cannot retain expected_finding_ids")
+        if any(
+            (matched := _FINDING_ID.fullmatch(finding_id)) is None
+            or matched.group("package") != self.roadmap_package_id
+            for finding_id in self.expected_finding_ids
+        ):
+            raise ValueError(
+                "expected_finding_ids must be canonical IDs belonging to roadmap_package_id"
+            )
+        return self
 
 
 class ArtifactEvidence(ImmutableModel):
