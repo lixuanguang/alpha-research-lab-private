@@ -51,7 +51,7 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
     assert [item.inventory_id for item in inventory.items] == sorted(
         item.inventory_id for item in inventory.items
     )
-    assert len(inventory.items) == 6
+    assert len(inventory.items) == 7
     assert {item.kind for item in inventory.items} == {"control"}
     assert all(item.status == "provisional" for item in inventory.items)
 
@@ -187,7 +187,7 @@ review_due_on = "2026-11-30"
 def test_catalog_size_and_workload_limits_fail_closed(tmp_path: Path) -> None:
     size_limited = _catalog_fixture(tmp_path)
     _replace(size_limited, "maximum_items = 10000", "maximum_items = 1")
-    with pytest.raises(InventoryGovernanceError, match="catalog contains 6 items"):
+    with pytest.raises(InventoryGovernanceError, match="catalog contains 7 items"):
         _load_fixture(size_limited)
 
     invalid_budget = _catalog_fixture(tmp_path)
@@ -253,7 +253,7 @@ def test_cli_emits_stable_json_for_populated_and_empty_queries(
     assert first_output == second_output
 
     controls = json.loads(first_output)
-    assert controls["count"] == 6
+    assert controls["count"] == 7
     assert [item["inventory_id"] for item in controls["items"]] == sorted(
         item["inventory_id"] for item in controls["items"]
     )

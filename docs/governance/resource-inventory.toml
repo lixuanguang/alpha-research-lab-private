@@ -69,7 +69,7 @@ rationale = "Git commits and bootstrap wheels are not signed immutable platform 
 kind = "control"
 population_status = "populated"
 owner_role = "platform"
-rationale = "A01-A06 provide repository-local governance controls with explicit provisional status."
+rationale = "A01-A07 provide repository-local governance controls with explicit provisional status."
 
 [[items]]
 inventory_id = "inv.control.governance.a01_repository_boundary"
@@ -246,6 +246,41 @@ deployment_evidence = []
 status_evidence = [
   "docs/governance/resource-inventory.md",
   "docs/governance/evidence/examples/a06-r2-partial/manifest.toml",
+]
+review_due_on = "2026-11-30"
+
+[[items]]
+inventory_id = "inv.control.governance.a07_security_controls"
+kind = "control"
+record_version = 1
+name = "A07 threat and regulatory control map"
+owner_role = "security"
+criticality = "T3"
+status = "provisional"
+dependencies = [
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a06_resource_inventory",
+]
+retention_class = "shared_contract_compatibility_lifecycle"
+source_paths = [
+  "docs/governance/security-control-map.toml",
+  "docs/governance/threat-model.md",
+  "src/alpha_research/security_controls/registry.py",
+  "tests/engineering/test_security_controls.py",
+]
+lineage_refs = [
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a06_resource_inventory",
+  "docs/governance/security-control-map.toml",
+  "docs/governance/threat-model.md",
+  "src/alpha_research/security_controls/registry.py",
+  "tests/engineering/test_security_controls.py",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = [
+  "docs/governance/threat-model.md",
+  "docs/governance/evidence/examples/a07-r2-partial/manifest.toml",
 ]
 review_due_on = "2026-11-30"
 

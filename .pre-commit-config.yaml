@@ -55,6 +55,13 @@ repos:
         files: ^(docs/README\.md|docs/architecture/contracts\.md|docs/governance/(domain-ownership\.toml|resource-inventory\.(md|toml))|docs/roadmap/README\.md|src/alpha_research/inventory/[a-z_]+\.py|tests/engineering/test_inventory_governance\.py|tests/engineering/test_root_commands\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
+      - id: security-control-map
+        name: check threat and regulatory control map
+        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.security_controls
+        language: system
+        files: ^(docs/README\.md|docs/governance/(domain-ownership\.toml|security-control-map\.toml|threat-model\.md|evidence/examples/a07-r2-partial/.*)|docs/roadmap/README\.md|src/alpha_research/security_controls/[a-z_]+\.py|tests/engineering/test_security_controls\.py|tests/engineering/test_root_commands\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        pass_filenames: false
+
       - id: trailing-whitespace
         name: trim trailing whitespace
         entry: uv run --frozen trailing-whitespace-fixer

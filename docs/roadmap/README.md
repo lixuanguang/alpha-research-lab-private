@@ -322,11 +322,11 @@ the shared kernel is the production path.
 
 ## Current repository mapping
 
-Repository-local implementations and deterministic checks now exist for A01-A06.
+Repository-local implementations and deterministic checks now exist for A01-A07.
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
-through A06 pass, while their recorded organization, protected-forge,
-target-control-plane, and independent-review evidence remains open. This does not
-validate wave A or authorize a wave exit.
+through A07 pass, while their recorded organization, protected-forge,
+target-control-plane, independent-review, and qualified applicability evidence
+remains open. This does not validate wave A or authorize a wave exit.
 
 The existing uv lock, Python package, Make checks, and engineering tests are
 bootstrap evidence relevant to B02-B05. They do not yet meet the Bazel, Nix or

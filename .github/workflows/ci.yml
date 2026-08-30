@@ -55,6 +55,9 @@ jobs:
       - name: Check governed resource inventory
         run: uv run --frozen python -m alpha_research.inventory
 
+      - name: Check threat and regulatory control map
+        run: uv run --frozen python -m alpha_research.security_controls
+
       - name: Lint pull-request body
         if: github.event_name == 'pull_request'
         run: uv run --frozen python -m alpha_research.evidence --github-event "$GITHUB_EVENT_PATH"
