@@ -1,0 +1,1 @@
+Synthetic A06 fixture: root automation integration, catalog-size bounds, and the governed query workload budget are repository-locally exercised.

@@ -1,0 +1,1 @@
+Synthetic A06 fixture: malformed, cyclic, stale, unresolved, path-escape, credential-bearing URL, and missing deployment-evidence cases fail closed.

@@ -48,6 +48,13 @@ repos:
         files: ^(\.github/pull_request_template\.md|docs/README\.md|docs/governance/(change-risk-policy\.toml|merge-evidence(-policy\.toml|\.md)|evidence/examples/.*)|src/alpha_research/evidence/[a-z_]+\.py|tests/engineering/test_evidence_governance\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
+      - id: inventory-governance
+        name: check governed resource inventory
+        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.inventory
+        language: system
+        files: ^(docs/README\.md|docs/architecture/contracts\.md|docs/governance/(domain-ownership\.toml|resource-inventory\.(md|toml))|docs/roadmap/README\.md|src/alpha_research/inventory/[a-z_]+\.py|tests/engineering/test_inventory_governance\.py|tests/engineering/test_root_commands\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        pass_filenames: false
+
       - id: trailing-whitespace
         name: trim trailing whitespace
         entry: uv run --frozen trailing-whitespace-fixer

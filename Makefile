@@ -4,7 +4,7 @@ UV := uv
 PYTHON_PATHS := src tests
 SOURCE_ENV := PYTHONPATH=src
 
-.PHONY: sync lock-check format format-check lint typecheck architecture-check ownership-check change-risk-check evidence-check security test smoke build check
+.PHONY: sync lock-check format format-check lint typecheck architecture-check ownership-check change-risk-check evidence-check inventory-check security test smoke build check
 
 sync:
 	$(UV) sync --frozen
@@ -36,6 +36,9 @@ change-risk-check:
 evidence-check:
 	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.evidence
 
+inventory-check:
+	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.inventory
+
 security:
 	$(UV) run --frozen bandit -q -c pyproject.toml -r src
 
@@ -48,4 +51,4 @@ smoke:
 build:
 	$(UV) build --no-sources
 
-check: lock-check lint format-check typecheck architecture-check ownership-check change-risk-check evidence-check security test smoke build
+check: lock-check lint format-check typecheck architecture-check ownership-check change-risk-check evidence-check inventory-check security test smoke build
