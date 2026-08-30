@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -96,8 +99,61 @@ def test_codeowners_must_match_the_ordered_register(tmp_path: Path) -> None:
 def test_policy_rejects_an_orphaned_repository_path(tmp_path: Path) -> None:
     root, _, _ = _policy_fixture(tmp_path)
 
-    with pytest.raises(OwnershipGovernanceError, match="orphan.txt.*no CODEOWNER"):
+    with pytest.raises(OwnershipGovernanceError, match=r"orphan.txt.*no CODEOWNER"):
         validate_repository(root, repository_paths=("orphan.txt",))
+
+
+def test_pre_commit_rejects_a_staged_unowned_root_path(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    root.mkdir()
+    tracked_paths = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout.split(b"\0")
+    for raw_path in tracked_paths:
+        if not raw_path:
+            continue
+        relative_path = Path(os.fsdecode(raw_path))
+        destination = root / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPOSITORY_ROOT / relative_path, destination)
+
+    subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Ownership Test",
+            "-c",
+            "user.email=ownership-test@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "baseline",
+        ],
+        cwd=root,
+        check=True,
+    )
+    orphan = root / "unowned-new-root.txt"
+    orphan.write_text("adversarial staged path\n", encoding="utf-8")
+    subprocess.run(["git", "add", orphan.name], cwd=root, check=True)
+
+    result = subprocess.run(
+        ["uv", "run", "--frozen", "pre-commit", "run", "ownership-governance"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PRE_COMMIT_HOME": str(tmp_path / "pre-commit-cache")},
+    )
+
+    assert result.returncode == 1
+    assert "unowned-new-root.txt: repository path has no CODEOWNER" in (
+        result.stdout + result.stderr
+    )
 
 
 def test_policy_rejects_catch_all_path_ownership(tmp_path: Path) -> None:
@@ -175,7 +231,7 @@ def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> 
     )
     register.write_text(policy, encoding="utf-8")
 
-    with pytest.raises(OwnershipGovernanceError, match="solo_bootstrap.*cannot claim validated"):
+    with pytest.raises(OwnershipGovernanceError, match=r"solo_bootstrap.*cannot claim validated"):
         validate_repository(root, repository_paths=())
 
 

@@ -75,6 +75,7 @@ def test_repository_architecture_governance_is_valid() -> None:
         "0005-runtime-lanes.md",
         "0006-deployment-and-activation.md",
         "0007-observability-substrate.md",
+        "0008-pydantic-boundary-models.md",
     ]
 
 
@@ -108,7 +109,7 @@ def test_adr_lint_rejects_invalid_review_date_boundaries(
         _adr_text(decision_date=decision_date, review_date=review_date), encoding="utf-8"
     )
 
-    with pytest.raises(ArchitectureGovernanceError, match="Decision date|Review date"):
+    with pytest.raises(ArchitectureGovernanceError, match=r"Decision date|Review date"):
         validate_adr(path, expected_identifier=1)
 
 
@@ -176,7 +177,7 @@ def test_decision_log_rejects_adr_metadata_drift(
     directory.mkdir()
     (directory / "template.md").write_text(_adr_text(identifier=0), encoding="utf-8")
     (directory / "0001-test-decision.md").write_text(_adr_text(), encoding="utf-8")
-    row = "| 0001 | [Test decision](0001-test-decision.md) | " "Proposed | platform | 2026-11-25 |"
+    row = "| 0001 | [Test decision](0001-test-decision.md) | Proposed | platform | 2026-11-25 |"
     log = f"""# Decision log
 
 ## Decision records

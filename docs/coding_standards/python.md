@@ -165,6 +165,11 @@ Additional rules:
 - Pydantic or equivalent validation belongs at configuration/serialization
   boundaries; domain code SHOULD not depend on a validation framework without a
   boundary-specific need.
+- The current bootstrap governance, configuration, registry, and serialization
+  records use strict immutable Pydantic boundary models under
+  [ADR 0008](../architecture/decisions/0008-pydantic-boundary-models.md). This does
+  not authorize validation-framework dependencies in economic or trading-domain
+  models.
 
 ## Errors and resource management
 

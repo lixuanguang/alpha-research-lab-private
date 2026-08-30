@@ -31,7 +31,7 @@ repos:
         name: check ownership governance
         entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.ownership_governance
         language: system
-        files: ^(CODEOWNERS|docs/governance/domain-ownership\.(md|toml)|src/alpha_research/ownership_governance\.py|tests/engineering/test_ownership_governance\.py)$
+        always_run: true
         pass_filenames: false
 
       - id: change-risk-policy

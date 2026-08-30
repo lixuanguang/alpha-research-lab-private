@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling==1.27.0"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -9,22 +9,24 @@ description = "Institutional multi-asset quantitative research platform"
 readme = "docs/README.md"
 requires-python = "==3.12.*"
 classifiers = ["Private :: Do Not Upload"]
-dependencies = []
+dependencies = [
+    "pydantic==2.13.5",
+]
 
 [dependency-groups]
 dev = [
-    "bandit[toml]==1.8.0",
-    "hatchling==1.27.0",
-    "mypy==1.14.1",
-    "pre-commit==4.0.1",
-    "pre-commit-hooks==5.0.0",
-    "pytest==8.3.4",
-    "pytest-cov==6.0.0",
-    "ruff==0.8.6",
+    "bandit[toml]==1.9.4",
+    "hatchling==1.32.0",
+    "mypy==2.3.1",
+    "pre-commit==4.6.2",
+    "pre-commit-hooks==6.0.0",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.5",
 ]
 
 [tool.uv]
-required-version = "==0.12.5"
+required-version = "==0.12.7"
 default-groups = ["dev"]
 
 [tool.hatch.build.targets.wheel]

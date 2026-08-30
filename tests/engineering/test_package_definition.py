@@ -8,15 +8,16 @@ from pathlib import Path
 from typing import cast
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
+EXPECTED_RUNTIME_REQUIREMENTS = {"pydantic==2.13.5"}
 EXPECTED_DEV_REQUIREMENTS = {
-    "bandit[toml]==1.8.0",
-    "hatchling==1.27.0",
-    "mypy==1.14.1",
-    "pre-commit==4.0.1",
-    "pre-commit-hooks==5.0.0",
-    "pytest==8.3.4",
-    "pytest-cov==6.0.0",
-    "ruff==0.8.6",
+    "bandit[toml]==1.9.4",
+    "hatchling==1.32.0",
+    "mypy==2.3.1",
+    "pre-commit==4.6.2",
+    "pre-commit-hooks==6.0.0",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.5",
 }
 
 
@@ -45,14 +46,15 @@ def test_installed_distribution_exposes_expected_metadata() -> None:
     assert distribution.metadata["Name"] == "alpha-research-lab"
     assert distribution.version == "0.1.0"
     assert distribution.metadata["Requires-Python"] == "==3.12.*"
+    assert set(distribution.requires or ()) == EXPECTED_RUNTIME_REQUIREMENTS
 
 
-def test_project_has_no_undeclared_runtime_or_floating_direct_dependencies() -> None:
+def test_project_has_only_declared_and_exact_direct_dependencies() -> None:
     configuration = _load_pyproject()
     project = _require_table(configuration, "project")
     dependency_groups = _require_table(configuration, "dependency-groups")
 
-    assert project["dependencies"] == []
+    assert set(_require_string_list(project, "dependencies")) == EXPECTED_RUNTIME_REQUIREMENTS
     assert set(_require_string_list(dependency_groups, "dev")) == EXPECTED_DEV_REQUIREMENTS
 
 
@@ -63,9 +65,9 @@ def test_build_backend_and_python_are_exactly_pinned() -> None:
     tool = _require_table(configuration, "tool")
     uv = _require_table(tool, "uv")
 
-    assert _require_string_list(build_system, "requires") == ["hatchling==1.27.0"]
+    assert _require_string_list(build_system, "requires") == ["hatchling==1.32.0"]
     assert project["requires-python"] == "==3.12.*"
-    assert uv["required-version"] == "==0.12.5"
+    assert uv["required-version"] == "==0.12.7"
     assert (REPOSITORY_ROOT / ".python-version").read_text(encoding="utf-8") == "3.12.14\n"
 
 
@@ -93,7 +95,7 @@ def test_uv_lock_contains_project_and_exact_package_versions() -> None:
 
     direct_names = {
         requirement.partition("[")[0].partition("==")[0].replace("_", "-")
-        for requirement in EXPECTED_DEV_REQUIREMENTS
+        for requirement in EXPECTED_RUNTIME_REQUIREMENTS | EXPECTED_DEV_REQUIREMENTS
     }
     assert project_is_locked
     assert direct_names <= locked_names
@@ -118,5 +120,6 @@ def test_repository_automation_targets_only_the_current_uv_package() -> None:
     assert all(fragment not in automation for fragment in stale_fragments)
     assert "uv sync --frozen" in continuous_integration
     assert "uv build --no-sources" in continuous_integration
+    assert 'version: "0.12.7"' in continuous_integration
     assert "repo: local" in pre_commit
     assert "uv lock --check" in pre_commit

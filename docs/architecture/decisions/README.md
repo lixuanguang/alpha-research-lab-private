@@ -21,7 +21,7 @@ deterministic checker and tests executed by the root and CI interfaces.
 The checker fails closed when a log row's ID, title, link target, status, owner,
 or review date differs from its ADR metadata.
 
-The seven records remain `Proposed` because solo-bootstrap implementation cannot
+The eight records remain `Proposed` because solo-bootstrap implementation cannot
 manufacture Code Owner acceptance. This package is therefore partial even when
 all repository-local checks pass.
 
@@ -36,6 +36,7 @@ all repository-local checks pass.
 | 0005 | [Runtime lanes](0005-runtime-lanes.md) | Proposed | Platform | 2026-11-25 |
 | 0006 | [Deployment and activation](0006-deployment-and-activation.md) | Proposed | Platform | 2026-11-25 |
 | 0007 | [Observability substrate](0007-observability-substrate.md) | Proposed | Platform | 2026-11-25 |
+| 0008 | [Pydantic boundary models](0008-pydantic-boundary-models.md) | Proposed | Platform | 2026-11-30 |
 
 ## Closed validation evidence
 
@@ -59,7 +60,7 @@ should be reviewed in three dependency-ordered slices if opened as merge request
 
 1. `A02a`: principles, dependency rules, ADR lifecycle, deprecation, and exception
    process;
-2. `A02b`: template, decision log, and seven initial proposed decisions;
+2. `A02b`: template, decision log, and eight proposed decisions;
 3. `A02c`: deterministic checker, boundary/failure tests, root command, and hosted
    CI integration.
 

@@ -128,8 +128,10 @@ def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: P
     cyclic = _roadmap_fixture(tmp_path)
     _replace(
         cyclic,
-        "| A01 | Repository charter and monorepo boundary | - |",
-        "| A01 | Repository charter and monorepo boundary | A08 |",
+        "| A01 | Repository charter and monorepo boundary | — | "
+        "Repository-owned governance; no external authority | - |",
+        "| A01 | Repository charter and monorepo boundary | — | "
+        "Repository-owned governance; no external authority | A08 |",
     )
     with pytest.raises(ProgramGovernanceError, match="dependency cycle"):
         load_roadmap(cyclic)
@@ -140,9 +142,43 @@ def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: P
         load_roadmap(shorthand)
 
     missing = _roadmap_fixture(tmp_path)
-    _replace(missing, "| A08 | Program dependency graph and owned baseline KPIs | A01-A07 |", "")
+    _replace(
+        missing,
+        "| A08 | Program dependency graph and owned baseline KPIs | — | "
+        "Metrics are non-vanity signals and never replace hard gates | A01-A07 |",
+        "",
+    )
     with pytest.raises(ProgramGovernanceError, match="A01-L08 exactly once"):
         load_roadmap(missing)
+
+
+def test_roadmap_requires_embedded_library_and_boundary_columns(tmp_path: Path) -> None:
+    text = ROADMAP_PATH.read_text(encoding="utf-8")
+    header = (
+        "| ID | Objective / delivery | Library/tool to use or incorporate | "
+        "Incorporation boundary / restriction | Depends on |"
+    )
+
+    assert text.count(header) == 12
+    assert "## Recommended shortlist" not in text
+    assert "## Useful, but with narrower roles" not in text
+    assert "## Tools to restrict" not in text
+    assert "## Migration and reuse overlay" in text
+    assert "### Package columns are authoritative" in text
+    assert "[executed refresh record](pre-b01-toolchain-refresh.md)" in text
+    assert "## Pre-B01 toolchain refresh gate" not in text
+    assert "## First implementation prompt: pre-B01 toolchain refresh" not in text
+    assert "Implement B04 as separate toolchain-refresh MRs" not in text
+
+    malformed = _roadmap_fixture(tmp_path)
+    _replace(
+        malformed,
+        "| A01 | Repository charter and monorepo boundary | — | "
+        "Repository-owned governance; no external authority | - |",
+        "| A01 | Repository charter and monorepo boundary | - |",
+    )
+    with pytest.raises(ProgramGovernanceError, match="must declare objective, library/tool"):
+        load_roadmap(malformed)
 
 
 def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(

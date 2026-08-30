@@ -9,8 +9,17 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
+from alpha_research.change_risk import ChangeRiskInput, RiskClass
 from alpha_research.change_risk import load_policy as load_change_risk_policy
-from alpha_research.evidence import validate_manifest
+from alpha_research.evidence import (
+    EvidenceGovernanceError,
+    PackageEvidenceProfile,
+    PackageGateRequirement,
+    validate_manifest,
+    validate_package_evidence,
+)
 from alpha_research.security_controls.models import (
     AuthoritySource,
     EvidenceSource,
@@ -50,6 +59,30 @@ APPLICABLE_GATE_IDS = (
 )
 
 _EXPECTED_FINDING_IDS = ("A07-F01", "A07-F02", "A07-F03", "A07-F04")
+_LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
+    roadmap_package_id="A07",
+    accountable_owner_role="security",
+    risk_class=RiskClass.R2,
+    classification_facts=ChangeRiskInput(
+        capital_at_risk=False,
+        blast_radius="shared_domain",
+        data_model_materiality="shared_or_candidate",
+        security_privilege="shared_sensitive",
+        reversibility="compatibility_window",
+        computationally_material=True,
+        economically_or_risk_relevant=False,
+        model_or_trading_relevant=False,
+        declared_class=RiskClass.R2,
+    ),
+    gate_requirements=tuple(
+        PackageGateRequirement(gate_id=gate_id, status="passed") for gate_id in APPLICABLE_GATE_IDS
+    ),
+    expected_package_status="partial",
+    expected_finding_ids=_EXPECTED_FINDING_IDS,
+    approvals_permitted=False,
+    waivers_permitted=False,
+    additional_required_gates_permitted=False,
+)
 _TRUSTED_AUTHORITY_HOSTS = {
     "A07-SRC-GB-01": "handbook.fca.org.uk",
     "A07-SRC-GB-02": "www.fca.org.uk",
@@ -509,7 +542,7 @@ def _parse_mappings(value: object) -> tuple[RegulatoryMapping, ...]:
     )
 
 
-def load_control_map(
+def _load_control_map(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> SecurityControlMap:
     """Load and validate the complete A07 threat and regulatory control map."""
@@ -888,6 +921,20 @@ def load_control_map(
     )
 
 
+def load_control_map(
+    path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
+) -> SecurityControlMap:
+    """Load the A07 map while preserving its public domain-error contract."""
+    try:
+        return _load_control_map(
+            path,
+            repository_root=repository_root,
+            ownership_register_path=ownership_register_path,
+        )
+    except ValidationError as error:
+        raise SecurityControlError([f"{path}: control-map model validation failed"]) from error
+
+
 def _validate_local_evidence(repository_root: Path, control_map: SecurityControlMap) -> None:
     """Validate the synthetic R2 evidence without treating it as acceptance."""
     try:
@@ -901,44 +948,10 @@ def _validate_local_evidence(repository_root: Path, control_map: SecurityControl
         )
     except (OSError, ValueError) as error:
         raise SecurityControlError([f"A07 local evidence bundle: {error}"]) from error
-    findings: list[str] = []
-    if manifest.roadmap_id != control_map.roadmap_package or (
-        manifest.risk_class != control_map.risk_class
-    ):
-        findings.append("A07 local evidence bundle must be roadmap A07 risk R2")
-    if manifest.owner_role != control_map.accountable_owner_role:
-        findings.append("A07 local evidence bundle owner must match the control map")
-    expected_change_fields = {
-        "blast_radius": "shared_domain",
-        "data_model_materiality": "shared_or_candidate",
-        "reversibility": "compatibility_window",
-        "security_privilege": "shared_sensitive",
-    }
-    for field_name, expected_value in expected_change_fields.items():
-        if getattr(manifest.change, field_name) != expected_value:
-            findings.append(f"A07 local evidence change.{field_name} must be {expected_value!r}")
-    if not manifest.change.computationally_material:
-        findings.append("A07 local evidence must remain computationally material")
-    if manifest.change.economically_or_risk_relevant:
-        findings.append("A07 local evidence cannot claim executable economic or risk behavior")
-    if manifest.change.model_or_trading_relevant:
-        findings.append("A07 local evidence cannot claim executable model or trading behavior")
-    if manifest.bundle_status != "partial":
-        findings.append("A07 local evidence bundle must remain partial")
-    if manifest.open_finding_ids != control_map.finding_ids:
-        findings.append("A07 local evidence bundle must retain the control-map findings")
-    if {gate.gate_id for gate in manifest.gates} != set(control_map.applicable_gate_ids):
-        findings.append("A07 local evidence bundle must record every applicable gate")
-    if any(gate.status != "passed" for gate in manifest.gates):
-        findings.append("A07 local evidence bundle must pass each repository-local gate")
-    if manifest.approvals:
-        findings.append("A07 synthetic evidence cannot contain approvals")
-    if manifest.waived_controls:
-        findings.append("A07 synthetic evidence cannot contain control waivers")
-    if manifest.additional_required_gates:
-        findings.append("A07 synthetic evidence cannot redefine applicable gates")
-    if findings:
-        raise SecurityControlError(findings)
+    try:
+        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+    except EvidenceGovernanceError as error:
+        raise SecurityControlError(error.findings) from error
 
 
 def validate_repository(repository_root: Path) -> SecurityControlMap:

@@ -86,6 +86,10 @@ No eligible target observations exist yet. The dashboard therefore reports
 `insufficient_observations`, not zero. Baselines remain
 `awaiting_target_observations`, and numeric targets remain
 `pending_owner_approval`; fabricating either would be a control failure.
+The synthetic A08 bundle is separately checked against an immutable package
+profile binding its roadmap ID, accountable owner, every classification fact,
+exact gate statuses, partial findings, and the prohibition on approvals, waivers,
+or caller-added gates.
 
 ## Quality-gate evidence
 

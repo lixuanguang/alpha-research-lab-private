@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
+
+from alpha_research._models import ImmutableModel
 
 
 class InventoryGovernanceError(ValueError):
@@ -14,8 +15,7 @@ class InventoryGovernanceError(ValueError):
         super().__init__("\n".join(self.findings))
 
 
-@dataclass(frozen=True)
-class KindPopulation:
+class KindPopulation(ImmutableModel):
     """Declared population state and owner for one inventory kind."""
 
     kind: str
@@ -33,8 +33,7 @@ class KindPopulation:
         }
 
 
-@dataclass(frozen=True)
-class InventoryItem:
+class InventoryItem(ImmutableModel):
     """One versioned resource record with ownership and evidence lineage."""
 
     inventory_id: str
@@ -74,8 +73,7 @@ class InventoryItem:
         }
 
 
-@dataclass(frozen=True)
-class ResourceInventory:
+class ResourceInventory(ImmutableModel):
     """Validated A06 catalog and package state."""
 
     catalog_version: int

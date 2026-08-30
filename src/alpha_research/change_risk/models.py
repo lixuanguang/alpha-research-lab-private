@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import Enum
+
+from pydantic import field_serializer
+
+from alpha_research._models import ImmutableModel
 
 
 class ChangeRiskPolicyError(ValueError):
     """Report invalid policy, classification, or approval evidence."""
 
 
-class RiskClass(str, Enum):
+class RiskClass(str, Enum):  # noqa: UP042 - StrEnum changes str(member) behavior.
     """Ordered institutional change-risk classes."""
 
     R0 = "R0"
@@ -25,8 +28,7 @@ class RiskClass(str, Enum):
         return int(self.value[1])
 
 
-@dataclass(frozen=True)
-class ChangeRiskInput:
+class ChangeRiskInput(ImmutableModel):
     """Validated dimensions and conditional-gate facts for one change."""
 
     capital_at_risk: bool
@@ -62,8 +64,7 @@ class ChangeRiskInput:
             raise ChangeRiskPolicyError(f"unknown applicability trigger {trigger!r}") from error
 
 
-@dataclass(frozen=True)
-class DimensionPolicy:
+class DimensionPolicy(ImmutableModel):
     """Allowed values and minimum class for one risk dimension."""
 
     name: str
@@ -80,16 +81,14 @@ class DimensionPolicy:
         )
 
 
-@dataclass(frozen=True)
-class ConditionalGateRule:
+class ConditionalGateRule(ImmutableModel):
     """Additional mandatory gates activated by an explicit change fact."""
 
     trigger: str
     gates: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class ReviewerGroup:
+class ReviewerGroup(ImmutableModel):
     """A reviewer role group that distinct approval evidence must satisfy."""
 
     group_id: str
@@ -97,9 +96,13 @@ class ReviewerGroup:
     minimum_approvals: int
     independent: bool
 
+    @field_serializer("roles", when_used="json")
+    def sorted_roles(self, roles: frozenset[str]) -> tuple[str, ...]:
+        """Serialize an unordered immutable set deterministically."""
+        return tuple(sorted(roles))
 
-@dataclass(frozen=True)
-class RiskClassPolicy:
+
+class RiskClassPolicy(ImmutableModel):
     """Gate, review, rollout, activation, and retention policy for a class."""
 
     risk_class: RiskClass
@@ -114,8 +117,7 @@ class RiskClassPolicy:
     evidence_retention_class: str
 
 
-@dataclass(frozen=True)
-class SampleChange:
+class SampleChange(ImmutableModel):
     """Machine-readable classifier example retained with the policy."""
 
     change_id: str
@@ -123,8 +125,7 @@ class SampleChange:
     expected_class: RiskClass
 
 
-@dataclass(frozen=True)
-class ChangeRiskPolicy:
+class ChangeRiskPolicy(ImmutableModel):
     """Complete versioned A04 policy."""
 
     dimensions: tuple[DimensionPolicy, ...]
@@ -135,6 +136,11 @@ class ChangeRiskPolicy:
     package_status: str
     samples: tuple[SampleChange, ...]
     findings: tuple[str, ...]
+
+    @field_serializer("hard_controls", when_used="json")
+    def sorted_hard_controls(self, controls: frozenset[str]) -> tuple[str, ...]:
+        """Serialize an unordered immutable set deterministically."""
+        return tuple(sorted(controls))
 
     def dimension(self, name: str) -> DimensionPolicy:
         """Return a named dimension or fail closed."""
@@ -151,8 +157,7 @@ class ChangeRiskPolicy:
         raise ChangeRiskPolicyError(f"policy has no class {risk_class.value}")
 
 
-@dataclass(frozen=True)
-class ClassificationDecision:
+class ClassificationDecision(ImmutableModel):
     """Deterministic classifier output used by later evidence tooling."""
 
     risk_class: RiskClass
@@ -166,11 +171,15 @@ class ClassificationDecision:
     evidence_retention_class: str
 
 
-@dataclass(frozen=True)
-class ReviewApproval:
+class ReviewApproval(ImmutableModel):
     """One identified review approval supplied to the policy check."""
 
     reviewer_id: str
     roles: frozenset[str]
     independent: bool = False
     is_author: bool = False
+
+    @field_serializer("roles", when_used="json")
+    def sorted_roles(self, roles: frozenset[str]) -> tuple[str, ...]:
+        """Serialize an unordered immutable set deterministically."""
+        return tuple(sorted(roles))

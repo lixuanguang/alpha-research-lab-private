@@ -9,8 +9,17 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
+from alpha_research.change_risk import ChangeRiskInput, RiskClass
 from alpha_research.change_risk import load_policy as load_change_risk_policy
-from alpha_research.evidence import validate_manifest
+from alpha_research.evidence import (
+    EvidenceGovernanceError,
+    PackageEvidenceProfile,
+    PackageGateRequirement,
+    validate_manifest,
+    validate_package_evidence,
+)
 from alpha_research.inventory.models import (
     InventoryGovernanceError,
     InventoryItem,
@@ -46,6 +55,31 @@ _APPLICABLE_GATES = {
     "QG14",
 }
 _COMMIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+_LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
+    roadmap_package_id="A06",
+    accountable_owner_role="platform",
+    risk_class=RiskClass.R2,
+    classification_facts=ChangeRiskInput(
+        capital_at_risk=False,
+        blast_radius="shared_domain",
+        data_model_materiality="shared_or_candidate",
+        security_privilege="none",
+        reversibility="compatibility_window",
+        computationally_material=True,
+        economically_or_risk_relevant=False,
+        model_or_trading_relevant=False,
+        declared_class=RiskClass.R2,
+    ),
+    gate_requirements=tuple(
+        PackageGateRequirement(gate_id=gate_id, status="passed")
+        for gate_id in sorted(_APPLICABLE_GATES)
+    ),
+    expected_package_status="partial",
+    expected_finding_ids=_EXPECTED_FINDING_IDS,
+    approvals_permitted=False,
+    waivers_permitted=False,
+    additional_required_gates_permitted=False,
+)
 _ROOT_KEYS = {
     "accountable_owner_role",
     "as_of_date",
@@ -225,7 +259,14 @@ def _parse_kind_states(
             findings.append(f"{context}.population_status is unsupported")
         if owner_role not in ownership_roles:
             findings.append(f"{context}: stale ownership role {owner_role!r}")
-        states.append(KindPopulation(kind, population_status, owner_role, rationale))
+        states.append(
+            KindPopulation(
+                kind=kind,
+                population_status=population_status,
+                owner_role=owner_role,
+                rationale=rationale,
+            )
+        )
     if tuple(state.kind for state in states) != RESOURCE_KINDS:
         findings.append(
             f"kind_states must declare each supported kind in order: {RESOURCE_KINDS!r}"
@@ -283,7 +324,7 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
         state = states.get(inventory_id, 0)
         if state == 1:
             start = trail.index(inventory_id)
-            cycles.append(" -> ".join(trail[start:] + (inventory_id,)))
+            cycles.append(" -> ".join((*trail[start:], inventory_id)))
             return
         if state == 2:
             return
@@ -298,7 +339,7 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
     return tuple(dict.fromkeys(cycles))
 
 
-def load_inventory(
+def _load_inventory(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> ResourceInventory:
     """Load and validate a complete A06 inventory against repository state."""
@@ -481,6 +522,20 @@ def load_inventory(
     )
 
 
+def load_inventory(
+    path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
+) -> ResourceInventory:
+    """Load the A06 inventory while preserving its public domain-error contract."""
+    try:
+        return _load_inventory(
+            path,
+            repository_root=repository_root,
+            ownership_register_path=ownership_register_path,
+        )
+    except ValidationError as error:
+        raise InventoryGovernanceError([f"{path}: inventory model validation failed"]) from error
+
+
 def _validate_local_evidence(repository_root: Path, inventory: ResourceInventory) -> None:
     """Validate the synthetic R2 bundle without treating it as forge acceptance."""
     try:
@@ -494,22 +549,10 @@ def _validate_local_evidence(repository_root: Path, inventory: ResourceInventory
         )
     except (OSError, ValueError) as error:
         raise InventoryGovernanceError([f"A06 local evidence bundle: {error}"]) from error
-
-    findings: list[str] = []
-    if manifest.roadmap_id != "A06" or manifest.risk_class != "R2":
-        findings.append("A06 local evidence bundle must be classified as roadmap A06 risk R2")
-    if manifest.bundle_status != "partial":
-        findings.append("A06 local evidence bundle must remain partial")
-    if manifest.open_finding_ids != inventory.finding_ids:
-        findings.append("A06 local evidence bundle must retain the catalog findings exactly")
-    if {gate.gate_id for gate in manifest.gates} != _APPLICABLE_GATES:
-        findings.append("A06 local evidence bundle must record every applicable gate exactly once")
-    if any(gate.status != "passed" for gate in manifest.gates):
-        findings.append("A06 local evidence bundle must pass each repository-local gate")
-    if manifest.approvals:
-        findings.append("A06 synthetic local evidence bundle cannot contain approvals")
-    if findings:
-        raise InventoryGovernanceError(findings)
+    try:
+        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+    except EvidenceGovernanceError as error:
+        raise InventoryGovernanceError(error.findings) from error
 
 
 def validate_repository(repository_root: Path) -> ResourceInventory:

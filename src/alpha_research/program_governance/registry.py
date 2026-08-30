@@ -11,8 +11,17 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+from pydantic import ValidationError
+
+from alpha_research.change_risk import ChangeRiskInput, RiskClass
 from alpha_research.change_risk import load_policy as load_change_risk_policy
-from alpha_research.evidence import validate_manifest
+from alpha_research.evidence import (
+    EvidenceGovernanceError,
+    PackageEvidenceProfile,
+    PackageGateRequirement,
+    validate_manifest,
+    validate_package_evidence,
+)
 from alpha_research.program_governance.models import (
     MetricDefinition,
     MetricObservation,
@@ -48,6 +57,30 @@ APPLICABLE_GATE_IDS = (
 )
 
 _EXPECTED_FINDING_IDS = ("A08-F01", "A08-F02", "A08-F03")
+_LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
+    roadmap_package_id="A08",
+    accountable_owner_role="platform",
+    risk_class=RiskClass.R2,
+    classification_facts=ChangeRiskInput(
+        capital_at_risk=False,
+        blast_radius="shared_domain",
+        data_model_materiality="shared_or_candidate",
+        security_privilege="none",
+        reversibility="compatibility_window",
+        computationally_material=True,
+        economically_or_risk_relevant=False,
+        model_or_trading_relevant=False,
+        declared_class=RiskClass.R2,
+    ),
+    gate_requirements=tuple(
+        PackageGateRequirement(gate_id=gate_id, status="passed") for gate_id in APPLICABLE_GATE_IDS
+    ),
+    expected_package_status="partial",
+    expected_finding_ids=_EXPECTED_FINDING_IDS,
+    approvals_permitted=False,
+    waivers_permitted=False,
+    additional_required_gates_permitted=False,
+)
 _PACKAGE_ID = re.compile(r"^[A-L](?:0[1-8])$")
 _METRIC_ID = re.compile(r"^kpi\.[a-z][a-z0-9_]*$")
 _TOKEN = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -334,7 +367,7 @@ def _parse_dependency_expression(
     return dependencies, groups
 
 
-def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
+def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
     """Parse the 96-package roadmap tables into an exact DAG."""
     lines = path.read_text(encoding="utf-8").splitlines()
     current_wave: str | None = None
@@ -344,10 +377,26 @@ def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
         if wave_match is not None:
             current_wave = wave_match.group(1)
             continue
-        row_match = re.fullmatch(r"\| ([A-L]0[1-8]) \| (.+) \| (.+) \|", line)
-        if row_match is None:
+        if re.match(r"\| [A-L]0[1-8] \|", line) is None:
             continue
-        package_id, objective, expression = row_match.groups()
+        row_match = re.fullmatch(
+            r"\| ([A-L]0[1-8]) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|",
+            line,
+        )
+        if row_match is None:
+            raise ProgramGovernanceError(
+                [
+                    "roadmap package rows must declare objective, library/tool, "
+                    "incorporation boundary, and dependencies"
+                ]
+            )
+        package_id, objective, library, boundary, expression = (
+            value.strip() for value in row_match.groups()
+        )
+        if not library or not boundary:
+            raise ProgramGovernanceError(
+                [f"{package_id}: library/tool and incorporation boundary cannot be empty"]
+            )
         if current_wave != package_id[0]:
             raise ProgramGovernanceError(
                 [f"{package_id}: roadmap row is outside its Wave {package_id[0]} section"]
@@ -383,6 +432,14 @@ def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
     return tuple(packages)
 
 
+def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
+    """Load the roadmap while preserving its public domain-error contract."""
+    try:
+        return _load_roadmap(path)
+    except ValidationError as error:
+        raise ProgramGovernanceError([f"{path}: roadmap model validation failed"]) from error
+
+
 def _dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
     graph = {
         package.package_id: package.dependencies
@@ -396,7 +453,7 @@ def _dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
         state = states.get(package_id, 0)
         if state == 1:
             start = trail.index(package_id)
-            cycles.append(" -> ".join(trail[start:] + (package_id,)))
+            cycles.append(" -> ".join((*trail[start:], package_id)))
             return
         if state == 2:
             return
@@ -614,7 +671,7 @@ def _parse_findings(value: object) -> tuple[str, ...]:
     return tuple(identifiers)
 
 
-def load_program(
+def _load_program(
     path: Path,
     *,
     repository_root: Path,
@@ -699,7 +756,24 @@ def load_program(
     )
 
 
-def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
+def load_program(
+    path: Path,
+    *,
+    repository_root: Path,
+    ownership_register_path: Path | None = None,
+) -> ProgramGovernance:
+    """Load A08 governance while preserving its public domain-error contract."""
+    try:
+        return _load_program(
+            path,
+            repository_root=repository_root,
+            ownership_register_path=ownership_register_path,
+        )
+    except ValidationError as error:
+        raise ProgramGovernanceError([f"{path}: program model validation failed"]) from error
+
+
+def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
     """Load strict JSONL events and deduplicate identical retries by event ID."""
     if path.stat().st_size > _MAX_OBSERVATION_FILE_BYTES:
         raise ProgramGovernanceError(["observation input exceeds the governed byte limit"])
@@ -815,6 +889,14 @@ def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metric
     return tuple(observations)
 
 
+def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
+    """Load KPI events while preserving their public domain-error contract."""
+    try:
+        return _load_observations(path, program=program)
+    except ValidationError as error:
+        raise ProgramGovernanceError([f"{path}: observation model validation failed"]) from error
+
+
 def _validate_local_evidence(repository_root: Path, program: ProgramGovernance) -> None:
     if _REVISION.fullmatch(program.local_evidence_commit_sha) is None:
         raise ProgramGovernanceError(["A08 local evidence commit SHA must be full length"])
@@ -829,19 +911,10 @@ def _validate_local_evidence(repository_root: Path, program: ProgramGovernance) 
         )
     except (OSError, ValueError) as error:
         raise ProgramGovernanceError([f"A08 local evidence bundle: {error}"]) from error
-    findings: list[str] = []
-    if manifest.roadmap_id != "A08" or manifest.risk_class != "R2":
-        findings.append("A08 local evidence bundle must be roadmap A08 risk R2")
-    if manifest.bundle_status != "partial" or manifest.approvals:
-        findings.append("A08 synthetic evidence must remain partial and contain no approvals")
-    if manifest.open_finding_ids != program.finding_ids:
-        findings.append("A08 local evidence bundle must retain the program findings exactly")
-    if tuple(sorted(gate.gate_id for gate in manifest.gates)) != tuple(sorted(APPLICABLE_GATE_IDS)):
-        findings.append("A08 local evidence bundle must record every applicable gate")
-    if any(gate.status != "passed" for gate in manifest.gates):
-        findings.append("A08 local evidence bundle must pass each repository-local gate")
-    if findings:
-        raise ProgramGovernanceError(findings)
+    try:
+        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+    except EvidenceGovernanceError as error:
+        raise ProgramGovernanceError(error.findings) from error
 
 
 def validate_repository(repository_root: Path) -> ProgramGovernance:

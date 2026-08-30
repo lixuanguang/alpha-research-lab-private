@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -75,11 +74,27 @@ def _change_for(risk_class: RiskClass, *, declared: RiskClass | None = None) -> 
 
 def _r4_approvals() -> tuple[ReviewApproval, ...]:
     return (
-        ReviewApproval("owner", frozenset({"domain_owner"})),
-        ReviewApproval("risk", frozenset({"independent_risk"}), independent=True),
-        ReviewApproval("sre", frozenset({"sre"}), independent=True),
-        ReviewApproval("security", frozenset({"security"}), independent=True),
+        ReviewApproval(reviewer_id="owner", roles=frozenset({"domain_owner"})),
+        ReviewApproval(
+            reviewer_id="risk",
+            roles=frozenset({"independent_risk"}),
+            independent=True,
+        ),
+        ReviewApproval(reviewer_id="sre", roles=frozenset({"sre"}), independent=True),
+        ReviewApproval(
+            reviewer_id="security",
+            roles=frozenset({"security"}),
+            independent=True,
+        ),
     )
+
+
+def _validated_change_update(
+    change: ChangeRiskInput, **updates: bool | RiskClass | None
+) -> ChangeRiskInput:
+    values = change.model_dump()
+    values.update(updates)
+    return ChangeRiskInput.model_validate(values)
 
 
 def _mutated_policy(tmp_path: Path, old: str, new: str) -> Path:
@@ -167,8 +182,8 @@ def test_conservative_escalation_preserves_computed_conditional_gates(
     policy: ChangeRiskPolicy,
 ) -> None:
     base = _change_for(RiskClass.R2)
-    computed_change = replace(base, economically_or_risk_relevant=True)
-    escalated_change = replace(
+    computed_change = _validated_change_update(base, economically_or_risk_relevant=True)
+    escalated_change = _validated_change_update(
         computed_change,
         declared_class=RiskClass.R3,
     )
@@ -246,7 +261,7 @@ def test_r4_requires_distinct_review_groups_and_independent_approvers(
     with pytest.raises(ChangeRiskPolicyError, match="at least 4 distinct approvers"):
         validate_merge_approvals(
             decision,
-            [ReviewApproval("owner", frozenset({"domain_owner"}))],
+            [ReviewApproval(reviewer_id="owner", roles=frozenset({"domain_owner"}))],
             change=change,
             waived_controls=(),
             policy=policy,
@@ -262,8 +277,8 @@ def test_r4_activation_requires_two_distinct_canonical_identities(
     validate_activation_approvals(
         decision,
         (
-            ReviewApproval("operations", frozenset({"sre"})),
-            ReviewApproval("risk", frozenset({"independent_risk"})),
+            ReviewApproval(reviewer_id="operations", roles=frozenset({"sre"})),
+            ReviewApproval(reviewer_id="risk", roles=frozenset({"independent_risk"})),
         ),
         change=change,
         policy=policy,
@@ -272,7 +287,7 @@ def test_r4_activation_requires_two_distinct_canonical_identities(
     with pytest.raises(ChangeRiskPolicyError, match="activation requires at least 2"):
         validate_activation_approvals(
             decision,
-            (ReviewApproval("operations", frozenset({"sre"})),),
+            (ReviewApproval(reviewer_id="operations", roles=frozenset({"sre"})),),
             change=change,
             policy=policy,
         )
@@ -281,8 +296,11 @@ def test_r4_activation_requires_two_distinct_canonical_identities(
         validate_activation_approvals(
             decision,
             (
-                ReviewApproval("Alice", frozenset({"sre"})),
-                ReviewApproval(" alice ", frozenset({"independent_risk"})),
+                ReviewApproval(reviewer_id="Alice", roles=frozenset({"sre"})),
+                ReviewApproval(
+                    reviewer_id=" alice ",
+                    roles=frozenset({"independent_risk"}),
+                ),
             ),
             change=change,
             policy=policy,
@@ -298,7 +316,7 @@ def test_approval_validation_rejects_a_decision_for_another_change(
     with pytest.raises(ChangeRiskPolicyError, match="does not match the deterministic result"):
         validate_merge_approvals(
             untrusted_decision,
-            [ReviewApproval("owner", frozenset({"code_owner"}))],
+            [ReviewApproval(reviewer_id="owner", roles=frozenset({"code_owner"}))],
             change=capital_change,
             waived_controls=(),
             policy=policy,
@@ -310,12 +328,13 @@ def test_approval_validation_rejects_same_class_decision_tampering(
 ) -> None:
     change = _change_for(RiskClass.R4)
     trusted_decision = classify_change(change, policy)
-    tampered_decision = replace(trusted_decision, minimum_approvals=1)
+    # Deliberately bypass validation to represent untrusted, tampered evidence.
+    tampered_decision = trusted_decision.model_copy(update={"minimum_approvals": 1})
 
     with pytest.raises(ChangeRiskPolicyError, match="does not match the deterministic result"):
         validate_merge_approvals(
             tampered_decision,
-            [ReviewApproval("owner", frozenset({"domain_owner"}))],
+            [ReviewApproval(reviewer_id="owner", roles=frozenset({"domain_owner"}))],
             change=change,
             waived_controls=(),
             policy=policy,
@@ -327,13 +346,13 @@ def test_author_cannot_satisfy_an_independent_r4_group(policy: ChangeRiskPolicy)
     decision = classify_change(change, policy)
     approvals = list(_r4_approvals())
     approvals[1] = ReviewApproval(
-        "risk",
-        frozenset({"independent_risk"}),
+        reviewer_id="risk",
+        roles=frozenset({"independent_risk"}),
         independent=True,
         is_author=True,
     )
 
-    with pytest.raises(ChangeRiskPolicyError, match="independent_control.*unsatisfied"):
+    with pytest.raises(ChangeRiskPolicyError, match=r"independent_control.*unsatisfied"):
         validate_merge_approvals(
             decision,
             approvals,
@@ -364,13 +383,13 @@ def test_one_multi_role_reviewer_cannot_satisfy_multiple_r4_groups(
     decision = classify_change(change, policy)
     approvals = (
         ReviewApproval(
-            "multi-role",
-            frozenset({"domain_owner", "independent_risk", "sre", "security"}),
+            reviewer_id="multi-role",
+            roles=frozenset({"domain_owner", "independent_risk", "sre", "security"}),
             independent=True,
         ),
-        ReviewApproval("second", frozenset({"peer"}), independent=True),
-        ReviewApproval("third", frozenset({"peer"}), independent=True),
-        ReviewApproval("fourth", frozenset({"peer"})),
+        ReviewApproval(reviewer_id="second", roles=frozenset({"peer"}), independent=True),
+        ReviewApproval(reviewer_id="third", roles=frozenset({"peer"}), independent=True),
+        ReviewApproval(reviewer_id="fourth", roles=frozenset({"peer"})),
     )
 
     with pytest.raises(ChangeRiskPolicyError, match="distinct qualifying identities"):
@@ -387,10 +406,10 @@ def test_duplicate_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy
     change = _change_for(RiskClass.R2)
     decision = classify_change(change, policy)
     approvals = (
-        ReviewApproval("same", frozenset({"code_owner"})),
+        ReviewApproval(reviewer_id="same", roles=frozenset({"code_owner"})),
         ReviewApproval(
-            "same",
-            frozenset({"domain_reviewer"}),
+            reviewer_id="same",
+            roles=frozenset({"domain_reviewer"}),
             independent=True,
         ),
     )
@@ -409,10 +428,10 @@ def test_canonical_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy
     change = _change_for(RiskClass.R2)
     decision = classify_change(change, policy)
     approvals = (
-        ReviewApproval("Alice", frozenset({"code_owner"})),
+        ReviewApproval(reviewer_id="Alice", roles=frozenset({"code_owner"})),
         ReviewApproval(
-            " alice ",
-            frozenset({"domain_reviewer"}),
+            reviewer_id=" alice ",
+            roles=frozenset({"domain_reviewer"}),
             independent=True,
         ),
     )
@@ -491,7 +510,7 @@ def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> 
     )
     path.write_text(text, encoding="utf-8")
 
-    with pytest.raises(ChangeRiskPolicyError, match="solo_bootstrap.*cannot claim validated"):
+    with pytest.raises(ChangeRiskPolicyError, match=r"solo_bootstrap.*cannot claim validated"):
         load_policy(path)
 
 

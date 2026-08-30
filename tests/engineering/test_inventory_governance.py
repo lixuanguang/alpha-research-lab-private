@@ -234,7 +234,7 @@ def test_partial_catalog_requires_exact_findings_and_solo_cannot_validate(
 
     validated = _catalog_fixture(tmp_path)
     _replace(validated, 'package_status = "partial"', 'package_status = "validated"')
-    with pytest.raises(InventoryGovernanceError, match="solo_bootstrap.*cannot claim validated"):
+    with pytest.raises(InventoryGovernanceError, match=r"solo_bootstrap.*cannot claim validated"):
         _load_fixture(validated)
 
     validated_item = _catalog_fixture(tmp_path)
