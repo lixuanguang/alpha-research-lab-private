@@ -97,6 +97,15 @@ contract, `A05b` for the validator and adversarial tests, and `A05c` for example
 documentation, and automation integration. Every slice retains A05; no slice
 alone satisfies its repository-local evidence.
 
+## Supplemental unprotected forge evidence
+
+The [A05 unprotected forge exercise](evidence/a05-unprotected-forge-exercise.md)
+retains the complete-body passing job, the missing-field blocking job, exact head
+and tree identities, and the observed collision when two PR events shared one
+head commit. This is useful hosted integration evidence, but `main` was not
+protected and no independent Code Owner approved the change. It therefore closes
+neither A05-F01 nor A05-F02 and does not change the package's `partial` status.
+
 ## Open findings
 
 | Finding | Owner | Unavailable evidence | Closure condition |
