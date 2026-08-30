@@ -1,0 +1,1 @@
+Synthetic A08 fixture: A01-L08 coverage, exact ranges, conditional asset dependencies, cycle rejection, evidence linkage, and institutional versus solo-provisional readiness are deterministic.

@@ -69,7 +69,7 @@ rationale = "Git commits and bootstrap wheels are not signed immutable platform 
 kind = "control"
 population_status = "populated"
 owner_role = "platform"
-rationale = "A01-A07 provide repository-local governance controls with explicit provisional status."
+rationale = "A01-A08 provide repository-local governance controls with explicit provisional status."
 
 [[items]]
 inventory_id = "inv.control.governance.a01_repository_boundary"
@@ -281,6 +281,51 @@ deployment_evidence = []
 status_evidence = [
   "docs/governance/threat-model.md",
   "docs/governance/evidence/examples/a07-r2-partial/manifest.toml",
+]
+review_due_on = "2026-11-30"
+
+[[items]]
+inventory_id = "inv.control.governance.a08_program_governance"
+kind = "control"
+record_version = 1
+name = "A08 program dependency and KPI governance"
+owner_role = "platform"
+criticality = "T3"
+status = "provisional"
+dependencies = [
+  "inv.control.governance.a01_repository_boundary",
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a03_ownership_governance",
+  "inv.control.governance.a04_change_risk",
+  "inv.control.governance.a05_merge_evidence",
+  "inv.control.governance.a06_resource_inventory",
+  "inv.control.governance.a07_security_controls",
+]
+retention_class = "shared_contract_compatibility_lifecycle"
+source_paths = [
+  "docs/governance/program-governance.md",
+  "docs/governance/program-governance.toml",
+  "src/alpha_research/program_governance/registry.py",
+  "tests/engineering/test_program_governance.py",
+]
+lineage_refs = [
+  "inv.control.governance.a01_repository_boundary",
+  "inv.control.governance.a02_architecture_governance",
+  "inv.control.governance.a03_ownership_governance",
+  "inv.control.governance.a04_change_risk",
+  "inv.control.governance.a05_merge_evidence",
+  "inv.control.governance.a06_resource_inventory",
+  "inv.control.governance.a07_security_controls",
+  "docs/governance/program-governance.md",
+  "docs/governance/program-governance.toml",
+  "src/alpha_research/program_governance/registry.py",
+  "tests/engineering/test_program_governance.py",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = [
+  "docs/governance/program-governance.md",
+  "docs/governance/evidence/examples/a08-r2-partial/manifest.toml",
 ]
 review_due_on = "2026-11-30"
 

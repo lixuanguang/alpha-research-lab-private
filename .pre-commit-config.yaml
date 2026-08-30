@@ -62,6 +62,13 @@ repos:
         files: ^(docs/README\.md|docs/governance/(domain-ownership\.toml|security-control-map\.toml|threat-model\.md|evidence/examples/a07-r2-partial/.*)|docs/roadmap/README\.md|src/alpha_research/security_controls/[a-z_]+\.py|tests/engineering/test_security_controls\.py|tests/engineering/test_root_commands\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
+      - id: program-governance
+        name: check program dependency and KPI governance
+        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.program_governance
+        language: system
+        files: ^(docs/README\.md|docs/governance/(program-governance\.(md|toml)|resource-inventory\.(md|toml)|evidence/examples/a08-r2-partial/.*)|docs/roadmap/README\.md|src/alpha_research/program_governance/[a-z_]+\.py|tests/engineering/(test_program_governance|test_inventory_governance|test_root_commands)\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        pass_filenames: false
+
       - id: trailing-whitespace
         name: trim trailing whitespace
         entry: uv run --frozen trailing-whitespace-fixer
