@@ -394,21 +394,21 @@ logical package rather than creating parallel roadmap IDs.
 
 ### Active B01 delivery state
 
-`B01a` and `B01b` are provisionally implemented under solo bootstrap by the
-[governed target registry, governance-tool package, and compatibility entry points](../architecture/repository-topology.md).
-B01b preserves B01a's source graph, moves implementation into owned
-`tools/governance` targets, and keeps the previous APIs and module commands as
-facades. It retains R2 evidence and external findings. B01 remains `partial`:
-`B01c` root, pre-commit, hosted-CI, A06, and A08 enforcement is not implemented
-by this slice. The next selector is `B01c`.
+`B01a`, `B01b`, and `B01c` are provisionally implemented under solo bootstrap by
+the [governed target registry, governance-tool package, compatibility entry points, and enforcement consumers](../architecture/repository-topology.md).
+B01c preserves the earlier source graph and facades while making root,
+pre-commit, hosted-CI, A06, and A08 consumers enforce the canonical targets. It
+retains R2 evidence and the independent-review and protected-forge findings.
+B01 remains `partial`; repository-local slice completion does not validate the
+parent. The next selector is `B02`.
 
 ## Recommended adoption order
 
 1. Preserve the completed governance hardening, toolchain-refresh evidence, and
    all open institutional findings.
-2. Complete B01 by preserving B01a's graph, implementing B01b's governance-tool
-   migration and compatibility entry points, and then adding B01c's root and
-   hosted enforcement before introducing new dependencies.
+2. Preserve B01's completed repository-local graph, governance-tool migration,
+   compatibility entry points, canonical enforcement, R2 evidence, and open
+   findings before introducing new dependencies.
 3. Implement B02 with `rules_python`, the refreshed uv lock as a transitional
    resolution input, and Buf-backed Protobuf/code-generation targets. Keep Make
    as a tested delegating rollback interface.

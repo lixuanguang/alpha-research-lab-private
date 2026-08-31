@@ -41,7 +41,7 @@ _APPLICABLE_GATES = (
     "QG14",
 )
 _EXPECTED_FINDING_IDS = ("B01-F01", "B01-F02")
-_EXPECTED_REMAINING_SLICES = ("B01c",)
+_EXPECTED_REMAINING_SLICES: tuple[str, ...] = ()
 _EXPECTED_SOURCE_ROOTS = (
     "src/alpha_research",
     "tests/engineering",
@@ -395,7 +395,7 @@ def _validate_graph(topology: RepositoryTopology, repository_root: Path) -> None
 
 
 def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
-    """Load and validate the exact B01a registry contract."""
+    """Load and validate the exact B01 registry contract."""
     try:
         root = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     except tomllib.TOMLDecodeError as error:
@@ -455,7 +455,7 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
     open_finding_ids = _strings(root.get("open_finding_ids"), context="open_finding_ids")
     expected_scalars = {
         "accountable_owner_role": "platform",
-        "delivery_slice": "B01b",
+        "delivery_slice": "B01c",
         "maximum_source_files": 1000,
         "operating_track": "solo_bootstrap",
         "package_status": "partial",
@@ -472,9 +472,11 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
     applicable_gates = _strings(root.get("applicable_gate_ids"), context="applicable_gate_ids")
     if applicable_gates != _APPLICABLE_GATES:
         findings.append(f"{path}: applicable_gate_ids must match the R2 policy")
-    remaining_slices = _strings(root.get("remaining_slices"), context="remaining_slices")
+    remaining_slices = _strings(
+        root.get("remaining_slices"), context="remaining_slices", allow_empty=True
+    )
     if remaining_slices != _EXPECTED_REMAINING_SLICES:
-        findings.append(f"{path}: remaining_slices must contain only B01c")
+        findings.append(f"{path}: remaining_slices must be empty after B01c")
     source_roots = _strings(root.get("source_roots"), context="source_roots")
     if source_roots != _EXPECTED_SOURCE_ROOTS:
         findings.append(f"{path}: source_roots must identify the exact current source areas")
@@ -517,7 +519,7 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
 
 
 def validate_repository(repository_root: Path) -> RepositoryTopology:
-    """Validate the B01b tooling graph and its synthetic local evidence."""
+    """Validate the B01c enforced tooling graph and synthetic local evidence."""
     root = repository_root.resolve()
     topology = load_topology(
         root / "docs" / "architecture" / "repository-topology.toml", repository_root=root
@@ -537,5 +539,5 @@ def validate_repository(repository_root: Path) -> RepositoryTopology:
         )
         validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
     except (EvidenceGovernanceError, OSError, ValueError) as error:
-        raise RepositoryTopologyError([f"B01b local evidence bundle: {error}"]) from error
+        raise RepositoryTopologyError([f"B01c local evidence bundle: {error}"]) from error
     return topology

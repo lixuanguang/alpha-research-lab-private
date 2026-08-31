@@ -22,7 +22,7 @@ expressions. The checker expands exact ranges, represents conditional asset
 dependencies as explicit `any of` groups, rejects unknown or duplicate packages,
 and fails on self-dependencies or cycles.
 
-The program policy records implementation state only for A01-A08. Packages without
+The program policy records implementation state only for A01-B01. Packages without
 an explicit state remain `planned`; no empty package is treated as implemented.
 Every partial dependency records passing repository-local evidence, its retained
 finding IDs, and only the deferred evidence classes permitted by the solo-bootstrap
@@ -45,12 +45,16 @@ Readiness is derived from the graph:
 Current dashboard queries include:
 
 ```sh
-PYTHONPATH=src uv run --frozen python -m alpha_research.program_governance --json
-PYTHONPATH=src uv run --frozen python -m alpha_research.program_governance --wave A
-PYTHONPATH=src uv run --frozen python -m alpha_research.program_governance --ready solo
-PYTHONPATH=src uv run --frozen python -m alpha_research.program_governance \
+uv run --frozen alpha-governance-program --json
+uv run --frozen alpha-governance-program --wave A
+uv run --frozen alpha-governance-program --ready solo
+uv run --frozen alpha-governance-program \
   --metric kpi.research_reproducibility_percent
 ```
+
+With B01c repository-local evidence present, B01 remains `partial` and the next
+solo-provisionally ready package is B02. Institutional readiness remains empty
+because none of the provisional A01-B01 states is validated.
 
 ## KPI and observation contract
 
@@ -78,7 +82,7 @@ schema failures are rejected.
 An observation file can be supplied without changing repository state:
 
 ```sh
-PYTHONPATH=src uv run --frozen python -m alpha_research.program_governance \
+uv run --frozen alpha-governance-program \
   --observations path/to/automatic-observations.jsonl --json
 ```
 
@@ -116,8 +120,10 @@ merged-result evidence is unavailable.
 ## Migration, rollout, rollback, monitoring, and runbook
 
 Schema version 1 is additive and has no database, runtime state, generated client,
-or existing observation consumer to migrate. Future incompatible graph or event
-changes require a versioned compatibility window and retained old readers.
+or existing observation consumer to migrate. B01c adds B01's partial package
+state without changing graph or observation schemas. Future incompatible graph
+or event changes require a versioned compatibility window and retained old
+readers.
 
 Rollout adds one repository validator to the root, pre-commit, and hosted-CI
 interfaces. It does not connect a target telemetry backend or deploy/activate a
@@ -150,7 +156,7 @@ These findings are not waivers or approvals. A08 remains partial until all close
 
 ## Non-goals
 
-- Implementing B01 or any later build, data, research, deployment, observability,
+- Implementing B02 or any later build, data, research, deployment, observability,
   incident, or rollback producer package.
 - Creating a production dashboard service or accepting manually curated KPI values.
 - Treating throughput, commit count, coverage percentage, PnL, Sharpe ratio, or a

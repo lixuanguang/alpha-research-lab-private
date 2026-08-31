@@ -94,7 +94,7 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     assert tuple(package.package_id for package in program.packages) == PACKAGE_IDS
     assert tuple(metric.metric_id for metric in program.metrics) == METRIC_IDS
     assert len(program.packages) == 96
-    assert len(program.package_states) == 8
+    assert len(program.package_states) == 9
     assert program.package_status == "partial"
     assert program.risk_class == "R2"
     assert program.finding_ids == ("A08-F01", "A08-F02", "A08-F03")
@@ -105,6 +105,9 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     assert all(not metric.hard_gate_substitute for metric in program.metrics)
     assert all(metric.baseline_value is None for metric in program.metrics)
     assert all(metric.target_value is None for metric in program.metrics)
+    repository_topology_state = program.state_for("B01")
+    assert repository_topology_state is not None
+    assert repository_topology_state.open_finding_ids == ("B01-F01", "B01-F02")
 
 
 def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> None:
@@ -119,7 +122,7 @@ def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> No
     assert by_id["L06"].any_of_dependency_groups == (("L01", "L02", "L04"),)
     assert by_id["L07"].any_of_dependency_groups == (("L01", "L02", "L03", "L04"),)
     assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
-        "B01",
+        "B02",
     )
     assert program.ready_packages(institutional=True) == ()
 
@@ -404,14 +407,14 @@ def test_cli_emits_stable_filtered_dashboard(
     dashboard = json.loads(first)
     assert dashboard["package_count"] == 96
     assert len(dashboard["packages"]) == 8
-    assert dashboard["next_solo_ready_package"] == "B01"
+    assert dashboard["next_solo_ready_package"] == "B02"
     assert dashboard["next_institutionally_ready_package"] is None
     assert dashboard["observation_count"] == 5
     assert all(item["definition"]["hard_gate_substitute"] is False for item in dashboard["metrics"])
 
     assert main([str(REPOSITORY_ROOT), "--ready", "solo"]) == 0
     ready = json.loads(capsys.readouterr().out)
-    assert [item["package_id"] for item in ready["packages"]] == ["B01"]
+    assert [item["package_id"] for item in ready["packages"]] == ["B02"]
 
 
 def test_cli_rejects_invalid_selection_and_missing_repository(
@@ -434,7 +437,7 @@ def test_cli_rejects_invalid_selection_and_missing_repository(
 
 
 def test_program_checker_is_integrated_with_repository_automation() -> None:
-    command = "python -m alpha_research.program_governance"
+    canonical_command = "alpha-governance-program"
     makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
     pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
@@ -442,7 +445,7 @@ def test_program_checker_is_integrated_with_repository_automation() -> None:
     )
     documentation = (REPOSITORY_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
 
-    assert command in makefile
-    assert command in pre_commit
-    assert command in continuous_integration
+    assert canonical_command in makefile
+    assert canonical_command in pre_commit
+    assert canonical_command in continuous_integration
     assert "make program-governance-check" in documentation

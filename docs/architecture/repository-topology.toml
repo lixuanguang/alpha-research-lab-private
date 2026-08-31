@@ -1,6 +1,6 @@
 schema_version = 1
 roadmap_package = "B01"
-delivery_slice = "B01b"
+delivery_slice = "B01c"
 operating_track = "solo_bootstrap"
 package_status = "partial"
 slice_status = "provisionally_implemented"
@@ -35,9 +35,9 @@ layer_order = [
   "compatibility",
   "verification",
 ]
-remaining_slices = ["B01c"]
-local_evidence_manifest_path = "docs/governance/evidence/examples/b01b-r2-partial/manifest.toml"
-local_evidence_commit_sha = "6666666666666666666666666666666666666666"
+remaining_slices = []
+local_evidence_manifest_path = "docs/governance/evidence/examples/b01c-r2-partial/manifest.toml"
+local_evidence_commit_sha = "7777777777777777777777777777777777777777"
 open_finding_ids = ["B01-F01", "B01-F02"]
 
 [[units]]
@@ -394,10 +394,10 @@ sources = [
 finding_id = "B01-F01"
 owner_role = "domain_architecture"
 unavailable_evidence = "Independent domain review and commit-bound Code Owner approval are unavailable during solo bootstrap."
-closure_condition = "A named independent domain reviewer and Platform Code Owner resolve findings and approve the exact B01 target registry, tooling migration, compatibility facades, and validator commit."
+closure_condition = "A named independent domain reviewer and Platform Code Owner resolve findings and approve the exact B01 target registry, tooling migration, enforcement consumers, compatibility facades, and validator commit."
 
 [[findings]]
 finding_id = "B01-F02"
 owner_role = "platform_ci"
-unavailable_evidence = "Protected-forge merged-result execution and retained exact-commit evidence are unavailable in the local checkout."
-closure_condition = "After B01c consumes the validator, protected hosted CI rejects representative uncovered, cyclic, upward, visibility, undeclared-dependency, and compatibility mutations on the exact reviewed merged result."
+unavailable_evidence = "The hosted workflow is repository-locally configured, but protected-forge merged-result execution and retained exact-commit evidence are unavailable in the local checkout."
+closure_condition = "Protected hosted CI rejects representative uncovered, cyclic, upward, visibility, undeclared-dependency, and compatibility mutations on the exact reviewed merged result and retains the evidence."

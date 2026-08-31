@@ -1,4 +1,4 @@
-"""Deterministic contract and adversarial tests for the B01b tooling graph."""
+"""Deterministic contract and adversarial tests for the enforced B01 tooling graph."""
 
 from __future__ import annotations
 
@@ -60,10 +60,10 @@ def _replace(register: Path, old: str, new: str) -> None:
 def test_repository_topology_is_complete_and_acyclic() -> None:
     topology = validate_repository(REPOSITORY_ROOT)
 
-    assert topology.delivery_slice == "B01b"
+    assert topology.delivery_slice == "B01c"
     assert topology.package_status == "partial"
     assert topology.slice_status == "provisionally_implemented"
-    assert topology.remaining_slices == ("B01c",)
+    assert topology.remaining_slices == ()
     assert len(topology.units) == 19
     assert topology.unit("test.engineering").kind == "test"
     assert topology.unit("tool.governance.repository_topology").kind == "tool"
@@ -270,6 +270,11 @@ def test_unknown_dependency_is_a_domain_error(tmp_path: Path) -> None:
             "validation_workload_budget_ms = 1",
             "must be 1000",
         ),
+        (
+            "remaining_slices = []",
+            'remaining_slices = ["B02"]',
+            "must be empty after B01c",
+        ),
     ],
 )
 def test_invalid_registry_boundaries_fail_closed(
@@ -308,7 +313,7 @@ def test_evidence_manifest_path_cannot_escape_repository(tmp_path: Path) -> None
     _replace(
         register,
         "local_evidence_manifest_path = "
-        '"docs/governance/evidence/examples/b01b-r2-partial/manifest.toml"',
+        '"docs/governance/evidence/examples/b01c-r2-partial/manifest.toml"',
         'local_evidence_manifest_path = "../outside.toml"',
     )
 
@@ -322,3 +327,21 @@ def test_malformed_toml_is_reported_as_domain_error(tmp_path: Path) -> None:
 
     with pytest.raises(RepositoryTopologyError, match="invalid TOML"):
         load_topology(register, repository_root=root)
+
+
+def test_topology_checker_is_enforced_by_root_pre_commit_and_hosted_ci() -> None:
+    canonical_command = "alpha-governance-topology"
+    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
+    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    continuous_integration = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert canonical_command in makefile
+    assert canonical_command in pre_commit
+    assert canonical_command in continuous_integration
+    assert "id: repository-topology" in pre_commit
+    assert "always_run: true" in pre_commit
+    automation_configuration = makefile + pre_commit + continuous_integration
+    assert "python -m alpha_research." not in automation_configuration
+    assert "PYTHONPATH=src" not in automation_configuration

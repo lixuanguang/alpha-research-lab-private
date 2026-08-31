@@ -1,4 +1,4 @@
-"""Contract tests for the runtime and B01b governance-tool distributions."""
+"""Contract tests for the runtime and B01 governance-tool distributions."""
 
 from __future__ import annotations
 

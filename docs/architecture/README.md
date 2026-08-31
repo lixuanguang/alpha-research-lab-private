@@ -192,10 +192,11 @@ outputs, compiler outputs, deployable artifacts, and secrets stay outside Git;
 Git retains schemas, manifests, build definitions, synthetic fixtures, and
 policies.
 
-[B01b's governed repository topology](repository-topology.md) registers and
-checks canonical tools, compatibility facades, and engineering tests. It does not
-create the remaining target tree, add B01c enforcement, or claim that the B02
-hermetic build graph exists.
+[B01's governed repository topology](repository-topology.md) registers and checks
+canonical tools, compatibility facades, and engineering tests. B01c enforces it
+through root, pre-commit, hosted-CI, A06, and A08 consumers. It does not create
+the remaining target tree or claim that the B02 hermetic build graph or B05
+affected/full policy exists.
 
 ## Build and reproducibility architecture
 

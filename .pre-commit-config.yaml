@@ -22,51 +22,58 @@ repos:
 
       - id: mypy
         name: mypy
-        entry: uv run --frozen mypy --strict src tests
+        entry: uv run --frozen mypy --strict src tests tools/governance/src
         language: system
-        files: ^(pyproject\.toml|src/.*\.py|tests/.*\.py)$
+        files: ^(pyproject\.toml|src/.*\.py|tests/.*\.py|tools/governance/src/.*\.py)$
         pass_filenames: false
 
       - id: ownership-governance
         name: check ownership governance
-        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.ownership_governance
+        entry: uv run --frozen alpha-governance-ownership
         language: system
         always_run: true
         pass_filenames: false
 
       - id: change-risk-policy
         name: check change-risk policy
-        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.change_risk
+        entry: uv run --frozen alpha-governance-change-risk
         language: system
-        files: ^(docs/README\.md|docs/governance/change-risk-(classification\.md|policy\.toml)|src/alpha_research/change_risk/[a-z_]+\.py|tests/engineering/test_change_risk\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        files: ^(docs/README\.md|docs/governance/change-risk-(classification\.md|policy\.toml)|src/alpha_research/change_risk/[a-z_]+\.py|tools/governance/src/alpha_research_governance/change_risk/[a-z_]+\.py|tests/engineering/test_change_risk\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
       - id: evidence-governance
         name: check merge-request and evidence governance
-        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.evidence
+        entry: uv run --frozen alpha-governance-evidence
         language: system
-        files: ^(\.github/pull_request_template\.md|docs/README\.md|docs/governance/(change-risk-policy\.toml|merge-evidence(-policy\.toml|\.md)|evidence/examples/.*)|src/alpha_research/evidence/[a-z_]+\.py|tests/engineering/test_evidence_governance\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        files: ^(\.github/pull_request_template\.md|docs/README\.md|docs/governance/(change-risk-policy\.toml|merge-evidence(-policy\.toml|\.md)|evidence/examples/.*)|src/alpha_research/evidence/[a-z_]+\.py|tools/governance/src/alpha_research_governance/evidence/[a-z_]+\.py|tests/engineering/test_evidence_governance\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        pass_filenames: false
+
+      - id: repository-topology
+        name: check governed repository topology
+        entry: uv run --frozen alpha-governance-topology
+        language: system
+        always_run: true
         pass_filenames: false
 
       - id: inventory-governance
         name: check governed resource inventory
-        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.inventory
+        entry: uv run --frozen alpha-governance-inventory
         language: system
-        files: ^(docs/README\.md|docs/architecture/contracts\.md|docs/governance/(domain-ownership\.toml|resource-inventory\.(md|toml))|docs/roadmap/README\.md|src/alpha_research/inventory/[a-z_]+\.py|tests/engineering/test_inventory_governance\.py|tests/engineering/test_root_commands\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        files: ^(docs/README\.md|docs/architecture/(contracts\.md|repository-topology\.(md|toml))|docs/governance/(domain-ownership\.toml|resource-inventory\.(md|toml))|docs/roadmap/README\.md|src/alpha_research/inventory/[a-z_]+\.py|tools/governance/src/alpha_research_governance/inventory/[a-z_]+\.py|tests/engineering/(test_inventory_governance|test_repository_topology|test_root_commands)\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
       - id: security-control-map
         name: check threat and regulatory control map
-        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.security_controls
+        entry: uv run --frozen alpha-governance-security
         language: system
-        files: ^(docs/README\.md|docs/governance/(domain-ownership\.toml|security-control-map\.toml|threat-model\.md|evidence/examples/a07-r2-partial/.*)|docs/roadmap/README\.md|src/alpha_research/security_controls/[a-z_]+\.py|tests/engineering/test_security_controls\.py|tests/engineering/test_root_commands\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        files: ^(docs/README\.md|docs/governance/(domain-ownership\.toml|security-control-map\.toml|threat-model\.md|evidence/examples/a07-r2-partial/.*)|docs/roadmap/README\.md|src/alpha_research/security_controls/[a-z_]+\.py|tools/governance/src/alpha_research_governance/security_controls/[a-z_]+\.py|tests/engineering/test_security_controls\.py|tests/engineering/test_root_commands\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
       - id: program-governance
         name: check program dependency and KPI governance
-        entry: env PYTHONPATH=src uv run --frozen python -m alpha_research.program_governance
+        entry: uv run --frozen alpha-governance-program
         language: system
-        files: ^(docs/README\.md|docs/governance/(program-governance\.(md|toml)|resource-inventory\.(md|toml)|evidence/examples/a08-r2-partial/.*)|docs/roadmap/README\.md|src/alpha_research/program_governance/[a-z_]+\.py|tests/engineering/(test_program_governance|test_inventory_governance|test_root_commands)\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        files: ^(docs/README\.md|docs/architecture/repository-topology\.(md|toml)|docs/governance/(program-governance\.(md|toml)|resource-inventory\.(md|toml)|evidence/examples/a08-r2-partial/.*)|docs/roadmap/README\.md|src/alpha_research/program_governance/[a-z_]+\.py|tools/governance/src/alpha_research_governance/program_governance/[a-z_]+\.py|tests/engineering/(test_program_governance|test_inventory_governance|test_repository_topology|test_root_commands)\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
       - id: trailing-whitespace

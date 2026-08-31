@@ -18,7 +18,7 @@ applicable_gate_ids = [
   "QG13",
   "QG14",
 ]
-as_of_date = "2026-08-30"
+as_of_date = "2026-08-31"
 roadmap_path = "docs/roadmap/README.md"
 observation_schema_version = 1
 maximum_observations = 10000
@@ -118,6 +118,15 @@ deferred_evidence_classes = [
 ]
 evidence_paths = ["docs/governance/program-governance.md"]
 open_finding_ids = ["A08-F01", "A08-F02", "A08-F03"]
+
+[[package_states]]
+package_id = "B01"
+status = "partial"
+owner_role = "platform"
+repository_local_status = "passed"
+deferred_evidence_classes = ["external_control_plane", "independent_review"]
+evidence_paths = ["docs/architecture/repository-topology.md"]
+open_finding_ids = ["B01-F01", "B01-F02"]
 
 [[metrics]]
 metric_id = "kpi.build_duration_seconds"

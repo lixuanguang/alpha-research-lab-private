@@ -32,44 +32,47 @@ jobs:
         run: uv sync --frozen
 
       - name: Lint
-        run: uv run --frozen ruff check src tests
+        run: uv run --frozen ruff check src tests tools/governance/src
 
       - name: Check formatting
-        run: uv run --frozen ruff format --check src tests
+        run: uv run --frozen ruff format --check src tests tools/governance/src
 
       - name: Check types
-        run: uv run --frozen mypy --strict src tests
+        run: uv run --frozen mypy --strict src tests tools/governance/src
 
       - name: Check architecture governance
-        run: uv run --frozen python -m alpha_research.architecture_governance
+        run: uv run --frozen alpha-governance-architecture
 
       - name: Check ownership governance
-        run: uv run --frozen python -m alpha_research.ownership_governance
+        run: uv run --frozen alpha-governance-ownership
 
       - name: Check change-risk policy
-        run: uv run --frozen python -m alpha_research.change_risk
+        run: uv run --frozen alpha-governance-change-risk
 
       - name: Check merge-request and evidence policy
-        run: uv run --frozen python -m alpha_research.evidence
+        run: uv run --frozen alpha-governance-evidence
+
+      - name: Check governed repository topology
+        run: uv run --frozen alpha-governance-topology
 
       - name: Check governed resource inventory
-        run: uv run --frozen python -m alpha_research.inventory
+        run: uv run --frozen alpha-governance-inventory
 
       - name: Check threat and regulatory control map
-        run: uv run --frozen python -m alpha_research.security_controls
+        run: uv run --frozen alpha-governance-security
 
       - name: Check program dependency and KPI governance
-        run: uv run --frozen python -m alpha_research.program_governance
+        run: uv run --frozen alpha-governance-program
 
       - name: Lint pull-request body
         if: github.event_name == 'pull_request'
-        run: uv run --frozen python -m alpha_research.evidence --github-event "$GITHUB_EVENT_PATH"
+        run: uv run --frozen alpha-governance-evidence --github-event "$GITHUB_EVENT_PATH"
 
       - name: Check security
-        run: uv run --frozen bandit -q -c pyproject.toml -r src
+        run: uv run --frozen bandit -q -c pyproject.toml -r src tools/governance/src
 
       - name: Test
-        run: uv run --frozen pytest -q
+        run: uv run --frozen --no-editable pytest -q
 
       - name: Build package
         run: uv build --no-sources

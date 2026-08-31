@@ -51,9 +51,20 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
     assert [item.inventory_id for item in inventory.items] == sorted(
         item.inventory_id for item in inventory.items
     )
-    assert len(inventory.items) == 8
+    assert len(inventory.items) == 9
     assert {item.kind for item in inventory.items} == {"control"}
     assert all(item.status == "provisional" for item in inventory.items)
+    repository_topology_control = next(
+        item
+        for item in inventory.items
+        if item.inventory_id == "inv.control.governance.b01_repository_topology"
+    )
+    assert repository_topology_control.dependencies == (
+        "inv.control.governance.a02_architecture_governance",
+        "inv.control.governance.a03_ownership_governance",
+        "inv.control.governance.a04_change_risk",
+        "inv.control.governance.a05_merge_evidence",
+    )
 
 
 def test_queries_are_deterministic_and_preserve_explicit_empty_kinds() -> None:
@@ -61,11 +72,17 @@ def test_queries_are_deterministic_and_preserve_explicit_empty_kinds() -> None:
 
     assert inventory.query(kind="dataset") == ()
     controls = inventory.query(kind="control", owner_role="platform", status="provisional")
-    assert len(controls) == 7
+    assert len(controls) == 8
     assert [item.inventory_id for item in controls] == sorted(
         item.inventory_id for item in controls
     )
-    assert all(item.record_version == 1 for item in controls)
+    assert sorted(item.record_version for item in controls) == [1, 1, 2, 2, 2, 2, 2, 2]
+    assert all(
+        "src/alpha_research/" not in source
+        for item in inventory.items
+        if item.inventory_id != "inv.control.governance.a01_repository_boundary"
+        for source in item.source_paths
+    )
 
 
 def test_query_workload_stays_within_the_governed_budget() -> None:
@@ -187,7 +204,7 @@ review_due_on = "2026-11-30"
 def test_catalog_size_and_workload_limits_fail_closed(tmp_path: Path) -> None:
     size_limited = _catalog_fixture(tmp_path)
     _replace(size_limited, "maximum_items = 10000", "maximum_items = 1")
-    with pytest.raises(InventoryGovernanceError, match="catalog contains 8 items"):
+    with pytest.raises(InventoryGovernanceError, match="catalog contains 9 items"):
         _load_fixture(size_limited)
 
     invalid_budget = _catalog_fixture(tmp_path)
@@ -253,7 +270,7 @@ def test_cli_emits_stable_json_for_populated_and_empty_queries(
     assert first_output == second_output
 
     controls = json.loads(first_output)
-    assert controls["count"] == 8
+    assert controls["count"] == 9
     assert [item["inventory_id"] for item in controls["items"]] == sorted(
         item["inventory_id"] for item in controls["items"]
     )
@@ -299,7 +316,7 @@ def test_cli_rejects_unknown_kind_and_missing_catalog(
 
 
 def test_inventory_checker_is_integrated_with_repository_automation() -> None:
-    command = "python -m alpha_research.inventory"
+    canonical_command = "alpha-governance-inventory"
     makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
     pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
@@ -307,7 +324,7 @@ def test_inventory_checker_is_integrated_with_repository_automation() -> None:
     )
     documentation = (REPOSITORY_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
 
-    assert command in makefile
-    assert command in pre_commit
-    assert command in continuous_integration
+    assert canonical_command in makefile
+    assert canonical_command in pre_commit
+    assert canonical_command in continuous_integration
     assert "make inventory-check" in documentation
