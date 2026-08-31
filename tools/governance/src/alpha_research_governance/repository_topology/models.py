@@ -27,7 +27,7 @@ class SourceUnit(ImmutableModel):
 
 
 class RepositoryTopology(ImmutableModel):
-    """Validated B01a registry metadata and current source units."""
+    """Validated B01 registry metadata and current source units."""
 
     schema_version: int
     roadmap_package: str

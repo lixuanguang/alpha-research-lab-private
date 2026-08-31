@@ -33,6 +33,7 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
         "ownership-check",
         "change-risk-check",
         "evidence-check",
+        "topology-check",
         "inventory-check",
         "security-controls-check",
         "program-governance-check",
@@ -55,19 +56,20 @@ def test_check_runs_every_configured_non_mutating_command() -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [
         "uv lock --check",
-        "uv run --frozen ruff check src tests",
-        "uv run --frozen ruff format --check src tests",
-        "uv run --frozen mypy --strict src tests",
-        "PYTHONPATH=src uv run --frozen python -m alpha_research.architecture_governance",
-        "PYTHONPATH=src uv run --frozen python -m alpha_research.ownership_governance",
-        "PYTHONPATH=src uv run --frozen python -m alpha_research.change_risk",
-        "PYTHONPATH=src uv run --frozen python -m alpha_research.evidence",
-        "PYTHONPATH=src uv run --frozen python -m alpha_research.inventory",
-        "PYTHONPATH=src uv run --frozen python -m alpha_research.security_controls",
-        "PYTHONPATH=src uv run --frozen python -m alpha_research.program_governance",
-        "uv run --frozen bandit -q -c pyproject.toml -r src",
-        "PYTHONPATH=src uv run --frozen pytest -q",
-        'PYTHONPATH=src uv run --frozen python -c "import alpha_research"',
+        "uv run --frozen ruff check src tests tools/governance/src",
+        "uv run --frozen ruff format --check src tests tools/governance/src",
+        "uv run --frozen mypy --strict src tests tools/governance/src",
+        "uv run --frozen alpha-governance-architecture",
+        "uv run --frozen alpha-governance-ownership",
+        "uv run --frozen alpha-governance-change-risk",
+        "uv run --frozen alpha-governance-evidence",
+        "uv run --frozen alpha-governance-topology",
+        "uv run --frozen alpha-governance-inventory",
+        "uv run --frozen alpha-governance-security",
+        "uv run --frozen alpha-governance-program",
+        "uv run --frozen bandit -q -c pyproject.toml -r src tools/governance/src",
+        "uv run --frozen --no-editable pytest -q",
+        'uv run --frozen --no-editable python -c "import alpha_research"',
         "uv build --no-sources",
     ]
 
@@ -76,15 +78,26 @@ def test_format_and_format_check_have_distinct_mutation_behavior() -> None:
     format_result = _run_make("-n", "format")
     check_result = _run_make("-n", "format-check")
 
-    assert format_result.stdout.strip() == "uv run --frozen ruff format src tests"
-    assert check_result.stdout.strip() == "uv run --frozen ruff format --check src tests"
+    assert format_result.stdout.strip() == (
+        "uv run --frozen ruff format src tests tools/governance/src"
+    )
+    assert check_result.stdout.strip() == (
+        "uv run --frozen ruff format --check src tests tools/governance/src"
+    )
 
 
 def test_root_target_propagates_tool_failure() -> None:
     result = _run_make("UV=false", "smoke")
 
     assert result.returncode != 0
-    assert 'false run --frozen python -c "import alpha_research"' in result.stdout
+    assert 'false run --frozen --no-editable python -c "import alpha_research"' in result.stdout
+
+
+def test_topology_target_propagates_canonical_tool_failure() -> None:
+    result = _run_make("UV=false", "topology-check")
+
+    assert result.returncode != 0
+    assert "false run --frozen alpha-governance-topology" in result.stdout
 
 
 def test_root_interface_is_documented() -> None:
@@ -100,6 +113,7 @@ def test_root_interface_is_documented() -> None:
         "make ownership-check",
         "make change-risk-check",
         "make evidence-check",
+        "make topology-check",
         "make inventory-check",
         "make security-controls-check",
         "make program-governance-check",

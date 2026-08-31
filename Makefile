@@ -1,10 +1,9 @@
 .DEFAULT_GOAL := check
 
 UV := uv
-PYTHON_PATHS := src tests
-SOURCE_ENV := PYTHONPATH=src
+PYTHON_PATHS := src tests tools/governance/src
 
-.PHONY: sync lock-check format format-check lint typecheck architecture-check ownership-check change-risk-check evidence-check inventory-check security-controls-check program-governance-check security test smoke build check
+.PHONY: sync lock-check format format-check lint typecheck architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security test smoke build check
 
 sync:
 	$(UV) sync --frozen
@@ -25,36 +24,39 @@ typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
 
 architecture-check:
-	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.architecture_governance
+	$(UV) run --frozen alpha-governance-architecture
 
 ownership-check:
-	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.ownership_governance
+	$(UV) run --frozen alpha-governance-ownership
 
 change-risk-check:
-	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.change_risk
+	$(UV) run --frozen alpha-governance-change-risk
 
 evidence-check:
-	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.evidence
+	$(UV) run --frozen alpha-governance-evidence
+
+topology-check:
+	$(UV) run --frozen alpha-governance-topology
 
 inventory-check:
-	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.inventory
+	$(UV) run --frozen alpha-governance-inventory
 
 security-controls-check:
-	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.security_controls
+	$(UV) run --frozen alpha-governance-security
 
 program-governance-check:
-	$(SOURCE_ENV) $(UV) run --frozen python -m alpha_research.program_governance
+	$(UV) run --frozen alpha-governance-program
 
 security:
-	$(UV) run --frozen bandit -q -c pyproject.toml -r src
+	$(UV) run --frozen bandit -q -c pyproject.toml -r src tools/governance/src
 
 test:
-	$(SOURCE_ENV) $(UV) run --frozen pytest -q
+	$(UV) run --frozen --no-editable pytest -q
 
 smoke:
-	$(SOURCE_ENV) $(UV) run --frozen python -c "import alpha_research"
+	$(UV) run --frozen --no-editable python -c "import alpha_research"
 
 build:
 	$(UV) build --no-sources
 
-check: lock-check lint format-check typecheck architecture-check ownership-check change-risk-check evidence-check inventory-check security-controls-check program-governance-check security test smoke build
+check: lock-check lint format-check typecheck architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security test smoke build

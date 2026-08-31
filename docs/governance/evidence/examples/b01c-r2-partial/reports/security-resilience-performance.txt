@@ -1,0 +1,1 @@
+Synthetic B01c fixture: canonical tooling needs no ambient source path, root tests and smoke use a non-editable install, and repository containment, symlink rejection, exact visibility, workload ceilings, fail-closed drift, and reviewed Git rollback are retained.

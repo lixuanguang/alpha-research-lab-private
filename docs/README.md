@@ -25,9 +25,10 @@ non-ultra-low-latency lane unless latency is the strategy's measured edge.
 The repository is at the bootstrap stage. It currently contains architecture,
 contracts, governance, a versioned repository-local resource inventory, a threat
 and regulatory control map, a program dependency and KPI dashboard, governed
-repository-tool targets with compatibility entry points, roadmaps, coding
-standards, a minimal platform package, a locked uv environment, and a
-transitional Make interface. It does not yet contain
+repository-tool targets with compatibility entry points, canonical root,
+pre-commit, and hosted-CI topology enforcement, roadmaps, coding standards, a
+minimal platform package, a locked uv environment, and a transitional Make
+interface. It does not yet contain
 the blueprint's Bazel build graph, canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
@@ -88,31 +89,33 @@ The tracked `.python-version`, root and `tools/governance` project files, and
 targets. `make sync` provides the same setup through the transitional root
 interface.
 
-B01b's canonical repository checks are the installed `alpha-governance-*`
+B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
-[governed repository topology](architecture/repository-topology.md). Existing
-`python -m alpha_research.*` commands under the current root source-path
-environment and Make commands remain compatibility entry points until B01c
-migrates root, pre-commit, hosted-CI, A06, and A08 enforcement.
+[governed repository topology](architecture/repository-topology.md). B01c makes
+Make, pre-commit, hosted CI, A06, and A08 consume those installed commands and
+enforce the source topology without ambient `PYTHONPATH`. Existing
+`alpha_research.*` APIs and module commands remain compatibility facades for
+existing callers and reviewed rollback until a later compatibility change.
 
 Current root commands are:
 
 | Command | Behavior |
 | --- | --- |
-| `make format` | Format current Python source and tests in place |
-| `make format-check` | Verify current Python formatting |
-| `make lint` | Run Ruff lint checks |
-| `make typecheck` | Run strict mypy checks |
+| `make format` | Format current platform, governance-tool, and test Python source in place |
+| `make format-check` | Verify current platform, governance-tool, and test Python formatting |
+| `make lint` | Run Ruff lint checks across current Python source |
+| `make typecheck` | Run strict mypy checks across current Python source |
 | `make architecture-check` | Lint ADRs, the decision log, and repository-local documentation links |
 | `make ownership-check` | Validate A03 ownership, independent-review policy, CODEOWNERS, and path coverage |
 | `make change-risk-check` | Validate A04 R0-R4 classification, gates, reviewers, rollout, retention, samples, and findings |
 | `make evidence-check` | Validate A05 MR fields, SHA-bound evidence manifests, artifact digests, examples, and findings |
+| `make topology-check` | Validate B01 source coverage, dependency direction, visibility, ownership, slice metadata, and evidence |
 | `make inventory-check` | Validate and query the A06 versioned resource inventory, ownership, lineage, dependencies, retention, status, and evidence links |
 | `make security-controls-check` | Validate and query the A07 threat model, control ownership and evidence, trust boundaries, abuse cases, and non-conclusive jurisdiction map |
 | `make program-governance-check` | Validate and query the A08 96-package dependency graph, provisional readiness, owned KPI definitions, automatic observations, and non-vanity dashboard |
-| `make security` | Run Bandit against current production Python source |
-| `make test` | Run the current deterministic test suite |
-| `make smoke` | Import the installed bootstrap package |
+| `make security` | Run Bandit against current platform and governance-tool Python source |
+| `make test` | Build the root project non-editably and run the deterministic test suite |
+| `make smoke` | Import the non-editable installed bootstrap package |
 | `make build` | Build the current Python source distribution and wheel |
 | `make check` | Verify the lock, run all current checks, smoke-test, and build |
 
@@ -136,7 +139,7 @@ must delegate to that graph and preserve affected-target and merged-result check
 | [Threat model and regulatory control map](governance/threat-model.md) | A07 assets, trust boundaries, abuse cases, privileged actions, control ownership and tests, evidence, jurisdiction profiles, and findings |
 | [Program dependency and KPI governance](governance/program-governance.md) | A08 exact roadmap DAG, solo/institutional readiness, automatic observation contract, owned baseline KPIs, dashboard, and findings |
 | [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
-| [Governed repository topology and tooling](architecture/repository-topology.md) | B01b owned governance targets, compatibility entry points, dependency and visibility checks, evidence, findings, and B01c boundary |
+| [Governed repository topology and tooling](architecture/repository-topology.md) | B01 governed targets, compatibility entry points, root/hook/hosted enforcement, A06/A08 integration, evidence, findings, and B02 boundary |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

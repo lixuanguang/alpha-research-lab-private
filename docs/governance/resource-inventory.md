@@ -38,13 +38,16 @@ Adding a real resource changes the kind to `populated` in the same change.
 
 ## Current population
 
-The current repository has eight provisional controls: A01 through A08. All other
-kinds are explicitly empty because the corresponding canonical data, research,
-risk, trading, deployment, and release packages do not yet exist. A Git commit,
-wheel, research roadmap, evidence fixture, or proposed strategy is not silently
-promoted into a dataset, model, strategy, service, limit, venue, or release.
+The current repository has nine provisional controls: A01 through A08 plus B01's
+governed repository topology and enforcement. B01c increments the A02-A08 control
+records to version 2 because their implementation lineage now names the canonical
+`tools/governance` targets instead of compatibility facades. All other kinds are
+explicitly empty because the corresponding canonical data, research, risk,
+trading, deployment, and release packages do not yet exist. A Git commit, wheel,
+research roadmap, evidence fixture, or proposed strategy is not silently promoted
+into a dataset, model, strategy, service, limit, venue, or release.
 
-All eight control records remain `provisional`. Their source checks are active
+All nine control records remain `provisional`. Their source checks are active
 repository-local controls, but they are not institutionally validated, deployed,
 released, or activated resources.
 
@@ -61,10 +64,10 @@ a deterministic 10,000-query workload with a 1,000 ms repository-test budget.
 The CLI emits stable JSON sorted by inventory identity:
 
 ```sh
-PYTHONPATH=src uv run --frozen python -m alpha_research.inventory --json
-PYTHONPATH=src uv run --frozen python -m alpha_research.inventory --kind control
-PYTHONPATH=src uv run --frozen python -m alpha_research.inventory --kind dataset
-PYTHONPATH=src uv run --frozen python -m alpha_research.inventory --owner-role platform
+uv run --frozen alpha-governance-inventory --json
+uv run --frozen alpha-governance-inventory --kind control
+uv run --frozen alpha-governance-inventory --kind dataset
+uv run --frozen alpha-governance-inventory --owner-role platform
 ```
 
 An empty query returns `count: 0`; absence is not an error when the corresponding
@@ -102,10 +105,11 @@ calculation, or risk envelope.
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
-Version 1 is additive and has no persisted data, schema consumer, service state,
-or runtime migration. Future incompatible catalog changes require a versioned
-compatibility plan and retained readers; ordinary metadata corrections increment
-the affected record version.
+Catalog schema version 1 remains compatible and has no persisted data, service
+state, or runtime migration. B01c adds one B01 control record and increments the
+A02-A08 records while preserving their stable inventory identities. Future
+incompatible catalog changes require a versioned compatibility plan and retained
+readers; ordinary metadata corrections increment the affected record version.
 
 Rollout adds repository checks only. It does not deploy or activate a resource.
 Rollback is a reviewed revert that preserves the prior catalog and evidence in
@@ -132,8 +136,9 @@ These are not waivers or approvals. A06 remains partial until all three close.
 
 ## Non-goals
 
-- Creating target domain directories or build targets (B01), canonical schemas
-  (C), data/model registries (D/E), services, limits, venue adapters, or releases.
+- Creating the B02 hermetic graph, later target domain directories, canonical
+  schemas (C), data/model registries (D/E), services, limits, venue adapters, or
+  releases.
 - Connecting an external catalog, forge, deployment registry, identity system,
   venue, broker, account, credential, or telemetry backend.
 - Treating provisional records as validated, released, promoted, deployed, or

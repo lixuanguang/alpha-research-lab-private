@@ -514,7 +514,7 @@ def test_cli_rejects_unknown_filters_and_missing_map(
 
 
 def test_security_control_checker_is_integrated_with_repository_automation() -> None:
-    command = "python -m alpha_research.security_controls"
+    canonical_command = "alpha-governance-security"
     makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
     pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
@@ -522,7 +522,7 @@ def test_security_control_checker_is_integrated_with_repository_automation() -> 
     )
     documentation = (REPOSITORY_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
 
-    assert command in makefile
-    assert command in pre_commit
-    assert command in continuous_integration
+    assert canonical_command in makefile
+    assert canonical_command in pre_commit
+    assert canonical_command in continuous_integration
     assert "make security-controls-check" in documentation

@@ -254,19 +254,19 @@ def test_policy_cannot_weaken_a05_gates_or_hide_findings(tmp_path: Path) -> None
 
 
 def test_evidence_checker_is_integrated_with_repository_automation() -> None:
-    command = "python -m alpha_research.evidence"
+    canonical_command = "alpha-governance-evidence"
     makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
     pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
     )
 
-    assert command in makefile
-    assert command in pre_commit
-    assert command in continuous_integration
+    assert canonical_command in makefile
+    assert canonical_command in pre_commit
+    assert canonical_command in continuous_integration
     assert "--github-event" in continuous_integration
-    for module in ("ownership_governance", "change_risk", "evidence"):
-        assert f"env PYTHONPATH=src uv run --frozen python -m alpha_research.{module}" in pre_commit
+    for command_suffix in ("ownership", "change-risk", "evidence"):
+        assert f"uv run --frozen alpha-governance-{command_suffix}" in pre_commit
 
 
 def test_command_reports_missing_policy_and_usage_errors(

@@ -25,7 +25,7 @@ declared_class = "R2"
 [[gates]]
 gate_id = "QG01"
 status = "passed"
-rationale = "Synthetic source-hygiene evidence exercises the governed A06 code and catalog."
+rationale = "Synthetic source-hygiene evidence exercises the governed A06 code, canonical implementation lineage, and nine-control catalog."
 evidence_ids = ["contract-and-tests"]
 
 [[gates]]
@@ -49,7 +49,7 @@ evidence_ids = ["contract-and-tests"]
 [[gates]]
 gate_id = "QG05"
 status = "passed"
-rationale = "Lineage and positive and negative deployment-evidence linkage are exercised."
+rationale = "Canonical source lineage, the B01 control, and positive and negative deployment-evidence linkage are exercised."
 evidence_ids = ["contract-and-tests"]
 
 [[gates]]
@@ -61,7 +61,7 @@ evidence_ids = ["contract-and-tests"]
 [[gates]]
 gate_id = "QG09"
 status = "passed"
-rationale = "Root, pre-commit, and hosted-CI interfaces invoke the same A06 validator."
+rationale = "Root, pre-commit, and hosted-CI interfaces invoke the same canonical A06 validator."
 evidence_ids = ["integration-and-performance"]
 
 [[gates]]
@@ -98,13 +98,13 @@ evidence_ids = ["documentation-and-monitoring"]
 evidence_id = "contract-and-tests"
 artifact_type = "test_report"
 path = "reports/contract-and-tests.txt"
-sha256 = "7851b0a9002150fe3ea268e57defec33e6e71f44847871e42bae0d59b5eec3cb"
+sha256 = "1aff682c136b6f4d5c596cb46e680155dcc7fcd227d686ed021d39170c8cbed1"
 
 [[artifacts]]
 evidence_id = "integration-and-performance"
 artifact_type = "test_report"
 path = "reports/integration-and-performance.txt"
-sha256 = "1828f0a63d6a4802078b10e6e0a7617a850a36ce1a14122b5129baee9af65fec"
+sha256 = "cef1880b23c26a77f9c0b3a1cf2f2482c040421fd939cd8d0a5ae5dcadce2586"
 
 [[artifacts]]
 evidence_id = "resilience-and-security"
