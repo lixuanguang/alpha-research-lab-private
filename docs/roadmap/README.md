@@ -388,17 +388,26 @@ independently rechecked. The pre-B01 toolchain refresh also passed on the
 2026-08-30 macOS arm64/Python 3.12 baseline; its
 [executed refresh record](pre-b01-toolchain-refresh.md) retains compatibility,
 rollback, output, and artifact evidence. Neither result closes any existing
-external finding or completes B01 or B04. The expanded B01 row makes `B01a` the
-next solo-ready implementation slice and keeps `B01b` and `B01c` in the same
+external finding or completes B01 or B04. The expanded B01 row defines `B01a` as
+the first delivery slice and keeps `B01b` and `B01c` in the same
 logical package rather than creating parallel roadmap IDs.
+
+### Active B01 delivery state
+
+`B01a` is provisionally implemented under solo bootstrap by the
+[governed current-source registry and graph validator](../architecture/repository-topology.md).
+It covers the source and engineering tests that exist now and retains its R2
+evidence and external findings. B01 remains `partial`: `B01b` tooling targets and
+compatibility entry points and `B01c` root, pre-commit, hosted-CI, A06, and A08
+enforcement are not implemented by this slice. The next selector is `B01b`.
 
 ## Recommended adoption order
 
 1. Preserve the completed governance hardening, toolchain-refresh evidence, and
    all open institutional findings.
-2. Implement B01a-B01c: define the graph, migrate governance tooling out of the
-   future runtime wheel, and enforce source/target ownership before adding new
-   dependencies.
+2. Complete B01 by preserving B01a's graph, implementing B01b's governance-tool
+   migration and compatibility entry points, and then adding B01c's root and
+   hosted enforcement before introducing new dependencies.
 3. Implement B02 with `rules_python`, the refreshed uv lock as a transitional
    resolution input, and Buf-backed Protobuf/code-generation targets. Keep Make
    as a tested delegating rollback interface.

@@ -92,9 +92,11 @@ The following rules are mandatory:
   use a narrow reviewed ABI with explicit allocation, lifetime, error, unwinding,
   threading, layout, and version rules.
 
-Automated source-graph enforcement belongs to B01 and B05. Until then, ADR review
-and the existing repository checks make these rules normative without claiming
-that the future build-policy controls already exist.
+B01a now provides repository-local current-source graph validation. B01b owns its
+tooling targets and compatibility entry points, B01c owns root and hosted
+enforcement, and B05 owns affected/full build-policy enforcement. Until those
+successors land, the B01a API and focused tests do not claim that the future
+build-policy controls already exist.
 
 ## Change rule
 

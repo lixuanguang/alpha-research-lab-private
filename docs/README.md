@@ -24,9 +24,10 @@ non-ultra-low-latency lane unless latency is the strategy's measured edge.
 
 The repository is at the bootstrap stage. It currently contains architecture,
 contracts, governance, a versioned repository-local resource inventory, a threat
-and regulatory control map, a program dependency and KPI dashboard, roadmaps,
-coding standards, a minimal Python package, a locked uv environment, and a
-transitional Make interface. It does not yet contain
+and regulatory control map, a program dependency and KPI dashboard, a governed
+current-source registry and graph validator, roadmaps, coding standards, a
+minimal Python package, a locked uv environment, and a transitional Make
+interface. It does not yet contain
 the blueprint's Bazel build graph, canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
@@ -127,6 +128,7 @@ must delegate to that graph and preserve affected-target and merged-result check
 | [Threat model and regulatory control map](governance/threat-model.md) | A07 assets, trust boundaries, abuse cases, privileged actions, control ownership and tests, evidence, jurisdiction profiles, and findings |
 | [Program dependency and KPI governance](governance/program-governance.md) | A08 exact roadmap DAG, solo/institutional readiness, automatic observation contract, owned baseline KPIs, dashboard, and findings |
 | [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
+| [Governed repository topology](architecture/repository-topology.md) | B01a current-source registry, dependency and visibility checks, evidence, findings, and successor boundary |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

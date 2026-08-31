@@ -191,6 +191,11 @@ Python-only topology. Bulk datasets, trial outputs, compiler outputs, deployable
 artifacts, and secrets stay outside Git; Git retains schemas, manifests, build
 definitions, synthetic fixtures, and policies.
 
+[B01a's governed repository topology](repository-topology.md) registers and
+checks only the source and engineering tests that currently exist. It does not
+create this target tree, supply B01b tooling targets, add B01c enforcement, or
+claim that the B02 hermetic build graph exists.
+
 ## Build and reproducibility architecture
 
 The target build is a pinned, hermetic Bazel graph for Python, C++ and/or Rust,
