@@ -1,13 +1,13 @@
-"""Approval and hard-control enforcement for A04 classification decisions."""
+"""Enforce approvals and hard controls for A04 classification decisions."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from unicodedata import normalize
 
-from alpha_research.change_risk.classification import classify_change
-from alpha_research.change_risk.constraints import ROLE_PATTERN
-from alpha_research.change_risk.models import (
+from alpha_research_governance.change_risk.classification import classify_change
+from alpha_research_governance.change_risk.constraints import ROLE_PATTERN
+from alpha_research_governance.change_risk.models import (
     ChangeRiskInput,
     ChangeRiskPolicy,
     ChangeRiskPolicyError,

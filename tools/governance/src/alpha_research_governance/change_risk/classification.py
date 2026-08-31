@@ -1,8 +1,8 @@
-"""Pure classification behavior for A04 change-risk inputs."""
+"""Classify A04 change-risk inputs deterministically."""
 
 from __future__ import annotations
 
-from alpha_research.change_risk.models import (
+from alpha_research_governance.change_risk.models import (
     ChangeRiskInput,
     ChangeRiskPolicy,
     ChangeRiskPolicyError,

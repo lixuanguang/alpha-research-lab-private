@@ -184,17 +184,18 @@ independently authorized activation envelope is applied.
     cli/ codegen/ migrations/ evidence/ release/
 ```
 
-This is the target created by B01 and later packages, not a request to create empty
-directories. The current `src/alpha_research/` tree is a bootstrap package and
-must migrate into the governed target graph without preserving an obsolete
-Python-only topology. Bulk datasets, trial outputs, compiler outputs, deployable
-artifacts, and secrets stay outside Git; Git retains schemas, manifests, build
-definitions, synthetic fixtures, and policies.
+This is the target created by B01 and later packages, not a request to create
+empty directories. B01b moved governance implementation from the bootstrap
+`src/alpha_research/` distribution into the owned `tools/governance` target and
+left only compatibility facades in the former paths. Bulk datasets, trial
+outputs, compiler outputs, deployable artifacts, and secrets stay outside Git;
+Git retains schemas, manifests, build definitions, synthetic fixtures, and
+policies.
 
-[B01a's governed repository topology](repository-topology.md) registers and
-checks only the source and engineering tests that currently exist. It does not
-create this target tree, supply B01b tooling targets, add B01c enforcement, or
-claim that the B02 hermetic build graph exists.
+[B01b's governed repository topology](repository-topology.md) registers and
+checks canonical tools, compatibility facades, and engineering tests. It does not
+create the remaining target tree, add B01c enforcement, or claim that the B02
+hermetic build graph exists.
 
 ## Build and reproducibility architecture
 

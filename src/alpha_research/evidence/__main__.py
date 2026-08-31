@@ -1,5 +1,5 @@
-"""Execute the A05 merge-request and evidence-governance check."""
+"""Execute the A05 compatibility command."""
 
-from alpha_research.evidence import main
+from alpha_research_governance.evidence import main
 
 raise SystemExit(main())

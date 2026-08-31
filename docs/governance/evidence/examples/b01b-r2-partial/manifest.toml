@@ -1,0 +1,131 @@
+schema_version = 1
+bundle_id = "b01b-r2-partial"
+roadmap_id = "B01"
+commit_sha = "6666666666666666666666666666666666666666"
+owner_role = "platform"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = []
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["B01-F01", "B01-F02"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "none"
+reversibility = "compatibility_window"
+computationally_material = false
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Synthetic source-hygiene evidence exercises the canonical tool targets, compatibility facades, tests, and documentation."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "The two distributions use the pinned workspace, lock, build backend, interpreter, and exact dependency input."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Canonical and compatibility APIs, module commands, invalid arguments, missing roots, packaging, and failure propagation are exercised."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Coverage uniqueness, compatibility delegation, visibility, acyclicity, and dependency-layer invariants fail closed."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "Every current Python source is assigned exactly once to a tool, compatibility, or verification target."
+evidence_ids = ["graph-and-compatibility"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "Research behavior remains absent and unchanged; governance implementation is isolated from the platform package."
+evidence_ids = ["graph-and-compatibility"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "Canonical entry points and legacy module commands validate the same repository behavior and return compatible results."
+evidence_ids = ["graph-and-compatibility"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "Validation retains a 1,000-file ceiling, one deterministic AST scan, and a tested 1,000 ms workload budget."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Malformed paths, target drift, cycles, upward dependencies, unknown imports, and tool failures block validation; Git revert is the rollback."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Repository containment, symlink rejection, exact ownership roles, no runtime governance dependency, and evidence digests are enforced."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "Scope, interfaces, migration, compatibility window, parent status, non-goals, rollback, findings, and successor are documented."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "Deterministic tool failure is the repository-local operational signal; no production monitor or runbook is claimed."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[artifacts]]
+evidence_id = "contract-and-tests"
+artifact_type = "test_report"
+path = "reports/contract-and-tests.txt"
+sha256 = "7e0fbef80b01343f71be7a6ccba9a808c114a62ba92c66d5e90018f40025c0ad"
+
+[[artifacts]]
+evidence_id = "documentation-and-monitoring"
+artifact_type = "test_report"
+path = "reports/documentation-and-monitoring.txt"
+sha256 = "cbb7de0d6a0f9921d0c18a72b9c8388cf0dd6c9c2e8ff4a1c0c9c0f958797882"
+
+[[artifacts]]
+evidence_id = "graph-and-compatibility"
+artifact_type = "test_report"
+path = "reports/graph-and-compatibility.txt"
+sha256 = "9ea1c9cb239a3ff6f9f4bdd0f710afd0bc0f2b488d660ec67d134a37c3d5f81b"
+
+[[artifacts]]
+evidence_id = "security-resilience-performance"
+artifact_type = "test_report"
+path = "reports/security-resilience-performance.txt"
+sha256 = "6206a4f2c90c77bd60776e0cd8347323c63b8cbecfc693b87e7d85cedf9608ea"
+
+[[findings]]
+finding_id = "B01-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent domain review and commit-bound Code Owner approval are unavailable during solo bootstrap."
+closure_condition = "A named independent domain reviewer and Platform Code Owner resolve findings and approve the exact B01 target registry, tooling migration, compatibility facades, and validator commit."
+
+[[findings]]
+finding_id = "B01-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected-forge merged-result execution and retained exact-commit evidence are unavailable in the local checkout."
+closure_condition = "After B01c consumes the validator, protected hosted CI rejects representative uncovered, cyclic, upward, visibility, undeclared-dependency, and compatibility mutations on the exact reviewed merged result."

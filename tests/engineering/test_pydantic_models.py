@@ -11,19 +11,19 @@ from typing import Never
 import pytest
 from pydantic import ValidationError
 
-import alpha_research.architecture_governance as architecture_module
-import alpha_research.change_risk.policy as change_policy_module
-import alpha_research.evidence.manifest as evidence_manifest_module
-import alpha_research.evidence.policy as evidence_policy_module
-import alpha_research.inventory.registry as inventory_module
-import alpha_research.program_governance.registry as program_module
-import alpha_research.security_controls.registry as security_module
-from alpha_research._models import ImmutableModel
-from alpha_research.architecture_governance import (
+import alpha_research_governance.architecture_governance as architecture_module
+import alpha_research_governance.change_risk.policy as change_policy_module
+import alpha_research_governance.evidence.manifest as evidence_manifest_module
+import alpha_research_governance.evidence.policy as evidence_policy_module
+import alpha_research_governance.inventory.registry as inventory_module
+import alpha_research_governance.program_governance.registry as program_module
+import alpha_research_governance.security_controls.registry as security_module
+from alpha_research_governance._models import ImmutableModel
+from alpha_research_governance.architecture_governance import (
     ArchitectureGovernanceError,
     _DecisionLogEntry,
 )
-from alpha_research.change_risk import (
+from alpha_research_governance.change_risk import (
     ChangeRiskInput,
     ChangeRiskPolicyError,
     ClassificationDecision,
@@ -36,10 +36,10 @@ from alpha_research.change_risk import (
     SampleChange,
     classify_change,
 )
-from alpha_research.change_risk import (
+from alpha_research_governance.change_risk import (
     load_policy as load_change_policy,
 )
-from alpha_research.evidence import (
+from alpha_research_governance.evidence import (
     ApprovalEvidence,
     ArtifactEvidence,
     EvidenceGovernanceError,
@@ -50,19 +50,19 @@ from alpha_research.evidence import (
     PackageEvidenceProfile,
     PackageGateRequirement,
 )
-from alpha_research.evidence import (
+from alpha_research_governance.evidence import (
     validate_repository as validate_evidence,
 )
-from alpha_research.inventory import (
+from alpha_research_governance.inventory import (
     InventoryGovernanceError,
     InventoryItem,
     KindPopulation,
     ResourceInventory,
 )
-from alpha_research.inventory import (
+from alpha_research_governance.inventory import (
     validate_repository as validate_inventory,
 )
-from alpha_research.program_governance import (
+from alpha_research_governance.program_governance import (
     MetricDefinition,
     MetricObservation,
     MetricSummary,
@@ -71,10 +71,10 @@ from alpha_research.program_governance import (
     ProgramGovernance,
     ProgramGovernanceError,
 )
-from alpha_research.program_governance import (
+from alpha_research_governance.program_governance import (
     validate_repository as validate_program,
 )
-from alpha_research.security_controls import (
+from alpha_research_governance.security_controls import (
     AuthoritySource,
     EvidenceSource,
     JurisdictionProfile,
@@ -86,7 +86,7 @@ from alpha_research.security_controls import (
     ThreatScenario,
     TrustBoundary,
 )
-from alpha_research.security_controls import (
+from alpha_research_governance.security_controls import (
     validate_repository as validate_security,
 )
 

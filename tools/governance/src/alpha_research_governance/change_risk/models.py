@@ -1,4 +1,4 @@
-"""Domain models shared by the A04 change-risk controls."""
+"""Define domain models shared by the A04 change-risk controls."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from enum import Enum
 
 from pydantic import field_serializer
 
-from alpha_research._models import ImmutableModel
+from alpha_research_governance._models import ImmutableModel
 
 
 class ChangeRiskPolicyError(ValueError):

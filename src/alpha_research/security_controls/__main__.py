@@ -1,5 +1,5 @@
-"""Execute the A07 threat and regulatory control-map repository check."""
+"""Execute the A07 compatibility command."""
 
-from alpha_research.security_controls import main
+from alpha_research_governance.security_controls import main
 
 raise SystemExit(main())

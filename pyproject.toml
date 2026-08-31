@@ -9,12 +9,11 @@ description = "Institutional multi-asset quantitative research platform"
 readme = "docs/README.md"
 requires-python = "==3.12.*"
 classifiers = ["Private :: Do Not Upload"]
-dependencies = [
-    "pydantic==2.13.5",
-]
+dependencies = []
 
 [dependency-groups]
 dev = [
+    "alpha-research-governance",
     "bandit[toml]==1.9.4",
     "hatchling==1.32.0",
     "mypy==2.3.1",
@@ -29,13 +28,16 @@ dev = [
 required-version = "==0.12.7"
 default-groups = ["dev"]
 
+[tool.uv.sources]
+alpha-research-governance = { path = "tools/governance", editable = false }
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/alpha_research"]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "tools/governance/src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "RUF"]
@@ -43,8 +45,8 @@ select = ["E", "F", "I", "W", "UP", "RUF"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["alpha_research"]
-mypy_path = "src"
+packages = ["alpha_research", "alpha_research_governance"]
+mypy_path = ["src", "tools/governance/src"]
 warn_unused_configs = true
 
 [tool.pytest.ini_options]

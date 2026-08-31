@@ -107,7 +107,7 @@ def test_pre_commit_rejects_a_staged_unowned_root_path(tmp_path: Path) -> None:
     root = tmp_path / "repository"
     root.mkdir()
     tracked_paths = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
         cwd=REPOSITORY_ROOT,
         check=True,
         capture_output=True,
@@ -116,9 +116,12 @@ def test_pre_commit_rejects_a_staged_unowned_root_path(tmp_path: Path) -> None:
         if not raw_path:
             continue
         relative_path = Path(os.fsdecode(raw_path))
+        source = REPOSITORY_ROOT / relative_path
+        if not source.is_file():
+            continue
         destination = root / relative_path
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPOSITORY_ROOT / relative_path, destination)
+        shutil.copy2(source, destination)
 
     subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
     subprocess.run(["git", "add", "."], cwd=root, check=True)

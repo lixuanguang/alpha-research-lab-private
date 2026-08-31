@@ -1,4 +1,4 @@
-"""Non-negotiable blueprint lower bounds for the A04 policy parser."""
+"""Define non-negotiable blueprint lower bounds for A04 policy."""
 
 from __future__ import annotations
 

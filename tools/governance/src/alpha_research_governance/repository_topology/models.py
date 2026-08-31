@@ -1,8 +1,8 @@
-"""Immutable domain values for the B01 governed source topology."""
+"""Define immutable values for the B01 governed source topology."""
 
 from __future__ import annotations
 
-from alpha_research._models import ImmutableModel
+from alpha_research_governance._models import ImmutableModel
 
 
 class RepositoryTopologyError(ValueError):

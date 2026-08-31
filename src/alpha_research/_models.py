@@ -1,18 +1,5 @@
-"""Shared configuration for validated immutable boundary models."""
+"""Compatibility facade for governance boundary-model configuration."""
 
-from __future__ import annotations
+from alpha_research_governance._models import ImmutableModel
 
-from pydantic import BaseModel, ConfigDict
-
-
-class ImmutableModel(BaseModel):
-    """Reject coercion and unknown data while preserving value-object semantics."""
-
-    model_config = ConfigDict(
-        allow_inf_nan=False,
-        extra="forbid",
-        frozen=True,
-        revalidate_instances="always",
-        strict=True,
-        validate_default=True,
-    )
+__all__ = ["ImmutableModel"]

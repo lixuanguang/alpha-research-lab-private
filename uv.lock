@@ -3,15 +3,24 @@ revision = 3
 requires-python = "==3.12.*"
 
 [[package]]
-name = "alpha-research-lab"
+name = "alpha-research-governance"
 version = "0.1.0"
-source = { editable = "." }
+source = { directory = "tools/governance" }
 dependencies = [
     { name = "pydantic" },
 ]
 
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = "==2.13.5" }]
+
+[[package]]
+name = "alpha-research-lab"
+version = "0.1.0"
+source = { editable = "." }
+
 [package.dev-dependencies]
 dev = [
+    { name = "alpha-research-governance" },
     { name = "bandit" },
     { name = "hatchling" },
     { name = "mypy" },
@@ -23,10 +32,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = "==2.13.5" }]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "alpha-research-governance", directory = "tools/governance" },
     { name = "bandit", extras = ["toml"], specifier = "==1.9.4" },
     { name = "hatchling", specifier = "==1.32.0" },
     { name = "mypy", specifier = "==2.3.1" },

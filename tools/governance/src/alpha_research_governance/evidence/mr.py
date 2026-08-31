@@ -1,4 +1,4 @@
-"""Markdown template and merge-request body validation for A05."""
+"""Validate A05 Markdown templates and merge-request bodies."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import cast
 
-from alpha_research.evidence.models import EvidenceGovernanceError, EvidencePolicy
+from alpha_research_governance.evidence.models import EvidenceGovernanceError, EvidencePolicy
 
 _HEADING = re.compile(r"^(?P<level>##|###) (?P<title>.+?)\s*$", flags=re.MULTILINE)
 _COMMENT = re.compile(r"<!--.*?-->", flags=re.DOTALL)

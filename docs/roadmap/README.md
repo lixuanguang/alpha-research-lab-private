@@ -394,12 +394,13 @@ logical package rather than creating parallel roadmap IDs.
 
 ### Active B01 delivery state
 
-`B01a` is provisionally implemented under solo bootstrap by the
-[governed current-source registry and graph validator](../architecture/repository-topology.md).
-It covers the source and engineering tests that exist now and retains its R2
-evidence and external findings. B01 remains `partial`: `B01b` tooling targets and
-compatibility entry points and `B01c` root, pre-commit, hosted-CI, A06, and A08
-enforcement are not implemented by this slice. The next selector is `B01b`.
+`B01a` and `B01b` are provisionally implemented under solo bootstrap by the
+[governed target registry, governance-tool package, and compatibility entry points](../architecture/repository-topology.md).
+B01b preserves B01a's source graph, moves implementation into owned
+`tools/governance` targets, and keeps the previous APIs and module commands as
+facades. It retains R2 evidence and external findings. B01 remains `partial`:
+`B01c` root, pre-commit, hosted-CI, A06, and A08 enforcement is not implemented
+by this slice. The next selector is `B01c`.
 
 ## Recommended adoption order
 

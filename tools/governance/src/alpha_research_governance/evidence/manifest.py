@@ -1,4 +1,4 @@
-"""SHA-bound evidence-manifest validation for A05."""
+"""Validate SHA-bound A05 evidence manifests."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from alpha_research.change_risk import (
+from alpha_research_governance.change_risk import (
     ChangeRiskInput,
     ChangeRiskPolicy,
     RiskClass,
     classify_change,
     validate_merge_approvals,
 )
-from alpha_research.evidence.models import (
+from alpha_research_governance.evidence.models import (
     ApprovalEvidence,
     ArtifactEvidence,
     EvidenceGovernanceError,
