@@ -1,0 +1,1 @@
+Synthetic B01a fixture: path containment, symlink rejection, a 1,000-file current-source ceiling, a 1,000 ms validation budget, deterministic AST parsing, fail-closed registry drift, and a review-required Git rollback contract are retained.

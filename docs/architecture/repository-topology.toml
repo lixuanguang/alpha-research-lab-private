@@ -1,0 +1,246 @@
+schema_version = 1
+roadmap_package = "B01"
+delivery_slice = "B01a"
+operating_track = "solo_bootstrap"
+package_status = "partial"
+slice_status = "provisionally_implemented"
+accountable_owner_role = "platform"
+risk_class = "R2"
+applicable_gate_ids = [
+  "QG01",
+  "QG02",
+  "QG03",
+  "QG04",
+  "QG05",
+  "QG06",
+  "QG09",
+  "QG10",
+  "QG11",
+  "QG12",
+  "QG13",
+  "QG14",
+]
+source_roots = ["src/alpha_research", "tests/engineering"]
+maximum_source_files = 1000
+validation_workload_budget_ms = 1000
+layer_order = ["foundation", "policy", "evidence", "catalog", "verification"]
+remaining_slices = ["B01b", "B01c"]
+local_evidence_manifest_path = "docs/governance/evidence/examples/b01a-r2-partial/manifest.toml"
+local_evidence_commit_sha = "5555555555555555555555555555555555555555"
+open_finding_ids = ["B01-F01", "B01-F02"]
+
+[[units]]
+unit_id = "source.alpha_research.architecture_governance"
+kind = "library"
+layer = "policy"
+owner_role = "domain_architecture"
+supported_platforms = ["any"]
+dependencies = ["source.alpha_research.foundation"]
+visibility = ["test.engineering"]
+sources = ["src/alpha_research/architecture_governance.py"]
+
+[[units]]
+unit_id = "source.alpha_research.change_risk"
+kind = "library"
+layer = "policy"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = ["source.alpha_research.foundation"]
+visibility = [
+  "source.alpha_research.evidence",
+  "source.alpha_research.inventory",
+  "source.alpha_research.program_governance",
+  "source.alpha_research.repository_topology",
+  "source.alpha_research.security_controls",
+  "test.engineering",
+]
+sources = [
+  "src/alpha_research/change_risk/__init__.py",
+  "src/alpha_research/change_risk/__main__.py",
+  "src/alpha_research/change_risk/approvals.py",
+  "src/alpha_research/change_risk/classification.py",
+  "src/alpha_research/change_risk/constraints.py",
+  "src/alpha_research/change_risk/models.py",
+  "src/alpha_research/change_risk/policy.py",
+]
+
+[[units]]
+unit_id = "source.alpha_research.evidence"
+kind = "library"
+layer = "evidence"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = [
+  "source.alpha_research.change_risk",
+  "source.alpha_research.foundation",
+]
+visibility = [
+  "source.alpha_research.inventory",
+  "source.alpha_research.program_governance",
+  "source.alpha_research.repository_topology",
+  "source.alpha_research.security_controls",
+  "test.engineering",
+]
+sources = [
+  "src/alpha_research/evidence/__init__.py",
+  "src/alpha_research/evidence/__main__.py",
+  "src/alpha_research/evidence/manifest.py",
+  "src/alpha_research/evidence/models.py",
+  "src/alpha_research/evidence/mr.py",
+  "src/alpha_research/evidence/package.py",
+  "src/alpha_research/evidence/policy.py",
+]
+
+[[units]]
+unit_id = "source.alpha_research.foundation"
+kind = "library"
+layer = "foundation"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = []
+visibility = [
+  "source.alpha_research.architecture_governance",
+  "source.alpha_research.change_risk",
+  "source.alpha_research.evidence",
+  "source.alpha_research.inventory",
+  "source.alpha_research.program_governance",
+  "source.alpha_research.repository_topology",
+  "source.alpha_research.security_controls",
+  "test.engineering",
+]
+sources = [
+  "src/alpha_research/__init__.py",
+  "src/alpha_research/_models.py",
+  "src/alpha_research/py.typed",
+]
+
+[[units]]
+unit_id = "source.alpha_research.inventory"
+kind = "library"
+layer = "catalog"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = [
+  "source.alpha_research.change_risk",
+  "source.alpha_research.evidence",
+  "source.alpha_research.foundation",
+]
+visibility = ["test.engineering"]
+sources = [
+  "src/alpha_research/inventory/__init__.py",
+  "src/alpha_research/inventory/__main__.py",
+  "src/alpha_research/inventory/models.py",
+  "src/alpha_research/inventory/registry.py",
+]
+
+[[units]]
+unit_id = "source.alpha_research.ownership_governance"
+kind = "library"
+layer = "policy"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = []
+visibility = ["test.engineering"]
+sources = ["src/alpha_research/ownership_governance.py"]
+
+[[units]]
+unit_id = "source.alpha_research.program_governance"
+kind = "library"
+layer = "catalog"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = [
+  "source.alpha_research.change_risk",
+  "source.alpha_research.evidence",
+  "source.alpha_research.foundation",
+]
+visibility = ["test.engineering"]
+sources = [
+  "src/alpha_research/program_governance/__init__.py",
+  "src/alpha_research/program_governance/__main__.py",
+  "src/alpha_research/program_governance/models.py",
+  "src/alpha_research/program_governance/registry.py",
+]
+
+[[units]]
+unit_id = "source.alpha_research.repository_topology"
+kind = "library"
+layer = "catalog"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = [
+  "source.alpha_research.change_risk",
+  "source.alpha_research.evidence",
+  "source.alpha_research.foundation",
+]
+visibility = ["test.engineering"]
+sources = [
+  "src/alpha_research/repository_topology/__init__.py",
+  "src/alpha_research/repository_topology/models.py",
+  "src/alpha_research/repository_topology/registry.py",
+]
+
+[[units]]
+unit_id = "source.alpha_research.security_controls"
+kind = "library"
+layer = "catalog"
+owner_role = "security"
+supported_platforms = ["any"]
+dependencies = [
+  "source.alpha_research.change_risk",
+  "source.alpha_research.evidence",
+  "source.alpha_research.foundation",
+]
+visibility = ["test.engineering"]
+sources = [
+  "src/alpha_research/security_controls/__init__.py",
+  "src/alpha_research/security_controls/__main__.py",
+  "src/alpha_research/security_controls/models.py",
+  "src/alpha_research/security_controls/registry.py",
+]
+
+[[units]]
+unit_id = "test.engineering"
+kind = "test"
+layer = "verification"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = [
+  "source.alpha_research.architecture_governance",
+  "source.alpha_research.change_risk",
+  "source.alpha_research.evidence",
+  "source.alpha_research.foundation",
+  "source.alpha_research.inventory",
+  "source.alpha_research.ownership_governance",
+  "source.alpha_research.program_governance",
+  "source.alpha_research.repository_topology",
+  "source.alpha_research.security_controls",
+]
+visibility = []
+sources = [
+  "tests/engineering/test_architecture_governance.py",
+  "tests/engineering/test_change_risk.py",
+  "tests/engineering/test_evidence_governance.py",
+  "tests/engineering/test_inventory_governance.py",
+  "tests/engineering/test_ownership_governance.py",
+  "tests/engineering/test_package_definition.py",
+  "tests/engineering/test_package_evidence.py",
+  "tests/engineering/test_program_governance.py",
+  "tests/engineering/test_pydantic_models.py",
+  "tests/engineering/test_repository_governance.py",
+  "tests/engineering/test_repository_topology.py",
+  "tests/engineering/test_root_commands.py",
+  "tests/engineering/test_security_controls.py",
+]
+
+[[findings]]
+finding_id = "B01-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent domain review and commit-bound Code Owner approval are unavailable during solo bootstrap."
+closure_condition = "A named independent domain reviewer and Platform Code Owner resolve findings and approve the exact B01 source registry and validator commit."
+
+[[findings]]
+finding_id = "B01-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected-forge merged-result execution and retained exact-commit evidence are unavailable in the local checkout."
+closure_condition = "After B01c consumes the validator, protected hosted CI rejects representative uncovered, cyclic, upward, visibility, and undeclared-dependency mutations on the exact reviewed merged result."

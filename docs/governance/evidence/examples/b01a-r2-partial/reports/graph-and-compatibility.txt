@@ -1,0 +1,1 @@
+Synthetic B01a fixture: all current bootstrap Python and engineering-test sources have one stable unit, direct internal imports match declared edges, and the graph remains acyclic with no upward edge.
