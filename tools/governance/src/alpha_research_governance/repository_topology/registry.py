@@ -1,4 +1,4 @@
-"""Strict B01a source-registry parsing and dependency-graph validation."""
+"""Validate the B01 source registry and dependency graph strictly."""
 
 from __future__ import annotations
 
@@ -11,16 +11,16 @@ from typing import cast
 
 from pydantic import ValidationError
 
-from alpha_research.change_risk import ChangeRiskInput, RiskClass
-from alpha_research.change_risk import load_policy as load_change_risk_policy
-from alpha_research.evidence import (
+from alpha_research_governance.change_risk import ChangeRiskInput, RiskClass
+from alpha_research_governance.change_risk import load_policy as load_change_risk_policy
+from alpha_research_governance.evidence import (
     EvidenceGovernanceError,
     PackageEvidenceProfile,
     PackageGateRequirement,
     validate_manifest,
     validate_package_evidence,
 )
-from alpha_research.repository_topology.models import (
+from alpha_research_governance.repository_topology.models import (
     RepositoryTopology,
     RepositoryTopologyError,
     SourceUnit,
@@ -41,9 +41,20 @@ _APPLICABLE_GATES = (
     "QG14",
 )
 _EXPECTED_FINDING_IDS = ("B01-F01", "B01-F02")
-_EXPECTED_REMAINING_SLICES = ("B01b", "B01c")
-_EXPECTED_SOURCE_ROOTS = ("src/alpha_research", "tests/engineering")
-_EXPECTED_LAYER_ORDER = ("foundation", "policy", "evidence", "catalog", "verification")
+_EXPECTED_REMAINING_SLICES = ("B01c",)
+_EXPECTED_SOURCE_ROOTS = (
+    "src/alpha_research",
+    "tests/engineering",
+    "tools/governance/src/alpha_research_governance",
+)
+_EXPECTED_LAYER_ORDER = (
+    "foundation",
+    "policy",
+    "evidence",
+    "catalog",
+    "compatibility",
+    "verification",
+)
 _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
     roadmap_package_id="B01",
     accountable_owner_role="platform",
@@ -201,8 +212,8 @@ def _module_name(source: str) -> tuple[str, bool] | None:
     if path.suffix not in _SOURCE_SUFFIXES:
         return None
     parts = list(path.with_suffix("").parts)
-    if parts[0] == "src":
-        parts.pop(0)
+    if "src" in parts:
+        parts = parts[parts.index("src") + 1 :]
     is_package = bool(parts and parts[-1] == "__init__")
     if is_package:
         parts.pop()
@@ -217,14 +228,15 @@ def _internal_imports(
     except SyntaxError as error:
         raise RepositoryTopologyError([f"{path}: cannot parse source: {error}"]) from error
     imports: set[str] = set()
+    internal_roots = frozenset(module.partition(".")[0] for module in known_modules)
+
+    def is_internal(name: str) -> bool:
+        return name.partition(".")[0] in internal_roots
+
     package = module_name if is_package else module_name.rpartition(".")[0]
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            imports.update(
-                alias.name
-                for alias in node.names
-                if alias.name == "alpha_research" or alias.name.startswith("alpha_research.")
-            )
+            imports.update(alias.name for alias in node.names if is_internal(alias.name))
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 try:
@@ -239,7 +251,7 @@ def _internal_imports(
                 base = node.module
             else:
                 continue
-            if base == "alpha_research" or base.startswith("alpha_research."):
+            if is_internal(base):
                 for alias in node.names:
                     candidate = f"{base}.{alias.name}"
                     imports.add(candidate if candidate in known_modules else base)
@@ -283,8 +295,8 @@ def _validate_graph(topology: RepositoryTopology, repository_root: Path) -> None
     )
     declared_sources: dict[str, str] = {}
     for unit in topology.units:
-        if unit.kind not in {"library", "test"}:
-            findings.append(f"{unit.unit_id}: kind must be library or test")
+        if unit.kind not in {"compatibility", "test", "tool"}:
+            findings.append(f"{unit.unit_id}: kind must be compatibility, test, or tool")
         if unit.layer not in layer_index:
             findings.append(f"{unit.unit_id}: unknown layer {unit.layer!r}")
         if unit.owner_role not in ownership_roles:
@@ -443,7 +455,7 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
     open_finding_ids = _strings(root.get("open_finding_ids"), context="open_finding_ids")
     expected_scalars = {
         "accountable_owner_role": "platform",
-        "delivery_slice": "B01a",
+        "delivery_slice": "B01b",
         "maximum_source_files": 1000,
         "operating_track": "solo_bootstrap",
         "package_status": "partial",
@@ -462,7 +474,7 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
         findings.append(f"{path}: applicable_gate_ids must match the R2 policy")
     remaining_slices = _strings(root.get("remaining_slices"), context="remaining_slices")
     if remaining_slices != _EXPECTED_REMAINING_SLICES:
-        findings.append(f"{path}: remaining_slices must be B01b then B01c")
+        findings.append(f"{path}: remaining_slices must contain only B01c")
     source_roots = _strings(root.get("source_roots"), context="source_roots")
     if source_roots != _EXPECTED_SOURCE_ROOTS:
         findings.append(f"{path}: source_roots must identify the exact current source areas")
@@ -505,7 +517,7 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
 
 
 def validate_repository(repository_root: Path) -> RepositoryTopology:
-    """Validate the B01a source graph and its synthetic local evidence."""
+    """Validate the B01b tooling graph and its synthetic local evidence."""
     root = repository_root.resolve()
     topology = load_topology(
         root / "docs" / "architecture" / "repository-topology.toml", repository_root=root
@@ -525,5 +537,5 @@ def validate_repository(repository_root: Path) -> RepositoryTopology:
         )
         validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
     except (EvidenceGovernanceError, OSError, ValueError) as error:
-        raise RepositoryTopologyError([f"B01a local evidence bundle: {error}"]) from error
+        raise RepositoryTopologyError([f"B01b local evidence bundle: {error}"]) from error
     return topology

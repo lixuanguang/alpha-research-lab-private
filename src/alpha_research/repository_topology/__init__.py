@@ -1,16 +1,19 @@
-"""Public B01a governed source-topology API."""
+"""Compatibility facade for the canonical B01 topology-governance tool."""
 
-from alpha_research.repository_topology.models import (
+from alpha_research_governance.repository_topology import (
     RepositoryTopology,
     RepositoryTopologyError,
     SourceUnit,
+    load_topology,
+    main,
+    validate_repository,
 )
-from alpha_research.repository_topology.registry import load_topology, validate_repository
 
 __all__ = [
     "RepositoryTopology",
     "RepositoryTopologyError",
     "SourceUnit",
     "load_topology",
+    "main",
     "validate_repository",
 ]

@@ -1,4 +1,4 @@
-"""Strict parsing for the A05 merge-request and evidence policy."""
+"""Parse the A05 merge-request and evidence policy strictly."""
 
 from __future__ import annotations
 
@@ -9,7 +9,11 @@ from typing import cast
 
 from pydantic import ValidationError
 
-from alpha_research.evidence.models import EvidenceGovernanceError, EvidencePolicy, MrField
+from alpha_research_governance.evidence.models import (
+    EvidenceGovernanceError,
+    EvidencePolicy,
+    MrField,
+)
 
 _GATE = re.compile(r"^QG(?:0[1-9]|1[0-5])$")
 _FIELD_KEY = re.compile(r"^[a-z][a-z0-9_]*$")

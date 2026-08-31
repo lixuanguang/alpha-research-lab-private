@@ -1,5 +1,5 @@
-"""Execute the A06 resource-inventory repository check."""
+"""Execute the A06 compatibility command."""
 
-from alpha_research.inventory import main
+from alpha_research_governance.inventory import main
 
 raise SystemExit(main())

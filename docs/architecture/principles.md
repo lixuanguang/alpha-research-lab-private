@@ -92,10 +92,10 @@ The following rules are mandatory:
   use a narrow reviewed ABI with explicit allocation, lifetime, error, unwinding,
   threading, layout, and version rules.
 
-B01a now provides repository-local current-source graph validation. B01b owns its
-tooling targets and compatibility entry points, B01c owns root and hosted
-enforcement, and B05 owns affected/full build-policy enforcement. Until those
-successors land, the B01a API and focused tests do not claim that the future
+B01a provides current-source graph validation and B01b now owns its canonical
+governance-tool targets and compatibility entry points. B01c still owns root and
+hosted enforcement, and B05 owns affected/full build-policy enforcement. Until
+those successors land, the focused B01b targets do not claim that future
 build-policy controls already exist.
 
 ## Change rule

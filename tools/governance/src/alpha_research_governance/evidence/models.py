@@ -1,4 +1,4 @@
-"""Domain models for A05 merge-request and evidence governance."""
+"""Define A05 merge-request and evidence-governance models."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Literal
 
 from pydantic import field_serializer, field_validator, model_validator
 
-from alpha_research._models import ImmutableModel
-from alpha_research.change_risk import ChangeRiskInput, ReviewApproval, RiskClass
+from alpha_research_governance._models import ImmutableModel
+from alpha_research_governance.change_risk import ChangeRiskInput, ReviewApproval, RiskClass
 
 _GATE = re.compile(r"^QG(?:0[1-9]|1[0-5])$")
 _FINDING_ID = re.compile(r"^(?P<package>[A-L]0[1-8])-F[0-9]{2}$")

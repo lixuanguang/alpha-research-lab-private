@@ -1,9 +1,9 @@
-"""Exact package-profile validation for synthetic local evidence."""
+"""Validate exact package profiles for synthetic local evidence."""
 
 from __future__ import annotations
 
-from alpha_research.change_risk import RiskClass
-from alpha_research.evidence.models import (
+from alpha_research_governance.change_risk import RiskClass
+from alpha_research_governance.evidence.models import (
     EvidenceGovernanceError,
     EvidenceManifest,
     PackageEvidenceProfile,

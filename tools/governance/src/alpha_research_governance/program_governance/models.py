@@ -1,4 +1,4 @@
-"""Domain models for the A08 program graph and KPI contract."""
+"""Define domain models for the A08 program graph and KPI contract."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Self
 
 from pydantic import field_validator, model_validator
 
-from alpha_research._models import ImmutableModel
+from alpha_research_governance._models import ImmutableModel
 
 
 class ProgramGovernanceError(ValueError):

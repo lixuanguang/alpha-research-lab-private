@@ -1,4 +1,4 @@
-"""Strict TOML parsing and blueprint-bound validation for the A04 policy."""
+"""Parse and validate the blueprint-bound A04 TOML policy."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import cast
 
 from pydantic import ValidationError
 
-from alpha_research.change_risk.classification import classify_change
-from alpha_research.change_risk.constraints import (
+from alpha_research_governance.change_risk.classification import classify_change
+from alpha_research_governance.change_risk.constraints import (
     APPLICABILITY_TRIGGERS,
     BLUEPRINT_CONDITIONAL_GATES,
     BLUEPRINT_REQUIRED_GATES,
@@ -23,7 +23,7 @@ from alpha_research.change_risk.constraints import (
     NON_WAIVABLE_LIVE_CONTROLS,
     ROLE_PATTERN,
 )
-from alpha_research.change_risk.models import (
+from alpha_research_governance.change_risk.models import (
     ChangeRiskInput,
     ChangeRiskPolicy,
     ChangeRiskPolicyError,

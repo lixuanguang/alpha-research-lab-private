@@ -156,9 +156,11 @@ closes against the exact reviewed commit.
 
 ## Implementation boundaries and non-goals
 
-The Python implementation is a cohesive `alpha_research.change_risk` subpackage.
-Policy parsing, classification, and approval enforcement can be reviewed
-independently without changing the stable public API or command:
+The canonical Python implementation is the cohesive
+`alpha_research_governance.change_risk` tool subpackage. B01b preserves the
+`alpha_research.change_risk` public API and command as a compatibility facade, so
+policy parsing, classification, and approval enforcement remain independently
+reviewable:
 
 - `change_risk/__init__.py` is the public compatibility facade.
 - `change_risk/__main__.py` preserves the repository-check command entry point.

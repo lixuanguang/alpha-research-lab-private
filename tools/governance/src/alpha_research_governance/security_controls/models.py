@@ -1,10 +1,10 @@
-"""Domain models for the A07 threat and regulatory control map."""
+"""Define domain models for the A07 threat and regulatory control map."""
 
 from __future__ import annotations
 
 from datetime import date
 
-from alpha_research._models import ImmutableModel
+from alpha_research_governance._models import ImmutableModel
 
 
 class SecurityControlError(ValueError):

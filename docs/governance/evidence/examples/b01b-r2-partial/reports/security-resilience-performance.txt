@@ -1,0 +1,1 @@
+Synthetic B01b fixture: path containment, symlink rejection, exact dependency visibility, a 1,000-file ceiling, a 1,000 ms validation budget, fail-closed target drift, and reviewed Git rollback are retained.
