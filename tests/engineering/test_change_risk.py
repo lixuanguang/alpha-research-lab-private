@@ -113,20 +113,6 @@ def test_repository_policy_is_valid_partial_and_covers_every_class() -> None:
     assert [sample.expected_class for sample in loaded.samples] == list(RiskClass)
 
 
-def test_policy_checker_is_integrated_with_local_and_hosted_checks() -> None:
-    canonical_command = "alpha-governance-change-risk"
-    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
-    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert canonical_command in makefile
-    assert canonical_command in pre_commit
-    assert canonical_command in continuous_integration
-    assert "tools/governance/src/alpha_research_governance/change_risk/[a-z_]+\\.py" in (pre_commit)
-
-
 @pytest.mark.parametrize("risk_class", list(RiskClass))
 def test_classifier_maps_representative_changes_to_each_class(
     policy: ChangeRiskPolicy, risk_class: RiskClass

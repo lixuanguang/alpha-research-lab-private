@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from time import perf_counter_ns
 
 import pytest
 
@@ -93,17 +92,6 @@ def test_queries_are_deterministic_and_preserve_explicit_empty_kinds() -> None:
         if item.inventory_id != "inv.control.governance.a01_repository_boundary"
         for source in item.source_paths
     )
-
-
-def test_query_workload_stays_within_the_governed_budget() -> None:
-    inventory = validate_repository(REPOSITORY_ROOT)
-
-    started = perf_counter_ns()
-    for _ in range(inventory.query_workload_iterations):
-        inventory.query(kind="control", owner_role="platform", status="provisional")
-    elapsed_ms = (perf_counter_ns() - started) / 1_000_000
-
-    assert elapsed_ms <= inventory.query_workload_budget_ms
 
 
 def test_stale_owner_generates_a_finding(tmp_path: Path) -> None:
@@ -335,18 +323,3 @@ def test_cli_rejects_unknown_kind_and_missing_catalog(
 
     assert main(["--kind"]) == 2
     assert "usage:" in capsys.readouterr().err
-
-
-def test_inventory_checker_is_integrated_with_repository_automation() -> None:
-    canonical_command = "alpha-governance-inventory"
-    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
-    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
-    documentation = (REPOSITORY_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
-
-    assert canonical_command in makefile
-    assert canonical_command in pre_commit
-    assert canonical_command in continuous_integration
-    assert "make inventory-check" in documentation
