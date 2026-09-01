@@ -1,8 +1,9 @@
-"""Deterministic and adversarial tests for A08 program governance."""
+"""Deterministic and adversarial tests for program governance."""
 
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter_ns
@@ -24,6 +25,8 @@ from alpha_research.program_governance import (
 REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "program-governance.toml"
 ROADMAP_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "README.md"
+RESEARCH_PROGRAM_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "research-program.md"
+TOOLCHAIN_REFRESH_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "pre-b01-toolchain-refresh.md"
 
 
 def _policy_fixture(tmp_path: Path) -> Path:
@@ -38,13 +41,13 @@ def _roadmap_fixture(tmp_path: Path) -> Path:
     return path
 
 
-def _replace(path: Path, old: str, new: str) -> None:
+def _replace_program_fixture_text(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-def _event(
+def _metric_observation_event(
     program_metric_id: str,
     *,
     event_id: str,
@@ -55,7 +58,7 @@ def _event(
 ) -> dict[str, object]:
     program = load_program(POLICY_PATH, repository_root=REPOSITORY_ROOT)
     metric = next(item for item in program.metrics if item.metric_id == program_metric_id)
-    result: dict[str, object] = {
+    event_payload: dict[str, object] = {
         "dimensions": {key: f"value-{key}" for key in metric.required_dimensions},
         "event_id": event_id,
         "evidence_url": f"https://forge.example/runs/{event_id}",
@@ -68,7 +71,7 @@ def _event(
         "window_start": f"2026-08-30T00:00:{start_seconds:02d}Z",
     }
     if metric.value_kind == "ratio":
-        result.update(
+        event_payload.update(
             {
                 "denominator": denominator,
                 "denominator_unit": metric.denominator_unit,
@@ -76,10 +79,10 @@ def _event(
                 "numerator_unit": metric.numerator_unit,
             }
         )
-    return result
+    return event_payload
 
 
-def _write_events(tmp_path: Path, events: list[dict[str, object]]) -> Path:
+def _write_observation_events(tmp_path: Path, events: list[dict[str, object]]) -> Path:
     path = tmp_path / "observations.jsonl"
     path.write_text(
         "\n".join(json.dumps(event, sort_keys=True) for event in events) + "\n",
@@ -112,15 +115,15 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
 
 def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> None:
     program = validate_repository(REPOSITORY_ROOT)
-    by_id = {package.package_id: package for package in program.packages}
+    packages_by_id = {package.package_id: package for package in program.packages}
 
-    assert by_id["A08"].dependencies == tuple(f"A{number:02d}" for number in range(1, 8))
-    assert by_id["H02"].dependencies[-4:] == ("I01", "I02", "I03", "I04")
-    assert by_id["L01"].dependencies == tuple(
+    assert packages_by_id["A08"].dependencies == tuple(f"A{number:02d}" for number in range(1, 8))
+    assert packages_by_id["H02"].dependencies[-4:] == ("I01", "I02", "I03", "I04")
+    assert packages_by_id["L01"].dependencies == tuple(
         f"{wave}{number:02d}" for wave in "CDEFGHIJK" for number in range(1, 9)
     )
-    assert by_id["L06"].any_of_dependency_groups == (("L01", "L02", "L04"),)
-    assert by_id["L07"].any_of_dependency_groups == (("L01", "L02", "L03", "L04"),)
+    assert packages_by_id["L06"].any_of_dependency_groups == (("L01", "L02", "L04"),)
+    assert packages_by_id["L07"].any_of_dependency_groups == (("L01", "L02", "L03", "L04"),)
     assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
         "B02",
     )
@@ -129,7 +132,7 @@ def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> No
 
 def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: Path) -> None:
     cyclic = _roadmap_fixture(tmp_path)
-    _replace(
+    _replace_program_fixture_text(
         cyclic,
         "| A01 | Repository charter and monorepo boundary | — | "
         "Repository-owned governance; no external authority | - |",
@@ -140,12 +143,12 @@ def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: P
         load_roadmap(cyclic)
 
     shorthand = _roadmap_fixture(tmp_path)
-    _replace(shorthand, "B01-B08, C01-C08, D06", "B, C, D06")
+    _replace_program_fixture_text(shorthand, "B01-B08, C01-C08, D06", "B, C, D06")
     with pytest.raises(ProgramGovernanceError, match="unsupported roadmap dependency token"):
         load_roadmap(shorthand)
 
     missing = _roadmap_fixture(tmp_path)
-    _replace(
+    _replace_program_fixture_text(
         missing,
         "| A08 | Program dependency graph and owned baseline KPIs | — | "
         "Metrics are non-vanity signals and never replace hard gates | A01-A07 |",
@@ -174,7 +177,7 @@ def test_roadmap_requires_embedded_library_and_boundary_columns(tmp_path: Path) 
     assert "Implement B04 as separate toolchain-refresh MRs" not in text
 
     malformed = _roadmap_fixture(tmp_path)
-    _replace(
+    _replace_program_fixture_text(
         malformed,
         "| A01 | Repository charter and monorepo boundary | — | "
         "Repository-owned governance; no external authority | - |",
@@ -184,16 +187,39 @@ def test_roadmap_requires_embedded_library_and_boundary_columns(tmp_path: Path) 
         load_roadmap(malformed)
 
 
+def test_roadmap_documents_lead_with_descriptive_names() -> None:
+    implementation_roadmap = ROADMAP_PATH.read_text(encoding="utf-8")
+    research_program = RESEARCH_PROGRAM_PATH.read_text(encoding="utf-8")
+    toolchain_refresh = TOOLCHAIN_REFRESH_PATH.read_text(encoding="utf-8")
+
+    assert "### Active B01 delivery state" not in implementation_roadmap
+    assert re.search(r"^## R\d{2}\b", research_program, flags=re.MULTILINE) is None
+    assert re.search(r"^- `REP-\d{2}[A-Z]`:", research_program, flags=re.MULTILINE) is None
+    assert (
+        len(
+            re.findall(
+                r"^- \*\*.+\*\* \(`REP-\d{2}[A-Z]`\):",
+                research_program,
+                flags=re.MULTILINE,
+            )
+        )
+        == 48
+    )
+    assert toolchain_refresh.startswith("# Toolchain refresh before governed repository topology\n")
+
+
 def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
     tmp_path: Path,
 ) -> None:
     local_gap = _policy_fixture(tmp_path)
-    _replace(local_gap, 'repository_local_status = "passed"', 'repository_local_status = "failed"')
+    _replace_program_fixture_text(
+        local_gap, 'repository_local_status = "passed"', 'repository_local_status = "failed"'
+    )
     with pytest.raises(ProgramGovernanceError, match="passing repository-local evidence"):
         load_program(local_gap, repository_root=REPOSITORY_ROOT)
 
     validated = _policy_fixture(tmp_path)
-    _replace(
+    _replace_program_fixture_text(
         validated,
         'package_id = "A01"\nstatus = "partial"',
         'package_id = "A01"\nstatus = "validated"',
@@ -202,12 +228,16 @@ def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
         load_program(validated, repository_root=REPOSITORY_ROOT)
 
     manual = _policy_fixture(tmp_path)
-    _replace(manual, "manual_entry_allowed = false", "manual_entry_allowed = true")
+    _replace_program_fixture_text(
+        manual, "manual_entry_allowed = false", "manual_entry_allowed = true"
+    )
     with pytest.raises(ProgramGovernanceError, match="manual KPI entry is prohibited"):
         load_program(manual, repository_root=REPOSITORY_ROOT)
 
     vanity = _policy_fixture(tmp_path)
-    _replace(vanity, "hard_gate_substitute = false", "hard_gate_substitute = true")
+    _replace_program_fixture_text(
+        vanity, "hard_gate_substitute = false", "hard_gate_substitute = true"
+    )
     with pytest.raises(ProgramGovernanceError, match="cannot substitute for a hard gate"):
         load_program(vanity, repository_root=REPOSITORY_ROOT)
 
@@ -216,17 +246,19 @@ def test_program_policy_rejects_unapproved_target_claim_and_unretained_finding(
     tmp_path: Path,
 ) -> None:
     target = _policy_fixture(tmp_path)
-    _replace(target, 'target_status = "pending_owner_approval"', 'target_status = "approved"')
+    _replace_program_fixture_text(
+        target, 'target_status = "pending_owner_approval"', 'target_status = "approved"'
+    )
     with pytest.raises(ProgramGovernanceError, match="approved target requires value and evidence"):
         load_program(target, repository_root=REPOSITORY_ROOT)
 
     finding = _policy_fixture(tmp_path)
-    _replace(finding, '"A01-F03"', '"A01-F99"')
+    _replace_program_fixture_text(finding, '"A01-F03"', '"A01-F99"')
     with pytest.raises(ProgramGovernanceError, match="do not retain findings"):
         load_program(finding, repository_root=REPOSITORY_ROOT)
 
     deferred = _policy_fixture(tmp_path)
-    _replace(deferred, '"organization",', '"later_technical_package",')
+    _replace_program_fixture_text(deferred, '"organization",', '"later_technical_package",')
     with pytest.raises(ProgramGovernanceError, match="deferred evidence classes"):
         load_program(deferred, repository_root=REPOSITORY_ROOT)
 
@@ -236,18 +268,20 @@ def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
 ) -> None:
     program = validate_repository(REPOSITORY_ROOT)
     events = [
-        _event("kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number)
+        _metric_observation_event(
+            "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
+        )
         for number in range(1, 6)
     ]
     events.extend(
         [
-            _event(
+            _metric_observation_event(
                 "kpi.research_reproducibility_percent",
                 event_id="research-1",
                 numerator=8,
                 denominator=10,
             ),
-            _event(
+            _metric_observation_event(
                 "kpi.research_reproducibility_percent",
                 event_id="research-2",
                 start_seconds=5,
@@ -257,7 +291,7 @@ def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
             ),
         ]
     )
-    observations = load_observations(_write_events(tmp_path, events), program=program)
+    observations = load_observations(_write_observation_events(tmp_path, events), program=program)
     summaries = {item.metric_id: item for item in program.summarize_metrics(observations)}
 
     assert summaries["kpi.build_duration_seconds"].value == 5
@@ -269,15 +303,21 @@ def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
 
 def test_reporting_window_excludes_stale_duration_observations(tmp_path: Path) -> None:
     program = validate_repository(REPOSITORY_ROOT)
-    stale = _event("kpi.build_duration_seconds", event_id="build-stale", seconds=59)
+    stale = _metric_observation_event(
+        "kpi.build_duration_seconds", event_id="build-stale", seconds=59
+    )
     stale["window_start"] = "2026-01-01T00:00:00Z"
     stale["window_end"] = "2026-01-01T00:00:59Z"
     recent = [
-        _event("kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number)
+        _metric_observation_event(
+            "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
+        )
         for number in range(1, 6)
     ]
 
-    observations = load_observations(_write_events(tmp_path, [stale, *recent]), program=program)
+    observations = load_observations(
+        _write_observation_events(tmp_path, [stale, *recent]), program=program
+    )
     summaries = {item.metric_id: item for item in program.summarize_metrics(observations)}
 
     assert summaries["kpi.build_duration_seconds"].observation_count == 5
@@ -286,22 +326,30 @@ def test_reporting_window_excludes_stale_duration_observations(tmp_path: Path) -
 
 def test_identical_retry_is_idempotent_and_conflicting_duplicate_fails(tmp_path: Path) -> None:
     program = validate_repository(REPOSITORY_ROOT)
-    event = _event("kpi.incident_rate_per_1000_runtime_hours", event_id="incident-1")
-    observations = load_observations(_write_events(tmp_path, [event, event]), program=program)
+    event = _metric_observation_event(
+        "kpi.incident_rate_per_1000_runtime_hours", event_id="incident-1"
+    )
+    observations = load_observations(
+        _write_observation_events(tmp_path, [event, event]), program=program
+    )
     assert len(observations) == 1
 
     conflicting = dict(event)
     conflicting["numerator"] = 2
     with pytest.raises(ProgramGovernanceError, match="conflicting duplicate"):
-        load_observations(_write_events(tmp_path, [event, conflicting]), program=program)
+        load_observations(
+            _write_observation_events(tmp_path, [event, conflicting]), program=program
+        )
 
 
 def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
     tmp_path: Path,
 ) -> None:
     program = validate_repository(REPOSITORY_ROOT)
-    first = _event("kpi.research_reproducibility_percent", event_id="research-first")
-    overlapping = _event(
+    first = _metric_observation_event(
+        "kpi.research_reproducibility_percent", event_id="research-first"
+    )
+    overlapping = _metric_observation_event(
         "kpi.research_reproducibility_percent",
         event_id="research-overlap",
         start_seconds=4,
@@ -309,7 +357,9 @@ def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
     )
 
     with pytest.raises(ProgramGovernanceError, match="overlapping ratio observations"):
-        load_observations(_write_events(tmp_path, [first, overlapping]), program=program)
+        load_observations(
+            _write_observation_events(tmp_path, [first, overlapping]), program=program
+        )
 
 
 @pytest.mark.parametrize(
@@ -326,41 +376,41 @@ def test_observation_boundary_failures_are_explicit(
     tmp_path: Path, mutation: dict[str, object], message: str
 ) -> None:
     program = validate_repository(REPOSITORY_ROOT)
-    event = _event("kpi.build_duration_seconds", event_id="build-invalid")
+    event = _metric_observation_event("kpi.build_duration_seconds", event_id="build-invalid")
     event.update(mutation)
 
     with pytest.raises(ProgramGovernanceError, match=message):
-        load_observations(_write_events(tmp_path, [event]), program=program)
+        load_observations(_write_observation_events(tmp_path, [event]), program=program)
 
 
 def test_ratio_rejects_zero_denominator_unit_drift_and_impossible_bounded_value(
     tmp_path: Path,
 ) -> None:
     program = validate_repository(REPOSITORY_ROOT)
-    zero = _event(
+    zero = _metric_observation_event(
         "kpi.research_reproducibility_percent",
         event_id="research-zero",
         denominator=0,
     )
     with pytest.raises(ProgramGovernanceError, match="denominator positive"):
-        load_observations(_write_events(tmp_path, [zero]), program=program)
+        load_observations(_write_observation_events(tmp_path, [zero]), program=program)
 
-    unit = _event(
+    unit = _metric_observation_event(
         "kpi.research_reproducibility_percent",
         event_id="research-unit",
     )
     unit["denominator_unit"] = "trials"
     with pytest.raises(ProgramGovernanceError, match="denominator unit"):
-        load_observations(_write_events(tmp_path, [unit]), program=program)
+        load_observations(_write_observation_events(tmp_path, [unit]), program=program)
 
-    impossible = _event(
+    impossible = _metric_observation_event(
         "kpi.research_reproducibility_percent",
         event_id="research-impossible",
         numerator=2,
         denominator=1,
     )
     with pytest.raises(ProgramGovernanceError, match="bounded numerator"):
-        load_observations(_write_events(tmp_path, [impossible]), program=program)
+        load_observations(_write_observation_events(tmp_path, [impossible]), program=program)
 
 
 def test_aggregation_workload_stays_within_the_governed_budget() -> None:
@@ -392,10 +442,12 @@ def test_cli_emits_stable_filtered_dashboard(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     events = [
-        _event("kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number)
+        _metric_observation_event(
+            "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
+        )
         for number in range(1, 6)
     ]
-    path = _write_events(tmp_path, events)
+    path = _write_observation_events(tmp_path, events)
 
     arguments = [str(REPOSITORY_ROOT), "--observations", str(path), "--wave", "A"]
     assert main(arguments) == 0

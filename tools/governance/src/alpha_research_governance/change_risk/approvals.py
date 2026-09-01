@@ -1,4 +1,4 @@
-"""Enforce approvals and hard controls for A04 classification decisions."""
+"""Enforce approvals and hard controls for change-risk decisions."""
 
 from __future__ import annotations
 
@@ -127,7 +127,7 @@ def _reviewer_groups_have_distinct_approvers(
 ) -> bool:
     slots = tuple(group for group in groups for _ in range(group.minimum_approvals))
 
-    def assign(slot_index: int, used_reviewer_ids: frozenset[str]) -> bool:
+    def assign_reviewer(slot_index: int, used_reviewer_ids: frozenset[str]) -> bool:
         if slot_index == len(slots):
             return True
         group = slots[slot_index]
@@ -137,8 +137,8 @@ def _reviewer_groups_have_distinct_approvers(
                 and bool(approval.roles & group.roles)
                 and (not group.independent or (approval.independent and not approval.is_author))
             )
-            if is_eligible and assign(slot_index + 1, used_reviewer_ids | {reviewer_id}):
+            if is_eligible and assign_reviewer(slot_index + 1, used_reviewer_ids | {reviewer_id}):
                 return True
         return False
 
-    return assign(0, frozenset())
+    return assign_reviewer(0, frozenset())

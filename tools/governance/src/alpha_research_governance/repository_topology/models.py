@@ -1,4 +1,4 @@
-"""Define immutable values for the B01 governed source topology."""
+"""Define immutable values for the governed source topology."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class SourceUnit(ImmutableModel):
 
 
 class RepositoryTopology(ImmutableModel):
-    """Validated B01 registry metadata and current source units."""
+    """Validated repository-topology metadata and current source units."""
 
     schema_version: int
     roadmap_package: str

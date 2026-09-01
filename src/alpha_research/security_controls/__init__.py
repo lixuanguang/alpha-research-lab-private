@@ -1,4 +1,4 @@
-"""Compatibility facade for the canonical A07 security-governance tool."""
+"""Compatibility facade for the canonical security-governance tool."""
 
 from alpha_research_governance.security_controls import (
     APPLICABLE_GATE_IDS,

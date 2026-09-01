@@ -1,4 +1,4 @@
-"""Compatibility facade for the canonical A06 inventory-governance tool."""
+"""Compatibility facade for the canonical inventory-governance tool."""
 
 from alpha_research_governance.inventory import (
     RESOURCE_KINDS,

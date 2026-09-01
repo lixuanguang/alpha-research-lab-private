@@ -1,4 +1,4 @@
-"""Execute the canonical A05 merge-request and evidence-governance check."""
+"""Execute the canonical merge-request and evidence-governance check."""
 
 from alpha_research_governance.evidence import main
 

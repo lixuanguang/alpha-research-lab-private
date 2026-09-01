@@ -1,4 +1,4 @@
-"""Deterministic and adversarial tests for A06 resource inventories."""
+"""Deterministic and adversarial tests for resource inventories."""
 
 from __future__ import annotations
 
@@ -26,13 +26,13 @@ def _catalog_fixture(tmp_path: Path) -> Path:
     return path
 
 
-def _replace(path: Path, old: str, new: str) -> None:
+def _replace_inventory_fixture_text(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-def _load_fixture(path: Path) -> None:
+def _validate_inventory_fixture(path: Path) -> None:
     load_inventory(path, repository_root=REPOSITORY_ROOT)
 
 
@@ -98,19 +98,19 @@ def test_query_workload_stays_within_the_governed_budget() -> None:
 
 def test_stale_owner_generates_a_finding(tmp_path: Path) -> None:
     path = _catalog_fixture(tmp_path)
-    _replace(
+    _replace_inventory_fixture_text(
         path,
         'name = "A01 repository charter and monorepo boundary"\nowner_role = "platform"',
         'name = "A01 repository charter and monorepo boundary"\nowner_role = "former_owner"',
     )
 
     with pytest.raises(InventoryGovernanceError, match="stale ownership role 'former_owner'"):
-        _load_fixture(path)
+        _validate_inventory_fixture(path)
 
 
 def test_missing_dependency_lineage_generates_a_finding(tmp_path: Path) -> None:
     path = _catalog_fixture(tmp_path)
-    _replace(
+    _replace_inventory_fixture_text(
         path,
         'lineage_refs = [\n  "inv.control.governance.a01_repository_boundary",\n'
         '  "docs/architecture/principles.md",',
@@ -118,52 +118,54 @@ def test_missing_dependency_lineage_generates_a_finding(tmp_path: Path) -> None:
     )
 
     with pytest.raises(InventoryGovernanceError, match="missing lineage for dependencies"):
-        _load_fixture(path)
+        _validate_inventory_fixture(path)
 
 
 def test_unresolved_dependency_and_cycle_fail_closed(tmp_path: Path) -> None:
     unresolved = _catalog_fixture(tmp_path)
-    _replace(
+    _replace_inventory_fixture_text(
         unresolved,
         'dependencies = ["inv.control.governance.a04_change_risk"]',
         'dependencies = ["inv.control.governance.missing"]',
     )
     with pytest.raises(InventoryGovernanceError, match="unresolved dependency"):
-        _load_fixture(unresolved)
+        _validate_inventory_fixture(unresolved)
 
     cyclic = _catalog_fixture(tmp_path)
-    _replace(
+    _replace_inventory_fixture_text(
         cyclic,
         "dependencies = []",
         'dependencies = ["inv.control.governance.a06_resource_inventory"]',
     )
     with pytest.raises(InventoryGovernanceError, match="inventory dependency cycle"):
-        _load_fixture(cyclic)
+        _validate_inventory_fixture(cyclic)
 
 
 def test_population_state_must_match_registered_items(tmp_path: Path) -> None:
     path = _catalog_fixture(tmp_path)
-    _replace(
+    _replace_inventory_fixture_text(
         path,
         'kind = "dataset"\npopulation_status = "empty"',
         'kind = "dataset"\npopulation_status = "populated"',
     )
 
     with pytest.raises(InventoryGovernanceError, match="kind 'dataset' must be 'empty'"):
-        _load_fixture(path)
+        _validate_inventory_fixture(path)
 
 
 def test_deployed_resource_requires_deployment_evidence(tmp_path: Path) -> None:
     path = _catalog_fixture(tmp_path)
-    _replace(path, 'deployment_status = "not_deployable"', 'deployment_status = "deployed"')
+    _replace_inventory_fixture_text(
+        path, 'deployment_status = "not_deployable"', 'deployment_status = "deployed"'
+    )
 
     with pytest.raises(InventoryGovernanceError, match="require deployment evidence"):
-        _load_fixture(path)
+        _validate_inventory_fixture(path)
 
 
 def test_deployed_resource_accepts_explicit_deployment_evidence(tmp_path: Path) -> None:
     path = _catalog_fixture(tmp_path)
-    _replace(
+    _replace_inventory_fixture_text(
         path,
         'kind = "service"\npopulation_status = "empty"',
         'kind = "service"\npopulation_status = "populated"',
@@ -189,7 +191,7 @@ status_evidence = ["docs/governance/resource-inventory.md"]
 review_due_on = "2026-11-30"
 
 """
-    _replace(path, "[[findings]]", deployed_service + "[[findings]]")
+    _replace_inventory_fixture_text(path, "[[findings]]", deployed_service + "[[findings]]")
 
     inventory = load_inventory(path, repository_root=REPOSITORY_ROOT)
 
@@ -203,61 +205,71 @@ review_due_on = "2026-11-30"
 
 def test_catalog_size_and_workload_limits_fail_closed(tmp_path: Path) -> None:
     size_limited = _catalog_fixture(tmp_path)
-    _replace(size_limited, "maximum_items = 10000", "maximum_items = 1")
+    _replace_inventory_fixture_text(size_limited, "maximum_items = 10000", "maximum_items = 1")
     with pytest.raises(InventoryGovernanceError, match="catalog contains 9 items"):
-        _load_fixture(size_limited)
+        _validate_inventory_fixture(size_limited)
 
     invalid_budget = _catalog_fixture(tmp_path)
-    _replace(invalid_budget, "query_workload_budget_ms = 1000", "query_workload_budget_ms = 0")
+    _replace_inventory_fixture_text(
+        invalid_budget, "query_workload_budget_ms = 1000", "query_workload_budget_ms = 0"
+    )
     with pytest.raises(InventoryGovernanceError, match="must be a positive integer"):
-        _load_fixture(invalid_budget)
+        _validate_inventory_fixture(invalid_budget)
 
 
 def test_overdue_review_and_unsafe_source_path_generate_findings(tmp_path: Path) -> None:
     stale = _catalog_fixture(tmp_path)
-    _replace(stale, 'review_due_on = "2026-11-30"', 'review_due_on = "2026-08-29"')
+    _replace_inventory_fixture_text(
+        stale, 'review_due_on = "2026-11-30"', 'review_due_on = "2026-08-29"'
+    )
     with pytest.raises(InventoryGovernanceError, match="ownership review is stale"):
-        _load_fixture(stale)
+        _validate_inventory_fixture(stale)
 
     unsafe = _catalog_fixture(tmp_path)
-    _replace(
+    _replace_inventory_fixture_text(
         unsafe,
         '"docs/governance/repository-charter.md",',
         '"../repository-charter.md",',
     )
     with pytest.raises(InventoryGovernanceError, match="repository path escapes the root"):
-        _load_fixture(unsafe)
+        _validate_inventory_fixture(unsafe)
 
 
 def test_external_evidence_url_cannot_embed_credentials(tmp_path: Path) -> None:
     path = _catalog_fixture(tmp_path)
-    _replace(
+    _replace_inventory_fixture_text(
         path,
         'status_evidence = ["docs/governance/repository-charter.md"]',
         'status_evidence = ["https://user@example.com/evidence"]',
     )
 
     with pytest.raises(InventoryGovernanceError, match="HTTPS without credentials"):
-        _load_fixture(path)
+        _validate_inventory_fixture(path)
 
 
 def test_partial_catalog_requires_exact_findings_and_solo_cannot_validate(
     tmp_path: Path,
 ) -> None:
     wrong_finding = _catalog_fixture(tmp_path)
-    _replace(wrong_finding, 'finding_id = "A06-F02"', 'finding_id = "A06-OTHER"')
+    _replace_inventory_fixture_text(
+        wrong_finding, 'finding_id = "A06-F02"', 'finding_id = "A06-OTHER"'
+    )
     with pytest.raises(InventoryGovernanceError, match="partial status requires findings"):
-        _load_fixture(wrong_finding)
+        _validate_inventory_fixture(wrong_finding)
 
     validated = _catalog_fixture(tmp_path)
-    _replace(validated, 'package_status = "partial"', 'package_status = "validated"')
+    _replace_inventory_fixture_text(
+        validated, 'package_status = "partial"', 'package_status = "validated"'
+    )
     with pytest.raises(InventoryGovernanceError, match=r"solo_bootstrap.*cannot claim validated"):
-        _load_fixture(validated)
+        _validate_inventory_fixture(validated)
 
     validated_item = _catalog_fixture(tmp_path)
-    _replace(validated_item, 'status = "provisional"', 'status = "validated"')
+    _replace_inventory_fixture_text(
+        validated_item, 'status = "provisional"', 'status = "validated"'
+    )
     with pytest.raises(InventoryGovernanceError, match="resources cannot claim validated"):
-        _load_fixture(validated_item)
+        _validate_inventory_fixture(validated_item)
 
 
 def test_cli_emits_stable_json_for_populated_and_empty_queries(

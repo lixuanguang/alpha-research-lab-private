@@ -1,4 +1,4 @@
-"""Compatibility facade for the canonical A08 program-governance tool."""
+"""Compatibility facade for the canonical program-governance tool."""
 
 from alpha_research_governance.program_governance import (
     APPLICABLE_GATE_IDS,

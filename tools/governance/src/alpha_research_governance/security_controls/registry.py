@@ -1,4 +1,4 @@
-"""Parse and cross-validate the A07 control map strictly."""
+"""Parse and cross-validate the security control map strictly."""
 
 from __future__ import annotations
 
@@ -210,19 +210,21 @@ _PACKAGE_ID = re.compile(r"^[A-L]0[1-8]$")
 _COMMIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 
-def _table(value: object, *, context: str) -> dict[str, object]:
+def _require_table(value: object, *, context: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise SecurityControlError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
-def _table_list(value: object, *, context: str) -> list[dict[str, object]]:
+def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise SecurityControlError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
-def _string(table: dict[str, object], key: str, *, context: str, allow_empty: bool = False) -> str:
+def _require_string(
+    table: dict[str, object], key: str, *, context: str, allow_empty: bool = False
+) -> str:
     value = table.get(key)
     if not isinstance(value, str) or (not allow_empty and not value.strip()):
         qualifier = "a string" if allow_empty else "a non-empty string"
@@ -230,14 +232,14 @@ def _string(table: dict[str, object], key: str, *, context: str, allow_empty: bo
     return value
 
 
-def _integer(table: dict[str, object], key: str, *, context: str) -> int:
+def _require_integer(table: dict[str, object], key: str, *, context: str) -> int:
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool):
         raise SecurityControlError([f"{context}.{key} must be an integer"])
     return value
 
 
-def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+def _require_strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise SecurityControlError([f"{context} must be an array of non-empty strings"])
     values = tuple(cast(list[str], value))
@@ -248,15 +250,15 @@ def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple
     return values
 
 
-def _entries(value: object, *, context: str, keys: set[str]) -> list[dict[str, object]]:
-    entries = _table_list(value, context=context)
+def _require_entries(value: object, *, context: str, keys: set[str]) -> list[dict[str, object]]:
+    entries = _require_table_list(value, context=context)
     for index, entry in enumerate(entries, 1):
         if set(entry) != keys:
             raise SecurityControlError([f"{context}[{index}] has missing or unknown fields"])
     return entries
 
 
-def _iso_date(value: str, *, context: str) -> date:
+def _parse_iso_date(value: str, *, context: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as error:
@@ -265,20 +267,24 @@ def _iso_date(value: str, *, context: str) -> date:
 
 def _load_toml(path: Path) -> dict[str, object]:
     try:
-        parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise SecurityControlError([f"{path}: invalid TOML: {error}"]) from error
-    return _table(parsed, context=str(path))
+    return _require_table(parsed_document, context=str(path))
 
 
 def _ownership_roles(path: Path) -> frozenset[str]:
-    root = _load_toml(path)
+    ownership_document = _load_toml(path)
     roles: set[str] = set()
-    for index, domain in enumerate(_table_list(root.get("domains"), context="domains"), 1):
+    for index, domain in enumerate(
+        _require_table_list(ownership_document.get("domains"), context="domains"), 1
+    ):
         context = f"domains[{index}]"
-        roles.add(_string(domain, "accountable_role", context=context))
+        roles.add(_require_string(domain, "accountable_role", context=context))
         for key in ("required_review_roles", "independent_review_roles", "escalation_roles"):
-            roles.update(_strings(domain.get(key), context=f"{context}.{key}", allow_empty=True))
+            roles.update(
+                _require_strings(domain.get(key), context=f"{context}.{key}", allow_empty=True)
+            )
     if any(_ROLE.fullmatch(role) is None for role in roles):
         raise SecurityControlError([f"{path}: ownership roles must be lower_snake_case"])
     return frozenset(roles)
@@ -312,7 +318,7 @@ def _validate_id_order(values: tuple[str, ...], *, kind: str, findings: list[str
         findings.append(f"{kind} IDs have invalid format: {invalid!r}")
 
 
-def _validate_refs(
+def _validate_references(
     values: tuple[str, ...], *, allowed: frozenset[str], context: str, findings: list[str]
 ) -> None:
     unknown = sorted(set(values) - allowed)
@@ -348,109 +354,127 @@ def _validate_authority_url(source: AuthoritySource, *, findings: list[str]) -> 
 def _parse_assets(value: object) -> tuple[ProtectedAsset, ...]:
     return tuple(
         ProtectedAsset(
-            asset_id=_string(entry, "asset_id", context=f"assets[{index}]"),
-            name=_string(entry, "name", context=f"assets[{index}]"),
-            owner_role=_string(entry, "owner_role", context=f"assets[{index}]"),
-            security_objectives=_strings(
+            asset_id=_require_string(entry, "asset_id", context=f"assets[{index}]"),
+            name=_require_string(entry, "name", context=f"assets[{index}]"),
+            owner_role=_require_string(entry, "owner_role", context=f"assets[{index}]"),
+            security_objectives=_require_strings(
                 entry.get("security_objectives"),
                 context=f"assets[{index}].security_objectives",
             ),
         )
-        for index, entry in enumerate(_entries(value, context="assets", keys=_ASSET_KEYS), 1)
+        for index, entry in enumerate(
+            _require_entries(value, context="assets", keys=_ASSET_KEYS), 1
+        )
     )
 
 
 def _parse_boundaries(value: object) -> tuple[TrustBoundary, ...]:
     return tuple(
         TrustBoundary(
-            boundary_id=_string(entry, "boundary_id", context=f"boundaries[{index}]"),
-            name=_string(entry, "name", context=f"boundaries[{index}]"),
-            source_zone=_string(entry, "source_zone", context=f"boundaries[{index}]"),
-            destination_zone=_string(entry, "destination_zone", context=f"boundaries[{index}]"),
-            asset_ids=_strings(entry.get("asset_ids"), context=f"boundaries[{index}].asset_ids"),
-            trust_change=_string(entry, "trust_change", context=f"boundaries[{index}]"),
-            owner_role=_string(entry, "owner_role", context=f"boundaries[{index}]"),
-            control_ids=_strings(
+            boundary_id=_require_string(entry, "boundary_id", context=f"boundaries[{index}]"),
+            name=_require_string(entry, "name", context=f"boundaries[{index}]"),
+            source_zone=_require_string(entry, "source_zone", context=f"boundaries[{index}]"),
+            destination_zone=_require_string(
+                entry, "destination_zone", context=f"boundaries[{index}]"
+            ),
+            asset_ids=_require_strings(
+                entry.get("asset_ids"), context=f"boundaries[{index}].asset_ids"
+            ),
+            trust_change=_require_string(entry, "trust_change", context=f"boundaries[{index}]"),
+            owner_role=_require_string(entry, "owner_role", context=f"boundaries[{index}]"),
+            control_ids=_require_strings(
                 entry.get("control_ids"), context=f"boundaries[{index}].control_ids"
             ),
         )
-        for index, entry in enumerate(_entries(value, context="boundaries", keys=_BOUNDARY_KEYS), 1)
+        for index, entry in enumerate(
+            _require_entries(value, context="boundaries", keys=_BOUNDARY_KEYS), 1
+        )
     )
 
 
 def _parse_threats(value: object) -> tuple[ThreatScenario, ...]:
     return tuple(
         ThreatScenario(
-            threat_id=_string(entry, "threat_id", context=f"threats[{index}]"),
-            title=_string(entry, "title", context=f"threats[{index}]"),
-            category=_string(entry, "category", context=f"threats[{index}]"),
-            actor=_string(entry, "actor", context=f"threats[{index}]"),
-            abuse_case=_string(entry, "abuse_case", context=f"threats[{index}]"),
-            impact=_string(entry, "impact", context=f"threats[{index}]"),
-            boundary_ids=_strings(
+            threat_id=_require_string(entry, "threat_id", context=f"threats[{index}]"),
+            title=_require_string(entry, "title", context=f"threats[{index}]"),
+            category=_require_string(entry, "category", context=f"threats[{index}]"),
+            actor=_require_string(entry, "actor", context=f"threats[{index}]"),
+            abuse_case=_require_string(entry, "abuse_case", context=f"threats[{index}]"),
+            impact=_require_string(entry, "impact", context=f"threats[{index}]"),
+            boundary_ids=_require_strings(
                 entry.get("boundary_ids"), context=f"threats[{index}].boundary_ids"
             ),
-            asset_ids=_strings(entry.get("asset_ids"), context=f"threats[{index}].asset_ids"),
-            control_ids=_strings(entry.get("control_ids"), context=f"threats[{index}].control_ids"),
-            owner_role=_string(entry, "owner_role", context=f"threats[{index}]"),
+            asset_ids=_require_strings(
+                entry.get("asset_ids"), context=f"threats[{index}].asset_ids"
+            ),
+            control_ids=_require_strings(
+                entry.get("control_ids"), context=f"threats[{index}].control_ids"
+            ),
+            owner_role=_require_string(entry, "owner_role", context=f"threats[{index}]"),
         )
-        for index, entry in enumerate(_entries(value, context="threats", keys=_THREAT_KEYS), 1)
+        for index, entry in enumerate(
+            _require_entries(value, context="threats", keys=_THREAT_KEYS), 1
+        )
     )
 
 
 def _parse_controls(value: object) -> tuple[SecurityControl, ...]:
     return tuple(
         SecurityControl(
-            control_id=_string(entry, "control_id", context=f"controls[{index}]"),
-            title=_string(entry, "title", context=f"controls[{index}]"),
-            domain=_string(entry, "domain", context=f"controls[{index}]"),
-            owner_role=_string(entry, "owner_role", context=f"controls[{index}]"),
-            independent_review_roles=_strings(
+            control_id=_require_string(entry, "control_id", context=f"controls[{index}]"),
+            title=_require_string(entry, "title", context=f"controls[{index}]"),
+            domain=_require_string(entry, "domain", context=f"controls[{index}]"),
+            owner_role=_require_string(entry, "owner_role", context=f"controls[{index}]"),
+            independent_review_roles=_require_strings(
                 entry.get("independent_review_roles"),
                 context=f"controls[{index}].independent_review_roles",
             ),
-            objective=_string(entry, "objective", context=f"controls[{index}]"),
-            control_functions=_strings(
+            objective=_require_string(entry, "objective", context=f"controls[{index}]"),
+            control_functions=_require_strings(
                 entry.get("control_functions"),
                 context=f"controls[{index}].control_functions",
             ),
-            implementation_packages=_strings(
+            implementation_packages=_require_strings(
                 entry.get("implementation_packages"),
                 context=f"controls[{index}].implementation_packages",
             ),
-            implementation_status=_string(
+            implementation_status=_require_string(
                 entry, "implementation_status", context=f"controls[{index}]"
             ),
-            test_procedure=_string(entry, "test_procedure", context=f"controls[{index}]"),
-            fail_safe_response=_string(entry, "fail_safe_response", context=f"controls[{index}]"),
-            evidence_source_ids=_strings(
+            test_procedure=_require_string(entry, "test_procedure", context=f"controls[{index}]"),
+            fail_safe_response=_require_string(
+                entry, "fail_safe_response", context=f"controls[{index}]"
+            ),
+            evidence_source_ids=_require_strings(
                 entry.get("evidence_source_ids"),
                 context=f"controls[{index}].evidence_source_ids",
             ),
         )
-        for index, entry in enumerate(_entries(value, context="controls", keys=_CONTROL_KEYS), 1)
+        for index, entry in enumerate(
+            _require_entries(value, context="controls", keys=_CONTROL_KEYS), 1
+        )
     )
 
 
 def _parse_evidence_sources(value: object) -> tuple[EvidenceSource, ...]:
     return tuple(
         EvidenceSource(
-            evidence_source_id=_string(
+            evidence_source_id=_require_string(
                 entry, "evidence_source_id", context=f"evidence_sources[{index}]"
             ),
-            name=_string(entry, "name", context=f"evidence_sources[{index}]"),
-            source_type=_string(entry, "source_type", context=f"evidence_sources[{index}]"),
-            status=_string(entry, "status", context=f"evidence_sources[{index}]"),
-            owner_role=_string(entry, "owner_role", context=f"evidence_sources[{index}]"),
-            location=_string(
+            name=_require_string(entry, "name", context=f"evidence_sources[{index}]"),
+            source_type=_require_string(entry, "source_type", context=f"evidence_sources[{index}]"),
+            status=_require_string(entry, "status", context=f"evidence_sources[{index}]"),
+            owner_role=_require_string(entry, "owner_role", context=f"evidence_sources[{index}]"),
+            location=_require_string(
                 entry, "location", context=f"evidence_sources[{index}]", allow_empty=True
             ),
-            required_packages=_strings(
+            required_packages=_require_strings(
                 entry.get("required_packages"),
                 context=f"evidence_sources[{index}].required_packages",
                 allow_empty=True,
             ),
-            closure_condition=_string(
+            closure_condition=_require_string(
                 entry,
                 "closure_condition",
                 context=f"evidence_sources[{index}]",
@@ -458,7 +482,7 @@ def _parse_evidence_sources(value: object) -> tuple[EvidenceSource, ...]:
             ),
         )
         for index, entry in enumerate(
-            _entries(value, context="evidence_sources", keys=_EVIDENCE_KEYS), 1
+            _require_entries(value, context="evidence_sources", keys=_EVIDENCE_KEYS), 1
         )
     )
 
@@ -466,22 +490,24 @@ def _parse_evidence_sources(value: object) -> tuple[EvidenceSource, ...]:
 def _parse_authority_sources(value: object) -> tuple[AuthoritySource, ...]:
     return tuple(
         AuthoritySource(
-            source_id=_string(entry, "source_id", context=f"authority_sources[{index}]"),
-            jurisdiction_id=_string(
+            source_id=_require_string(entry, "source_id", context=f"authority_sources[{index}]"),
+            jurisdiction_id=_require_string(
                 entry, "jurisdiction_id", context=f"authority_sources[{index}]"
             ),
-            authority=_string(entry, "authority", context=f"authority_sources[{index}]"),
-            title=_string(entry, "title", context=f"authority_sources[{index}]"),
-            citation=_string(entry, "citation", context=f"authority_sources[{index}]"),
-            source_class=_string(entry, "source_class", context=f"authority_sources[{index}]"),
-            url=_string(entry, "url", context=f"authority_sources[{index}]"),
-            last_verified_on=_iso_date(
-                _string(entry, "last_verified_on", context=f"authority_sources[{index}]"),
+            authority=_require_string(entry, "authority", context=f"authority_sources[{index}]"),
+            title=_require_string(entry, "title", context=f"authority_sources[{index}]"),
+            citation=_require_string(entry, "citation", context=f"authority_sources[{index}]"),
+            source_class=_require_string(
+                entry, "source_class", context=f"authority_sources[{index}]"
+            ),
+            url=_require_string(entry, "url", context=f"authority_sources[{index}]"),
+            last_verified_on=_parse_iso_date(
+                _require_string(entry, "last_verified_on", context=f"authority_sources[{index}]"),
                 context=f"authority_sources[{index}].last_verified_on",
             ),
         )
         for index, entry in enumerate(
-            _entries(value, context="authority_sources", keys=_AUTHORITY_KEYS), 1
+            _require_entries(value, context="authority_sources", keys=_AUTHORITY_KEYS), 1
         )
     )
 
@@ -489,55 +515,63 @@ def _parse_authority_sources(value: object) -> tuple[AuthoritySource, ...]:
 def _parse_jurisdictions(value: object) -> tuple[JurisdictionProfile, ...]:
     return tuple(
         JurisdictionProfile(
-            jurisdiction_id=_string(entry, "jurisdiction_id", context=f"jurisdictions[{index}]"),
-            name=_string(entry, "name", context=f"jurisdictions[{index}]"),
-            scope=_string(entry, "scope", context=f"jurisdictions[{index}]"),
-            applicability_status=_string(
+            jurisdiction_id=_require_string(
+                entry, "jurisdiction_id", context=f"jurisdictions[{index}]"
+            ),
+            name=_require_string(entry, "name", context=f"jurisdictions[{index}]"),
+            scope=_require_string(entry, "scope", context=f"jurisdictions[{index}]"),
+            applicability_status=_require_string(
                 entry, "applicability_status", context=f"jurisdictions[{index}]"
             ),
-            legal_owner_role=_string(entry, "legal_owner_role", context=f"jurisdictions[{index}]"),
-            source_ids=_strings(
+            legal_owner_role=_require_string(
+                entry, "legal_owner_role", context=f"jurisdictions[{index}]"
+            ),
+            source_ids=_require_strings(
                 entry.get("source_ids"), context=f"jurisdictions[{index}].source_ids"
             ),
-            review_due_on=_iso_date(
-                _string(entry, "review_due_on", context=f"jurisdictions[{index}]"),
+            review_due_on=_parse_iso_date(
+                _require_string(entry, "review_due_on", context=f"jurisdictions[{index}]"),
                 context=f"jurisdictions[{index}].review_due_on",
             ),
         )
         for index, entry in enumerate(
-            _entries(value, context="jurisdictions", keys=_JURISDICTION_KEYS), 1
+            _require_entries(value, context="jurisdictions", keys=_JURISDICTION_KEYS), 1
         )
     )
 
 
-def _parse_mappings(value: object) -> tuple[RegulatoryMapping, ...]:
+def _parse_regulatory_mappings(value: object) -> tuple[RegulatoryMapping, ...]:
     return tuple(
         RegulatoryMapping(
-            mapping_id=_string(entry, "mapping_id", context=f"regulatory_mappings[{index}]"),
-            jurisdiction_id=_string(
+            mapping_id=_require_string(
+                entry, "mapping_id", context=f"regulatory_mappings[{index}]"
+            ),
+            jurisdiction_id=_require_string(
                 entry, "jurisdiction_id", context=f"regulatory_mappings[{index}]"
             ),
-            topic=_string(entry, "topic", context=f"regulatory_mappings[{index}]"),
-            source_ids=_strings(
+            topic=_require_string(entry, "topic", context=f"regulatory_mappings[{index}]"),
+            source_ids=_require_strings(
                 entry.get("source_ids"), context=f"regulatory_mappings[{index}].source_ids"
             ),
-            control_ids=_strings(
+            control_ids=_require_strings(
                 entry.get("control_ids"), context=f"regulatory_mappings[{index}].control_ids"
             ),
-            applicability_status=_string(
+            applicability_status=_require_string(
                 entry, "applicability_status", context=f"regulatory_mappings[{index}]"
             ),
-            applicability_rationale=_string(
+            applicability_rationale=_require_string(
                 entry, "applicability_rationale", context=f"regulatory_mappings[{index}]"
             ),
-            owner_role=_string(entry, "owner_role", context=f"regulatory_mappings[{index}]"),
-            evidence_source_ids=_strings(
+            owner_role=_require_string(
+                entry, "owner_role", context=f"regulatory_mappings[{index}]"
+            ),
+            evidence_source_ids=_require_strings(
                 entry.get("evidence_source_ids"),
                 context=f"regulatory_mappings[{index}].evidence_source_ids",
             ),
         )
         for index, entry in enumerate(
-            _entries(value, context="regulatory_mappings", keys=_MAPPING_KEYS), 1
+            _require_entries(value, context="regulatory_mappings", keys=_MAPPING_KEYS), 1
         )
     )
 
@@ -545,26 +579,30 @@ def _parse_mappings(value: object) -> tuple[RegulatoryMapping, ...]:
 def _load_control_map(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> SecurityControlMap:
-    """Load and validate the complete A07 threat and regulatory control map."""
+    """Load and validate the complete threat and regulatory control map."""
     resolved_root = repository_root.resolve()
     ownership_path = ownership_register_path or (
         resolved_root / "docs" / "governance" / "domain-ownership.toml"
     )
     ownership_roles = _ownership_roles(ownership_path)
-    root = _load_toml(path)
-    if set(root) != _ROOT_KEYS:
+    control_map_document = _load_toml(path)
+    if set(control_map_document) != _ROOT_KEYS:
         raise SecurityControlError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
-    schema_version = _integer(root, "schema_version", context=str(path))
+    schema_version = _require_integer(control_map_document, "schema_version", context=str(path))
     if schema_version != 1:
         raise SecurityControlError([f"{path}: schema_version must be 1"])
-    roadmap_package = _string(root, "roadmap_package", context=str(path))
-    operating_track = _string(root, "operating_track", context=str(path))
-    accountable_owner_role = _string(root, "accountable_owner_role", context=str(path))
-    risk_class = _string(root, "risk_class", context=str(path))
+    roadmap_package = _require_string(control_map_document, "roadmap_package", context=str(path))
+    operating_track = _require_string(control_map_document, "operating_track", context=str(path))
+    accountable_owner_role = _require_string(
+        control_map_document, "accountable_owner_role", context=str(path)
+    )
+    risk_class = _require_string(control_map_document, "risk_class", context=str(path))
     expected_strings = {
         "accountable_owner_role": (accountable_owner_role, "security"),
         "jurisdiction_applicability_authority": (
-            _string(root, "jurisdiction_applicability_authority", context=str(path)),
+            _require_string(
+                control_map_document, "jurisdiction_applicability_authority", context=str(path)
+            ),
             "qualified_legal_compliance",
         ),
         "operating_track": (operating_track, "solo_bootstrap"),
@@ -574,29 +612,34 @@ def _load_control_map(
     for key, (actual, expected) in expected_strings.items():
         if actual != expected:
             raise SecurityControlError([f"{path}: {key} must be {expected!r}"])
-    if root.get("legal_advice") is not False:
+    if control_map_document.get("legal_advice") is not False:
         raise SecurityControlError([f"{path}: legal_advice must be False"])
-    dependency_package_ids = _strings(
-        root.get("dependency_package_ids"), context="dependency_package_ids"
+    dependency_package_ids = _require_strings(
+        control_map_document.get("dependency_package_ids"), context="dependency_package_ids"
     )
     if dependency_package_ids != DEPENDENCY_PACKAGE_IDS:
         raise SecurityControlError(
             [f"dependency_package_ids must be exactly {DEPENDENCY_PACKAGE_IDS!r}"]
         )
-    applicable_gate_ids = _strings(root.get("applicable_gate_ids"), context="applicable_gate_ids")
+    applicable_gate_ids = _require_strings(
+        control_map_document.get("applicable_gate_ids"), context="applicable_gate_ids"
+    )
     if applicable_gate_ids != APPLICABLE_GATE_IDS:
         raise SecurityControlError([f"applicable_gate_ids must be exactly {APPLICABLE_GATE_IDS!r}"])
 
-    assets = _parse_assets(root.get("assets"))
-    boundaries = _parse_boundaries(root.get("boundaries"))
-    threats = _parse_threats(root.get("threats"))
-    controls = _parse_controls(root.get("controls"))
-    evidence_sources = _parse_evidence_sources(root.get("evidence_sources"))
-    authority_sources = _parse_authority_sources(root.get("authority_sources"))
-    jurisdictions = _parse_jurisdictions(root.get("jurisdictions"))
-    regulatory_mappings = _parse_mappings(root.get("regulatory_mappings"))
-    as_of_date = _iso_date(
-        _string(root, "as_of_date", context=str(path)), context=f"{path}.as_of_date"
+    assets = _parse_assets(control_map_document.get("assets"))
+    boundaries = _parse_boundaries(control_map_document.get("boundaries"))
+    threats = _parse_threats(control_map_document.get("threats"))
+    controls = _parse_controls(control_map_document.get("controls"))
+    evidence_sources = _parse_evidence_sources(control_map_document.get("evidence_sources"))
+    authority_sources = _parse_authority_sources(control_map_document.get("authority_sources"))
+    jurisdictions = _parse_jurisdictions(control_map_document.get("jurisdictions"))
+    regulatory_mappings = _parse_regulatory_mappings(
+        control_map_document.get("regulatory_mappings")
+    )
+    as_of_date = _parse_iso_date(
+        _require_string(control_map_document, "as_of_date", context=str(path)),
+        context=f"{path}.as_of_date",
     )
     findings: list[str] = []
 
@@ -630,13 +673,13 @@ def _load_control_map(
         used_roles.add(boundary.owner_role)
         if boundary.source_zone == boundary.destination_zone:
             findings.append(f"{boundary.boundary_id}: trust boundary zones must differ")
-        _validate_refs(
+        _validate_references(
             boundary.asset_ids,
             allowed=asset_ids,
             context=f"{boundary.boundary_id}.asset_ids",
             findings=findings,
         )
-        _validate_refs(
+        _validate_references(
             boundary.control_ids,
             allowed=control_ids,
             context=f"{boundary.boundary_id}.control_ids",
@@ -647,19 +690,19 @@ def _load_control_map(
         findings.append(f"threats must cover exactly the required categories {THREAT_CATEGORIES!r}")
     for threat in threats:
         used_roles.add(threat.owner_role)
-        _validate_refs(
+        _validate_references(
             threat.boundary_ids,
             allowed=boundary_ids,
             context=f"{threat.threat_id}.boundary_ids",
             findings=findings,
         )
-        _validate_refs(
+        _validate_references(
             threat.asset_ids,
             allowed=asset_ids,
             context=f"{threat.threat_id}.asset_ids",
             findings=findings,
         )
-        _validate_refs(
+        _validate_references(
             threat.control_ids,
             allowed=control_ids,
             context=f"{threat.threat_id}.control_ids",
@@ -679,7 +722,7 @@ def _load_control_map(
             findings.append(f"{control.control_id}: unsupported implementation_status")
         if any(_PACKAGE_ID.fullmatch(item) is None for item in control.implementation_packages):
             findings.append(f"{control.control_id}: implementation_packages must use A01-L08")
-        _validate_refs(
+        _validate_references(
             control.evidence_source_ids,
             allowed=evidence_ids,
             context=f"{control.control_id}.evidence_source_ids",
@@ -797,19 +840,19 @@ def _load_control_map(
         if mapping.owner_role != legal_owner_by_jurisdiction[mapping.jurisdiction_id]:
             findings.append(f"{mapping.mapping_id}: owner must match the jurisdiction legal owner")
         allowed_sources = frozenset(sources_by_jurisdiction[mapping.jurisdiction_id])
-        _validate_refs(
+        _validate_references(
             mapping.source_ids,
             allowed=allowed_sources,
             context=f"{mapping.mapping_id}.source_ids",
             findings=findings,
         )
-        _validate_refs(
+        _validate_references(
             mapping.control_ids,
             allowed=control_ids,
             context=f"{mapping.mapping_id}.control_ids",
             findings=findings,
         )
-        _validate_refs(
+        _validate_references(
             mapping.evidence_source_ids,
             allowed=evidence_ids,
             context=f"{mapping.mapping_id}.evidence_source_ids",
@@ -860,22 +903,24 @@ def _load_control_map(
     if referenced_evidence_ids != evidence_ids:
         findings.append("every evidence source must support a control or regulatory mapping")
 
-    finding_values = _entries(
-        root.get("findings"),
+    finding_values = _require_entries(
+        control_map_document.get("findings"),
         context="findings",
         keys={"closure_condition", "finding_id", "owner_role", "unavailable_evidence"},
     )
     finding_ids: list[str] = []
     for index, finding in enumerate(finding_values, 1):
         context = f"findings[{index}]"
-        finding_ids.append(_string(finding, "finding_id", context=context))
-        used_roles.add(_string(finding, "owner_role", context=context))
-        _string(finding, "unavailable_evidence", context=context)
-        _string(finding, "closure_condition", context=context)
-    open_finding_ids = _strings(root.get("open_finding_ids"), context="open_finding_ids")
+        finding_ids.append(_require_string(finding, "finding_id", context=context))
+        used_roles.add(_require_string(finding, "owner_role", context=context))
+        _require_string(finding, "unavailable_evidence", context=context)
+        _require_string(finding, "closure_condition", context=context)
+    open_finding_ids = _require_strings(
+        control_map_document.get("open_finding_ids"), context="open_finding_ids"
+    )
     if open_finding_ids != tuple(finding_ids):
         findings.append("open_finding_ids must exactly match findings")
-    package_status = _string(root, "package_status", context=str(path))
+    package_status = _require_string(control_map_document, "package_status", context=str(path))
     if package_status != "partial" or tuple(finding_ids) != _EXPECTED_FINDING_IDS:
         findings.append(f"solo-bootstrap A07 must remain partial with {_EXPECTED_FINDING_IDS!r}")
     stale_roles = sorted(used_roles - ownership_roles)
@@ -884,7 +929,9 @@ def _load_control_map(
     if findings:
         raise SecurityControlError(findings)
 
-    manifest_path = _string(root, "local_evidence_manifest_path", context=str(path))
+    manifest_path = _require_string(
+        control_map_document, "local_evidence_manifest_path", context=str(path)
+    )
     path_findings: list[str] = []
     _validate_repository_path(
         manifest_path,
@@ -894,7 +941,9 @@ def _load_control_map(
     )
     if path_findings:
         raise SecurityControlError(path_findings)
-    commit_sha = _string(root, "local_evidence_commit_sha", context=str(path))
+    commit_sha = _require_string(
+        control_map_document, "local_evidence_commit_sha", context=str(path)
+    )
     if _COMMIT_SHA.fullmatch(commit_sha) is None:
         raise SecurityControlError(["local_evidence_commit_sha must be a full lowercase SHA"])
     return SecurityControlMap(
@@ -924,7 +973,7 @@ def _load_control_map(
 def load_control_map(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> SecurityControlMap:
-    """Load the A07 map while preserving its public domain-error contract."""
+    """Load the security map while preserving its public domain-error contract."""
     try:
         return _load_control_map(
             path,
@@ -955,11 +1004,11 @@ def _validate_local_evidence(repository_root: Path, control_map: SecurityControl
 
 
 def validate_repository(repository_root: Path) -> SecurityControlMap:
-    """Validate the authoritative A07 map, ownership, and local evidence."""
-    root = repository_root.resolve()
+    """Validate the authoritative security map, ownership, and local evidence."""
+    resolved_repository_root = repository_root.resolve()
     control_map = load_control_map(
-        root / "docs" / "governance" / "security-control-map.toml",
-        repository_root=root,
+        resolved_repository_root / "docs" / "governance" / "security-control-map.toml",
+        repository_root=resolved_repository_root,
     )
-    _validate_local_evidence(root, control_map)
+    _validate_local_evidence(resolved_repository_root, control_map)
     return control_map

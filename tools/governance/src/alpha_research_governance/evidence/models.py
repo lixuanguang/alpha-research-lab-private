@@ -1,4 +1,4 @@
-"""Define A05 merge-request and evidence-governance models."""
+"""Define merge-request and evidence-governance models."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _ROLE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class EvidenceGovernanceError(ValueError):
-    """Report one or more deterministic A05 validation findings."""
+    """Report one or more deterministic evidence-governance findings."""
 
     def __init__(self, findings: list[str] | tuple[str, ...]) -> None:
         self.findings = tuple(findings)
@@ -33,7 +33,7 @@ class MrField(ImmutableModel):
 
 
 class EvidencePolicy(ImmutableModel):
-    """Authoritative repository-local A05 policy."""
+    """Authoritative repository-local evidence policy."""
 
     template_path: Path
     example_mr_body_path: Path
@@ -159,7 +159,7 @@ class ApprovalEvidence(ImmutableModel):
         return tuple(sorted(roles))
 
     def as_review_approval(self) -> ReviewApproval:
-        """Return the A04 approval view used for accepted-bundle enforcement."""
+        """Return the change-risk approval view used for accepted-bundle enforcement."""
         return ReviewApproval(
             reviewer_id=self.reviewer_id,
             roles=self.roles,

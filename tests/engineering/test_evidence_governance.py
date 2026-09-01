@@ -1,4 +1,4 @@
-"""Deterministic and adversarial tests for A05 evidence governance."""
+"""Deterministic and adversarial tests for evidence governance."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _bundle_fixture(tmp_path: Path) -> Path:
     return bundle
 
 
-def _replace(path: Path, old: str, new: str) -> None:
+def _replace_evidence_fixture_text(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
@@ -47,7 +47,7 @@ def _validate_fixture_manifest(bundle: Path) -> None:
     )
 
 
-def test_repository_a05_policy_template_and_example_validate_end_to_end() -> None:
+def test_repository_evidence_policy_template_and_example_validate_end_to_end() -> None:
     policy, manifest = validate_repository(REPOSITORY_ROOT)
 
     assert policy.package_status == "partial"
@@ -132,7 +132,7 @@ def test_manifest_rejects_artifact_tampering(tmp_path: Path) -> None:
 @pytest.mark.parametrize("unsafe_path", ["../outside.txt", "/tmp/outside.txt"])
 def test_manifest_rejects_artifact_path_escape(tmp_path: Path, unsafe_path: str) -> None:
     bundle = _bundle_fixture(tmp_path)
-    _replace(
+    _replace_evidence_fixture_text(
         bundle / "manifest.toml", 'path = "reports/source-hygiene.txt"', f'path = "{unsafe_path}"'
     )
 
@@ -161,7 +161,7 @@ def test_manifest_recomputes_risk_and_rejects_missing_or_unknown_evidence(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
     bundle = _bundle_fixture(tmp_path)
-    _replace(bundle / "manifest.toml", old, new)
+    _replace_evidence_fixture_text(bundle / "manifest.toml", old, new)
 
     with pytest.raises(EvidenceGovernanceError, match=message):
         _validate_fixture_manifest(bundle)
@@ -169,7 +169,9 @@ def test_manifest_recomputes_risk_and_rejects_missing_or_unknown_evidence(
 
 def test_required_gate_cannot_be_not_applicable(tmp_path: Path) -> None:
     bundle = _bundle_fixture(tmp_path)
-    _replace(bundle / "manifest.toml", 'status = "passed"', 'status = "not_applicable"')
+    _replace_evidence_fixture_text(
+        bundle / "manifest.toml", 'status = "passed"', 'status = "not_applicable"'
+    )
 
     with pytest.raises(EvidenceGovernanceError, match="required gates cannot be not_applicable"):
         _validate_fixture_manifest(bundle)
@@ -240,15 +242,15 @@ evidence_url = "https://forge.example/reviews/a05-fixture"
     assert validated.approvals[0].status == "approved"
 
 
-def test_policy_cannot_weaken_a05_gates_or_hide_findings(tmp_path: Path) -> None:
+def test_policy_cannot_weaken_required_evidence_gates_or_hide_findings(tmp_path: Path) -> None:
     policy = tmp_path / "merge-evidence-policy.toml"
     policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    _replace(policy, '["QG01", "QG13", "QG15"]', '["QG01", "QG13"]')
+    _replace_evidence_fixture_text(policy, '["QG01", "QG13", "QG15"]', '["QG01", "QG13"]')
     with pytest.raises(EvidenceGovernanceError, match="requires QG01, QG13, and QG15"):
         load_policy(policy)
 
     policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    _replace(policy, 'finding_id = "A05-F02"', 'finding_id = "A05-OTHER"')
+    _replace_evidence_fixture_text(policy, 'finding_id = "A05-F02"', 'finding_id = "A05-OTHER"')
     with pytest.raises(EvidenceGovernanceError, match="partial status requires findings"):
         load_policy(policy)
 

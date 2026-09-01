@@ -1,4 +1,4 @@
-"""Validate the B01 source registry and dependency graph strictly."""
+"""Validate the governed source registry and dependency graph strictly."""
 
 from __future__ import annotations
 
@@ -118,41 +118,41 @@ _SOURCE_NAMES = {"py.typed"}
 _SOURCE_SUFFIXES = {".py", ".pyi"}
 
 
-def _table(value: object, *, context: str) -> dict[str, object]:
+def _require_table(value: object, *, context: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise RepositoryTopologyError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
-def _table_list(value: object, *, context: str) -> list[dict[str, object]]:
+def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise RepositoryTopologyError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
-def _string(table: dict[str, object], key: str, *, context: str) -> str:
+def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
     value = table.get(key)
     if not isinstance(value, str) or not value:
         raise RepositoryTopologyError([f"{context}.{key} must be a non-empty string"])
     return value
 
 
-def _strings(
+def _require_strings(
     value: object, *, context: str, allow_empty: bool = False, require_sorted: bool = False
 ) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise RepositoryTopologyError([f"{context} must be an array of non-empty strings"])
-    result = tuple(cast(list[str], value))
-    if not allow_empty and not result:
+    string_values = tuple(cast(list[str], value))
+    if not allow_empty and not string_values:
         raise RepositoryTopologyError([f"{context} must not be empty"])
-    if len(result) != len(set(result)):
+    if len(string_values) != len(set(string_values)):
         raise RepositoryTopologyError([f"{context} must contain unique values"])
-    if require_sorted and result != tuple(sorted(result)):
+    if require_sorted and string_values != tuple(sorted(string_values)):
         raise RepositoryTopologyError([f"{context} must be sorted"])
-    return result
+    return string_values
 
 
-def _repository_path(value: str, *, repository_root: Path, context: str) -> Path:
+def _require_repository_path(value: str, *, repository_root: Path, context: str) -> Path:
     relative = PurePosixPath(value)
     if relative.is_absolute() or ".." in relative.parts or relative.as_posix() != value:
         raise RepositoryTopologyError([f"{context}: invalid repository path {value!r}"])
@@ -173,38 +173,48 @@ def _repository_path(value: str, *, repository_root: Path, context: str) -> Path
 
 def _ownership_roles(path: Path) -> frozenset[str]:
     try:
-        root = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
+        ownership_document = _require_table(
+            tomllib.loads(path.read_text(encoding="utf-8")), context=str(path)
+        )
     except tomllib.TOMLDecodeError as error:
         raise RepositoryTopologyError([f"{path}: invalid TOML: {error}"]) from error
     roles: set[str] = set()
-    for index, domain in enumerate(_table_list(root.get("domains"), context="domains"), 1):
+    for index, domain in enumerate(
+        _require_table_list(ownership_document.get("domains"), context="domains"), 1
+    ):
         context = f"domains[{index}]"
-        roles.add(_string(domain, "accountable_role", context=context))
+        roles.add(_require_string(domain, "accountable_role", context=context))
         for key in ("required_review_roles", "independent_review_roles", "escalation_roles"):
-            roles.update(_strings(domain.get(key), context=f"{context}.{key}", allow_empty=True))
-    for index, finding in enumerate(_table_list(root.get("findings"), context="findings"), 1):
-        roles.add(_string(finding, "owner_role", context=f"findings[{index}]"))
+            roles.update(
+                _require_strings(domain.get(key), context=f"{context}.{key}", allow_empty=True)
+            )
+    for index, finding in enumerate(
+        _require_table_list(ownership_document.get("findings"), context="findings"), 1
+    ):
+        roles.add(_require_string(finding, "owner_role", context=f"findings[{index}]"))
     return frozenset(roles)
 
 
 def _source_files(
-    root: Path, source_roots: tuple[str, ...], maximum_source_files: int
+    repository_root: Path, source_roots: tuple[str, ...], maximum_source_files: int
 ) -> frozenset[str]:
-    result: set[str] = set()
+    source_files: set[str] = set()
     for source_root in source_roots:
-        directory = _repository_path(source_root, repository_root=root, context="source_roots")
+        directory = _require_repository_path(
+            source_root, repository_root=repository_root, context="source_roots"
+        )
         if not directory.is_dir():
             raise RepositoryTopologyError([f"source root must be a directory: {source_root}"])
         for path in directory.rglob("*"):
             if path.is_file() and (path.suffix in _SOURCE_SUFFIXES or path.name in _SOURCE_NAMES):
                 if path.is_symlink():
                     raise RepositoryTopologyError([f"source file cannot be a symlink: {path}"])
-                result.add(path.relative_to(root).as_posix())
-                if len(result) > maximum_source_files:
+                source_files.add(path.relative_to(repository_root).as_posix())
+                if len(source_files) > maximum_source_files:
                     raise RepositoryTopologyError(
                         [f"current source exceeds the {maximum_source_files}-file workload limit"]
                     )
-    return frozenset(result)
+    return frozenset(source_files)
 
 
 def _module_name(source: str) -> tuple[str, bool] | None:
@@ -264,7 +274,7 @@ def _find_cycles(units: tuple[SourceUnit, ...]) -> tuple[str, ...]:
     active: list[str] = []
     cycles: set[str] = set()
 
-    def visit(unit_id: str) -> None:
+    def visit_dependency(unit_id: str) -> None:
         if unit_id in active:
             start = active.index(unit_id)
             cycles.add(" -> ".join((*active[start:], unit_id)))
@@ -273,12 +283,12 @@ def _find_cycles(units: tuple[SourceUnit, ...]) -> tuple[str, ...]:
             return
         active.append(unit_id)
         for dependency in graph.get(unit_id, ()):
-            visit(dependency)
+            visit_dependency(dependency)
         active.pop()
         visited.add(unit_id)
 
     for unit_id in graph:
-        visit(unit_id)
+        visit_dependency(unit_id)
     return tuple(sorted(cycles))
 
 
@@ -313,7 +323,7 @@ def _validate_graph(topology: RepositoryTopology, repository_root: Path) -> None
                 )
             declared_sources[source] = unit.unit_id
             try:
-                candidate = _repository_path(
+                candidate = _require_repository_path(
                     source, repository_root=repository_root, context=f"{unit.unit_id}.sources"
                 )
             except RepositoryTopologyError as error:
@@ -395,46 +405,50 @@ def _validate_graph(topology: RepositoryTopology, repository_root: Path) -> None
 
 
 def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
-    """Load and validate the exact B01 registry contract."""
+    """Load and validate the exact repository-topology registry contract."""
     try:
-        root = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
+        topology_document = _require_table(
+            tomllib.loads(path.read_text(encoding="utf-8")), context=str(path)
+        )
     except tomllib.TOMLDecodeError as error:
         raise RepositoryTopologyError([f"{path}: invalid TOML: {error}"]) from error
-    if set(root) != _ROOT_KEYS:
+    if set(topology_document) != _ROOT_KEYS:
         raise RepositoryTopologyError([f"{path}: registry has missing or unknown fields"])
     units: list[SourceUnit] = []
-    for index, item in enumerate(_table_list(root.get("units"), context="units"), 1):
+    for index, item in enumerate(
+        _require_table_list(topology_document.get("units"), context="units"), 1
+    ):
         context = f"units[{index}]"
         if set(item) != _UNIT_KEYS:
             raise RepositoryTopologyError([f"{context} has missing or unknown fields"])
-        unit_id = _string(item, "unit_id", context=context)
-        owner_role = _string(item, "owner_role", context=context)
+        unit_id = _require_string(item, "unit_id", context=context)
+        owner_role = _require_string(item, "owner_role", context=context)
         if _UNIT_ID.fullmatch(unit_id) is None or _TOKEN.fullmatch(owner_role) is None:
             raise RepositoryTopologyError([f"{context}: invalid unit_id or owner_role"])
         units.append(
             SourceUnit(
                 unit_id=unit_id,
-                kind=_string(item, "kind", context=context),
-                layer=_string(item, "layer", context=context),
+                kind=_require_string(item, "kind", context=context),
+                layer=_require_string(item, "layer", context=context),
                 owner_role=owner_role,
-                supported_platforms=_strings(
+                supported_platforms=_require_strings(
                     item.get("supported_platforms"),
                     context=f"{context}.supported_platforms",
                     require_sorted=True,
                 ),
-                dependencies=_strings(
+                dependencies=_require_strings(
                     item.get("dependencies"),
                     context=f"{context}.dependencies",
                     allow_empty=True,
                     require_sorted=True,
                 ),
-                visibility=_strings(
+                visibility=_require_strings(
                     item.get("visibility"),
                     context=f"{context}.visibility",
                     allow_empty=True,
                     require_sorted=True,
                 ),
-                sources=_strings(
+                sources=_require_strings(
                     item.get("sources"), context=f"{context}.sources", require_sorted=True
                 ),
             )
@@ -443,16 +457,20 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
     ownership_roles = _ownership_roles(
         repository_root.resolve() / "docs" / "governance" / "domain-ownership.toml"
     )
-    for index, item in enumerate(_table_list(root.get("findings"), context="findings"), 1):
+    for index, item in enumerate(
+        _require_table_list(topology_document.get("findings"), context="findings"), 1
+    ):
         context = f"findings[{index}]"
         if set(item) != _FINDING_KEYS:
             raise RepositoryTopologyError([f"{context} has missing or unknown fields"])
         for key in _FINDING_KEYS:
-            _string(item, key, context=context)
-        if _string(item, "owner_role", context=context) not in ownership_roles:
+            _require_string(item, key, context=context)
+        if _require_string(item, "owner_role", context=context) not in ownership_roles:
             raise RepositoryTopologyError([f"{context}: stale finding owner role"])
-        finding_ids.append(_string(item, "finding_id", context=context))
-    open_finding_ids = _strings(root.get("open_finding_ids"), context="open_finding_ids")
+        finding_ids.append(_require_string(item, "finding_id", context=context))
+    open_finding_ids = _require_strings(
+        topology_document.get("open_finding_ids"), context="open_finding_ids"
+    )
     expected_scalars = {
         "accountable_owner_role": "platform",
         "delivery_slice": "B01c",
@@ -467,44 +485,52 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
     }
     findings: list[str] = []
     for key, expected in expected_scalars.items():
-        if root.get(key) != expected:
+        if topology_document.get(key) != expected:
             findings.append(f"{path}: {key} must be {expected!r}")
-    applicable_gates = _strings(root.get("applicable_gate_ids"), context="applicable_gate_ids")
+    applicable_gates = _require_strings(
+        topology_document.get("applicable_gate_ids"), context="applicable_gate_ids"
+    )
     if applicable_gates != _APPLICABLE_GATES:
         findings.append(f"{path}: applicable_gate_ids must match the R2 policy")
-    remaining_slices = _strings(
-        root.get("remaining_slices"), context="remaining_slices", allow_empty=True
+    remaining_slices = _require_strings(
+        topology_document.get("remaining_slices"), context="remaining_slices", allow_empty=True
     )
     if remaining_slices != _EXPECTED_REMAINING_SLICES:
         findings.append(f"{path}: remaining_slices must be empty after B01c")
-    source_roots = _strings(root.get("source_roots"), context="source_roots")
+    source_roots = _require_strings(topology_document.get("source_roots"), context="source_roots")
     if source_roots != _EXPECTED_SOURCE_ROOTS:
         findings.append(f"{path}: source_roots must identify the exact current source areas")
-    layer_order = _strings(root.get("layer_order"), context="layer_order")
+    layer_order = _require_strings(topology_document.get("layer_order"), context="layer_order")
     if layer_order != _EXPECTED_LAYER_ORDER:
         findings.append(f"{path}: layer_order must preserve the governed dependency direction")
     if tuple(finding_ids) != _EXPECTED_FINDING_IDS or open_finding_ids != tuple(finding_ids):
         findings.append(f"{path}: partial status requires the exact B01 findings")
-    evidence_sha = _string(root, "local_evidence_commit_sha", context=str(path))
+    evidence_sha = _require_string(
+        topology_document, "local_evidence_commit_sha", context=str(path)
+    )
     if _COMMIT_SHA.fullmatch(evidence_sha) is None:
         findings.append(f"{path}: local_evidence_commit_sha must be a full lowercase SHA")
-    evidence_path = _string(root, "local_evidence_manifest_path", context=str(path))
+    evidence_path = _require_string(
+        topology_document, "local_evidence_manifest_path", context=str(path)
+    )
     if findings:
         raise RepositoryTopologyError(findings)
     try:
         topology = RepositoryTopology(
-            schema_version=cast(int, root["schema_version"]),
-            roadmap_package=cast(str, root["roadmap_package"]),
-            delivery_slice=cast(str, root["delivery_slice"]),
-            operating_track=cast(str, root["operating_track"]),
-            package_status=cast(str, root["package_status"]),
-            slice_status=cast(str, root["slice_status"]),
-            accountable_owner_role=cast(str, root["accountable_owner_role"]),
-            risk_class=cast(str, root["risk_class"]),
+            schema_version=cast(int, topology_document["schema_version"]),
+            roadmap_package=cast(str, topology_document["roadmap_package"]),
+            delivery_slice=cast(str, topology_document["delivery_slice"]),
+            operating_track=cast(str, topology_document["operating_track"]),
+            package_status=cast(str, topology_document["package_status"]),
+            slice_status=cast(str, topology_document["slice_status"]),
+            accountable_owner_role=cast(str, topology_document["accountable_owner_role"]),
+            risk_class=cast(str, topology_document["risk_class"]),
             applicable_gate_ids=applicable_gates,
             source_roots=source_roots,
-            maximum_source_files=cast(int, root["maximum_source_files"]),
-            validation_workload_budget_ms=cast(int, root["validation_workload_budget_ms"]),
+            maximum_source_files=cast(int, topology_document["maximum_source_files"]),
+            validation_workload_budget_ms=cast(
+                int, topology_document["validation_workload_budget_ms"]
+            ),
             layer_order=layer_order,
             remaining_slices=remaining_slices,
             local_evidence_manifest_path=evidence_path,
@@ -519,22 +545,23 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
 
 
 def validate_repository(repository_root: Path) -> RepositoryTopology:
-    """Validate the B01c enforced tooling graph and synthetic local evidence."""
-    root = repository_root.resolve()
+    """Validate the enforced tooling graph and synthetic local evidence."""
+    resolved_repository_root = repository_root.resolve()
     topology = load_topology(
-        root / "docs" / "architecture" / "repository-topology.toml", repository_root=root
+        resolved_repository_root / "docs" / "architecture" / "repository-topology.toml",
+        repository_root=resolved_repository_root,
     )
     try:
-        manifest_path = _repository_path(
+        manifest_path = _require_repository_path(
             topology.local_evidence_manifest_path,
-            repository_root=root,
+            repository_root=resolved_repository_root,
             context="local_evidence_manifest_path",
         )
         manifest = validate_manifest(
             manifest_path,
             expected_commit_sha=topology.local_evidence_commit_sha,
             change_policy=load_change_risk_policy(
-                root / "docs" / "governance" / "change-risk-policy.toml"
+                resolved_repository_root / "docs" / "governance" / "change-risk-policy.toml"
             ),
         )
         validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)

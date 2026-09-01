@@ -1,4 +1,4 @@
-"""Define domain models for the A07 threat and regulatory control map."""
+"""Define domain models for the threat and regulatory control map."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from alpha_research_governance._models import ImmutableModel
 
 
 class SecurityControlError(ValueError):
-    """Report one or more deterministic A07 validation findings."""
+    """Report one or more deterministic security-control findings."""
 
     def __init__(self, findings: list[str] | tuple[str, ...]) -> None:
         self.findings = tuple(findings)
@@ -228,7 +228,7 @@ class RegulatoryMapping(ImmutableModel):
 
 
 class SecurityControlMap(ImmutableModel):
-    """Validated A07 package contract and queryable control map."""
+    """Validated security package contract and queryable control map."""
 
     schema_version: int
     roadmap_package: str

@@ -1,4 +1,4 @@
-"""Define domain models for the A08 program graph and KPI contract."""
+"""Define domain models for the program graph and KPI contract."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from alpha_research_governance._models import ImmutableModel
 
 
 class ProgramGovernanceError(ValueError):
-    """Report one or more deterministic A08 validation findings."""
+    """Report one or more deterministic program-governance findings."""
 
     def __init__(self, findings: list[str] | tuple[str, ...]) -> None:
         self.findings = tuple(findings)
@@ -210,7 +210,7 @@ class MetricSummary(ImmutableModel):
 
 
 class ProgramGovernance(ImmutableModel):
-    """Validated A08 graph, state, KPI definitions, and findings."""
+    """Validated program graph, state, KPI definitions, and findings."""
 
     schema_version: int
     roadmap_package: str
@@ -253,72 +253,86 @@ class ProgramGovernance(ImmutableModel):
         )
 
     def _dependencies_ready(self, package: PackageNode, *, institutional: bool) -> bool:
-        def is_ready(package_id: str) -> bool:
-            state = self.state_for(package_id)
-            if state is None:
+        def package_is_ready(package_id: str) -> bool:
+            package_state = self.state_for(package_id)
+            if package_state is None:
                 return False
             if institutional:
-                return state.status == "validated"
-            return state.is_solo_provisionally_satisfied()
+                return package_state.status == "validated"
+            return package_state.is_solo_provisionally_satisfied()
 
-        return all(is_ready(item) for item in package.dependencies) and all(
-            any(is_ready(item) for item in group) for group in package.any_of_dependency_groups
+        return all(
+            package_is_ready(dependency_id) for dependency_id in package.dependencies
+        ) and all(
+            any(package_is_ready(dependency_id) for dependency_id in dependency_group)
+            for dependency_group in package.any_of_dependency_groups
         )
 
     def summarize_metrics(
         self, observations: tuple[MetricObservation, ...]
     ) -> tuple[MetricSummary, ...]:
         """Aggregate observations without treating any KPI as a hard gate."""
-        by_metric: dict[str, list[MetricObservation]] = {
+        observations_by_metric: dict[str, list[MetricObservation]] = {
             metric.metric_id: [] for metric in self.metrics
         }
         for observation in observations:
-            by_metric[observation.metric_id].append(observation)
+            observations_by_metric[observation.metric_id].append(observation)
 
         summaries: list[MetricSummary] = []
         for metric in self.metrics:
-            candidates = by_metric[metric.metric_id]
-            if candidates:
-                latest_end = max(item.window_end for item in candidates)
+            metric_observations = observations_by_metric[metric.metric_id]
+            if metric_observations:
+                latest_window_end = max(
+                    observation.window_end for observation in metric_observations
+                )
                 window_days = int(metric.window[1:-1])
-                cutoff = latest_end - timedelta(days=window_days)
-                selected = [
-                    item
-                    for item in candidates
+                reporting_cutoff = latest_window_end - timedelta(days=window_days)
+                selected_observations = [
+                    observation
+                    for observation in metric_observations
                     if (
-                        item.window_start >= cutoff
+                        observation.window_start >= reporting_cutoff
                         if metric.value_kind == "ratio"
-                        else item.window_end >= cutoff
+                        else observation.window_end >= reporting_cutoff
                     )
                 ]
             else:
-                selected = []
-            if len(selected) < metric.minimum_observations:
+                selected_observations = []
+            if len(selected_observations) < metric.minimum_observations:
                 summaries.append(
                     MetricSummary(
                         metric_id=metric.metric_id,
                         status="insufficient_observations",
-                        observation_count=len(selected),
+                        observation_count=len(selected_observations),
                         value=None,
                         unit=metric.output_unit,
                     )
                 )
                 continue
             if metric.value_kind == "duration":
-                values = sorted(item.duration_seconds for item in selected)
+                duration_values = sorted(
+                    observation.duration_seconds for observation in selected_observations
+                )
                 percentile = int(metric.aggregation.removeprefix("p"))
-                index = max(ceil(percentile / 100 * len(values)) - 1, 0)
-                value = values[index]
+                percentile_index = max(
+                    ceil(percentile / 100 * len(duration_values)) - 1,
+                    0,
+                )
+                metric_value = duration_values[percentile_index]
             else:
-                numerator = sum(item.numerator or 0.0 for item in selected)
-                denominator = sum(item.denominator or 0.0 for item in selected)
-                value = numerator / denominator * metric.scale
+                numerator_total = sum(
+                    observation.numerator or 0.0 for observation in selected_observations
+                )
+                denominator_total = sum(
+                    observation.denominator or 0.0 for observation in selected_observations
+                )
+                metric_value = numerator_total / denominator_total * metric.scale
             summaries.append(
                 MetricSummary(
                     metric_id=metric.metric_id,
                     status="measured",
-                    observation_count=len(selected),
-                    value=value,
+                    observation_count=len(selected_observations),
+                    value=metric_value,
                     unit=metric.output_unit,
                 )
             )

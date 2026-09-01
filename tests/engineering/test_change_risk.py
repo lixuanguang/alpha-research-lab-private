@@ -1,4 +1,4 @@
-"""Deterministic and adversarial tests for the A04 change-risk policy."""
+"""Deterministic and adversarial tests for the change-risk policy."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def _change_for(risk_class: RiskClass, *, declared: RiskClass | None = None) -> 
     )
 
 
-def _r4_approvals() -> tuple[ReviewApproval, ...]:
+def _highest_risk_class_approvals() -> tuple[ReviewApproval, ...]:
     return (
         ReviewApproval(reviewer_id="owner", roles=frozenset({"domain_owner"})),
         ReviewApproval(
@@ -252,7 +252,7 @@ def test_r4_requires_distinct_review_groups_and_independent_approvers(
 
     validate_merge_approvals(
         decision,
-        _r4_approvals(),
+        _highest_risk_class_approvals(),
         change=change,
         waived_controls=(),
         policy=policy,
@@ -344,7 +344,7 @@ def test_approval_validation_rejects_same_class_decision_tampering(
 def test_author_cannot_satisfy_an_independent_r4_group(policy: ChangeRiskPolicy) -> None:
     change = _change_for(RiskClass.R4)
     decision = classify_change(change, policy)
-    approvals = list(_r4_approvals())
+    approvals = list(_highest_risk_class_approvals())
     approvals[1] = ReviewApproval(
         reviewer_id="risk",
         roles=frozenset({"independent_risk"}),
@@ -369,7 +369,7 @@ def test_r4_rejects_a_waived_hard_control(policy: ChangeRiskPolicy) -> None:
     with pytest.raises(ChangeRiskPolicyError, match="cannot waive hard controls"):
         validate_merge_approvals(
             decision,
-            _r4_approvals(),
+            _highest_risk_class_approvals(),
             change=change,
             waived_controls=("kill_capability",),
             policy=policy,
@@ -492,7 +492,7 @@ def test_partial_policy_cannot_hide_open_findings(tmp_path: Path) -> None:
         load_policy(path)
 
 
-def test_partial_policy_requires_the_registered_a04_findings(tmp_path: Path) -> None:
+def test_partial_change_risk_policy_requires_registered_findings(tmp_path: Path) -> None:
     path = _mutated_policy(tmp_path, 'finding_id = "A04-F02"', 'finding_id = "A04-OTHER"')
 
     with pytest.raises(ChangeRiskPolicyError, match="partial status requires findings"):

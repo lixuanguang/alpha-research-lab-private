@@ -1,4 +1,4 @@
-"""Validate SHA-bound A05 evidence manifests."""
+"""Validate SHA-bound evidence manifests."""
 
 from __future__ import annotations
 
@@ -56,19 +56,19 @@ _ROOT_KEYS = {
 }
 
 
-def _table(value: object, *, context: str) -> dict[str, object]:
+def _require_table(value: object, *, context: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise EvidenceGovernanceError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
-def _table_list(value: object, *, context: str) -> list[dict[str, object]]:
+def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise EvidenceGovernanceError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
-def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+def _require_strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise EvidenceGovernanceError([f"{context} must be an array of non-empty strings"])
     values = tuple(cast(list[str], value))
@@ -79,14 +79,14 @@ def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple
     return values
 
 
-def _string(table: dict[str, object], key: str, *, context: str) -> str:
+def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
     value = table.get(key)
     if not isinstance(value, str) or not value:
         raise EvidenceGovernanceError([f"{context}.{key} must be a non-empty string"])
     return value
 
 
-def _boolean(table: dict[str, object], key: str, *, context: str) -> bool:
+def _require_boolean(table: dict[str, object], key: str, *, context: str) -> bool:
     value = table.get(key)
     if not isinstance(value, bool):
         raise EvidenceGovernanceError([f"{context}.{key} must be Boolean"])
@@ -94,7 +94,7 @@ def _boolean(table: dict[str, object], key: str, *, context: str) -> bool:
 
 
 def _parse_change(value: object) -> ChangeRiskInput:
-    table = _table(value, context="change")
+    table = _require_table(value, context="change")
     expected = {
         "blast_radius",
         "capital_at_risk",
@@ -108,36 +108,40 @@ def _parse_change(value: object) -> ChangeRiskInput:
     }
     if set(table) != expected:
         raise EvidenceGovernanceError([f"change fields must be exactly {sorted(expected)!r}"])
-    declared = _string(table, "declared_class", context="change")
+    declared = _require_string(table, "declared_class", context="change")
     try:
         declared_class = RiskClass(declared)
     except ValueError as error:
         raise EvidenceGovernanceError(["change.declared_class must be R0-R4"]) from error
     return ChangeRiskInput(
-        capital_at_risk=_boolean(table, "capital_at_risk", context="change"),
-        blast_radius=_string(table, "blast_radius", context="change"),
-        data_model_materiality=_string(table, "data_model_materiality", context="change"),
-        security_privilege=_string(table, "security_privilege", context="change"),
-        reversibility=_string(table, "reversibility", context="change"),
-        computationally_material=_boolean(table, "computationally_material", context="change"),
-        economically_or_risk_relevant=_boolean(
+        capital_at_risk=_require_boolean(table, "capital_at_risk", context="change"),
+        blast_radius=_require_string(table, "blast_radius", context="change"),
+        data_model_materiality=_require_string(table, "data_model_materiality", context="change"),
+        security_privilege=_require_string(table, "security_privilege", context="change"),
+        reversibility=_require_string(table, "reversibility", context="change"),
+        computationally_material=_require_boolean(
+            table, "computationally_material", context="change"
+        ),
+        economically_or_risk_relevant=_require_boolean(
             table, "economically_or_risk_relevant", context="change"
         ),
-        model_or_trading_relevant=_boolean(table, "model_or_trading_relevant", context="change"),
+        model_or_trading_relevant=_require_boolean(
+            table, "model_or_trading_relevant", context="change"
+        ),
         declared_class=declared_class,
     )
 
 
 def _parse_gates(value: object) -> tuple[GateEvidence, ...]:
     gates: list[GateEvidence] = []
-    for index, item in enumerate(_table_list(value, context="gates"), 1):
+    for index, item in enumerate(_require_table_list(value, context="gates"), 1):
         context = f"gates[{index}]"
         if set(item) != {"evidence_ids", "gate_id", "rationale", "status"}:
             raise EvidenceGovernanceError([f"{context} has missing or unknown fields"])
-        gate_id = _string(item, "gate_id", context=context)
-        status = _string(item, "status", context=context)
-        rationale = _string(item, "rationale", context=context)
-        evidence_ids = _strings(
+        gate_id = _require_string(item, "gate_id", context=context)
+        status = _require_string(item, "status", context=context)
+        rationale = _require_string(item, "rationale", context=context)
+        evidence_ids = _require_strings(
             item.get("evidence_ids"), context=f"{context}.evidence_ids", allow_empty=True
         )
         if _GATE.fullmatch(gate_id) is None:
@@ -162,15 +166,15 @@ def _parse_gates(value: object) -> tuple[GateEvidence, ...]:
 def _parse_artifacts(value: object) -> tuple[ArtifactEvidence, ...]:
     artifacts: list[ArtifactEvidence] = []
     expected = {"artifact_type", "evidence_id", "path", "sha256"}
-    for index, item in enumerate(_table_list(value, context="artifacts"), 1):
+    for index, item in enumerate(_require_table_list(value, context="artifacts"), 1):
         context = f"artifacts[{index}]"
         if set(item) != expected:
             raise EvidenceGovernanceError([f"{context} has missing or unknown fields"])
         artifact = ArtifactEvidence(
-            evidence_id=_string(item, "evidence_id", context=context),
-            artifact_type=_string(item, "artifact_type", context=context),
-            path=_string(item, "path", context=context),
-            sha256=_string(item, "sha256", context=context),
+            evidence_id=_require_string(item, "evidence_id", context=context),
+            artifact_type=_require_string(item, "artifact_type", context=context),
+            path=_require_string(item, "path", context=context),
+            sha256=_require_string(item, "sha256", context=context),
         )
         if _BUNDLE_ID.fullmatch(artifact.evidence_id) is None:
             raise EvidenceGovernanceError([f"{context}.evidence_id must be lower-kebab-case"])
@@ -197,12 +201,12 @@ def _parse_approvals(value: object, *, commit_sha: str) -> tuple[ApprovalEvidenc
         "roles",
         "status",
     }
-    for index, item in enumerate(_table_list(value, context="approvals"), 1):
+    for index, item in enumerate(_require_table_list(value, context="approvals"), 1):
         context = f"approvals[{index}]"
         if set(item) != expected:
             raise EvidenceGovernanceError([f"{context} has missing or unknown fields"])
-        status = _string(item, "status", context=context)
-        approval_commit = _string(item, "commit_sha", context=context)
+        status = _require_string(item, "status", context=context)
+        approval_commit = _require_string(item, "commit_sha", context=context)
         evidence_url = item.get("evidence_url")
         if status not in _APPROVAL_STATUSES:
             raise EvidenceGovernanceError([f"{context}.status is unsupported"])
@@ -216,14 +220,14 @@ def _parse_approvals(value: object, *, commit_sha: str) -> tuple[ApprovalEvidenc
                 raise EvidenceGovernanceError(
                     [f"{context}: approved evidence requires an HTTPS URL without credentials"]
                 )
-        roles = _strings(item.get("roles"), context=f"{context}.roles")
+        roles = _require_strings(item.get("roles"), context=f"{context}.roles")
         if any(_ROLE.fullmatch(role) is None for role in roles):
             raise EvidenceGovernanceError([f"{context}.roles must be lower_snake_case"])
         approval = ApprovalEvidence(
-            reviewer_id=_string(item, "reviewer_id", context=context),
+            reviewer_id=_require_string(item, "reviewer_id", context=context),
             roles=frozenset(roles),
-            independent=_boolean(item, "independent", context=context),
-            is_author=_boolean(item, "is_author", context=context),
+            independent=_require_boolean(item, "independent", context=context),
+            is_author=_require_boolean(item, "is_author", context=context),
             status=status,
             commit_sha=approval_commit,
             evidence_url=evidence_url,
@@ -235,21 +239,21 @@ def _parse_approvals(value: object, *, commit_sha: str) -> tuple[ApprovalEvidenc
 def _parse_findings(value: object) -> tuple[str, ...]:
     finding_ids: list[str] = []
     expected = {"closure_condition", "finding_id", "owner_role", "unavailable_evidence"}
-    for index, item in enumerate(_table_list(value, context="findings"), 1):
+    for index, item in enumerate(_require_table_list(value, context="findings"), 1):
         context = f"findings[{index}]"
         if set(item) != expected:
             raise EvidenceGovernanceError([f"{context} has missing or unknown fields"])
-        finding_id = _string(item, "finding_id", context=context)
-        _string(item, "owner_role", context=context)
-        _string(item, "unavailable_evidence", context=context)
-        _string(item, "closure_condition", context=context)
+        finding_id = _require_string(item, "finding_id", context=context)
+        _require_string(item, "owner_role", context=context)
+        _require_string(item, "unavailable_evidence", context=context)
+        _require_string(item, "closure_condition", context=context)
         finding_ids.append(finding_id)
     if len(finding_ids) != len(set(finding_ids)):
         raise EvidenceGovernanceError(["finding IDs must be unique"])
     return tuple(finding_ids)
 
 
-def _artifact_path(bundle_root: Path, relative_text: str) -> Path:
+def _resolve_artifact_path(bundle_root: Path, relative_text: str) -> Path:
     relative = Path(relative_text)
     if relative.is_absolute() or ".." in relative.parts:
         raise EvidenceGovernanceError([f"artifact path escapes the bundle: {relative_text}"])
@@ -274,7 +278,7 @@ def _artifact_path(bundle_root: Path, relative_text: str) -> Path:
 def _verify_artifacts(path: Path, artifacts: tuple[ArtifactEvidence, ...]) -> None:
     bundle_root = path.parent.resolve()
     for artifact in artifacts:
-        artifact_path = _artifact_path(bundle_root, artifact.path)
+        artifact_path = _resolve_artifact_path(bundle_root, artifact.path)
         actual = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
         if actual != artifact.sha256:
             raise EvidenceGovernanceError(
@@ -288,28 +292,28 @@ def _validate_manifest(
     expected_commit_sha: str,
     change_policy: ChangeRiskPolicy,
 ) -> EvidenceManifest:
-    """Validate a manifest, A04 decision binding, artifact digests, and acceptance."""
+    """Validate a manifest, change-risk binding, artifact digests, and acceptance."""
     if _COMMIT_SHA.fullmatch(expected_commit_sha) is None:
         raise EvidenceGovernanceError(["expected_commit_sha must be a full lowercase SHA"])
     if path.is_symlink():
         raise EvidenceGovernanceError([f"{path}: manifest may not be a symlink"])
     try:
-        parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise EvidenceGovernanceError([f"{path}: invalid TOML: {error}"]) from error
-    root = _table(parsed, context=str(path))
-    if set(root) != _ROOT_KEYS:
+    manifest_document = _require_table(parsed_document, context=str(path))
+    if set(manifest_document) != _ROOT_KEYS:
         raise EvidenceGovernanceError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
-    if root.get("schema_version") != 1:
+    if manifest_document.get("schema_version") != 1:
         raise EvidenceGovernanceError([f"{path}: schema_version must be 1"])
 
-    bundle_id = _string(root, "bundle_id", context=str(path))
-    roadmap_id = _string(root, "roadmap_id", context=str(path))
-    commit_sha = _string(root, "commit_sha", context=str(path))
-    owner_role = _string(root, "owner_role", context=str(path))
-    risk_class = _string(root, "risk_class", context=str(path))
-    retention = _string(root, "evidence_retention_class", context=str(path))
-    bundle_status = _string(root, "bundle_status", context=str(path))
+    bundle_id = _require_string(manifest_document, "bundle_id", context=str(path))
+    roadmap_id = _require_string(manifest_document, "roadmap_id", context=str(path))
+    commit_sha = _require_string(manifest_document, "commit_sha", context=str(path))
+    owner_role = _require_string(manifest_document, "owner_role", context=str(path))
+    risk_class = _require_string(manifest_document, "risk_class", context=str(path))
+    retention = _require_string(manifest_document, "evidence_retention_class", context=str(path))
+    bundle_status = _require_string(manifest_document, "bundle_status", context=str(path))
     if _BUNDLE_ID.fullmatch(bundle_id) is None:
         raise EvidenceGovernanceError([f"{path}: bundle_id must be lower-kebab-case"])
     if _ROADMAP_ID.fullmatch(roadmap_id) is None:
@@ -321,7 +325,7 @@ def _validate_manifest(
     if bundle_status not in _BUNDLE_STATUSES:
         raise EvidenceGovernanceError([f"{path}: bundle_status must be partial or accepted"])
 
-    change = _parse_change(root.get("change"))
+    change = _parse_change(manifest_document.get("change"))
     try:
         decision = classify_change(change, change_policy)
     except ValueError as error:
@@ -333,24 +337,28 @@ def _validate_manifest(
             [f"{path}: evidence_retention_class does not match A04 classification"]
         )
 
-    additional_gates = _strings(
-        root.get("additional_required_gates"),
+    additional_gates = _require_strings(
+        manifest_document.get("additional_required_gates"),
         context="additional_required_gates",
         allow_empty=True,
     )
     if any(_GATE.fullmatch(gate) is None for gate in additional_gates):
         raise EvidenceGovernanceError(["additional_required_gates must use QG01-QG15"])
-    gates = _parse_gates(root.get("gates"))
-    artifacts = _parse_artifacts(root.get("artifacts"))
-    approvals = _parse_approvals(root.get("approvals"), commit_sha=commit_sha)
-    finding_ids = _parse_findings(root.get("findings"))
-    open_finding_ids = _strings(
-        root.get("open_finding_ids"), context="open_finding_ids", allow_empty=True
+    gates = _parse_gates(manifest_document.get("gates"))
+    artifacts = _parse_artifacts(manifest_document.get("artifacts"))
+    approvals = _parse_approvals(manifest_document.get("approvals"), commit_sha=commit_sha)
+    finding_ids = _parse_findings(manifest_document.get("findings"))
+    open_finding_ids = _require_strings(
+        manifest_document.get("open_finding_ids"),
+        context="open_finding_ids",
+        allow_empty=True,
     )
     if open_finding_ids != finding_ids:
         raise EvidenceGovernanceError(["open_finding_ids must exactly match findings"])
-    waived_controls = _strings(
-        root.get("waived_controls"), context="waived_controls", allow_empty=True
+    waived_controls = _require_strings(
+        manifest_document.get("waived_controls"),
+        context="waived_controls",
+        allow_empty=True,
     )
 
     gates_by_id = {gate.gate_id: gate for gate in gates}

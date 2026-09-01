@@ -1,4 +1,4 @@
-"""Canonical A08 program-governance API and repository check command."""
+"""Canonical program-governance API and repository check command."""
 
 from __future__ import annotations
 
@@ -53,47 +53,47 @@ _USAGE = (
 def _parse_arguments(
     arguments: Sequence[str],
 ) -> tuple[Path, Path | None, bool, dict[str, str]]:
-    root: Path | None = None
-    observations: Path | None = None
-    emit_json = False
-    selection: dict[str, str] = {}
+    repository_root: Path | None = None
+    observation_path: Path | None = None
+    should_emit_json = False
+    selection_options: dict[str, str] = {}
     index = 0
     while index < len(arguments):
         argument = arguments[index]
         if argument == "--json":
-            if emit_json:
+            if should_emit_json:
                 raise ProgramGovernanceError([_USAGE])
-            emit_json = True
+            should_emit_json = True
             index += 1
             continue
         if argument == "--observations":
-            if observations is not None or index + 1 >= len(arguments):
+            if observation_path is not None or index + 1 >= len(arguments):
                 raise ProgramGovernanceError([_USAGE])
-            observations = Path(arguments[index + 1])
+            observation_path = Path(arguments[index + 1])
             index += 2
             continue
         if argument in {"--metric", "--ready", "--wave"}:
-            if selection or index + 1 >= len(arguments):
+            if selection_options or index + 1 >= len(arguments):
                 raise ProgramGovernanceError([_USAGE])
-            selection[argument] = arguments[index + 1]
+            selection_options[argument] = arguments[index + 1]
             index += 2
             continue
-        if argument.startswith("--") or root is not None:
+        if argument.startswith("--") or repository_root is not None:
             raise ProgramGovernanceError([_USAGE])
-        root = Path(argument)
+        repository_root = Path(argument)
         index += 1
     return (
-        Path.cwd() if root is None else root,
-        observations,
-        emit_json or observations is not None or bool(selection),
-        selection,
+        Path.cwd() if repository_root is None else repository_root,
+        observation_path,
+        should_emit_json or observation_path is not None or bool(selection_options),
+        selection_options,
     )
 
 
-def _package_json(program: ProgramGovernance, package: PackageNode) -> dict[str, object]:
-    result = package.as_json()
-    state = program.state_for(package.package_id)
-    result["state"] = (
+def _build_package_payload(program: ProgramGovernance, package: PackageNode) -> dict[str, object]:
+    package_payload = package.as_json()
+    package_state = program.state_for(package.package_id)
+    package_payload["state"] = (
         {
             "evidence_paths": [],
             "open_finding_ids": [],
@@ -101,33 +101,37 @@ def _package_json(program: ProgramGovernance, package: PackageNode) -> dict[str,
             "repository_local_status": "not_started",
             "status": "planned",
         }
-        if state is None
-        else state.as_json()
+        if package_state is None
+        else package_state.as_json()
     )
-    return result
+    return package_payload
 
 
-def _json_result(
+def _build_program_dashboard_payload(
     program: ProgramGovernance,
     observations: tuple[MetricObservation, ...],
-    selection: dict[str, str],
+    selection_options: dict[str, str],
 ) -> dict[str, object]:
     selected_packages = program.packages
     selected_metrics = program.metrics
-    ready_mode = selection.get("--ready")
-    if "--wave" in selection:
+    ready_mode = selection_options.get("--ready")
+    if "--wave" in selection_options:
         selected_packages = tuple(
-            package for package in program.packages if package.wave == selection["--wave"]
+            package for package in program.packages if package.wave == selection_options["--wave"]
         )
-    if "--metric" in selection:
+    if "--metric" in selection_options:
         selected_metrics = tuple(
-            metric for metric in program.metrics if metric.metric_id == selection["--metric"]
+            metric
+            for metric in program.metrics
+            if metric.metric_id == selection_options["--metric"]
         )
     if ready_mode is not None:
         selected_packages = program.ready_packages(institutional=ready_mode == "institutional")
-    summaries = {summary.metric_id: summary for summary in program.summarize_metrics(observations)}
-    solo_ready = program.ready_packages(institutional=False)
-    institutional_ready = program.ready_packages(institutional=True)
+    metric_summaries_by_id = {
+        summary.metric_id: summary for summary in program.summarize_metrics(observations)
+    }
+    solo_ready_packages = program.ready_packages(institutional=False)
+    institutional_ready_packages = program.ready_packages(institutional=True)
     return {
         "accountable_owner_role": program.accountable_owner_role,
         "aggregation_limits": {
@@ -139,20 +143,22 @@ def _json_result(
         "metrics": [
             {
                 "definition": metric.as_json(),
-                "observed_baseline": summaries[metric.metric_id].as_json(),
+                "observed_baseline": metric_summaries_by_id[metric.metric_id].as_json(),
             }
             for metric in selected_metrics
         ],
         "next_institutionally_ready_package": (
-            None if not institutional_ready else institutional_ready[0].package_id
+            None if not institutional_ready_packages else institutional_ready_packages[0].package_id
         ),
-        "next_solo_ready_package": None if not solo_ready else solo_ready[0].package_id,
+        "next_solo_ready_package": (
+            None if not solo_ready_packages else solo_ready_packages[0].package_id
+        ),
         "observation_count": len(observations),
         "open_finding_ids": list(program.finding_ids),
         "operating_track": program.operating_track,
         "package_count": len(program.packages),
         "package_status": program.package_status,
-        "packages": [_package_json(program, package) for package in selected_packages],
+        "packages": [_build_package_payload(program, package) for package in selected_packages],
         "risk_class": program.risk_class,
         "roadmap_package": program.roadmap_package,
         "roadmap_path": program.roadmap_path,
@@ -161,22 +167,24 @@ def _json_result(
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Validate A08 or emit a deterministic graph and KPI dashboard."""
-    provided = list(sys.argv[1:] if arguments is None else arguments)
+    """Validate program governance or emit a deterministic graph and KPI dashboard."""
+    cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     try:
-        repository_root, observation_path, emit_json, selection = _parse_arguments(provided)
+        repository_root, observation_path, should_emit_json, selection_options = _parse_arguments(
+            cli_arguments
+        )
     except ProgramGovernanceError as error:
         print(error, file=sys.stderr)
         return 2
-    wave = selection.get("--wave")
+    wave = selection_options.get("--wave")
     if wave is not None and (len(wave) != 1 or wave not in "ABCDEFGHIJKL"):
         print(f"unsupported roadmap wave {wave!r}", file=sys.stderr)
         return 1
-    metric_id = selection.get("--metric")
+    metric_id = selection_options.get("--metric")
     if metric_id is not None and metric_id not in METRIC_IDS:
         print(f"unsupported program metric {metric_id!r}", file=sys.stderr)
         return 1
-    ready_mode = selection.get("--ready")
+    ready_mode = selection_options.get("--ready")
     if ready_mode is not None and ready_mode not in {"institutional", "solo"}:
         print(f"unsupported readiness mode {ready_mode!r}", file=sys.stderr)
         return 1
@@ -188,10 +196,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
     except (OSError, ProgramGovernanceError) as error:
         print(error, file=sys.stderr)
         return 1
-    if emit_json:
+    if should_emit_json:
         print(
             json.dumps(
-                _json_result(program, observations, selection),
+                _build_program_dashboard_payload(program, observations, selection_options),
                 sort_keys=True,
                 separators=(",", ":"),
             )

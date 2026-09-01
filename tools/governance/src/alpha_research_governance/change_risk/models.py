@@ -1,4 +1,4 @@
-"""Define domain models shared by the A04 change-risk controls."""
+"""Define domain models shared by the change-risk controls."""
 
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ class SampleChange(ImmutableModel):
 
 
 class ChangeRiskPolicy(ImmutableModel):
-    """Complete versioned A04 policy."""
+    """Complete versioned change-risk policy."""
 
     dimensions: tuple[DimensionPolicy, ...]
     risk_classes: tuple[RiskClassPolicy, ...]

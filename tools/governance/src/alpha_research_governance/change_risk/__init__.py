@@ -1,4 +1,4 @@
-"""Canonical A04 change-risk API and repository policy-check command."""
+"""Canonical change-risk API and repository policy-check command."""
 
 from __future__ import annotations
 
@@ -48,22 +48,22 @@ __all__ = [
 
 
 def validate_repository(repository_root: Path) -> ChangeRiskPolicy:
-    """Validate the repository's authoritative A04 policy."""
+    """Validate the repository's authoritative change-risk policy."""
     return load_policy(
         repository_root.resolve() / "docs" / "governance" / "change-risk-policy.toml"
     )
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Run the A04 policy checker from the command line."""
-    provided = list(sys.argv[1:] if arguments is None else arguments)
-    if len(provided) > 1:
+    """Run the change-risk policy checker from the command line."""
+    cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
+    if len(cli_arguments) > 1:
         print(
             "usage: python -m alpha_research_governance.change_risk [repository-root]",
             file=sys.stderr,
         )
         return 2
-    repository_root = Path(provided[0]) if provided else Path.cwd()
+    repository_root = Path(cli_arguments[0]) if cli_arguments else Path.cwd()
     try:
         policy = validate_repository(repository_root)
     except (ChangeRiskPolicyError, OSError) as error:

@@ -1,4 +1,4 @@
-"""Compatibility facade for the canonical A05 evidence-governance tool."""
+"""Compatibility facade for the canonical evidence-governance tool."""
 
 from alpha_research_governance.evidence import (
     ApprovalEvidence,

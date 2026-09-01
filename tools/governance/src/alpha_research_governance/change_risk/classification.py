@@ -1,4 +1,4 @@
-"""Classify A04 change-risk inputs deterministically."""
+"""Classify change-risk inputs deterministically."""
 
 from __future__ import annotations
 

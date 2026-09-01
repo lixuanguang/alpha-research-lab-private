@@ -9,8 +9,12 @@ obsolete P0-P8/`ENG-*`/`CRY-*` phase plan. The companion
 [research program](research-program.md) sequences strategy evidence but remains
 subordinate to these platform gates.
 
-Each row below is a logical MR package. If it exceeds reviewable size, split it
-into code, migration, backfill, and rollout MRs while preserving the ID as an epic.
+Each row below is a logical MR package. The ID column contains the stable selector
+required by dependency, evidence, and automation contracts; the adjacent objective
+is the human-readable package name. Outside machine-oriented tables and commands,
+prose leads with the package name and places the selector in parentheses. If a
+package exceeds reviewable size, split it into code, migration, backfill, and
+rollout MRs while preserving the selector as an epic.
 Prefer one logical behavior change and keep non-generated changes near or below
 400 lines where practical. Every MR inherits its R0-R4 approvers and mandatory
 QG01-QG15 evidence from
@@ -97,7 +101,7 @@ model, and non-vanity program metrics.
 
 | ID | Objective / delivery | Library/tool to use or incorporate | Incorporation boundary / restriction | Depends on |
 | --- | --- | --- | --- | --- |
-| B01 | Governed topology: `B01a` registry and graph checks; `B01b` owned tooling targets and compatibility entry points; `B01c` root, pre-commit, hosted-CI, A06, and A08 enforcement | Repository-owned Python tooling | Complete current source coverage; no empty placeholders or new build/domain dependencies | A02-A05 |
+| B01 | Governed repository topology: registry and graph checks (`B01a`); owned governance-tool targets and compatibility entry points (`B01b`); root, pre-commit, hosted-CI, resource-inventory, and program-governance enforcement (`B01c`) | Repository-owned Python tooling | Complete current source coverage; no empty placeholders or new build/domain dependencies | A02-A05 |
 | B02 | Pinned hermetic graph for Python, justified native languages, schemas, SQL, and docs; sandbox and undeclared-input tests; tested Make rollback | Bazel, `rules_python` 2.2, uv, Buf | uv lock is transitional resolution input; Make delegates; native languages require justification | B01 |
 | B03 | Clean-machine declarative bootstrap with exact host-tool and supported-platform evidence | Nix or equivalent | No workstation state; prove Bazel equivalence and rollback | B02 |
 | B04 | Language, sanitizer, numerical, generated-code, and property/state-machine standards | Hypothesis 6.167; admitted language sanitizers | The existing-tool refresh is complete; add new tools through provisional B07-compatible records; no domain behavior | B02-B03 |
@@ -322,20 +326,22 @@ the shared kernel is the production path.
 
 ## Current repository mapping
 
-Repository-local implementations and deterministic checks now exist for A01-A08.
+Repository-local implementations and deterministic checks now exist from the
+repository charter through program governance (packages `A01` through `A08`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
-through A08 pass, while their recorded organization, protected-forge,
+through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
 remains open. This does not validate wave A or authorize a wave exit.
 
 The existing uv lock, Python package, Make checks, and engineering tests are
-bootstrap evidence relevant to B02-B05. They do not yet meet the Bazel, Nix or
+bootstrap evidence relevant to the hermetic-build through continuous-integration
+packages (`B02` through `B05`). They do not yet meet the Bazel, Nix or
 equivalent, ownership, risk-class, affected-target, merged-result, provenance,
 SBOM, signing, or admission requirements and therefore are not marked validated.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
-`SCALE-*`, and `ASSET-*` platform IDs are superseded by A01-L08. Research-stage
-`R01-R16` identifiers remain local to the companion empirical program and are not
-implementation MR IDs.
+`SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
+selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
+local to the companion empirical program and are not implementation MR IDs.
 
 ## Migration and reuse overlay
 
@@ -350,17 +356,19 @@ behavior, performance, operations, rollback, and exit criteria before adoption.
 
 The version references in the package tables are survey baselines reviewed on
 2026-08-30. They make the recommendation reproducible; they are not floating
-constraints. Exact
-pins enter only through the owning change, lock, build graph, admission record,
-and evidence bundle. Release candidates stay outside certification and production
-paths unless a separately reviewed compatibility lane exercises them.
+constraints. Exact pins enter only through the owning change, lock, build graph,
+admission record, and evidence bundle. Release candidates stay outside
+certification and production paths unless a separately reviewed compatibility lane
+exercises them.
 
-B02-B06 necessarily bootstrap the machinery that B07 later enforces. Each new
-build/CI tool introduced before B07 must therefore carry a provisional dependency
-record with the intended B07 owner, purpose, exact source and digest, license,
-vulnerability review, supported platforms, transitive/native dependencies, and
-rollback. B07 validates and migrates those records into the final admission
-control; it does not retroactively excuse an undocumented bootstrap dependency.
+The hermetic-build through remote-execution packages (`B02` through `B06`)
+necessarily bootstrap machinery that dependency admission (`B07`) later enforces.
+Each new build/CI tool introduced before dependency admission must therefore carry
+a provisional dependency record with its intended admission owner, purpose, exact
+source and digest, license, vulnerability review, supported platforms,
+transitive/native dependencies, and rollback. Dependency admission validates and
+migrates those records into the final admission control; it does not retroactively
+excuse an undocumented bootstrap dependency.
 
 The platform owns the thin waist even when a library supplies an implementation:
 
@@ -383,43 +391,51 @@ incorporation boundary or restriction beside its dependencies. These columns are
 the authoritative shortlist, narrower-role, and restricted-tool mapping; there
 is no parallel tool catalog to reconcile.
 
-The A03/A05-A08 seam-hardening prerequisite is repository-locally implemented and
-independently rechecked. The pre-B01 toolchain refresh also passed on the
-2026-08-30 macOS arm64/Python 3.12 baseline; its
+The ownership and evidence-through-program seam-hardening prerequisite (packages
+`A03` and `A05` through `A08`) is repository-locally implemented and independently
+rechecked. The toolchain refresh preceding governed repository topology also
+passed on the 2026-08-30 macOS arm64/Python 3.12 baseline; its
 [executed refresh record](pre-b01-toolchain-refresh.md) retains compatibility,
 rollback, output, and artifact evidence. Neither result closes any existing
-external finding or completes B01 or B04. The expanded B01 row defines `B01a` as
-the first delivery slice and keeps `B01b` and `B01c` in the same
+external finding or completes governed repository topology (`B01`) or engineering
+standards (`B04`). The expanded governed-topology row defines the registry and
+graph slice (`B01a`) as the first delivery slice and keeps the owned-tooling slice
+(`B01b`) and enforcement slice (`B01c`) in the same
 logical package rather than creating parallel roadmap IDs.
 
-### Active B01 delivery state
+### Active governed repository topology delivery state
 
-`B01a`, `B01b`, and `B01c` are provisionally implemented under solo bootstrap by
-the [governed target registry, governance-tool package, compatibility entry points, and enforcement consumers](../architecture/repository-topology.md).
-B01c preserves the earlier source graph and facades while making root,
-pre-commit, hosted-CI, A06, and A08 consumers enforce the canonical targets. It
-retains R2 evidence and the independent-review and protected-forge findings.
-B01 remains `partial`; repository-local slice completion does not validate the
-parent. The next selector is `B02`.
+The registry and graph slice (`B01a`), owned-tooling slice (`B01b`), and enforcement
+slice (`B01c`) are provisionally implemented under solo bootstrap by the
+[repository-topology architecture contract](../architecture/repository-topology.md).
+The enforcement slice preserves the earlier source graph and facades while making
+root, pre-commit, hosted-CI, resource-inventory, and program-governance consumers
+enforce the canonical targets. It retains medium-risk (`R2`) evidence and the
+independent-review and protected-forge findings. The parent governed repository
+topology package (`B01`) remains `partial`; repository-local slice completion does
+not validate the parent. The next selector is the pinned hermetic build graph
+(`B02`).
 
 ## Recommended adoption order
 
 1. Preserve the completed governance hardening, toolchain-refresh evidence, and
    all open institutional findings.
-2. Preserve B01's completed repository-local graph, governance-tool migration,
-   compatibility entry points, canonical enforcement, R2 evidence, and open
-   findings before introducing new dependencies.
-3. Implement B02 with `rules_python`, the refreshed uv lock as a transitional
-   resolution input, and Buf-backed Protobuf/code-generation targets. Keep Make
-   as a tested delegating rollback interface.
-4. Implement B03 clean-machine reproducibility.
-5. Implement B04 engineering standards and add Hypothesis to the property/state-
+2. Preserve the governed repository topology package's (`B01`) completed
+   repository-local graph, governance-tool migration, compatibility entry points,
+   canonical enforcement, R2 evidence, and open findings before introducing new
+   dependencies.
+3. Implement the pinned hermetic build graph (`B02`) with `rules_python`, the
+   refreshed uv lock as a transitional resolution input, and Buf-backed
+   Protobuf/code-generation targets. Keep Make as a tested delegating rollback
+   interface.
+4. Implement clean-machine reproducibility (`B03`).
+5. Implement engineering standards (`B04`) and add Hypothesis to the property/state-
    machine testing target; do not repeat the existing-tool refresh.
-6. Implement B05 fast/full CI and schema compatibility, then B06 remote execution
-   only after deterministic local fallback and cache isolation pass.
-7. Implement B07 admission before introducing the analytical, orchestration,
-   experiment, optimization, provider, or trading candidates above.
-8. Implement B08 SBOM, provenance, signing, and verification before durable data
+6. Implement fast/full CI and schema compatibility (`B05`), then remote execution
+   (`B06`) only after deterministic local fallback and cache isolation pass.
+7. Implement dependency admission (`B07`) before introducing the analytical,
+   orchestration, experiment, optimization, provider, or trading candidates above.
+8. Implement SBOM, provenance, signing, and verification (`B08`) before durable data
    or release artifacts depend on the new graph.
 9. Introduce each remaining library only in its owning C-J package through a
    narrow adapter and contract suite. Do not create a repository-wide dependency

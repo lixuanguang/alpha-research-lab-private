@@ -1,4 +1,4 @@
-"""Define domain models for the A06 governed resource inventory."""
+"""Define domain models for the governed resource inventory."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ class InventoryItem(ImmutableModel):
 
 
 class ResourceInventory(ImmutableModel):
-    """Validated A06 catalog and package state."""
+    """Validated resource catalog and package state."""
 
     catalog_version: int
     as_of_date: date

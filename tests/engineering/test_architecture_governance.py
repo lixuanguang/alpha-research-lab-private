@@ -1,4 +1,4 @@
-"""Deterministic tests for the A02 ADR and documentation governance checks."""
+"""Deterministic tests for architecture-decision and documentation governance."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Execute the canonical A06 resource-inventory repository check."""
+"""Execute the canonical resource-inventory repository check."""
 
 from alpha_research_governance.inventory import main
 

@@ -1,4 +1,4 @@
-"""Compatibility facade for A08 program-registry operations."""
+"""Compatibility facade for program-registry operations."""
 
 from alpha_research_governance.program_governance.registry import (
     APPLICABLE_GATE_IDS,

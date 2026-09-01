@@ -1,4 +1,4 @@
-"""Execute the canonical A07 threat and regulatory control-map check."""
+"""Execute the canonical threat and regulatory control-map check."""
 
 from alpha_research_governance.security_controls import main
 

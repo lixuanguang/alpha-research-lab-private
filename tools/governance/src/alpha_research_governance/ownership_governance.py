@@ -1,4 +1,4 @@
-"""Validate canonical A03 ownership, independent review, and CODEOWNERS coverage."""
+"""Validate canonical ownership, independent review, and CODEOWNERS coverage."""
 
 from __future__ import annotations
 
@@ -40,19 +40,19 @@ class OwnershipGovernanceError(ValueError):
         super().__init__("\n".join(self.findings))
 
 
-def _table(container: dict[str, object], key: str) -> dict[str, object] | None:
+def _optional_table(container: dict[str, object], key: str) -> dict[str, object] | None:
     value = container.get(key)
     return cast(dict[str, object], value) if isinstance(value, dict) else None
 
 
-def _table_list(container: dict[str, object], key: str) -> list[dict[str, object]] | None:
+def _optional_table_list(container: dict[str, object], key: str) -> list[dict[str, object]] | None:
     value = container.get(key)
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         return None
     return cast(list[dict[str, object]], value)
 
 
-def _string_list(
+def _optional_string_list(
     container: dict[str, object], key: str, *, context: str, findings: list[str]
 ) -> list[str]:
     value = container.get(key)
@@ -64,12 +64,12 @@ def _string_list(
 
 def _load_registry(path: Path) -> dict[str, object]:
     try:
-        parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise OwnershipGovernanceError([f"{path}: invalid TOML: {error}"]) from error
-    if not isinstance(parsed, dict):
+    if not isinstance(parsed_document, dict):
         raise OwnershipGovernanceError([f"{path}: registry root must be a TOML table"])
-    return cast(dict[str, object], parsed)
+    return cast(dict[str, object], parsed_document)
 
 
 def _parse_codeowners(path: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -117,24 +117,24 @@ def _repository_paths(repository_root: Path) -> tuple[str, ...]:
     if git_executable is None:
         raise OwnershipGovernanceError(["git executable is unavailable"])
     # Platform owner; fixed Git argv without a shell, with removal at B01 graph cutover.
-    result = subprocess.run(  # nosec B603
+    git_process = subprocess.run(  # nosec B603
         [git_executable, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
         cwd=repository_root,
         check=False,
         capture_output=True,
     )
-    if result.returncode != 0:
-        message = result.stderr.decode("utf-8", errors="replace").strip()
+    if git_process.returncode != 0:
+        message = git_process.stderr.decode("utf-8", errors="replace").strip()
         raise OwnershipGovernanceError([f"git ls-files failed: {message}"])
-    return tuple(path.decode("utf-8") for path in result.stdout.split(b"\0") if path)
+    return tuple(path.decode("utf-8") for path in git_process.stdout.split(b"\0") if path)
 
 
 def validate_repository(
     repository_root: Path, *, repository_paths: Iterable[str] | None = None
 ) -> tuple[str, ...]:
-    """Validate the A03 register, its CODEOWNERS mirror, and repository coverage."""
-    root = repository_root.resolve()
-    registry_path = root / "docs" / "governance" / "domain-ownership.toml"
+    """Validate the ownership register, its CODEOWNERS mirror, and repository coverage."""
+    resolved_repository_root = repository_root.resolve()
+    registry_path = resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
     registry = _load_registry(registry_path)
     findings: list[str] = []
 
@@ -150,7 +150,7 @@ def validate_repository(
             findings.append(f"{registry_path}: {key} must be {expected!r}")
 
     package_status = registry.get("package_status")
-    forge = _table(registry, "forge_enforcement")
+    forge = _optional_table(registry, "forge_enforcement")
     if forge is None:
         findings.append(f"{registry_path}: forge_enforcement must be a TOML table")
         forge = {}
@@ -160,7 +160,7 @@ def validate_repository(
     if forge.get("protected_branch") != "main":
         findings.append(f"{registry_path}: forge_enforcement.protected_branch must be 'main'")
 
-    open_findings = _table_list(registry, "findings")
+    open_findings = _optional_table_list(registry, "findings")
     if open_findings is None:
         findings.append(f"{registry_path}: findings must be an array of TOML tables")
         open_findings = []
@@ -199,7 +199,7 @@ def validate_repository(
             f"{list(_REQUIRED_OPEN_FINDING_IDS)!r}"
         )
 
-    domains = _table_list(registry, "domains")
+    domains = _optional_table_list(registry, "domains")
     if domains is None:
         findings.append(f"{registry_path}: domains must be an array of TOML tables")
         domains = []
@@ -218,13 +218,17 @@ def validate_repository(
         if not isinstance(accountable_role, str) or _ROLE.fullmatch(accountable_role) is None:
             findings.append(f"{context}: accountable_role must be lower_snake_case")
             accountable_role = ""
-        patterns = _string_list(domain, "patterns", context=context, findings=findings)
-        codeowners = _string_list(domain, "codeowners", context=context, findings=findings)
-        required = _string_list(domain, "required_review_roles", context=context, findings=findings)
-        independent = _string_list(
+        patterns = _optional_string_list(domain, "patterns", context=context, findings=findings)
+        codeowners = _optional_string_list(domain, "codeowners", context=context, findings=findings)
+        required = _optional_string_list(
+            domain, "required_review_roles", context=context, findings=findings
+        )
+        independent = _optional_string_list(
             domain, "independent_review_roles", context=context, findings=findings
         )
-        escalation = _string_list(domain, "escalation_roles", context=context, findings=findings)
+        escalation = _optional_string_list(
+            domain, "escalation_roles", context=context, findings=findings
+        )
         if not patterns or not codeowners or not escalation:
             findings.append(
                 f"{context}: patterns, codeowners, and escalation_roles cannot be empty"
@@ -267,9 +271,9 @@ def validate_repository(
     if not isinstance(codeowners_value, str) or not codeowners_value:
         findings.append(f"{registry_path}: codeowners_path must be a non-empty string")
     else:
-        codeowners_path = (root / codeowners_value).resolve()
+        codeowners_path = (resolved_repository_root / codeowners_value).resolve()
         try:
-            codeowners_path.relative_to(root)
+            codeowners_path.relative_to(resolved_repository_root)
             actual_entries = _parse_codeowners(codeowners_path)
         except ValueError:
             findings.append(f"{registry_path}: codeowners_path must stay inside the repository")
@@ -279,7 +283,11 @@ def validate_repository(
             actual_entries = ()
         if actual_entries != tuple(expected_entries):
             findings.append(f"{codeowners_path}: entries must exactly match the ordered register")
-        paths = tuple(repository_paths) if repository_paths is not None else _repository_paths(root)
+        paths = (
+            tuple(repository_paths)
+            if repository_paths is not None
+            else _repository_paths(resolved_repository_root)
+        )
         actual_patterns = tuple(pattern for pattern, _ in actual_entries)
         for path in paths:
             if not any(_matches(pattern, path) for pattern in actual_patterns):
@@ -292,16 +300,16 @@ def validate_repository(
 
 def main(arguments: Sequence[str] | None = None) -> int:
     """Run the ownership-governance checker from the command line."""
-    provided = list(sys.argv[1:] if arguments is None else arguments)
-    if len(provided) > 1:
+    cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
+    if len(cli_arguments) > 1:
         print(
             "usage: python -m alpha_research_governance.ownership_governance [repository-root]",
             file=sys.stderr,
         )
         return 2
-    root = Path(provided[0]) if provided else Path.cwd()
+    repository_root = Path(cli_arguments[0]) if cli_arguments else Path.cwd()
     try:
-        domains = validate_repository(root)
+        domains = validate_repository(repository_root)
     except (OwnershipGovernanceError, OSError) as error:
         print(error, file=sys.stderr)
         return 1

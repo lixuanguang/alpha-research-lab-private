@@ -65,7 +65,7 @@ class ArchitectureGovernanceError(ValueError):
         super().__init__("\n".join(self.findings))
 
 
-def _metadata(text: str) -> dict[str, str]:
+def _parse_metadata(text: str) -> dict[str, str]:
     control_start = text.find("## Control metadata")
     if control_start < 0:
         return {}
@@ -119,7 +119,7 @@ def validate_adr(path: Path, *, expected_identifier: int, template: bool = False
         if re.search(rf"^# ADR {identifier}: .+$", text, flags=re.MULTILINE) is None:
             findings.append(f"{path}: title must be '# ADR {identifier}: <decision>'")
 
-    metadata = _metadata(text)
+    metadata = _parse_metadata(text)
     for key in _REQUIRED_METADATA:
         if not metadata.get(key):
             findings.append(f"{path}: missing control metadata field '{key}'")
@@ -220,7 +220,7 @@ def _validate_decision_log(
             rf"^# ADR {identifier}: (?P<title>.+?)\s*$", text, flags=re.MULTILINE
         )
         expected_title = "" if title_match is None else title_match.group("title")
-        metadata = _metadata(text)
+        metadata = _parse_metadata(text)
         expected_values = {
             "title": expected_title,
             "filename": path.name,
@@ -304,7 +304,7 @@ def _heading_anchors(text: str) -> set[str]:
 
 def validate_local_links(repository_root: Path, documents: Iterable[Path]) -> None:
     """Reject missing repository-local Markdown link targets and heading fragments."""
-    root = repository_root.resolve()
+    resolved_repository_root = repository_root.resolve()
     findings: list[str] = []
     anchor_cache: dict[Path, set[str]] = {}
     for document in documents:
@@ -312,14 +312,14 @@ def validate_local_links(repository_root: Path, documents: Iterable[Path]) -> No
         text_without_fences = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
         for match in _MARKDOWN_LINK.finditer(text_without_fences):
             destination = match.group("destination").strip().strip("<>")
-            parsed = urlsplit(destination)
-            if parsed.scheme or destination.startswith("//"):
+            parsed_url = urlsplit(destination)
+            if parsed_url.scheme or destination.startswith("//"):
                 continue
             path_text, _, fragment = destination.partition("#")
             target = document if not path_text else document.parent / unquote(path_text)
             target = target.resolve()
             try:
-                target.relative_to(root)
+                target.relative_to(resolved_repository_root)
             except ValueError:
                 findings.append(f"{document}: local link escapes the repository: {destination}")
                 continue
@@ -337,15 +337,20 @@ def validate_local_links(repository_root: Path, documents: Iterable[Path]) -> No
 
 
 def _validate_repository(repository_root: Path) -> tuple[Path, ...]:
-    """Run every repository-local A02 architecture governance check."""
-    root = repository_root.resolve()
-    decisions = validate_decision_directory(root / "docs" / "architecture" / "decisions")
-    validate_local_links(root, sorted((root / "docs").rglob("*.md")))
+    """Run every repository-local architecture-governance check."""
+    resolved_repository_root = repository_root.resolve()
+    decisions = validate_decision_directory(
+        resolved_repository_root / "docs" / "architecture" / "decisions"
+    )
+    validate_local_links(
+        resolved_repository_root,
+        sorted((resolved_repository_root / "docs").rglob("*.md")),
+    )
     return decisions
 
 
 def validate_repository(repository_root: Path) -> tuple[Path, ...]:
-    """Run A02 checks while preserving the public domain-error contract."""
+    """Run architecture checks while preserving the public domain-error contract."""
     try:
         return _validate_repository(repository_root)
     except ValidationError as error:
@@ -356,14 +361,14 @@ def validate_repository(repository_root: Path) -> tuple[Path, ...]:
 
 def main(arguments: Sequence[str] | None = None) -> int:
     """Run the architecture governance checker from the command line."""
-    provided = list(sys.argv[1:] if arguments is None else arguments)
-    if len(provided) > 1:
+    cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
+    if len(cli_arguments) > 1:
         print(
             "usage: python -m alpha_research_governance.architecture_governance [repository-root]",
             file=sys.stderr,
         )
         return 2
-    repository_root = Path(provided[0]) if provided else Path.cwd()
+    repository_root = Path(cli_arguments[0]) if cli_arguments else Path.cwd()
     try:
         decisions = validate_repository(repository_root)
     except (ArchitectureGovernanceError, OSError) as error:

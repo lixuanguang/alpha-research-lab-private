@@ -1,4 +1,4 @@
-"""Parse the A05 merge-request and evidence policy strictly."""
+"""Parse the merge-request and evidence policy strictly."""
 
 from __future__ import annotations
 
@@ -37,13 +37,13 @@ _EXPECTED_ROOT_KEYS = {
 }
 
 
-def _table_list(value: object, *, context: str) -> list[dict[str, object]]:
+def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise EvidenceGovernanceError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
-def _strings(value: object, *, context: str) -> tuple[str, ...]:
+def _require_strings(value: object, *, context: str) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise EvidenceGovernanceError([f"{context} must contain non-empty strings"])
     values = tuple(cast(list[str], value))
@@ -52,7 +52,7 @@ def _strings(value: object, *, context: str) -> tuple[str, ...]:
     return values
 
 
-def _relative_path(value: object, *, context: str) -> Path:
+def _require_relative_path(value: object, *, context: str) -> Path:
     if not isinstance(value, str) or not value:
         raise EvidenceGovernanceError([f"{context} must be a repository-relative path"])
     path = Path(value)
@@ -62,15 +62,15 @@ def _relative_path(value: object, *, context: str) -> Path:
 
 
 def _load_policy(path: Path) -> EvidencePolicy:
-    """Load and validate the authoritative A05 policy."""
+    """Load and validate the authoritative evidence policy."""
     try:
-        parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise EvidenceGovernanceError([f"{path}: invalid TOML: {error}"]) from error
-    if not isinstance(parsed, dict):
+    if not isinstance(parsed_document, dict):
         raise EvidenceGovernanceError([f"{path}: policy root must be a TOML table"])
-    root = cast(dict[str, object], parsed)
-    if set(root) != _EXPECTED_ROOT_KEYS:
+    policy_document = cast(dict[str, object], parsed_document)
+    if set(policy_document) != _EXPECTED_ROOT_KEYS:
         raise EvidenceGovernanceError(
             [f"{path}: fields must be exactly {sorted(_EXPECTED_ROOT_KEYS)!r}"]
         )
@@ -84,12 +84,14 @@ def _load_policy(path: Path) -> EvidencePolicy:
         "risk_class": "R0",
     }
     for key, expected in expected_scalars.items():
-        if root.get(key) != expected:
+        if policy_document.get(key) != expected:
             raise EvidenceGovernanceError([f"{path}: {key} must be {expected!r}"])
 
-    applicable_gates = _strings(root.get("applicable_gates"), context="applicable_gates")
-    mandatory_gates = _strings(
-        root.get("mandatory_package_gates"), context="mandatory_package_gates"
+    applicable_gates = _require_strings(
+        policy_document.get("applicable_gates"), context="applicable_gates"
+    )
+    mandatory_gates = _require_strings(
+        policy_document.get("mandatory_package_gates"), context="mandatory_package_gates"
     )
     if any(_GATE.fullmatch(gate) is None for gate in applicable_gates + mandatory_gates):
         raise EvidenceGovernanceError([f"{path}: quality gates must use QG01-QG15"])
@@ -99,7 +101,9 @@ def _load_policy(path: Path) -> EvidencePolicy:
         raise EvidenceGovernanceError([f"{path}: mandatory gates must be applicable"])
 
     fields: list[MrField] = []
-    for index, item in enumerate(_table_list(root.get("mr_fields"), context="mr_fields"), 1):
+    for index, item in enumerate(
+        _require_table_list(policy_document.get("mr_fields"), context="mr_fields"), 1
+    ):
         if set(item) != {"heading", "key"}:
             raise EvidenceGovernanceError([f"mr_fields[{index}] must contain key and heading"])
         field_key = item.get("key")
@@ -116,7 +120,7 @@ def _load_policy(path: Path) -> EvidencePolicy:
     if len({field.heading for field in fields}) != len(fields):
         raise EvidenceGovernanceError([f"{path}: MR field headings must be unique"])
 
-    findings = _table_list(root.get("findings"), context="findings")
+    findings = _require_table_list(policy_document.get("findings"), context="findings")
     finding_ids: list[str] = []
     for index, finding in enumerate(findings, 1):
         expected = {"closure_condition", "finding_id", "owner_role", "unavailable_evidence"}
@@ -130,16 +134,18 @@ def _load_policy(path: Path) -> EvidencePolicy:
             [f"{path}: partial status requires findings {list(_EXPECTED_FINDINGS)!r}"]
         )
 
-    commit_sha = root.get("example_commit_sha")
+    commit_sha = policy_document.get("example_commit_sha")
     if not isinstance(commit_sha, str) or _COMMIT_SHA.fullmatch(commit_sha) is None:
         raise EvidenceGovernanceError([f"{path}: example_commit_sha must be a full lowercase SHA"])
     return EvidencePolicy(
-        template_path=_relative_path(root.get("template_path"), context="template_path"),
-        example_mr_body_path=_relative_path(
-            root.get("example_mr_body_path"), context="example_mr_body_path"
+        template_path=_require_relative_path(
+            policy_document.get("template_path"), context="template_path"
         ),
-        example_manifest_path=_relative_path(
-            root.get("example_manifest_path"), context="example_manifest_path"
+        example_mr_body_path=_require_relative_path(
+            policy_document.get("example_mr_body_path"), context="example_mr_body_path"
+        ),
+        example_manifest_path=_require_relative_path(
+            policy_document.get("example_manifest_path"), context="example_manifest_path"
         ),
         example_commit_sha=commit_sha,
         applicable_gates=applicable_gates,
@@ -151,7 +157,7 @@ def _load_policy(path: Path) -> EvidencePolicy:
 
 
 def load_policy(path: Path) -> EvidencePolicy:
-    """Load the A05 policy while preserving its public domain-error contract."""
+    """Load evidence policy while preserving its public domain-error contract."""
     try:
         return _load_policy(path)
     except ValidationError as error:
