@@ -44,6 +44,7 @@ _EXPECTED_FINDING_IDS = ("B01-F01", "B01-F02")
 _EXPECTED_REMAINING_SLICES: tuple[str, ...] = ()
 _EXPECTED_SOURCE_ROOTS = (
     "src/alpha_research",
+    "tests/build",
     "tests/engineering",
     "tools/governance/src/alpha_research_governance",
 )

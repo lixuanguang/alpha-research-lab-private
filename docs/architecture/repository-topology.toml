@@ -22,6 +22,7 @@ applicable_gate_ids = [
 ]
 source_roots = [
   "src/alpha_research",
+  "tests/build",
   "tests/engineering",
   "tools/governance/src/alpha_research_governance",
 ]
@@ -153,6 +154,21 @@ sources = [
   "src/alpha_research/security_controls/__init__.py",
   "src/alpha_research/security_controls/__main__.py",
   "src/alpha_research/security_controls/registry.py",
+]
+
+[[units]]
+unit_id = "test.build"
+kind = "test"
+layer = "verification"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = []
+visibility = []
+sources = [
+  "tests/build/build_graph_test.py",
+  "tests/build/fixtures/proto/buf_toolchain_test.py",
+  "tests/build/fixtures/sql/generated_sql_test.py",
+  "tests/build/sandbox_test.py",
 ]
 
 [[units]]

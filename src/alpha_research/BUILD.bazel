@@ -1,0 +1,11 @@
+load("@rules_python//python:defs.bzl", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "alpha_research",
+    srcs = glob(["**/*.py"]),
+    data = ["py.typed"],
+    imports = [".."],
+    deps = ["//tools/governance/src/alpha_research_governance"],
+)

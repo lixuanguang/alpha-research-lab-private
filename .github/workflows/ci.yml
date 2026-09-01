@@ -31,6 +31,14 @@ jobs:
       - name: Install locked environment
         run: uv sync --frozen
 
+      - name: Install pinned Bazel launcher
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-version: "1.29.0"
+
+      - name: Verify pinned hermetic build graph
+        run: make bazel-check
+
       - name: Lint
         run: uv run --frozen ruff check src tests tools/governance/src
 

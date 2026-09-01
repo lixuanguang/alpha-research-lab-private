@@ -16,13 +16,20 @@ evidence = ""
 [[domains]]
 domain_id = "repository_platform"
 patterns = [
+    "/.bazelignore",
+    "/.bazelrc",
+    "/.bazelversion",
     "/.gitignore",
     "/.pre-commit-config.yaml",
     "/.python-version",
     "/CODEOWNERS",
     "/Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf",
     "/Makefile",
+    "/BUILD.bazel",
+    "/MODULE.bazel",
+    "/MODULE.bazel.lock",
     "/pyproject.toml",
+    "/requirements.bazel.txt",
     "/uv.lock",
     "/.github/",
     "/core/",

@@ -1,0 +1,61 @@
+package(default_visibility = ["//visibility:private"])
+
+exports_files([
+    ".bazelrc",
+    ".bazelversion",
+    ".pre-commit-config.yaml",
+    ".python-version",
+    "CODEOWNERS",
+    "Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf",
+    "Makefile",
+    "MODULE.bazel",
+    "MODULE.bazel.lock",
+    "pyproject.toml",
+    "requirements.bazel.txt",
+    "uv.lock",
+])
+
+filegroup(
+    name = "repository_governance_data",
+    srcs = glob([
+        ".github/**/*.md",
+        ".github/**/*.yml",
+        "docs/**",
+        "secrets/.secrets.example",
+    ]) + [
+        ".bazelrc",
+        ".bazelversion",
+        ".pre-commit-config.yaml",
+        "CODEOWNERS",
+        "Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf",
+        "Makefile",
+        "MODULE.bazel",
+        "MODULE.bazel.lock",
+        "pyproject.toml",
+        "requirements.bazel.txt",
+        "uv.lock",
+        "//tools/governance:pyproject.toml",
+    ],
+    visibility = ["//tests/build:__pkg__"],
+)
+
+filegroup(
+    name = "docs_bundle",
+    srcs = glob(["docs/**"]),
+)
+
+alias(
+    name = "platform_library",
+    actual = "//src/alpha_research:alpha_research",
+)
+
+test_suite(
+    name = "b02_tests",
+    tests = [
+        "//tests/build:build_graph_test",
+        "//tests/build:sandbox_test",
+        "//tests/build/fixtures/proto:buf_toolchain_test",
+        "//tests/build/fixtures/sql:generated_sql_test",
+        "//tests/build/fixtures/sql:invalid_substitution_test",
+    ],
+)

@@ -1,0 +1,9 @@
+B02 repository-local hermeticity and code-generation evidence
+Synthetic commit: 8888888888888888888888888888888888888888
+
+- Bazel uses a strict action environment and sandboxed build/test strategies.
+- The sandbox negative test cannot observe undeclared repository files, the local
+  secret path, .git/config, or a host-only environment variable.
+- SQL generation is a declared Starlark action with golden and invalid-key tests.
+- The pinned Buf binary lints a test-only schema and creates identical descriptor
+  digests in two isolated temporary environments.

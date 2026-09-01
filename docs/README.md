@@ -28,8 +28,10 @@ and regulatory control map, a program dependency and KPI dashboard, governed
 repository-tool targets with compatibility entry points, canonical root,
 pre-commit, and hosted-CI topology enforcement, roadmaps, coding standards, a
 minimal platform package, a locked uv environment, and a transitional Make
-interface. It does not yet contain
-the blueprint's Bazel build graph, canonical contracts, data plane, simulator,
+interface. B02 adds a pinned sandboxed Bazel graph for current Python,
+governance, documentation, SQL-generation, and test-only Protobuf targets, with
+a tested frozen-uv rollback. It does not yet contain clean-machine provisioning,
+canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
 
@@ -77,8 +79,9 @@ approvals. No provisional result is grandfathered into `validated` status.
 
 ## Development environment
 
-The current bootstrap pins uv 0.12.7 and CPython 3.12.14. From a clean checkout
-with uv available, create the current locked Python environment with:
+The current bootstrap pins uv 0.12.7, Bazel 9.1.0 through `.bazelversion`,
+Bazelisk 1.29.0 in CI, and CPython 3.12.14 in both uv and Bazel. From a checkout
+with uv and Bazelisk available, create the locked Python environment with:
 
 ```sh
 uv sync --frozen
@@ -88,6 +91,11 @@ The tracked `.python-version`, root and `tools/governance` project files, and
 `uv.lock` are authoritative for the bootstrap platform and governance-tool
 targets. `make sync` provides the same setup through the transitional root
 interface.
+
+Bazel module, toolchain, runtime-manifest, and Buf inputs are pinned by
+`MODULE.bazel` and `MODULE.bazel.lock`. The [B02 graph contract](architecture/hermetic-build-graph.md)
+documents supported targets, sandbox guarantees, provisional dependency records,
+the native-language decision, CI parity limits, and rollback.
 
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
@@ -114,18 +122,22 @@ Current root commands are:
 | `make security-controls-check` | Validate and query the A07 threat model, control ownership and evidence, trust boundaries, abuse cases, and non-conclusive jurisdiction map |
 | `make program-governance-check` | Validate and query the A08 96-package dependency graph, provisional readiness, owned KPI definitions, automatic observations, and non-vanity dashboard |
 | `make security` | Run Bandit against current platform and governance-tool Python source |
-| `make test` | Build the root project non-editably and run the deterministic test suite |
+| `make bazel-build` | Build the representative pinned Python, governance, SQL, and documentation graph |
+| `make bazel-test` | Run the focused B02 sandbox, pin, Protobuf, and SQL tests |
+| `make bazel-check` | Build and test the B02 graph without invoking the compatibility suite |
+| `make rollback-check` | Run the complete frozen-uv pre-B02 validation, smoke, and package build |
+| `make test` | Run the Bazel B02 test suite by default; use `BUILD_BACKEND=uv` for rollback |
 | `make smoke` | Import the non-editable installed bootstrap package |
-| `make build` | Build the current Python source distribution and wheel |
-| `make check` | Verify the lock, run all current checks, smoke-test, and build |
+| `make build` | Build the representative Bazel graph by default; use `BUILD_BACKEND=uv` for rollback |
+| `make check` | Run the Bazel graph and the full retained frozen-uv compatibility path |
 
 Running `make` without a target is currently equivalent to `make check`.
 
-This interface is not the target monorepo build architecture. Wave B introduces a
-pinned, hermetic Bazel graph for Python, C++ and/or Rust, Protobuf, SQL generation,
-and documentation, plus a Nix flake or equivalent reproducible developer
-environment. Once those packages are implemented, the repository root interface
-must delegate to that graph and preserve affected-target and merged-result checks.
+This interface is a provisional B02 implementation, not completion of wave B.
+B03 still owns a Nix flake or equivalent clean-machine environment, B04 owns
+native-language standards when a native target is justified, B05 owns affected
+and merged-result policy, and B06-B08 own remote execution, final admission, and
+supply-chain evidence.
 
 ## Documentation map
 
@@ -140,6 +152,7 @@ must delegate to that graph and preserve affected-target and merged-result check
 | [Program dependency and KPI governance](governance/program-governance.md) | A08 exact roadmap DAG, solo/institutional readiness, automatic observation contract, owned baseline KPIs, dashboard, and findings |
 | [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
 | [Governed repository topology and tooling](architecture/repository-topology.md) | B01 governed targets, compatibility entry points, root/hook/hosted enforcement, A06/A08 integration, evidence, findings, and B02 boundary |
+| [Pinned hermetic build graph](architecture/hermetic-build-graph.md) | B02 Bazel pins, sandbox and code-generation graph, provisional dependencies, Make/CI delegation, rollback, evidence, and findings |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

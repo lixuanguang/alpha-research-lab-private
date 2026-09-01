@@ -22,7 +22,7 @@ expressions. The checker expands exact ranges, represents conditional asset
 dependencies as explicit `any of` groups, rejects unknown or duplicate packages,
 and fails on self-dependencies or cycles.
 
-The program policy records implementation state only for A01-B01. Packages without
+The program policy records implementation state only for A01-B02. Packages without
 an explicit state remain `planned`; no empty package is treated as implemented.
 Every partial dependency records passing repository-local evidence, its retained
 finding IDs, and only the deferred evidence classes permitted by the solo-bootstrap
@@ -52,9 +52,9 @@ uv run --frozen alpha-governance-program \
   --metric kpi.research_reproducibility_percent
 ```
 
-With B01c repository-local evidence present, B01 remains `partial` and the next
-solo-provisionally ready package is B02. Institutional readiness remains empty
-because none of the provisional A01-B01 states is validated.
+With B02 repository-local evidence present, B01 and B02 remain `partial` and the
+next solo-provisionally ready package is B03. Institutional readiness remains
+empty because none of the provisional A01-B02 states is validated.
 
 ## KPI and observation contract
 
@@ -156,7 +156,7 @@ These findings are not waivers or approvals. A08 remains partial until all close
 
 ## Non-goals
 
-- Implementing B02 or any later build, data, research, deployment, observability,
+- Implementing B03 or any later build, data, research, deployment, observability,
   incident, or rollback producer package.
 - Creating a production dashboard service or accepting manually curated KPI values.
 - Treating throughput, commit count, coverage percentage, PnL, Sharpe ratio, or a
