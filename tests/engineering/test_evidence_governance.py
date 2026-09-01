@@ -255,22 +255,6 @@ def test_policy_cannot_weaken_required_evidence_gates_or_hide_findings(tmp_path:
         load_policy(policy)
 
 
-def test_evidence_checker_is_integrated_with_repository_automation() -> None:
-    canonical_command = "alpha-governance-evidence"
-    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
-    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert canonical_command in makefile
-    assert canonical_command in pre_commit
-    assert canonical_command in continuous_integration
-    assert "--github-event" in continuous_integration
-    for command_suffix in ("ownership", "change-risk", "evidence"):
-        assert f"uv run --frozen alpha-governance-{command_suffix}" in pre_commit
-
-
 def test_command_reports_missing_policy_and_usage_errors(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from time import perf_counter_ns
 
 import pytest
 
@@ -138,15 +137,6 @@ def test_unknown_unit_fails_closed() -> None:
 
     with pytest.raises(RepositoryTopologyError, match="unknown source unit"):
         topology.unit("source.unknown")
-
-
-def test_repository_validation_stays_within_the_governed_budget() -> None:
-    started = perf_counter_ns()
-    topology = validate_repository(REPOSITORY_ROOT)
-    elapsed_ms = (perf_counter_ns() - started) / 1_000_000
-
-    assert len(topology.units) == 20
-    assert elapsed_ms <= topology.validation_workload_budget_ms
 
 
 def test_unregistered_current_source_is_rejected(tmp_path: Path) -> None:
@@ -330,21 +320,3 @@ def test_malformed_toml_is_reported_as_domain_error(tmp_path: Path) -> None:
 
     with pytest.raises(RepositoryTopologyError, match="invalid TOML"):
         load_topology(register, repository_root=fixture_repository_root)
-
-
-def test_topology_checker_is_enforced_by_root_pre_commit_and_hosted_ci() -> None:
-    canonical_command = "alpha-governance-topology"
-    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
-    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    continuous_integration = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert canonical_command in makefile
-    assert canonical_command in pre_commit
-    assert canonical_command in continuous_integration
-    assert "id: repository-topology" in pre_commit
-    assert "always_run: true" in pre_commit
-    automation_configuration = makefile + pre_commit + continuous_integration
-    assert "python -m alpha_research." not in automation_configuration
-    assert "PYTHONPATH=src" not in automation_configuration

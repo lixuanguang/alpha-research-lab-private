@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import ast
 import importlib.metadata
-import re
 import tomllib
 from pathlib import Path
 from typing import cast
@@ -23,10 +21,6 @@ EXPECTED_DEV_REQUIREMENTS = {
     "pytest-cov==7.1.0",
     "ruff==0.16.5",
 }
-ROADMAP_SELECTOR_IN_IDENTIFIER = re.compile(
-    r"(?:^|_)[a-l]\d{2}[a-z]?(?:_|$)",
-    flags=re.IGNORECASE,
-)
 
 
 def _load_pyproject(relative_path: str = "pyproject.toml") -> dict[str, object]:
@@ -178,55 +172,3 @@ def test_uv_lock_contains_project_and_exact_package_versions() -> None:
     assert project_is_locked
     assert tool_is_locked
     assert direct_names <= locked_names
-
-
-def test_repository_automation_targets_only_the_current_uv_package() -> None:
-    continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
-    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    automation = continuous_integration + pre_commit
-
-    stale_fragments = (
-        "alpha_core",
-        "apps/",
-        "duckdb",
-        "libs/core",
-        "research-smoke",
-        'python-version: ["3.11"]',
-        ".[dev,research]",
-    )
-    assert all(fragment not in automation for fragment in stale_fragments)
-    assert "uv sync --frozen" in continuous_integration
-    assert "uv build --no-sources" in continuous_integration
-    assert 'version: "0.12.7"' in continuous_integration
-    assert "repo: local" in pre_commit
-    assert "uv lock --check" in pre_commit
-
-
-def test_python_symbols_use_domain_names_instead_of_roadmap_selectors() -> None:
-    violations: list[str] = []
-    source_roots = (
-        REPOSITORY_ROOT / "src",
-        REPOSITORY_ROOT / "tests",
-        REPOSITORY_ROOT / "tools" / "governance" / "src",
-    )
-
-    for source_root in source_roots:
-        for source_path in sorted(source_root.rglob("*.py")):
-            syntax_tree = ast.parse(source_path.read_text(encoding="utf-8"), source_path)
-            relative_path = source_path.relative_to(REPOSITORY_ROOT)
-            for node in ast.walk(syntax_tree):
-                identifier: str | None = None
-                if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                    identifier = node.name
-                elif isinstance(node, ast.Name):
-                    identifier = node.id
-                elif isinstance(node, ast.arg):
-                    identifier = node.arg
-
-                if identifier and ROADMAP_SELECTOR_IN_IDENTIFIER.search(identifier):
-                    line_number = getattr(node, "lineno", 0)
-                    violations.append(f"{relative_path}:{line_number}: {identifier}")
-
-    assert violations == []

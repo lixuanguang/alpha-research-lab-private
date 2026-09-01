@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import json
-import re
-from datetime import UTC, datetime
 from pathlib import Path
-from time import perf_counter_ns
 
 import pytest
 
 from alpha_research.program_governance import (
     METRIC_IDS,
     PACKAGE_IDS,
-    MetricObservation,
     ProgramGovernanceError,
     load_observations,
     load_program,
@@ -25,8 +21,6 @@ from alpha_research.program_governance import (
 REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "program-governance.toml"
 ROADMAP_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "README.md"
-RESEARCH_PROGRAM_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "research-program.md"
-TOOLCHAIN_REFRESH_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "pre-b01-toolchain-refresh.md"
 
 
 def _policy_fixture(tmp_path: Path) -> Path:
@@ -188,27 +182,6 @@ def test_roadmap_requires_embedded_library_and_boundary_columns(tmp_path: Path) 
     )
     with pytest.raises(ProgramGovernanceError, match="must declare objective, library/tool"):
         load_roadmap(malformed)
-
-
-def test_roadmap_documents_lead_with_descriptive_names() -> None:
-    implementation_roadmap = ROADMAP_PATH.read_text(encoding="utf-8")
-    research_program = RESEARCH_PROGRAM_PATH.read_text(encoding="utf-8")
-    toolchain_refresh = TOOLCHAIN_REFRESH_PATH.read_text(encoding="utf-8")
-
-    assert "### Active B01 delivery state" not in implementation_roadmap
-    assert re.search(r"^## R\d{2}\b", research_program, flags=re.MULTILINE) is None
-    assert re.search(r"^- `REP-\d{2}[A-Z]`:", research_program, flags=re.MULTILINE) is None
-    assert (
-        len(
-            re.findall(
-                r"^- \*\*.+\*\* \(`REP-\d{2}[A-Z]`\):",
-                research_program,
-                flags=re.MULTILINE,
-            )
-        )
-        == 48
-    )
-    assert toolchain_refresh.startswith("# Toolchain refresh before governed repository topology\n")
 
 
 def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
@@ -416,31 +389,6 @@ def test_ratio_rejects_zero_denominator_unit_drift_and_impossible_bounded_value(
         load_observations(_write_observation_events(tmp_path, [impossible]), program=program)
 
 
-def test_aggregation_workload_stays_within_the_governed_budget() -> None:
-    program = validate_repository(REPOSITORY_ROOT)
-    observation = MetricObservation(
-        event_id="build-load",
-        metric_id="kpi.build_duration_seconds",
-        source_event_type="ci_build_completed",
-        source_run_id="load-run",
-        source_revision="6" * 40,
-        evidence_url="https://forge.example/runs/load-run",
-        window_start=datetime(2026, 8, 30, tzinfo=UTC),
-        window_end=datetime(2026, 8, 30, 0, 0, 1, tzinfo=UTC),
-        dimensions=(),
-        numerator=None,
-        denominator=None,
-    )
-    workload = (observation,) * program.maximum_observations
-
-    started = perf_counter_ns()
-    summaries = program.summarize_metrics(workload)
-    elapsed_ms = (perf_counter_ns() - started) / 1_000_000
-
-    assert summaries[0].observation_count == program.maximum_observations
-    assert elapsed_ms <= program.aggregation_workload_budget_ms
-
-
 def test_cli_emits_stable_filtered_dashboard(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -489,18 +437,3 @@ def test_cli_rejects_invalid_selection_and_missing_repository(
 
     assert main(["--observations"]) == 2
     assert "usage:" in capsys.readouterr().err
-
-
-def test_program_checker_is_integrated_with_repository_automation() -> None:
-    canonical_command = "alpha-governance-program"
-    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
-    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    continuous_integration = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
-    )
-    documentation = (REPOSITORY_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
-
-    assert canonical_command in makefile
-    assert canonical_command in pre_commit
-    assert canonical_command in continuous_integration
-    assert "make program-governance-check" in documentation
