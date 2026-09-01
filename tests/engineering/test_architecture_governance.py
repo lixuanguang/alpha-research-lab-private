@@ -97,20 +97,19 @@ def test_adr_lint_rejects_invalid_lifecycle_metadata(
         validate_adr(path, expected_identifier=1)
 
 
-@pytest.mark.parametrize(
-    ("decision_date", "review_date"),
-    [("2026/08/25", "2026-11-25"), ("2026-08-25", "2026-08-25")],
-)
-def test_adr_lint_rejects_invalid_review_date_boundaries(
-    tmp_path: Path, decision_date: str, review_date: str
-) -> None:
+def test_adr_lint_rejects_invalid_review_date_boundaries(tmp_path: Path) -> None:
     path = tmp_path / "0001-test-decision.md"
-    path.write_text(
-        _adr_text(decision_date=decision_date, review_date=review_date), encoding="utf-8"
+    invalid_boundaries = (
+        ("2026/08/25", "2026-11-25"),
+        ("2026-08-25", "2026-08-25"),
     )
+    for decision_date, review_date in invalid_boundaries:
+        path.write_text(
+            _adr_text(decision_date=decision_date, review_date=review_date), encoding="utf-8"
+        )
 
-    with pytest.raises(ArchitectureGovernanceError, match=r"Decision date|Review date"):
-        validate_adr(path, expected_identifier=1)
+        with pytest.raises(ArchitectureGovernanceError, match=r"Decision date|Review date"):
+            validate_adr(path, expected_identifier=1)
 
 
 def test_adr_lint_rejects_missing_reversal_plan(tmp_path: Path) -> None:
@@ -160,25 +159,21 @@ def test_decision_log_rejects_unlogged_and_noncontiguous_records(tmp_path: Path)
     assert "must link decision" in str(captured.value)
 
 
-@pytest.mark.parametrize(
-    ("old", "new", "message"),
-    [
+def test_decision_log_rejects_adr_metadata_drift(tmp_path: Path) -> None:
+    mutations = (
         ("[Test decision]", "[Wrong title]", "title does not match"),
         ("(0001-test-decision.md)", "(0001-wrong.md)", "filename does not match"),
         ("| Proposed |", "| Accepted |", "status does not match"),
         ("| platform |", "| wrong_owner |", "owner does not match"),
         ("| 2026-11-25 |", "| 2026-12-01 |", "review date does not match"),
-    ],
-)
-def test_decision_log_rejects_adr_metadata_drift(
-    tmp_path: Path, old: str, new: str, message: str
-) -> None:
+    )
     directory = tmp_path / "decisions"
     directory.mkdir()
     (directory / "template.md").write_text(_adr_text(identifier=0), encoding="utf-8")
     (directory / "0001-test-decision.md").write_text(_adr_text(), encoding="utf-8")
     row = "| 0001 | [Test decision](0001-test-decision.md) | Proposed | platform | 2026-11-25 |"
-    log = f"""# Decision log
+    for old, new, message in mutations:
+        log = f"""# Decision log
 
 ## Decision records
 
@@ -186,15 +181,14 @@ def test_decision_log_rejects_adr_metadata_drift(
 | --- | --- | --- | --- | --- |
 {row.replace(old, new)}
 """
-    (directory / "README.md").write_text(log, encoding="utf-8")
+        (directory / "README.md").write_text(log, encoding="utf-8")
 
-    with pytest.raises(ArchitectureGovernanceError, match=message):
-        validate_decision_directory(directory)
+        with pytest.raises(ArchitectureGovernanceError, match=message):
+            validate_decision_directory(directory)
 
 
-@pytest.mark.parametrize(
-    ("rows", "message"),
-    [
+def test_decision_log_rejects_invalid_record_structure(tmp_path: Path) -> None:
+    invalid_records = (
         ("", "missing decision record 0001"),
         (
             "| 0001 | [Test decision](0001-test-decision.md) | "
@@ -211,16 +205,13 @@ def test_decision_log_rejects_adr_metadata_drift(
             "unexpected decision record 0002",
         ),
         ("| 0001 | malformed |", "malformed decision record row"),
-    ],
-)
-def test_decision_log_rejects_invalid_record_structure(
-    tmp_path: Path, rows: str, message: str
-) -> None:
+    )
     directory = tmp_path / "decisions"
     directory.mkdir()
     (directory / "template.md").write_text(_adr_text(identifier=0), encoding="utf-8")
     (directory / "0001-test-decision.md").write_text(_adr_text(), encoding="utf-8")
-    log = f"""# Decision log
+    for rows, message in invalid_records:
+        log = f"""# Decision log
 
 ## Decision records
 
@@ -228,10 +219,10 @@ def test_decision_log_rejects_invalid_record_structure(
 | --- | --- | --- | --- | --- |
 {rows}
 """
-    (directory / "README.md").write_text(log, encoding="utf-8")
+        (directory / "README.md").write_text(log, encoding="utf-8")
 
-    with pytest.raises(ArchitectureGovernanceError, match=message):
-        validate_decision_directory(directory)
+        with pytest.raises(ArchitectureGovernanceError, match=message):
+            validate_decision_directory(directory)
 
 
 def test_decision_directory_rejects_uncontrolled_markdown_filename(tmp_path: Path) -> None:

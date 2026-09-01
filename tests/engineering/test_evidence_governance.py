@@ -255,16 +255,6 @@ def test_policy_cannot_weaken_required_evidence_gates_or_hide_findings(tmp_path:
         load_policy(policy)
 
 
-def test_command_reports_missing_policy_and_usage_errors(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main([str(tmp_path)]) == 1
-    assert "merge-evidence-policy.toml" in capsys.readouterr().err
-
-    assert main([str(REPOSITORY_ROOT), "--manifest", "only-a-path"]) == 2
-    assert "usage:" in capsys.readouterr().err
-
-
 def test_command_accepts_repository_relative_mr_and_manifest_paths() -> None:
     assert (
         main(

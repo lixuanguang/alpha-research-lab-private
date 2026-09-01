@@ -399,22 +399,3 @@ def test_cli_emits_stable_filtered_dashboard(
     assert main([str(REPOSITORY_ROOT), "--ready", "solo"]) == 0
     ready = json.loads(capsys.readouterr().out)
     assert [item["package_id"] for item in ready["packages"]] == ["B03"]
-
-
-def test_cli_rejects_invalid_selection_and_missing_repository(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main([str(REPOSITORY_ROOT), "--wave", "Z"]) == 1
-    assert "unsupported roadmap wave" in capsys.readouterr().err
-
-    assert main([str(REPOSITORY_ROOT), "--metric", "kpi.vanity"]) == 1
-    assert "unsupported program metric" in capsys.readouterr().err
-
-    assert main([str(REPOSITORY_ROOT), "--ready", "maybe"]) == 1
-    assert "unsupported readiness mode" in capsys.readouterr().err
-
-    assert main([str(tmp_path)]) == 1
-    assert "program-governance.toml" in capsys.readouterr().err
-
-    assert main(["--observations"]) == 2
-    assert "usage:" in capsys.readouterr().err

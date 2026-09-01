@@ -6,7 +6,7 @@ BUILD_BACKEND ?= bazel
 PYTHON_PATHS := src tests tools/governance/src
 BAZEL_BUILD_TARGETS := //src/alpha_research:alpha_research //tools/governance/src/alpha_research_governance:all //tests/build/fixtures/sql:build_evidence //:docs_bundle
 
-.PHONY: sync lock-check format format-check lint typecheck architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security bazel-build bazel-test bazel-check rollback-test rollback-build rollback-check test smoke build check
+.PHONY: sync lock-check format format-check lint typecheck architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security bazel-build bazel-test bazel-check integration-test rollback-test rollback-build rollback-check test smoke build check
 
 sync:
 	$(UV) sync --frozen
@@ -60,6 +60,9 @@ bazel-test:
 	B02_UNDECLARED_SECRET=synthetic-host-only $(BAZEL) test --config=ci //:b02_tests
 
 bazel-check: bazel-build bazel-test
+
+integration-test:
+	$(UV) run --frozen --no-editable pytest -q -m integration
 
 rollback-test:
 	$(UV) run --frozen --no-editable pytest -q
