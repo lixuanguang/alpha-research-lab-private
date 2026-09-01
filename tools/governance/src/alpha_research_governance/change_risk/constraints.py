@@ -1,4 +1,4 @@
-"""Define non-negotiable blueprint lower bounds for A04 policy."""
+"""Define non-negotiable blueprint lower bounds for change-risk policy."""
 
 from __future__ import annotations
 

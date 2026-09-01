@@ -1,4 +1,4 @@
-"""Adversarial tests for exact A06-A08 package-evidence profiles."""
+"""Adversarial tests for exact governance package-evidence profiles."""
 
 from __future__ import annotations
 
@@ -59,23 +59,23 @@ def _profile(manifest: EvidenceManifest) -> PackageEvidenceProfile:
     )
 
 
-def _changed(manifest: EvidenceManifest, **updates: object) -> EvidenceManifest:
+def _copy_manifest_with_updates(manifest: EvidenceManifest, **updates: object) -> EvidenceManifest:
     return EvidenceManifest.model_validate({**manifest.model_dump(round_trip=True), **updates})
 
 
 def _wrong_owner(manifest: EvidenceManifest) -> EvidenceManifest:
-    return _changed(manifest, owner_role="security")
+    return _copy_manifest_with_updates(manifest, owner_role="security")
 
 
 def _changed_risk_fact(manifest: EvidenceManifest) -> EvidenceManifest:
     changed = ChangeRiskInput.model_validate(
         {**manifest.change.model_dump(), "security_privilege": "shared_sensitive"}
     )
-    return _changed(manifest, change=changed)
+    return _copy_manifest_with_updates(manifest, change=changed)
 
 
 def _missing_gate(manifest: EvidenceManifest) -> EvidenceManifest:
-    return _changed(manifest, gates=manifest.gates[:-1])
+    return _copy_manifest_with_updates(manifest, gates=manifest.gates[:-1])
 
 
 def _additional_gate(manifest: EvidenceManifest) -> EvidenceManifest:
@@ -85,14 +85,14 @@ def _additional_gate(manifest: EvidenceManifest) -> EvidenceManifest:
         rationale="Adversarial additional gate.",
         evidence_ids=(manifest.artifacts[0].evidence_id,),
     )
-    return _changed(manifest, gates=(*manifest.gates, extra))
+    return _copy_manifest_with_updates(manifest, gates=(*manifest.gates, extra))
 
 
 def _changed_gate_status(manifest: EvidenceManifest) -> EvidenceManifest:
     failed_gate = GateEvidence.model_validate(
         {**manifest.gates[0].model_dump(), "status": "failed"}
     )
-    return _changed(manifest, gates=(failed_gate, *manifest.gates[1:]))
+    return _copy_manifest_with_updates(manifest, gates=(failed_gate, *manifest.gates[1:]))
 
 
 def _unexpected_approval(manifest: EvidenceManifest) -> EvidenceManifest:
@@ -105,23 +105,23 @@ def _unexpected_approval(manifest: EvidenceManifest) -> EvidenceManifest:
         commit_sha=manifest.commit_sha,
         evidence_url="",
     )
-    return _changed(manifest, approvals=(approval,))
+    return _copy_manifest_with_updates(manifest, approvals=(approval,))
 
 
 def _waiver(manifest: EvidenceManifest) -> EvidenceManifest:
-    return _changed(manifest, waived_controls=("synthetic-control",))
+    return _copy_manifest_with_updates(manifest, waived_controls=("synthetic-control",))
 
 
 def _caller_additional_gate(manifest: EvidenceManifest) -> EvidenceManifest:
-    return _changed(manifest, additional_required_gates=("QG01",))
+    return _copy_manifest_with_updates(manifest, additional_required_gates=("QG01",))
 
 
 def _wrong_findings(manifest: EvidenceManifest) -> EvidenceManifest:
-    return _changed(manifest, open_finding_ids=("A06-F01", "A06-F02"))
+    return _copy_manifest_with_updates(manifest, open_finding_ids=("A06-F01", "A06-F02"))
 
 
 def _wrong_roadmap(manifest: EvidenceManifest) -> EvidenceManifest:
-    return _changed(manifest, roadmap_id="A07")
+    return _copy_manifest_with_updates(manifest, roadmap_id="A07")
 
 
 @pytest.mark.parametrize(

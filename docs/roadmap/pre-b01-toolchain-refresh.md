@@ -1,10 +1,13 @@
-# Pre-B01 toolchain refresh evidence
+# Toolchain refresh before governed repository topology
 
 ## Scope and status
 
-This record covers only the mandatory existing-tool refresh that precedes B01a.
-It does not implement B01-B04, complete B04, alter the package graph, or close any
-A01-A08 external finding. All current package statuses remain `partial`.
+This record covers only the mandatory existing-tool refresh that precedes the
+repository topology registry and graph slice (`B01a`). It does not implement the
+governed-topology through engineering-standards packages (`B01` through `B04`),
+complete engineering standards, alter the package graph, or close any governance-
+foundation external finding (`A01` through `A08`). All current package statuses
+remain `partial`.
 
 Evidence date: 2026-08-30. Target platform: macOS arm64. Required runtime:
 CPython 3.12.14 with `requires-python = "==3.12.*"`. Pydantic remains exactly
@@ -225,7 +228,8 @@ The original files are also available from the source rollback commit above.
 
 The final `make check` passed under uv 0.12.7: lock resolution contained 40
 packages; Ruff and formatting passed; mypy found no issues in 42 files; every
-A01-A08 repository-local governance command passed with package status `partial`;
+repository-local governance command from the repository charter through program
+governance (`A01` through `A08`) passed with package status `partial`;
 Bandit emitted no finding; all 201 tests passed; smoke import and package build
 passed. `uv run --frozen pre-commit run --all-files` passed all 15 hooks. A
 separate diagnostic pytest-cov run passed and reported 87% without creating a
@@ -254,10 +258,12 @@ while Make adds the local smoke import and supplies `PYTHONPATH=src` explicitly.
 
 ## Gate result and remaining findings
 
-The pre-B01 toolchain refresh gate passed completely on the evidenced local
-macOS arm64/Python 3.12 baseline. There are no unresolved toolchain-refresh
-blockers. Existing A01-A08 organization, protected-forge, target-control-plane,
+The toolchain-refresh gate preceding governed repository topology passed
+completely on the evidenced local macOS arm64/Python 3.12 baseline. There are no
+unresolved toolchain-refresh blockers. Existing governance-foundation (`A01`
+through `A08`) organization, protected-forge, target-control-plane,
 independent-review, and applicability findings remain open and every affected
-package remains `partial`. This result does not implement or complete B01, B04,
+package remains `partial`. This result does not implement or complete governed
+repository topology (`B01`), engineering standards (`B04`),
 or any later package and does not authorize deployment, activation, credentials,
 market access, or capital exposure.

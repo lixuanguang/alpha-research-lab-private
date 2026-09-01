@@ -1,4 +1,4 @@
-"""Parse and validate the blueprint-bound A04 TOML policy."""
+"""Parse and validate the blueprint-bound change-risk TOML policy."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def _as_nonnegative_int(value: object, *, context: str) -> int:
     return value
 
 
-def _risk_class(value: object, *, context: str) -> RiskClass:
+def _parse_risk_class(value: object, *, context: str) -> RiskClass:
     if not isinstance(value, str):
         raise ChangeRiskPolicyError(f"{context} must be an R0-R4 string")
     try:
@@ -82,7 +82,7 @@ def _parse_dimension(name: str, value: object) -> DimensionPolicy:
                 raise ChangeRiskPolicyError(f"dimensions.{name}[{index}].value must be Boolean")
         elif not isinstance(level_value, str) or not level_value:
             raise ChangeRiskPolicyError(f"dimensions.{name}[{index}].value must be a string")
-        minimum = _risk_class(
+        minimum = _parse_risk_class(
             entry.get("minimum_class"), context=f"dimensions.{name}[{index}].minimum_class"
         )
         typed_value = level_value
@@ -227,17 +227,17 @@ def _parse_class(risk_class: RiskClass, value: object) -> RiskClassPolicy:
     )
 
 
-def _sample_change(value: dict[str, object], *, index: int) -> SampleChange:
+def _parse_sample_change(value: dict[str, object], *, index: int) -> SampleChange:
     context = f"sample_changes[{index}]"
     change_id = value.get("change_id")
     if not isinstance(change_id, str) or not change_id:
         raise ChangeRiskPolicyError(f"{context}.change_id must be a non-empty string")
 
     def required_string(key: str) -> str:
-        result = value.get(key)
-        if not isinstance(result, str) or not result:
+        string_value = value.get(key)
+        if not isinstance(string_value, str) or not string_value:
             raise ChangeRiskPolicyError(f"{context}.{key} must be a non-empty string")
-        return result
+        return string_value
 
     capital_at_risk = value.get("capital_at_risk")
     if not isinstance(capital_at_risk, bool):
@@ -258,17 +258,17 @@ def _sample_change(value: dict[str, object], *, index: int) -> SampleChange:
         economically_or_risk_relevant=optional_flags["economically_or_risk_relevant"],
         model_or_trading_relevant=optional_flags["model_or_trading_relevant"],
     )
-    expected = _risk_class(value.get("expected_class"), context=f"{context}.expected_class")
+    expected = _parse_risk_class(value.get("expected_class"), context=f"{context}.expected_class")
     return SampleChange(change_id=change_id, change=change, expected_class=expected)
 
 
 def _load_policy(path: Path) -> ChangeRiskPolicy:
-    """Load and validate the complete A04 policy and its retained sample changes."""
+    """Load and validate the change-risk policy and its retained sample changes."""
     try:
-        parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise ChangeRiskPolicyError(f"{path}: invalid TOML: {error}") from error
-    root = _as_table(parsed, context=str(path))
+    policy_document = _as_table(parsed_document, context=str(path))
     expected_scalars: dict[str, object] = {
         "schema_version": 1,
         "roadmap_package": "A04",
@@ -277,10 +277,10 @@ def _load_policy(path: Path) -> ChangeRiskPolicy:
         "author_may_satisfy_independent_review": False,
     }
     for key, expected in expected_scalars.items():
-        if root.get(key) != expected:
+        if policy_document.get(key) != expected:
             raise ChangeRiskPolicyError(f"{path}: {key} must be {expected!r}")
 
-    dimensions_table = _as_table(root.get("dimensions"), context=f"{path}: dimensions")
+    dimensions_table = _as_table(policy_document.get("dimensions"), context=f"{path}: dimensions")
     if set(dimensions_table) != EXPECTED_DIMENSIONS:
         raise ChangeRiskPolicyError(
             f"{path}: dimensions must be exactly {sorted(EXPECTED_DIMENSIONS)}"
@@ -289,19 +289,19 @@ def _load_policy(path: Path) -> ChangeRiskPolicy:
         _parse_dimension(name, dimensions_table[name]) for name in sorted(EXPECTED_DIMENSIONS)
     )
 
-    classes_table = _as_table(root.get("risk_classes"), context=f"{path}: risk_classes")
+    classes_table = _as_table(policy_document.get("risk_classes"), context=f"{path}: risk_classes")
     if set(classes_table) != {item.value for item in RiskClass}:
         raise ChangeRiskPolicyError(f"{path}: risk_classes must be exactly R0-R4")
     risk_classes = tuple(_parse_class(item, classes_table[item.value]) for item in RiskClass)
 
     hard_controls = frozenset(
-        _as_string_list(root.get("hard_controls"), context=f"{path}: hard_controls")
+        _as_string_list(policy_document.get("hard_controls"), context=f"{path}: hard_controls")
     )
     missing_controls = NON_WAIVABLE_LIVE_CONTROLS - hard_controls
     if missing_controls:
         raise ChangeRiskPolicyError(f"{path}: missing hard controls {sorted(missing_controls)}")
 
-    findings_values = _as_table_list(root.get("findings"), context=f"{path}: findings")
+    findings_values = _as_table_list(policy_document.get("findings"), context=f"{path}: findings")
     findings: list[str] = []
     for index, finding in enumerate(findings_values, start=1):
         for key in ("finding_id", "owner_role", "unavailable_evidence", "closure_condition"):
@@ -311,14 +311,14 @@ def _load_policy(path: Path) -> ChangeRiskPolicy:
     if len(findings) != len(set(findings)):
         raise ChangeRiskPolicyError(f"{path}: finding IDs must be unique")
 
-    package_status = root.get("package_status")
+    package_status = policy_document.get("package_status")
     if package_status == "partial":
         if tuple(findings) != EXPECTED_OPEN_FINDING_IDS:
             raise ChangeRiskPolicyError(
                 f"{path}: partial status requires findings {list(EXPECTED_OPEN_FINDING_IDS)!r}"
             )
     elif package_status == "validated":
-        if root.get("operating_track") == "solo_bootstrap":
+        if policy_document.get("operating_track") == "solo_bootstrap":
             raise ChangeRiskPolicyError(
                 f"{path}: solo_bootstrap packages cannot claim validated status"
             )
@@ -326,13 +326,19 @@ def _load_policy(path: Path) -> ChangeRiskPolicy:
             raise ChangeRiskPolicyError(
                 f"{path}: validated status requires retained evidence and no findings"
             )
-        _as_string_list(root.get("validation_evidence"), context=f"{path}: validation_evidence")
+        _as_string_list(
+            policy_document.get("validation_evidence"),
+            context=f"{path}: validation_evidence",
+        )
     else:
         raise ChangeRiskPolicyError(f"{path}: package_status must be partial or validated")
 
-    sample_values = _as_table_list(root.get("sample_changes"), context=f"{path}: sample_changes")
+    sample_values = _as_table_list(
+        policy_document.get("sample_changes"), context=f"{path}: sample_changes"
+    )
     samples = tuple(
-        _sample_change(sample, index=index) for index, sample in enumerate(sample_values, start=1)
+        _parse_sample_change(sample, index=index)
+        for index, sample in enumerate(sample_values, start=1)
     )
     sample_ids = [sample.change_id for sample in samples]
     if len(sample_ids) != len(set(sample_ids)) or {
@@ -361,7 +367,7 @@ def _load_policy(path: Path) -> ChangeRiskPolicy:
 
 
 def load_policy(path: Path) -> ChangeRiskPolicy:
-    """Load the A04 policy while preserving its public domain-error contract."""
+    """Load change-risk policy while preserving its public domain-error contract."""
     try:
         return _load_policy(path)
     except ValidationError as error:

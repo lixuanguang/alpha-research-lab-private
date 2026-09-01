@@ -1,4 +1,4 @@
-"""Compatibility facade for A07 security-control registry operations."""
+"""Compatibility facade for security-control registry operations."""
 
 from alpha_research_governance.security_controls.registry import (
     APPLICABLE_GATE_IDS,

@@ -1,4 +1,4 @@
-"""Contract tests for the A01 repository charter and boundary register."""
+"""Contract tests for the repository charter and boundary register."""
 
 from __future__ import annotations
 
@@ -27,9 +27,9 @@ REQUIRED_OPEN_FINDING_IDS = ["A01-F01", "A01-F02", "A01-F03"]
 
 
 def _load_register() -> dict[str, object]:
-    parsed: object = tomllib.loads(REGISTER_PATH.read_text(encoding="utf-8"))
-    assert isinstance(parsed, dict)
-    return cast(dict[str, object], parsed)
+    parsed_register: object = tomllib.loads(REGISTER_PATH.read_text(encoding="utf-8"))
+    assert isinstance(parsed_register, dict)
+    return cast(dict[str, object], parsed_register)
 
 
 def _require_table(container: dict[str, object], key: str) -> dict[str, object]:
@@ -57,7 +57,7 @@ def _require_nonempty_string(container: dict[str, object], key: str) -> str:
     return value
 
 
-def test_charter_contains_every_a01_principal_artifact() -> None:
+def test_repository_charter_contains_every_required_principal_artifact() -> None:
     charter = CHARTER_PATH.read_text(encoding="utf-8")
     normalized_charter = " ".join(charter.split())
 

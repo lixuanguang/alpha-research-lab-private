@@ -1,4 +1,4 @@
-"""Compatibility facade for the canonical A04 change-risk tool."""
+"""Compatibility facade for the canonical change-risk tool."""
 
 from alpha_research_governance.change_risk import (
     ChangeRiskInput,

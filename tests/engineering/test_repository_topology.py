@@ -1,4 +1,4 @@
-"""Deterministic contract and adversarial tests for the enforced B01 tooling graph."""
+"""Deterministic contract and adversarial tests for the enforced tooling graph."""
 
 from __future__ import annotations
 
@@ -33,25 +33,25 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 REGISTER_PATH = REPOSITORY_ROOT / "docs" / "architecture" / "repository-topology.toml"
 
 
-def _fixture(tmp_path: Path) -> tuple[Path, Path]:
-    root = tmp_path / "repository"
-    shutil.copytree(REPOSITORY_ROOT / "src", root / "src")
-    shutil.copytree(REPOSITORY_ROOT / "tests", root / "tests")
+def _topology_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    fixture_repository_root = tmp_path / "repository"
+    shutil.copytree(REPOSITORY_ROOT / "src", fixture_repository_root / "src")
+    shutil.copytree(REPOSITORY_ROOT / "tests", fixture_repository_root / "tests")
     shutil.copytree(
         REPOSITORY_ROOT / "tools/governance/src",
-        root / "tools/governance/src",
+        fixture_repository_root / "tools/governance/src",
     )
-    governance = root / "docs" / "governance"
+    governance = fixture_repository_root / "docs" / "governance"
     governance.mkdir(parents=True)
     shutil.copy2(REPOSITORY_ROOT / "docs/governance/domain-ownership.toml", governance)
-    architecture = root / "docs" / "architecture"
+    architecture = fixture_repository_root / "docs" / "architecture"
     architecture.mkdir()
     register = architecture / "repository-topology.toml"
     shutil.copy2(REGISTER_PATH, register)
-    return root, register
+    return fixture_repository_root, register
 
 
-def _replace(register: Path, old: str, new: str) -> None:
+def _replace_topology_fixture_text(register: Path, old: str, new: str) -> None:
     content = register.read_text(encoding="utf-8")
     assert old in content
     register.write_text(content.replace(old, new, 1), encoding="utf-8")
@@ -86,7 +86,7 @@ def test_canonical_console_command_is_independent_of_source_path_and_working_dir
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
 
-    result = subprocess.run(
+    completed_process = subprocess.run(
         ["alpha-governance-topology", str(REPOSITORY_ROOT)],
         cwd=tmp_path,
         env=environment,
@@ -95,8 +95,8 @@ def test_canonical_console_command_is_independent_of_source_path_and_working_dir
         text=True,
     )
 
-    assert result.returncode == 0, result.stderr
-    assert "19 owned targets; B01 status is partial" in result.stdout
+    assert completed_process.returncode == 0, completed_process.stderr
+    assert "19 owned targets; B01 status is partial" in completed_process.stdout
 
 
 def test_canonical_and_compatibility_module_commands_agree() -> None:
@@ -107,7 +107,7 @@ def test_canonical_and_compatibility_module_commands_agree() -> None:
         "alpha_research_governance.repository_topology",
         "alpha_research.repository_topology",
     ):
-        result = subprocess.run(
+        completed_process = subprocess.run(
             [sys.executable, "-m", module, str(REPOSITORY_ROOT)],
             cwd=REPOSITORY_ROOT,
             env=environment,
@@ -115,8 +115,8 @@ def test_canonical_and_compatibility_module_commands_agree() -> None:
             capture_output=True,
             text=True,
         )
-        assert result.returncode == 0, result.stderr
-        outputs.append(result.stdout)
+        assert completed_process.returncode == 0, completed_process.stderr
+        outputs.append(completed_process.stdout)
 
     assert outputs[0] == outputs[1]
     assert "19 owned targets; B01 status is partial" in outputs[0]
@@ -149,16 +149,18 @@ def test_repository_validation_stays_within_the_governed_budget() -> None:
 
 
 def test_unregistered_current_source_is_rejected(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    (root / "src/alpha_research/unregistered.py").write_text("VALUE = 1\n", encoding="utf-8")
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    (fixture_repository_root / "src/alpha_research/unregistered.py").write_text(
+        "VALUE = 1\n", encoding="utf-8"
+    )
 
     with pytest.raises(RepositoryTopologyError, match="current source is not registered"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_duplicate_source_assignment_is_rejected(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    _replace(
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    _replace_topology_fixture_text(
         register,
         'sources = ["src/alpha_research/architecture_governance.py"]',
         'sources = ["src/alpha_research/architecture_governance.py", '
@@ -166,12 +168,12 @@ def test_duplicate_source_assignment_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RepositoryTopologyError, match="assigned to both"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_undeclared_import_dependency_is_rejected(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    _replace(
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    _replace_topology_fixture_text(
         register,
         'dependencies = ["tool.governance.architecture_governance"]\n'
         'visibility = ["test.engineering"]\n'
@@ -181,12 +183,12 @@ def test_undeclared_import_dependency_is_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RepositoryTopologyError, match=r"missing=.*architecture_governance"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_stale_dependency_and_visibility_are_rejected(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    _replace(
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    _replace_topology_fixture_text(
         register,
         "dependencies = []\nvisibility = [\n"
         '  "compatibility.alpha_research.ownership_governance",\n'
@@ -199,27 +201,27 @@ def test_stale_dependency_and_visibility_are_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RepositoryTopologyError, match=r"stale=.*foundation"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_from_package_import_cannot_hide_a_dependency(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    (root / "src/alpha_research/architecture_governance.py").write_text(
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    (fixture_repository_root / "src/alpha_research/architecture_governance.py").write_text(
         "from alpha_research import evidence\n", encoding="utf-8"
     )
 
     with pytest.raises(RepositoryTopologyError, match=r"missing=.*evidence"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_upward_dependency_and_cycle_are_rejected(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    _replace(
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    _replace_topology_fixture_text(
         register,
         'unit_id = "tool.governance.change_risk"\nkind = "tool"\nlayer = "policy"',
         'unit_id = "tool.governance.change_risk"\nkind = "tool"\nlayer = "evidence"',
     )
-    _replace(
+    _replace_topology_fixture_text(
         register,
         'dependencies = ["tool.governance.foundation"]\nvisibility = [\n'
         '  "compatibility.alpha_research.change_risk",',
@@ -229,12 +231,12 @@ def test_upward_dependency_and_cycle_are_rejected(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RepositoryTopologyError, match="source dependency cycle"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_unknown_dependency_is_a_domain_error(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    _replace(
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    _replace_topology_fixture_text(
         register,
         'dependencies = ["tool.governance.architecture_governance"]\n'
         'visibility = ["test.engineering"]',
@@ -242,7 +244,7 @@ def test_unknown_dependency_is_a_domain_error(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RepositoryTopologyError, match="unknown dependency"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 @pytest.mark.parametrize(
@@ -280,24 +282,24 @@ def test_unknown_dependency_is_a_domain_error(tmp_path: Path) -> None:
 def test_invalid_registry_boundaries_fail_closed(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
-    root, register = _fixture(tmp_path)
-    _replace(register, old, new)
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    _replace_topology_fixture_text(register, old, new)
 
     with pytest.raises(RepositoryTopologyError, match=message):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_unknown_registry_field_is_rejected(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
+    fixture_repository_root, register = _topology_fixture(tmp_path)
     register.write_text(register.read_text(encoding="utf-8") + "\nunknown = true\n")
 
     with pytest.raises(RepositoryTopologyError, match="missing or unknown fields"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_source_roots_cannot_hide_a_current_area(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    _replace(
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    _replace_topology_fixture_text(
         register,
         'source_roots = [\n  "src/alpha_research",\n  "tests/engineering",\n'
         '  "tools/governance/src/alpha_research_governance",\n]',
@@ -305,12 +307,12 @@ def test_source_roots_cannot_hide_a_current_area(tmp_path: Path) -> None:
     )
 
     with pytest.raises(RepositoryTopologyError, match="exact current source areas"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_evidence_manifest_path_cannot_escape_repository(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
-    _replace(
+    fixture_repository_root, register = _topology_fixture(tmp_path)
+    _replace_topology_fixture_text(
         register,
         "local_evidence_manifest_path = "
         '"docs/governance/evidence/examples/b01c-r2-partial/manifest.toml"',
@@ -318,15 +320,15 @@ def test_evidence_manifest_path_cannot_escape_repository(tmp_path: Path) -> None
     )
 
     with pytest.raises(RepositoryTopologyError, match="invalid repository path"):
-        validate_repository(root)
+        validate_repository(fixture_repository_root)
 
 
 def test_malformed_toml_is_reported_as_domain_error(tmp_path: Path) -> None:
-    root, register = _fixture(tmp_path)
+    fixture_repository_root, register = _topology_fixture(tmp_path)
     register.write_text("schema_version = [\n", encoding="utf-8")
 
     with pytest.raises(RepositoryTopologyError, match="invalid TOML"):
-        load_topology(register, repository_root=root)
+        load_topology(register, repository_root=fixture_repository_root)
 
 
 def test_topology_checker_is_enforced_by_root_pre_commit_and_hosted_ci() -> None:

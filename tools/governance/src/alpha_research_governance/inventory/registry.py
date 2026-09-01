@@ -1,4 +1,4 @@
-"""Parse and cross-validate the A06 inventory strictly."""
+"""Parse and cross-validate the resource inventory strictly."""
 
 from __future__ import annotations
 
@@ -134,26 +134,26 @@ _DEPLOYMENT_STATUSES = {
 _POPULATION_STATUSES = {"empty", "populated"}
 
 
-def _table(value: object, *, context: str) -> dict[str, object]:
+def _require_table(value: object, *, context: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise InventoryGovernanceError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
-def _table_list(value: object, *, context: str) -> list[dict[str, object]]:
+def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise InventoryGovernanceError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
-def _string(table: dict[str, object], key: str, *, context: str) -> str:
+def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
     value = table.get(key)
     if not isinstance(value, str) or not value.strip():
         raise InventoryGovernanceError([f"{context}.{key} must be a non-empty string"])
     return value
 
 
-def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+def _require_strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise InventoryGovernanceError([f"{context} must be an array of non-empty strings"])
     values = tuple(cast(list[str], value))
@@ -164,14 +164,14 @@ def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple
     return values
 
 
-def _positive_integer(table: dict[str, object], key: str, *, context: str) -> int:
+def _require_positive_integer(table: dict[str, object], key: str, *, context: str) -> int:
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise InventoryGovernanceError([f"{context}.{key} must be a positive integer"])
     return value
 
 
-def _iso_date(value: str, *, context: str) -> date:
+def _parse_iso_date(value: str, *, context: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as error:
@@ -180,20 +180,24 @@ def _iso_date(value: str, *, context: str) -> date:
 
 def _load_toml(path: Path) -> dict[str, object]:
     try:
-        parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise InventoryGovernanceError([f"{path}: invalid TOML: {error}"]) from error
-    return _table(parsed, context=str(path))
+    return _require_table(parsed_document, context=str(path))
 
 
 def _ownership_roles(path: Path) -> frozenset[str]:
-    root = _load_toml(path)
+    ownership_document = _load_toml(path)
     roles: set[str] = set()
-    for index, domain in enumerate(_table_list(root.get("domains"), context="domains"), 1):
+    for index, domain in enumerate(
+        _require_table_list(ownership_document.get("domains"), context="domains"), 1
+    ):
         context = f"domains[{index}]"
-        roles.add(_string(domain, "accountable_role", context=context))
+        roles.add(_require_string(domain, "accountable_role", context=context))
         for key in ("required_review_roles", "independent_review_roles", "escalation_roles"):
-            roles.update(_strings(domain.get(key), context=f"{context}.{key}", allow_empty=True))
+            roles.update(
+                _require_strings(domain.get(key), context=f"{context}.{key}", allow_empty=True)
+            )
     if not roles:
         raise InventoryGovernanceError([f"{path}: ownership register contains no roles"])
     invalid_roles = sorted(role for role in roles if _ROLE.fullmatch(role) is None)
@@ -233,9 +237,13 @@ def _validate_reference(
         if value not in inventory_ids:
             findings.append(f"{context}: unresolved inventory reference {value!r}")
         return
-    parsed = urlsplit(value)
-    if parsed.scheme:
-        if parsed.scheme != "https" or not parsed.netloc or parsed.username:
+    parsed_reference = urlsplit(value)
+    if parsed_reference.scheme:
+        if (
+            parsed_reference.scheme != "https"
+            or not parsed_reference.netloc
+            or parsed_reference.username
+        ):
             findings.append(f"{context}: external evidence must use HTTPS without credentials")
         return
     _validate_repository_path(
@@ -247,14 +255,14 @@ def _parse_kind_states(
     value: object, *, ownership_roles: frozenset[str], findings: list[str]
 ) -> tuple[KindPopulation, ...]:
     states: list[KindPopulation] = []
-    for index, entry in enumerate(_table_list(value, context="kind_states"), 1):
+    for index, entry in enumerate(_require_table_list(value, context="kind_states"), 1):
         context = f"kind_states[{index}]"
         if set(entry) != {"kind", "owner_role", "population_status", "rationale"}:
             raise InventoryGovernanceError([f"{context} has missing or unknown fields"])
-        kind = _string(entry, "kind", context=context)
-        population_status = _string(entry, "population_status", context=context)
-        owner_role = _string(entry, "owner_role", context=context)
-        rationale = _string(entry, "rationale", context=context)
+        kind = _require_string(entry, "kind", context=context)
+        population_status = _require_string(entry, "population_status", context=context)
+        owner_role = _require_string(entry, "owner_role", context=context)
+        rationale = _require_string(entry, "rationale", context=context)
         if population_status not in _POPULATION_STATUSES:
             findings.append(f"{context}.population_status is unsupported")
         if owner_role not in ownership_roles:
@@ -274,12 +282,12 @@ def _parse_kind_states(
     return tuple(states)
 
 
-def _parse_item(entry: dict[str, object], *, index: int) -> InventoryItem:
+def _parse_inventory_item(entry: dict[str, object], *, index: int) -> InventoryItem:
     context = f"items[{index}]"
     if set(entry) != _ITEM_KEYS:
         raise InventoryGovernanceError([f"{context} has missing or unknown fields"])
-    kind = _string(entry, "kind", context=context)
-    inventory_id = _string(entry, "inventory_id", context=context)
+    kind = _require_string(entry, "kind", context=context)
+    inventory_id = _require_string(entry, "inventory_id", context=context)
     match = _INVENTORY_ID.fullmatch(inventory_id)
     if match is None or match.group("kind") != kind:
         raise InventoryGovernanceError(
@@ -288,28 +296,28 @@ def _parse_item(entry: dict[str, object], *, index: int) -> InventoryItem:
     return InventoryItem(
         inventory_id=inventory_id,
         kind=kind,
-        record_version=_positive_integer(entry, "record_version", context=context),
-        name=_string(entry, "name", context=context),
-        owner_role=_string(entry, "owner_role", context=context),
-        criticality=_string(entry, "criticality", context=context),
-        status=_string(entry, "status", context=context),
-        dependencies=_strings(
+        record_version=_require_positive_integer(entry, "record_version", context=context),
+        name=_require_string(entry, "name", context=context),
+        owner_role=_require_string(entry, "owner_role", context=context),
+        criticality=_require_string(entry, "criticality", context=context),
+        status=_require_string(entry, "status", context=context),
+        dependencies=_require_strings(
             entry.get("dependencies"), context=f"{context}.dependencies", allow_empty=True
         ),
-        retention_class=_string(entry, "retention_class", context=context),
-        source_paths=_strings(entry.get("source_paths"), context=f"{context}.source_paths"),
-        lineage_refs=_strings(entry.get("lineage_refs"), context=f"{context}.lineage_refs"),
-        deployment_status=_string(entry, "deployment_status", context=context),
-        deployment_evidence=_strings(
+        retention_class=_require_string(entry, "retention_class", context=context),
+        source_paths=_require_strings(entry.get("source_paths"), context=f"{context}.source_paths"),
+        lineage_refs=_require_strings(entry.get("lineage_refs"), context=f"{context}.lineage_refs"),
+        deployment_status=_require_string(entry, "deployment_status", context=context),
+        deployment_evidence=_require_strings(
             entry.get("deployment_evidence"),
             context=f"{context}.deployment_evidence",
             allow_empty=True,
         ),
-        status_evidence=_strings(
+        status_evidence=_require_strings(
             entry.get("status_evidence"), context=f"{context}.status_evidence"
         ),
-        review_due_on=_iso_date(
-            _string(entry, "review_due_on", context=context),
+        review_due_on=_parse_iso_date(
+            _require_string(entry, "review_due_on", context=context),
             context=f"{context}.review_due_on",
         ),
     )
@@ -320,7 +328,7 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
     states: dict[str, int] = {}
     cycles: list[str] = []
 
-    def visit(inventory_id: str, trail: tuple[str, ...]) -> None:
+    def visit_dependency(inventory_id: str, trail: tuple[str, ...]) -> None:
         state = states.get(inventory_id, 0)
         if state == 1:
             start = trail.index(inventory_id)
@@ -331,27 +339,27 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
         states[inventory_id] = 1
         for dependency in dependencies[inventory_id]:
             if dependency in dependencies:
-                visit(dependency, (*trail, inventory_id))
+                visit_dependency(dependency, (*trail, inventory_id))
         states[inventory_id] = 2
 
     for inventory_id in dependencies:
-        visit(inventory_id, ())
+        visit_dependency(inventory_id, ())
     return tuple(dict.fromkeys(cycles))
 
 
 def _load_inventory(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> ResourceInventory:
-    """Load and validate a complete A06 inventory against repository state."""
-    resolved_root = repository_root.resolve()
+    """Load and validate a complete resource inventory against repository state."""
+    resolved_repository_root = repository_root.resolve()
     ownership_path = (
-        resolved_root / "docs" / "governance" / "domain-ownership.toml"
+        resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
         if ownership_register_path is None
         else ownership_register_path
     )
     ownership_roles = _ownership_roles(ownership_path)
-    root = _load_toml(path)
-    if set(root) != _ROOT_KEYS:
+    inventory_document = _load_toml(path)
+    if set(inventory_document) != _ROOT_KEYS:
         raise InventoryGovernanceError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
     expected_scalars: dict[str, object] = {
         "schema_version": 1,
@@ -360,20 +368,28 @@ def _load_inventory(
         "accountable_owner_role": "platform",
     }
     for key, expected in expected_scalars.items():
-        if root.get(key) != expected:
+        if inventory_document.get(key) != expected:
             raise InventoryGovernanceError([f"{path}: {key} must be {expected!r}"])
-    supported_kinds = _strings(root.get("supported_kinds"), context="supported_kinds")
+    supported_kinds = _require_strings(
+        inventory_document.get("supported_kinds"), context="supported_kinds"
+    )
     if supported_kinds != RESOURCE_KINDS:
         raise InventoryGovernanceError([f"{path}: supported_kinds must be {RESOURCE_KINDS!r}"])
 
     findings: list[str] = []
-    as_of_date = _iso_date(_string(root, "as_of_date", context=str(path)), context="as_of_date")
-    kinds = _parse_kind_states(
-        root.get("kind_states"), ownership_roles=ownership_roles, findings=findings
+    as_of_date = _parse_iso_date(
+        _require_string(inventory_document, "as_of_date", context=str(path)), context="as_of_date"
     )
-    item_values = _table_list(root.get("items"), context="items")
-    items = tuple(_parse_item(entry, index=index) for index, entry in enumerate(item_values, 1))
-    maximum_items = _positive_integer(root, "maximum_items", context=str(path))
+    kinds = _parse_kind_states(
+        inventory_document.get("kind_states"), ownership_roles=ownership_roles, findings=findings
+    )
+    item_values = _require_table_list(inventory_document.get("items"), context="items")
+    items = tuple(
+        _parse_inventory_item(entry, index=index) for index, entry in enumerate(item_values, 1)
+    )
+    maximum_items = _require_positive_integer(
+        inventory_document, "maximum_items", context=str(path)
+    )
     if len(items) > maximum_items:
         findings.append(f"catalog contains {len(items)} items; maximum_items is {maximum_items}")
     inventory_ids = tuple(item.inventory_id for item in items)
@@ -393,7 +409,10 @@ def _load_inventory(
             findings.append(f"{context}: criticality must be T0-T3")
         if item.status not in _STATUSES:
             findings.append(f"{context}: unsupported status {item.status!r}")
-        if item.status == "validated" and root.get("operating_track") == "solo_bootstrap":
+        if (
+            item.status == "validated"
+            and inventory_document.get("operating_track") == "solo_bootstrap"
+        ):
             findings.append(f"{context}: solo_bootstrap resources cannot claim validated status")
         if _RETENTION.fullmatch(item.retention_class) is None:
             findings.append(f"{context}: retention_class must be lower_snake_case")
@@ -422,7 +441,7 @@ def _load_inventory(
         for source_path in item.source_paths:
             _validate_repository_path(
                 source_path,
-                repository_root=resolved_root,
+                repository_root=resolved_repository_root,
                 context=f"{context}.source_paths",
                 findings=findings,
             )
@@ -435,7 +454,7 @@ def _load_inventory(
                 _validate_reference(
                     reference,
                     inventory_ids=inventory_id_set,
-                    repository_root=resolved_root,
+                    repository_root=resolved_repository_root,
                     context=f"{context}.{field_name}",
                     findings=findings,
                 )
@@ -450,7 +469,7 @@ def _load_inventory(
     for cycle in _find_dependency_cycles(items):
         findings.append(f"inventory dependency cycle: {cycle}")
 
-    finding_values = _table_list(root.get("findings"), context="findings")
+    finding_values = _require_table_list(inventory_document.get("findings"), context="findings")
     finding_ids: list[str] = []
     expected_finding_keys = {
         "closure_condition",
@@ -463,22 +482,22 @@ def _load_inventory(
         if set(finding) != expected_finding_keys:
             raise InventoryGovernanceError([f"{context} has missing or unknown fields"])
         for key in expected_finding_keys:
-            _string(finding, key, context=context)
-        owner_role = _string(finding, "owner_role", context=context)
+            _require_string(finding, key, context=context)
+        owner_role = _require_string(finding, "owner_role", context=context)
         if owner_role not in ownership_roles:
             findings.append(f"{context}: stale ownership role {owner_role!r}")
-        finding_ids.append(_string(finding, "finding_id", context=context))
-    open_finding_ids = _strings(
-        root.get("open_finding_ids"), context="open_finding_ids", allow_empty=True
+        finding_ids.append(_require_string(finding, "finding_id", context=context))
+    open_finding_ids = _require_strings(
+        inventory_document.get("open_finding_ids"), context="open_finding_ids", allow_empty=True
     )
     if open_finding_ids != tuple(finding_ids):
         findings.append("open_finding_ids must exactly match findings")
-    package_status = _string(root, "package_status", context=str(path))
+    package_status = _require_string(inventory_document, "package_status", context=str(path))
     if package_status == "partial":
         if tuple(finding_ids) != _EXPECTED_FINDING_IDS:
             findings.append(f"partial status requires findings {list(_EXPECTED_FINDING_IDS)!r}")
     elif package_status == "validated":
-        if root.get("operating_track") == "solo_bootstrap":
+        if inventory_document.get("operating_track") == "solo_bootstrap":
             findings.append("solo_bootstrap packages cannot claim validated status")
         if finding_ids:
             findings.append("validated status cannot retain open findings")
@@ -487,32 +506,38 @@ def _load_inventory(
 
     if findings:
         raise InventoryGovernanceError(findings)
-    local_evidence_manifest_path = _string(root, "local_evidence_manifest_path", context=str(path))
+    local_evidence_manifest_path = _require_string(
+        inventory_document, "local_evidence_manifest_path", context=str(path)
+    )
     evidence_path_findings: list[str] = []
     _validate_repository_path(
         local_evidence_manifest_path,
-        repository_root=resolved_root,
+        repository_root=resolved_repository_root,
         context="local_evidence_manifest_path",
         findings=evidence_path_findings,
     )
     if evidence_path_findings:
         raise InventoryGovernanceError(evidence_path_findings)
-    local_evidence_commit_sha = _string(root, "local_evidence_commit_sha", context=str(path))
+    local_evidence_commit_sha = _require_string(
+        inventory_document, "local_evidence_commit_sha", context=str(path)
+    )
     if _COMMIT_SHA.fullmatch(local_evidence_commit_sha) is None:
         raise InventoryGovernanceError(
             [f"{path}: local_evidence_commit_sha must be a full lowercase SHA"]
         )
     return ResourceInventory(
-        catalog_version=_positive_integer(root, "catalog_version", context=str(path)),
+        catalog_version=_require_positive_integer(
+            inventory_document, "catalog_version", context=str(path)
+        ),
         as_of_date=as_of_date,
-        inventory_scope=_string(root, "inventory_scope", context=str(path)),
+        inventory_scope=_require_string(inventory_document, "inventory_scope", context=str(path)),
         package_status=package_status,
         maximum_items=maximum_items,
-        query_workload_iterations=_positive_integer(
-            root, "query_workload_iterations", context=str(path)
+        query_workload_iterations=_require_positive_integer(
+            inventory_document, "query_workload_iterations", context=str(path)
         ),
-        query_workload_budget_ms=_positive_integer(
-            root, "query_workload_budget_ms", context=str(path)
+        query_workload_budget_ms=_require_positive_integer(
+            inventory_document, "query_workload_budget_ms", context=str(path)
         ),
         local_evidence_manifest_path=local_evidence_manifest_path,
         local_evidence_commit_sha=local_evidence_commit_sha,
@@ -525,7 +550,7 @@ def _load_inventory(
 def load_inventory(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> ResourceInventory:
-    """Load the A06 inventory while preserving its public domain-error contract."""
+    """Load the resource inventory while preserving its public domain-error contract."""
     try:
         return _load_inventory(
             path,
@@ -556,11 +581,11 @@ def _validate_local_evidence(repository_root: Path, inventory: ResourceInventory
 
 
 def validate_repository(repository_root: Path) -> ResourceInventory:
-    """Validate the authoritative inventory, A03 owners, and local R2 evidence."""
-    root = repository_root.resolve()
+    """Validate the authoritative inventory, registered owners, and local R2 evidence."""
+    resolved_repository_root = repository_root.resolve()
     inventory = load_inventory(
-        root / "docs" / "governance" / "resource-inventory.toml",
-        repository_root=root,
+        resolved_repository_root / "docs" / "governance" / "resource-inventory.toml",
+        repository_root=resolved_repository_root,
     )
-    _validate_local_evidence(root, inventory)
+    _validate_local_evidence(resolved_repository_root, inventory)
     return inventory

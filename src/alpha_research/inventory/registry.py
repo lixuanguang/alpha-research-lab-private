@@ -1,4 +1,4 @@
-"""Compatibility facade for A06 inventory-registry operations."""
+"""Compatibility facade for inventory-registry operations."""
 
 from alpha_research_governance.inventory.registry import (
     RESOURCE_KINDS,

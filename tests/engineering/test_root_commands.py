@@ -45,16 +45,16 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
     ],
 )
 def test_documented_root_target_is_available(target: str) -> None:
-    result = _run_make("-n", target)
+    dry_run = _run_make("-n", target)
 
-    assert result.returncode == 0, result.stderr
+    assert dry_run.returncode == 0, dry_run.stderr
 
 
 def test_check_runs_every_configured_non_mutating_command() -> None:
-    result = _run_make("-n", "check")
+    check_dry_run = _run_make("-n", "check")
 
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == [
+    assert check_dry_run.returncode == 0, check_dry_run.stderr
+    assert check_dry_run.stdout.splitlines() == [
         "uv lock --check",
         "uv run --frozen ruff check src tests tools/governance/src",
         "uv run --frozen ruff format --check src tests tools/governance/src",
@@ -87,17 +87,19 @@ def test_format_and_format_check_have_distinct_mutation_behavior() -> None:
 
 
 def test_root_target_propagates_tool_failure() -> None:
-    result = _run_make("UV=false", "smoke")
+    smoke_failure = _run_make("UV=false", "smoke")
 
-    assert result.returncode != 0
-    assert 'false run --frozen --no-editable python -c "import alpha_research"' in result.stdout
+    assert smoke_failure.returncode != 0
+    assert (
+        'false run --frozen --no-editable python -c "import alpha_research"' in smoke_failure.stdout
+    )
 
 
 def test_topology_target_propagates_canonical_tool_failure() -> None:
-    result = _run_make("UV=false", "topology-check")
+    topology_failure = _run_make("UV=false", "topology-check")
 
-    assert result.returncode != 0
-    assert "false run --frozen alpha-governance-topology" in result.stdout
+    assert topology_failure.returncode != 0
+    assert "false run --frozen alpha-governance-topology" in topology_failure.stdout
 
 
 def test_root_interface_is_documented() -> None:

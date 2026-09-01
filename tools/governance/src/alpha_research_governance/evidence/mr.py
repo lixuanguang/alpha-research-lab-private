@@ -1,4 +1,4 @@
-"""Validate A05 Markdown templates and merge-request bodies."""
+"""Validate evidence-governance Markdown templates and merge-request bodies."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ _COMMENT = re.compile(r"<!--.*?-->", flags=re.DOTALL)
 _PLACEHOLDER = re.compile(r"^(?:tbd|todo|replace me|pending answer)[.!]?\s*$", re.IGNORECASE)
 
 
-def _sections(text: str) -> tuple[tuple[str, str], ...]:
+def _parse_sections(text: str) -> tuple[tuple[str, str], ...]:
     matches = tuple(_HEADING.finditer(text))
     sections: list[tuple[str, str]] = []
     for index, match in enumerate(matches):
@@ -27,7 +27,7 @@ def _sections(text: str) -> tuple[tuple[str, str], ...]:
 
 def validate_template(text: str, policy: EvidencePolicy) -> None:
     """Reject template drift from the authoritative ordered field policy."""
-    sections = _sections(text)
+    sections = _parse_sections(text)
     headings = tuple(heading for heading, _ in sections)
     expected = tuple(field.heading for field in policy.fields)
     findings: list[str] = []
@@ -45,7 +45,7 @@ def validate_template(text: str, policy: EvidencePolicy) -> None:
 def validate_mr_body(text: str, policy: EvidencePolicy) -> dict[str, str]:
     """Return required field values or reject missing, duplicate, and empty fields."""
     by_heading: dict[str, list[str]] = {}
-    for heading, body in _sections(text):
+    for heading, body in _parse_sections(text):
         by_heading.setdefault(heading, []).append(body)
 
     findings: list[str] = []
@@ -71,12 +71,12 @@ def validate_mr_body(text: str, policy: EvidencePolicy) -> dict[str, str]:
 def validate_github_event(path: Path, policy: EvidencePolicy) -> str:
     """Validate a pull-request event body and return its exact head commit SHA."""
     try:
-        parsed: object = json.loads(path.read_text(encoding="utf-8"))
+        parsed_event_document: object = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
         raise EvidenceGovernanceError([f"{path}: invalid JSON: {error}"]) from error
-    if not isinstance(parsed, dict):
+    if not isinstance(parsed_event_document, dict):
         raise EvidenceGovernanceError([f"{path}: event root must be an object"])
-    event = cast(dict[str, object], parsed)
+    event = cast(dict[str, object], parsed_event_document)
     pull_request = event.get("pull_request")
     if not isinstance(pull_request, dict):
         raise EvidenceGovernanceError([f"{path}: pull_request object is required"])

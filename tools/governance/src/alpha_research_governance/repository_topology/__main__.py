@@ -1,4 +1,4 @@
-"""Execute the canonical B01 repository-topology check."""
+"""Execute the canonical repository-topology check."""
 
 from alpha_research_governance.repository_topology import main
 

@@ -1,4 +1,4 @@
-"""Deterministic and adversarial tests for the A07 security control map."""
+"""Deterministic and adversarial tests for the security control map."""
 
 from __future__ import annotations
 
@@ -29,13 +29,15 @@ def _map_fixture(tmp_path: Path) -> Path:
     return path
 
 
-def _replace(path: Path, old: str, new: str) -> None:
+def _replace_security_fixture_text(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
-def _replace_after(path: Path, marker: str, old: str, new: str) -> None:
+def _replace_security_fixture_text_after_marker(
+    path: Path, marker: str, old: str, new: str
+) -> None:
     text = path.read_text(encoding="utf-8")
     marker_index = text.index(marker)
     prefix = text[:marker_index]
@@ -73,7 +75,7 @@ def _repository_fixture(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def _load_fixture(path: Path) -> None:
+def _validate_security_fixture(path: Path) -> None:
     load_control_map(path, repository_root=REPOSITORY_ROOT)
 
 
@@ -105,23 +107,23 @@ def test_repository_map_is_versioned_partial_and_complete_for_current_scope() ->
 
 def test_machine_metadata_is_strict_and_complete(tmp_path: Path) -> None:
     boolean_schema = _map_fixture(tmp_path)
-    _replace(boolean_schema, "schema_version = 1", "schema_version = true")
+    _replace_security_fixture_text(boolean_schema, "schema_version = 1", "schema_version = true")
     with pytest.raises(SecurityControlError, match="schema_version must be an integer"):
-        _load_fixture(boolean_schema)
+        _validate_security_fixture(boolean_schema)
 
     missing_dependency = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         missing_dependency,
         'dependency_package_ids = ["A02", "A06"]',
         'dependency_package_ids = ["A02"]',
     )
     with pytest.raises(SecurityControlError, match="dependency_package_ids must be exactly"):
-        _load_fixture(missing_dependency)
+        _validate_security_fixture(missing_dependency)
 
     missing_gate = _map_fixture(tmp_path)
-    _replace(missing_gate, '  "QG13",\n  "QG14",\n]', '  "QG13",\n]')
+    _replace_security_fixture_text(missing_gate, '  "QG13",\n  "QG14",\n]', '  "QG13",\n]')
     with pytest.raises(SecurityControlError, match="applicable_gate_ids must be exactly"):
-        _load_fixture(missing_gate)
+        _validate_security_fixture(missing_gate)
 
 
 def test_queries_are_deterministic_and_preserve_source_order() -> None:
@@ -143,23 +145,25 @@ def test_queries_are_deterministic_and_preserve_source_order() -> None:
 
 def test_unknown_reference_and_missing_category_fail_closed(tmp_path: Path) -> None:
     unknown = _map_fixture(tmp_path)
-    _replace(unknown, 'control_ids = ["A07-C01", "A07-C12"]', 'control_ids = ["A07-C99"]')
+    _replace_security_fixture_text(
+        unknown, 'control_ids = ["A07-C01", "A07-C12"]', 'control_ids = ["A07-C99"]'
+    )
     with pytest.raises(SecurityControlError, match="unknown references"):
-        _load_fixture(unknown)
+        _validate_security_fixture(unknown)
 
     missing_category = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         missing_category,
         'category = "software_supply_chain"',
         'category = "privileged_access"',
     )
     with pytest.raises(SecurityControlError, match="required categories"):
-        _load_fixture(missing_category)
+        _validate_security_fixture(missing_category)
 
 
 def test_control_owner_cannot_self_review_and_roles_must_be_registered(tmp_path: Path) -> None:
     self_review = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         self_review,
         (
             'control_id = "A07-C01"\n'
@@ -177,10 +181,10 @@ def test_control_owner_cannot_self_review_and_roles_must_be_registered(tmp_path:
         ),
     )
     with pytest.raises(SecurityControlError, match="owner cannot independently review"):
-        _load_fixture(self_review)
+        _validate_security_fixture(self_review)
 
     stale_owner = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         stale_owner,
         (
             'asset_id = "ASSET01"\n'
@@ -194,28 +198,30 @@ def test_control_owner_cannot_self_review_and_roles_must_be_registered(tmp_path:
         ),
     )
     with pytest.raises(SecurityControlError, match="stale ownership roles"):
-        _load_fixture(stale_owner)
+        _validate_security_fixture(stale_owner)
 
 
 def test_available_and_deferred_evidence_have_distinct_fail_closed_states(
     tmp_path: Path,
 ) -> None:
     unsafe_path = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         unsafe_path,
         'location = "docs/governance/security-control-map.toml"',
         'location = "../security-control-map.toml"',
     )
     with pytest.raises(SecurityControlError, match="repository path escapes the root"):
-        _load_fixture(unsafe_path)
+        _validate_security_fixture(unsafe_path)
 
     available_with_future_package = _map_fixture(tmp_path)
-    _replace(available_with_future_package, "required_packages = []", 'required_packages = ["K08"]')
+    _replace_security_fixture_text(
+        available_with_future_package, "required_packages = []", 'required_packages = ["K08"]'
+    )
     with pytest.raises(SecurityControlError, match="available evidence cannot require"):
-        _load_fixture(available_with_future_package)
+        _validate_security_fixture(available_with_future_package)
 
     deferred_without_closure = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         deferred_without_closure,
         (
             'closure_condition = "Protected main retains exact-commit pass and blocking '
@@ -224,7 +230,7 @@ def test_available_and_deferred_evidence_have_distinct_fail_closed_states(
         'closure_condition = ""',
     )
     with pytest.raises(SecurityControlError, match="deferred evidence needs packages"):
-        _load_fixture(deferred_without_closure)
+        _validate_security_fixture(deferred_without_closure)
 
 
 @pytest.mark.parametrize(
@@ -240,138 +246,140 @@ def test_authority_source_urls_require_credential_free_https(
     tmp_path: Path, unsafe_url: str
 ) -> None:
     path = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         path,
         "https://handbook.fca.org.uk/handbook/mar7a?timeline=true",
         unsafe_url,
     )
 
     with pytest.raises(SecurityControlError, match="HTTPS without credentials"):
-        _load_fixture(path)
+        _validate_security_fixture(path)
 
 
 def test_authority_source_urls_require_trusted_hosts_and_valid_syntax(tmp_path: Path) -> None:
     untrusted = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         untrusted,
         "https://handbook.fca.org.uk/handbook/mar7a?timeline=true",
         "https://example.com/handbook/mar7a",
     )
     with pytest.raises(SecurityControlError, match="trusted official publisher"):
-        _load_fixture(untrusted)
+        _validate_security_fixture(untrusted)
 
     malformed = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         malformed,
         "https://handbook.fca.org.uk/handbook/mar7a?timeline=true",
         "https://[invalid/handbook/mar7a",
     )
     with pytest.raises(SecurityControlError, match="source URL is malformed"):
-        _load_fixture(malformed)
+        _validate_security_fixture(malformed)
 
 
 def test_map_cannot_claim_legal_advice_or_conclusive_applicability(tmp_path: Path) -> None:
     legal_advice = _map_fixture(tmp_path)
-    _replace(legal_advice, "legal_advice = false", "legal_advice = true")
+    _replace_security_fixture_text(legal_advice, "legal_advice = false", "legal_advice = true")
     with pytest.raises(SecurityControlError, match="legal_advice must be False"):
-        _load_fixture(legal_advice)
+        _validate_security_fixture(legal_advice)
 
     conclusive = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         conclusive,
         'applicability_status = "requires_legal_review"',
         'applicability_status = "applicable"',
     )
     with pytest.raises(SecurityControlError, match="applicability_status must be"):
-        _load_fixture(conclusive)
+        _validate_security_fixture(conclusive)
 
 
 def test_source_profile_consistency_and_review_dates_fail_closed(tmp_path: Path) -> None:
     mismatched_source = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         mismatched_source,
         'source_ids = ["A07-SRC-GB-01", "A07-SRC-GB-02"]',
         'source_ids = ["A07-SRC-GB-01"]',
     )
     with pytest.raises(SecurityControlError, match="source_ids must match"):
-        _load_fixture(mismatched_source)
+        _validate_security_fixture(mismatched_source)
 
     overdue = _map_fixture(tmp_path)
-    _replace(overdue, 'review_due_on = "2026-11-30"', 'review_due_on = "2026-08-29"')
+    _replace_security_fixture_text(
+        overdue, 'review_due_on = "2026-11-30"', 'review_due_on = "2026-08-29"'
+    )
     with pytest.raises(SecurityControlError, match="legal review is overdue"):
-        _load_fixture(overdue)
+        _validate_security_fixture(overdue)
 
     excessive_horizon = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         excessive_horizon,
         'review_due_on = "2026-11-30"',
         'review_due_on = "2027-08-30"',
     )
     with pytest.raises(SecurityControlError, match="review horizon exceeds 93 days"):
-        _load_fixture(excessive_horizon)
+        _validate_security_fixture(excessive_horizon)
 
     stale_source = _map_fixture(tmp_path)
-    _replace(
+    _replace_security_fixture_text(
         stale_source,
         'last_verified_on = "2026-08-30"',
         'last_verified_on = "2026-01-01"',
     )
     with pytest.raises(SecurityControlError, match="verification is older than 31 days"):
-        _load_fixture(stale_source)
+        _validate_security_fixture(stale_source)
 
 
 def test_legal_mappings_bind_owner_and_review_evidence(tmp_path: Path) -> None:
     wrong_owner = _map_fixture(tmp_path)
-    _replace_after(
+    _replace_security_fixture_text_after_marker(
         wrong_owner,
         'mapping_id = "A07-MAP-GB-01"',
         'owner_role = "compliance"',
         'owner_role = "security"',
     )
     with pytest.raises(SecurityControlError, match="owner must match"):
-        _load_fixture(wrong_owner)
+        _validate_security_fixture(wrong_owner)
 
     missing_legal_evidence = _map_fixture(tmp_path)
-    _replace_after(
+    _replace_security_fixture_text_after_marker(
         missing_legal_evidence,
         'mapping_id = "A07-MAP-GB-01"',
         'evidence_source_ids = ["A07-EV15"]',
         'evidence_source_ids = ["A07-EV01"]',
     )
     with pytest.raises(SecurityControlError, match="requires A07-EV15"):
-        _load_fixture(missing_legal_evidence)
+        _validate_security_fixture(missing_legal_evidence)
 
 
 def test_control_status_and_map_coverage_are_evidence_backed(tmp_path: Path) -> None:
     planned_without_deferred = _map_fixture(tmp_path)
-    _replace_after(
+    _replace_security_fixture_text_after_marker(
         planned_without_deferred,
         'control_id = "A07-C01"',
         'evidence_source_ids = ["A07-EV05"]',
         'evidence_source_ids = ["A07-EV01"]',
     )
     with pytest.raises(SecurityControlError, match="planned status requires deferred evidence"):
-        _load_fixture(planned_without_deferred)
+        _validate_security_fixture(planned_without_deferred)
 
     local_without_available = _map_fixture(tmp_path)
-    _replace_after(
+    _replace_security_fixture_text_after_marker(
         local_without_available,
         'control_id = "A07-C12"',
         'evidence_source_ids = ["A07-EV01", "A07-EV02", "A07-EV03", "A07-EV04", "A07-EV05"]',
         'evidence_source_ids = ["A07-EV05"]',
     )
     with pytest.raises(SecurityControlError, match="repository_local status requires"):
-        _load_fixture(local_without_available)
+        _validate_security_fixture(local_without_available)
 
     orphan_boundary = _map_fixture(tmp_path)
-    _replace_after(
+    _replace_security_fixture_text_after_marker(
         orphan_boundary,
         'threat_id = "A07-T02"',
         'boundary_ids = ["TB02", "TB05"]',
         'boundary_ids = ["TB05"]',
     )
     with pytest.raises(SecurityControlError, match="every trust boundary"):
-        _load_fixture(orphan_boundary)
+        _validate_security_fixture(orphan_boundary)
 
     orphan_asset = _map_fixture(tmp_path)
     for marker, old, new in (
@@ -396,37 +404,37 @@ def test_control_status_and_map_coverage_are_evidence_backed(tmp_path: Path) -> 
             'asset_ids = ["ASSET04", "ASSET05"]',
         ),
     ):
-        _replace_after(orphan_asset, marker, old, new)
+        _replace_security_fixture_text_after_marker(orphan_asset, marker, old, new)
     with pytest.raises(SecurityControlError, match="every protected asset"):
-        _load_fixture(orphan_asset)
+        _validate_security_fixture(orphan_asset)
 
     orphan_evidence = _map_fixture(tmp_path)
-    _replace_after(
+    _replace_security_fixture_text_after_marker(
         orphan_evidence,
         'control_id = "A07-C10"',
         'evidence_source_ids = ["A07-EV14"]',
         'evidence_source_ids = ["A07-EV10"]',
     )
-    _replace_after(
+    _replace_security_fixture_text_after_marker(
         orphan_evidence,
         'control_id = "A07-C11"',
         'evidence_source_ids = ["A07-EV07", "A07-EV14"]',
         'evidence_source_ids = ["A07-EV07"]',
     )
     with pytest.raises(SecurityControlError, match="every evidence source"):
-        _load_fixture(orphan_evidence)
+        _validate_security_fixture(orphan_evidence)
 
 
 def test_trust_boundary_must_change_zones(tmp_path: Path) -> None:
     path = _map_fixture(tmp_path)
-    _replace_after(
+    _replace_security_fixture_text_after_marker(
         path,
         'boundary_id = "TB01"',
         'destination_zone = "protected_forge"',
         'destination_zone = "developer_workstation_and_automation"',
     )
     with pytest.raises(SecurityControlError, match="trust boundary zones must differ"):
-        _load_fixture(path)
+        _validate_security_fixture(path)
 
 
 def test_local_evidence_binds_owner_risk_drivers_and_waivers(tmp_path: Path) -> None:
@@ -434,7 +442,9 @@ def test_local_evidence_binds_owner_risk_drivers_and_waivers(tmp_path: Path) -> 
     owner_manifest = (
         wrong_owner_root / "docs/governance/evidence/examples/a07-r2-partial/manifest.toml"
     )
-    _replace(owner_manifest, 'owner_role = "security"', 'owner_role = "platform"')
+    _replace_security_fixture_text(
+        owner_manifest, 'owner_role = "security"', 'owner_role = "platform"'
+    )
     with pytest.raises(SecurityControlError, match="owner must match"):
         validate_repository(wrong_owner_root)
 
@@ -442,7 +452,7 @@ def test_local_evidence_binds_owner_risk_drivers_and_waivers(tmp_path: Path) -> 
     driver_manifest = (
         wrong_driver_root / "docs/governance/evidence/examples/a07-r2-partial/manifest.toml"
     )
-    _replace(
+    _replace_security_fixture_text(
         driver_manifest,
         'security_privilege = "shared_sensitive"',
         'security_privilege = "none"',
@@ -452,21 +462,27 @@ def test_local_evidence_binds_owner_risk_drivers_and_waivers(tmp_path: Path) -> 
 
     waiver_root = _repository_fixture(tmp_path / "waiver")
     waiver_manifest = waiver_root / "docs/governance/evidence/examples/a07-r2-partial/manifest.toml"
-    _replace(waiver_manifest, "waived_controls = []", 'waived_controls = ["synthetic"]')
+    _replace_security_fixture_text(
+        waiver_manifest, "waived_controls = []", 'waived_controls = ["synthetic"]'
+    )
     with pytest.raises(SecurityControlError, match="cannot contain control waivers"):
         validate_repository(waiver_root)
 
 
 def test_solo_bootstrap_requires_exact_partial_findings(tmp_path: Path) -> None:
     validated = _map_fixture(tmp_path)
-    _replace(validated, 'package_status = "partial"', 'package_status = "validated"')
+    _replace_security_fixture_text(
+        validated, 'package_status = "partial"', 'package_status = "validated"'
+    )
     with pytest.raises(SecurityControlError, match="must remain partial"):
-        _load_fixture(validated)
+        _validate_security_fixture(validated)
 
     wrong_finding = _map_fixture(tmp_path)
-    _replace(wrong_finding, 'finding_id = "A07-F02"', 'finding_id = "A07-OTHER"')
+    _replace_security_fixture_text(
+        wrong_finding, 'finding_id = "A07-F02"', 'finding_id = "A07-OTHER"'
+    )
     with pytest.raises(SecurityControlError, match="must remain partial"):
-        _load_fixture(wrong_finding)
+        _validate_security_fixture(wrong_finding)
 
 
 def test_cli_emits_byte_stable_filtered_json(capsys: pytest.CaptureFixture[str]) -> None:
@@ -477,14 +493,22 @@ def test_cli_emits_byte_stable_filtered_json(capsys: pytest.CaptureFixture[str])
     second_output = capsys.readouterr().out
     assert first_output == second_output
 
-    result = json.loads(first_output)
-    assert result["schema_version"] == 1
-    assert result["roadmap_package"] == "A07"
-    assert result["risk_class"] == "R2"
-    assert result["dependency_package_ids"] == ["A02", "A06"]
-    assert result["applicable_gate_ids"] == list(APPLICABLE_GATE_IDS)
-    assert [item["threat_id"] for item in result["threats"]] == ["A07-T08", "A07-T09"]
-    assert result["open_finding_ids"] == ["A07-F01", "A07-F02", "A07-F03", "A07-F04"]
+    control_map_payload = json.loads(first_output)
+    assert control_map_payload["schema_version"] == 1
+    assert control_map_payload["roadmap_package"] == "A07"
+    assert control_map_payload["risk_class"] == "R2"
+    assert control_map_payload["dependency_package_ids"] == ["A02", "A06"]
+    assert control_map_payload["applicable_gate_ids"] == list(APPLICABLE_GATE_IDS)
+    assert [item["threat_id"] for item in control_map_payload["threats"]] == [
+        "A07-T08",
+        "A07-T09",
+    ]
+    assert control_map_payload["open_finding_ids"] == [
+        "A07-F01",
+        "A07-F02",
+        "A07-F03",
+        "A07-F04",
+    ]
 
     assert main([str(REPOSITORY_ROOT), "--jurisdiction", "SG"]) == 0
     jurisdiction_result = json.loads(capsys.readouterr().out)

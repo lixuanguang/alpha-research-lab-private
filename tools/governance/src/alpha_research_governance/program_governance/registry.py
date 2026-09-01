@@ -1,4 +1,4 @@
-"""Validate the A08 roadmap, KPIs, and observations strictly."""
+"""Validate the program roadmap, KPIs, and observations strictly."""
 
 from __future__ import annotations
 
@@ -167,112 +167,121 @@ _OBSERVATION_COMMON_KEYS = {
 }
 
 
-def _table(value: object, *, context: str) -> dict[str, object]:
+def _require_table(value: object, *, context: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ProgramGovernanceError([f"{context} must be a table or object"])
     return cast(dict[str, object], value)
 
 
-def _table_list(value: object, *, context: str) -> list[dict[str, object]]:
+def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise ProgramGovernanceError([f"{context} must be an array of tables"])
     return cast(list[dict[str, object]], value)
 
 
-def _string(table: dict[str, object], key: str, *, context: str) -> str:
+def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
     value = table.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ProgramGovernanceError([f"{context}.{key} must be a non-empty string"])
     return value
 
 
-def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+def _require_strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise ProgramGovernanceError([f"{context} must be an array of non-empty strings"])
-    result = tuple(cast(list[str], value))
-    if not allow_empty and not result:
+    string_values = tuple(cast(list[str], value))
+    if not allow_empty and not string_values:
         raise ProgramGovernanceError([f"{context} must not be empty"])
-    if len(result) != len(set(result)):
+    if len(string_values) != len(set(string_values)):
         raise ProgramGovernanceError([f"{context} must contain unique values"])
-    return result
+    return string_values
 
 
-def _positive_integer(table: dict[str, object], key: str, *, context: str) -> int:
+def _require_positive_integer(table: dict[str, object], key: str, *, context: str) -> int:
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ProgramGovernanceError([f"{context}.{key} must be a positive integer"])
     return value
 
 
-def _number(table: dict[str, object], key: str, *, context: str) -> float:
+def _require_number(table: dict[str, object], key: str, *, context: str) -> float:
     value = table.get(key)
     if not isinstance(value, int | float) or isinstance(value, bool):
         raise ProgramGovernanceError([f"{context}.{key} must be a finite number"])
-    result = float(value)
-    if not isfinite(result):
+    numeric_value = float(value)
+    if not isfinite(numeric_value):
         raise ProgramGovernanceError([f"{context}.{key} must be a finite number"])
-    return result
+    return numeric_value
 
 
-def _optional_number(table: dict[str, object], key: str, *, context: str) -> float | None:
-    return None if key not in table else _number(table, key, context=context)
+def _parse_optional_number(table: dict[str, object], key: str, *, context: str) -> float | None:
+    return None if key not in table else _require_number(table, key, context=context)
 
 
-def _iso_date(value: str, *, context: str) -> date:
+def _parse_iso_date(value: str, *, context: str) -> date:
     try:
         return date.fromisoformat(value)
     except ValueError as error:
         raise ProgramGovernanceError([f"{context} must use YYYY-MM-DD"]) from error
 
 
-def _utc_datetime(value: str, *, context: str) -> datetime:
+def _parse_utc_datetime(value: str, *, context: str) -> datetime:
     if not value.endswith("Z"):
         raise ProgramGovernanceError([f"{context} must be an ISO-8601 UTC timestamp ending Z"])
     try:
-        parsed = datetime.fromisoformat(value[:-1] + "+00:00")
+        parsed_datetime = datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError as error:
         raise ProgramGovernanceError([f"{context} must be an ISO-8601 UTC timestamp"]) from error
-    if parsed.tzinfo != UTC:
+    if parsed_datetime.tzinfo != UTC:
         raise ProgramGovernanceError([f"{context} must be UTC"])
-    return parsed
+    return parsed_datetime
 
 
 def _load_toml(path: Path) -> dict[str, object]:
     try:
-        parsed: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
         raise ProgramGovernanceError([f"{path}: invalid TOML: {error}"]) from error
-    return _table(parsed, context=str(path))
+    return _require_table(parsed_document, context=str(path))
 
 
 def _load_json_line(line: str, *, context: str) -> dict[str, object]:
-    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-        result: dict[str, object] = {}
+    def build_json_object_rejecting_duplicate_keys(
+        pairs: list[tuple[str, object]],
+    ) -> dict[str, object]:
+        json_object: dict[str, object] = {}
         for key, value in pairs:
-            if key in result:
+            if key in json_object:
                 raise ProgramGovernanceError([f"{context}: duplicate JSON field {key!r}"])
-            result[key] = value
-        return result
+            json_object[key] = value
+        return json_object
 
     try:
-        parsed: object = json.loads(line, object_pairs_hook=unique_object)
+        parsed_document: object = json.loads(
+            line,
+            object_pairs_hook=build_json_object_rejecting_duplicate_keys,
+        )
     except json.JSONDecodeError as error:
         raise ProgramGovernanceError([f"{context}: invalid JSON: {error}"]) from error
-    return _table(parsed, context=context)
+    return _require_table(parsed_document, context=context)
 
 
 def _ownership_roles(path: Path) -> frozenset[str]:
-    root = _load_toml(path)
+    ownership_document = _load_toml(path)
     roles: set[str] = set()
-    for index, domain in enumerate(_table_list(root.get("domains"), context="domains"), 1):
+    for index, domain in enumerate(
+        _require_table_list(ownership_document.get("domains"), context="domains"), 1
+    ):
         context = f"domains[{index}]"
-        roles.add(_string(domain, "accountable_role", context=context))
+        roles.add(_require_string(domain, "accountable_role", context=context))
         for key in ("required_review_roles", "independent_review_roles", "escalation_roles"):
-            roles.update(_strings(domain.get(key), context=f"{context}.{key}", allow_empty=True))
+            roles.update(
+                _require_strings(domain.get(key), context=f"{context}.{key}", allow_empty=True)
+            )
     return frozenset(roles)
 
 
-def _repository_file(value: str, *, repository_root: Path, context: str) -> Path:
+def _require_repository_file(value: str, *, repository_root: Path, context: str) -> Path:
     relative = Path(value)
     if relative.is_absolute() or ".." in relative.parts:
         raise ProgramGovernanceError([f"{context}: repository path escapes the root: {value}"])
@@ -288,15 +297,15 @@ def _repository_file(value: str, *, repository_root: Path, context: str) -> Path
     return candidate
 
 
-def _https_url(value: str, *, context: str) -> str:
-    parsed = urlsplit(value)
+def _require_https_url(value: str, *, context: str) -> str:
+    parsed_url = urlsplit(value)
     if (
-        parsed.scheme != "https"
-        or not parsed.netloc
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
+        parsed_url.scheme != "https"
+        or not parsed_url.netloc
+        or parsed_url.username
+        or parsed_url.password
+        or parsed_url.query
+        or parsed_url.fragment
     ):
         raise ProgramGovernanceError([f"{context} must use HTTPS without credentials"])
     return value
@@ -330,7 +339,7 @@ def _expand_range(token: str) -> tuple[str, ...]:
     )
 
 
-def _dependency_list(expression: str) -> tuple[str, ...]:
+def _parse_dependency_list(expression: str) -> tuple[str, ...]:
     values: list[str] = []
     if expression == "-":
         return ()
@@ -351,14 +360,14 @@ def _parse_dependency_expression(
     parts = expression.split(";")
     if len(parts) > 2:
         raise ProgramGovernanceError([f"roadmap dependency expression is malformed: {expression}"])
-    dependencies = _dependency_list(parts[0].strip())
+    dependencies = _parse_dependency_list(parts[0].strip())
     groups: tuple[tuple[str, ...], ...] = ()
     if len(parts) == 2:
         conditional = parts[1].strip()
         prefix = "any of "
         if not conditional.startswith(prefix):
             raise ProgramGovernanceError([f"unsupported conditional dependency: {conditional}"])
-        group = _dependency_list(conditional.removeprefix(prefix))
+        group = _parse_dependency_list(conditional.removeprefix(prefix))
         if len(group) < 2:
             raise ProgramGovernanceError(
                 ["any-of dependency group must contain at least two packages"]
@@ -426,7 +435,7 @@ def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
             findings.append(f"{package.package_id}: unknown dependencies {unknown!r}")
         if package.package_id in referenced:
             findings.append(f"{package.package_id}: package cannot depend on itself")
-    findings.extend(_dependency_cycles(tuple(packages)))
+    findings.extend(_find_dependency_cycles(tuple(packages)))
     if findings:
         raise ProgramGovernanceError(findings)
     return tuple(packages)
@@ -440,7 +449,7 @@ def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
         raise ProgramGovernanceError([f"{path}: roadmap model validation failed"]) from error
 
 
-def _dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
+def _find_dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
     graph = {
         package.package_id: package.dependencies
         + tuple(item for group in package.any_of_dependency_groups for item in group)
@@ -449,7 +458,7 @@ def _dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
     states: dict[str, int] = {}
     cycles: list[str] = []
 
-    def visit(package_id: str, trail: tuple[str, ...]) -> None:
+    def visit_dependency(package_id: str, trail: tuple[str, ...]) -> None:
         state = states.get(package_id, 0)
         if state == 1:
             start = trail.index(package_id)
@@ -459,11 +468,11 @@ def _dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
             return
         states[package_id] = 1
         for dependency in graph[package_id]:
-            visit(dependency, (*trail, package_id))
+            visit_dependency(dependency, (*trail, package_id))
         states[package_id] = 2
 
     for package_id in graph:
-        visit(package_id, ())
+        visit_dependency(package_id, ())
     return tuple(f"roadmap dependency cycle: {cycle}" for cycle in dict.fromkeys(cycles))
 
 
@@ -474,21 +483,25 @@ def _parse_package_states(
     ownership_roles: frozenset[str],
 ) -> tuple[PackageState, ...]:
     states: list[PackageState] = []
-    for index, entry in enumerate(_table_list(value, context="package_states"), 1):
+    for index, entry in enumerate(_require_table_list(value, context="package_states"), 1):
         context = f"package_states[{index}]"
         if set(entry) != _STATE_KEYS:
             raise ProgramGovernanceError([f"{context} has missing or unknown fields"])
-        package_id = _string(entry, "package_id", context=context)
-        status = _string(entry, "status", context=context)
-        owner_role = _string(entry, "owner_role", context=context)
-        repository_local_status = _string(entry, "repository_local_status", context=context)
-        deferred_classes = _strings(
+        package_id = _require_string(entry, "package_id", context=context)
+        status = _require_string(entry, "status", context=context)
+        owner_role = _require_string(entry, "owner_role", context=context)
+        repository_local_status = _require_string(entry, "repository_local_status", context=context)
+        deferred_classes = _require_strings(
             entry.get("deferred_evidence_classes"),
             context=f"{context}.deferred_evidence_classes",
             allow_empty=True,
         )
-        evidence_paths = _strings(entry.get("evidence_paths"), context=f"{context}.evidence_paths")
-        finding_ids = _strings(entry.get("open_finding_ids"), context=f"{context}.open_finding_ids")
+        evidence_paths = _require_strings(
+            entry.get("evidence_paths"), context=f"{context}.evidence_paths"
+        )
+        finding_ids = _require_strings(
+            entry.get("open_finding_ids"), context=f"{context}.open_finding_ids"
+        )
         if package_id not in PACKAGE_IDS:
             raise ProgramGovernanceError([f"{context}.package_id is unsupported"])
         if status != "partial":
@@ -509,9 +522,9 @@ def _parse_package_states(
         if any(not finding.startswith(f"{package_id}-F") for finding in finding_ids):
             raise ProgramGovernanceError([f"{context}: finding IDs must belong to {package_id}"])
         evidence_text = "\n".join(
-            _repository_file(path, repository_root=repository_root, context=context).read_text(
-                encoding="utf-8"
-            )
+            _require_repository_file(
+                path, repository_root=repository_root, context=context
+            ).read_text(encoding="utf-8")
             for path in evidence_paths
         )
         missing_findings = [finding for finding in finding_ids if finding not in evidence_text]
@@ -551,32 +564,32 @@ def _parse_metric(
         or not keys <= _METRIC_REQUIRED_KEYS | _METRIC_OPTIONAL_KEYS
     ):
         raise ProgramGovernanceError([f"{context} has missing or unknown fields"])
-    metric_id = _string(entry, "metric_id", context=context)
-    owner_role = _string(entry, "owner_role", context=context)
-    value_kind = _string(entry, "value_kind", context=context)
-    aggregation = _string(entry, "aggregation", context=context)
-    output_unit = _string(entry, "output_unit", context=context)
-    direction = _string(entry, "direction", context=context)
-    numerator_unit = _string(entry, "numerator_unit", context=context)
-    denominator_unit = _string(entry, "denominator_unit", context=context)
-    source_event_type = _string(entry, "source_event_type", context=context)
-    producer_packages = _strings(
+    metric_id = _require_string(entry, "metric_id", context=context)
+    owner_role = _require_string(entry, "owner_role", context=context)
+    value_kind = _require_string(entry, "value_kind", context=context)
+    aggregation = _require_string(entry, "aggregation", context=context)
+    output_unit = _require_string(entry, "output_unit", context=context)
+    direction = _require_string(entry, "direction", context=context)
+    numerator_unit = _require_string(entry, "numerator_unit", context=context)
+    denominator_unit = _require_string(entry, "denominator_unit", context=context)
+    source_event_type = _require_string(entry, "source_event_type", context=context)
+    producer_packages = _require_strings(
         entry.get("producer_packages"), context=f"{context}.producer_packages"
     )
-    dimensions = _strings(
+    dimensions = _require_strings(
         entry.get("required_dimensions"), context=f"{context}.required_dimensions"
     )
-    collection_mode = _string(entry, "collection_mode", context=context)
-    baseline_status = _string(entry, "baseline_status", context=context)
-    target_status = _string(entry, "target_status", context=context)
-    scale = _number(entry, "scale", context=context)
-    baseline_value = _optional_number(entry, "baseline_value", context=context)
-    target_value = _optional_number(entry, "target_value", context=context)
+    collection_mode = _require_string(entry, "collection_mode", context=context)
+    baseline_status = _require_string(entry, "baseline_status", context=context)
+    target_status = _require_string(entry, "target_status", context=context)
+    scale = _require_number(entry, "scale", context=context)
+    baseline_value = _parse_optional_number(entry, "baseline_value", context=context)
+    target_value = _parse_optional_number(entry, "target_value", context=context)
     target_evidence = (
         None
         if "target_approval_evidence" not in entry
-        else _https_url(
-            _string(entry, "target_approval_evidence", context=context),
+        else _require_https_url(
+            _require_string(entry, "target_approval_evidence", context=context),
             context=f"{context}.target_approval_evidence",
         )
     )
@@ -623,12 +636,12 @@ def _parse_metric(
         raise ProgramGovernanceError([f"{context}: approved target requires value and evidence"])
     if target_status != "approved" and (target_value is not None or target_evidence is not None):
         raise ProgramGovernanceError([f"{context}: pending target cannot claim value or approval"])
-    window = _string(entry, "window", context=context)
+    window = _require_string(entry, "window", context=context)
     if _WINDOW.fullmatch(window) is None:
         raise ProgramGovernanceError([f"{context}.window must be a positive whole-day period"])
     return MetricDefinition(
         metric_id=metric_id,
-        name=_string(entry, "name", context=context),
+        name=_require_string(entry, "name", context=context),
         owner_role=owner_role,
         value_kind=value_kind,
         aggregation=aggregation,
@@ -638,7 +651,9 @@ def _parse_metric(
         numerator_unit=numerator_unit,
         denominator_unit=denominator_unit,
         bounded_ratio=bounded_ratio,
-        minimum_observations=_positive_integer(entry, "minimum_observations", context=context),
+        minimum_observations=_require_positive_integer(
+            entry, "minimum_observations", context=context
+        ),
         window=window,
         source_event_type=source_event_type,
         producer_packages=producer_packages,
@@ -656,7 +671,7 @@ def _parse_metric(
 
 def _parse_findings(value: object) -> tuple[str, ...]:
     identifiers: list[str] = []
-    for index, entry in enumerate(_table_list(value, context="findings"), 1):
+    for index, entry in enumerate(_require_table_list(value, context="findings"), 1):
         context = f"findings[{index}]"
         if set(entry) != {
             "closure_condition",
@@ -665,9 +680,9 @@ def _parse_findings(value: object) -> tuple[str, ...]:
             "unavailable_evidence",
         }:
             raise ProgramGovernanceError([f"{context} has missing or unknown fields"])
-        identifiers.append(_string(entry, "finding_id", context=context))
+        identifiers.append(_require_string(entry, "finding_id", context=context))
         for key in ("closure_condition", "owner_role", "unavailable_evidence"):
-            _string(entry, key, context=context)
+            _require_string(entry, key, context=context)
     return tuple(identifiers)
 
 
@@ -677,10 +692,10 @@ def _load_program(
     repository_root: Path,
     ownership_register_path: Path | None = None,
 ) -> ProgramGovernance:
-    """Load the A08 contract and validate its roadmap, owners, and evidence paths."""
-    root_path = repository_root.resolve()
-    root = _load_toml(path)
-    if set(root) != _ROOT_KEYS:
+    """Load program governance and validate its roadmap, owners, and evidence paths."""
+    resolved_repository_root = repository_root.resolve()
+    program_document = _load_toml(path)
+    if set(program_document) != _ROOT_KEYS:
         raise ProgramGovernanceError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
     expected_scalars: dict[str, object] = {
         "schema_version": 1,
@@ -692,60 +707,79 @@ def _load_program(
         "observation_schema_version": 1,
     }
     for key, expected in expected_scalars.items():
-        if root.get(key) != expected:
+        if program_document.get(key) != expected:
             raise ProgramGovernanceError([f"{path}: {key} must be {expected!r}"])
-    gate_ids = _strings(root.get("applicable_gate_ids"), context="applicable_gate_ids")
+    gate_ids = _require_strings(
+        program_document.get("applicable_gate_ids"), context="applicable_gate_ids"
+    )
     if gate_ids != APPLICABLE_GATE_IDS:
         raise ProgramGovernanceError([f"{path}: applicable gates must be {APPLICABLE_GATE_IDS!r}"])
-    roadmap_path = _string(root, "roadmap_path", context=str(path))
-    roadmap_file = _repository_file(roadmap_path, repository_root=root_path, context="roadmap_path")
+    roadmap_path = _require_string(program_document, "roadmap_path", context=str(path))
+    roadmap_file = _require_repository_file(
+        roadmap_path,
+        repository_root=resolved_repository_root,
+        context="roadmap_path",
+    )
     packages = load_roadmap(roadmap_file)
     ownership_path = (
-        root_path / "docs" / "governance" / "domain-ownership.toml"
+        resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
         if ownership_register_path is None
         else ownership_register_path
     )
     ownership_roles = _ownership_roles(ownership_path)
     package_states = _parse_package_states(
-        root.get("package_states"),
-        repository_root=root_path,
+        program_document.get("package_states"),
+        repository_root=resolved_repository_root,
         ownership_roles=ownership_roles,
     )
     metrics = tuple(
         _parse_metric(entry, index=index, ownership_roles=ownership_roles)
-        for index, entry in enumerate(_table_list(root.get("metrics"), context="metrics"), 1)
+        for index, entry in enumerate(
+            _require_table_list(program_document.get("metrics"), context="metrics"), 1
+        )
     )
     if tuple(metric.metric_id for metric in metrics) != METRIC_IDS:
         raise ProgramGovernanceError(["metrics must declare the seven blueprint KPIs in order"])
     if len({metric.source_event_type for metric in metrics}) != len(metrics):
         raise ProgramGovernanceError(["each KPI must use a distinct source event type"])
-    finding_ids = _parse_findings(root.get("findings"))
-    declared_findings = _strings(root.get("open_finding_ids"), context="open_finding_ids")
+    finding_ids = _parse_findings(program_document.get("findings"))
+    declared_findings = _require_strings(
+        program_document.get("open_finding_ids"), context="open_finding_ids"
+    )
     if finding_ids != _EXPECTED_FINDING_IDS or declared_findings != finding_ids:
         raise ProgramGovernanceError(["A08 partial status requires the exact open findings"])
-    local_evidence_manifest_path = _string(root, "local_evidence_manifest_path", context=str(path))
-    _repository_file(
+    local_evidence_manifest_path = _require_string(
+        program_document, "local_evidence_manifest_path", context=str(path)
+    )
+    _require_repository_file(
         local_evidence_manifest_path,
-        repository_root=root_path,
+        repository_root=resolved_repository_root,
         context="local_evidence_manifest_path",
     )
-    local_evidence_commit_sha = _string(root, "local_evidence_commit_sha", context=str(path))
+    local_evidence_commit_sha = _require_string(
+        program_document, "local_evidence_commit_sha", context=str(path)
+    )
     if _REVISION.fullmatch(local_evidence_commit_sha) is None:
         raise ProgramGovernanceError(["local_evidence_commit_sha must be a full digest"])
     return ProgramGovernance(
-        schema_version=cast(int, root["schema_version"]),
-        roadmap_package=cast(str, root["roadmap_package"]),
-        operating_track=cast(str, root["operating_track"]),
-        package_status=cast(str, root["package_status"]),
-        accountable_owner_role=cast(str, root["accountable_owner_role"]),
-        risk_class=cast(str, root["risk_class"]),
+        schema_version=cast(int, program_document["schema_version"]),
+        roadmap_package=cast(str, program_document["roadmap_package"]),
+        operating_track=cast(str, program_document["operating_track"]),
+        package_status=cast(str, program_document["package_status"]),
+        accountable_owner_role=cast(str, program_document["accountable_owner_role"]),
+        risk_class=cast(str, program_document["risk_class"]),
         applicable_gate_ids=gate_ids,
-        as_of_date=_iso_date(_string(root, "as_of_date", context=str(path)), context="as_of_date"),
+        as_of_date=_parse_iso_date(
+            _require_string(program_document, "as_of_date", context=str(path)),
+            context="as_of_date",
+        ),
         roadmap_path=roadmap_path,
-        observation_schema_version=cast(int, root["observation_schema_version"]),
-        maximum_observations=_positive_integer(root, "maximum_observations", context=str(path)),
-        aggregation_workload_budget_ms=_positive_integer(
-            root, "aggregation_workload_budget_ms", context=str(path)
+        observation_schema_version=cast(int, program_document["observation_schema_version"]),
+        maximum_observations=_require_positive_integer(
+            program_document, "maximum_observations", context=str(path)
+        ),
+        aggregation_workload_budget_ms=_require_positive_integer(
+            program_document, "aggregation_workload_budget_ms", context=str(path)
         ),
         local_evidence_manifest_path=local_evidence_manifest_path,
         local_evidence_commit_sha=local_evidence_commit_sha,
@@ -762,7 +796,7 @@ def load_program(
     repository_root: Path,
     ownership_register_path: Path | None = None,
 ) -> ProgramGovernance:
-    """Load A08 governance while preserving its public domain-error contract."""
+    """Load program governance while preserving its public domain-error contract."""
     try:
         return _load_program(
             path,
@@ -777,53 +811,59 @@ def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metri
     """Load strict JSONL events and deduplicate identical retries by event ID."""
     if path.stat().st_size > _MAX_OBSERVATION_FILE_BYTES:
         raise ProgramGovernanceError(["observation input exceeds the governed byte limit"])
-    definitions = {metric.metric_id: metric for metric in program.metrics}
-    seen: dict[str, dict[str, object]] = {}
+    metrics_by_id = {metric.metric_id: metric for metric in program.metrics}
+    event_documents_by_id: dict[str, dict[str, object]] = {}
     observations: list[MetricObservation] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
         context = f"{path}:{line_number}"
-        entry = _load_json_line(line, context=context)
-        metric_id = _string(entry, "metric_id", context=context)
-        if metric_id not in definitions:
+        event_document = _load_json_line(line, context=context)
+        metric_id = _require_string(event_document, "metric_id", context=context)
+        if metric_id not in metrics_by_id:
             raise ProgramGovernanceError([f"{context}: unsupported metric {metric_id!r}"])
-        metric = definitions[metric_id]
+        metric = metrics_by_id[metric_id]
         expected_keys = set(_OBSERVATION_COMMON_KEYS)
         if metric.value_kind == "ratio":
             expected_keys.update({"denominator", "denominator_unit", "numerator", "numerator_unit"})
-        if set(entry) != expected_keys:
+        if set(event_document) != expected_keys:
             raise ProgramGovernanceError([f"{context}: observation has missing or unknown fields"])
-        if entry.get("schema_version") != program.observation_schema_version:
+        if event_document.get("schema_version") != program.observation_schema_version:
             raise ProgramGovernanceError([f"{context}: unsupported observation schema version"])
-        event_id = _string(entry, "event_id", context=context)
+        event_id = _require_string(event_document, "event_id", context=context)
         if _EVENT_ID.fullmatch(event_id) is None:
             raise ProgramGovernanceError([f"{context}.event_id is malformed"])
-        previous = seen.get(event_id)
-        if previous is not None:
-            if previous != entry:
+        previous_event_document = event_documents_by_id.get(event_id)
+        if previous_event_document is not None:
+            if previous_event_document != event_document:
                 raise ProgramGovernanceError([f"{context}: conflicting duplicate event {event_id}"])
             continue
-        seen[event_id] = entry
-        source_event_type = _string(entry, "source_event_type", context=context)
+        event_documents_by_id[event_id] = event_document
+        source_event_type = _require_string(event_document, "source_event_type", context=context)
         if source_event_type != metric.source_event_type:
             raise ProgramGovernanceError([f"{context}: source event type does not match KPI"])
-        source_revision = _string(entry, "source_revision", context=context)
+        source_revision = _require_string(event_document, "source_revision", context=context)
         if _REVISION.fullmatch(source_revision) is None:
             raise ProgramGovernanceError([f"{context}.source_revision must be a full digest"])
-        start = _utc_datetime(
-            _string(entry, "window_start", context=context), context=f"{context}.window_start"
+        window_start = _parse_utc_datetime(
+            _require_string(event_document, "window_start", context=context),
+            context=f"{context}.window_start",
         )
-        end = _utc_datetime(
-            _string(entry, "window_end", context=context), context=f"{context}.window_end"
+        window_end = _parse_utc_datetime(
+            _require_string(event_document, "window_end", context=context),
+            context=f"{context}.window_end",
         )
-        if end <= start:
+        if window_end <= window_start:
             raise ProgramGovernanceError([f"{context}: observation window must be positive"])
-        if metric.value_kind == "ratio" and end - start > timedelta(days=int(metric.window[1:-1])):
+        if metric.value_kind == "ratio" and window_end - window_start > timedelta(
+            days=int(metric.window[1:-1])
+        ):
             raise ProgramGovernanceError(
                 [f"{context}: ratio observation exceeds its governed reporting window"]
             )
-        dimensions_table = _table(entry.get("dimensions"), context=f"{context}.dimensions")
+        dimensions_table = _require_table(
+            event_document.get("dimensions"), context=f"{context}.dimensions"
+        )
         if set(dimensions_table) != set(metric.required_dimensions):
             raise ProgramGovernanceError([f"{context}: dimensions do not match KPI contract"])
         if not all(
@@ -836,19 +876,25 @@ def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metri
         numerator: float | None = None
         denominator: float | None = None
         if metric.value_kind == "ratio":
-            numerator = _number(entry, "numerator", context=context)
-            denominator = _number(entry, "denominator", context=context)
+            numerator = _require_number(event_document, "numerator", context=context)
+            denominator = _require_number(event_document, "denominator", context=context)
             if numerator < 0 or denominator <= 0:
                 raise ProgramGovernanceError(
                     [f"{context}: ratio numerator must be non-negative and denominator positive"]
                 )
             if metric.bounded_ratio and numerator > denominator:
                 raise ProgramGovernanceError([f"{context}: bounded numerator exceeds denominator"])
-            if _string(entry, "numerator_unit", context=context) != metric.numerator_unit:
+            if (
+                _require_string(event_document, "numerator_unit", context=context)
+                != metric.numerator_unit
+            ):
                 raise ProgramGovernanceError([f"{context}: numerator unit does not match KPI"])
-            if _string(entry, "denominator_unit", context=context) != metric.denominator_unit:
+            if (
+                _require_string(event_document, "denominator_unit", context=context)
+                != metric.denominator_unit
+            ):
                 raise ProgramGovernanceError([f"{context}: denominator unit does not match KPI"])
-        source_run_id = _string(entry, "source_run_id", context=context)
+        source_run_id = _require_string(event_document, "source_run_id", context=context)
         if _EVENT_ID.fullmatch(source_run_id) is None:
             raise ProgramGovernanceError([f"{context}.source_run_id is malformed"])
         observations.append(
@@ -858,12 +904,12 @@ def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metri
                 source_event_type=source_event_type,
                 source_run_id=source_run_id,
                 source_revision=source_revision,
-                evidence_url=_https_url(
-                    _string(entry, "evidence_url", context=context),
+                evidence_url=_require_https_url(
+                    _require_string(event_document, "evidence_url", context=context),
                     context=f"{context}.evidence_url",
                 ),
-                window_start=start,
-                window_end=end,
+                window_start=window_start,
+                window_end=window_end,
                 dimensions=tuple(sorted(cast(dict[str, str], dimensions_table).items())),
                 numerator=numerator,
                 denominator=denominator,
@@ -876,16 +922,16 @@ def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metri
         observations,
         key=lambda item: (item.metric_id, item.dimensions, item.window_start, item.event_id),
     ):
-        metric = definitions[observation.metric_id]
+        metric = metrics_by_id[observation.metric_id]
         if metric.value_kind != "ratio":
             continue
-        key = (observation.metric_id, observation.dimensions)
-        prior = previous_end.get(key)
-        if prior is not None and observation.window_start < prior:
+        observation_key = (observation.metric_id, observation.dimensions)
+        previous_window_end = previous_end.get(observation_key)
+        if previous_window_end is not None and observation.window_start < previous_window_end:
             raise ProgramGovernanceError(
                 [f"{path}: overlapping ratio observations would double count evidence"]
             )
-        previous_end[key] = observation.window_end
+        previous_end[observation_key] = observation.window_end
     return tuple(observations)
 
 
@@ -918,11 +964,11 @@ def _validate_local_evidence(repository_root: Path, program: ProgramGovernance) 
 
 
 def validate_repository(repository_root: Path) -> ProgramGovernance:
-    """Validate the authoritative A08 contract, graph, and synthetic evidence."""
-    root = repository_root.resolve()
+    """Validate the authoritative program contract, graph, and synthetic evidence."""
+    resolved_repository_root = repository_root.resolve()
     program = load_program(
-        root / "docs" / "governance" / "program-governance.toml",
-        repository_root=root,
+        resolved_repository_root / "docs" / "governance" / "program-governance.toml",
+        repository_root=resolved_repository_root,
     )
-    _validate_local_evidence(root, program)
+    _validate_local_evidence(resolved_repository_root, program)
     return program

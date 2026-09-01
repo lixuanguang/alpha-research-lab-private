@@ -1,4 +1,4 @@
-"""Canonical A07 threat and regulatory control-map API and command."""
+"""Canonical threat and regulatory control-map API and command."""
 
 from __future__ import annotations
 
@@ -55,17 +55,17 @@ _USAGE = (
 
 
 def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, bool, dict[str, str]]:
-    root: Path | None = None
-    emit_json = False
+    repository_root: Path | None = None
+    should_emit_json = False
     filters: dict[str, str] = {}
     index = 0
     allowed = {"--control-owner-role", "--jurisdiction", "--threat-category"}
     while index < len(arguments):
         argument = arguments[index]
         if argument == "--json":
-            if emit_json:
+            if should_emit_json:
                 raise SecurityControlError([_USAGE])
-            emit_json = True
+            should_emit_json = True
             index += 1
             continue
         if argument in allowed:
@@ -74,14 +74,20 @@ def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, bool, dict[str, st
             filters[argument] = arguments[index + 1]
             index += 2
             continue
-        if argument.startswith("--") or root is not None:
+        if argument.startswith("--") or repository_root is not None:
             raise SecurityControlError([_USAGE])
-        root = Path(argument)
+        repository_root = Path(argument)
         index += 1
-    return (Path.cwd() if root is None else root), emit_json or bool(filters), filters
+    return (
+        Path.cwd() if repository_root is None else repository_root,
+        should_emit_json or bool(filters),
+        filters,
+    )
 
 
-def _json_result(control_map: SecurityControlMap, filters: dict[str, str]) -> dict[str, object]:
+def _build_security_control_payload(
+    control_map: SecurityControlMap, filters: dict[str, str]
+) -> dict[str, object]:
     category = filters.get("--threat-category")
     owner_role = filters.get("--control-owner-role")
     jurisdiction_id = filters.get("--jurisdiction")
@@ -126,10 +132,10 @@ def _json_result(control_map: SecurityControlMap, filters: dict[str, str]) -> di
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Validate A07 or emit a deterministic filtered JSON control map."""
-    provided = list(sys.argv[1:] if arguments is None else arguments)
+    """Validate security governance or emit a deterministic filtered JSON control map."""
+    cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     try:
-        repository_root, emit_json, filters = _parse_arguments(provided)
+        repository_root, should_emit_json, filters = _parse_arguments(cli_arguments)
     except SecurityControlError as error:
         print(error, file=sys.stderr)
         return 2
@@ -146,8 +152,14 @@ def main(arguments: Sequence[str] | None = None) -> int:
     except (OSError, SecurityControlError) as error:
         print(error, file=sys.stderr)
         return 1
-    if emit_json:
-        print(json.dumps(_json_result(control_map, filters), sort_keys=True, separators=(",", ":")))
+    if should_emit_json:
+        print(
+            json.dumps(
+                _build_security_control_payload(control_map, filters),
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
     else:
         print(
             f"Security control map passed for {len(control_map.threats)} threats, "

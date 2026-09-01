@@ -1,4 +1,4 @@
-"""Canonical A05 merge-request and evidence-governance API."""
+"""Canonical merge-request and evidence-governance API."""
 
 from __future__ import annotations
 
@@ -55,8 +55,8 @@ _USAGE = (
 )
 
 
-def _repository_path(root: Path, relative: Path) -> Path:
-    resolved_root = root.resolve()
+def _repository_path(repository_root: Path, relative: Path) -> Path:
+    resolved_root = repository_root.resolve()
     resolved = (resolved_root / relative).resolve()
     try:
         resolved.relative_to(resolved_root)
@@ -72,12 +72,14 @@ def _input_path(repository_root: Path, value: str) -> Path:
 
 
 def validate_repository(repository_root: Path) -> tuple[EvidencePolicy, EvidenceManifest]:
-    """Validate A05 policy, template, example MR, and example evidence bundle."""
-    root = repository_root.resolve()
-    policy = load_policy(root / "docs" / "governance" / "merge-evidence-policy.toml")
-    template_path = _repository_path(root, policy.template_path)
-    example_mr_path = _repository_path(root, policy.example_mr_body_path)
-    example_manifest_path = _repository_path(root, policy.example_manifest_path)
+    """Validate evidence policy, template, example MR, and example bundle."""
+    resolved_repository_root = repository_root.resolve()
+    policy = load_policy(
+        resolved_repository_root / "docs" / "governance" / "merge-evidence-policy.toml"
+    )
+    template_path = _repository_path(resolved_repository_root, policy.template_path)
+    example_mr_path = _repository_path(resolved_repository_root, policy.example_mr_body_path)
+    example_manifest_path = _repository_path(resolved_repository_root, policy.example_manifest_path)
     validate_template(template_path.read_text(encoding="utf-8"), policy)
     example_fields = validate_mr_body(example_mr_path.read_text(encoding="utf-8"), policy)
     if example_fields["evidence_manifest"] != policy.example_manifest_path.as_posix():
@@ -85,7 +87,7 @@ def validate_repository(repository_root: Path) -> tuple[EvidencePolicy, Evidence
             ["example MR evidence manifest field must match the A05 policy path"]
         )
     change_policy = load_change_risk_policy(
-        root / "docs" / "governance" / "change-risk-policy.toml"
+        resolved_repository_root / "docs" / "governance" / "change-risk-policy.toml"
     )
     manifest = validate_manifest(
         example_manifest_path,
@@ -114,7 +116,7 @@ def validate_repository(repository_root: Path) -> tuple[EvidencePolicy, Evidence
 
 
 def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, dict[str, str]]:
-    root: Path | None = None
+    repository_root: Path | None = None
     options: dict[str, str] = {}
     index = 0
     allowed = {"--expected-commit-sha", "--github-event", "--manifest", "--mr-body"}
@@ -126,22 +128,22 @@ def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, dict[str, str]]:
             options[argument] = arguments[index + 1]
             index += 2
             continue
-        if root is not None:
+        if repository_root is not None:
             raise EvidenceGovernanceError([_USAGE])
-        root = Path(argument)
+        repository_root = Path(argument)
         index += 1
     if "--mr-body" in options and "--github-event" in options:
         raise EvidenceGovernanceError([_USAGE])
     if ("--manifest" in options) != ("--expected-commit-sha" in options):
         raise EvidenceGovernanceError([_USAGE])
-    return (Path.cwd() if root is None else root), options
+    return (Path.cwd() if repository_root is None else repository_root), options
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Run A05 repository, MR-body, event, and manifest checks."""
-    provided = list(sys.argv[1:] if arguments is None else arguments)
+    """Run repository, MR-body, event, and evidence-manifest checks."""
+    cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     try:
-        repository_root, options = _parse_arguments(provided)
+        repository_root, options = _parse_arguments(cli_arguments)
     except EvidenceGovernanceError as error:
         print(error, file=sys.stderr)
         return 2

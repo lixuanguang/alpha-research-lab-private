@@ -1,4 +1,4 @@
-"""Compatibility facade for the canonical B01 topology-governance tool."""
+"""Compatibility facade for the canonical topology-governance tool."""
 
 from alpha_research_governance.repository_topology import (
     RepositoryTopology,
