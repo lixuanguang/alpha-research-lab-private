@@ -190,7 +190,6 @@ dependencies = [
   "tool.governance.architecture_governance",
   "tool.governance.change_risk",
   "tool.governance.evidence",
-  "tool.governance.foundation",
   "tool.governance.inventory",
   "tool.governance.ownership_governance",
   "tool.governance.program_governance",
@@ -290,7 +289,6 @@ supported_platforms = ["any"]
 dependencies = []
 visibility = [
   "compatibility.alpha_research.foundation",
-  "test.engineering",
   "tool.governance.architecture_governance",
   "tool.governance.change_risk",
   "tool.governance.evidence",

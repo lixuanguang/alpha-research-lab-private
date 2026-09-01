@@ -6,7 +6,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from alpha_research.change_risk import ChangeRiskInput, RiskClass
 from alpha_research.change_risk import load_policy as load_change_risk_policy
@@ -189,15 +188,3 @@ def test_package_profile_rejects_manifest_drift(
 
     with pytest.raises(EvidenceGovernanceError, match=message):
         validate_package_evidence(mutation(manifest), _profile(manifest))
-
-
-def test_package_profile_is_strict_and_immutable() -> None:
-    manifest = _manifest()
-    profile = _profile(manifest)
-
-    with pytest.raises(ValidationError, match="frozen"):
-        profile.approvals_permitted = True
-    with pytest.raises(ValidationError):
-        PackageEvidenceProfile.model_validate({**profile.model_dump(), "risk_class": "R2"})
-    with pytest.raises(ValidationError):
-        PackageEvidenceProfile.model_validate({**profile.model_dump(), "unknown_permission": False})

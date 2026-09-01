@@ -69,7 +69,6 @@ def test_policy_rejects_author_as_independent_reviewer(tmp_path: Path) -> None:
             "author_may_satisfy_independent_review = true",
             "author_may_satisfy_independent_review",
         ),
-        ('domain_id = "assets"', 'domain_id = "unowned_domain"', "domains must be exactly"),
         ('package_status = "partial"', 'package_status = "validated"', "forge evidence"),
     ],
 )

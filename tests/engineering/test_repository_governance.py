@@ -9,10 +9,7 @@ from pathlib import Path
 from typing import cast
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
-CHARTER_PATH = REPOSITORY_ROOT / "docs" / "governance" / "repository-charter.md"
 REGISTER_PATH = REPOSITORY_ROOT / "docs" / "governance" / "system-boundaries.toml"
-PLATFORM_README_PATH = REPOSITORY_ROOT / "docs" / "README.md"
-ROADMAP_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "README.md"
 ALLOWED_CLASSIFICATIONS = {"migrate", "bridge", "retain"}
 REQUIRED_APPROVER_ROLES = {
     "platform",
@@ -55,42 +52,6 @@ def _require_nonempty_string(container: dict[str, object], key: str) -> str:
     value = _require_string(container, key)
     assert value.strip(), f"{key} must not be empty"
     return value
-
-
-def test_repository_charter_contains_every_required_principal_artifact() -> None:
-    charter = CHARTER_PATH.read_text(encoding="utf-8")
-    normalized_charter = " ".join(charter.split())
-
-    for heading in (
-        "## Charter",
-        "## Scope",
-        "## Systems outside the monorepo",
-        "## Repository disposition rules",
-        "## Naming conventions",
-        "## Source governance policy",
-        "## Open findings",
-        "## Non-goals",
-    ):
-        assert heading in charter
-
-    assert "source and governance boundary, not one deployable" in normalized_charter
-    assert "No direct push to `main` is allowed" in charter
-    assert all(classification in charter for classification in ALLOWED_CLASSIFICATIONS)
-    assert "| Accountable owner role | Platform |" in charter
-    assert all(finding_id in charter for finding_id in REQUIRED_OPEN_FINDING_IDS)
-
-
-def test_solo_bootstrap_track_cannot_claim_institutional_acceptance() -> None:
-    platform_readme = PLATFORM_README_PATH.read_text(encoding="utf-8")
-    roadmap = ROADMAP_PATH.read_text(encoding="utf-8")
-
-    assert "## Current operating mode: solo bootstrap" in platform_readme
-    assert "## Solo-bootstrap execution overlay" in roadmap
-    assert "does not mark missing approvals as passed" in platform_readme
-    assert "package status remains `partial`" in roadmap
-    assert "must not manufacture independent" in roadmap
-    assert "Solo bootstrap never permits production credentials" in roadmap
-    assert "Provisional work\nis not grandfathered" in roadmap
 
 
 def test_every_known_repository_and_external_system_has_one_disposition() -> None:

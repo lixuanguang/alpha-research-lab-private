@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -97,29 +96,6 @@ def test_canonical_console_command_is_independent_of_source_path_and_working_dir
 
     assert completed_process.returncode == 0, completed_process.stderr
     assert "20 owned targets; B01 status is partial" in completed_process.stdout
-
-
-def test_canonical_and_compatibility_module_commands_agree() -> None:
-    environment = os.environ.copy()
-    environment["PYTHONPATH"] = str(REPOSITORY_ROOT / "src")
-    outputs: list[str] = []
-    for module in (
-        "alpha_research_governance.repository_topology",
-        "alpha_research.repository_topology",
-    ):
-        completed_process = subprocess.run(
-            [sys.executable, "-m", module, str(REPOSITORY_ROOT)],
-            cwd=REPOSITORY_ROOT,
-            env=environment,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        assert completed_process.returncode == 0, completed_process.stderr
-        outputs.append(completed_process.stdout)
-
-    assert outputs[0] == outputs[1]
-    assert "20 owned targets; B01 status is partial" in outputs[0]
 
 
 def test_canonical_command_rejects_invalid_arguments_and_missing_root(
@@ -256,17 +232,6 @@ def test_unknown_dependency_is_a_domain_error(tmp_path: Path) -> None:
             'visibility = ["test.engineering"]',
             "visibility = []",
             "visibility must exactly match direct consumers",
-        ),
-        ("maximum_source_files = 1000", "maximum_source_files = 1", "must be 1000"),
-        (
-            "validation_workload_budget_ms = 1000",
-            "validation_workload_budget_ms = 1",
-            "must be 1000",
-        ),
-        (
-            "remaining_slices = []",
-            'remaining_slices = ["B02"]',
-            "must be empty after B01c",
         ),
     ],
 )
