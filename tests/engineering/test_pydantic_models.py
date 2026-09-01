@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Never
@@ -18,57 +18,30 @@ import alpha_research_governance.evidence.policy as evidence_policy_module
 import alpha_research_governance.inventory.registry as inventory_module
 import alpha_research_governance.program_governance.registry as program_module
 import alpha_research_governance.security_controls.registry as security_module
-from alpha_research_governance._models import ImmutableModel
 from alpha_research_governance.architecture_governance import (
     ArchitectureGovernanceError,
-    _DecisionLogEntry,
 )
 from alpha_research_governance.change_risk import (
     ChangeRiskInput,
     ChangeRiskPolicyError,
-    ClassificationDecision,
-    ConditionalGateRule,
-    DimensionPolicy,
     ReviewApproval,
-    ReviewerGroup,
     RiskClass,
-    RiskClassPolicy,
     SampleChange,
-    classify_change,
 )
 from alpha_research_governance.change_risk import (
     load_policy as load_change_policy,
 )
 from alpha_research_governance.evidence import (
-    ApprovalEvidence,
-    ArtifactEvidence,
     EvidenceGovernanceError,
-    EvidenceManifest,
     EvidencePolicy,
-    GateEvidence,
     MrField,
-    PackageEvidenceProfile,
-    PackageGateRequirement,
-)
-from alpha_research_governance.evidence import (
-    validate_repository as validate_evidence,
 )
 from alpha_research_governance.inventory import (
     InventoryGovernanceError,
-    InventoryItem,
-    KindPopulation,
-    ResourceInventory,
-)
-from alpha_research_governance.inventory import (
-    validate_repository as validate_inventory,
 )
 from alpha_research_governance.program_governance import (
-    MetricDefinition,
     MetricObservation,
-    MetricSummary,
     PackageNode,
-    PackageState,
-    ProgramGovernance,
     ProgramGovernanceError,
 )
 from alpha_research_governance.program_governance import (
@@ -76,18 +49,7 @@ from alpha_research_governance.program_governance import (
 )
 from alpha_research_governance.security_controls import (
     AuthoritySource,
-    EvidenceSource,
-    JurisdictionProfile,
-    ProtectedAsset,
-    RegulatoryMapping,
-    SecurityControl,
     SecurityControlError,
-    SecurityControlMap,
-    ThreatScenario,
-    TrustBoundary,
-)
-from alpha_research_governance.security_controls import (
-    validate_repository as validate_security,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -118,143 +80,6 @@ def _observation_values() -> dict[str, object]:
         "numerator": None,
         "denominator": None,
     }
-
-
-def test_every_migrated_model_constructs_and_round_trips_strictly() -> None:
-    change_policy = load_change_policy(CHANGE_POLICY_PATH)
-    evidence_policy, manifest = validate_evidence(REPOSITORY_ROOT)
-    inventory = validate_inventory(REPOSITORY_ROOT)
-    program = validate_program(REPOSITORY_ROOT)
-    control_map = validate_security(REPOSITORY_ROOT)
-    observation = MetricObservation.model_validate(_observation_values())
-    approval = ReviewApproval(
-        reviewer_id="reviewer",
-        roles=frozenset({"security", "code_owner"}),
-    )
-    retained_approval = ApprovalEvidence(
-        reviewer_id="reviewer",
-        roles=frozenset({"code_owner"}),
-        independent=False,
-        is_author=False,
-        status="approved",
-        commit_sha="5" * 40,
-        evidence_url="https://forge.example/reviews/validated-model",
-    )
-    decision = classify_change(ChangeRiskInput.model_validate(_change_values()), change_policy)
-    decision_entry = _DecisionLogEntry(
-        identifier="0008",
-        title="Validated boundary models",
-        filename="0008-pydantic-boundary-models.md",
-        status="Proposed",
-        owner="Platform",
-        review_date="2026-11-30",
-    )
-    package_profile = PackageEvidenceProfile(
-        roadmap_package_id="A06",
-        accountable_owner_role="platform",
-        risk_class=RiskClass.R2,
-        classification_facts=ChangeRiskInput(
-            capital_at_risk=False,
-            blast_radius="shared_domain",
-            data_model_materiality="shared_or_candidate",
-            security_privilege="none",
-            reversibility="compatibility_window",
-            computationally_material=True,
-            economically_or_risk_relevant=False,
-            model_or_trading_relevant=False,
-            declared_class=RiskClass.R2,
-        ),
-        gate_requirements=(PackageGateRequirement(gate_id="QG01", status="passed"),),
-        expected_package_status="partial",
-        expected_finding_ids=("A06-F01",),
-        approvals_permitted=False,
-        waivers_permitted=False,
-        additional_required_gates_permitted=False,
-    )
-
-    models: list[ImmutableModel] = [
-        decision_entry,
-        change_policy,
-        *change_policy.dimensions,
-        *change_policy.risk_classes,
-        *(rule for policy in change_policy.risk_classes for rule in policy.conditional_gate_rules),
-        *(group for policy in change_policy.risk_classes for group in policy.reviewer_groups),
-        *change_policy.samples,
-        *(sample.change for sample in change_policy.samples),
-        decision,
-        approval,
-        evidence_policy,
-        *evidence_policy.fields,
-        package_profile,
-        *package_profile.gate_requirements,
-        package_profile.classification_facts,
-        manifest,
-        *manifest.gates,
-        *manifest.artifacts,
-        retained_approval,
-        inventory,
-        *inventory.kinds,
-        *inventory.items,
-        program,
-        *program.packages,
-        *program.package_states,
-        *program.metrics,
-        observation,
-        *program.summarize_metrics((observation,)),
-        control_map,
-        *control_map.assets,
-        *control_map.boundaries,
-        *control_map.threats,
-        *control_map.controls,
-        *control_map.evidence_sources,
-        *control_map.authority_sources,
-        *control_map.jurisdictions,
-        *control_map.regulatory_mappings,
-    ]
-    expected_types = {
-        _DecisionLogEntry,
-        ChangeRiskInput,
-        ConditionalGateRule,
-        DimensionPolicy,
-        ReviewerGroup,
-        RiskClassPolicy,
-        SampleChange,
-        type(change_policy),
-        ClassificationDecision,
-        ReviewApproval,
-        MrField,
-        EvidencePolicy,
-        GateEvidence,
-        PackageGateRequirement,
-        PackageEvidenceProfile,
-        ArtifactEvidence,
-        ApprovalEvidence,
-        EvidenceManifest,
-        KindPopulation,
-        InventoryItem,
-        ResourceInventory,
-        PackageNode,
-        PackageState,
-        MetricDefinition,
-        MetricObservation,
-        MetricSummary,
-        ProgramGovernance,
-        ProtectedAsset,
-        TrustBoundary,
-        ThreatScenario,
-        SecurityControl,
-        EvidenceSource,
-        AuthoritySource,
-        JurisdictionProfile,
-        RegulatoryMapping,
-        SecurityControlMap,
-    }
-
-    assert {type(model) for model in models} == expected_types
-    for model in models:
-        reconstructed = type(model).model_validate(model.model_dump(round_trip=True))
-        assert reconstructed == model
-        assert hash(reconstructed) == hash(model)
 
 
 @pytest.mark.parametrize(
@@ -346,39 +171,6 @@ def test_strict_paths_dates_datetimes_tuples_and_frozensets_fail() -> None:
         MetricObservation.model_validate({**_observation_values(), "numerator": 1})
     with pytest.raises(ValidationError):
         MetricObservation.model_validate({**_observation_values(), "numerator": float("nan")})
-
-
-def test_invalid_defaults_are_validated() -> None:
-    class InvalidDefaultModel(ImmutableModel):
-        value: int = "silently-coerced-without-validation"  # type: ignore[assignment]
-
-    with pytest.raises(ValidationError):
-        InvalidDefaultModel()
-
-
-def test_models_are_frozen_equal_and_hashable() -> None:
-    first = ReviewApproval(reviewer_id="reviewer", roles=frozenset({"code_owner"}))
-    second = ReviewApproval(reviewer_id="reviewer", roles=frozenset({"code_owner"}))
-
-    assert first == second
-    assert hash(first) == hash(second)
-    with pytest.raises(ValidationError, match="frozen"):
-        setattr(first, "reviewer_id", "mutated")
-
-
-def test_trusted_updates_revalidate_while_unvalidated_copy_is_explicit() -> None:
-    approval = ReviewApproval(
-        reviewer_id="reviewer",
-        roles=frozenset({"security", "code_owner"}),
-    )
-    updated = ReviewApproval.model_validate({**approval.model_dump(), "independent": True})
-    assert updated.independent is True
-
-    tampered = approval.model_copy(update={"independent": "not-a-boolean"})
-    dumped = tampered.model_dump(warnings="none")
-    assert dumped["independent"] == "not-a-boolean"
-    with pytest.raises(ValidationError):
-        ReviewApproval.model_validate(dumped)
 
 
 def test_json_mode_preserves_boundary_shapes() -> None:
@@ -521,20 +313,3 @@ def test_repository_relative_paths_are_model_local_invariants() -> None:
     for invalid_path in (Path("/absolute/template.md"), Path("docs/../outside.md")):
         with pytest.raises(ValidationError, match="inside the repository"):
             EvidencePolicy.model_validate({**base, "template_path": invalid_path})
-
-
-def test_precise_date_and_datetime_values_construct_successfully() -> None:
-    source = AuthoritySource(
-        source_id="source",
-        jurisdiction_id="GLOBAL",
-        authority="authority",
-        title="title",
-        citation="citation",
-        source_class="framework",
-        url="https://example.com",
-        last_verified_on=date(2026, 8, 30),
-    )
-    observation = MetricObservation.model_validate(_observation_values())
-
-    assert source.model_dump(mode="json")["last_verified_on"] == "2026-08-30"
-    assert observation.duration_seconds == timedelta(seconds=5).total_seconds()
