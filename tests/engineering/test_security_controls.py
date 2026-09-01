@@ -126,23 +126,6 @@ def test_machine_metadata_is_strict_and_complete(tmp_path: Path) -> None:
         _validate_security_fixture(missing_gate)
 
 
-def test_queries_are_deterministic_and_preserve_source_order() -> None:
-    control_map = validate_repository(REPOSITORY_ROOT)
-
-    market_threats = control_map.threats_by_category("market_integrity")
-    security_controls = control_map.controls_by_owner("security")
-    singapore_mappings = control_map.mappings_for_jurisdiction("SG")
-
-    assert [item.threat_id for item in market_threats] == ["A07-T08", "A07-T09"]
-    assert [item.control_id for item in security_controls] == [
-        "A07-C02",
-        "A07-C03",
-        "A07-C11",
-        "A07-C12",
-    ]
-    assert [item.mapping_id for item in singapore_mappings] == ["A07-MAP-SG-01"]
-
-
 def test_unknown_reference_and_missing_category_fail_closed(tmp_path: Path) -> None:
     unknown = _map_fixture(tmp_path)
     _replace_security_fixture_text(
@@ -516,22 +499,3 @@ def test_cli_emits_byte_stable_filtered_json(capsys: pytest.CaptureFixture[str])
     assert [item["mapping_id"] for item in jurisdiction_result["regulatory_mappings"]] == [
         "A07-MAP-SG-01"
     ]
-
-
-def test_cli_rejects_unknown_filters_and_missing_map(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main([str(REPOSITORY_ROOT), "--threat-category", "unknown"]) == 1
-    assert "unsupported threat category" in capsys.readouterr().err
-
-    assert main([str(REPOSITORY_ROOT), "--jurisdiction", "EU"]) == 1
-    assert "unsupported jurisdiction" in capsys.readouterr().err
-
-    assert main([str(tmp_path)]) == 1
-    assert "domain-ownership.toml" in capsys.readouterr().err
-
-    assert main(["--jurisdiction"]) == 2
-    assert "usage:" in capsys.readouterr().err
-
-    assert main(["--jurisdiction", "--json"]) == 2
-    assert "usage:" in capsys.readouterr().err

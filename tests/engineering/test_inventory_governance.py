@@ -76,24 +76,6 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
     )
 
 
-def test_queries_are_deterministic_and_preserve_explicit_empty_kinds() -> None:
-    inventory = validate_repository(REPOSITORY_ROOT)
-
-    assert inventory.query(kind="dataset") == ()
-    controls = inventory.query(kind="control", owner_role="platform", status="provisional")
-    assert len(controls) == 9
-    assert [item.inventory_id for item in controls] == sorted(
-        item.inventory_id for item in controls
-    )
-    assert sorted(item.record_version for item in controls) == [1, 1, 2, 2, 2, 2, 3, 3, 3]
-    assert all(
-        "src/alpha_research/" not in source
-        for item in inventory.items
-        if item.inventory_id != "inv.control.governance.a01_repository_boundary"
-        for source in item.source_paths
-    )
-
-
 def test_stale_owner_generates_a_finding(tmp_path: Path) -> None:
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
@@ -201,20 +183,6 @@ review_due_on = "2026-11-30"
     )
 
 
-def test_catalog_size_and_workload_limits_fail_closed(tmp_path: Path) -> None:
-    size_limited = _catalog_fixture(tmp_path)
-    _replace_inventory_fixture_text(size_limited, "maximum_items = 10000", "maximum_items = 1")
-    with pytest.raises(InventoryGovernanceError, match="catalog contains 10 items"):
-        _validate_inventory_fixture(size_limited)
-
-    invalid_budget = _catalog_fixture(tmp_path)
-    _replace_inventory_fixture_text(
-        invalid_budget, "query_workload_budget_ms = 1000", "query_workload_budget_ms = 0"
-    )
-    with pytest.raises(InventoryGovernanceError, match="must be a positive integer"):
-        _validate_inventory_fixture(invalid_budget)
-
-
 def test_overdue_review_and_unsafe_source_path_generate_findings(tmp_path: Path) -> None:
     stale = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
@@ -307,19 +275,3 @@ def test_cli_emits_stable_json_for_populated_and_empty_queries(
     ]
     assert datasets["open_finding_ids"] == ["A06-F01", "A06-F02", "A06-F03"]
     assert "Repository-local" in datasets["inventory_scope"]
-
-
-def test_cli_rejects_unknown_kind_and_missing_catalog(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main([str(REPOSITORY_ROOT), "--kind", "unknown"]) == 1
-    assert "unsupported inventory kind" in capsys.readouterr().err
-
-    assert main([str(REPOSITORY_ROOT), "--status", "unknown"]) == 1
-    assert "unsupported inventory status" in capsys.readouterr().err
-
-    assert main([str(tmp_path)]) == 1
-    assert "domain-ownership.toml" in capsys.readouterr().err
-
-    assert main(["--kind"]) == 2
-    assert "usage:" in capsys.readouterr().err

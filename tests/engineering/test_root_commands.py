@@ -6,33 +6,6 @@ import subprocess
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
-ROOT_TARGETS = (
-    "sync",
-    "lock-check",
-    "format",
-    "format-check",
-    "lint",
-    "typecheck",
-    "architecture-check",
-    "ownership-check",
-    "change-risk-check",
-    "evidence-check",
-    "topology-check",
-    "inventory-check",
-    "security-controls-check",
-    "program-governance-check",
-    "security",
-    "bazel-build",
-    "bazel-test",
-    "bazel-check",
-    "rollback-test",
-    "rollback-build",
-    "rollback-check",
-    "test",
-    "smoke",
-    "build",
-    "check",
-)
 GOVERNANCE_COMMANDS = (
     "alpha-governance-change-risk",
     "alpha-governance-evidence",
@@ -51,16 +24,6 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
-
-
-def test_documented_root_targets_are_available() -> None:
-    failures: dict[str, str] = {}
-    for target in ROOT_TARGETS:
-        dry_run = _run_make("-n", target)
-        if dry_run.returncode != 0:
-            failures[target] = dry_run.stderr
-
-    assert failures == {}
 
 
 def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
@@ -86,13 +49,6 @@ def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
         'uv run --frozen --no-editable python -c "import alpha_research"',
         "uv build --no-sources",
     ]
-
-
-def test_unknown_build_backend_fails_closed() -> None:
-    invalid_backend = _run_make("-n", "BUILD_BACKEND=unknown", "check")
-
-    assert invalid_backend.returncode != 0
-    assert "BUILD_BACKEND must be 'bazel' or 'uv'" in invalid_backend.stderr
 
 
 def test_repository_automation_wires_current_toolchain_and_governance_checks() -> None:

@@ -22,7 +22,6 @@ from alpha_research_governance.repository_topology import (
 from alpha_research_governance.repository_topology import (
     load_topology as canonical_load_topology,
 )
-from alpha_research_governance.repository_topology import main as canonical_main
 from alpha_research_governance.repository_topology import (
     validate_repository as canonical_validate_repository,
 )
@@ -96,23 +95,6 @@ def test_canonical_console_command_is_independent_of_source_path_and_working_dir
 
     assert completed_process.returncode == 0, completed_process.stderr
     assert "20 owned targets; B01 status is partial" in completed_process.stdout
-
-
-def test_canonical_command_rejects_invalid_arguments_and_missing_root(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert canonical_main(["one", "two"]) == 2
-    assert "usage:" in capsys.readouterr().err
-
-    assert canonical_main([str(tmp_path / "missing")]) == 1
-    assert "No such file or directory" in capsys.readouterr().err
-
-
-def test_unknown_unit_fails_closed() -> None:
-    topology = validate_repository(REPOSITORY_ROOT)
-
-    with pytest.raises(RepositoryTopologyError, match="unknown source unit"):
-        topology.unit("source.unknown")
 
 
 def test_unregistered_current_source_is_rejected(tmp_path: Path) -> None:

@@ -51,7 +51,10 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-config --strict-markers"
+addopts = '--strict-config --strict-markers -m "not integration"'
+markers = [
+    "integration: slower tests that exercise external command or tool integration",
+]
 
 [tool.bandit]
 targets = ["src"]

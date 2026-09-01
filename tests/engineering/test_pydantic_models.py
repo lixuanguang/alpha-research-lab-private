@@ -82,17 +82,15 @@ def _observation_values() -> dict[str, object]:
     }
 
 
-@pytest.mark.parametrize(
-    "values",
-    [
+def test_strict_primitives_enums_and_unknown_fields_fail() -> None:
+    invalid_values = (
         {**_change_values(), "capital_at_risk": 1},
         {**_change_values(), "declared_class": "R2"},
         {**_change_values(), "unknown_field": "rejected"},
-    ],
-)
-def test_strict_primitives_enums_and_unknown_fields_fail(values: dict[str, object]) -> None:
-    with pytest.raises(ValidationError):
-        ChangeRiskInput.model_validate(values)
+    )
+    for values in invalid_values:
+        with pytest.raises(ValidationError):
+            ChangeRiskInput.model_validate(values)
 
 
 def test_missing_required_and_invalid_nested_models_fail() -> None:

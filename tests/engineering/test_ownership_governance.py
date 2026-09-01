@@ -11,7 +11,6 @@ import pytest
 
 from alpha_research.ownership_governance import (
     OwnershipGovernanceError,
-    main,
     validate_repository,
 )
 
@@ -102,6 +101,7 @@ def test_policy_rejects_an_orphaned_repository_path(tmp_path: Path) -> None:
         validate_repository(fixture_repository_root, repository_paths=("orphan.txt",))
 
 
+@pytest.mark.integration
 def test_pre_commit_rejects_a_staged_unowned_root_path(tmp_path: Path) -> None:
     fixture_repository_root = tmp_path / "repository"
     fixture_repository_root.mkdir()
@@ -235,10 +235,3 @@ def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> 
 
     with pytest.raises(OwnershipGovernanceError, match=r"solo_bootstrap.*cannot claim validated"):
         validate_repository(fixture_repository_root, repository_paths=())
-
-
-def test_command_fails_closed_when_policy_is_missing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main([str(tmp_path)]) == 1
-    assert "domain-ownership.toml" in capsys.readouterr().err

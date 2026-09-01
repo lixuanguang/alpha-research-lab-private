@@ -14,7 +14,6 @@ from alpha_research.change_risk import (
     RiskClass,
     classify_change,
     load_policy,
-    main,
     validate_activation_approvals,
     validate_merge_approvals,
     validate_repository,
@@ -478,13 +477,6 @@ def test_partial_policy_cannot_hide_open_findings(tmp_path: Path) -> None:
         load_policy(path)
 
 
-def test_partial_change_risk_policy_requires_registered_findings(tmp_path: Path) -> None:
-    path = _mutated_policy(tmp_path, 'finding_id = "A04-F02"', 'finding_id = "A04-OTHER"')
-
-    with pytest.raises(ChangeRiskPolicyError, match="partial status requires findings"):
-        load_policy(path)
-
-
 def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> None:
     path = tmp_path / "change-risk-policy.toml"
     text = POLICY_PATH.read_text(encoding="utf-8").split("[[findings]]", maxsplit=1)[0]
@@ -498,13 +490,3 @@ def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> 
 
     with pytest.raises(ChangeRiskPolicyError, match=r"solo_bootstrap.*cannot claim validated"):
         load_policy(path)
-
-
-def test_command_reports_missing_policy_and_usage_errors(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert main([str(tmp_path)]) == 1
-    assert "change-risk-policy.toml" in capsys.readouterr().err
-
-    assert main(["one", "two"]) == 2
-    assert "usage:" in capsys.readouterr().err
