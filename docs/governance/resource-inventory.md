@@ -38,16 +38,17 @@ Adding a real resource changes the kind to `populated` in the same change.
 
 ## Current population
 
-The current repository has nine provisional controls: A01 through A08 plus B01's
-governed repository topology and enforcement. B01c increments the A02-A08 control
-records to version 2 because their implementation lineage now names the canonical
-`tools/governance` targets instead of compatibility facades. All other kinds are
+The current repository has ten provisional controls: A01 through A08 plus B01's
+governed repository topology and B02's hermetic build graph. B01c incremented the
+A02-A08 control records to version 2 because their implementation lineage named
+the canonical `tools/governance` targets instead of compatibility facades. B02
+increments the affected A03, A06, A08, and B01 records. All other kinds are
 explicitly empty because the corresponding canonical data, research, risk,
 trading, deployment, and release packages do not yet exist. A Git commit, wheel,
 research roadmap, evidence fixture, or proposed strategy is not silently promoted
 into a dataset, model, strategy, service, limit, venue, or release.
 
-All nine control records remain `provisional`. Their source checks are active
+All ten control records remain `provisional`. Their source checks are active
 repository-local controls, but they are not institutionally validated, deployed,
 released, or activated resources.
 
@@ -58,7 +59,7 @@ against the A03 ownership register. The same command runs in pre-commit, hosted
 CI, and the root check. Missing lineage, unresolved dependencies, dependency
 cycles, stale or unknown ownership, overdue review, path escape, population drift,
 catalog-size overflow, and deployed resources without evidence fail closed with
-deterministic findings. The catalog caps version 1 at 10,000 records and retains
+deterministic findings. The catalog caps version 2 at 10,000 records and retains
 a deterministic 10,000-query workload with a 1,000 ms repository-test budget.
 
 The CLI emits stable JSON sorted by inventory identity:
@@ -106,8 +107,10 @@ calculation, or risk envelope.
 ## Migration, rollout, rollback, monitoring, and runbook
 
 Catalog schema version 1 remains compatible and has no persisted data, service
-state, or runtime migration. B01c adds one B01 control record and increments the
-A02-A08 records while preserving their stable inventory identities. Future
+state, or runtime migration. Catalog version 2 adds one B02 control record after
+B01c added B01. It increments A03, A06, A08, and B01 for B02's ownership, catalog,
+program-state, and topology changes; all stable inventory identities are preserved.
+Future
 incompatible catalog changes require a versioned compatibility plan and retained
 readers; ordinary metadata corrections increment the affected record version.
 
@@ -136,7 +139,7 @@ These are not waivers or approvals. A06 remains partial until all three close.
 
 ## Non-goals
 
-- Creating the B02 hermetic graph, later target domain directories, canonical
+- Creating B03 clean-machine provisioning, later target domain directories, canonical
   schemas (C), data/model registries (D/E), services, limits, venue adapters, or
   releases.
 - Connecting an external catalog, forge, deployment registry, identity system,

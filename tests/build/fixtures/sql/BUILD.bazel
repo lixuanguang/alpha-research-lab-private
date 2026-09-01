@@ -1,0 +1,36 @@
+load("//tools/build:sql_template.bzl", "sql_template")
+load(":sql_template_test.bzl", "invalid_substitution_test")
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:private"])
+
+sql_template(
+    name = "build_evidence",
+    src = "build_evidence.sql.tmpl",
+    substitutions = {
+        "@@BUILD_IDENTITY@@": "b02-hermetic-fixture",
+        "@@TABLE_NAME@@": "build_artifact_digest",
+    },
+)
+
+py_test(
+    name = "generated_sql_test",
+    srcs = ["generated_sql_test.py"],
+    data = [
+        ":build_evidence",
+        "build_evidence.expected.sql",
+    ],
+    main = "generated_sql_test.py",
+)
+
+sql_template(
+    name = "invalid_substitution",
+    src = "build_evidence.sql.tmpl",
+    substitutions = {"TABLE_NAME": "invalid"},
+    tags = ["manual"],
+)
+
+invalid_substitution_test(
+    name = "invalid_substitution_test",
+    target_under_test = ":invalid_substitution",
+)

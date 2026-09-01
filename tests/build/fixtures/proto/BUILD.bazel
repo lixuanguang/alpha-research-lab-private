@@ -1,0 +1,20 @@
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:private"])
+
+exports_files(["buf.yaml"])
+
+py_test(
+    name = "buf_toolchain_test",
+    srcs = ["buf_toolchain_test.py"],
+    args = [
+        "$(location @rules_buf_toolchains//:buf)",
+        "$(location :buf.yaml)",
+    ],
+    data = [
+        ":buf.yaml",
+        "alpha_research/build/v1/toolchain_probe.proto",
+        "@rules_buf_toolchains//:buf",
+    ],
+    main = "buf_toolchain_test.py",
+)

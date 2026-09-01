@@ -64,7 +64,8 @@ def test_repository_topology_is_complete_and_acyclic() -> None:
     assert topology.package_status == "partial"
     assert topology.slice_status == "provisionally_implemented"
     assert topology.remaining_slices == ()
-    assert len(topology.units) == 19
+    assert len(topology.units) == 20
+    assert topology.unit("test.build").kind == "test"
     assert topology.unit("test.engineering").kind == "test"
     assert topology.unit("tool.governance.repository_topology").kind == "tool"
     assert topology.unit("compatibility.alpha_research.repository_topology").kind == (
@@ -96,7 +97,7 @@ def test_canonical_console_command_is_independent_of_source_path_and_working_dir
     )
 
     assert completed_process.returncode == 0, completed_process.stderr
-    assert "19 owned targets; B01 status is partial" in completed_process.stdout
+    assert "20 owned targets; B01 status is partial" in completed_process.stdout
 
 
 def test_canonical_and_compatibility_module_commands_agree() -> None:
@@ -119,7 +120,7 @@ def test_canonical_and_compatibility_module_commands_agree() -> None:
         outputs.append(completed_process.stdout)
 
     assert outputs[0] == outputs[1]
-    assert "19 owned targets; B01 status is partial" in outputs[0]
+    assert "20 owned targets; B01 status is partial" in outputs[0]
 
 
 def test_canonical_command_rejects_invalid_arguments_and_missing_root(
@@ -144,7 +145,7 @@ def test_repository_validation_stays_within_the_governed_budget() -> None:
     topology = validate_repository(REPOSITORY_ROOT)
     elapsed_ms = (perf_counter_ns() - started) / 1_000_000
 
-    assert len(topology.units) == 19
+    assert len(topology.units) == 20
     assert elapsed_ms <= topology.validation_workload_budget_ms
 
 
@@ -301,7 +302,7 @@ def test_source_roots_cannot_hide_a_current_area(tmp_path: Path) -> None:
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
-        'source_roots = [\n  "src/alpha_research",\n  "tests/engineering",\n'
+        'source_roots = [\n  "src/alpha_research",\n  "tests/build",\n  "tests/engineering",\n'
         '  "tools/governance/src/alpha_research_governance",\n]',
         'source_roots = ["src/alpha_research"]',
     )

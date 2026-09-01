@@ -28,8 +28,8 @@ canonical implementation remains in the non-editable repository path package
 available for existing callers and rollback, but no B01c enforcement consumer
 uses an ambient `PYTHONPATH` or a compatibility module command.
 
-B01c does not create the target domain skeleton or introduce a build, domain, or
-external dependency. B02 owns the hermetic Bazel graph and may remove the
+B01c did not create the target domain skeleton or introduce a build, domain, or
+external dependency. B02 owns the separately reviewed hermetic Bazel graph and may remove the
 compatibility facades only through a separately reviewed compatibility change.
 B05 owns affected-target and authoritative merged-result build policy.
 
@@ -63,7 +63,7 @@ including topology, on pull requests and pushes to `main`. The workflow
 definition is repository-local evidence only; protected-branch, merge-result,
 and retained exact-commit execution remain open external findings.
 
-A06 now inventories nine provisional controls: A01-A08 and B01. The A02-A08
+A06 initially inventoried nine provisional controls: A01-A08 and B01. The A02-A08
 records use canonical implementation paths and increment their record versions;
 the new B01 record links the registry, validator, root, hook, workflow, tests,
 and B01c evidence. A08 records B01 as `partial` with passing repository-local
@@ -83,9 +83,10 @@ tool layers. Compatibility targets depend on exactly one canonical tool target;
 canonical tools never depend back on compatibility code. Engineering tests are
 the only current reverse consumer of both surfaces.
 
-The registry assigns every Python implementation, facade, typing marker, and
-engineering-test source under `tools/governance/src/alpha_research_governance/`,
-`src/alpha_research/`, and `tests/engineering/` to exactly one of 19 owned
+The registry now assigns every Python implementation, facade, typing marker,
+engineering-test source, and B02 build-test source under
+`tools/governance/src/alpha_research_governance/`, `src/alpha_research/`,
+`tests/engineering/`, and `tests/build/` to exactly one of 20 owned
 targets. Each target declares kind, layer, accountable owner, supported platform,
 direct dependencies, exact reverse visibility, and exact source paths. The
 validator derives direct imports for both namespaces with deterministic AST
@@ -174,8 +175,9 @@ slices but cannot independently validate B01 or close independent-review and
 protected-forge findings. It authorizes no release, promotion, deployment,
 activation, credentials, market access, capital, or expanded risk authority.
 
-B01c does not implement B02/Bazel, B03 clean-machine equivalence, B04 language
+B01c did not implement B02/Bazel. It does not implement B03 clean-machine equivalence, B04 language
 standards, B05 affected/full build policy, supply-chain admission, signed
 artifacts, target-domain behavior, or compatibility-facade removal.
 
-The next documented selector is `B02`.
+The successor selector is `B02`; its current partial implementation is documented
+in the [hermetic build graph contract](hermetic-build-graph.md).

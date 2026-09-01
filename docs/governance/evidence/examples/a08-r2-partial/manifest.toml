@@ -49,7 +49,7 @@ evidence_ids = ["contract-and-tests"]
 [[gates]]
 gate_id = "QG05"
 status = "passed"
-rationale = "A01-B01 package evidence, source revisions, producer packages, event types, units, and dimensions are linked."
+rationale = "A01-B02 package evidence, source revisions, producer packages, event types, units, and dimensions are linked."
 evidence_ids = ["graph-and-readiness"]
 
 [[gates]]
@@ -110,7 +110,7 @@ sha256 = "5cda51ab80146ddeb9166e2bccc1fada7c3efd181b7d9206a62d4e562d996d02"
 evidence_id = "graph-and-readiness"
 artifact_type = "test_report"
 path = "reports/graph-and-readiness.txt"
-sha256 = "f3873ba18ad4ad065d9612d33d0a8fec6737c693c96fe71e6459374b11e20ddf"
+sha256 = "a01393cd89e9d89a099f7c4a7f9fa839069c39dea4b98ec57f4b617f3805ffac"
 
 [[artifacts]]
 evidence_id = "security-resilience-and-performance"

@@ -31,6 +31,15 @@ MANIFEST_PATH = (
     / "a06-r2-partial"
     / "manifest.toml"
 )
+BUILD_GRAPH_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "docs"
+    / "governance"
+    / "evidence"
+    / "examples"
+    / "b02-r2-partial"
+    / "manifest.toml"
+)
 CHANGE_POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "change-risk-policy.toml"
 
 
@@ -57,6 +66,40 @@ def _profile(manifest: EvidenceManifest) -> PackageEvidenceProfile:
         waivers_permitted=False,
         additional_required_gates_permitted=False,
     )
+
+
+def test_build_graph_manifest_matches_its_exact_partial_r2_profile() -> None:
+    manifest = validate_manifest(
+        BUILD_GRAPH_MANIFEST_PATH,
+        expected_commit_sha="8" * 40,
+        change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
+    )
+    profile = PackageEvidenceProfile(
+        roadmap_package_id="B02",
+        accountable_owner_role="platform",
+        risk_class=RiskClass.R2,
+        classification_facts=ChangeRiskInput(
+            capital_at_risk=False,
+            blast_radius="shared_domain",
+            data_model_materiality="shared_or_candidate",
+            security_privilege="none",
+            reversibility="compatibility_window",
+            computationally_material=True,
+            economically_or_risk_relevant=False,
+            model_or_trading_relevant=False,
+            declared_class=RiskClass.R2,
+        ),
+        gate_requirements=tuple(
+            PackageGateRequirement(gate_id=gate.gate_id, status="passed") for gate in manifest.gates
+        ),
+        expected_package_status="partial",
+        expected_finding_ids=("B02-F01", "B02-F02", "B02-F03"),
+        approvals_permitted=False,
+        waivers_permitted=False,
+        additional_required_gates_permitted=False,
+    )
+
+    validate_package_evidence(manifest, profile)
 
 
 def _copy_manifest_with_updates(manifest: EvidenceManifest, **updates: object) -> EvidenceManifest:

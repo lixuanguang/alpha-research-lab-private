@@ -327,17 +327,18 @@ the shared kernel is the production path.
 ## Current repository mapping
 
 Repository-local implementations and deterministic checks now exist from the
-repository charter through program governance (packages `A01` through `A08`).
+repository charter through the pinned build graph (packages `A01` through `B02`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
 through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
 remains open. This does not validate wave A or authorize a wave exit.
 
-The existing uv lock, Python package, Make checks, and engineering tests are
-bootstrap evidence relevant to the hermetic-build through continuous-integration
-packages (`B02` through `B05`). They do not yet meet the Bazel, Nix or
-equivalent, ownership, risk-class, affected-target, merged-result, provenance,
-SBOM, signing, or admission requirements and therefore are not marked validated.
+The B02 Bazel graph pins Python and Buf toolchains, imports the uv lock as a
+transitional resolution input, sandboxes actions, generates SQL and test-only
+Protobuf outputs, declares documentation inputs, and retains a tested Make/uv
+rollback. B02 remains partial because independent review, protected merged-result
+Linux evidence, clean-machine equivalence, and final dependency admission remain
+open. B03-B08 requirements are not implemented or marked validated.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -416,6 +417,18 @@ topology package (`B01`) remains `partial`; repository-local slice completion do
 not validate the parent. The next selector is the pinned hermetic build graph
 (`B02`).
 
+### Active pinned hermetic build graph delivery state
+
+The pinned graph (`B02`) is provisionally implemented under solo bootstrap by the
+[hermetic build graph contract](../architecture/hermetic-build-graph.md). Bazel is
+the default root build backend for current Python, governance-tool, documentation,
+SQL-generation, and test-only Protobuf targets; the complete frozen-uv path remains
+the tested rollback. The package retains medium-risk (`R2`) evidence and its
+independent-review, protected merged-result/local-CI equivalence, clean-machine,
+and dependency-admission findings. B02 remains `partial`; it does not validate
+wave B or authorize any runtime, release, deployment, activation, market, or
+capital action. The next selector is clean-machine reproducibility (`B03`).
+
 ## Recommended adoption order
 
 1. Preserve the completed governance hardening, toolchain-refresh evidence, and
@@ -424,11 +437,11 @@ not validate the parent. The next selector is the pinned hermetic build graph
    repository-local graph, governance-tool migration, compatibility entry points,
    canonical enforcement, R2 evidence, and open findings before introducing new
    dependencies.
-3. Implement the pinned hermetic build graph (`B02`) with `rules_python`, the
-   refreshed uv lock as a transitional resolution input, and Buf-backed
-   Protobuf/code-generation targets. Keep Make as a tested delegating rollback
-   interface.
-4. Implement clean-machine reproducibility (`B03`).
+3. Preserve the pinned hermetic build graph (`B02`), provisional dependency
+   records, sandbox/code-generation tests, Make delegation and uv rollback, R2
+   evidence, and open findings.
+4. Implement clean-machine reproducibility (`B03`) without extending B02 into
+   remote execution or final dependency admission.
 5. Implement engineering standards (`B04`) and add Hypothesis to the property/state-
    machine testing target; do not repeat the existing-tool refresh.
 6. Implement fast/full CI and schema compatibility (`B05`), then remote execution

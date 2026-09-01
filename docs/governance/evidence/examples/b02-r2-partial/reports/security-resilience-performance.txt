@@ -1,0 +1,9 @@
+B02 repository-local security, resilience, and performance evidence
+Synthetic commit: 8888888888888888888888888888888888888888
+
+- New build inputs have immutable versions/source digests, licences, platform and
+  native-dependency declarations, review statements, and tested rollback notes.
+- Production runtime package installation remains prohibited and no credential,
+  deployment, remote-cache, market, venue, account, limit, or capital path exists.
+- Representative Bazel targets build together; workload policy and clean-machine,
+  hosted merged-result, and final B07 admission evidence remain open findings.

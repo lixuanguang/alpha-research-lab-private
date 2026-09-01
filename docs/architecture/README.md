@@ -193,18 +193,20 @@ Git retains schemas, manifests, build definitions, synthetic fixtures, and
 policies.
 
 [B01's governed repository topology](repository-topology.md) registers and checks
-canonical tools, compatibility facades, and engineering tests. B01c enforces it
-through root, pre-commit, hosted-CI, A06, and A08 consumers. It does not create
-the remaining target tree or claim that the B02 hermetic build graph or B05
+canonical tools, compatibility facades, engineering tests, and B02 build-test
+sources. B01c enforces it through root, pre-commit, hosted-CI, A06, and A08
+consumers. [B02](hermetic-build-graph.md) adds the current pinned build graph but
+does not create the remaining target tree or claim that B03 clean-machine or B05
 affected/full policy exists.
 
 ## Build and reproducibility architecture
 
-The target build is a pinned, hermetic Bazel graph for Python, C++ and/or Rust,
-Protobuf, SQL generation, and documentation. A Nix flake or equivalent developer
-environment provides reproducible local prerequisites. The current uv lock remains
-an input for the bootstrap Python target until B02-B03 replace or import it into
-the canonical graph.
+The target build is a pinned, hermetic Bazel graph for Python, justified C++ and/or
+Rust, Protobuf, SQL generation, and documentation. B02 implements that graph for
+the current Python, governance, documentation, SQL, and test-only Protobuf targets;
+there is no native source to justify a native target yet. A Nix flake or equivalent
+developer environment remains B03's reproducible-prerequisite boundary. The uv
+lock is a transitional resolution input to the current Bazel Python graph.
 
 The build system must:
 

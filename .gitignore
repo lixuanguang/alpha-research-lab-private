@@ -10,6 +10,11 @@ __pycache__/
 # -----------------------------------------------------------------------------
 build/
 dist/
+bazel-*
+!tests/build/
+!tests/build/**
+!tools/build/
+!tools/build/**
 *.egg-info/
 .eggs/
 pip-wheel-metadata/

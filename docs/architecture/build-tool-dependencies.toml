@@ -1,0 +1,120 @@
+schema_version = 1
+roadmap_package = "B02"
+operating_track = "solo_bootstrap"
+package_status = "partial"
+accountable_owner_role = "platform"
+admission_owner_package = "B07"
+as_of_date = "2026-09-01"
+runtime_installation_allowed = false
+
+[[dependencies]]
+dependency_id = "b02.bazel"
+name = "Bazel"
+version = "9.1.0"
+purpose = "Canonical hermetic build and test graph executor."
+source_url = "https://github.com/bazelbuild/bazel/releases/tag/9.1.0"
+source_digest = "release-artifacts:darwin-arm64=084a1784fa8f0dcae77fb4e88faa15048d8149a36c947ce198508bffb060e1bb,linux-x86_64=a667454f3f4f8878df8199136b82c199f6ada8477b337fae3b1ef854f01e4e2f"
+license = "Apache-2.0"
+supported_platforms = ["darwin_arm64", "linux_x86_64"]
+transitive_native_dependencies = ["bundled OpenJDK"]
+vulnerability_review = "Official release and GitHub advisory surfaces reviewed on 2026-09-01; final admission remains B07-owned."
+maintenance_review = "Current stable Bazel release selected; Bazelisk enforces the repository pin."
+rollback = "Set BUILD_BACKEND=uv for the retained pre-B02 graph, then revert the B02 files together."
+
+[[dependencies]]
+dependency_id = "b02.bazel_skylib"
+name = "bazel-skylib"
+version = "1.8.2"
+purpose = "Bazel utility rules required by the pinned module graph."
+source_url = "https://github.com/bazelbuild/bazel-skylib/releases/tag/1.8.2"
+source_digest = "sha256:6e78f0e57de26801f6f564fa7c4a48dc8b36873e416257a92bbb0937eeac8446"
+license = "Apache-2.0"
+supported_platforms = ["any"]
+transitive_native_dependencies = []
+vulnerability_review = "Official release and GitHub advisory surfaces reviewed on 2026-09-01; final admission remains B07-owned."
+maintenance_review = "Pinned through the Bazel Central Registry and MODULE.bazel.lock."
+rollback = "Remove the module dependency when no remaining rule requires it."
+
+[[dependencies]]
+dependency_id = "b02.bazelisk"
+name = "Bazelisk"
+version = "1.29.0"
+purpose = "Local and CI launcher that resolves the exact .bazelversion release."
+source_url = "https://github.com/bazelbuild/bazelisk/releases/tag/v1.29.0"
+source_digest = "release-artifacts:darwin-arm64=cee851f726789227d5561004e9904a52be45c3efb56f8b38b6993d6adbaa0409,linux-amd64=5a408715e932c0250d28bd84555f12edbf70117de42f9181691c736eacc4a992"
+license = "Apache-2.0"
+supported_platforms = ["darwin_arm64", "linux_x86_64"]
+transitive_native_dependencies = []
+vulnerability_review = "Official release and GitHub advisory surfaces reviewed on 2026-09-01; final admission remains B07-owned."
+maintenance_review = "CI action input and local launcher version are both exact pins."
+rollback = "Use the retained uv backend while reverting the Bazel launcher integration."
+
+[[dependencies]]
+dependency_id = "b02.buf"
+name = "Buf CLI"
+version = "1.72.0"
+purpose = "Sandboxed Protobuf lint and deterministic descriptor-set generation."
+source_url = "https://github.com/bufbuild/buf/releases/tag/v1.72.0"
+source_digest = "sha256-manifest:c6ddd4f90a2829ea04efbfbbbc44f8f5d4a0f2dda3bec5ec3fbb652c2d394c06"
+license = "Apache-2.0"
+supported_platforms = ["darwin_arm64", "linux_x86_64"]
+transitive_native_dependencies = []
+vulnerability_review = "Official release and GitHub advisory surfaces reviewed on 2026-09-01; final admission remains B07-owned."
+maintenance_review = "rules_buf verifies selected platform artifacts against the pinned official SHA256 manifest."
+rollback = "Remove the Buf fixture target and rules_buf extension with the B02 graph revert."
+
+[[dependencies]]
+dependency_id = "b02.python_build_standalone"
+name = "python-build-standalone runtime manifest"
+version = "20260814 / CPython 3.12.14"
+purpose = "Hermetic CPython toolchain source for rules_python."
+source_url = "https://github.com/astral-sh/python-build-standalone/releases/tag/20260814"
+source_digest = "sha256:0e27ff80c0075aa29730035faf2b94a00498f348131c6e8997cbbb5b77584966"
+license = "Python-2.0-and-third-party-notices"
+supported_platforms = ["darwin_arm64", "linux_x86_64"]
+transitive_native_dependencies = ["runtime libraries listed by the upstream distribution notices"]
+vulnerability_review = "Upstream release and advisory surfaces reviewed on 2026-09-01; runtime composition requires final B07 admission."
+maintenance_review = "Exact manifest and CPython patch version are pinned because rules_python 2.2.0 predates this runtime release."
+rollback = "Return execution to the uv backend and remove the rules_python toolchain override."
+
+[[dependencies]]
+dependency_id = "b02.rules_buf"
+name = "rules_buf"
+version = "0.5.4"
+purpose = "Bazel module extension for verified Buf toolchains."
+source_url = "https://github.com/bufbuild/rules_buf/releases/tag/v0.5.4"
+source_digest = "sha256:6675ba41a9e8ae2950602ce366b14815476714760286ca8d17c9418a07fdf35c"
+license = "Apache-2.0"
+supported_platforms = ["any"]
+transitive_native_dependencies = ["Buf CLI platform binary"]
+vulnerability_review = "Official release and GitHub advisory surfaces reviewed on 2026-09-01; final admission remains B07-owned."
+maintenance_review = "Pinned through the Bazel Central Registry and MODULE.bazel.lock."
+rollback = "Remove the module extension and Buf fixture target with the B02 graph revert."
+
+[[dependencies]]
+dependency_id = "b02.rules_python"
+name = "rules_python"
+version = "2.2.0"
+purpose = "Hermetic Python toolchains, libraries, binaries, tests, and uv-lock translation."
+source_url = "https://github.com/bazel-contrib/rules_python/releases/tag/2.2.0"
+source_digest = "sha256:e11d2e1efce1589e5bdfa93986712c74fc7467a0f093143d489d2ef5ebb1ed2a"
+license = "Apache-2.0"
+supported_platforms = ["any"]
+transitive_native_dependencies = ["python-build-standalone runtime"]
+vulnerability_review = "Official release and GitHub advisory surfaces reviewed on 2026-09-01; final admission remains B07-owned."
+maintenance_review = "Roadmap-required 2.2 line pinned through the Bazel Central Registry and MODULE.bazel.lock."
+rollback = "Use BUILD_BACKEND=uv and remove Bazel Python targets with the B02 graph revert."
+
+[[dependencies]]
+dependency_id = "b02.setup_bazel"
+name = "bazel-contrib/setup-bazel"
+version = "0.19.0"
+purpose = "Hosted-CI installation of the exact Bazelisk launcher."
+source_url = "https://github.com/bazel-contrib/setup-bazel/commit/c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86"
+source_digest = "git-commit:c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86"
+license = "Apache-2.0"
+supported_platforms = ["linux_x86_64"]
+transitive_native_dependencies = ["Bazelisk"]
+vulnerability_review = "Pinned commit and GitHub advisory surfaces reviewed on 2026-09-01; final admission remains B07-owned."
+maintenance_review = "Workflow references the immutable commit rather than a mutable action tag."
+rollback = "Remove the CI setup and verification steps while the uv workflow remains authoritative."

@@ -1,0 +1,137 @@
+schema_version = 1
+bundle_id = "b02-r2-partial"
+roadmap_id = "B02"
+commit_sha = "8888888888888888888888888888888888888888"
+owner_role = "platform"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = []
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["B02-F01", "B02-F02", "B02-F03"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "none"
+reversibility = "compatibility_window"
+computationally_material = true
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Focused and repository-wide hygiene cover the graph definitions, Starlark rule, tests, dependency records, and delegation surfaces."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "Bazel, module resolution, CPython, Python dependencies, Buf, and CI launcher inputs are exact pins with checked-in lock or source digests."
+evidence_ids = ["hermeticity-and-codegen"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Success, missing pins, malformed substitution keys, undeclared inputs, deterministic generation, backend selection, and command failures are exercised."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Declared Bazel targets, exact toolchain inputs, analysis-time SQL validation, dependency records, and topology registration fail closed."
+evidence_ids = ["hermeticity-and-codegen"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "B02 graph, dependency, evidence, A06 inventory, A08 state, and B01 topology links remain explicit and machine checked."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "Only synthetic build fixtures are introduced; no research, dataset, model, strategy, or production result is claimed."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "Make defaults to the Bazel graph, hosted CI invokes the same Bazel check, and the full uv compatibility path remains a tested rollback."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "Representative Python, governance, SQL, documentation, sandbox, and code-generation targets build and test within bounded local checks."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Lock drift, missing declarations, sandbox leakage, nondeterministic generation, invalid backend selection, and delegate failures stop validation; uv rollback is retained."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Strict action environments exclude host secrets; dependencies use immutable sources and digests; runtime installation is prohibited; Bandit remains in the compatibility suite."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "The contract documents scope, pins, interfaces, native-language decision, migration, rollback, monitoring, findings, non-goals, and successor."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "Lock, build, test, sandbox, generation, CI, and rollback failures are defined as repository-local signals without claiming a production monitor."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[artifacts]]
+evidence_id = "contract-and-tests"
+artifact_type = "test_report"
+path = "reports/contract-and-tests.txt"
+sha256 = "c875ec3b5656f720e2a1f85b97745b3a59f4b779cc1f670cdda42a2f2a028481"
+
+[[artifacts]]
+evidence_id = "documentation-and-monitoring"
+artifact_type = "test_report"
+path = "reports/documentation-and-monitoring.txt"
+sha256 = "a54bc86afa5eeacad85f9781af2d3739bed98099b02804a6ce53002b58fc4a40"
+
+[[artifacts]]
+evidence_id = "hermeticity-and-codegen"
+artifact_type = "test_report"
+path = "reports/hermeticity-and-codegen.txt"
+sha256 = "03f6beca3d811a66a3ad3bd95f159a9ee7aab18341de6d6a0b1e7d474a6a1405"
+
+[[artifacts]]
+evidence_id = "security-resilience-performance"
+artifact_type = "test_report"
+path = "reports/security-resilience-performance.txt"
+sha256 = "ae0548298e7f81b381215243af736d414cfd9bf5ca88f43aaefa07030a0cb9fa"
+
+[[findings]]
+finding_id = "B02-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent domain review and commit-bound Platform Code Owner approval are unavailable during solo bootstrap."
+closure_condition = "Named reviewers resolve findings and approve the exact B02 graph, toolchain pins, dependency records, compatibility window, and rollback at the reviewed commit."
+
+[[findings]]
+finding_id = "B02-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected merged-result Linux execution and retained exact-commit local/CI target and toolchain digest comparison are unavailable from this checkout."
+closure_condition = "Protected CI runs the representative graph at the reviewed merged result and retains target and toolchain digests matching a supported local run."
+
+[[findings]]
+finding_id = "B02-F03"
+owner_role = "platform"
+unavailable_evidence = "B03 clean-machine execution and B07 final dependency admission have not occurred."
+closure_condition = "B03 proves clean-machine equivalence and B07 admits or replaces every provisional B02 dependency without weakening the graph."

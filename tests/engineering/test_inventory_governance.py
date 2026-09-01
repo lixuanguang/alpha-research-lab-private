@@ -39,7 +39,7 @@ def _validate_inventory_fixture(path: Path) -> None:
 def test_repository_inventory_is_versioned_partial_and_complete_for_current_scope() -> None:
     inventory = validate_repository(REPOSITORY_ROOT)
 
-    assert inventory.catalog_version == 1
+    assert inventory.catalog_version == 2
     assert inventory.package_status == "partial"
     assert inventory.maximum_items == 10_000
     assert inventory.query_workload_iterations == 10_000
@@ -51,7 +51,7 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
     assert [item.inventory_id for item in inventory.items] == sorted(
         item.inventory_id for item in inventory.items
     )
-    assert len(inventory.items) == 9
+    assert len(inventory.items) == 10
     assert {item.kind for item in inventory.items} == {"control"}
     assert all(item.status == "provisional" for item in inventory.items)
     repository_topology_control = next(
@@ -65,6 +65,16 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
         "inv.control.governance.a04_change_risk",
         "inv.control.governance.a05_merge_evidence",
     )
+    build_graph_control = next(
+        item
+        for item in inventory.items
+        if item.inventory_id == "inv.control.governance.b02_hermetic_build_graph"
+    )
+    assert build_graph_control.dependencies == (
+        "inv.control.governance.a04_change_risk",
+        "inv.control.governance.a05_merge_evidence",
+        "inv.control.governance.b01_repository_topology",
+    )
 
 
 def test_queries_are_deterministic_and_preserve_explicit_empty_kinds() -> None:
@@ -72,11 +82,11 @@ def test_queries_are_deterministic_and_preserve_explicit_empty_kinds() -> None:
 
     assert inventory.query(kind="dataset") == ()
     controls = inventory.query(kind="control", owner_role="platform", status="provisional")
-    assert len(controls) == 8
+    assert len(controls) == 9
     assert [item.inventory_id for item in controls] == sorted(
         item.inventory_id for item in controls
     )
-    assert sorted(item.record_version for item in controls) == [1, 1, 2, 2, 2, 2, 2, 2]
+    assert sorted(item.record_version for item in controls) == [1, 1, 2, 2, 2, 2, 3, 3, 3]
     assert all(
         "src/alpha_research/" not in source
         for item in inventory.items
@@ -206,7 +216,7 @@ review_due_on = "2026-11-30"
 def test_catalog_size_and_workload_limits_fail_closed(tmp_path: Path) -> None:
     size_limited = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(size_limited, "maximum_items = 10000", "maximum_items = 1")
-    with pytest.raises(InventoryGovernanceError, match="catalog contains 9 items"):
+    with pytest.raises(InventoryGovernanceError, match="catalog contains 10 items"):
         _validate_inventory_fixture(size_limited)
 
     invalid_budget = _catalog_fixture(tmp_path)
@@ -282,7 +292,7 @@ def test_cli_emits_stable_json_for_populated_and_empty_queries(
     assert first_output == second_output
 
     controls = json.loads(first_output)
-    assert controls["count"] == 9
+    assert controls["count"] == 10
     assert [item["inventory_id"] for item in controls["items"]] == sorted(
         item["inventory_id"] for item in controls["items"]
     )
