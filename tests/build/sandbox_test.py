@@ -18,7 +18,7 @@ def main() -> int:
     if visible:
         print(f"undeclared inputs leaked into the sandbox: {visible}", file=sys.stderr)
         return 1
-    if "B02_UNDECLARED_SECRET" in os.environ:
+    if "UNDECLARED_HOST_SECRET" in os.environ:
         print("undeclared host environment leaked into the sandbox", file=sys.stderr)
         return 1
     return 0

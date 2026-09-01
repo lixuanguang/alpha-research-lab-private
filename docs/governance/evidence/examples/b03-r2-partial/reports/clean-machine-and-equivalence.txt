@@ -1,0 +1,10 @@
+B03 repository-local clean-machine and equivalence evidence
+Synthetic commit: 9999999999999999999999999999999999999999
+
+- flake.lock fixes the reviewed nixpkgs revision and content hash; flake evaluation
+  covers aarch64-darwin and x86_64-linux without rewriting the lock.
+- The aarch64-darwin shell realizes every required command, including the exact
+  digest-bound Bazel binary, from /nix/store and verifies all tool versions.
+- The shell executes the focused B03 target, the complete B02 Bazel graph, and
+  the frozen uv compatibility path. Protected x86_64-linux realization and
+  retained cross-platform comparison remain B03-F02, not a local claim.

@@ -327,7 +327,8 @@ the shared kernel is the production path.
 ## Current repository mapping
 
 Repository-local implementations and deterministic checks now exist from the
-repository charter through the pinned build graph (packages `A01` through `B02`).
+repository charter through the clean-machine environment (packages `A01` through
+`B03`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
 through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
@@ -337,8 +338,10 @@ The B02 Bazel graph pins Python and Buf toolchains, imports the uv lock as a
 transitional resolution input, sandboxes actions, generates SQL and test-only
 Protobuf outputs, declares documentation inputs, and retains a tested Make/uv
 rollback. B02 remains partial because independent review, protected merged-result
-Linux evidence, clean-machine equivalence, and final dependency admission remain
-open. B03-B08 requirements are not implemented or marked validated.
+Linux evidence, and final dependency admission remain open. B03 realizes the
+same graph and uv rollback on repository-local Darwin, but remains partial pending
+independent review, protected Linux execution/comparison, and B07 admission.
+B04-B08 requirements are not implemented or marked validated.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -427,7 +430,21 @@ the tested rollback. The package retains medium-risk (`R2`) evidence and its
 independent-review, protected merged-result/local-CI equivalence, clean-machine,
 and dependency-admission findings. B02 remains `partial`; it does not validate
 wave B or authorize any runtime, release, deployment, activation, market, or
-capital action. The next selector is clean-machine reproducibility (`B03`).
+capital action. Its clean-machine successor is provisionally implemented as B03.
+
+### Active clean-machine developer environment delivery state
+
+The clean-machine environment (`B03`) is provisionally implemented under solo
+bootstrap by the
+[clean-machine environment contract](../architecture/clean-machine-environment.md).
+Its locked Nix shell supplies exact CPython, uv, Bazelisk/Bazel, Git, Make, and Nix
+inputs on the declared `aarch64-darwin` and `x86_64-linux` systems. Repository-
+local Darwin realization, exact-tool verification, the B02 Bazel graph, and the
+complete uv rollback pass. B03 retains medium-risk (`R2`) evidence and open
+independent-review, protected Linux execution/comparison, and B07 admission
+findings. It remains `partial` and authorizes no release, deployment, activation,
+credentials, market access, capital, or expanded risk authority. The next
+selector is engineering standards (`B04`).
 
 ## Recommended adoption order
 
@@ -440,8 +457,9 @@ capital action. The next selector is clean-machine reproducibility (`B03`).
 3. Preserve the pinned hermetic build graph (`B02`), provisional dependency
    records, sandbox/code-generation tests, Make delegation and uv rollback, R2
    evidence, and open findings.
-4. Implement clean-machine reproducibility (`B03`) without extending B02 into
-   remote execution or final dependency admission.
+4. Preserve clean-machine reproducibility (`B03`), its exact host-tool and
+   supported-platform record, Bazel equivalence, uv rollback, R2 evidence, and
+   open findings.
 5. Implement engineering standards (`B04`) and add Hypothesis to the property/state-
    machine testing target; do not repeat the existing-tool refresh.
 6. Implement fast/full CI and schema compatibility (`B05`), then remote execution

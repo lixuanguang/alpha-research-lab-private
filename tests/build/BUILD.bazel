@@ -14,3 +14,10 @@ py_test(
     srcs = ["sandbox_test.py"],
     main = "sandbox_test.py",
 )
+
+py_test(
+    name = "developer_environment_test",
+    srcs = ["developer_environment_test.py"],
+    data = ["//:repository_governance_data"],
+    main = "developer_environment_test.py",
+)

@@ -1,0 +1,9 @@
+B03 repository-local security, resilience, and performance evidence
+Synthetic commit: 9999999999999999999999999999999999999999
+
+- Tool sources use an immutable nixpkgs revision or exact official release
+  artifacts with per-platform SHA-256 digests; no runtime installation is allowed.
+- The bootstrap rejects host-command fallback, unsupported systems, version drift,
+  uv managed-Python downloads, lock drift, Bazel failure, and rollback failure.
+- The retained full graph and uv rollback complete under the local locked shell.
+  Protected Linux workload evidence and B07 qualified admission remain findings.

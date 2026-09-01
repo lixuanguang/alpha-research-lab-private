@@ -19,6 +19,7 @@ patterns = [
     "/.bazelignore",
     "/.bazelrc",
     "/.bazelversion",
+    "/.envrc",
     "/.gitignore",
     "/.pre-commit-config.yaml",
     "/.python-version",
@@ -26,6 +27,8 @@ patterns = [
     "/Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf",
     "/Makefile",
     "/BUILD.bazel",
+    "/flake.lock",
+    "/flake.nix",
     "/MODULE.bazel",
     "/MODULE.bazel.lock",
     "/pyproject.toml",
@@ -116,7 +119,7 @@ escalation_roles = ["security", "platform"]
 
 [[domains]]
 domain_id = "platform_runtime"
-patterns = ["/platform/", "/environments/", "/tools/"]
+patterns = ["/.vscode/", "/platform/", "/environments/", "/tools/"]
 accountable_role = "platform"
 codeowners = ["@lixuanguang"]
 required_review_roles = ["platform", "sre", "security"]

@@ -44,8 +44,9 @@ graph without preserving a Python-only topology.
 ## Consequences
 
 Build and ownership boundaries become explicit and scalable, at the cost of
-tooling complexity and migration work. This ADR selects the target control model;
-it does not claim that B02-B03 are implemented.
+tooling complexity and migration work. B02 and B03 now provisionally implement
+the repository-local graph and clean-machine environment; this proposed ADR does
+not supply their missing independent or target-environment approval.
 
 ## Migration and rollout
 
@@ -61,6 +62,6 @@ replacement ADR demonstrating equivalent hermeticity and evidence before cutover
 
 ## Review and evidence
 
-Platform Code Owner review, clean bootstrap, sandbox/undeclared-input tests,
-cross-environment digest comparison, and rollback evidence are required by
-B02-B03. Review this proposal when those measured results exist.
+Repository-local Darwin clean bootstrap, sandbox/undeclared-input tests, and
+rollback now pass. Platform Code Owner review, protected Linux execution, and
+retained exact-commit cross-environment comparison remain required by B02-B03.

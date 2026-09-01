@@ -104,7 +104,7 @@ sha256 = "c875ec3b5656f720e2a1f85b97745b3a59f4b779cc1f670cdda42a2f2a028481"
 evidence_id = "documentation-and-monitoring"
 artifact_type = "test_report"
 path = "reports/documentation-and-monitoring.txt"
-sha256 = "a54bc86afa5eeacad85f9781af2d3739bed98099b02804a6ce53002b58fc4a40"
+sha256 = "13e43ec5b0e749e56a40880c4fbfe82179c55366579f36ae73ceacf9f2ca3559"
 
 [[artifacts]]
 evidence_id = "hermeticity-and-codegen"
@@ -116,7 +116,7 @@ sha256 = "03f6beca3d811a66a3ad3bd95f159a9ee7aab18341de6d6a0b1e7d474a6a1405"
 evidence_id = "security-resilience-performance"
 artifact_type = "test_report"
 path = "reports/security-resilience-performance.txt"
-sha256 = "ae0548298e7f81b381215243af736d414cfd9bf5ca88f43aaefa07030a0cb9fa"
+sha256 = "eb38f5a21ccf4d8dfc8c2b423ab13df7680e5298ffbddc416bf79b66a0e51b32"
 
 [[findings]]
 finding_id = "B02-F01"
@@ -133,5 +133,5 @@ closure_condition = "Protected CI runs the representative graph at the reviewed 
 [[findings]]
 finding_id = "B02-F03"
 owner_role = "platform"
-unavailable_evidence = "B03 clean-machine execution and B07 final dependency admission have not occurred."
-closure_condition = "B03 proves clean-machine equivalence and B07 admits or replaces every provisional B02 dependency without weakening the graph."
+unavailable_evidence = "B03 clean-machine execution passes repository-locally on Darwin, but protected Linux comparison and B07 qualified dependency admission are unavailable."
+closure_condition = "Protected CI retains matching B03 Linux/Darwin graph evidence and B07 admits or replaces every provisional B02 dependency without weakening the graph."

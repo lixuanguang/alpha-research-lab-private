@@ -1,0 +1,137 @@
+schema_version = 1
+bundle_id = "b03-r2-partial"
+roadmap_id = "B03"
+commit_sha = "9999999999999999999999999999999999999999"
+owner_role = "platform"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = []
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["B03-F01", "B03-F02", "B03-F03"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "none"
+reversibility = "compatibility_window"
+computationally_material = true
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Focused and repository-wide hygiene cover the flake, lock, bootstrap, host-tool record, integrations, tests, documentation, and evidence."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "The environment has one immutable nixpkgs input plus exact per-platform release digests and prohibits implicit lock or interpreter refresh."
+evidence_ids = ["clean-machine-and-equivalence"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Success, boundary, invalid platform, duplicate, floating version, host fallback, unknown mode, and command failure behavior is exercised."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Supported systems, exact tools, store paths, interpreter binding, locks, graph selection, and evidence digests fail closed."
+evidence_ids = ["clean-machine-and-equivalence"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "B03 is linked to B02, A03 ownership, A05 evidence, A06 inventory, A08 readiness, B01 topology, and B07 provisional admission."
+evidence_ids = ["contract-and-tests"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "Only development-environment behavior and synthetic evidence are introduced; no dataset, research, model, strategy, or production outcome is claimed."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "The shell consumes the existing make, Bazel, uv, pre-commit, lock, and IDE interfaces without creating a second build graph."
+evidence_ids = ["clean-machine-and-equivalence"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "The focused environment contract, complete B02 target suite, and retained frozen-uv rollback execute under the realized Darwin shell."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Unsupported, missing, mutable, mismatched, host-resolved, lock-drifted, graph-failing, and rollback-failing states stop the bootstrap."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Inputs are immutable and credential-free, commands must resolve from the Nix store, runtime installation is prohibited, and final qualified admission remains B07-owned."
+evidence_ids = ["security-resilience-performance"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "The contract documents scope, prerequisites, pins, platforms, interfaces, migration, rollback, monitoring, findings, non-goals, and successor."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "Flake, lock, platform, path, version, interpreter, graph, and rollback failures are explicit repository-local signals without a deployed-monitor claim."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[artifacts]]
+evidence_id = "contract-and-tests"
+artifact_type = "test_report"
+path = "reports/contract-and-tests.txt"
+sha256 = "d76d6ad9e340cfebb09ec508dfc74ab127939dcff71c6f498d0a52db4dccc273"
+
+[[artifacts]]
+evidence_id = "clean-machine-and-equivalence"
+artifact_type = "test_report"
+path = "reports/clean-machine-and-equivalence.txt"
+sha256 = "a6b8b4ded05a724d2956c1110e406172798f140246fa8ed6f9d52fa7d3a21e17"
+
+[[artifacts]]
+evidence_id = "security-resilience-performance"
+artifact_type = "test_report"
+path = "reports/security-resilience-performance.txt"
+sha256 = "7f553799ef2eba431bf271250cf3dde069afd155f50f87987d2d23df182faa8a"
+
+[[artifacts]]
+evidence_id = "documentation-and-monitoring"
+artifact_type = "test_report"
+path = "reports/documentation-and-monitoring.txt"
+sha256 = "459870d7e9359a2af5532d2dabef29326ae08a43ad9133dce88427538a95d2f1"
+
+[[findings]]
+finding_id = "B03-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent domain review and commit-bound Platform Code Owner approval are unavailable during solo bootstrap."
+closure_condition = "Named reviewers resolve findings and approve the exact flake, lock, host-tool record, supported-platform claim, bootstrap, and rollback at the reviewed commit."
+
+[[findings]]
+finding_id = "B03-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected merged-result x86_64-linux clean realization and retained exact-commit comparison to the verified Darwin and B02 graph are unavailable from this checkout."
+closure_condition = "Protected CI realizes the lock on x86_64-linux, runs verify, check, and rollback, and retains matching graph and toolchain evidence for the reviewed merged result."
+
+[[findings]]
+finding_id = "B03-F03"
+owner_role = "security"
+unavailable_evidence = "Qualified final source, license, vulnerability, exploitability, maintenance, and transitive or native dependency admission is B07-owned and unavailable during B03 solo bootstrap."
+closure_condition = "B07 admits or replaces every provisional B03 environment input without weakening the lock, supported platforms, bootstrap, or rollback."

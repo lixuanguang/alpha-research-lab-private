@@ -84,7 +84,7 @@ canonical tools never depend back on compatibility code. Engineering tests are
 the only current reverse consumer of both surfaces.
 
 The registry now assigns every Python implementation, facade, typing marker,
-engineering-test source, and B02 build-test source under
+engineering-test source, and B02-B03 build-test source under
 `tools/governance/src/alpha_research_governance/`, `src/alpha_research/`,
 `tests/engineering/`, and `tests/build/` to exactly one of 20 owned
 targets. Each target declares kind, layer, accountable owner, supported platform,
@@ -110,9 +110,10 @@ budget remains 1,000 ms. Raising either bound requires reviewed workload evidenc
 B05 still owns scaled affected/full enforcement.
 
 No target-domain placeholder directory is created. B01's only populated target
-addition is `tools/governance`. This package does not create `schemas/`, `data/`,
+addition is `tools/governance`. B01 did not create `schemas/`, `data/`,
 `research/`, `simulation/`, `portfolio/`, `risk/`, `trading/`, `platform/`,
-`assets/`, `strategies/`, or `environments/` source trees.
+`assets/`, or `strategies/` source trees; B03 now owns the separately governed
+`environments/dev` bootstrap files.
 
 ## Packaging and compatibility contract
 

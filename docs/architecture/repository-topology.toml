@@ -166,6 +166,7 @@ dependencies = []
 visibility = []
 sources = [
   "tests/build/build_graph_test.py",
+  "tests/build/developer_environment_test.py",
   "tests/build/fixtures/proto/buf_toolchain_test.py",
   "tests/build/fixtures/sql/generated_sql_test.py",
   "tests/build/sandbox_test.py",

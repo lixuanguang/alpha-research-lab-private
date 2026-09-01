@@ -5,4 +5,5 @@ Synthetic commit: 8888888888888888888888888888888888888888
   justification, migration, rollback, operational signals, findings, and non-goals.
 - Lock, action, build, sandbox, code-generation, and rollback failures are the
   repository-local signals; no deployed monitor or runbook is claimed.
-- B03 is the next selector. No successor implementation is included.
+- B03 is separately implemented only to partial repository-local status. This B02
+  bundle does not claim B03 validation or include B04 successor behavior.

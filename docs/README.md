@@ -30,8 +30,9 @@ pre-commit, and hosted-CI topology enforcement, roadmaps, coding standards, a
 minimal platform package, a locked uv environment, and a transitional Make
 interface. B02 adds a pinned sandboxed Bazel graph for current Python,
 governance, documentation, SQL-generation, and test-only Protobuf targets, with
-a tested frozen-uv rollback. It does not yet contain clean-machine provisioning,
-canonical contracts, data plane, simulator,
+a tested frozen-uv rollback. B03 adds a locked Nix clean-machine development
+shell with exact host tools, supported-platform checks, IDE integration, and a
+tested rollback. The repository does not yet contain canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
 
@@ -97,6 +98,21 @@ Bazel module, toolchain, runtime-manifest, and Buf inputs are pinned by
 documents supported targets, sandbox guarantees, provisional dependency records,
 the native-language decision, CI parity limits, and rollback.
 
+The [B03 clean-machine contract](architecture/clean-machine-environment.md) pins
+the developer shell through `flake.nix`, `flake.lock`, and the exact host-tool
+record. From a supported host with multi-user Nix installed, enter it with:
+
+```sh
+/nix/var/nix/profiles/default/bin/nix \
+  --extra-experimental-features 'nix-command flakes' \
+  develop --no-write-lock-file
+environments/dev/bootstrap.sh check
+```
+
+The bootstrap rejects ambient host tools, unsupported platforms, lock drift, and
+version mismatch. `environments/dev/bootstrap.sh rollback` exercises the complete
+retained uv backend.
+
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
 [governed repository topology](architecture/repository-topology.md). B01c makes
@@ -133,11 +149,10 @@ Current root commands are:
 
 Running `make` without a target is currently equivalent to `make check`.
 
-This interface is a provisional B02 implementation, not completion of wave B.
-B03 still owns a Nix flake or equivalent clean-machine environment, B04 owns
-native-language standards when a native target is justified, B05 owns affected
-and merged-result policy, and B06-B08 own remote execution, final admission, and
-supply-chain evidence.
+This interface is a provisional B02-B03 implementation, not completion of wave B.
+B04 owns language and numerical standards, B05 owns affected and merged-result
+policy, and B06-B08 own remote execution, final admission, and supply-chain
+evidence.
 
 ## Documentation map
 
@@ -153,6 +168,7 @@ supply-chain evidence.
 | [Monorepo architecture](architecture/README.md) | Control/data planes, runtime lanes, thin waist, dependency direction, target topology, build and release model |
 | [Governed repository topology and tooling](architecture/repository-topology.md) | B01 governed targets, compatibility entry points, root/hook/hosted enforcement, A06/A08 integration, evidence, findings, and B02 boundary |
 | [Pinned hermetic build graph](architecture/hermetic-build-graph.md) | B02 Bazel pins, sandbox and code-generation graph, provisional dependencies, Make/CI delegation, rollback, evidence, and findings |
+| [Clean-machine developer environment](architecture/clean-machine-environment.md) | B03 locked Nix shell, exact host tools, supported platforms, bootstrap, IDE integration, equivalence, rollback, evidence, and findings |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

@@ -1,1 +1,1 @@
-Synthetic A06 fixture: locked checks, repeated JSON, parser boundaries, nine-control inventory invariants, canonical implementation lineage, and empty-kind evidence are repository-locally exercised.
+Synthetic A06 fixture: locked checks, repeated JSON, parser boundaries, eleven-control inventory invariants, canonical implementation lineage, and empty-kind evidence are repository-locally exercised.

@@ -195,18 +195,19 @@ policies.
 [B01's governed repository topology](repository-topology.md) registers and checks
 canonical tools, compatibility facades, engineering tests, and B02 build-test
 sources. B01c enforces it through root, pre-commit, hosted-CI, A06, and A08
-consumers. [B02](hermetic-build-graph.md) adds the current pinned build graph but
-does not create the remaining target tree or claim that B03 clean-machine or B05
-affected/full policy exists.
+consumers. [B02](hermetic-build-graph.md) adds the current pinned build graph and
+[B03](clean-machine-environment.md) adds the locked clean-machine development
+shell. Neither creates the remaining target tree or claims that B05 affected/full
+policy exists.
 
 ## Build and reproducibility architecture
 
 The target build is a pinned, hermetic Bazel graph for Python, justified C++ and/or
 Rust, Protobuf, SQL generation, and documentation. B02 implements that graph for
 the current Python, governance, documentation, SQL, and test-only Protobuf targets;
-there is no native source to justify a native target yet. A Nix flake or equivalent
-developer environment remains B03's reproducible-prerequisite boundary. The uv
-lock is a transitional resolution input to the current Bazel Python graph.
+there is no native source to justify a native target yet. B03's Nix flake supplies
+the supported reproducible prerequisite boundary and retains the uv lock as a
+transitional resolution input to the current Bazel Python graph.
 
 The build system must:
 

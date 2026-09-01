@@ -57,7 +57,7 @@ bazel-build:
 	$(BAZEL) build --config=ci $(BAZEL_BUILD_TARGETS)
 
 bazel-test:
-	B02_UNDECLARED_SECRET=synthetic-host-only $(BAZEL) test --config=ci //:b02_tests
+	UNDECLARED_HOST_SECRET=synthetic-host-only $(BAZEL) test --config=ci //:hermetic_build_tests
 
 bazel-check: bazel-build bazel-test
 

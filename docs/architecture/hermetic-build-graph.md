@@ -62,9 +62,10 @@ Local and hosted CI call the same `make bazel-check` interface. CI installs
 Bazelisk 1.29.0 from an immutable action commit; `.bazelversion` then selects
 Bazel 9.1.0. The workflow intentionally adds no remote cache or remote execution:
 B06 owns authentication, isolation, correctness, and local fallback for those
-services. B03 still owns a clean-machine developer environment and equivalence
-evidence; B02 demonstrates pinned graph execution on the available local platform
-and configures the same graph for hosted Linux.
+services. [B03](clean-machine-environment.md) now supplies the clean-machine
+developer environment and repository-local Darwin equivalence evidence. B02
+continues to configure the same graph for hosted Linux; protected merged-result
+Linux execution remains external evidence.
 
 ## Root interface, migration, and rollback
 
@@ -115,7 +116,7 @@ documentation, security scan, and failure propagation.
 | --- | --- | --- | --- |
 | B02-F01 | Domain Architecture | Independent domain review and commit-bound Platform Code Owner approval are unavailable during solo bootstrap | Named reviewers approve the exact graph, toolchain pins, dependency records, compatibility window, and rollback at the reviewed commit |
 | B02-F02 | Platform/CI | Protected merged-result Linux execution and retained exact-commit local/CI digest comparison are unavailable from this checkout | Protected CI runs the representative graph at the reviewed merged result and retains target/toolchain digests matching a supported local run |
-| B02-F03 | Platform | B03 clean-machine execution and B07 final dependency admission have not occurred | B03 proves clean-machine equivalence and B07 admits or replaces every provisional B02 dependency without weakening the graph |
+| B02-F03 | Platform | B03 clean-machine execution passes repository-locally on Darwin; B07 final dependency admission has not occurred | B07 admits or replaces every provisional B02 dependency without weakening the graph or B03 equivalence |
 
 These findings are neither waivers nor approvals. B02 remains `partial` until all
 three close. R2 requires the Platform Code Owner and an independent domain
@@ -128,10 +129,11 @@ test failure, sandbox leakage, nondeterministic generated digest, missing target
 dependency-record drift, CI setup failure, or rollback-path failure. There is no
 deployed service, production alert, or operator runbook in B02.
 
-B02 does not implement B03 clean-machine provisioning, B04 engineering standards,
+B02 does not itself implement B03 clean-machine provisioning, B04 engineering standards,
 B05 affected/full or schema-compatibility CI policy, B06 remote cache/execution,
 B07 final dependency admission, B08 SBOM/provenance/signing, C05 domain schemas,
 production data or model behavior, deployment, activation, credentials, venue or
 market access, limits, or capital authority.
 
-The next selector is `B03`.
+The successor B03 environment is provisionally implemented separately; B02
+remains partial on its own evidence and findings.

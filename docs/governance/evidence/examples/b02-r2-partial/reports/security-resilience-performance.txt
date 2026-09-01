@@ -5,5 +5,6 @@ Synthetic commit: 8888888888888888888888888888888888888888
   native-dependency declarations, review statements, and tested rollback notes.
 - Production runtime package installation remains prohibited and no credential,
   deployment, remote-cache, market, venue, account, limit, or capital path exists.
-- Representative Bazel targets build together; workload policy and clean-machine,
-  hosted merged-result, and final B07 admission evidence remain open findings.
+- Representative Bazel targets build together; B03 clean-machine checks pass on
+  Darwin, while protected Linux comparison, hosted merged-result, and final B07
+  qualified-admission evidence remain open findings.

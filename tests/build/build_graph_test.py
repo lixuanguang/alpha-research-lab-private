@@ -221,7 +221,10 @@ def main() -> int:
         return 1
 
     makefile = (root / "Makefile").read_text(encoding="utf-8")
-    if "B02_UNDECLARED_SECRET=synthetic-host-only $(BAZEL) test" not in makefile:
+    if (
+        "UNDECLARED_HOST_SECRET=synthetic-host-only $(BAZEL) test "
+        "--config=ci //:hermetic_build_tests" not in makefile
+    ):
         print("Bazel tests must exercise host-environment exclusion", file=sys.stderr)
         return 1
 

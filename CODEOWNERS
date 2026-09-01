@@ -2,6 +2,7 @@
 /.bazelignore @lixuanguang
 /.bazelrc @lixuanguang
 /.bazelversion @lixuanguang
+/.envrc @lixuanguang
 /.gitignore @lixuanguang
 /.pre-commit-config.yaml @lixuanguang
 /.python-version @lixuanguang
@@ -9,6 +10,8 @@
 /Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf @lixuanguang
 /Makefile @lixuanguang
 /BUILD.bazel @lixuanguang
+/flake.lock @lixuanguang
+/flake.nix @lixuanguang
 /MODULE.bazel @lixuanguang
 /MODULE.bazel.lock @lixuanguang
 /pyproject.toml @lixuanguang
@@ -27,6 +30,7 @@
 /portfolio/ @lixuanguang
 /risk/ @lixuanguang
 /trading/ @lixuanguang
+/.vscode/ @lixuanguang
 /platform/ @lixuanguang
 /environments/ @lixuanguang
 /tools/ @lixuanguang

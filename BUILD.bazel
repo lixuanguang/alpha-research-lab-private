@@ -3,6 +3,7 @@ package(default_visibility = ["//visibility:private"])
 exports_files([
     ".bazelrc",
     ".bazelversion",
+    ".envrc",
     ".pre-commit-config.yaml",
     ".python-version",
     "CODEOWNERS",
@@ -10,6 +11,8 @@ exports_files([
     "Makefile",
     "MODULE.bazel",
     "MODULE.bazel.lock",
+    "flake.lock",
+    "flake.nix",
     "pyproject.toml",
     "requirements.bazel.txt",
     "uv.lock",
@@ -20,17 +23,23 @@ filegroup(
     srcs = glob([
         ".github/**/*.md",
         ".github/**/*.yml",
+        ".vscode/**/*.json",
         "docs/**",
+        "environments/dev/**",
         "secrets/.secrets.example",
     ]) + [
         ".bazelrc",
         ".bazelversion",
+        ".envrc",
         ".pre-commit-config.yaml",
+        ".python-version",
         "CODEOWNERS",
         "Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf",
         "Makefile",
         "MODULE.bazel",
         "MODULE.bazel.lock",
+        "flake.lock",
+        "flake.nix",
         "pyproject.toml",
         "requirements.bazel.txt",
         "uv.lock",
@@ -50,7 +59,7 @@ alias(
 )
 
 test_suite(
-    name = "b02_tests",
+    name = "hermetic_build_tests",
     tests = [
         "//tests/build:build_graph_test",
         "//tests/build:sandbox_test",
@@ -58,4 +67,9 @@ test_suite(
         "//tests/build/fixtures/sql:generated_sql_test",
         "//tests/build/fixtures/sql:invalid_substitution_test",
     ],
+)
+
+test_suite(
+    name = "developer_environment_tests",
+    tests = ["//tests/build:developer_environment_test"],
 )

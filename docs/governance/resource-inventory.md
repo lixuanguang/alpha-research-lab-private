@@ -38,17 +38,19 @@ Adding a real resource changes the kind to `populated` in the same change.
 
 ## Current population
 
-The current repository has ten provisional controls: A01 through A08 plus B01's
-governed repository topology and B02's hermetic build graph. B01c incremented the
+The current repository has eleven provisional controls: A01 through A08 plus
+B01's governed repository topology, B02's hermetic build graph, and B03's
+clean-machine developer environment. B01c incremented the
 A02-A08 control records to version 2 because their implementation lineage named
 the canonical `tools/governance` targets instead of compatibility facades. B02
-increments the affected A03, A06, A08, and B01 records. All other kinds are
+increments the affected A03, A06, A08, and B01 records. B03 increments those
+same integration records plus B02 and adds its own control. All other kinds are
 explicitly empty because the corresponding canonical data, research, risk,
 trading, deployment, and release packages do not yet exist. A Git commit, wheel,
 research roadmap, evidence fixture, or proposed strategy is not silently promoted
 into a dataset, model, strategy, service, limit, venue, or release.
 
-All ten control records remain `provisional`. Their source checks are active
+All eleven control records remain `provisional`. Their source checks are active
 repository-local controls, but they are not institutionally validated, deployed,
 released, or activated resources.
 
@@ -107,10 +109,10 @@ calculation, or risk envelope.
 ## Migration, rollout, rollback, monitoring, and runbook
 
 Catalog schema version 1 remains compatible and has no persisted data, service
-state, or runtime migration. Catalog version 2 adds one B02 control record after
-B01c added B01. It increments A03, A06, A08, and B01 for B02's ownership, catalog,
-program-state, and topology changes; all stable inventory identities are preserved.
-Future
+state, or runtime migration. Catalog version 3 adds B03 after versions 1-2 added
+B01 and B02. It increments A03, A06, A08, B01, and B02 for B03's ownership,
+catalog, program-state, topology, and predecessor-evidence changes; all stable
+inventory identities are preserved. Future
 incompatible catalog changes require a versioned compatibility plan and retained
 readers; ordinary metadata corrections increment the affected record version.
 
@@ -139,7 +141,7 @@ These are not waivers or approvals. A06 remains partial until all three close.
 
 ## Non-goals
 
-- Creating B03 clean-machine provisioning, later target domain directories, canonical
+- Creating B04 engineering standards, later target domain directories, canonical
   schemas (C), data/model registries (D/E), services, limits, venue adapters, or
   releases.
 - Connecting an external catalog, forge, deployment registry, identity system,
