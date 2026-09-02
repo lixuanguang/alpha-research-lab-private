@@ -215,8 +215,14 @@ def _parse_approvals(value: object, *, commit_sha: str) -> tuple[ApprovalEvidenc
         if not isinstance(evidence_url, str):
             raise EvidenceGovernanceError([f"{context}.evidence_url must be a string"])
         if status == "approved":
-            parsed_url = urlsplit(evidence_url)
-            if parsed_url.scheme != "https" or not parsed_url.netloc or parsed_url.username:
+            try:
+                parsed_url = urlsplit(evidence_url)
+            except ValueError as error:
+                raise EvidenceGovernanceError(
+                    [f"{context}: approved evidence requires a valid HTTPS URL"]
+                ) from error
+            has_credentials = parsed_url.username is not None or parsed_url.password is not None
+            if parsed_url.scheme != "https" or not parsed_url.hostname or has_credentials:
                 raise EvidenceGovernanceError(
                     [f"{context}: approved evidence requires an HTTPS URL without credentials"]
                 )

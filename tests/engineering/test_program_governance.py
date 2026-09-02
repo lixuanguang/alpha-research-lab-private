@@ -223,6 +223,34 @@ def test_program_policy_rejects_unapproved_target_claim_and_unretained_finding(
         load_program(deferred, repository_root=REPOSITORY_ROOT)
 
 
+def test_program_policy_rejects_impossible_approved_target_values(tmp_path: Path) -> None:
+    negative = _policy_fixture(tmp_path)
+    _replace_program_fixture_text(
+        negative,
+        'target_status = "pending_owner_approval"',
+        'target_status = "approved"\n'
+        "target_value = -1\n"
+        'target_approval_evidence = "https://forge.example/approvals/negative-target"',
+    )
+    with pytest.raises(ProgramGovernanceError, match="target_value must be non-negative"):
+        load_program(negative, repository_root=REPOSITORY_ROOT)
+
+    over_scale = _policy_fixture(tmp_path)
+    text = over_scale.read_text(encoding="utf-8")
+    metric_marker = 'metric_id = "kpi.research_reproducibility_percent"'
+    prefix, bounded_metric_and_rest = text.split(metric_marker, maxsplit=1)
+    bounded_metric_and_rest = bounded_metric_and_rest.replace(
+        'target_status = "pending_owner_approval"',
+        'target_status = "approved"\n'
+        "target_value = 101\n"
+        'target_approval_evidence = "https://forge.example/approvals/over-scale-target"',
+        1,
+    )
+    over_scale.write_text(prefix + metric_marker + bounded_metric_and_rest, encoding="utf-8")
+    with pytest.raises(ProgramGovernanceError, match="bounded ratio scale"):
+        load_program(over_scale, repository_root=REPOSITORY_ROOT)
+
+
 def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
     tmp_path: Path,
 ) -> None:
@@ -328,6 +356,8 @@ def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
         ({"window_start": "2026-08-30T00:00:00+00:00"}, "ending Z"),
         ({"source_revision": "branch-main"}, "full digest"),
         ({"evidence_url": "https://user@example.com/run"}, "without credentials"),
+        ({"evidence_url": "https://@example.com/run"}, "without credentials"),
+        ({"evidence_url": "https://[malformed/run"}, "valid HTTPS URL"),
         ({"dimensions": {"environment": "ci"}}, "dimensions do not match"),
         ({"window_end": "2026-08-30T00:00:00Z"}, "window must be positive"),
     ],

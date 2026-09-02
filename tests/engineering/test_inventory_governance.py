@@ -10,10 +10,12 @@ import pytest
 from alpha_research.inventory import (
     RESOURCE_KINDS,
     InventoryGovernanceError,
+    InventoryItem,
     load_inventory,
     main,
     validate_repository,
 )
+from alpha_research_governance.inventory.registry import _find_dependency_cycles
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 CATALOG_PATH = REPOSITORY_ROOT / "docs" / "governance" / "resource-inventory.toml"
@@ -211,16 +213,49 @@ def test_overdue_review_and_unsafe_source_path_generate_findings(tmp_path: Path)
         _validate_inventory_fixture(unsafe)
 
 
-def test_external_evidence_url_cannot_embed_credentials(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("unsafe_url", "message"),
+    [
+        ("https://user@example.com/evidence", "HTTPS without credentials"),
+        ("https://:synthetic-secret@example.com/evidence", "HTTPS without credentials"),
+        ("https://@example.com/evidence", "HTTPS without credentials"),
+        ("https://[malformed/evidence", "malformed"),
+    ],
+)
+def test_external_evidence_url_cannot_embed_credentials_or_be_malformed(
+    tmp_path: Path, unsafe_url: str, message: str
+) -> None:
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path,
         'status_evidence = ["docs/governance/repository-charter.md"]',
-        'status_evidence = ["https://user@example.com/evidence"]',
+        f'status_evidence = ["{unsafe_url}"]',
     )
 
-    with pytest.raises(InventoryGovernanceError, match="HTTPS without credentials"):
+    with pytest.raises(InventoryGovernanceError, match=message):
         _validate_inventory_fixture(path)
+
+
+def test_dependency_cycle_check_handles_catalog_limit_depth() -> None:
+    template = validate_repository(REPOSITORY_ROOT).items[0]
+    item_count = 1_500
+    items = tuple(
+        InventoryItem.model_validate(
+            {
+                **template.model_dump(),
+                "inventory_id": f"inv.service.synthetic.deep_{index:04d}",
+                "kind": "service",
+                "dependencies": (
+                    (f"inv.service.synthetic.deep_{index + 1:04d}",)
+                    if index + 1 < item_count
+                    else ()
+                ),
+            }
+        )
+        for index in range(item_count)
+    )
+
+    assert _find_dependency_cycles(items) == ()
 
 
 def test_partial_catalog_requires_exact_findings_and_solo_cannot_validate(

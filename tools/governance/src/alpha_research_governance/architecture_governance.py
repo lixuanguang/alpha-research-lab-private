@@ -100,8 +100,12 @@ def _has_commit_bound_approval(value: str) -> bool:
     match = _COMMIT_BOUND_APPROVAL.fullmatch(value)
     if match is None:
         return False
-    approval = urlsplit(match.group("url"))
-    return approval.scheme == "https" and bool(approval.netloc) and approval.username is None
+    try:
+        approval = urlsplit(match.group("url"))
+    except ValueError:
+        return False
+    has_credentials = approval.username is not None or approval.password is not None
+    return approval.scheme == "https" and bool(approval.hostname) and not has_credentials
 
 
 def validate_adr(path: Path, *, expected_identifier: int, template: bool = False) -> None:

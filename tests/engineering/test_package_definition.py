@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
-EXPECTED_RUNTIME_REQUIREMENTS: set[str] = set()
+EXPECTED_RUNTIME_REQUIREMENTS = {"alpha-research-governance==0.1.0"}
 EXPECTED_TOOL_REQUIREMENTS = {"pydantic==2.13.5"}
 
 

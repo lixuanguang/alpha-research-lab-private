@@ -298,12 +298,15 @@ def _require_repository_file(value: str, *, repository_root: Path, context: str)
 
 
 def _require_https_url(value: str, *, context: str) -> str:
-    parsed_url = urlsplit(value)
+    try:
+        parsed_url = urlsplit(value)
+    except ValueError as error:
+        raise ProgramGovernanceError([f"{context} must use a valid HTTPS URL"]) from error
+    has_credentials = parsed_url.username is not None or parsed_url.password is not None
     if (
         parsed_url.scheme != "https"
-        or not parsed_url.netloc
-        or parsed_url.username
-        or parsed_url.password
+        or not parsed_url.hostname
+        or has_credentials
         or parsed_url.query
         or parsed_url.fragment
     ):
@@ -626,6 +629,16 @@ def _parse_metric(
         raise ProgramGovernanceError([f"{context}: a KPI cannot substitute for a hard gate"])
     if not isinstance(bounded_ratio, bool):
         raise ProgramGovernanceError([f"{context}.bounded_ratio must be a Boolean"])
+    for field_name, numeric_value in (
+        ("baseline_value", baseline_value),
+        ("target_value", target_value),
+    ):
+        if numeric_value is not None and numeric_value < 0:
+            raise ProgramGovernanceError([f"{context}.{field_name} must be non-negative"])
+        if bounded_ratio and numeric_value is not None and numeric_value > scale:
+            raise ProgramGovernanceError(
+                [f"{context}.{field_name} cannot exceed the bounded ratio scale"]
+            )
     if baseline_status not in {"awaiting_target_observations", "available"}:
         raise ProgramGovernanceError([f"{context}.baseline_status is unsupported"])
     if (baseline_status == "available") != (baseline_value is not None):
