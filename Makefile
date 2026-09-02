@@ -73,7 +73,7 @@ smoke:
 rollback-build:
 	$(UV) build --no-sources
 
-rollback-check: lock-check lint format-check typecheck architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security rollback-test smoke rollback-build
+rollback-check: lock-check lint format-check typecheck architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security rollback-test integration-test smoke rollback-build
 
 ifeq ($(BUILD_BACKEND),bazel)
 build: bazel-build

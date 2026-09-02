@@ -82,5 +82,8 @@ jobs:
       - name: Test
         run: uv run --frozen --no-editable pytest -q
 
+      - name: Test pre-commit integration
+        run: make integration-test
+
       - name: Build package
         run: uv build --no-sources

@@ -220,9 +220,12 @@ def _parse_optional_number(table: dict[str, object], key: str, *, context: str) 
 
 def _parse_iso_date(value: str, *, context: str) -> date:
     try:
-        return date.fromisoformat(value)
+        parsed_date = date.fromisoformat(value)
     except ValueError as error:
         raise ProgramGovernanceError([f"{context} must use YYYY-MM-DD"]) from error
+    if parsed_date.isoformat() != value:
+        raise ProgramGovernanceError([f"{context} must use YYYY-MM-DD"])
+    return parsed_date
 
 
 def _parse_utc_datetime(value: str, *, context: str) -> datetime:

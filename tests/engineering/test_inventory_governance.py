@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from time import perf_counter
 
 import pytest
 
@@ -86,6 +87,42 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
         "inv.control.governance.a05_merge_evidence",
         "inv.control.governance.b02_hermetic_build_graph",
     )
+
+
+def test_inventory_query_workload_stays_within_governed_budget() -> None:
+    inventory = validate_repository(REPOSITORY_ROOT)
+
+    started_at = perf_counter()
+    for iteration in range(inventory.query_workload_iterations):
+        if iteration % 4 == 0:
+            inventory.query()
+        elif iteration % 4 == 1:
+            inventory.query(kind="control")
+        elif iteration % 4 == 2:
+            inventory.query(status="provisional")
+        else:
+            inventory.query(owner_role="platform")
+    elapsed_ms = (perf_counter() - started_at) * 1_000
+
+    assert elapsed_ms <= inventory.query_workload_budget_ms, (
+        f"{inventory.query_workload_iterations} inventory queries took "
+        f"{elapsed_ms:.1f} ms; budget is {inventory.query_workload_budget_ms} ms"
+    )
+
+
+@pytest.mark.parametrize("invalid_date", ["20260901", "2026-W36-2"])
+def test_inventory_dates_require_extended_calendar_format(
+    tmp_path: Path, invalid_date: str
+) -> None:
+    path = _catalog_fixture(tmp_path)
+    _replace_inventory_fixture_text(
+        path,
+        'as_of_date = "2026-09-01"',
+        f'as_of_date = "{invalid_date}"',
+    )
+
+    with pytest.raises(InventoryGovernanceError, match="must use YYYY-MM-DD"):
+        _validate_inventory_fixture(path)
 
 
 def test_stale_owner_generates_a_finding(tmp_path: Path) -> None:

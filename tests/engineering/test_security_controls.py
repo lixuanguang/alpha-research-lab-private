@@ -105,6 +105,21 @@ def test_repository_map_is_versioned_partial_and_complete_for_current_scope() ->
     }
 
 
+@pytest.mark.parametrize("invalid_date", ["20260830", "2026-W35-7"])
+def test_security_control_dates_require_extended_calendar_format(
+    tmp_path: Path, invalid_date: str
+) -> None:
+    path = _map_fixture(tmp_path)
+    _replace_security_fixture_text(
+        path,
+        'as_of_date = "2026-08-30"',
+        f'as_of_date = "{invalid_date}"',
+    )
+
+    with pytest.raises(SecurityControlError, match="must use YYYY-MM-DD"):
+        _validate_security_fixture(path)
+
+
 def test_machine_metadata_is_strict_and_complete(tmp_path: Path) -> None:
     boolean_schema = _map_fixture(tmp_path)
     _replace_security_fixture_text(boolean_schema, "schema_version = 1", "schema_version = true")

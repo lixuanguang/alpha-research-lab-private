@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 GOVERNANCE_COMMANDS = (
+    "alpha-governance-architecture",
     "alpha-governance-change-risk",
     "alpha-governance-evidence",
     "alpha-governance-inventory",
@@ -46,6 +47,7 @@ def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
         "uv run --frozen alpha-governance-program",
         "uv run --frozen bandit -q -c pyproject.toml -r src tools/governance/src",
         "uv run --frozen --no-editable pytest -q",
+        "uv run --frozen --no-editable pytest -q -m integration",
         'uv run --frozen --no-editable python -c "import alpha_research"',
         "uv build --no-sources",
     ]
@@ -89,6 +91,7 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
 
     assert "uv sync --frozen" in continuous_integration
     assert "uv build --no-sources" in continuous_integration
+    assert "make integration-test" in continuous_integration
     assert 'version: "0.12.7"' in continuous_integration
     assert "repo: local" in pre_commit
     assert "uv lock --check" in pre_commit

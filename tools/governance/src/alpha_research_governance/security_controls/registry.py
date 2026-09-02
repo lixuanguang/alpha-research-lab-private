@@ -260,9 +260,12 @@ def _require_entries(value: object, *, context: str, keys: set[str]) -> list[dic
 
 def _parse_iso_date(value: str, *, context: str) -> date:
     try:
-        return date.fromisoformat(value)
+        parsed_date = date.fromisoformat(value)
     except ValueError as error:
         raise SecurityControlError([f"{context} must use YYYY-MM-DD"]) from error
+    if parsed_date.isoformat() != value:
+        raise SecurityControlError([f"{context} must use YYYY-MM-DD"])
+    return parsed_date
 
 
 def _load_toml(path: Path) -> dict[str, object]:
