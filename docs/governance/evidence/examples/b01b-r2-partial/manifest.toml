@@ -110,7 +110,7 @@ sha256 = "cbb7de0d6a0f9921d0c18a72b9c8388cf0dd6c9c2e8ff4a1c0c9c0f958797882"
 evidence_id = "graph-and-compatibility"
 artifact_type = "test_report"
 path = "reports/graph-and-compatibility.txt"
-sha256 = "9ea1c9cb239a3ff6f9f4bdd0f710afd0bc0f2b488d660ec67d134a37c3d5f81b"
+sha256 = "128c66315c1697377416abe1532519372e27e93f1d1a72e9b2a066a725c80e2b"
 
 [[artifacts]]
 evidence_id = "security-resilience-performance"

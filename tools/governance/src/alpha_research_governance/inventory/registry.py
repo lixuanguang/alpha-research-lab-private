@@ -237,13 +237,16 @@ def _validate_reference(
         if value not in inventory_ids:
             findings.append(f"{context}: unresolved inventory reference {value!r}")
         return
-    parsed_reference = urlsplit(value)
+    try:
+        parsed_reference = urlsplit(value)
+    except ValueError:
+        findings.append(f"{context}: external evidence URL is malformed")
+        return
     if parsed_reference.scheme:
-        if (
-            parsed_reference.scheme != "https"
-            or not parsed_reference.netloc
-            or parsed_reference.username
-        ):
+        has_credentials = (
+            parsed_reference.username is not None or parsed_reference.password is not None
+        )
+        if parsed_reference.scheme != "https" or not parsed_reference.hostname or has_credentials:
             findings.append(f"{context}: external evidence must use HTTPS without credentials")
         return
     _validate_repository_path(
@@ -328,22 +331,35 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
     states: dict[str, int] = {}
     cycles: list[str] = []
 
-    def visit_dependency(inventory_id: str, trail: tuple[str, ...]) -> None:
-        state = states.get(inventory_id, 0)
-        if state == 1:
-            start = trail.index(inventory_id)
-            cycles.append(" -> ".join((*trail[start:], inventory_id)))
-            return
-        if state == 2:
-            return
-        states[inventory_id] = 1
-        for dependency in dependencies[inventory_id]:
-            if dependency in dependencies:
-                visit_dependency(dependency, (*trail, inventory_id))
-        states[inventory_id] = 2
-
     for inventory_id in dependencies:
-        visit_dependency(inventory_id, ())
+        if states.get(inventory_id) == 2:
+            continue
+        states[inventory_id] = 1
+        active_path = [inventory_id]
+        active_positions = {inventory_id: 0}
+        stack = [(inventory_id, 0)]
+        while stack:
+            current, dependency_index = stack[-1]
+            current_dependencies = dependencies[current]
+            if dependency_index == len(current_dependencies):
+                stack.pop()
+                active_positions.pop(current)
+                active_path.pop()
+                states[current] = 2
+                continue
+            dependency = current_dependencies[dependency_index]
+            stack[-1] = (current, dependency_index + 1)
+            if dependency not in dependencies:
+                continue
+            state = states.get(dependency, 0)
+            if state == 1:
+                start = active_positions[dependency]
+                cycles.append(" -> ".join((*active_path[start:], dependency)))
+            elif state == 0:
+                states[dependency] = 1
+                active_positions[dependency] = len(active_path)
+                active_path.append(dependency)
+                stack.append((dependency, 0))
     return tuple(dict.fromkeys(cycles))
 
 

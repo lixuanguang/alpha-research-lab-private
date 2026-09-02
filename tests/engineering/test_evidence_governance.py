@@ -242,6 +242,43 @@ evidence_url = "https://forge.example/reviews/a05-fixture"
     assert validated.approvals[0].status == "approved"
 
 
+@pytest.mark.parametrize(
+    "evidence_url",
+    [
+        "https://:synthetic-secret@forge.example/reviews/a05-fixture",
+        "https://@forge.example/reviews/a05-fixture",
+        "https://[malformed/reviews/a05-fixture",
+    ],
+)
+def test_accepted_bundle_rejects_credentialed_or_malformed_approval_urls(
+    tmp_path: Path, evidence_url: str
+) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    manifest = bundle / "manifest.toml"
+    text = manifest.read_text(encoding="utf-8").split("\n[[findings]]", maxsplit=1)[0]
+    text = text.replace('bundle_status = "partial"', 'bundle_status = "accepted"')
+    text = text.replace(
+        'open_finding_ids = ["A05-F01", "A05-F02"]',
+        "open_finding_ids = []",
+    )
+    approval = f'''findings = []
+
+[[approvals]]
+reviewer_id = "code-owner"
+roles = ["code_owner"]
+independent = false
+is_author = false
+status = "approved"
+commit_sha = "{EXAMPLE_SHA}"
+evidence_url = "{evidence_url}"
+'''
+    text = text.replace("approvals = []", approval.rstrip())
+    manifest.write_text(text + "\n", encoding="utf-8")
+
+    with pytest.raises(EvidenceGovernanceError, match="HTTPS URL"):
+        _validate_fixture_manifest(bundle)
+
+
 def test_policy_cannot_weaken_required_evidence_gates_or_hide_findings(tmp_path: Path) -> None:
     policy = tmp_path / "merge-evidence-policy.toml"
     policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")

@@ -144,6 +144,16 @@ def test_accepted_adr_requires_commit_bound_https_approval(tmp_path: Path) -> No
     with pytest.raises(ArchitectureGovernanceError, match="HTTPS evidence URL"):
         validate_adr(path, expected_identifier=1)
 
+    path.write_text(
+        _adr_text(
+            status="Accepted",
+            approval_evidence=f"commit={'a' * 40}; approval=https://[malformed/review",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ArchitectureGovernanceError, match="HTTPS evidence URL"):
+        validate_adr(path, expected_identifier=1)
+
 
 def test_decision_log_rejects_unlogged_and_noncontiguous_records(tmp_path: Path) -> None:
     directory = tmp_path / "decisions"

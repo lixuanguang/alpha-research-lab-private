@@ -8,7 +8,7 @@ import os
 import re
 import sys
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 def _repository_root() -> Path:
@@ -103,10 +103,27 @@ def _dependency_record_errors(root: Path) -> list[str]:
     return errors
 
 
+def _report_artifact_path(bundle_root: Path, value: object) -> Path | None:
+    if not isinstance(value, str):
+        return None
+    relative = PurePosixPath(value)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != value
+        or not relative.parts
+        or relative.parts[0] != "reports"
+        or ".." in relative.parts
+    ):
+        return None
+    return bundle_root.joinpath(*relative.parts)
+
+
 def _evidence_errors(root: Path) -> list[str]:
     bundle_root = root / "docs/governance/evidence/examples/b02-r2-partial"
     manifest = tomllib.loads((bundle_root / "manifest.toml").read_text(encoding="utf-8"))
     errors: list[str] = []
+    if _report_artifact_path(bundle_root, "reports/../../outside.txt") is not None:
+        errors.append("artifact path traversal must fail closed")
     expected_gates = {
         "QG01",
         "QG02",
@@ -148,10 +165,10 @@ def _evidence_errors(root: Path) -> list[str]:
                 continue
             relative = artifact.get("path")
             digest = artifact.get("sha256")
-            if not isinstance(relative, str) or not relative.startswith("reports/"):
+            artifact_path = _report_artifact_path(bundle_root, relative)
+            if artifact_path is None:
                 errors.append("artifact path must remain inside reports/")
                 continue
-            artifact_path = bundle_root / relative
             if not artifact_path.is_file():
                 errors.append(f"missing evidence artifact: {relative}")
                 continue

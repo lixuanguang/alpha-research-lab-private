@@ -117,12 +117,13 @@ addition is `tools/governance`. B01 did not create `schemas/`, `data/`,
 
 ## Packaging and compatibility contract
 
-The root distribution declares no Pydantic or governance-tool runtime dependency.
-The tool target declares the existing exact `pydantic==2.13.5` input and uses the
-same pinned Python and Hatchling versions. The lock records it as a non-editable
-repository-local path package, so canonical commands do not depend on ambient
-source paths, the caller's working directory, or a network. No dependency or lock
-entry changes in B01c.
+The root distribution declares the exact `alpha-research-governance==0.1.0`
+runtime dependency required by its `alpha_research.*` compatibility facades. It
+does not directly declare Pydantic; the tool target owns the exact
+`pydantic==2.13.5` input and uses the same pinned Python and Hatchling versions.
+The lock records the governance tool as a non-editable repository-local path
+package, so canonical commands do not depend on ambient source paths, the
+caller's working directory, or a network.
 
 Compatibility facades contain no policy, parser, classifier, registry, or model
 implementation. They remain registered and tested because B01c changes consumers,
