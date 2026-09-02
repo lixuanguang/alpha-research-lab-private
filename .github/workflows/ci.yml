@@ -48,6 +48,9 @@ jobs:
       - name: Check types
         run: uv run --frozen mypy --strict src tests tools/governance/src
 
+      - name: Check language and static quality standards
+        run: uv run --frozen alpha-governance-engineering-standards
+
       - name: Check architecture governance
         run: uv run --frozen alpha-governance-architecture
 

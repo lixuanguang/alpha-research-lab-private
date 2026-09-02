@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 import shutil
 
-# Platform owner; the subprocess exception expires when B01 supplies the source graph.
-import subprocess  # nosec B404
+# Platform-owned Git discovery boundary; review the suppression at its stated expiry.
+import subprocess  # nosec B404  # [owner=platform; rationale=required typed Git boundary; expires=2026-12-31]
 import sys
 import tomllib
 from collections.abc import Iterable, Sequence
@@ -116,8 +116,8 @@ def _repository_paths(repository_root: Path) -> tuple[str, ...]:
     git_executable = shutil.which("git")
     if git_executable is None:
         raise OwnershipGovernanceError(["git executable is unavailable"])
-    # Platform owner; fixed Git argv without a shell, with removal at B01 graph cutover.
-    git_process = subprocess.run(  # nosec B603
+    # Fixed Git argv without a shell; review the suppression at its stated expiry.
+    git_process = subprocess.run(  # nosec B603  # [owner=platform; rationale=argument vector has no shell; expires=2026-12-31]
         [git_executable, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
         cwd=repository_root,
         check=False,

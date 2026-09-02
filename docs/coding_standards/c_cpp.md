@@ -14,6 +14,11 @@ C and C++ are different languages. Do not write a lowest-common-denominator hybr
 or compile the same implementation as both languages. Shared boundaries MUST use
 an explicitly C-compatible ABI.
 
+C/C++ is dormant under B04. Adding native source first requires an owned build
+target, pinned toolchain, provisional B07-compatible dependency record, and
+reviewed activation of the formatter, analyzer, warnings-as-errors, ASan/UBSan,
+and separate TSan policy below.
+
 ## Required tooling and build policy
 
 The repository's root build/test interface and target graph are authoritative;

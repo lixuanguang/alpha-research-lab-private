@@ -1,0 +1,137 @@
+schema_version = 1
+bundle_id = "b04-r2-partial"
+roadmap_id = "B04"
+commit_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+owner_role = "platform"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = []
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["B04-F01", "B04-F02", "B04-F03"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "none"
+reversibility = "compatibility_window"
+computationally_material = true
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Exact tools, warnings-as-errors, generated-source separation, and governed suppressions are enforced with representative defects."
+evidence_ids = ["standards-and-defects"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "The exact Hypothesis dependency is locked and exercised in the existing sandboxed Bazel graph without undeclared source inputs."
+evidence_ids = ["build-dependency-and-resilience"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Success, boundary, invalid metadata, malformed policy, CLI failure, generated-code, native-source, and lifecycle behavior is exercised."
+evidence_ids = ["standards-and-defects"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Deterministic property/state-machine tests, strict non-finite and tolerance rules, coverage statement, and twelve-of-twelve mutation baseline are retained."
+evidence_ids = ["property-numerical-and-baselines"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "No schema, dataset, PIT, model, or domain behavior changes; B04 remains linked to B02-B03 and A04-A06 governance records."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "No research hypothesis, model candidate, metric, trial, or promotion claim is introduced."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "The standards checker, uv lock, Bazel target, root command, hook, and hosted check consume the existing compatibility surfaces without domain integration."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "Ten thousand suppression validations complete inside the one-second repository-local budget; shared-host timing is not a latency claim."
+evidence_ids = ["build-dependency-and-resilience"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Unknown, malformed, missing, expired, unowned, unadmitted, unlocked, or incompatible standards state fails closed."
+evidence_ids = ["build-dependency-and-resilience"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Bandit remains blocking, suppressions are bounded and owned, and the new dependency has an immutable provisional record pending B07 admission."
+evidence_ids = ["build-dependency-and-resilience"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "The contract documents scope, standards, interfaces, dependency, baselines, compatibility, migration, rollback, signals, findings, non-goals, and successor."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "Checker failure is an explicit repository-local signal; no deployed dashboard, alert, SLO, or runbook is claimed."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[artifacts]]
+evidence_id = "standards-and-defects"
+artifact_type = "test_report"
+path = "reports/standards-and-defects.txt"
+sha256 = "32de279b1163142106da141f570a45bf08d4c7f95dd81cec52c4b1d707c0ef08"
+
+[[artifacts]]
+evidence_id = "property-numerical-and-baselines"
+artifact_type = "test_report"
+path = "reports/property-numerical-and-baselines.txt"
+sha256 = "1c2495a4e85bdcaf7785db6ed9cc52903922099f62041f0364163d6927447bd8"
+
+[[artifacts]]
+evidence_id = "build-dependency-and-resilience"
+artifact_type = "test_report"
+path = "reports/build-dependency-and-resilience.txt"
+sha256 = "072efeddddde22b0f36411306542ea7f0181ad1ec7b51f2434b61a29a84b9e88"
+
+[[artifacts]]
+evidence_id = "documentation-and-monitoring"
+artifact_type = "test_report"
+path = "reports/documentation-and-monitoring.txt"
+sha256 = "ab92c5d47b5569cb9611c0fef70a7f8bdc2c71c8b442a41df88e0bf2bdb53b08"
+
+[[findings]]
+finding_id = "B04-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent domain review and commit-bound Platform Code Owner approval are unavailable during solo bootstrap."
+closure_condition = "Named reviewers resolve findings and approve the exact standards, checker, dependency record, baselines, and evidence at the reviewed commit."
+
+[[findings]]
+finding_id = "B04-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected merged-result Linux execution with retained representative-defect, property, state-machine, coverage, and mutation evidence is unavailable from this checkout."
+closure_condition = "Protected CI runs the exact reviewed merged result on x86_64-linux and retains passing standards, property/state-machine, coverage, and all twelve blocking-mutation results."
+
+[[findings]]
+finding_id = "B04-F03"
+owner_role = "security"
+unavailable_evidence = "Qualified final source, license, vulnerability, exploitability, maintenance, and transitive dependency admission for Hypothesis is B07-owned."
+closure_condition = "B07 admits or replaces Hypothesis and sortedcontainers without weakening property/state-machine coverage, determinism, the Bazel graph, or rollback."

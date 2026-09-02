@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 alpha-governance-architecture = "alpha_research_governance.architecture_governance:main"
 alpha-governance-change-risk = "alpha_research_governance.change_risk:main"
+alpha-governance-engineering-standards = "alpha_research_governance.engineering_standards:main"
 alpha-governance-evidence = "alpha_research_governance.evidence:main"
 alpha-governance-inventory = "alpha_research_governance.inventory:main"
 alpha-governance-ownership = "alpha_research_governance.ownership_governance:main"

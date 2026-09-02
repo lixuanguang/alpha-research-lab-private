@@ -48,6 +48,15 @@ DEVELOPER_ENVIRONMENT_MANIFEST_PATH = (
     / "b03-r2-partial"
     / "manifest.toml"
 )
+ENGINEERING_STANDARDS_MANIFEST_PATH = (
+    REPOSITORY_ROOT
+    / "docs"
+    / "governance"
+    / "evidence"
+    / "examples"
+    / "b04-r2-partial"
+    / "manifest.toml"
+)
 CHANGE_POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "change-risk-policy.toml"
 
 
@@ -136,6 +145,40 @@ def test_developer_environment_manifest_matches_its_exact_partial_r2_profile() -
         ),
         expected_package_status="partial",
         expected_finding_ids=("B03-F01", "B03-F02", "B03-F03"),
+        approvals_permitted=False,
+        waivers_permitted=False,
+        additional_required_gates_permitted=False,
+    )
+
+    validate_package_evidence(manifest, profile)
+
+
+def test_engineering_standards_manifest_matches_its_exact_partial_r2_profile() -> None:
+    manifest = validate_manifest(
+        ENGINEERING_STANDARDS_MANIFEST_PATH,
+        expected_commit_sha="a" * 40,
+        change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
+    )
+    profile = PackageEvidenceProfile(
+        roadmap_package_id="B04",
+        accountable_owner_role="platform",
+        risk_class=RiskClass.R2,
+        classification_facts=ChangeRiskInput(
+            capital_at_risk=False,
+            blast_radius="shared_domain",
+            data_model_materiality="shared_or_candidate",
+            security_privilege="none",
+            reversibility="compatibility_window",
+            computationally_material=True,
+            economically_or_risk_relevant=False,
+            model_or_trading_relevant=False,
+            declared_class=RiskClass.R2,
+        ),
+        gate_requirements=tuple(
+            PackageGateRequirement(gate_id=gate.gate_id, status="passed") for gate in manifest.gates
+        ),
+        expected_package_status="partial",
+        expected_finding_ids=("B04-F01", "B04-F02", "B04-F03"),
         approvals_permitted=False,
         waivers_permitted=False,
         additional_required_gates_permitted=False,

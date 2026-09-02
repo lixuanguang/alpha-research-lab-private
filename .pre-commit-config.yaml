@@ -27,6 +27,13 @@ repos:
         files: ^(pyproject\.toml|src/.*\.py|tests/.*\.py|tools/governance/src/.*\.py)$
         pass_filenames: false
 
+      - id: engineering-standards
+        name: check language and static quality standards
+        entry: uv run --frozen alpha-governance-engineering-standards
+        language: system
+        always_run: true
+        pass_filenames: false
+
       - id: architecture-governance
         name: check architecture governance
         entry: uv run --frozen alpha-governance-architecture

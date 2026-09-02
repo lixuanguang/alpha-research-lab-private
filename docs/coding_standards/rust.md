@@ -12,6 +12,11 @@ environment, dependencies, and repository build system, then pin them explicitly
 Do not infer `stable` from the developer machine or change the edition or minimum
 supported version in an unrelated patch.
 
+Rust is dormant under B04. Adding Rust source first requires an owned build target,
+pinned toolchain, provisional B07-compatible dependency record, and reviewed
+activation of rustfmt, warning-denying Clippy, tests/docs, and applicable Miri or
+sanitizer policy below.
+
 ## Required tooling
 
 The repository's root build/test interface and target graph are authoritative.

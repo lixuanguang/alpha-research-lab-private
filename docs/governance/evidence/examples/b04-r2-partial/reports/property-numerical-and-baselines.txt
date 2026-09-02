@@ -1,0 +1,12 @@
+B04 repository-local property, numerical, coverage, and mutation evidence
+Synthetic commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+- Hypothesis 6.167.1 exercises suppression metadata across fifty deterministic
+  examples and a rule-based state machine across valid, invalid, expired, removed,
+  and restored states without a persistent example database.
+- The numerical contract rejects a global epsilon, rejects non-finite values by
+  default, preserves exact integer/decimal arithmetic, and requires absolute plus
+  relative tolerances with a scale rationale for floating comparisons.
+- The 2026-09-02 completed B04 branch-coverage baseline is 81 percent across
+  alpha_research and alpha_research_governance. The B04 mutation baseline is
+  twelve of twelve representative policy mutations rejected.

@@ -24,7 +24,7 @@ SHA-256, while `requirements.bazel.txt` is the exact Bazel translation of the
 runtime portion of `uv.lock`. The uv lock remains the transitional Python
 resolution authority until B07 admits a final dependency workflow.
 
-The graph contains the current platform package, all eight governance commands,
+The graph contains the current platform package, all nine governance commands,
 the documentation bundle, a repository-owned SQL template rule and golden output,
 and a test-only Protobuf schema exercised by the pinned Buf binary. It creates no
 domain placeholder package and no production schema. The Protobuf fixture proves
@@ -33,8 +33,9 @@ canonical schemas and compatibility policy.
 
 No C++ or Rust target is selected in B02. The current repository has no native
 source or measured native-language need, so fabricating a native placeholder
-would violate B01's populated-target rule. B04 owns language standards and
-sanitizers when a justified native target is introduced. Bazel's host C++
+would violate B01's populated-target rule. B04 now owns and enforces language
+admission and sanitizer policy while keeping native languages dormant until a
+justified target is introduced. Bazel's host C++
 autodetection is not part of the representative B02 target set.
 
 ## Hermeticity and reproducibility contract
@@ -129,11 +130,12 @@ test failure, sandbox leakage, nondeterministic generated digest, missing target
 dependency-record drift, CI setup failure, or rollback-path failure. There is no
 deployed service, production alert, or operator runbook in B02.
 
-B02 does not itself implement B03 clean-machine provisioning, B04 engineering standards,
-B05 affected/full or schema-compatibility CI policy, B06 remote cache/execution,
-B07 final dependency admission, B08 SBOM/provenance/signing, C05 domain schemas,
-production data or model behavior, deployment, activation, credentials, venue or
-market access, limits, or capital authority.
+B02 does not itself implement B03 clean-machine provisioning or B04 engineering
+standards; both are separately governed and provisionally implemented. It does not
+implement B05 affected/full or schema-compatibility CI policy, B06 remote
+cache/execution, B07 final dependency admission, B08 SBOM/provenance/signing, C05
+domain schemas, production data or model behavior, deployment, activation,
+credentials, venue or market access, limits, or capital authority.
 
 The successor B03 environment is provisionally implemented separately; B02
 remains partial on its own evidence and findings.

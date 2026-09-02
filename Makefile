@@ -6,7 +6,7 @@ BUILD_BACKEND ?= bazel
 PYTHON_PATHS := src tests tools/governance/src
 BAZEL_BUILD_TARGETS := //src/alpha_research:alpha_research //tools/governance/src/alpha_research_governance:all //tests/build/fixtures/sql:build_evidence //:docs_bundle
 
-.PHONY: sync lock-check format format-check lint typecheck architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security bazel-build bazel-test bazel-check integration-test rollback-test rollback-build rollback-check test smoke build check
+.PHONY: sync lock-check format format-check lint typecheck engineering-standards-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security bazel-build bazel-test bazel-check integration-test rollback-test rollback-build rollback-check test smoke build check
 
 sync:
 	$(UV) sync --frozen
@@ -25,6 +25,9 @@ lint:
 
 typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
+
+engineering-standards-check:
+	$(UV) run --frozen alpha-governance-engineering-standards
 
 architecture-check:
 	$(UV) run --frozen alpha-governance-architecture
@@ -73,7 +76,7 @@ smoke:
 rollback-build:
 	$(UV) build --no-sources
 
-rollback-check: lock-check lint format-check typecheck architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security rollback-test integration-test smoke rollback-build
+rollback-check: lock-check lint format-check typecheck engineering-standards-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security rollback-test integration-test smoke rollback-build
 
 ifeq ($(BUILD_BACKEND),bazel)
 build: bazel-build

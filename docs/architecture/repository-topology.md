@@ -36,11 +36,12 @@ B05 owns affected-target and authoritative merged-result build policy.
 
 ## Canonical targets and enforced consumers
 
-The tool distribution owns eight executable entry points:
+The tool distribution owns nine executable entry points:
 
 ```text
 alpha-governance-architecture
 alpha-governance-change-risk
+alpha-governance-engineering-standards
 alpha-governance-evidence
 alpha-governance-inventory
 alpha-governance-ownership
@@ -87,7 +88,7 @@ the only current reverse consumer of both surfaces.
 The registry now assigns every Python implementation, facade, typing marker,
 engineering-test source, and B02-B03 build-test source under
 `tools/governance/src/alpha_research_governance/`, `src/alpha_research/`,
-`tests/engineering/`, and `tests/build/` to exactly one of 20 owned
+`tests/engineering/`, and `tests/build/` to exactly one of 21 owned
 targets. Each target declares kind, layer, accountable owner, supported platform,
 direct dependencies, exact reverse visibility, and exact source paths. The
 validator derives direct imports for both namespaces with deterministic AST
@@ -178,8 +179,9 @@ slices but cannot independently validate B01 or close independent-review and
 protected-forge findings. It authorizes no release, promotion, deployment,
 activation, credentials, market access, capital, or expanded risk authority.
 
-B01c did not implement B02/Bazel. It does not implement B03 clean-machine equivalence, B04 language
-standards, B05 affected/full build policy, supply-chain admission, signed
+B01c did not implement B02/Bazel. B02, B03, and B04 are separately governed,
+provisionally implemented packages. It does not implement B05 affected/full
+build policy, supply-chain admission, signed
 artifacts, target-domain behavior, or compatibility-facade removal.
 
 The successor selector is `B02`; its current partial implementation is documented
