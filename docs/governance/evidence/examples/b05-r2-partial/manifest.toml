@@ -1,0 +1,137 @@
+schema_version = 1
+bundle_id = "b05-r2-partial"
+roadmap_id = "B05"
+commit_sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+owner_role = "platform"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = []
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["B05-F01", "B05-F02", "B05-F03"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "none"
+reversibility = "compatibility_window"
+computationally_material = true
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "The fast and full lanes run governed pre-commit hygiene and reject generated artifacts in source diffs."
+evidence_ids = ["hygiene-security-and-drift"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "Affected and full execution use the pinned Bazel, Buf, Python, uv, pre-commit, and locked scanner inputs."
+evidence_ids = ["affected-schema-and-tests"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Success, empty, rename, boundary, invalid-ref, malformed-query, unowned-path, merged-result, event, CLI, and failure behavior is tested."
+evidence_ids = ["affected-schema-and-tests", "full-lane-and-events"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Selection invariants and a deterministic one-thousand-path workload exercise exact set and safe-broadening behavior; no numerical algorithm changes."
+evidence_ids = ["affected-schema-and-tests"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "Every registered Protobuf module is linted and compared with its Git baseline; additive change passes and field removal fails."
+evidence_ids = ["affected-schema-and-tests"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "No research hypothesis, dataset, feature, model, metric conclusion, trial, or promotion behavior is introduced."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "Root, Bazel, pre-commit, compatibility-command, and hosted fast/full interfaces are aligned and the full lane retains frozen-uv rollback."
+evidence_ids = ["full-lane-and-events"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "One thousand changed paths are selected within the one-second repository-local budget; target-host median approval and observations remain open."
+evidence_ids = ["affected-schema-and-tests"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Unknown, unowned, deleted, malformed, oversized, incompatible, or failed tool state broadens to full or blocks explicitly."
+evidence_ids = ["hygiene-security-and-drift"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Full tracked-source and affected-source scans combine the locked private-key scanner with closed high-confidence token patterns and retain B07 admission."
+evidence_ids = ["hygiene-security-and-drift"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "The B05 contract documents ownership, scope, interfaces, gates, compatibility, migration, rollback, signals, findings, non-goals, and successor."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "Build and test phases emit revision-bound UTC duration events; local unretained events remain distinguishable from hosted evidence."
+evidence_ids = ["full-lane-and-events"]
+
+[[artifacts]]
+evidence_id = "affected-schema-and-tests"
+artifact_type = "test_report"
+path = "reports/affected-schema-and-tests.txt"
+sha256 = "79049f479c06f64c2cee6ddb93c4ea9d13727449a8883d2742e5da0ef82a239f"
+
+[[artifacts]]
+evidence_id = "hygiene-security-and-drift"
+artifact_type = "security_report"
+path = "reports/hygiene-security-and-drift.txt"
+sha256 = "96cfaf9304565b854271e17c3bb4172df3e7b738d0cf4c31bd9b0b7c6c93313b"
+
+[[artifacts]]
+evidence_id = "full-lane-and-events"
+artifact_type = "integration_report"
+path = "reports/full-lane-and-events.txt"
+sha256 = "603b1a2590ad91775e150f73d798eaedcb564e111688da06eac8a4cc63558aa1"
+
+[[artifacts]]
+evidence_id = "documentation-and-monitoring"
+artifact_type = "documentation"
+path = "reports/documentation-and-monitoring.txt"
+sha256 = "46385150246d9aa5234dee957a39feed1938cd61ee5898bf518f1459a96ff41a"
+
+[[findings]]
+finding_id = "B05-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent domain review and commit-bound Platform Code Owner, SRE, and Security approval are unavailable during solo bootstrap."
+closure_condition = "Named reviewers resolve findings and approve the exact affected/full policy, scanner, compatibility, evidence-event, rollback, and hosted-lane commit."
+
+[[findings]]
+finding_id = "B05-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected pull-request merged-result execution, retained exact-commit events, representative affected-versus-full comparisons, and an owner-approved median fast-lane target are unavailable from the local checkout."
+closure_condition = "Protected CI requires the exact merged-result full lane, retains build/test events, demonstrates affected selection equivalence against the full graph over representative changes, and approves then meets the median fast-lane budget."
+
+[[findings]]
+finding_id = "B05-F03"
+owner_role = "security"
+unavailable_evidence = "Qualified final source, license, vulnerability, exploitability, maintenance, and transitive admission for the secret scanner remains B07-owned."
+closure_condition = "B07 admits or replaces pre-commit-hooks detect-private-key without weakening full tracked-source scanning, high-confidence token rules, fail-closed behavior, or rollback."

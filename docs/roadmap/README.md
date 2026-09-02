@@ -327,8 +327,8 @@ the shared kernel is the production path.
 ## Current repository mapping
 
 Repository-local implementations and deterministic checks now exist from the
-repository charter through language and static quality standards (packages `A01`
-through `B04`).
+repository charter through affected and full continuous integration (packages
+`A01` through `B05`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
 through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
@@ -343,7 +343,10 @@ same graph and uv rollback on repository-local Darwin, but remains partial pendi
 independent review, protected Linux execution/comparison, and B07 admission.
 B04 enforces language admission, exact Python quality tools, bounded suppressions,
 numerical/generated-code policy, and deterministic property/state-machine and
-baseline evidence. B05-B08 requirements are not implemented or marked validated.
+baseline evidence. B05 adds repository-local affected/reverse-dependency
+selection, full-lane authority, hygiene, secret and schema checks, drift
+enforcement, and CI evidence events. B06-B08 requirements are not implemented or
+marked validated.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -462,7 +465,25 @@ provisional dependency records are reviewed. B04 retains medium-risk (`R2`)
 evidence and open independent-review, protected Linux/merged-result, and B07
 dependency-admission findings. It remains `partial` and authorizes no release,
 deployment, activation, credentials, market access, capital, or expanded risk
-authority. The next selector is fast/full CI and schema compatibility (`B05`).
+authority. Its fast/full CI successor (`B05`) is provisionally implemented
+separately.
+
+### Active affected and full continuous-integration delivery state
+
+Fast affected/reverse-dependency and authoritative full continuous integration
+(`B05`) are provisionally implemented under solo bootstrap by the
+[CI architecture contract](../architecture/ci-policy.md). The fast lane derives
+owners and reverse dependencies from Bazel and broadens foundational, deleted, or
+unowned paths to the complete graph. The full lane enforces pre-commit hygiene,
+all tracked-source secret checks, every registered Buf module, complete Bazel and
+frozen-uv validation, merge-parent identity, configuration drift, and
+revision-bound build/test events.
+
+B05 retains medium-risk (`R2`) evidence and open independent-review, protected
+merged-result/retention/median-target, and B07 scanner-admission findings. It
+remains `partial` and authorizes no release, deployment, activation, credentials,
+market access, capital, or expanded risk authority. The next selector is remote
+cache, execution, sharding, and flake control (`B06`).
 
 ## Recommended adoption order
 
@@ -482,8 +503,9 @@ authority. The next selector is fast/full CI and schema compatibility (`B05`).
    property/state-machine target, suppression/numerical/generated-code policy,
    baselines, R2 evidence, and open findings; do not repeat the existing-tool
    refresh.
-6. Implement fast/full CI and schema compatibility (`B05`), then remote execution
-   (`B06`) only after deterministic local fallback and cache isolation pass.
+6. Preserve fast/full CI and schema compatibility (`B05`), then implement remote
+   execution (`B06`) only after deterministic local fallback and cache isolation
+   pass.
 7. Implement dependency admission (`B07`) before introducing the analytical,
    orchestration, experiment, optimization, provider, or trading candidates above.
 8. Implement SBOM, provenance, signing, and verification (`B08`) before durable data

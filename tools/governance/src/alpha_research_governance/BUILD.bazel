@@ -21,6 +21,7 @@ py_library(
     for name, main in {
         "cmd_architecture": "architecture_governance.py",
         "cmd_change_risk": "change_risk/__main__.py",
+        "cmd_ci": "ci_policy/__main__.py",
         "cmd_engineering_standards": "engineering_standards/__main__.py",
         "cmd_evidence": "evidence/__main__.py",
         "cmd_inventory": "inventory/__main__.py",

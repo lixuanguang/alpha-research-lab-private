@@ -3,10 +3,16 @@
 UV := uv
 BAZEL := bazel
 BUILD_BACKEND ?= bazel
+CI_BASE_REF ?= HEAD
+CI_HEAD_REF ?= HEAD
+CI_EVENT_LOG ?= build/ci/continuous-integration-events.jsonl
+CI_RUN_ID ?= local
+CI_ENVIRONMENT ?= local
+CI_EVIDENCE_URL ?=
 PYTHON_PATHS := src tests tools/governance/src
 BAZEL_BUILD_TARGETS := //src/alpha_research:alpha_research //tools/governance/src/alpha_research_governance:all //tests/build/fixtures/sql:build_evidence //:docs_bundle
 
-.PHONY: sync lock-check format format-check lint typecheck engineering-standards-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security bazel-build bazel-test bazel-check integration-test rollback-test rollback-build rollback-check test smoke build check
+.PHONY: sync lock-check format format-check lint typecheck engineering-standards-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check ci-secrets-check ci-schema-check ci-fast ci-full security bazel-build bazel-test bazel-check integration-test rollback-test rollback-build rollback-check test smoke build check
 
 sync:
 	$(UV) sync --frozen
@@ -53,6 +59,21 @@ security-controls-check:
 program-governance-check:
 	$(UV) run --frozen alpha-governance-program
 
+ci-policy-check:
+	$(UV) run --frozen alpha-governance-ci
+
+ci-secrets-check:
+	$(UV) run --frozen alpha-governance-ci scan-secrets --all
+
+ci-schema-check:
+	$(UV) run --frozen alpha-governance-ci schema-check --base-ref $(CI_BASE_REF)
+
+ci-fast:
+	$(UV) run --frozen alpha-governance-ci fast --base-ref $(CI_BASE_REF) --head-ref $(CI_HEAD_REF) --event-log $(CI_EVENT_LOG) --run-id $(CI_RUN_ID) --environment $(CI_ENVIRONMENT) --evidence-url "$(CI_EVIDENCE_URL)"
+
+ci-full:
+	$(UV) run --frozen alpha-governance-ci full --base-ref $(CI_BASE_REF) --event-log $(CI_EVENT_LOG) --run-id $(CI_RUN_ID) --environment $(CI_ENVIRONMENT) --evidence-url "$(CI_EVIDENCE_URL)"
+
 security:
 	$(UV) run --frozen bandit -q -c pyproject.toml -r src tools/governance/src
 
@@ -81,7 +102,7 @@ rollback-check: lock-check lint format-check typecheck engineering-standards-che
 ifeq ($(BUILD_BACKEND),bazel)
 build: bazel-build
 test: bazel-test
-check: bazel-check rollback-check
+check: ci-full
 else ifeq ($(BUILD_BACKEND),uv)
 build: rollback-build
 test: rollback-test

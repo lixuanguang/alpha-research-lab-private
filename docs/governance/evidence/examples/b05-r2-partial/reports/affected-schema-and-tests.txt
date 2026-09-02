@@ -1,0 +1,1 @@
+Synthetic B05 fixture: Bazel XML owners and reverse dependencies, empty and foundational changes, unowned/deleted paths, rename boundaries, query failures, current Buf lint, additive compatibility, and removed-field incompatibility are deterministic and fail closed.

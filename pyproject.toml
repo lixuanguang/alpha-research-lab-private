@@ -13,6 +13,9 @@ dependencies = [
     "alpha-research-governance==0.1.0",
 ]
 
+[project.scripts]
+alpha-research-ci = "alpha_research.ci_policy:main"
+
 [dependency-groups]
 dev = [
     "bandit[toml]==1.9.4",

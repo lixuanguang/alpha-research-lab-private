@@ -22,7 +22,7 @@ expressions. The checker expands exact ranges, represents conditional asset
 dependencies as explicit `any of` groups, rejects unknown or duplicate packages,
 and fails on self-dependencies or cycles.
 
-The program policy records implementation state only for A01-B04. Packages without
+The program policy records implementation state only for A01-B05. Packages without
 an explicit state remain `planned`; no empty package is treated as implemented.
 Every partial dependency records passing repository-local evidence, its retained
 finding IDs, and only the deferred evidence classes permitted by the solo-bootstrap
@@ -52,9 +52,9 @@ uv run --frozen alpha-governance-program \
   --metric kpi.research_reproducibility_percent
 ```
 
-With B04 repository-local evidence present, B01-B04 remain `partial` and the next
-solo-provisionally ready package is B05. Institutional readiness remains empty
-because none of the provisional A01-B04 states is validated.
+With B05 repository-local evidence present, B01-B05 remain `partial` and the next
+solo-provisionally ready package is B06. Institutional readiness remains empty
+because none of the provisional A01-B05 states is validated.
 
 ## KPI and observation contract
 
@@ -86,7 +86,9 @@ uv run --frozen alpha-governance-program \
   --observations path/to/automatic-observations.jsonl --json
 ```
 
-No eligible target observations exist yet. The dashboard therefore reports
+No eligible retained target observations exist yet. B05 emits local unretained
+build/test events and configures hosted events, but protected-forge evidence
+remains open. The dashboard therefore reports
 `insufficient_observations`, not zero. Baselines remain
 `awaiting_target_observations`, and numeric targets remain
 `pending_owner_approval`; fabricating either would be a control failure.
@@ -120,8 +122,8 @@ merged-result evidence is unavailable.
 ## Migration, rollout, rollback, monitoring, and runbook
 
 Schema version 1 is additive and has no database, runtime state, generated client,
-or existing observation consumer to migrate. B01c, B02, B03, and B04 add their
-partial package states without changing graph or observation schemas. Future
+or existing observation consumer to migrate. B01c and B02-B05 add their partial
+package states without changing graph or observation schemas. Future
 incompatible graph or event changes require a versioned compatibility window and
 retained old readers.
 
@@ -156,7 +158,7 @@ These findings are not waivers or approvals. A08 remains partial until all close
 
 ## Non-goals
 
-- Implementing B05 or any later build, data, research, deployment, observability,
+- Implementing B06 or any later build, data, research, deployment, observability,
   incident, or rollback producer package.
 - Creating a production dashboard service or accepting manually curated KPI values.
 - Treating throughput, commit count, coverage percentage, PnL, Sharpe ratio, or a

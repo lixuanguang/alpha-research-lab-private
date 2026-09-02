@@ -1,0 +1,1 @@
+Synthetic B05 fixture: pre-commit hygiene, generated/source separation, bounded source reads, private-key detection, high-confidence assigned/AWS/GitHub/Slack/Stripe token patterns, missing scanner execution, policy weakening, lock drift, and interface drift are blocking.
