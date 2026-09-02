@@ -1,0 +1,25 @@
+schema_version = 1
+roadmap_package = "B04"
+operating_track = "solo_bootstrap"
+package_status = "partial"
+accountable_owner_role = "platform"
+admission_owner_package = "B07"
+as_of_date = "2026-09-02"
+runtime_installation_allowed = false
+
+[[dependencies]]
+dependency_id = "b04.hypothesis"
+name = "Hypothesis"
+version = "6.167.1"
+purpose = "Deterministic property and rule-based state-machine testing for repository contracts."
+source_url = "https://pypi.org/project/hypothesis/6.167.1/"
+source_digest = "sha256:62eefcb4d2791423626e9901c3027a6e0c5ffda2ac0b44b3c7e797ab9d2d5a4c"
+license = "MPL-2.0"
+supported_platforms = ["darwin_arm64", "linux_x86_64"]
+transitive_native_dependencies = [
+  "hypothesis==6.167.1 platform wheels contain upstream native extension artifacts",
+  "sortedcontainers==2.4.0 (pure Python)",
+]
+vulnerability_review = "PyPI project metadata and the upstream advisory surface were reviewed on 2026-09-02; qualified exploitability and final admission remain B07-owned."
+maintenance_review = "The stable 6.167.1 patch in the roadmap's 6.167 line supports Python 3.12 and is exactly locked."
+rollback = "Remove the B04 property/state-machine target and exact dependency pins together; retain deterministic example tests."

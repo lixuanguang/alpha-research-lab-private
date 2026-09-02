@@ -17,6 +17,7 @@ dependencies = [
 dev = [
     "bandit[toml]==1.9.4",
     "hatchling==1.32.0",
+    "hypothesis==6.167.1",
     "mypy==2.3.1",
     "pre-commit==4.6.2",
     "pre-commit-hooks==6.0.0",
@@ -53,6 +54,7 @@ warn_unused_configs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = '--strict-config --strict-markers -m "not integration"'
+filterwarnings = ["error"]
 markers = [
     "integration: slower tests that exercise external command or tool integration",
 ]

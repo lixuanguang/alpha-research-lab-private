@@ -1,0 +1,18 @@
+load("@alpha_research_pypi//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:private"])
+
+py_test(
+    name = "engineering_standards_test",
+    srcs = ["test_engineering_standards.py"],
+    data = ["//:engineering_standards_data"],
+    main = "test_engineering_standards.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [
+        "//src/alpha_research",
+        "//tools/governance/src/alpha_research_governance",
+        requirement("hypothesis"),
+        requirement("pytest"),
+    ],
+)

@@ -54,6 +54,7 @@ def test_governance_path_target_and_owned_commands_are_explicit() -> None:
     assert set(scripts) == {
         "alpha-governance-architecture",
         "alpha-governance-change-risk",
+        "alpha-governance-engineering-standards",
         "alpha-governance-evidence",
         "alpha-governance-inventory",
         "alpha-governance-ownership",

@@ -53,6 +53,16 @@ filegroup(
     srcs = glob(["docs/**"]),
 )
 
+filegroup(
+    name = "engineering_standards_data",
+    srcs = [
+        "docs/architecture/engineering-standards.toml",
+        "docs/architecture/engineering-tool-dependencies.toml",
+        "uv.lock",
+    ],
+    visibility = ["//tests/engineering:__pkg__"],
+)
+
 alias(
     name = "platform_library",
     actual = "//src/alpha_research:alpha_research",
@@ -66,6 +76,7 @@ test_suite(
         "//tests/build/fixtures/proto:buf_toolchain_test",
         "//tests/build/fixtures/sql:generated_sql_test",
         "//tests/build/fixtures/sql:invalid_substitution_test",
+        "//tests/engineering:engineering_standards_test",
     ],
 )
 

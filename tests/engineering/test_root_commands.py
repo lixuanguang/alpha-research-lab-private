@@ -9,6 +9,7 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 GOVERNANCE_COMMANDS = (
     "alpha-governance-architecture",
     "alpha-governance-change-risk",
+    "alpha-governance-engineering-standards",
     "alpha-governance-evidence",
     "alpha-governance-inventory",
     "alpha-governance-program",
@@ -37,6 +38,7 @@ def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
         "uv run --frozen ruff check src tests tools/governance/src",
         "uv run --frozen ruff format --check src tests tools/governance/src",
         "uv run --frozen mypy --strict src tests tools/governance/src",
+        "uv run --frozen alpha-governance-engineering-standards",
         "uv run --frozen alpha-governance-architecture",
         "uv run --frozen alpha-governance-ownership",
         "uv run --frozen alpha-governance-change-risk",
@@ -96,6 +98,7 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
     assert "repo: local" in pre_commit
     assert "uv lock --check" in pre_commit
     for make_target in (
+        "engineering-standards-check",
         "inventory-check",
         "program-governance-check",
         "security-controls-check",

@@ -327,8 +327,8 @@ the shared kernel is the production path.
 ## Current repository mapping
 
 Repository-local implementations and deterministic checks now exist from the
-repository charter through the clean-machine environment (packages `A01` through
-`B03`).
+repository charter through language and static quality standards (packages `A01`
+through `B04`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
 through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
@@ -341,7 +341,9 @@ rollback. B02 remains partial because independent review, protected merged-resul
 Linux evidence, and final dependency admission remain open. B03 realizes the
 same graph and uv rollback on repository-local Darwin, but remains partial pending
 independent review, protected Linux execution/comparison, and B07 admission.
-B04-B08 requirements are not implemented or marked validated.
+B04 enforces language admission, exact Python quality tools, bounded suppressions,
+numerical/generated-code policy, and deterministic property/state-machine and
+baseline evidence. B05-B08 requirements are not implemented or marked validated.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -444,7 +446,23 @@ complete uv rollback pass. B03 retains medium-risk (`R2`) evidence and open
 independent-review, protected Linux execution/comparison, and B07 admission
 findings. It remains `partial` and authorizes no release, deployment, activation,
 credentials, market access, capital, or expanded risk authority. The next
-selector is engineering standards (`B04`).
+selector, now provisionally implemented separately, is engineering standards
+(`B04`).
+
+### Active language and static quality standards delivery state
+
+Engineering standards (`B04`) are provisionally implemented under solo bootstrap
+by the [engineering standards contract](../architecture/engineering-standards.md).
+The exact Python formatter, linter, strict type checker, security analyzer,
+warnings policy, Hypothesis property/state-machine target, suppression lifecycle,
+generated-code separation, numerical comparison rules, API compatibility rules,
+coverage statement, and twelve-of-twelve representative mutation baseline are
+machine checked. C/C++ and Rust remain dormant until separately owned targets and
+provisional dependency records are reviewed. B04 retains medium-risk (`R2`)
+evidence and open independent-review, protected Linux/merged-result, and B07
+dependency-admission findings. It remains `partial` and authorizes no release,
+deployment, activation, credentials, market access, capital, or expanded risk
+authority. The next selector is fast/full CI and schema compatibility (`B05`).
 
 ## Recommended adoption order
 
@@ -460,8 +478,10 @@ selector is engineering standards (`B04`).
 4. Preserve clean-machine reproducibility (`B03`), its exact host-tool and
    supported-platform record, Bazel equivalence, uv rollback, R2 evidence, and
    open findings.
-5. Implement engineering standards (`B04`) and add Hypothesis to the property/state-
-   machine testing target; do not repeat the existing-tool refresh.
+5. Preserve engineering standards (`B04`), its exact tool and dependency records,
+   property/state-machine target, suppression/numerical/generated-code policy,
+   baselines, R2 evidence, and open findings; do not repeat the existing-tool
+   refresh.
 6. Implement fast/full CI and schema compatibility (`B05`), then remote execution
    (`B06`) only after deterministic local fallback and cache isolation pass.
 7. Implement dependency admission (`B07`) before introducing the analytical,

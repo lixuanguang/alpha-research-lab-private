@@ -32,7 +32,10 @@ interface. B02 adds a pinned sandboxed Bazel graph for current Python,
 governance, documentation, SQL-generation, and test-only Protobuf targets, with
 a tested frozen-uv rollback. B03 adds a locked Nix clean-machine development
 shell with exact host tools, supported-platform checks, IDE integration, and a
-tested rollback. The repository does not yet contain canonical contracts, data plane, simulator,
+tested rollback. B04 adds enforceable language admission, warnings-as-errors,
+suppression metadata, generated-code and numerical rules, exact static-quality
+tools, and deterministic property/state-machine and baseline evidence. The
+repository does not yet contain canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
 
@@ -113,6 +116,12 @@ The bootstrap rejects ambient host tools, unsupported platforms, lock drift, and
 version mismatch. `environments/dev/bootstrap.sh rollback` exercises the complete
 retained uv backend.
 
+The [B04 engineering-standards contract](architecture/engineering-standards.md)
+pins the admitted Python quality stack and Hypothesis property/state-machine
+target, while keeping C/C++ and Rust dormant until an owned target and provisional
+dependency record are reviewed. Its checker rejects weakened policy, stale locks,
+unowned or expired suppressions, generated/native source drift, and evidence drift.
+
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
 [governed repository topology](architecture/repository-topology.md). B01c makes
@@ -129,6 +138,7 @@ Current root commands are:
 | `make format-check` | Verify current platform, governance-tool, and test Python formatting |
 | `make lint` | Run Ruff lint checks across current Python source |
 | `make typecheck` | Run strict mypy checks across current Python source |
+| `make engineering-standards-check` | Validate B04 language admission, exact tools, warnings, suppressions, numerical/generated-code rules, baselines, dependency record, and evidence |
 | `make architecture-check` | Lint ADRs, the decision log, and repository-local documentation links |
 | `make ownership-check` | Validate A03 ownership, independent-review policy, CODEOWNERS, and path coverage |
 | `make change-risk-check` | Validate A04 R0-R4 classification, gates, reviewers, rollout, retention, samples, and findings |
@@ -150,8 +160,8 @@ Current root commands are:
 
 Running `make` without a target is currently equivalent to `make check`.
 
-This interface is a provisional B02-B03 implementation, not completion of wave B.
-B04 owns language and numerical standards, B05 owns affected and merged-result
+This interface is a provisional B02-B04 implementation, not completion of wave B.
+B05 owns affected and merged-result
 policy, and B06-B08 own remote execution, final admission, and supply-chain
 evidence.
 
@@ -170,6 +180,7 @@ evidence.
 | [Governed repository topology and tooling](architecture/repository-topology.md) | B01 governed targets, compatibility entry points, root/hook/hosted enforcement, A06/A08 integration, evidence, findings, and B02 boundary |
 | [Pinned hermetic build graph](architecture/hermetic-build-graph.md) | B02 Bazel pins, sandbox and code-generation graph, provisional dependencies, Make/CI delegation, rollback, evidence, and findings |
 | [Clean-machine developer environment](architecture/clean-machine-environment.md) | B03 locked Nix shell, exact host tools, supported platforms, bootstrap, IDE integration, equivalence, rollback, evidence, and findings |
+| [Language and static quality standards](architecture/engineering-standards.md) | B04 admitted-language, formatter/linter/type/warning/sanitizer, suppression, generated-code, numerical, API, property/state-machine, baseline, dependency, and evidence contract |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

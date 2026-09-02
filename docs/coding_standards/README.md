@@ -30,6 +30,12 @@ contract without sharing a release cadence or runtime.
 This file contains rules shared by all languages. A language guide may make a
 shared rule stricter, but may not silently weaken it.
 
+The machine-enforced B04 policy is the
+[language and static quality standards contract](../architecture/engineering-standards.md).
+Python is currently the only admitted implementation language. C/C++ and Rust
+rules remain design requirements for future admitted targets, not evidence that a
+native toolchain or target is installed.
+
 ## Requirement language and precedence
 
 The words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** are
@@ -262,6 +268,10 @@ Language-specific casing is defined in each guide. In every language:
   and any non-obvious units or time semantics.
 - A TODO MUST include a concrete condition or issue reference. Do not leave vague
   promises such as `TODO: improve`.
+- A formatter, linter, type, coverage, or security suppression MUST end with
+  `[owner=<governed_role>; rationale=<specific_reason>; expires=YYYY-MM-DD]`, use
+  that exact field order, and expire no more than 180 days after validation. A
+  global suppression is not a substitute for fixing or isolating a finding.
 - Update documentation in the same change as the behavior it describes.
 - Examples MUST compile or run when the language tooling supports checked
   examples.

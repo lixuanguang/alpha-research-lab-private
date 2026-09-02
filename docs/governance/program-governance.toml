@@ -18,7 +18,7 @@ applicable_gate_ids = [
   "QG13",
   "QG14",
 ]
-as_of_date = "2026-09-01"
+as_of_date = "2026-09-02"
 roadmap_path = "docs/roadmap/README.md"
 observation_schema_version = 1
 maximum_observations = 10000
@@ -154,6 +154,20 @@ deferred_evidence_classes = [
 ]
 evidence_paths = ["docs/architecture/clean-machine-environment.md"]
 open_finding_ids = ["B03-F01", "B03-F02", "B03-F03"]
+
+[[package_states]]
+package_id = "B04"
+status = "partial"
+owner_role = "platform"
+repository_local_status = "passed"
+deferred_evidence_classes = [
+  "external_control_plane",
+  "independent_review",
+  "qualified_review",
+  "target_environment",
+]
+evidence_paths = ["docs/architecture/engineering-standards.md"]
+open_finding_ids = ["B04-F01", "B04-F02", "B04-F03"]
 
 [[metrics]]
 metric_id = "kpi.build_duration_seconds"

@@ -1,0 +1,11 @@
+B04 repository-local standards and representative-defect evidence
+Synthetic commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+- The machine-readable policy binds Python 3.12.14, exact formatter, linter,
+  type, security, test, coverage, and property-testing versions and makes warnings
+  blocking.
+- All twelve policy mutations are rejected, including risk/status downgrade,
+  global epsilon, non-finite continuation, missing sanitizer, weak property limits,
+  missing findings, and false native-language admission.
+- Existing suppressions carry a governed owner, concrete rationale, and bounded
+  expiry; missing, expired, overlong, and stale-owner metadata fail closed.

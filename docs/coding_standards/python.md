@@ -37,7 +37,9 @@ applicable repository check affected by the change. Run `pre-commit run --all-fi
 when hook behavior or multiple file types are involved.
 
 Do not silence a tool globally to fix a local violation. A suppression MUST be as
-narrow as possible and include a reason when that reason is not self-evident.
+narrow as possible and use the exact B04 suffix
+`[owner=<governed_role>; rationale=<specific_reason>; expires=YYYY-MM-DD]`; expiry
+may be no more than 180 days after validation. Pytest warnings are errors.
 
 ## Formatting and source layout
 
@@ -252,8 +254,8 @@ Additional rules:
 - A docstring MUST describe semantics rather than repeat annotations.
 - Non-obvious algorithms SHOULD cite a stable paper, specification, or issue and
   document deviations from it.
-- Comments for type/lint suppression MUST use the tool's error code and be scoped
-  to the affected line.
+- Comments for type/lint suppression MUST use the tool's error code, be scoped to
+  the affected line, and carry the required owner/rationale/expiry suffix.
 
 ## Testing
 
