@@ -12,7 +12,7 @@ CI_EVIDENCE_URL ?=
 PYTHON_PATHS := src tests tools/governance/src
 BAZEL_BUILD_TARGETS := //src/alpha_research:alpha_research //tools/governance/src/alpha_research_governance:all //tests/build/fixtures/sql:build_evidence //:docs_bundle
 
-.PHONY: sync lock-check format format-check lint typecheck engineering-standards-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check ci-secrets-check ci-schema-check ci-fast ci-full security bazel-build bazel-test bazel-check integration-test rollback-test rollback-build rollback-check test smoke build check
+.PHONY: sync lock-check format format-check lint typecheck engineering-standards-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check remote-execution-policy-check remote-build remote-test remote-quarantine remote-local-fallback-check ci-secrets-check ci-schema-check ci-fast ci-full security bazel-build bazel-test bazel-check integration-test rollback-test rollback-build rollback-check test smoke build check
 
 sync:
 	$(UV) sync --frozen
@@ -62,6 +62,22 @@ program-governance-check:
 ci-policy-check:
 	$(UV) run --frozen alpha-governance-ci
 
+remote-execution-policy-check:
+	$(UV) run --frozen alpha-governance-remote-execution
+
+remote-build:
+	$(UV) run --frozen alpha-governance-remote-execution build --context $(REMOTE_CONTEXT)
+
+remote-test:
+	$(UV) run --frozen alpha-governance-remote-execution test --context $(REMOTE_CONTEXT) --shard-index $(REMOTE_SHARD_INDEX)
+
+remote-quarantine:
+	$(UV) run --frozen alpha-governance-remote-execution quarantine --context $(REMOTE_CONTEXT)
+
+remote-local-fallback-check:
+	$(BAZEL) build --config=remote-disabled-local $(BAZEL_BUILD_TARGETS)
+	UNDECLARED_HOST_SECRET=synthetic-host-only $(BAZEL) test --config=remote-disabled-local //...
+
 ci-secrets-check:
 	$(UV) run --frozen alpha-governance-ci scan-secrets --all
 
@@ -97,7 +113,7 @@ smoke:
 rollback-build:
 	$(UV) build --no-sources
 
-rollback-check: lock-check lint format-check typecheck engineering-standards-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check security rollback-test integration-test smoke rollback-build
+rollback-check: lock-check lint format-check typecheck engineering-standards-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check remote-execution-policy-check security rollback-test integration-test smoke rollback-build
 
 ifeq ($(BUILD_BACKEND),bazel)
 build: bazel-build

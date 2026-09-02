@@ -38,6 +38,9 @@ tools, and deterministic property/state-machine and baseline evidence. The
 repository also has B05 fast affected/reverse-dependency validation, an
 authoritative full merged-result lane, secret and generated-diff hygiene, Buf
 compatibility, configuration-drift checks, and CI duration events. The
+repository also has B06's authenticated remote client boundary, isolated cache
+namespace, deterministic two-way test sharding, strict flake handling, bounded
+resources, guarded main-push integration, and remote-disabled local fallback. The
 repository does not yet contain canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
@@ -131,6 +134,13 @@ merged-result lane authoritative. It uses pinned Buf for current schema modules,
 scans affected or all tracked sources for secrets, rejects generated artifacts in
 source diffs, validates interface drift, and emits revision-bound duration events.
 
+The [B06 remote-execution contract](architecture/remote-execution.md) selects a
+BuildBuddy-compatible REAPI v2 boundary through a proposed ADR, isolates trusted
+cache writes, partitions the complete test graph deterministically, forbids
+whole-test retry and silent remote fallback, caps resources, and preserves a
+complete remote-disabled local path. Service provisioning and B07 admission remain
+open findings.
+
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
 [governed repository topology](architecture/repository-topology.md). B01c makes
@@ -157,6 +167,11 @@ Current root commands are:
 | `make security-controls-check` | Validate and query the A07 threat model, control ownership and evidence, trust boundaries, abuse cases, and non-conclusive jurisdiction map |
 | `make program-governance-check` | Validate and query the A08 96-package dependency graph, provisional readiness, owned KPI definitions, automatic observations, and non-vanity dashboard |
 | `make ci-policy-check` | Validate B05 fast/full lanes, selection policy, schema roots, provisional scanner record, integrations, evidence, and findings |
+| `make remote-execution-policy-check` | Validate B06 provider, trust, namespace, sharding, flake, budget, fallback, integration, evidence, and findings |
+| `make remote-build` | Run the authenticated B06 build after clean-main trust checks |
+| `make remote-test` | Run one deterministic B06 test shard selected by `REMOTE_SHARD_INDEX` |
+| `make remote-quarantine` | Repeat active quarantined targets diagnostically without removing them from normal shards |
+| `make remote-local-fallback-check` | Run the complete bounded Bazel graph with remote cache, execution, and uploads disabled |
 | `make ci-secrets-check` | Scan every tracked source with the provisionally reused private-key scanner and repository high-confidence token rules |
 | `make ci-schema-check` | Lint current Protobuf modules and compare them with `CI_BASE_REF` using pinned Buf |
 | `make ci-fast` | Build and test Bazel owners plus reverse dependencies between `CI_BASE_REF` and `CI_HEAD_REF` |
@@ -174,8 +189,8 @@ Current root commands are:
 
 Running `make` without a target is currently equivalent to `make check`.
 
-This interface is a provisional B02-B05 implementation, not completion of wave B.
-B06-B08 own remote execution, final admission, and supply-chain evidence.
+This interface is a provisional B02-B06 implementation, not completion of wave B.
+B07-B08 own final admission and supply-chain evidence.
 
 ## Documentation map
 
@@ -194,6 +209,7 @@ B06-B08 own remote execution, final admission, and supply-chain evidence.
 | [Clean-machine developer environment](architecture/clean-machine-environment.md) | B03 locked Nix shell, exact host tools, supported platforms, bootstrap, IDE integration, equivalence, rollback, evidence, and findings |
 | [Language and static quality standards](architecture/engineering-standards.md) | B04 admitted-language, formatter/linter/type/warning/sanitizer, suppression, generated-code, numerical, API, property/state-machine, baseline, dependency, and evidence contract |
 | [Affected and full continuous integration](architecture/ci-policy.md) | B05 affected/reverse-dependency selection, merged-result authority, hygiene, secrets, schema compatibility, drift, events, evidence, and findings |
+| [Remote cache, execution, sharding, and flake control](architecture/remote-execution.md) | B06 provider ADR, authenticated trust boundary, namespace isolation, deterministic shards, strict flake behavior, resource budgets, fallback, evidence, and findings |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

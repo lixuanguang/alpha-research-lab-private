@@ -61,6 +61,7 @@ def test_governance_path_target_and_owned_commands_are_explicit() -> None:
         "alpha-governance-inventory",
         "alpha-governance-ownership",
         "alpha-governance-program",
+        "alpha-governance-remote-execution",
         "alpha-governance-security",
         "alpha-governance-topology",
     }

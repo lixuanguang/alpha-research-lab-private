@@ -75,6 +75,20 @@ filegroup(
     visibility = ["//tests/engineering:__pkg__"],
 )
 
+filegroup(
+    name = "remote_execution_policy_data",
+    srcs = [
+        ".bazelrc",
+        ".github/workflows/ci.yml",
+        ".pre-commit-config.yaml",
+        "Makefile",
+        "docs/architecture/remote-execution.toml",
+        "docs/governance/change-risk-policy.toml",
+        "docs/governance/evidence/examples/b06-r2-partial/manifest.toml",
+    ] + glob(["docs/governance/evidence/examples/b06-r2-partial/reports/**"]),
+    visibility = ["//tests/engineering:__pkg__"],
+)
+
 alias(
     name = "platform_library",
     actual = "//src/alpha_research:alpha_research",
@@ -89,6 +103,7 @@ test_suite(
         "//tests/build/fixtures/sql:generated_sql_test",
         "//tests/build/fixtures/sql:invalid_substitution_test",
         "//tests/engineering:engineering_standards_test",
+        "//tests/engineering:remote_execution_test",
     ],
 )
 

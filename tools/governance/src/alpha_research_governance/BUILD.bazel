@@ -27,6 +27,7 @@ py_library(
         "cmd_inventory": "inventory/__main__.py",
         "cmd_ownership": "ownership_governance.py",
         "cmd_program": "program_governance/__main__.py",
+        "cmd_remote_execution": "remote_execution/__main__.py",
         "cmd_security": "security_controls/__main__.py",
         "cmd_topology": "repository_topology/__main__.py",
     }.items()

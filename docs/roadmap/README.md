@@ -328,7 +328,7 @@ the shared kernel is the production path.
 
 Repository-local implementations and deterministic checks now exist from the
 repository charter through affected and full continuous integration (packages
-`A01` through `B05`).
+`A01` through `B06`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
 through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
@@ -345,8 +345,11 @@ B04 enforces language admission, exact Python quality tools, bounded suppression
 numerical/generated-code policy, and deterministic property/state-machine and
 baseline evidence. B05 adds repository-local affected/reverse-dependency
 selection, full-lane authority, hygiene, secret and schema checks, drift
-enforcement, and CI evidence events. B06-B08 requirements are not implemented or
-marked validated.
+enforcement, and CI evidence events. B06 adds the repository-owned authenticated
+remote client boundary, isolated namespace, deterministic two-shard partition,
+strict flake/quarantine semantics, resource budgets, guarded main-push integration,
+and verified remote-disabled local fallback. B07-B08 requirements are not
+implemented or marked validated.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -482,8 +485,27 @@ revision-bound build/test events.
 B05 retains medium-risk (`R2`) evidence and open independent-review, protected
 merged-result/retention/median-target, and B07 scanner-admission findings. It
 remains `partial` and authorizes no release, deployment, activation, credentials,
-market access, capital, or expanded risk authority. The next selector is remote
-cache, execution, sharding, and flake control (`B06`).
+market access, capital, or expanded risk authority. Its remote-execution successor
+(`B06`) is provisionally implemented separately.
+
+### Active remote cache, execution, sharding, and flake-control delivery state
+
+Authenticated remote cache/execution, deterministic sharding, strict flake controls,
+and resource budgets (`B06`) are provisionally implemented under solo bootstrap by
+the [remote-execution contract](../architecture/remote-execution.md). A proposed ADR
+selects BuildBuddy Cloud's REAPI v2 boundary. Only clean protected main pushes may
+receive credentials or upload to the repository/trust/toolchain/platform/version
+namespace; pull requests and developer contexts remain remote-disabled. The complete
+Bazel test graph is partitioned into two stable SHA-256 seeded shards, normal tests
+run once, quarantine is diagnostic only, remote RPC retries and resources are bounded,
+and no remote failure silently falls back inside the remote lane.
+
+B06 retains medium-risk (`R2`) evidence and open independent-review, protected
+service provisioning/local-versus-remote equivalence, target-service poisoning and
+credential/outage drill, and B07 dependency-admission findings. It remains `partial`
+and authorizes no release, promotion, deployment, activation, credentials, market
+access, capital, or expanded risk authority. The next selector is dependency
+admission (`B07`).
 
 ## Recommended adoption order
 
@@ -503,9 +525,9 @@ cache, execution, sharding, and flake control (`B06`).
    property/state-machine target, suppression/numerical/generated-code policy,
    baselines, R2 evidence, and open findings; do not repeat the existing-tool
    refresh.
-6. Preserve fast/full CI and schema compatibility (`B05`), then implement remote
-   execution (`B06`) only after deterministic local fallback and cache isolation
-   pass.
+6. Preserve fast/full CI and schema compatibility (`B05`) plus B06's deterministic
+   local fallback, cache isolation, strict flake behavior, resource budgets, R2
+   evidence, and open findings.
 7. Implement dependency admission (`B07`) before introducing the analytical,
    orchestration, experiment, optimization, provider, or trading candidates above.
 8. Implement SBOM, provenance, signing, and verification (`B08`) before durable data

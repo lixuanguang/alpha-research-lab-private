@@ -183,6 +183,20 @@ deferred_evidence_classes = [
 evidence_paths = ["docs/architecture/ci-policy.md"]
 open_finding_ids = ["B05-F01", "B05-F02", "B05-F03"]
 
+[[package_states]]
+package_id = "B06"
+status = "partial"
+owner_role = "platform"
+repository_local_status = "passed"
+deferred_evidence_classes = [
+  "external_control_plane",
+  "independent_review",
+  "qualified_review",
+  "target_environment",
+]
+evidence_paths = ["docs/architecture/remote-execution.md"]
+open_finding_ids = ["B06-F01", "B06-F02", "B06-F03"]
+
 [[metrics]]
 metric_id = "kpi.build_duration_seconds"
 name = "Clean build duration"
@@ -198,7 +212,7 @@ bounded_ratio = false
 minimum_observations = 5
 window = "P30D"
 source_event_type = "ci_build_completed"
-producer_packages = ["B02", "B05"]
+producer_packages = ["B02", "B05", "B06"]
 required_dimensions = ["environment", "outcome", "target"]
 collection_mode = "automatic_event"
 manual_entry_allowed = false
@@ -221,7 +235,7 @@ bounded_ratio = false
 minimum_observations = 5
 window = "P30D"
 source_event_type = "ci_test_completed"
-producer_packages = ["B05"]
+producer_packages = ["B05", "B06"]
 required_dimensions = ["environment", "outcome", "target"]
 collection_mode = "automatic_event"
 manual_entry_allowed = false

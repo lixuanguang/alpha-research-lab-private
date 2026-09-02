@@ -14,6 +14,7 @@ GOVERNANCE_COMMANDS = (
     "alpha-governance-evidence",
     "alpha-governance-inventory",
     "alpha-governance-program",
+    "alpha-governance-remote-execution",
     "alpha-governance-security",
     "alpha-governance-topology",
 )
@@ -48,6 +49,8 @@ def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
         "uv run --frozen alpha-governance-inventory",
         "uv run --frozen alpha-governance-security",
         "uv run --frozen alpha-governance-program",
+        "uv run --frozen alpha-governance-ci",
+        "uv run --frozen alpha-governance-remote-execution",
         "uv run --frozen bandit -q -c pyproject.toml -r src tools/governance/src",
         "uv run --frozen --no-editable pytest -q",
         "uv run --frozen --no-editable pytest -q -m integration",
@@ -69,6 +72,9 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
         assert canonical_command in pre_commit
     assert "make ci-full" in continuous_integration
     assert "make ci-fast" in continuous_integration
+    assert "make remote-build" in continuous_integration
+    assert "make remote-test" in continuous_integration
+    assert "github.event_name == 'push'" in continuous_integration
 
     assert "tools/governance/src/alpha_research_governance/change_risk/[a-z_]+\\.py" in (pre_commit)
     assert "--github-event" in continuous_integration

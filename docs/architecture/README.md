@@ -200,7 +200,7 @@ consumers. [B02](hermetic-build-graph.md) adds the current pinned build graph an
 shell. [B04](engineering-standards.md) adds the current language and static-quality
 policy, checker, and property/state-machine target. [B05](ci-policy.md) adds the
 affected/reverse-dependency fast lane and authoritative full merged-result lane.
-None creates the remaining target tree or B06-B08 supply-chain machinery.
+None creates the remaining target tree or B07-B08 supply-chain machinery.
 
 ## Build and reproducibility architecture
 

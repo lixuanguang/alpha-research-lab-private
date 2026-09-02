@@ -29,7 +29,7 @@ def main() -> int:
     buf = Path(sys.argv[1]).resolve(strict=True)
     package = Path(sys.argv[2]).resolve(strict=True).parent
 
-    with tempfile.TemporaryDirectory(prefix="b02-buf-") as temporary_directory:
+    with tempfile.TemporaryDirectory(prefix="alpha-buf-toolchain-test-") as temporary_directory:
         temporary = Path(temporary_directory)
         environment = {
             "BUF_CACHE_DIR": str(temporary / "cache"),

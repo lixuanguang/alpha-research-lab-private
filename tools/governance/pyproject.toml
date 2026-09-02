@@ -21,6 +21,7 @@ alpha-governance-evidence = "alpha_research_governance.evidence:main"
 alpha-governance-inventory = "alpha_research_governance.inventory:main"
 alpha-governance-ownership = "alpha_research_governance.ownership_governance:main"
 alpha-governance-program = "alpha_research_governance.program_governance:main"
+alpha-governance-remote-execution = "alpha_research_governance.remote_execution:main"
 alpha-governance-security = "alpha_research_governance.security_controls:main"
 alpha-governance-topology = "alpha_research_governance.repository_topology:main"
 

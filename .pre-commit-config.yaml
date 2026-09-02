@@ -47,6 +47,13 @@ repos:
         always_run: true
         pass_filenames: false
 
+      - id: remote-execution-policy
+        name: check remote execution, sharding, flake, and fallback policy
+        entry: uv run --frozen alpha-governance-remote-execution
+        language: system
+        always_run: true
+        pass_filenames: false
+
       - id: architecture-governance
         name: check architecture governance
         entry: uv run --frozen alpha-governance-architecture

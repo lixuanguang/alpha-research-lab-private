@@ -8,7 +8,7 @@ sql_template(
     name = "build_evidence",
     src = "build_evidence.sql.tmpl",
     substitutions = {
-        "@@BUILD_IDENTITY@@": "b02-hermetic-fixture",
+        "@@BUILD_IDENTITY@@": "hermetic-build-fixture",
         "@@TABLE_NAME@@": "build_artifact_digest",
     },
 )

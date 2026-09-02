@@ -1,0 +1,15 @@
+B06 repository-local policy, sharding, and cache-boundary evidence
+
+Scope: deterministic validator and adversarial tests for the committed B06 client contract.
+Result: passed.
+
+The closed policy fixes authenticated TLS REAPI v2 endpoints, a repository/trust/toolchain/
+platform/version instance namespace, verified downloads, clean-main-only uploads, bounded
+resources, infrastructure-only RPC retries, one-attempt normal tests, diagnostic-only
+quarantine, and a remote-disabled local fallback. Mutation tests reject unauthenticated
+contexts, namespace weakening, fallback uploads, silent test retries, duplicate and malformed
+labels, over-budget graphs, and invalid shard indices. Order-independent tests prove that the
+two shards are disjoint and their union is the complete input set.
+
+No target service was contacted. Target-service cache-poisoning and tenant-isolation evidence
+remains B06-F03.

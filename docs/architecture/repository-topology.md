@@ -32,11 +32,12 @@ callers and rollback, but no B01c enforcement consumer uses an ambient
 B01c did not create the target domain skeleton or introduce a build, domain, or
 external dependency. B02 owns the separately reviewed hermetic Bazel graph and may remove the
 compatibility facades only through a separately reviewed compatibility change.
-B05 owns affected-target and authoritative merged-result build policy.
+B05 owns affected-target and authoritative merged-result build policy; B06 owns
+the separately governed remote-execution client and policy.
 
 ## Canonical targets and enforced consumers
 
-The tool distribution owns nine executable entry points:
+The tool distribution owns ten executable entry points:
 
 ```text
 alpha-governance-architecture
@@ -46,6 +47,7 @@ alpha-governance-evidence
 alpha-governance-inventory
 alpha-governance-ownership
 alpha-governance-program
+alpha-governance-remote-execution
 alpha-governance-security
 alpha-governance-topology
 ```
@@ -88,7 +90,7 @@ the only current reverse consumer of both surfaces.
 The registry now assigns every Python implementation, facade, typing marker,
 engineering-test source, and B02-B03 build-test source under
 `tools/governance/src/alpha_research_governance/`, `src/alpha_research/`,
-`tests/engineering/`, and `tests/build/` to exactly one of 23 owned
+`tests/engineering/`, and `tests/build/` to exactly one of 24 owned
 targets. Each target declares kind, layer, accountable owner, supported platform,
 direct dependencies, exact reverse visibility, and exact source paths. The
 validator derives direct imports for both namespaces with deterministic AST

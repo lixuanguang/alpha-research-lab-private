@@ -211,6 +211,7 @@ dependencies = [
   "tool.governance.inventory",
   "tool.governance.ownership_governance",
   "tool.governance.program_governance",
+  "tool.governance.remote_execution",
   "tool.governance.repository_topology",
   "tool.governance.security_controls",
 ]
@@ -227,6 +228,7 @@ sources = [
   "tests/engineering/test_package_evidence.py",
   "tests/engineering/test_program_governance.py",
   "tests/engineering/test_pydantic_models.py",
+  "tests/engineering/test_remote_execution.py",
   "tests/engineering/test_repository_governance.py",
   "tests/engineering/test_repository_topology.py",
   "tests/engineering/test_root_commands.py",
@@ -261,6 +263,7 @@ visibility = [
   "tool.governance.evidence",
   "tool.governance.inventory",
   "tool.governance.program_governance",
+  "tool.governance.remote_execution",
   "tool.governance.repository_topology",
   "tool.governance.security_controls",
 ]
@@ -335,6 +338,7 @@ visibility = [
   "tool.governance.engineering_standards",
   "tool.governance.inventory",
   "tool.governance.program_governance",
+  "tool.governance.remote_execution",
   "tool.governance.repository_topology",
   "tool.governance.security_controls",
 ]
@@ -364,6 +368,7 @@ visibility = [
   "tool.governance.evidence",
   "tool.governance.inventory",
   "tool.governance.program_governance",
+  "tool.governance.remote_execution",
   "tool.governance.repository_topology",
   "tool.governance.security_controls",
 ]
@@ -428,6 +433,27 @@ sources = [
   "tools/governance/src/alpha_research_governance/program_governance/__main__.py",
   "tools/governance/src/alpha_research_governance/program_governance/models.py",
   "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+]
+
+[[units]]
+unit_id = "tool.governance.remote_execution"
+kind = "tool"
+layer = "catalog"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = [
+  "tool.governance.change_risk",
+  "tool.governance.evidence",
+  "tool.governance.foundation",
+]
+visibility = ["test.engineering"]
+sources = [
+  "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+  "tools/governance/src/alpha_research_governance/remote_execution/__main__.py",
+  "tools/governance/src/alpha_research_governance/remote_execution/models.py",
+  "tools/governance/src/alpha_research_governance/remote_execution/policy.py",
+  "tools/governance/src/alpha_research_governance/remote_execution/runner.py",
+  "tools/governance/src/alpha_research_governance/remote_execution/sharding.py",
 ]
 
 [[units]]

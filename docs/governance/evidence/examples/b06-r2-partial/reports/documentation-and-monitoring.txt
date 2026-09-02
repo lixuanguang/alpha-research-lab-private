@@ -1,0 +1,11 @@
+B06 repository-local documentation and monitoring evidence
+
+Scope: objective, restrictions, ownership, commands, migration, rollback, signals, findings,
+non-goals, and successor.
+Result: passed.
+
+The B06 contract documents deterministic sharding, strict flake handling, retry semantics,
+resource budgets, trust and namespace boundaries, remote-disabled fallback, staged enablement,
+rollback, and actionable failure signals. It records partial solo-bootstrap status and routes
+the documented successor to B07 without claiming a service, credential, deployment, release,
+activation, market access, capital allocation, or expanded risk authority.
