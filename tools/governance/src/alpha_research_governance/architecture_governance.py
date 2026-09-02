@@ -90,10 +90,14 @@ def _section_body(text: str, heading: str) -> str | None:
 
 def _parse_date(value: str, *, field: str, path: Path, findings: list[str]) -> date | None:
     try:
-        return date.fromisoformat(value)
+        parsed_date = date.fromisoformat(value)
     except ValueError:
         findings.append(f"{path}: {field} must use YYYY-MM-DD")
         return None
+    if parsed_date.isoformat() != value:
+        findings.append(f"{path}: {field} must use YYYY-MM-DD")
+        return None
+    return parsed_date
 
 
 def _has_commit_bound_approval(value: str) -> bool:

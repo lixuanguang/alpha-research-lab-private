@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from time import perf_counter
 
 import pytest
 
@@ -61,12 +62,24 @@ def test_repository_topology_is_complete_and_acyclic() -> None:
     assert topology.package_status == "partial"
     assert topology.slice_status == "provisionally_implemented"
     assert topology.remaining_slices == ()
+    assert topology.validation_workload_budget_ms == 1_000
     assert len(topology.units) == 20
     assert topology.unit("test.build").kind == "test"
     assert topology.unit("test.engineering").kind == "test"
     assert topology.unit("tool.governance.repository_topology").kind == "tool"
     assert topology.unit("compatibility.alpha_research.repository_topology").kind == (
         "compatibility"
+    )
+
+
+def test_topology_validation_workload_stays_within_governed_budget() -> None:
+    started_at = perf_counter()
+    topology = validate_repository(REPOSITORY_ROOT)
+    elapsed_ms = (perf_counter() - started_at) * 1_000
+
+    assert elapsed_ms <= topology.validation_workload_budget_ms, (
+        f"topology validation took {elapsed_ms:.1f} ms; "
+        f"budget is {topology.validation_workload_budget_ms} ms"
     )
 
 

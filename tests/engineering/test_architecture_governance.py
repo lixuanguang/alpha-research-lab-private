@@ -101,6 +101,8 @@ def test_adr_lint_rejects_invalid_review_date_boundaries(tmp_path: Path) -> None
     path = tmp_path / "0001-test-decision.md"
     invalid_boundaries = (
         ("2026/08/25", "2026-11-25"),
+        ("20260825", "2026-11-25"),
+        ("2026-W35-1", "2026-11-25"),
         ("2026-08-25", "2026-08-25"),
     )
     for decision_date, review_date in invalid_boundaries:

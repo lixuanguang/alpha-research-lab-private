@@ -22,11 +22,12 @@ compatibility facades, then makes the repository root, pre-commit, hosted CI,
 A06 inventory, and A08 program dashboard consume and enforce those canonical
 targets.
 
-The root `alpha-research-lab` distribution still has no runtime dependency. The
-canonical implementation remains in the non-editable repository path package
-`alpha-research-governance`. Compatibility APIs under `alpha_research.*` remain
-available for existing callers and rollback, but no B01c enforcement consumer
-uses an ambient `PYTHONPATH` or a compatibility module command.
+The root `alpha-research-lab` distribution declares
+`alpha-research-governance==0.1.0` as its sole runtime dependency. The canonical
+implementation remains in that non-editable repository path package.
+Compatibility APIs under `alpha_research.*` remain available for existing
+callers and rollback, but no B01c enforcement consumer uses an ambient
+`PYTHONPATH` or a compatibility module command.
 
 B01c did not create the target domain skeleton or introduce a build, domain, or
 external dependency. B02 owns the separately reviewed hermetic Bazel graph and may remove the

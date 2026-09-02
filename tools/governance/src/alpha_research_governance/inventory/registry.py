@@ -173,9 +173,12 @@ def _require_positive_integer(table: dict[str, object], key: str, *, context: st
 
 def _parse_iso_date(value: str, *, context: str) -> date:
     try:
-        return date.fromisoformat(value)
+        parsed_date = date.fromisoformat(value)
     except ValueError as error:
         raise InventoryGovernanceError([f"{context} must use YYYY-MM-DD"]) from error
+    if parsed_date.isoformat() != value:
+        raise InventoryGovernanceError([f"{context} must use YYYY-MM-DD"])
+    return parsed_date
 
 
 def _load_toml(path: Path) -> dict[str, object]:

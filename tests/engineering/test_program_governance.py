@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 
 import pytest
 
 from alpha_research.program_governance import (
     METRIC_IDS,
     PACKAGE_IDS,
+    MetricObservation,
     ProgramGovernanceError,
     load_observations,
     load_program,
@@ -94,6 +97,8 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     assert len(program.package_states) == 11
     assert program.package_status == "partial"
     assert program.risk_class == "R2"
+    assert program.maximum_observations == 10_000
+    assert program.aggregation_workload_budget_ms == 1_000
     assert program.finding_ids == ("A08-F01", "A08-F02", "A08-F03")
     assert all(state.status == "partial" for state in program.package_states)
     assert all(state.repository_local_status == "passed" for state in program.package_states)
@@ -111,6 +116,56 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     environment_state = program.state_for("B03")
     assert environment_state is not None
     assert environment_state.open_finding_ids == ("B03-F01", "B03-F02", "B03-F03")
+
+
+def test_program_aggregation_workload_stays_within_governed_budget() -> None:
+    program = validate_repository(REPOSITORY_ROOT)
+    metric = next(
+        item for item in program.metrics if item.metric_id == "kpi.build_duration_seconds"
+    )
+    base_time = datetime(2026, 8, 30, tzinfo=UTC)
+    observations = tuple(
+        MetricObservation(
+            event_id=f"workload-{index}",
+            metric_id=metric.metric_id,
+            source_event_type=metric.source_event_type,
+            source_run_id=f"run-workload-{index}",
+            source_revision="5" * 40,
+            evidence_url=f"https://forge.example/runs/workload-{index}",
+            window_start=base_time + timedelta(seconds=index),
+            window_end=base_time + timedelta(seconds=index + 5),
+            dimensions=tuple(
+                (dimension, f"value-{dimension}") for dimension in metric.required_dimensions
+            ),
+            numerator=None,
+            denominator=None,
+        )
+        for index in range(program.maximum_observations)
+    )
+
+    started_at = perf_counter()
+    summaries = program.summarize_metrics(observations)
+    elapsed_ms = (perf_counter() - started_at) * 1_000
+
+    build_summary = next(item for item in summaries if item.metric_id == metric.metric_id)
+    assert build_summary.observation_count == program.maximum_observations
+    assert elapsed_ms <= program.aggregation_workload_budget_ms, (
+        f"aggregation of {program.maximum_observations} observations took "
+        f"{elapsed_ms:.1f} ms; budget is {program.aggregation_workload_budget_ms} ms"
+    )
+
+
+@pytest.mark.parametrize("invalid_date", ["20260901", "2026-W36-2"])
+def test_program_dates_require_extended_calendar_format(tmp_path: Path, invalid_date: str) -> None:
+    path = _policy_fixture(tmp_path)
+    _replace_program_fixture_text(
+        path,
+        'as_of_date = "2026-09-01"',
+        f'as_of_date = "{invalid_date}"',
+    )
+
+    with pytest.raises(ProgramGovernanceError, match="must use YYYY-MM-DD"):
+        load_program(path, repository_root=REPOSITORY_ROOT)
 
 
 def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> None:
