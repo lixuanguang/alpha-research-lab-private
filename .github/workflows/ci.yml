@@ -10,12 +10,50 @@ permissions:
   contents: read
 
 jobs:
-  package:
-    name: Bootstrap package
+  fast:
+    name: Affected-target fast lane
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.7"
+
+      - name: Install pinned Python
+        run: uv python install
+
+      - name: Install locked environment
+        run: uv sync --frozen
+
+      - name: Install pinned Bazel launcher
+        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
+        with:
+          bazelisk-version: "1.29.0"
+
+      - name: Run affected owners and reverse dependencies
+        run: >-
+          make ci-fast
+          CI_BASE_REF="${{ github.event.pull_request.base.sha }}"
+          CI_HEAD_REF="${{ github.event.pull_request.head.sha }}"
+          CI_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-fast"
+          CI_ENVIRONMENT="github_pr_head"
+          CI_EVIDENCE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+  merged-result:
+    name: Authoritative merged-result full lane
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
 
       - name: Install pinned uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -36,57 +74,22 @@ jobs:
         with:
           bazelisk-version: "1.29.0"
 
-      - name: Verify pinned hermetic build graph
-        run: make bazel-check
-
-      - name: Lint
-        run: uv run --frozen ruff check src tests tools/governance/src
-
-      - name: Check formatting
-        run: uv run --frozen ruff format --check src tests tools/governance/src
-
-      - name: Check types
-        run: uv run --frozen mypy --strict src tests tools/governance/src
-
-      - name: Check language and static quality standards
-        run: uv run --frozen alpha-governance-engineering-standards
-
-      - name: Check architecture governance
-        run: uv run --frozen alpha-governance-architecture
-
-      - name: Check ownership governance
-        run: uv run --frozen alpha-governance-ownership
-
-      - name: Check change-risk policy
-        run: uv run --frozen alpha-governance-change-risk
-
-      - name: Check merge-request and evidence policy
-        run: uv run --frozen alpha-governance-evidence
-
-      - name: Check governed repository topology
-        run: uv run --frozen alpha-governance-topology
-
-      - name: Check governed resource inventory
-        run: uv run --frozen alpha-governance-inventory
-
-      - name: Check threat and regulatory control map
-        run: uv run --frozen alpha-governance-security
-
-      - name: Check program dependency and KPI governance
-        run: uv run --frozen alpha-governance-program
+      - name: Verify pull-request merged-result identity
+        if: github.event_name == 'pull_request'
+        run: >-
+          uv run --frozen alpha-governance-ci verify-merged-result
+          --base-ref "${{ github.event.pull_request.base.sha }}"
+          --head-ref "${{ github.event.pull_request.head.sha }}"
+          --revision "$GITHUB_SHA"
 
       - name: Lint pull-request body
         if: github.event_name == 'pull_request'
         run: uv run --frozen alpha-governance-evidence --github-event "$GITHUB_EVENT_PATH"
 
-      - name: Check security
-        run: uv run --frozen bandit -q -c pyproject.toml -r src tools/governance/src
-
-      - name: Test
-        run: uv run --frozen --no-editable pytest -q
-
-      - name: Test pre-commit integration
-        run: make integration-test
-
-      - name: Build package
-        run: uv build --no-sources
+      - name: Run authoritative full graph
+        run: >-
+          make ci-full
+          CI_BASE_REF="${{ github.event.pull_request.base.sha || github.event.before }}"
+          CI_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-full"
+          CI_ENVIRONMENT="github_merged_result"
+          CI_EVIDENCE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

@@ -54,6 +54,18 @@ filegroup(
 )
 
 filegroup(
+    name = "ci_policy_data",
+    srcs = [
+        "docs/architecture/ci-policy.toml",
+        "docs/architecture/ci-tool-dependencies.toml",
+        "docs/governance/change-risk-policy.toml",
+        "docs/governance/evidence/examples/b05-r2-partial/manifest.toml",
+        "uv.lock",
+    ] + glob(["docs/governance/evidence/examples/b05-r2-partial/reports/**"]),
+    visibility = ["//tests/engineering:__pkg__"],
+)
+
+filegroup(
     name = "engineering_standards_data",
     srcs = [
         "docs/architecture/engineering-standards.toml",

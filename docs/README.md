@@ -35,6 +35,9 @@ shell with exact host tools, supported-platform checks, IDE integration, and a
 tested rollback. B04 adds enforceable language admission, warnings-as-errors,
 suppression metadata, generated-code and numerical rules, exact static-quality
 tools, and deterministic property/state-machine and baseline evidence. The
+repository also has B05 fast affected/reverse-dependency validation, an
+authoritative full merged-result lane, secret and generated-diff hygiene, Buf
+compatibility, configuration-drift checks, and CI duration events. The
 repository does not yet contain canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
@@ -122,6 +125,12 @@ target, while keeping C/C++ and Rust dormant until an owned target and provision
 dependency record are reviewed. Its checker rejects weakened policy, stale locks,
 unowned or expired suppressions, generated/native source drift, and evidence drift.
 
+The [B05 continuous-integration contract](architecture/ci-policy.md) makes the
+fast lane derive owners and reverse dependencies from Bazel and keeps the full
+merged-result lane authoritative. It uses pinned Buf for current schema modules,
+scans affected or all tracked sources for secrets, rejects generated artifacts in
+source diffs, validates interface drift, and emits revision-bound duration events.
+
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
 [governed repository topology](architecture/repository-topology.md). B01c makes
@@ -147,6 +156,11 @@ Current root commands are:
 | `make inventory-check` | Validate and query the A06 versioned resource inventory, ownership, lineage, dependencies, retention, status, and evidence links |
 | `make security-controls-check` | Validate and query the A07 threat model, control ownership and evidence, trust boundaries, abuse cases, and non-conclusive jurisdiction map |
 | `make program-governance-check` | Validate and query the A08 96-package dependency graph, provisional readiness, owned KPI definitions, automatic observations, and non-vanity dashboard |
+| `make ci-policy-check` | Validate B05 fast/full lanes, selection policy, schema roots, provisional scanner record, integrations, evidence, and findings |
+| `make ci-secrets-check` | Scan every tracked source with the provisionally reused private-key scanner and repository high-confidence token rules |
+| `make ci-schema-check` | Lint current Protobuf modules and compare them with `CI_BASE_REF` using pinned Buf |
+| `make ci-fast` | Build and test Bazel owners plus reverse dependencies between `CI_BASE_REF` and `CI_HEAD_REF` |
+| `make ci-full` | Run the authoritative complete Bazel, hygiene, schema, secret, drift, event, and frozen-uv path |
 | `make security` | Run Bandit against current platform and governance-tool Python source |
 | `make bazel-build` | Build the representative pinned Python, governance, SQL, and documentation graph |
 | `make bazel-test` | Run the focused B02 sandbox, pin, Protobuf, and SQL tests |
@@ -156,14 +170,12 @@ Current root commands are:
 | `make test` | Run the Bazel B02 test suite by default; use `BUILD_BACKEND=uv` for rollback |
 | `make smoke` | Import the non-editable installed bootstrap package |
 | `make build` | Build the representative Bazel graph by default; use `BUILD_BACKEND=uv` for rollback |
-| `make check` | Run the Bazel graph and the full retained frozen-uv compatibility path |
+| `make check` | Run the authoritative B05 full lane |
 
 Running `make` without a target is currently equivalent to `make check`.
 
-This interface is a provisional B02-B04 implementation, not completion of wave B.
-B05 owns affected and merged-result
-policy, and B06-B08 own remote execution, final admission, and supply-chain
-evidence.
+This interface is a provisional B02-B05 implementation, not completion of wave B.
+B06-B08 own remote execution, final admission, and supply-chain evidence.
 
 ## Documentation map
 
@@ -181,6 +193,7 @@ evidence.
 | [Pinned hermetic build graph](architecture/hermetic-build-graph.md) | B02 Bazel pins, sandbox and code-generation graph, provisional dependencies, Make/CI delegation, rollback, evidence, and findings |
 | [Clean-machine developer environment](architecture/clean-machine-environment.md) | B03 locked Nix shell, exact host tools, supported platforms, bootstrap, IDE integration, equivalence, rollback, evidence, and findings |
 | [Language and static quality standards](architecture/engineering-standards.md) | B04 admitted-language, formatter/linter/type/warning/sanitizer, suppression, generated-code, numerical, API, property/state-machine, baseline, dependency, and evidence contract |
+| [Affected and full continuous integration](architecture/ci-policy.md) | B05 affected/reverse-dependency selection, merged-result authority, hygiene, secrets, schema compatibility, drift, events, evidence, and findings |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

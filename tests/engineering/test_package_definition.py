@@ -44,6 +44,7 @@ def test_governance_path_target_and_owned_commands_are_explicit() -> None:
     uv = _require_table(_require_table(configuration, "tool"), "uv")
     sources = _require_table(uv, "sources")
     scripts = _require_table(_require_table(tool_configuration, "project"), "scripts")
+    compatibility_scripts = _require_table(configuration, "project")["scripts"]
 
     assert sources == {
         "alpha-research-governance": {
@@ -54,6 +55,7 @@ def test_governance_path_target_and_owned_commands_are_explicit() -> None:
     assert set(scripts) == {
         "alpha-governance-architecture",
         "alpha-governance-change-risk",
+        "alpha-governance-ci",
         "alpha-governance-engineering-standards",
         "alpha-governance-evidence",
         "alpha-governance-inventory",
@@ -62,6 +64,7 @@ def test_governance_path_target_and_owned_commands_are_explicit() -> None:
         "alpha-governance-security",
         "alpha-governance-topology",
     }
+    assert compatibility_scripts == {"alpha-research-ci": "alpha_research.ci_policy:main"}
 
 
 def test_packaging_documentation_matches_the_runtime_dependency_contract() -> None:

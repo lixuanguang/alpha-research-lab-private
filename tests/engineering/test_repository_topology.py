@@ -63,11 +63,13 @@ def test_repository_topology_is_complete_and_acyclic() -> None:
     assert topology.slice_status == "provisionally_implemented"
     assert topology.remaining_slices == ()
     assert topology.validation_workload_budget_ms == 1_000
-    assert len(topology.units) == 21
+    assert len(topology.units) == 23
     assert topology.unit("test.build").kind == "test"
     assert topology.unit("test.engineering").kind == "test"
     assert topology.unit("tool.governance.repository_topology").kind == "tool"
     assert topology.unit("tool.governance.engineering_standards").kind == "tool"
+    assert topology.unit("tool.governance.ci_policy").kind == "tool"
+    assert topology.unit("compatibility.alpha_research.ci_policy").kind == "compatibility"
     assert topology.unit("compatibility.alpha_research.repository_topology").kind == (
         "compatibility"
     )
@@ -108,7 +110,7 @@ def test_canonical_console_command_is_independent_of_source_path_and_working_dir
     )
 
     assert completed_process.returncode == 0, completed_process.stderr
-    assert "21 owned targets; B01 status is partial" in completed_process.stdout
+    assert "23 owned targets; B01 status is partial" in completed_process.stdout
 
 
 def test_unregistered_current_source_is_rejected(tmp_path: Path) -> None:

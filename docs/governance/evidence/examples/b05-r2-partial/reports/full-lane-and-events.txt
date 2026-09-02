@@ -1,0 +1,1 @@
+Synthetic B05 fixture: pull-request merge-parent identity, authoritative complete Bazel and frozen-uv execution, failure propagation, bounded event paths, UTC revision-bound build/test events, and A08-compatible hosted observations are exercised; protected-forge retention remains open.

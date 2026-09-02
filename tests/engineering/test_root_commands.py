@@ -9,6 +9,7 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 GOVERNANCE_COMMANDS = (
     "alpha-governance-architecture",
     "alpha-governance-change-risk",
+    "alpha-governance-ci",
     "alpha-governance-engineering-standards",
     "alpha-governance-evidence",
     "alpha-governance-inventory",
@@ -66,7 +67,8 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
     for canonical_command in GOVERNANCE_COMMANDS:
         assert canonical_command in makefile
         assert canonical_command in pre_commit
-        assert canonical_command in continuous_integration
+    assert "make ci-full" in continuous_integration
+    assert "make ci-fast" in continuous_integration
 
     assert "tools/governance/src/alpha_research_governance/change_risk/[a-z_]+\\.py" in (pre_commit)
     assert "--github-event" in continuous_integration
@@ -92,15 +94,29 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
     )
 
     assert "uv sync --frozen" in continuous_integration
-    assert "uv build --no-sources" in continuous_integration
-    assert "make integration-test" in continuous_integration
+    assert "rollback-check" in makefile
     assert 'version: "0.12.7"' in continuous_integration
     assert "repo: local" in pre_commit
     assert "uv lock --check" in pre_commit
     for make_target in (
+        "ci-policy-check",
+        "ci-secrets-check",
+        "ci-schema-check",
         "engineering-standards-check",
         "inventory-check",
         "program-governance-check",
         "security-controls-check",
     ):
         assert f"make {make_target}" in documentation
+
+
+def test_affected_and_authoritative_full_ci_root_interfaces_are_explicit() -> None:
+    fast = _run_make("-n", "ci-fast", "CI_BASE_REF=HEAD", "CI_HEAD_REF=HEAD")
+    full = _run_make("-n", "ci-full", "CI_BASE_REF=HEAD")
+
+    assert fast.returncode == 0, fast.stderr
+    assert "alpha-governance-ci fast" in fast.stdout
+    assert "--base-ref HEAD --head-ref HEAD" in fast.stdout
+    assert full.returncode == 0, full.stderr
+    assert "alpha-governance-ci full" in full.stdout
+    assert "--base-ref HEAD" in full.stdout

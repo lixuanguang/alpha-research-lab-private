@@ -198,8 +198,9 @@ sources. B01c enforces it through root, pre-commit, hosted-CI, A06, and A08
 consumers. [B02](hermetic-build-graph.md) adds the current pinned build graph and
 [B03](clean-machine-environment.md) adds the locked clean-machine development
 shell. [B04](engineering-standards.md) adds the current language and static-quality
-policy, checker, and property/state-machine target. None creates the remaining
-target tree or claims that B05 affected/full policy exists.
+policy, checker, and property/state-machine target. [B05](ci-policy.md) adds the
+affected/reverse-dependency fast lane and authoritative full merged-result lane.
+None creates the remaining target tree or B06-B08 supply-chain machinery.
 
 ## Build and reproducibility architecture
 
@@ -209,7 +210,9 @@ the current Python, governance, documentation, SQL, and test-only Protobuf targe
 there is no native source to justify a native target yet. B03's Nix flake supplies
 the supported reproducible prerequisite boundary and retains the uv lock as a
 transitional resolution input to the current Bazel Python graph. B04 keeps C/C++
-and Rust dormant and enforces the exact Python standards against that graph.
+and Rust dormant and enforces the exact Python standards against that graph. B05
+uses the graph for affected-owner/reverse-dependency selection and complete
+merged-result validation while preserving the frozen-uv rollback.
 
 The build system must:
 

@@ -59,7 +59,8 @@ SHA-256 digests. Documentation is a declared Bazel filegroup so documentation
 changes participate in the representative graph without inventing a publishing
 pipeline.
 
-Local and hosted CI call the same `make bazel-check` interface. CI installs
+The retained focused local interface is `make bazel-check`; B05 hosted CI now
+contains that graph inside its authoritative `make ci-full` interface. CI installs
 Bazelisk 1.29.0 from an immutable action commit; `.bazelversion` then selects
 Bazel 9.1.0. The workflow intentionally adds no remote cache or remote execution:
 B06 owns authentication, isolation, correctness, and local fallback for those

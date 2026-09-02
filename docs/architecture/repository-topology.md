@@ -88,7 +88,7 @@ the only current reverse consumer of both surfaces.
 The registry now assigns every Python implementation, facade, typing marker,
 engineering-test source, and B02-B03 build-test source under
 `tools/governance/src/alpha_research_governance/`, `src/alpha_research/`,
-`tests/engineering/`, and `tests/build/` to exactly one of 21 owned
+`tests/engineering/`, and `tests/build/` to exactly one of 23 owned
 targets. Each target declares kind, layer, accountable owner, supported platform,
 direct dependencies, exact reverse visibility, and exact source paths. The
 validator derives direct imports for both namespaces with deterministic AST

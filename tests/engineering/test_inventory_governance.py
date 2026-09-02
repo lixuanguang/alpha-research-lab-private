@@ -41,7 +41,7 @@ def _validate_inventory_fixture(path: Path) -> None:
 def test_repository_inventory_is_versioned_partial_and_complete_for_current_scope() -> None:
     inventory = validate_repository(REPOSITORY_ROOT)
 
-    assert inventory.catalog_version == 4
+    assert inventory.catalog_version == 5
     assert inventory.package_status == "partial"
     assert inventory.maximum_items == 10_000
     assert inventory.query_workload_iterations == 10_000
@@ -53,7 +53,7 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
     assert [item.inventory_id for item in inventory.items] == sorted(
         item.inventory_id for item in inventory.items
     )
-    assert len(inventory.items) == 12
+    assert len(inventory.items) == 13
     assert {item.kind for item in inventory.items} == {"control"}
     assert all(item.status == "provisional" for item in inventory.items)
     repository_topology_control = next(
@@ -97,6 +97,17 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
         "inv.control.governance.a05_merge_evidence",
         "inv.control.governance.b02_hermetic_build_graph",
         "inv.control.governance.b03_clean_machine_environment",
+    )
+    ci_policy_control = next(
+        item
+        for item in inventory.items
+        if item.inventory_id == "inv.control.governance.b05_ci_policy"
+    )
+    assert ci_policy_control.dependencies == (
+        "inv.control.governance.b01_repository_topology",
+        "inv.control.governance.b02_hermetic_build_graph",
+        "inv.control.governance.b03_clean_machine_environment",
+        "inv.control.governance.b04_engineering_standards",
     )
 
 
@@ -341,7 +352,7 @@ def test_cli_emits_stable_json_for_populated_and_empty_queries(
     assert first_output == second_output
 
     controls = json.loads(first_output)
-    assert controls["count"] == 12
+    assert controls["count"] == 13
     assert [item["inventory_id"] for item in controls["items"]] == sorted(
         item["inventory_id"] for item in controls["items"]
     )

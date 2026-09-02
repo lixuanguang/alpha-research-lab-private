@@ -34,6 +34,19 @@ repos:
         always_run: true
         pass_filenames: false
 
+      - id: ci-secret-scan
+        name: check committed text for secrets
+        entry: uv run --frozen alpha-governance-ci scan-secrets
+        language: system
+        types: [text]
+
+      - id: ci-policy
+        name: check fast and full CI policy
+        entry: uv run --frozen alpha-governance-ci
+        language: system
+        always_run: true
+        pass_filenames: false
+
       - id: architecture-governance
         name: check architecture governance
         entry: uv run --frozen alpha-governance-architecture

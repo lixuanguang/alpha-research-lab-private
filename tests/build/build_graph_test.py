@@ -233,8 +233,11 @@ def main() -> int:
     if 'bazelisk-version: "1.29.0"' not in continuous_integration:
         print("CI Bazelisk version must be exact", file=sys.stderr)
         return 1
-    if "run: make bazel-check" not in continuous_integration:
-        print("CI must execute the canonical B02 graph", file=sys.stderr)
+    if "make ci-full" not in continuous_integration:
+        print(
+            "CI must execute the authoritative full lane containing the canonical B02 graph",
+            file=sys.stderr,
+        )
         return 1
 
     makefile = (root / "Makefile").read_text(encoding="utf-8")
