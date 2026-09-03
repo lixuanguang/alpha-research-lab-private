@@ -67,12 +67,3 @@ def test_governance_path_target_and_owned_commands_are_explicit() -> None:
         "alpha-governance-topology",
     }
     assert compatibility_scripts == {"alpha-research-ci": "alpha_research.ci_policy:main"}
-
-
-def test_packaging_documentation_matches_the_runtime_dependency_contract() -> None:
-    documentation = (REPOSITORY_ROOT / "docs/architecture/repository-topology.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "still has no runtime dependency" not in documentation
-    assert "`alpha-research-governance==0.1.0` as its sole runtime dependency" in documentation

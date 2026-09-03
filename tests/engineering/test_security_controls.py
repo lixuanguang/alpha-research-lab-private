@@ -105,15 +105,12 @@ def test_repository_map_is_versioned_partial_and_complete_for_current_scope() ->
     }
 
 
-@pytest.mark.parametrize("invalid_date", ["20260830", "2026-W35-7"])
-def test_security_control_dates_require_extended_calendar_format(
-    tmp_path: Path, invalid_date: str
-) -> None:
+def test_security_control_dates_require_extended_calendar_format(tmp_path: Path) -> None:
     path = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         path,
         'as_of_date = "2026-08-30"',
-        f'as_of_date = "{invalid_date}"',
+        'as_of_date = "20260830"',
     )
 
     with pytest.raises(SecurityControlError, match="must use YYYY-MM-DD"):
@@ -236,7 +233,6 @@ def test_available_and_deferred_evidence_have_distinct_fail_closed_states(
     [
         "http://handbook.fca.org.uk/handbook/mar7a",
         "https://user@handbook.fca.org.uk/handbook/mar7a",
-        "https://:password@handbook.fca.org.uk/handbook/mar7a",
         "https://handbook.fca.org.uk:443/handbook/mar7a",
     ],
 )

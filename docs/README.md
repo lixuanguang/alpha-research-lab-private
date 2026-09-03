@@ -192,6 +192,7 @@ Current root commands are:
 | `make bazel-test` | Run the focused B02 sandbox, pin, Protobuf, and SQL tests |
 | `make bazel-check` | Build and test the B02 graph without invoking the compatibility suite |
 | `make integration-test` | Exercise pre-commit ownership enforcement in an isolated Git repository |
+| `make performance-test` | Run non-blocking repository-local wall-clock budget checks |
 | `make rollback-check` | Run the complete frozen-uv pre-B02 validation, integration test, smoke, and package build |
 | `make test` | Run the Bazel B02 test suite by default; use `BUILD_BACKEND=uv` for rollback |
 | `make smoke` | Import the non-editable installed bootstrap package |

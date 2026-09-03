@@ -12,7 +12,7 @@ CI_EVIDENCE_URL ?=
 PYTHON_PATHS := src tests tools/governance/src
 BAZEL_BUILD_TARGETS := //src/alpha_research:alpha_research //tools/governance/src/alpha_research_governance:all //tests/build/fixtures/sql:build_evidence //:docs_bundle
 
-.PHONY: sync lock-check format format-check lint typecheck engineering-standards-check dependency-admission-check dependency-audit architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check remote-execution-policy-check remote-build remote-test remote-quarantine remote-local-fallback-check ci-secrets-check ci-schema-check ci-fast ci-full security bazel-build bazel-test bazel-check integration-test rollback-test rollback-build rollback-check test smoke build check
+.PHONY: sync lock-check format format-check lint typecheck engineering-standards-check dependency-admission-check dependency-audit architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check remote-execution-policy-check remote-build remote-test remote-quarantine remote-local-fallback-check ci-secrets-check ci-schema-check ci-fast ci-full security bazel-build bazel-test bazel-check integration-test performance-test rollback-test rollback-build rollback-check test smoke build check
 
 sync:
 	$(UV) sync --frozen
@@ -109,6 +109,9 @@ bazel-check: bazel-build bazel-test
 
 integration-test:
 	$(UV) run --frozen --no-editable pytest -q -m integration
+
+performance-test:
+	$(UV) run --frozen --no-editable pytest -q -m performance
 
 rollback-test:
 	$(UV) run --frozen --no-editable pytest -q

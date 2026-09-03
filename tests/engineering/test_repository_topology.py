@@ -77,6 +77,7 @@ def test_repository_topology_is_complete_and_acyclic() -> None:
     )
 
 
+@pytest.mark.performance
 def test_topology_validation_workload_stays_within_governed_budget() -> None:
     started_at = perf_counter()
     topology = validate_repository(REPOSITORY_ROOT)

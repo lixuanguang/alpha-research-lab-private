@@ -57,10 +57,11 @@ warn_unused_configs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = '--strict-config --strict-markers -m "not integration"'
+addopts = '--strict-config --strict-markers -m "not integration and not performance"'
 filterwarnings = ["error"]
 markers = [
     "integration: slower tests that exercise external command or tool integration",
+    "performance: non-blocking wall-clock checks run only in the dedicated performance lane",
 ]
 
 [tool.bandit]
