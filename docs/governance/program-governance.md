@@ -22,7 +22,7 @@ expressions. The checker expands exact ranges, represents conditional asset
 dependencies as explicit `any of` groups, rejects unknown or duplicate packages,
 and fails on self-dependencies or cycles.
 
-The program policy records implementation state only for A01-B07. Packages without
+The program policy records implementation state only for A01-B08. Packages without
 an explicit state remain `planned`; no empty package is treated as implemented.
 Every partial dependency records passing repository-local evidence, its retained
 finding IDs, and only the deferred evidence classes permitted by the solo-bootstrap
@@ -52,10 +52,9 @@ uv run --frozen alpha-governance-program \
   --metric kpi.research_reproducibility_percent
 ```
 
-With B07 repository-local evidence present, B01-B07 remain `partial` and the next
-solo-provisionally ready package is B08. C01 is independently ready because its
-roadmap dependencies stop at B05. Institutional readiness remains empty because
-none of the provisional A01-B07 states is validated.
+With B08 repository-local evidence present, B01-B08 remain `partial` and the next
+solo-provisionally ready package is C01. Institutional readiness remains empty
+because none of the provisional A01-B08 states is validated.
 
 ## KPI and observation contract
 
@@ -124,7 +123,7 @@ merged-result evidence is unavailable.
 ## Migration, rollout, rollback, monitoring, and runbook
 
 Schema version 1 is additive and has no database, runtime state, generated client,
-or existing observation consumer to migrate. B01c and B02-B07 add their partial
+or existing observation consumer to migrate. B01c and B02-B08 add their partial
 package states without changing graph or observation schemas. Future
 incompatible graph or event changes require a versioned compatibility window and
 retained old readers.
@@ -160,7 +159,7 @@ These findings are not waivers or approvals. A08 remains partial until all close
 
 ## Non-goals
 
-- Implementing B08 or any later build, data, research, deployment, observability,
+- Implementing C01 or any later data, research, deployment, observability,
   incident, or rollback producer package.
 - Creating a production dashboard service or accepting manually curated KPI values.
 - Treating throughput, commit count, coverage percentage, PnL, Sharpe ratio, or a

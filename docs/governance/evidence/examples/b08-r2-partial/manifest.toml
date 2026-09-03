@@ -1,0 +1,143 @@
+schema_version = 1
+bundle_id = "b08-r2-partial"
+roadmap_id = "B08"
+commit_sha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+owner_role = "platform"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = ["QG15"]
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["B08-F01", "B08-F02", "B08-F03"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "shared_sensitive"
+reversibility = "compatibility_window"
+computationally_material = true
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Ruff, strict mypy, Bandit, exact tool argv, symlink rejection, bounded inputs, and canonical JSON cover B08 source and interfaces."
+evidence_ids = ["integration-and-toolchain", "signing-publication-consumption"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "Repeated candidate generation is byte-identical for fixed inputs and binds the artifact, source, platform, complete locks, and immutable Nix toolchain."
+evidence_ids = ["artifact-sbom-provenance", "integration-and-toolchain"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Success, boundary, invalid-input, failure, tamper, unsigned, mutable, native-omission, revocation, and immutable-publication paths are deterministic tests."
+evidence_ids = ["artifact-sbom-provenance", "signing-publication-consumption"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Artifact and evidence size, digest, ordering, uniqueness, identity, native-membership, and exact-set invariants are enforced; no numerical computation changes."
+evidence_ids = ["artifact-sbom-provenance"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "No domain schema, dataset, point-in-time state, or canonical data representation changes; artifact metadata is versioned and digest bound."
+evidence_ids = ["artifact-sbom-provenance", "operations-and-rollback"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "No hypothesis, feature, model conclusion, trial, validation, or promotion behavior is introduced; model artifacts remain opaque future producer outputs."
+evidence_ids = ["operations-and-rollback"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "The package command, Make, pre-commit, Bazel, topology, inventory, program, security, and frozen-uv interfaces consume one B08 policy."
+evidence_ids = ["integration-and-toolchain"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "Artifact bytes and archive membership are bounded; no target-runtime latency or production throughput claim is made."
+evidence_ids = ["artifact-sbom-provenance"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Incomplete staging is removed, immutable digests are never overwritten, invalid consumers halt, and reviewed Git revert is documented."
+evidence_ids = ["signing-publication-consumption", "operations-and-rollback"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Exact admitted Syft/Cosign versions, protected signing context, identity-constrained verification, SPDX/SLSA records, and tamper/revocation failures are enforced."
+evidence_ids = ["integration-and-toolchain", "signing-publication-consumption"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "The contract documents objective, decisions, interfaces, migration, rollout, rollback, monitoring, runbook, findings, non-goals, and C01 successor."
+evidence_ids = ["operations-and-rollback"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "Policy, lifecycle, identity, digest, and consumer failures are owned repository/CI signals; no deployed alert or SLO is claimed."
+evidence_ids = ["operations-and-rollback", "signing-publication-consumption"]
+
+[[gates]]
+gate_id = "QG15"
+status = "passed"
+rationale = "Repository-local publication requires a verified immutable digest and every consumer repeats policy and signature checks; external registry admission remains B08-F02."
+evidence_ids = ["signing-publication-consumption", "operations-and-rollback"]
+
+[[artifacts]]
+evidence_id = "artifact-sbom-provenance"
+artifact_type = "test_report"
+path = "reports/artifact-sbom-provenance.txt"
+sha256 = "baf62ccd3657aac9e4c98950bc39d24c396ad5da21c4515bb3cdbe36b3978b77"
+
+[[artifacts]]
+evidence_id = "integration-and-toolchain"
+artifact_type = "integration_report"
+path = "reports/integration-and-toolchain.txt"
+sha256 = "007e435dc5722430f91af210c73ee36926ec2511571c095e4469e81d10119f49"
+
+[[artifacts]]
+evidence_id = "operations-and-rollback"
+artifact_type = "documentation"
+path = "reports/operations-and-rollback.txt"
+sha256 = "9b3deebe607c4b611d6c3d229a75eb3cc86d34d6946584526e4155b89fb32afa"
+
+[[artifacts]]
+evidence_id = "signing-publication-consumption"
+artifact_type = "security_report"
+path = "reports/signing-publication-consumption.txt"
+sha256 = "d1654e082cab10aff011ce5ae3ccb1fc8d8e50bd8cd24cbf373dae74f94a2bc3"
+
+[[findings]]
+finding_id = "B08-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent Platform Code Owner, Security, SRE, and domain review of the B08 contract and exact commit is unavailable during solo bootstrap."
+closure_condition = "Named independent reviewers resolve findings and approve the exact policy, implementation, tests, rollback, and evidence commit."
+
+[[findings]]
+finding_id = "B08-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected hosted-build identity, two-platform reproducibility, keyless signing, transparency-log inclusion, immutable target registry publication, retention, and consumer admission evidence are unavailable locally."
+closure_condition = "Protected CI builds the same commit on every supported platform, signs with the constrained workload identity, publishes only the verified digest to the approved immutable registry, and retains consumer rejection exercises."
+
+[[findings]]
+finding_id = "B08-F03"
+owner_role = "security"
+unavailable_evidence = "Independent tamper, signer-compromise, revocation, rotation, recovery, and target-environment native/container SBOM completeness drills are unavailable locally."
+closure_condition = "Security revokes and rotates a test signer, proves old and forged bundles fail every consumer, verifies rebuilt artifacts and complete native/container inventory, and retains recovery evidence."

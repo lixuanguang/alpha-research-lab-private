@@ -327,7 +327,8 @@ the shared kernel is the production path.
 ## Current repository mapping
 
 Repository-local implementations and deterministic checks now exist from the
-repository charter through dependency admission (packages `A01` through `B07`).
+repository charter through whole-artifact supply-chain controls (packages `A01`
+through `B08`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
 through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
@@ -350,7 +351,11 @@ strict flake/quarantine semantics, resource budgets, guarded main-push integrati
 and verified remote-disabled local fallback. B07 adds exact dependency admission,
 lock/source/digest/license/platform reconciliation, repository-owned vulnerability
 and exploitability decisions, advisory maintenance signals, and runtime-install
-prohibition. B08 requirements are not implemented or marked validated.
+prohibition. B08 adds deterministic whole-artifact SPDX SBOM and SLSA provenance,
+lock/toolchain/test identity, a protected keyless-signing boundary, immutable
+digest publication, and fail-closed consumer verification. B08 remains partial
+because protected signing and registry, independent review, key-recovery, and
+target-environment evidence are unavailable locally.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -522,8 +527,27 @@ B07 retains medium-risk (`R2`) evidence and open independent-review, protected
 exact-commit/Linux/registry mutation, qualified license and exploitability, and
 target-environment findings. It remains `partial` and authorizes no release,
 promotion, deployment, activation, credentials, market access, capital, or expanded
-risk authority. Its whole-artifact supply-chain successor is B08; no B08 behavior is
-implemented here.
+risk authority. Its whole-artifact supply-chain successor is B08; that successor's
+implementation does not change B07's partial status or close its findings.
+
+### Active whole-artifact supply-chain delivery state
+
+Whole-artifact supply-chain controls (`B08`) are provisionally implemented under
+solo bootstrap by the [artifact supply-chain contract](../architecture/artifact-supply-chain.md).
+The repository deterministically binds an artifact digest to SPDX 2.3 inventory,
+SLSA v1 provenance, source/target/platform, locks, toolchain, test evidence, and
+policy. Signing is restricted to the exact protected-main workload context;
+publication and consumption require a valid identity-constrained Sigstore bundle
+and explicit immutable digest. Native/shared-library omission, mutable reference,
+tamper, unsigned, unknown, revoked-signer, and duplicate-publication states reject.
+
+B08 is an A04 R2 change with QG01-QG06 and QG09-QG14 plus blueprint-required
+QG15. It retains independent-review, protected multi-platform signing/registry,
+and independent key-compromise/native-container target-drill findings. It remains
+`partial` and authorizes no release, promotion, deployment, activation,
+credentials, market access, capital, or expanded risk authority. It does not
+implement the production registry owned by I01. The next documented selector in
+the active adoption sequence is `C01`.
 
 ## Recommended adoption order
 
@@ -550,8 +574,9 @@ implemented here.
    decisions, runtime-install prohibition, R2 evidence, and open findings before
    introducing the analytical, orchestration, experiment, optimization, provider,
    or trading candidates above.
-8. Implement SBOM, provenance, signing, and verification (`B08`) before durable data
-   or release artifacts depend on the new graph.
+8. Preserve B08's whole-artifact SBOM, provenance, signing boundary, immutable
+   publication, consumer verification, R2 evidence, and open findings before
+   durable data or release artifacts depend on the graph.
 9. Introduce each remaining library only in its owning C-J package through a
    narrow adapter and contract suite. Do not create a repository-wide dependency
    bundle or install every table candidate in advance.

@@ -24,7 +24,7 @@ SHA-256, while `requirements.bazel.txt` is the exact Bazel translation of the
 runtime portion of `uv.lock`. The uv lock remains the transitional Python
 resolution authority until B07 admits a final dependency workflow.
 
-The graph contains the current platform package, all nine governance commands,
+The graph contains the current platform package, all thirteen governance commands,
 the documentation bundle, a repository-owned SQL template rule and golden output,
 and a test-only Protobuf schema exercised by the pinned Buf binary. It creates no
 domain placeholder package and no production schema. The Protobuf fixture proves

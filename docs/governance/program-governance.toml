@@ -211,6 +211,20 @@ deferred_evidence_classes = [
 evidence_paths = ["docs/architecture/dependency-admission.md"]
 open_finding_ids = ["B07-F01", "B07-F02", "B07-F03"]
 
+[[package_states]]
+package_id = "B08"
+status = "partial"
+owner_role = "platform"
+repository_local_status = "passed"
+deferred_evidence_classes = [
+  "external_control_plane",
+  "independent_review",
+  "qualified_review",
+  "target_environment",
+]
+evidence_paths = ["docs/architecture/artifact-supply-chain.md"]
+open_finding_ids = ["B08-F01", "B08-F02", "B08-F03"]
+
 [[metrics]]
 metric_id = "kpi.build_duration_seconds"
 name = "Clean build duration"

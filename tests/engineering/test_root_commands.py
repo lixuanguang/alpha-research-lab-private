@@ -8,6 +8,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).parents[2]
 GOVERNANCE_COMMANDS = (
     "alpha-governance-architecture",
+    "alpha-governance-artifacts",
     "alpha-governance-change-risk",
     "alpha-governance-ci",
     "alpha-governance-dependencies",
@@ -43,6 +44,7 @@ def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
         "uv run --frozen mypy --strict src tests tools/governance/src",
         "uv run --frozen alpha-governance-engineering-standards",
         "uv run --frozen alpha-governance-dependencies",
+        "uv run --frozen alpha-governance-artifacts",
         "uv run --frozen alpha-governance-architecture",
         "uv run --frozen alpha-governance-ownership",
         "uv run --frozen alpha-governance-change-risk",
@@ -114,6 +116,7 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
         "ci-schema-check",
         "dependency-admission-check",
         "dependency-audit",
+        "artifact-supply-chain-check",
         "engineering-standards-check",
         "inventory-check",
         "program-governance-check",

@@ -16,10 +16,12 @@ EXPECTED_SYSTEMS = ["aarch64-darwin", "x86_64-linux"]
 EXPECTED_TOOLS = {
     "developer_environment.bazel": "9.1.0",
     "developer_environment.bazelisk": "1.29.0",
+    "developer_environment.cosign": "3.1.3",
     "developer_environment.git": "2.55.0",
     "developer_environment.gnumake": "4.4.1",
     "developer_environment.nix": "2.34.8",
     "developer_environment.python": "3.12.14",
+    "developer_environment.syft": "1.51.1",
     "developer_environment.uv": "0.12.7",
 }
 EXPECTED_NIXPKGS_REVISION = "34ab99075ac4f7e40cf037eef32cb1c360bb85e9"
@@ -52,7 +54,7 @@ def _contract_errors(document: dict[str, Any]) -> list[str]:
         "package_status": "partial",
         "accountable_owner_role": "platform",
         "admission_owner_package": "B07",
-        "as_of_date": "2026-09-01",
+        "as_of_date": "2026-09-03",
         "environment_kind": "nix_flake",
         "nixpkgs_revision": EXPECTED_NIXPKGS_REVISION,
         "nixpkgs_nar_hash": EXPECTED_NIXPKGS_NAR_HASH,

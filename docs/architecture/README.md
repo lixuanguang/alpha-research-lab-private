@@ -199,8 +199,10 @@ consumers. [B02](hermetic-build-graph.md) adds the current pinned build graph an
 [B03](clean-machine-environment.md) adds the locked clean-machine development
 shell. [B04](engineering-standards.md) adds the current language and static-quality
 policy, checker, and property/state-machine target. [B05](ci-policy.md) adds the
-affected/reverse-dependency fast lane and authoritative full merged-result lane.
-None creates the remaining target tree or B07-B08 supply-chain machinery.
+affected/reverse-dependency fast lane and authoritative full merged-result lane;
+[B07](dependency-admission.md) controls dependencies, and
+[B08](artifact-supply-chain.md) controls whole-artifact evidence and consumption.
+None creates the remaining target tree, production artifact registry, or runtime.
 
 ## Build and reproducibility architecture
 

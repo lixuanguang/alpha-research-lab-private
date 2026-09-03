@@ -39,7 +39,7 @@ case "$(uname -s):$(uname -m)" in
     ;;
 esac
 
-for tool in nix uv python3.12 bazel bazelisk git make; do
+for tool in nix uv python3.12 bazel bazelisk cosign git make syft; do
   tool_path="$(command -v "$tool" || true)"
   if [[ "$tool_path" != /nix/store/* ]]; then
     printf '%s must resolve from the locked Nix store, got: %s\n' "$tool" "$tool_path" >&2
@@ -51,8 +51,10 @@ done
 [[ "$(uv --version)" == "$expected_uv_version" ]]
 [[ "$(python3.12 --version)" == "Python 3.12.14" ]]
 [[ "$(bazel --version)" == "bazel 9.1.0" ]]
+cosign version 2>&1 | grep -F "GitVersion:    v3.1.3" >/dev/null
 [[ "$(git --version)" == "git version 2.55.0" ]]
 [[ "$(make --version | head -n 1)" == "GNU Make 4.4.1" ]]
+syft version 2>&1 | grep -F "Version:       1.51.1" >/dev/null
 [[ "$UV_PYTHON" == /nix/store/*-python3-3.12.14/bin/python3.12 ]]
 [[ "$UV_PYTHON_DOWNLOADS" == "never" ]]
 

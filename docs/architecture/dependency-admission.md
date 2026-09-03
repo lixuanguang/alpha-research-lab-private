@@ -110,7 +110,7 @@ order:
 | Package | Migrated record | B07 disposition |
 | --- | --- | --- |
 | B02 | [Build-tool dependencies](build-tool-dependencies.toml) | Exact Bazel, rules, Buf, runtime manifest, and setup action records retained |
-| B03 | [Developer toolchain](../../environments/dev/toolchain.toml) | Exact Nix, uv, CPython, Bazel, Git, and Make closure records retained |
+| B03 | [Developer toolchain](../../environments/dev/toolchain.toml) | Exact Nix, uv, CPython, Bazel, Git, Make, and B08-owned Syft/Cosign closure records retained |
 | B04 | [Engineering-tool dependencies](engineering-tool-dependencies.toml) | Hypothesis and its transitive/native facts reconciled to `uv.lock` |
 | B05 | [CI-tool dependencies](ci-tool-dependencies.toml) | The private-key scanner and transitive facts reconciled to `uv.lock` |
 | B06 | [Remote-execution policy](remote-execution.toml) | The BuildBuddy service boundary remains guarded; provisioning and service drills stay external findings |

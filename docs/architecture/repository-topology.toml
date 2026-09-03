@@ -204,6 +204,7 @@ dependencies = [
   "compatibility.alpha_research.repository_topology",
   "compatibility.alpha_research.security_controls",
   "tool.governance.architecture_governance",
+  "tool.governance.artifact_supply_chain",
   "tool.governance.change_risk",
   "tool.governance.ci_policy",
   "tool.governance.dependency_admission",
@@ -219,6 +220,7 @@ dependencies = [
 visibility = []
 sources = [
   "tests/engineering/test_architecture_governance.py",
+  "tests/engineering/test_artifact_supply_chain.py",
   "tests/engineering/test_change_risk.py",
   "tests/engineering/test_ci_policy.py",
   "tests/engineering/test_ci_runner.py",
@@ -252,6 +254,26 @@ visibility = [
 sources = ["tools/governance/src/alpha_research_governance/architecture_governance.py"]
 
 [[units]]
+unit_id = "tool.governance.artifact_supply_chain"
+kind = "tool"
+layer = "catalog"
+owner_role = "platform"
+supported_platforms = ["any"]
+dependencies = [
+  "tool.governance.change_risk",
+  "tool.governance.evidence",
+  "tool.governance.foundation",
+]
+visibility = ["test.engineering"]
+sources = [
+  "tools/governance/src/alpha_research_governance/artifact_supply_chain/__init__.py",
+  "tools/governance/src/alpha_research_governance/artifact_supply_chain/__main__.py",
+  "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+  "tools/governance/src/alpha_research_governance/artifact_supply_chain/models.py",
+  "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py",
+]
+
+[[units]]
 unit_id = "tool.governance.change_risk"
 kind = "tool"
 layer = "policy"
@@ -261,6 +283,7 @@ dependencies = ["tool.governance.foundation"]
 visibility = [
   "compatibility.alpha_research.change_risk",
   "test.engineering",
+  "tool.governance.artifact_supply_chain",
   "tool.governance.ci_policy",
   "tool.governance.dependency_admission",
   "tool.governance.engineering_standards",
@@ -357,6 +380,7 @@ dependencies = [
 visibility = [
   "compatibility.alpha_research.evidence",
   "test.engineering",
+  "tool.governance.artifact_supply_chain",
   "tool.governance.ci_policy",
   "tool.governance.dependency_admission",
   "tool.governance.engineering_standards",
@@ -386,6 +410,7 @@ dependencies = []
 visibility = [
   "compatibility.alpha_research.foundation",
   "tool.governance.architecture_governance",
+  "tool.governance.artifact_supply_chain",
   "tool.governance.change_risk",
   "tool.governance.ci_policy",
   "tool.governance.dependency_admission",

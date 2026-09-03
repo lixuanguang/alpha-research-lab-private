@@ -14,10 +14,12 @@
       toolVersions = {
         bazel = "9.1.0";
         bazelisk = "1.29.0";
+        cosign = "3.1.3";
         git = "2.55.0";
         gnumake = "4.4.1";
         nix = "2.34.8";
         python = "3.12.14";
+        syft = "1.51.1";
         uv = "0.12.7";
       };
       uvArtifacts = {
@@ -84,10 +86,12 @@
           '';
           versionAssertions =
             assert pkgs.bazelisk.version == toolVersions.bazelisk;
+            assert pkgs.cosign.version == toolVersions.cosign;
             assert pkgs.git.version == toolVersions.git;
             assert pkgs.gnumake.version == toolVersions.gnumake;
             assert pkgs.nix.version == toolVersions.nix;
             assert pkgs.python312.version == toolVersions.python;
+            assert pkgs.syft.version == toolVersions.syft;
             true;
         in
         assert versionAssertions;
@@ -99,10 +103,12 @@
             pkgs.bashInteractive
             pkgs.bazelisk
             pkgs.cacert
+            pkgs.cosign
             pkgs.git
             pkgs.gnumake
             pkgs.nix
             pkgs.python312
+            pkgs.syft
           ];
         };
     in
@@ -141,8 +147,10 @@
             test "$(uv --version)" = "${uvArtifacts.${system}.expectedVersionOutput}"
             test "$(python3.12 --version)" = "Python ${toolVersions.python}"
             test "$(bazel --version)" = "bazel ${toolVersions.bazel}"
+            cosign version 2>&1 | grep -F "GitVersion:    v${toolVersions.cosign}"
             test "$(git --version)" = "git version ${toolVersions.git}"
             test "$(make --version | head -n 1)" = "GNU Make ${toolVersions.gnumake}"
+            syft version 2>&1 | grep -F "Version:       ${toolVersions.syft}"
             grep -F "USE_BAZEL_VERSION=${toolVersions.bazel}" "${toolchain.bazelLauncher}/bin/bazel"
             grep -F "${toolchain.exactBazel}/bin/bazel" "${toolchain.bazelLauncher}/bin/bazel"
             test "${toolchain.pkgs.bazelisk.version}" = "${toolVersions.bazelisk}"

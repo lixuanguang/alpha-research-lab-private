@@ -4,7 +4,7 @@ operating_track = "solo_bootstrap"
 package_status = "partial"
 accountable_owner_role = "platform"
 admission_owner_package = "B07"
-as_of_date = "2026-09-01"
+as_of_date = "2026-09-03"
 environment_kind = "nix_flake"
 nixpkgs_revision = "34ab99075ac4f7e40cf037eef32cb1c360bb85e9"
 nixpkgs_nar_hash = "sha256-hn1oU2rue2SYK8dAr8+WNZWtbsz1S2W5mnHlSEuh3bo="
@@ -93,6 +93,22 @@ purpose = "Execute the hermetic build graph through the digest-bound Nix Bazel w
 rollback = "Run make BUILD_BACKEND=uv check through the retained compatibility path."
 
 [[tools]]
+tool_id = "developer_environment.cosign"
+name = "Cosign"
+version = "3.1.3"
+source = "nixpkgs"
+source_url = "https://github.com/NixOS/nixpkgs/tree/34ab99075ac4f7e40cf037eef32cb1c360bb85e9"
+source_digest = "nixpkgs-revision:34ab99075ac4f7e40cf037eef32cb1c360bb85e9"
+license = "Apache-2.0"
+transitive_native_dependencies = ["Go runtime and remaining closure fixed by the nixpkgs revision and flake.lock"]
+vulnerability_review = "Exact nixpkgs source and license recorded on 2026-09-03; qualified vulnerability and exploitability review remains B07-F03 and B08-F03."
+maintenance_review = "Pinned Cosign v3 executes locally; independent upstream maintenance assessment remains B07-F03."
+expected_version_output = "GitVersion:    v3.1.3"
+supported_systems = ["aarch64-darwin", "x86_64-linux"]
+purpose = "Create and verify signed B08 attestations without storing credentials in the repository."
+rollback = "Reject unpublished candidates and revert B08 plus this tool record; do not admit unsigned artifacts."
+
+[[tools]]
 tool_id = "developer_environment.git"
 name = "Git"
 version = "2.55.0"
@@ -123,3 +139,19 @@ expected_version_output = "GNU Make 4.4.1"
 supported_systems = ["aarch64-darwin", "x86_64-linux"]
 purpose = "Expose the retained root build and rollback interface without host Make behavior."
 rollback = "Use the documented pre-B03 host Make prerequisite."
+
+[[tools]]
+tool_id = "developer_environment.syft"
+name = "Syft"
+version = "1.51.1"
+source = "nixpkgs"
+source_url = "https://github.com/NixOS/nixpkgs/tree/34ab99075ac4f7e40cf037eef32cb1c360bb85e9"
+source_digest = "nixpkgs-revision:34ab99075ac4f7e40cf037eef32cb1c360bb85e9"
+license = "Apache-2.0"
+transitive_native_dependencies = ["Go runtime and remaining closure fixed by the nixpkgs revision and flake.lock"]
+vulnerability_review = "Exact nixpkgs source and license recorded on 2026-09-03; qualified vulnerability and exploitability review remains B07-F03 and B08-F03."
+maintenance_review = "Pinned Syft executes locally; independent upstream maintenance assessment remains B07-F03."
+expected_version_output = "Version:       1.51.1"
+supported_systems = ["aarch64-darwin", "x86_64-linux"]
+purpose = "Inventory complete B08 artifact contents, including native and shared-library paths."
+rollback = "Reject unpublished candidates and revert B08 plus this tool record; do not publish an artifact without an SBOM."

@@ -54,6 +54,7 @@ foundational_paths = [
   "MODULE.bazel",
   "MODULE.bazel.lock",
   "Makefile",
+  "docs/architecture/artifact-supply-chain.toml",
   "docs/architecture/ci-policy.toml",
   "docs/architecture/ci-tool-dependencies.toml",
   "docs/architecture/dependency-admission.toml",

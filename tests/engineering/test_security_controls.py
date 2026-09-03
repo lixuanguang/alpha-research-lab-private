@@ -54,6 +54,7 @@ def _repository_fixture(tmp_path: Path) -> Path:
         Path("docs/governance/threat-model.md"),
         Path("tests/engineering/test_security_controls.py"),
         Path("docs/governance/evidence/examples/a07-r2-partial/manifest.toml"),
+        Path("docs/governance/evidence/examples/b08-r2-partial/manifest.toml"),
         Path("docs/governance/evidence/examples/a07-r2-partial/reports/contract-and-tests.txt"),
         Path(
             "docs/governance/evidence/examples/a07-r2-partial/reports/"
@@ -96,7 +97,7 @@ def test_repository_map_is_versioned_partial_and_complete_for_current_scope() ->
     assert len(control_map.boundaries) == 8
     assert len(control_map.threats) == 12
     assert len(control_map.controls) == 12
-    assert len(control_map.evidence_sources) == 15
+    assert len(control_map.evidence_sources) == 16
     assert tuple(item.jurisdiction_id for item in control_map.jurisdictions) == (JURISDICTION_IDS)
     assert {item.category for item in control_map.threats} == set(THREAT_CATEGORIES)
     assert {item.implementation_status for item in control_map.controls} == {
