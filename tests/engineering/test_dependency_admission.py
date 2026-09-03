@@ -91,7 +91,7 @@ def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() ->
         ('disposition = "approved"', 'disposition = "ignored"', "approved"),
         ('version = "2.10.1"', 'version = "2.9.0"', "pip-audit"),
         (
-            '"uv.lock" = "ba148d5f1ea020cceff9d6b78230b46fb2a044e2d276572288b4b94dac514896"',
+            '"uv.lock" = "2946bbb597d3eacddd94050b8bd417b0fb850d35e83e1f5a2c1200ddc8255366"',
             '"uv.lock" = "not-a-digest"',
             "lock_digests",
         ),

@@ -12,6 +12,7 @@ from uuid import UUID
 
 import pytest
 from hypothesis import given, settings, strategies
+from pydantic import BaseModel, ValidationError
 
 from alpha_research.instrument_identity import (
     AmbiguousIdentifierError,
@@ -319,6 +320,35 @@ def test_value_object_boundaries_reject_unsafe_input(
         invalid_value_factory()
 
 
+def test_instrument_identity_models_are_strict_frozen_pydantic_boundaries() -> None:
+    model_types = (
+        InstrumentId,
+        MappingId,
+        InstrumentIdentity,
+        ExternalIdentifier,
+        IdentifierQuery,
+        SymbologyMapping,
+        SymbologyCatalog,
+    )
+    assert all(issubclass(model_type, BaseModel) for model_type in model_types)
+
+    instrument_id = InstrumentId(UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"))
+    with pytest.raises(ValidationError):
+        InstrumentId.model_validate({"uuid_value": str(instrument_id.uuid_value)})
+    with pytest.raises(ValidationError):
+        InstrumentId.model_validate({"uuid_value": instrument_id.uuid_value, "unexpected": True})
+    with pytest.raises(ValidationError):
+        instrument_id.uuid_value = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+
+    tampered_id = InstrumentId.model_construct(uuid_value=UUID(int=0))
+    with pytest.raises(InstrumentIdentityValidationError, match="non-nil UUID"):
+        InstrumentIdentity(
+            tampered_id,
+            InstrumentKind.ECONOMIC_INSTRUMENT,
+            tampered_id,
+        )
+
+
 def test_temporal_boundaries_require_utc_and_positive_half_open_interval() -> None:
     _, listing_identity = _build_economic_instrument_and_listing()
     non_utc_datetime = datetime(2020, 1, 1, tzinfo=timezone(timedelta(hours=8)))
@@ -339,6 +369,22 @@ def test_temporal_boundaries_require_utc_and_positive_half_open_interval() -> No
             listing_identity.instrument_id,
             valid_from=datetime(2020, 1, 1, tzinfo=UTC),
             valid_to=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+
+    with pytest.raises(InstrumentIdentityValidationError, match="correction_reason is permitted"):
+        SymbologyMapping(
+            mapping_id=MappingId(UUID(int=1)),
+            instrument_id=listing_identity.instrument_id,
+            external_identifier=ExternalIdentifier(
+                IdentifierScheme.VENUE_SYMBOL,
+                "SYNTH",
+                "fixture-venue",
+            ),
+            valid_from=datetime(2020, 1, 1, tzinfo=UTC),
+            valid_to=None,
+            source="fixture.exchange",
+            source_revision="revision-001",
+            correction_reason="unexpected",
         )
 
 

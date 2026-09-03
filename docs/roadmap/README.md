@@ -561,7 +561,7 @@ provisionally implemented without changing B08's partial status or findings.
 Canonical instrument identity and temporal symbology (`C01`) are provisionally
 implemented under solo bootstrap by the
 [instrument-identity contract](../architecture/instrument-identity.md). The owned
-standard-library-only API separates stable internal identities from external
+strict immutable Pydantic API separates stable internal identities from external
 aliases, uses aware UTC half-open validity intervals, returns source and revision
 attribution, rejects ambiguity, and retains append-only correction history. A
 synthetic fixture covers symbol reuse, delisting/relisting, vendor correction,

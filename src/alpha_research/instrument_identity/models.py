@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from dataclasses import dataclass
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from enum import StrEnum
+from typing import Self
 from uuid import UUID
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 
 class InstrumentIdentityError(ValueError):
@@ -16,6 +26,39 @@ class InstrumentIdentityError(ValueError):
 
 class InstrumentIdentityValidationError(InstrumentIdentityError):
     """Report an invalid canonical identity or symbology record."""
+
+
+def _validation_error_message(error: ValidationError) -> str:
+    messages: list[str] = []
+    for detail in error.errors(include_input=False, include_url=False):
+        context = detail.get("ctx")
+        cause = context.get("error") if isinstance(context, dict) else None
+        if isinstance(cause, InstrumentIdentityValidationError):
+            messages.append(str(cause))
+            continue
+        location = ".".join(str(component) for component in detail["loc"])
+        message = str(detail["msg"]).removeprefix("Value error, ")
+        messages.append(f"{location}: {message}" if location else message)
+    return "\n".join(messages)
+
+
+class _InstrumentIdentityModel(BaseModel):
+    """Preserve immutable value semantics with strict boundary validation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        hide_input_in_errors=True,
+        revalidate_instances="always",
+        strict=True,
+        validate_default=True,
+    )
+
+    def __init__(self, **data: object) -> None:
+        try:
+            super().__init__(**data)
+        except ValidationError as error:
+            raise InstrumentIdentityValidationError(_validation_error_message(error)) from error
 
 
 class InstrumentKind(StrEnum):
@@ -194,14 +237,19 @@ def require_utc_datetime(candidate_datetime: object, *, field_name: str) -> date
     return candidate_datetime
 
 
-@dataclass(frozen=True, slots=True)
-class InstrumentId:
+class InstrumentId(_InstrumentIdentityModel):
     """Hold one opaque repository-issued stable instrument identifier."""
 
     uuid_value: UUID
 
-    def __post_init__(self) -> None:
-        _require_non_nil_uuid(self.uuid_value, field_name="instrument_id")
+    def __init__(self, uuid_value: UUID, **extra: object) -> None:
+        super().__init__(uuid_value=uuid_value, **extra)
+
+    @field_validator("uuid_value", mode="before")
+    @classmethod
+    def valid_uuid(cls, value: object) -> UUID:
+        """Require a typed, non-nil UUID without coercion."""
+        return _require_non_nil_uuid(value, field_name="instrument_id")
 
     @classmethod
     def from_canonical_text(cls, instrument_id_text: str) -> InstrumentId:
@@ -212,14 +260,19 @@ class InstrumentId:
         return str(self.uuid_value)
 
 
-@dataclass(frozen=True, slots=True)
-class MappingId:
+class MappingId(_InstrumentIdentityModel):
     """Hold the stable identity of one retained mapping assertion."""
 
     uuid_value: UUID
 
-    def __post_init__(self) -> None:
-        _require_non_nil_uuid(self.uuid_value, field_name="mapping_id")
+    def __init__(self, uuid_value: UUID, **extra: object) -> None:
+        super().__init__(uuid_value=uuid_value, **extra)
+
+    @field_validator("uuid_value", mode="before")
+    @classmethod
+    def valid_uuid(cls, value: object) -> UUID:
+        """Require a typed, non-nil UUID without coercion."""
+        return _require_non_nil_uuid(value, field_name="mapping_id")
 
     @classmethod
     def from_canonical_text(cls, mapping_id_text: str) -> MappingId:
@@ -230,70 +283,160 @@ class MappingId:
         return str(self.uuid_value)
 
 
-@dataclass(frozen=True, slots=True)
-class InstrumentIdentity:
+class InstrumentIdentity(_InstrumentIdentityModel):
     """Bind a stable ID to one canonical concept and economic root."""
 
     instrument_id: InstrumentId
     instrument_kind: InstrumentKind
     economic_instrument_id: InstrumentId
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.instrument_id, InstrumentId):
+    def __init__(
+        self,
+        instrument_id: InstrumentId,
+        instrument_kind: InstrumentKind,
+        economic_instrument_id: InstrumentId,
+        **extra: object,
+    ) -> None:
+        super().__init__(
+            instrument_id=instrument_id,
+            instrument_kind=instrument_kind,
+            economic_instrument_id=economic_instrument_id,
+            **extra,
+        )
+
+    @field_validator("instrument_id", mode="before")
+    @classmethod
+    def valid_instrument_id(cls, value: object) -> InstrumentId:
+        """Reject unvalidated canonical identifiers."""
+        if not isinstance(value, InstrumentId):
             raise InstrumentIdentityValidationError("instrument_id must be an InstrumentId")
-        if not isinstance(self.instrument_kind, InstrumentKind):
+        return value
+
+    @field_validator("instrument_kind", mode="before")
+    @classmethod
+    def valid_instrument_kind(cls, value: object) -> InstrumentKind:
+        """Reject raw strings at the canonical identity boundary."""
+        if not isinstance(value, InstrumentKind):
             raise InstrumentIdentityValidationError("instrument_kind must be an InstrumentKind")
-        if not isinstance(self.economic_instrument_id, InstrumentId):
+        return value
+
+    @field_validator("economic_instrument_id", mode="before")
+    @classmethod
+    def valid_economic_instrument_id(cls, value: object) -> InstrumentId:
+        """Reject unvalidated economic-root identifiers."""
+        if not isinstance(value, InstrumentId):
             raise InstrumentIdentityValidationError(
                 "economic_instrument_id must be an InstrumentId"
             )
+        return value
+
+    @model_validator(mode="after")
+    def coherent_economic_root(self) -> Self:
+        """Require only an economic instrument to identify itself as its root."""
         is_economic_instrument_root = self.instrument_kind is InstrumentKind.ECONOMIC_INSTRUMENT
         if is_economic_instrument_root != (self.instrument_id == self.economic_instrument_id):
             raise InstrumentIdentityValidationError(
                 "only an economic instrument may identify itself as its economic root"
             )
+        return self
 
 
-@dataclass(frozen=True, slots=True)
-class ExternalIdentifier:
+class ExternalIdentifier(_InstrumentIdentityModel):
     """Represent an exact adapter-boundary identifier without normalizing its value."""
 
     scheme: IdentifierScheme
     value: str
     namespace: str | None = None
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.scheme, IdentifierScheme):
+    def __init__(
+        self,
+        scheme: IdentifierScheme,
+        value: str,
+        namespace: str | None = None,
+        **extra: object,
+    ) -> None:
+        super().__init__(scheme=scheme, value=value, namespace=namespace, **extra)
+
+    @field_validator("scheme", mode="before")
+    @classmethod
+    def valid_scheme(cls, value: object) -> IdentifierScheme:
+        """Reject raw scheme strings at the adapter boundary."""
+        if not isinstance(value, IdentifierScheme):
             raise InstrumentIdentityValidationError("identifier scheme must be an IdentifierScheme")
-        object.__setattr__(self, "value", _validate_identifier_value(self.scheme, self.value))
-        namespace = _validate_identifier_namespace(
-            self.namespace, namespace_required=self.scheme in _NAMESPACED_SCHEMES
-        )
-        if self.scheme in _GLOBAL_SCHEMES and namespace is not None:
+        return value
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def bounded_value(cls, value: object) -> str:
+        """Require an exact bounded identifier string."""
+        return _require_bounded_text(value, field_name="identifier value", maximum_length=256)
+
+    @field_validator("namespace", mode="before")
+    @classmethod
+    def valid_namespace_token(cls, value: object) -> str | None:
+        """Require a canonical namespace token when one is supplied."""
+        return _validate_identifier_namespace(value, namespace_required=False)
+
+    @model_validator(mode="after")
+    def coherent_identifier(self) -> Self:
+        """Validate scheme-specific value and namespace rules."""
+        _validate_identifier_value(self.scheme, self.value)
+        if self.namespace is None and self.scheme in _NAMESPACED_SCHEMES:
+            raise InstrumentIdentityValidationError(
+                "identifier namespace is required for provider-local schemes"
+            )
+        if self.scheme in _GLOBAL_SCHEMES and self.namespace is not None:
             raise InstrumentIdentityValidationError(
                 f"{self.scheme.value} identifiers cannot carry a provider namespace"
             )
-        object.__setattr__(self, "namespace", namespace)
+        return self
 
 
-@dataclass(frozen=True, slots=True)
-class IdentifierQuery:
+class IdentifierQuery(_InstrumentIdentityModel):
     """Represent an exact or intentionally namespace-broad temporal lookup."""
 
     scheme: IdentifierScheme
     value: str
     namespace: str | None = None
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.scheme, IdentifierScheme):
+    def __init__(
+        self,
+        scheme: IdentifierScheme,
+        value: str,
+        namespace: str | None = None,
+        **extra: object,
+    ) -> None:
+        super().__init__(scheme=scheme, value=value, namespace=namespace, **extra)
+
+    @field_validator("scheme", mode="before")
+    @classmethod
+    def valid_scheme(cls, value: object) -> IdentifierScheme:
+        """Reject raw scheme strings at the query boundary."""
+        if not isinstance(value, IdentifierScheme):
             raise InstrumentIdentityValidationError("query scheme must be an IdentifierScheme")
-        object.__setattr__(self, "value", _validate_identifier_value(self.scheme, self.value))
-        namespace = _validate_identifier_namespace(self.namespace, namespace_required=False)
-        if self.scheme in _GLOBAL_SCHEMES and namespace is not None:
+        return value
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def bounded_value(cls, value: object) -> str:
+        """Require an exact bounded query string."""
+        return _require_bounded_text(value, field_name="identifier value", maximum_length=256)
+
+    @field_validator("namespace", mode="before")
+    @classmethod
+    def valid_namespace_token(cls, value: object) -> str | None:
+        """Require a canonical namespace token when one is supplied."""
+        return _validate_identifier_namespace(value, namespace_required=False)
+
+    @model_validator(mode="after")
+    def coherent_query(self) -> Self:
+        """Validate scheme-specific query value and namespace rules."""
+        _validate_identifier_value(self.scheme, self.value)
+        if self.scheme in _GLOBAL_SCHEMES and self.namespace is not None:
             raise InstrumentIdentityValidationError(
                 f"{self.scheme.value} queries cannot carry a provider namespace"
             )
-        object.__setattr__(self, "namespace", namespace)
+        return self
 
     @classmethod
     def for_exact_identifier(cls, external_identifier: ExternalIdentifier) -> IdentifierQuery:
@@ -317,8 +460,7 @@ class IdentifierQuery:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class SymbologyMapping:
+class SymbologyMapping(_InstrumentIdentityModel):
     """Record one immutable, validity-dated, source-attributed mapping assertion."""
 
     mapping_id: MappingId
@@ -331,38 +473,116 @@ class SymbologyMapping:
     supersedes_mapping_id: MappingId | None = None
     correction_reason: str | None = None
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.mapping_id, MappingId):
+    @model_validator(mode="before")
+    @classmethod
+    def valid_raw_correction_metadata(cls, value: object) -> object:
+        """Preserve correction coupling errors before primitive type validation."""
+        if not isinstance(value, Mapping):
+            return value
+        supersedes_mapping_id = value.get("supersedes_mapping_id")
+        correction_reason = value.get("correction_reason")
+        if supersedes_mapping_id is None:
+            if correction_reason is not None:
+                raise InstrumentIdentityValidationError(
+                    "correction_reason is permitted only when supersedes_mapping_id is present"
+                )
+        else:
+            _require_bounded_text(
+                correction_reason,
+                field_name="correction_reason",
+                maximum_length=512,
+            )
+        return value
+
+    def __init__(
+        self,
+        mapping_id: MappingId,
+        instrument_id: InstrumentId,
+        external_identifier: ExternalIdentifier,
+        valid_from: datetime,
+        valid_to: datetime | None,
+        source: str,
+        source_revision: str,
+        supersedes_mapping_id: MappingId | None = None,
+        correction_reason: str | None = None,
+        **extra: object,
+    ) -> None:
+        super().__init__(
+            mapping_id=mapping_id,
+            instrument_id=instrument_id,
+            external_identifier=external_identifier,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            source=source,
+            source_revision=source_revision,
+            supersedes_mapping_id=supersedes_mapping_id,
+            correction_reason=correction_reason,
+            **extra,
+        )
+
+    @field_validator("mapping_id", mode="before")
+    @classmethod
+    def valid_mapping_id(cls, value: object) -> MappingId:
+        """Reject unvalidated mapping identifiers."""
+        if not isinstance(value, MappingId):
             raise InstrumentIdentityValidationError("mapping_id must be a MappingId")
-        if not isinstance(self.instrument_id, InstrumentId):
+        return value
+
+    @field_validator("instrument_id", mode="before")
+    @classmethod
+    def valid_instrument_id(cls, value: object) -> InstrumentId:
+        """Reject unvalidated canonical identifiers."""
+        if not isinstance(value, InstrumentId):
             raise InstrumentIdentityValidationError("instrument_id must be an InstrumentId")
-        if not isinstance(self.external_identifier, ExternalIdentifier):
+        return value
+
+    @field_validator("external_identifier", mode="before")
+    @classmethod
+    def valid_external_identifier(cls, value: object) -> ExternalIdentifier:
+        """Reject unvalidated external identifiers."""
+        if not isinstance(value, ExternalIdentifier):
             raise InstrumentIdentityValidationError(
                 "external_identifier must be an ExternalIdentifier"
             )
-        valid_from_utc = require_utc_datetime(self.valid_from, field_name="valid_from")
-        valid_to_utc = (
-            None
-            if self.valid_to is None
-            else require_utc_datetime(self.valid_to, field_name="valid_to")
-        )
-        if valid_to_utc is not None and valid_to_utc <= valid_from_utc:
+        return value
+
+    @field_validator("valid_from", mode="before")
+    @classmethod
+    def valid_start(cls, value: object) -> datetime:
+        """Require an aware UTC interval start."""
+        return require_utc_datetime(value, field_name="valid_from")
+
+    @field_validator("valid_to", mode="before")
+    @classmethod
+    def valid_end(cls, value: object) -> datetime | None:
+        """Require an aware UTC interval end when supplied."""
+        return None if value is None else require_utc_datetime(value, field_name="valid_to")
+
+    @field_validator("source", "source_revision", mode="before")
+    @classmethod
+    def stable_attribution(cls, value: object, info: ValidationInfo) -> str:
+        """Require stable source-attribution tokens."""
+        if not isinstance(value, str) or _ATTRIBUTION_PATTERN.fullmatch(value) is None:
+            raise InstrumentIdentityValidationError(
+                f"{info.field_name} must be a stable attribution token"
+            )
+        return value
+
+    @field_validator("supersedes_mapping_id", mode="before")
+    @classmethod
+    def valid_superseded_mapping_id(cls, value: object) -> MappingId | None:
+        """Reject unvalidated correction links."""
+        if value is not None and not isinstance(value, MappingId):
+            raise InstrumentIdentityValidationError("supersedes_mapping_id must be a MappingId")
+        return value
+
+    @model_validator(mode="after")
+    def coherent_interval_and_correction(self) -> Self:
+        """Validate interval ordering and correction metadata coupling."""
+        if self.valid_to is not None and self.valid_to <= self.valid_from:
             raise InstrumentIdentityValidationError(
                 "valid_to must be later than valid_from for a half-open interval"
             )
-        if not isinstance(self.source, str) or _ATTRIBUTION_PATTERN.fullmatch(self.source) is None:
-            raise InstrumentIdentityValidationError("source must be a stable attribution token")
-        if (
-            not isinstance(self.source_revision, str)
-            or _ATTRIBUTION_PATTERN.fullmatch(self.source_revision) is None
-        ):
-            raise InstrumentIdentityValidationError(
-                "source_revision must be a stable attribution token"
-            )
-        if self.supersedes_mapping_id is not None and not isinstance(
-            self.supersedes_mapping_id, MappingId
-        ):
-            raise InstrumentIdentityValidationError("supersedes_mapping_id must be a MappingId")
         if self.supersedes_mapping_id is None:
             if self.correction_reason is not None:
                 raise InstrumentIdentityValidationError(
@@ -374,6 +594,7 @@ class SymbologyMapping:
                 field_name="correction_reason",
                 maximum_length=512,
             )
+        return self
 
     def is_valid_at(self, valid_at: datetime) -> bool:
         """Return whether ``valid_at`` lies in the mapping's half-open UTC interval."""

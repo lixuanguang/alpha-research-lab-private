@@ -22,8 +22,8 @@ compatibility facades, then makes the repository root, pre-commit, hosted CI,
 A06 inventory, and A08 program dashboard consume and enforce those canonical
 targets.
 
-The root `alpha-research-lab` distribution declares
-`alpha-research-governance==0.1.0` as its sole runtime dependency. The canonical
+The root `alpha-research-lab` distribution declares exact
+`alpha-research-governance==0.1.0` and `pydantic==2.13.5` runtime dependencies. The canonical
 implementation remains in that non-editable repository path package.
 Compatibility APIs under `alpha_research.*` remain available for existing
 callers and rollback, but no B01c enforcement consumer uses an ambient
@@ -129,10 +129,10 @@ addition is `tools/governance`. B01 did not create `schemas/`, `data/`,
 
 ## Packaging and compatibility contract
 
-The root distribution declares the exact `alpha-research-governance==0.1.0`
-runtime dependency required by its `alpha_research.*` compatibility facades. It
-does not directly declare Pydantic; the tool target owns the exact
-`pydantic==2.13.5` input and uses the same pinned Python and Hatchling versions.
+The root distribution declares exact `alpha-research-governance==0.1.0` and
+`pydantic==2.13.5` runtime dependencies for its compatibility facades and C01
+instrument-identity boundary. The governance tool target owns the same exact
+Pydantic input and uses the same pinned Python and Hatchling versions.
 The lock records the governance tool as a non-editable repository-local path
 package, so canonical commands do not depend on ambient source paths, the
 caller's working directory, or a network.
