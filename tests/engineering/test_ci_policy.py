@@ -117,6 +117,7 @@ def test_bazel_owner_selection_includes_reverse_dependencies_and_safe_broadening
         bazel_source_owners_from_query_xml("<!DOCTYPE query><query version='2'/>")
 
 
+@pytest.mark.performance
 def test_selection_workload_stays_inside_the_repository_local_budget() -> None:
     policy = load_continuous_integration_policy(POLICY_PATH)
     records = tuple(("M", f"src/example/file_{index}.py") for index in range(1000))

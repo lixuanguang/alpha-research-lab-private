@@ -221,6 +221,7 @@ sources = [
   "tests/engineering/test_architecture_governance.py",
   "tests/engineering/test_change_risk.py",
   "tests/engineering/test_ci_policy.py",
+  "tests/engineering/test_ci_runner.py",
   "tests/engineering/test_dependency_admission.py",
   "tests/engineering/test_engineering_standards.py",
   "tests/engineering/test_evidence_governance.py",

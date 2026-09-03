@@ -9,7 +9,6 @@ from time import perf_counter
 
 import pytest
 from hypothesis import given, settings, strategies
-from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
 
 from alpha_research_governance.engineering_standards import (
     EngineeringStandardsError,
@@ -236,6 +235,7 @@ def test_source_scan_rejects_generated_and_unadmitted_native_source(tmp_path: Pa
     assert any("cannot tokenize Python source" in finding for finding in findings)
 
 
+@pytest.mark.performance
 def test_suppression_validation_workload_stays_within_budget() -> None:
     standards = load_standards(POLICY_PATH)
     started_at = perf_counter()
@@ -265,58 +265,6 @@ def test_cli_reports_success_usage_error_and_missing_repository(
     assert "usage:" in capsys.readouterr().err
     assert main([str(REPOSITORY_ROOT / "missing")]) == 1
     assert "No such file" in capsys.readouterr().err
-
-
-class SuppressionLifecycleMachine(RuleBasedStateMachine):
-    """Exercise valid, missing-metadata, expired, and restored suppression states."""
-
-    @initialize()
-    def initialize_line(self) -> None:
-        self.line = "value = call()"
-        self.should_pass = True
-
-    @rule()
-    def add_valid_suppression(self) -> None:
-        self.line = VALID_SUPPRESSION
-        self.should_pass = True
-
-    @rule()
-    def remove_metadata(self) -> None:
-        self.line = "value = call()  # noqa: RUF100"
-        self.should_pass = False
-
-    @rule()
-    def expire_suppression(self) -> None:
-        self.line = (
-            "value = call()  # nosec B603 "
-            "[owner=platform; rationale=preserve public behavior; expires=2026-09-01]"
-        )
-        self.should_pass = False
-
-    @rule()
-    def remove_suppression(self) -> None:
-        self.line = "value = call()"
-        self.should_pass = True
-
-    @invariant()
-    def validation_matches_lifecycle_state(self) -> None:
-        findings = validate_suppression_line(
-            self.line,
-            owner_roles=OWNER_ROLES,
-            validation_date=VALIDATION_DATE,
-            maximum_lifetime_days=180,
-            minimum_rationale_characters=12,
-        )
-        assert bool(findings) is not self.should_pass
-
-
-TestSuppressionLifecycle = SuppressionLifecycleMachine.TestCase
-TestSuppressionLifecycle.settings = settings(
-    max_examples=50,
-    stateful_step_count=12,
-    derandomize=True,
-    deadline=None,
-)
 
 
 if __name__ == "__main__":

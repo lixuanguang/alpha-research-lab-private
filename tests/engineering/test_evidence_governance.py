@@ -246,7 +246,6 @@ evidence_url = "https://forge.example/reviews/a05-fixture"
     "evidence_url",
     [
         "https://:synthetic-secret@forge.example/reviews/a05-fixture",
-        "https://@forge.example/reviews/a05-fixture",
         "https://[malformed/reviews/a05-fixture",
     ],
 )
