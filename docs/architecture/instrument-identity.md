@@ -25,8 +25,9 @@ economic root.
 External identifiers exist only as adapter-boundary values and temporal mapping
 assertions. Provider-specific classes, normalization rules, SDK values, and
 source-priority policy do not enter the canonical model. The package has no
-network, filesystem, database, clock, configuration, or validation-framework
-dependency.
+network, filesystem, database, clock, or configuration dependency. Its strict
+immutable Pydantic construction boundary is governed by
+[ADR 0010](decisions/0010-pydantic-instrument-identity-models.md).
 
 ## Public interface
 
@@ -111,7 +112,7 @@ impact-analysis rollout modes.
 | Gate | Repository-local evidence |
 | --- | --- |
 | QG01 | Ruff format/lint, strict mypy, warning-as-error pytest, and Bandit cover the library and tests |
-| QG02 | Standard-library-only domain target, pinned Python/Bazel graph, deterministic fixtures and properties |
+| QG02 | Exact Pydantic dependency, pinned Python/Bazel graph, deterministic fixtures and properties |
 | QG03 | Success, reverse lookup, boundary, invalid-input, ambiguity, and correction failures are tested |
 | QG04 | UUID, hierarchy, checksum, interval, overlap, lineage, and round-trip invariants have deterministic property tests |
 | QG05 | Valid-time reuse, delist/relist, source revision, append-only correction lineage, and the golden fixture are retained |
@@ -119,7 +120,7 @@ impact-analysis rollout modes.
 | QG09 | The installed package, focused pytest, Bazel target, source topology, and full-suite paths share the same contract |
 | QG10 | Ten thousand resolutions of the retained fixture stay within the recorded one-second local diagnostic budget |
 | QG11 | Unknown, ambiguous, overlapping, orphaned, forked, and cyclic states fail closed without partial mutation |
-| QG12 | No dependency, credential, entitlement, network, runtime install, or provider SDK is added; security/static checks remain blocking |
+| QG12 | Pydantic is already admitted and exactly pinned; no credential, entitlement, network, runtime install, or provider SDK is added; security/static checks remain blocking |
 | QG13 | Public API, examples, ownership, scope, limitations, migration, rollback, runbook, findings, and successor are documented |
 | QG14 | Typed failures and returned attribution are the repository-local operational signal; no deployed SLO or alert is claimed |
 
@@ -128,8 +129,10 @@ reviewer. The solo maintainer cannot satisfy the independent role.
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
-This is an additive Python API and build target with no existing canonical
-consumer or serialized state to migrate. Downstream adapters migrate by converting
+This remains an additive Python API and build target with no existing canonical
+consumer or serialized state to migrate. The internal model implementation moved
+from frozen dataclasses to strict immutable Pydantic models without changing the
+public constructors or domain exceptions. Downstream adapters migrate by converting
 provider identifiers into `ExternalIdentifier`, resolving at an explicit valid
 time, and carrying only `InstrumentId` into canonical consumers. C05/C08 will own
 cross-process schemas, compatibility versions, generated clients, and formal

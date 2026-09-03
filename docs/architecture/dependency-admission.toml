@@ -55,7 +55,7 @@ vulnerability_decisions = []
 emergency_overrides = []
 
 [lock_digests]
-"uv.lock" = "ba148d5f1ea020cceff9d6b78230b46fb2a044e2d276572288b4b94dac514896"
+"uv.lock" = "2946bbb597d3eacddd94050b8bd417b0fb850d35e83e1f5a2c1200ddc8255366"
 "requirements.bazel.txt" = "86a0c5a718b85053d5964311aac4da9b682e8177c7dff417b13ae44604a236fc"
 "MODULE.bazel.lock" = "d071e04040e390f9353b240cc26c5d3c0fdfb6a432d3d60f147e781110efce4b"
 "flake.lock" = "59dcd10f73b4392d83afb7ad11ce635f7c23ab529e21065fc073fbd2a30661e5"

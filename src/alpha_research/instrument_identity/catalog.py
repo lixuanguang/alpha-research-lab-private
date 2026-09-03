@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
+from typing import Self
+
+from pydantic import field_validator, model_validator
 
 from alpha_research.instrument_identity.models import (
     ExternalIdentifier,
@@ -15,6 +17,7 @@ from alpha_research.instrument_identity.models import (
     InstrumentKind,
     MappingId,
     SymbologyMapping,
+    _InstrumentIdentityModel,
     require_utc_datetime,
 )
 
@@ -31,8 +34,7 @@ class AmbiguousIdentifierError(InstrumentIdentityValidationError):
     """Report a lookup matching more than one canonical instrument."""
 
 
-@dataclass(frozen=True, slots=True)
-class SymbologyCatalog:
+class SymbologyCatalog(_InstrumentIdentityModel):
     """Hold one immutable projection of canonical identities and mapping history.
 
     Corrections remain in ``mappings`` and superseded assertions are excluded from
@@ -43,23 +45,46 @@ class SymbologyCatalog:
     identities: tuple[InstrumentIdentity, ...]
     mappings: tuple[SymbologyMapping, ...]
 
-    def __post_init__(self) -> None:
-        if not isinstance(self.identities, tuple) or not all(
-            isinstance(identity, InstrumentIdentity) for identity in self.identities
+    def __init__(
+        self,
+        identities: tuple[InstrumentIdentity, ...],
+        mappings: tuple[SymbologyMapping, ...],
+        **extra: object,
+    ) -> None:
+        super().__init__(identities=identities, mappings=mappings, **extra)
+
+    @field_validator("identities", mode="before")
+    @classmethod
+    def valid_identities(cls, value: object) -> tuple[InstrumentIdentity, ...]:
+        """Require a populated immutable sequence of validated identities."""
+        if not isinstance(value, tuple) or not all(
+            isinstance(identity, InstrumentIdentity) for identity in value
         ):
             raise InstrumentIdentityValidationError(
                 "identities must be an immutable tuple of InstrumentIdentity values"
             )
-        if not self.identities:
+        if not value:
             raise InstrumentIdentityValidationError("catalog must contain an identity")
-        if not isinstance(self.mappings, tuple) or not all(
-            isinstance(mapping, SymbologyMapping) for mapping in self.mappings
+        return value
+
+    @field_validator("mappings", mode="before")
+    @classmethod
+    def valid_mappings(cls, value: object) -> tuple[SymbologyMapping, ...]:
+        """Require an immutable sequence of validated mapping assertions."""
+        if not isinstance(value, tuple) or not all(
+            isinstance(mapping, SymbologyMapping) for mapping in value
         ):
             raise InstrumentIdentityValidationError(
                 "mappings must be an immutable tuple of SymbologyMapping values"
             )
+        return value
+
+    @model_validator(mode="after")
+    def coherent_graph(self) -> Self:
+        """Validate canonical identity, mapping, interval, and correction graphs."""
         self._validate_identity_graph()
         self._validate_mapping_graph()
+        return self
 
     def _validate_identity_graph(self) -> None:
         identities_by_instrument_id = {

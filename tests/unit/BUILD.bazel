@@ -12,6 +12,7 @@ py_test(
     deps = [
         "//src/alpha_research/instrument_identity",
         requirement("hypothesis"),
+        requirement("pydantic"),
         requirement("pytest"),
     ],
 )

@@ -171,7 +171,8 @@ Additional rules:
   records use strict immutable Pydantic boundary models under
   [ADR 0008](../architecture/decisions/0008-pydantic-boundary-models.md). This does
   not authorize validation-framework dependencies in economic or trading-domain
-  models.
+  models. The C01 instrument-identity exception is narrowly authorized by
+  [ADR 0010](../architecture/decisions/0010-pydantic-instrument-identity-models.md).
 
 ## Errors and resource management
 

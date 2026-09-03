@@ -11,6 +11,7 @@ requires-python = "==3.12.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "alpha-research-governance==0.1.0",
+    "pydantic==2.13.5",
 ]
 
 [project.scripts]
