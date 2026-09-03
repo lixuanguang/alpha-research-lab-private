@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
+from collections.abc import Mapping, Sequence
+from datetime import date
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+import alpha_research_governance.remote_execution as remote_execution
 from alpha_research_governance.remote_execution import (
     RemoteExecutionError,
     load_policy,
@@ -18,6 +21,10 @@ from alpha_research_governance.remote_execution import (
     shard_targets,
     validate_repository,
     validate_trusted_context,
+)
+from alpha_research_governance.remote_execution.models import (
+    QuarantineEntry,
+    RemoteExecutionPolicy,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -215,6 +222,235 @@ def test_authenticated_runner_hides_secret_from_argv_and_child_environment(
     assert "BUILDBUDDY_API_KEY" not in observed_environment
     assert observed_credential_text.endswith("=synthetic-test-key\n")
     assert observed_credential_mode == 0o600
+
+
+def test_remote_entrypoints_validate_select_and_propagate_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = load_policy(REMOTE_EXECUTION_POLICY_PATH)
+    environment = {"BUILDBUDDY_API_KEY": "synthetic-test-key"}
+    test_targets = ("//tests:alpha", "//tests:beta", "//tests:gamma")
+    expected_shard = select_shard(
+        test_targets,
+        shard_index=1,
+        shard_count=policy.sharding.shard_count,
+        seed=policy.sharding.seed,
+        maximum_targets=policy.sharding.maximum_targets,
+    )
+    quarantine = QuarantineEntry(
+        target="//tests:quarantined",
+        owner_role="platform_ci",
+        reason="Exercise the diagnostic quarantine boundary",
+        expires_on=date(2026, 9, 10),
+    )
+    quarantine_policy = policy.model_copy(
+        update={"flakes": policy.flakes.model_copy(update={"quarantines": (quarantine,)})}
+    )
+    calls: list[tuple[object, ...]] = []
+
+    def record_trust(
+        _policy: RemoteExecutionPolicy,
+        context: str,
+        active_environment: Mapping[str, str],
+        repository_root: Path,
+    ) -> None:
+        calls.append(("trust", context, dict(active_environment), repository_root))
+
+    def record_query(repository_root: Path) -> tuple[str, ...]:
+        calls.append(("query", repository_root))
+        return test_targets
+
+    def record_authenticated_bazel(
+        _policy: RemoteExecutionPolicy,
+        *,
+        repository_root: Path,
+        environment: Mapping[str, str],
+        command: str,
+        targets: Sequence[str],
+        extra_arguments: Sequence[str] = (),
+    ) -> int:
+        calls.append(
+            (
+                "execute",
+                command,
+                tuple(targets),
+                tuple(extra_arguments),
+                dict(environment),
+                repository_root,
+            )
+        )
+        return {"build": 17, "test": 23}[command]
+
+    monkeypatch.setattr(runner, "validate_trusted_context", record_trust)
+    monkeypatch.setattr(runner, "query_test_targets", record_query)
+    monkeypatch.setattr(runner, "_run_authenticated_bazel", record_authenticated_bazel)
+
+    assert (
+        runner.run_remote_build(
+            policy,
+            context="github_main_push",
+            repository_root=REPOSITORY_ROOT,
+            environment=environment,
+        )
+        == 17
+    )
+    assert (
+        runner.run_remote_test_shard(
+            policy,
+            context="github_main_push",
+            shard_index=1,
+            repository_root=REPOSITORY_ROOT,
+            environment=environment,
+        )
+        == 23
+    )
+    assert (
+        runner.run_quarantine_diagnostics(
+            policy,
+            context="github_main_push",
+            repository_root=REPOSITORY_ROOT,
+            environment=environment,
+        )
+        == 0
+    )
+    assert (
+        runner.run_quarantine_diagnostics(
+            quarantine_policy,
+            context="github_main_push",
+            repository_root=REPOSITORY_ROOT,
+            environment=environment,
+        )
+        == 23
+    )
+
+    assert calls == [
+        ("trust", "github_main_push", environment, REPOSITORY_ROOT),
+        (
+            "execute",
+            "build",
+            policy.local_fallback.build_targets,
+            (),
+            environment,
+            REPOSITORY_ROOT,
+        ),
+        ("trust", "github_main_push", environment, REPOSITORY_ROOT),
+        ("query", REPOSITORY_ROOT),
+        (
+            "execute",
+            "test",
+            expected_shard.targets,
+            (),
+            environment,
+            REPOSITORY_ROOT,
+        ),
+        ("trust", "github_main_push", environment, REPOSITORY_ROOT),
+        (
+            "execute",
+            "test",
+            (quarantine.target,),
+            ("--config=remote-quarantine-diagnostics",),
+            environment,
+            REPOSITORY_ROOT,
+        ),
+    ]
+
+
+def test_empty_remote_shard_validates_context_without_invoking_bazel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = load_policy(REMOTE_EXECUTION_POLICY_PATH)
+    target = "//tests:only"
+    shards = shard_targets(
+        (target,),
+        shard_count=policy.sharding.shard_count,
+        seed=policy.sharding.seed,
+        maximum_targets=policy.sharding.maximum_targets,
+    )
+    empty_index = next(shard.index for shard in shards if not shard.targets)
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        runner,
+        "validate_trusted_context",
+        lambda *_args, **_kwargs: calls.append("trust"),
+    )
+
+    def record_query(_root: Path) -> tuple[str, ...]:
+        calls.append("query")
+        return (target,)
+
+    monkeypatch.setattr(runner, "query_test_targets", record_query)
+
+    def reject_execution(*_args: object, **_kwargs: object) -> int:
+        raise AssertionError("an empty shard must not invoke Bazel")
+
+    monkeypatch.setattr(runner, "_run_authenticated_bazel", reject_execution)
+
+    assert (
+        runner.run_remote_test_shard(
+            policy,
+            context="github_main_push",
+            shard_index=empty_index,
+            repository_root=REPOSITORY_ROOT,
+            environment={"BUILDBUDDY_API_KEY": "synthetic-test-key"},
+        )
+        == 0
+    )
+    assert calls == ["trust", "query"]
+
+
+def test_remote_cli_dispatches_commands_and_preserves_exit_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    policy = load_policy(REMOTE_EXECUTION_POLICY_PATH)
+    calls: list[tuple[object, ...]] = []
+
+    def record_build(_policy: RemoteExecutionPolicy, *, context: str, repository_root: Path) -> int:
+        calls.append(("build", context, repository_root))
+        return 17
+
+    def record_test(
+        _policy: RemoteExecutionPolicy,
+        *,
+        context: str,
+        shard_index: int,
+        repository_root: Path,
+    ) -> int:
+        calls.append(("test", context, shard_index, repository_root))
+        return 23
+
+    def record_quarantine(
+        _policy: RemoteExecutionPolicy, *, context: str, repository_root: Path
+    ) -> int:
+        calls.append(("quarantine", context, repository_root))
+        return 29
+
+    monkeypatch.setattr(remote_execution, "validate_repository", lambda _root: policy)
+    monkeypatch.setattr(remote_execution, "run_remote_build", record_build)
+    monkeypatch.setattr(remote_execution, "run_remote_test_shard", record_test)
+    monkeypatch.setattr(remote_execution, "run_quarantine_diagnostics", record_quarantine)
+
+    root_arguments = ["--repository-root", str(tmp_path)]
+    assert remote_execution.main([*root_arguments, "build", "--context", "trusted"]) == 17
+    assert (
+        remote_execution.main(
+            [*root_arguments, "test", "--context", "trusted", "--shard-index", "1"]
+        )
+        == 23
+    )
+    assert remote_execution.main([*root_arguments, "quarantine", "--context", "trusted"]) == 29
+    assert calls == [
+        ("build", "trusted", tmp_path),
+        ("test", "trusted", 1, tmp_path),
+        ("quarantine", "trusted", tmp_path),
+    ]
+
+    def fail_build(_policy: RemoteExecutionPolicy, *, context: str, repository_root: Path) -> int:
+        raise RemoteExecutionError([f"blocked {context} at {repository_root.name}"])
+
+    monkeypatch.setattr(remote_execution, "run_remote_build", fail_build)
+    assert remote_execution.main([*root_arguments, "build", "--context", "untrusted"]) == 1
+    assert "blocked untrusted" in capsys.readouterr().err
 
 
 if __name__ == "__main__":

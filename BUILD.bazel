@@ -126,6 +126,7 @@ test_suite(
         "//tests/build/fixtures/proto:buf_toolchain_test",
         "//tests/build/fixtures/sql:generated_sql_test",
         "//tests/build/fixtures/sql:invalid_substitution_test",
+        "//tests/engineering:ci_runner_test",
         "//tests/engineering:engineering_standards_test",
         "//tests/engineering:dependency_admission_test",
         "//tests/engineering:remote_execution_test",
