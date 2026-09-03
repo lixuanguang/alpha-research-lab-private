@@ -321,10 +321,10 @@ independent_review_roles = ["platform"]
 objective = "Build only declared pinned inputs, emit provenance and SBOMs, sign immutable digests, and reject mutable or unverifiable artifacts."
 control_functions = ["prevent", "detect", "respond"]
 implementation_packages = ["B07", "B08", "K03"]
-implementation_status = "planned"
+implementation_status = "repository_local"
 test_procedure = "Attempt dependency substitution, undeclared input, artifact tamper, forged provenance, mutable tag, and revoked-signing-key admission."
 fail_safe_response = "Reject the artifact, halt promotion, revoke affected keys, and rebuild from the last trusted source and toolchain."
-evidence_source_ids = ["A07-EV06"]
+evidence_source_ids = ["A07-EV06", "A07-EV16"]
 
 [[controls]]
 control_id = "A07-C03"
@@ -615,6 +615,16 @@ owner_role = "compliance"
 location = ""
 required_packages = ["A07", "K08"]
 closure_condition = "Qualified Legal and Compliance reviewers determine entity, activity, product, venue, account, and territorial applicability and approve the tailored control obligations."
+
+[[evidence_sources]]
+evidence_source_id = "A07-EV16"
+name = "B08 repository-local artifact supply-chain evidence"
+source_type = "evidence_manifest"
+status = "available"
+owner_role = "platform"
+location = "docs/governance/evidence/examples/b08-r2-partial/manifest.toml"
+required_packages = []
+closure_condition = ""
 
 [[authority_sources]]
 source_id = "A07-SRC-GB-01"

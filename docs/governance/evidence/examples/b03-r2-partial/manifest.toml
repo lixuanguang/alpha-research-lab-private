@@ -98,7 +98,7 @@ evidence_ids = ["documentation-and-monitoring"]
 evidence_id = "contract-and-tests"
 artifact_type = "test_report"
 path = "reports/contract-and-tests.txt"
-sha256 = "d76d6ad9e340cfebb09ec508dfc74ab127939dcff71c6f498d0a52db4dccc273"
+sha256 = "01baa65a7cd81b20101819d1134f085a88820a3837a76701b4f230a4b52bbe7a"
 
 [[artifacts]]
 evidence_id = "clean-machine-and-equivalence"
@@ -116,7 +116,7 @@ sha256 = "7f553799ef2eba431bf271250cf3dde069afd155f50f87987d2d23df182faa8a"
 evidence_id = "documentation-and-monitoring"
 artifact_type = "test_report"
 path = "reports/documentation-and-monitoring.txt"
-sha256 = "459870d7e9359a2af5532d2dabef29326ae08a43ad9133dce88427538a95d2f1"
+sha256 = "067ce835602af2b7196aee596f21e7acfdd83b0c3ebbb94e84d9c5c0c658b813"
 
 [[findings]]
 finding_id = "B03-F01"

@@ -41,6 +41,13 @@ repos:
         always_run: true
         pass_filenames: false
 
+      - id: artifact-supply-chain
+        name: check SBOM, provenance, signing, publication, and consumer policy
+        entry: uv run --frozen alpha-governance-artifacts
+        language: system
+        always_run: true
+        pass_filenames: false
+
       - id: ci-secret-scan
         name: check committed text for secrets
         entry: uv run --frozen alpha-governance-ci scan-secrets

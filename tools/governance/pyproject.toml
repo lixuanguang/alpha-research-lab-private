@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 alpha-governance-architecture = "alpha_research_governance.architecture_governance:main"
+alpha-governance-artifacts = "alpha_research_governance.artifact_supply_chain:main"
 alpha-governance-change-risk = "alpha_research_governance.change_risk:main"
 alpha-governance-ci = "alpha_research_governance.ci_policy:main"
 alpha-governance-dependencies = "alpha_research_governance.dependency_admission:main"

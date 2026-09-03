@@ -37,11 +37,15 @@ the separately governed remote-execution client and policy.
 
 ## Canonical targets and enforced consumers
 
-The tool distribution owns ten executable entry points:
+The tool distribution now owns thirteen executable entry points, including the
+B05-B08 package controls added after B01:
 
 ```text
 alpha-governance-architecture
+alpha-governance-artifacts
 alpha-governance-change-risk
+alpha-governance-ci
+alpha-governance-dependencies
 alpha-governance-engineering-standards
 alpha-governance-evidence
 alpha-governance-inventory

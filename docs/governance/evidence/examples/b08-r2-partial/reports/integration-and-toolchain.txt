@@ -1,0 +1,7 @@
+B08 repository-local integration and toolchain evidence
+Result: Syft 1.51.1 and Cosign 3.1.3 are selected from the immutable nixpkgs revision and registered under B07 admission.
+Result: the realized Nix shell ran real Syft 1.51.1 and produced a canonical smoke candidate from repository documentation using a root Bazel label.
+Result: tool version drift or process failure rejects, and no runtime installation or network fallback is implemented.
+Result: Make, pre-commit, Bazel, package entry point, topology, inventory, program, security, and evidence checks share one policy.
+Result: A04 classifies the change R2 and the blueprint-specific QG15 gate is retained.
+Limitation: independent review, protected Linux execution, target registry, and external retention remain open findings.

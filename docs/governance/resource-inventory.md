@@ -38,11 +38,11 @@ Adding a real resource changes the kind to `populated` in the same change.
 
 ## Current population
 
-The current repository has fifteen provisional controls: A01 through A08 plus
+The current repository has sixteen provisional controls: A01 through A08 plus
 B01's governed repository topology, B02's hermetic build graph, and B03's
 clean-machine developer environment, B04's engineering standards, B05's
-affected/full CI policy, B06's authenticated remote-execution control, and B07's
-dependency-admission control. B01c
+affected/full CI policy, B06's authenticated remote-execution control, B07's
+dependency-admission control, and B08's whole-artifact supply-chain control. B01c
 incremented the A02-A08 control records to version 2 because their implementation
 lineage named the canonical `tools/governance` targets instead of compatibility
 facades. B02 increments the affected A03, A06, A08, and B01 records. B03
@@ -54,13 +54,17 @@ B06 increments A06, A08, B01, B02, and B05 for catalog state, program readiness,
 topology, Bazel configuration, and hosted-CI integration, and adds its own control.
 B07 increments the same integration records for catalog state, readiness, lock
 inputs, root automation, and hosted audit execution, and adds its own control.
+B08 links its control to A07 security policy and B07 dependency admission.
+It increments the affected A02, A06-A08, B01-B03, B05, and B07 records for the
+ADR, catalog, security map, readiness, topology/build graph, locked environment,
+full-lane policy, and admitted-tool changes.
 All other kinds are
 explicitly empty because the corresponding canonical data, research, risk,
 trading, deployment, and release packages do not yet exist. A Git commit, wheel,
 research roadmap, evidence fixture, or proposed strategy is not silently promoted
 into a dataset, model, strategy, service, limit, venue, or release.
 
-All fifteen control records remain `provisional`. Their source checks are active
+All sixteen control records remain `provisional`. Their source checks are active
 repository-local controls, but they are not institutionally validated, deployed,
 released, or activated resources.
 

@@ -44,6 +44,11 @@ resources, guarded main-push integration, and remote-disabled local fallback. B0
 adds exact dependency admission for sources, digests, locks, licenses,
 vulnerability and exploitability decisions, maintenance, supported wheels and
 native artifacts, registries, patch/EOL cadence, and runtime-install prohibition.
+The B08 whole-artifact supply-chain boundary adds deterministic SPDX 2.3 SBOMs,
+SLSA provenance, lock/toolchain/test identity, protected-context Cosign signing,
+immutable digest publication, and fail-closed consumer verification. Its external
+signing, registry, independent-review, and target-environment evidence remains
+open.
 The repository does not yet contain canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
@@ -150,6 +155,12 @@ keeps pip-audit and Scorecard as signals under repository-owned admission and
 exploitability decisions. Qualified, protected-forge, target-platform, registry,
 and independent-review evidence remains open.
 
+The [B08 artifact supply-chain contract](architecture/artifact-supply-chain.md)
+binds complete artifacts to SPDX, SLSA provenance, tests, locks, toolchain, policy,
+and a Sigstore bundle. It rejects native-library omission, unsigned or tampered
+content, mutable references, revoked signers, and digest overwrite. Its local
+content store is validation evidence, not I01's production registry.
+
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
 [governed repository topology](architecture/repository-topology.md). B01c makes
@@ -179,6 +190,7 @@ Current root commands are:
 | `make program-governance-check` | Validate and query the A08 96-package dependency graph, provisional readiness, owned KPI definitions, automatic observations, and non-vanity dashboard |
 | `make ci-policy-check` | Validate B05 fast/full lanes, selection policy, schema roots, provisional scanner record, integrations, evidence, and findings |
 | `make remote-execution-policy-check` | Validate B06 provider, trust, namespace, sharding, flake, budget, fallback, integration, evidence, and findings |
+| `make artifact-supply-chain-check` | Validate B08 SBOM, provenance, signing, immutable publication, consumer policy, evidence, and findings |
 | `make remote-build` | Run the authenticated B06 build after clean-main trust checks |
 | `make remote-test` | Run one deterministic B06 test shard selected by `REMOTE_SHARD_INDEX` |
 | `make remote-quarantine` | Repeat active quarantined targets diagnostically without removing them from normal shards |
@@ -201,8 +213,9 @@ Current root commands are:
 
 Running `make` without a target is currently equivalent to `make check`.
 
-This interface is a provisional B02-B07 implementation, not completion of wave B.
-B08 owns whole-artifact supply-chain evidence and consumer verification.
+This interface is a provisional B02-B08 implementation, not completion of wave B.
+B08's repository-local controls do not supply its external signing, registry,
+independent-review, or target-environment evidence.
 
 ## Documentation map
 
@@ -223,6 +236,7 @@ B08 owns whole-artifact supply-chain evidence and consumer verification.
 | [Affected and full continuous integration](architecture/ci-policy.md) | B05 affected/reverse-dependency selection, merged-result authority, hygiene, secrets, schema compatibility, drift, events, evidence, and findings |
 | [Remote cache, execution, sharding, and flake control](architecture/remote-execution.md) | B06 provider ADR, authenticated trust boundary, namespace isolation, deterministic shards, strict flake behavior, resource budgets, fallback, evidence, and findings |
 | [Dependency admission and exploitability governance](architecture/dependency-admission.md) | B07 exact sources, digests, locks, licenses, signals, exploitability decisions, maintenance, platforms, native artifacts, registries, runtime-install prohibition, evidence, and findings |
+| [Whole-artifact supply chain](architecture/artifact-supply-chain.md) | B08 SPDX SBOM, SLSA provenance, signed attestation boundary, immutable digest publication, consumer verification, rollback, evidence, and findings |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

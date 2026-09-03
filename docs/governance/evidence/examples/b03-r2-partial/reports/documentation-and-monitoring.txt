@@ -5,5 +5,6 @@ Synthetic commit: 9999999999999999999999999999999999999999
   IDE and hook integration, equivalence, migration, rollback, findings, and scope.
 - Flake, lock, platform, path, version, interpreter, graph, and rollback failures
   are repository-local signals; no deployed monitor, alert, or runbook is claimed.
-- B03 remains partial and does not validate B02, perform B07 admission, implement
-  B04, or authorize release, deployment, activation, access, capital, or risk.
+- B03 remains partial and does not validate B02 or perform B07 admission. Adding
+  B08's admitted tools does not authorize release, deployment, activation,
+  access, capital, or risk.

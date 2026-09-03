@@ -21,7 +21,9 @@ B03 provides a declarative Nix development shell for the supported
 `aarch64-darwin` and `x86_64-linux` host systems. The flake contains no
 workstation path, Homebrew package, ambient Python, ambient Git, or ambient Make
 dependency. It supplies an exact Nix client, CPython, uv, Bazelisk launcher, Git,
-GNU Make, CA bundle, and interactive shell from one locked nixpkgs revision.
+GNU Make, CA bundle, and interactive shell from one locked nixpkgs revision. B08
+adds exact Syft and Cosign packages to that same environment and B07 admission
+record without changing B03's package status.
 
 The environment consumes, rather than changes, B02's build graph. The Bazel
 wrapper fixes `USE_BAZEL_VERSION=9.1.0` and executes the Nix-store binary fetched
@@ -84,8 +86,10 @@ exact package versions before producing an output:
 | CPython | 3.12.14 | Locked nixpkgs derivation; matches uv and Bazel |
 | Bazelisk | 1.29.0 | Locked nixpkgs derivation; matches hosted CI |
 | Bazel | 9.1.0 | Official platform binary realized by Nix with B02's SHA-256 |
+| Cosign | 3.1.3 | Locked nixpkgs derivation; B08 signed-attestation boundary |
 | Git | 2.55.0 | Locked nixpkgs derivation |
 | GNU Make | 4.4.1 | Locked nixpkgs derivation |
+| Syft | 1.51.1 | Locked nixpkgs derivation; B08 SPDX 2.3 inventory |
 
 The host-tool record adds exact source/digest, license, provisional vulnerability
 and maintenance review, native/transitive dependency, supported-system, purpose,

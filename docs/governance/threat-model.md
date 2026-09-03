@@ -24,9 +24,11 @@ platform contracts, and quality and operations rules.
 The map covers the intended platform path from governed source and external data
 through artifacts, research, model promotion, deployment control, independent
 risk, order management, external markets, telemetry, audit, and recovery. It
-models target capabilities that later packages must implement. Except for the
-repository-local map integrity control, a listed control is a requirement or
-design constraint, not evidence that a target-environment control exists.
+models target capabilities that later packages must implement. A07-C02 now also
+links B08's repository-local artifact evidence, but that does not establish its
+protected signing, registry, independent-review, or target-environment controls.
+Other listed controls remain requirements or design constraints rather than
+evidence that a target-environment control exists.
 
 This is engineering governance, not legal advice. It makes no determination that
 an entity, activity, product, instrument, venue, account, licence, permission,
