@@ -5,8 +5,9 @@
 These contracts define the thin waist shared by research, replay, paper, shadow,
 canary, live operation, and every asset package. They are subordinate to the
 [implementation blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
-and describe target behavior, not capabilities already implemented in the
-bootstrap package.
+and describe target behavior. C01's instrument-identity subset is implemented by
+the [canonical instrument-identity contract](instrument-identity.md); the remaining
+sections describe capabilities not yet implemented in the bootstrap repository.
 
 Canonical cross-asset contracts are established in wave C before platform
 components specialize them. Asset implementations are certified separately in
@@ -15,6 +16,10 @@ uses, but it may not replace the canonical model with crypto-only semantics or
 delay the shared contracts until after a vertical slice.
 
 ## Instruments and market events
+
+The first bullet and its validity-dated mapping semantics are implemented by C01.
+Contract specifications, market events, broader lifecycle state, knowledge-time
+selection, and the other bullets remain target contracts for later packages.
 
 - `InstrumentId` is internal and stable. It is not a ticker. Economic instrument,
   listing, contract, share class, derivative series, venue symbol, and vendor

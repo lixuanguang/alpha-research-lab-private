@@ -1,0 +1,6 @@
+C01 repository-local integration, security, and performance evidence
+Result: focused pytest and Bazel targets exercise the same installed alpha_research.instrument_identity API and retained fixture.
+Result: repository topology registers one foundational library and one direct unit-test consumer with exact visibility.
+Result: Ruff, strict mypy, warning-as-error pytest, Bandit, dependency admission, lock, and full-graph checks remain blocking.
+Result: 10,000 resolutions of the retained golden catalog remain within the one-second local diagnostic budget.
+Limitation: protected merged-result Linux execution and retained exact-commit compatibility evidence remain C01-F02.

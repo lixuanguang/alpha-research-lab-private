@@ -1,0 +1,8 @@
+C01 repository-local operations and rollback evidence
+Status: partial under solo bootstrap; no independent approval or external evidence is represented.
+Migration: additive Python API with no existing canonical consumer, persisted state, generated client, or schema migration.
+Rollout: repository-only merged-result, golden compatibility replay, and impact analysis; no deployment or activation.
+Rollback: reviewed Git revert of code, build/ownership registration, tests, status, docs, and evidence together.
+Monitoring: typed failures and source-attributed resolution records are local signals; no deployed SLO, dashboard, or alert is claimed.
+Runbook: stop ambiguous/unknown resolution, retain context, inspect history, append a correction, replay, then publish a new snapshot.
+Non-goal: no C02 successor behavior, provider connection, credentials, market access, capital, or expanded risk authority.

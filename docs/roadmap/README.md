@@ -327,8 +327,8 @@ the shared kernel is the production path.
 ## Current repository mapping
 
 Repository-local implementations and deterministic checks now exist from the
-repository charter through whole-artifact supply-chain controls (packages `A01`
-through `B08`).
+repository charter through canonical instrument identity (packages `A01` through
+`C01`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
 through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
@@ -356,6 +356,13 @@ lock/toolchain/test identity, a protected keyless-signing boundary, immutable
 digest publication, and fail-closed consumer verification. B08 remains partial
 because protected signing and registry, independent review, key-recovery, and
 target-environment evidence are unavailable locally.
+C01 adds opaque internal UUID identities, distinct economic instrument, share
+class, listing, derivative-series, and contract concepts, plus UTC valid-time,
+source-attributed mappings for vendor, venue, global, ticker, contract, and chain
+identifiers. It retains symbol reuse, delist/relist, ambiguity, and vendor
+correction goldens and fails closed on invalid or unsafe state. C01 remains partial
+because independent review, protected merged-result replay, and entitled
+target-environment reconciliation are unavailable locally.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -546,8 +553,27 @@ QG15. It retains independent-review, protected multi-platform signing/registry,
 and independent key-compromise/native-container target-drill findings. It remains
 `partial` and authorizes no release, promotion, deployment, activation,
 credentials, market access, capital, or expanded risk authority. It does not
-implement the production registry owned by I01. The next documented selector in
-the active adoption sequence is `C01`.
+implement the production registry owned by I01. Its `C01` successor is now
+provisionally implemented without changing B08's partial status or findings.
+
+### Active canonical instrument-identity delivery state
+
+Canonical instrument identity and temporal symbology (`C01`) are provisionally
+implemented under solo bootstrap by the
+[instrument-identity contract](../architecture/instrument-identity.md). The owned
+standard-library-only API separates stable internal identities from external
+aliases, uses aware UTC half-open validity intervals, returns source and revision
+attribution, rejects ambiguity, and retains append-only correction history. A
+synthetic fixture covers symbol reuse, delisting/relisting, vendor correction,
+every canonical identity kind, and every admitted identifier scheme.
+
+C01 is an A04 R2 change with QG01-QG06 and QG09-QG14. It retains independent
+review, protected merged-result Linux replay, and entitled target-environment
+reconciliation findings. It remains `partial` and authorizes no release,
+promotion, deployment, activation, credentials, market access, capital, or
+expanded risk authority. It does not implement C02 calendars or venue state, C04
+knowledge-time selection, C05 events, or D04 master-data services. The next
+documented selector is `C02`.
 
 ## Recommended adoption order
 
@@ -577,9 +603,12 @@ the active adoption sequence is `C01`.
 8. Preserve B08's whole-artifact SBOM, provenance, signing boundary, immutable
    publication, consumer verification, R2 evidence, and open findings before
    durable data or release artifacts depend on the graph.
-9. Introduce each remaining library only in its owning C-J package through a
+9. Preserve C01's opaque identity, temporal symbology, ambiguity-safe resolution,
+   correction lineage, R2 evidence, and open findings before adding venue/time
+   contracts or persistent master data.
+10. Introduce each remaining library only in its owning C-J package through a
    narrow adapter and contract suite. Do not create a repository-wide dependency
    bundle or install every table candidate in advance.
-10. Run the NautilusTrader comparison only after C contracts and initial F golden
+11. Run the NautilusTrader comparison only after C contracts and initial F golden
     fixtures exist; otherwise the framework, rather than the repository's
     contracts, would define the comparison.

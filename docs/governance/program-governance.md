@@ -22,7 +22,7 @@ expressions. The checker expands exact ranges, represents conditional asset
 dependencies as explicit `any of` groups, rejects unknown or duplicate packages,
 and fails on self-dependencies or cycles.
 
-The program policy records implementation state only for A01-B08. Packages without
+The program policy records implementation state only for A01-C01. Packages without
 an explicit state remain `planned`; no empty package is treated as implemented.
 Every partial dependency records passing repository-local evidence, its retained
 finding IDs, and only the deferred evidence classes permitted by the solo-bootstrap
@@ -52,9 +52,9 @@ uv run --frozen alpha-governance-program \
   --metric kpi.research_reproducibility_percent
 ```
 
-With B08 repository-local evidence present, B01-B08 remain `partial` and the next
-solo-provisionally ready package is C01. Institutional readiness remains empty
-because none of the provisional A01-B08 states is validated.
+With C01 repository-local evidence present, A01-C01 remain `partial` and the next
+solo-provisionally ready package is C02. Institutional readiness remains empty
+because none of the provisional A01-C01 states is validated.
 
 ## KPI and observation contract
 
@@ -123,8 +123,8 @@ merged-result evidence is unavailable.
 ## Migration, rollout, rollback, monitoring, and runbook
 
 Schema version 1 is additive and has no database, runtime state, generated client,
-or existing observation consumer to migrate. B01c and B02-B08 add their partial
-package states without changing graph or observation schemas. Future
+or existing observation consumer to migrate. B01c, B02-B08, and C01 add their
+partial package states without changing graph or observation schemas. Future
 incompatible graph or event changes require a versioned compatibility window and
 retained old readers.
 
@@ -159,8 +159,9 @@ These findings are not waivers or approvals. A08 remains partial until all close
 
 ## Non-goals
 
-- Implementing C01 or any later data, research, deployment, observability,
-  incident, or rollback producer package.
+- A08 itself implementing C01 or any later data, research, deployment,
+  observability, incident, or rollback producer behavior; its state records do
+  not absorb those packages.
 - Creating a production dashboard service or accepting manually curated KPI values.
 - Treating throughput, commit count, coverage percentage, PnL, Sharpe ratio, or a
   weighted score as a substitute for mandatory gate evidence.

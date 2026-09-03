@@ -135,4 +135,5 @@ B08 does not implement I01's production registry or release manifest, K03's
 organization-wide release enforcement, domain artifact builders, deployment,
 activation, credentials, data infrastructure, models, accounts, venues, capital,
 or risk authority. It does not implement C01. Once repository-local B08 evidence
-passes, the next documented selector in the active adoption sequence is `C01`.
+passes. Its documented `C01` successor is now provisionally implemented without
+changing B08's partial status or closing its findings.

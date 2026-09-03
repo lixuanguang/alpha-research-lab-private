@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "fixture_id": "c01-symbology-golden-v1",
+  "synthetic": true,
+  "description": "Auditable C01 identity, reuse, delist/relist, and correction scenarios; no record asserts a live instrument master.",
+  "identities": [
+    {
+      "instrument_id": "11111111-1111-4111-8111-111111111111",
+      "instrument_kind": "economic_instrument",
+      "economic_instrument_id": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "instrument_id": "11111111-1111-4111-8111-111111111112",
+      "instrument_kind": "share_class",
+      "economic_instrument_id": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "instrument_id": "11111111-1111-4111-8111-111111111113",
+      "instrument_kind": "listing",
+      "economic_instrument_id": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "instrument_id": "22222222-2222-4222-8222-222222222221",
+      "instrument_kind": "economic_instrument",
+      "economic_instrument_id": "22222222-2222-4222-8222-222222222221"
+    },
+    {
+      "instrument_id": "22222222-2222-4222-8222-222222222223",
+      "instrument_kind": "listing",
+      "economic_instrument_id": "22222222-2222-4222-8222-222222222221"
+    },
+    {
+      "instrument_id": "33333333-3333-4333-8333-333333333331",
+      "instrument_kind": "economic_instrument",
+      "economic_instrument_id": "33333333-3333-4333-8333-333333333331"
+    },
+    {
+      "instrument_id": "33333333-3333-4333-8333-333333333332",
+      "instrument_kind": "listing",
+      "economic_instrument_id": "33333333-3333-4333-8333-333333333331"
+    },
+    {
+      "instrument_id": "33333333-3333-4333-8333-333333333333",
+      "instrument_kind": "listing",
+      "economic_instrument_id": "33333333-3333-4333-8333-333333333331"
+    },
+    {
+      "instrument_id": "44444444-4444-4444-8444-444444444441",
+      "instrument_kind": "economic_instrument",
+      "economic_instrument_id": "44444444-4444-4444-8444-444444444441"
+    },
+    {
+      "instrument_id": "44444444-4444-4444-8444-444444444442",
+      "instrument_kind": "derivative_series",
+      "economic_instrument_id": "44444444-4444-4444-8444-444444444441"
+    },
+    {
+      "instrument_id": "44444444-4444-4444-8444-444444444443",
+      "instrument_kind": "contract",
+      "economic_instrument_id": "44444444-4444-4444-8444-444444444441"
+    },
+    {
+      "instrument_id": "55555555-5555-4555-8555-555555555551",
+      "instrument_kind": "economic_instrument",
+      "economic_instrument_id": "55555555-5555-4555-8555-555555555551"
+    }
+  ],
+  "mappings": [
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000001",
+      "instrument_id": "11111111-1111-4111-8111-111111111113",
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "ABC",
+      "identifier_namespace": "xnas",
+      "valid_from": "2020-01-01T00:00:00Z",
+      "valid_to": "2022-01-01T00:00:00Z",
+      "source": "fixture.exchange",
+      "source_revision": "reuse-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000002",
+      "instrument_id": "22222222-2222-4222-8222-222222222223",
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "ABC",
+      "identifier_namespace": "xnas",
+      "valid_from": "2022-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.exchange",
+      "source_revision": "reuse-002"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000003",
+      "instrument_id": "11111111-1111-4111-8111-111111111113",
+      "identifier_scheme": "ticker",
+      "identifier_value": "DUAL",
+      "identifier_namespace": "xnas",
+      "valid_from": "2020-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.exchange",
+      "source_revision": "dual-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000004",
+      "instrument_id": "22222222-2222-4222-8222-222222222223",
+      "identifier_scheme": "ticker",
+      "identifier_value": "DUAL",
+      "identifier_namespace": "xlon",
+      "valid_from": "2020-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.exchange",
+      "source_revision": "dual-002"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000005",
+      "instrument_id": "11111111-1111-4111-8111-111111111112",
+      "identifier_scheme": "isin",
+      "identifier_value": "US0378331005",
+      "identifier_namespace": null,
+      "valid_from": "2000-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.identifiers",
+      "source_revision": "global-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000006",
+      "instrument_id": "11111111-1111-4111-8111-111111111112",
+      "identifier_scheme": "cusip",
+      "identifier_value": "037833100",
+      "identifier_namespace": null,
+      "valid_from": "2000-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.identifiers",
+      "source_revision": "global-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000007",
+      "instrument_id": "11111111-1111-4111-8111-111111111112",
+      "identifier_scheme": "sedol",
+      "identifier_value": "2046251",
+      "identifier_namespace": null,
+      "valid_from": "2000-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.identifiers",
+      "source_revision": "global-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000008",
+      "instrument_id": "11111111-1111-4111-8111-111111111113",
+      "identifier_scheme": "vendor",
+      "identifier_value": "security/001",
+      "identifier_namespace": "vendor-a",
+      "valid_from": "2020-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.vendor",
+      "source_revision": "vendor-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000009",
+      "instrument_id": "33333333-3333-4333-8333-333333333332",
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "REL",
+      "identifier_namespace": "xlon",
+      "valid_from": "2015-01-01T00:00:00Z",
+      "valid_to": "2020-01-01T00:00:00Z",
+      "source": "fixture.exchange",
+      "source_revision": "relist-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000010",
+      "instrument_id": "33333333-3333-4333-8333-333333333333",
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "REL",
+      "identifier_namespace": "xlon",
+      "valid_from": "2021-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.exchange",
+      "source_revision": "relist-002"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000011",
+      "instrument_id": "33333333-3333-4333-8333-333333333332",
+      "identifier_scheme": "vendor",
+      "identifier_value": "CORRECT-ME",
+      "identifier_namespace": "vendor-a",
+      "valid_from": "2021-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.vendor",
+      "source_revision": "correction-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000012",
+      "instrument_id": "33333333-3333-4333-8333-333333333333",
+      "identifier_scheme": "vendor",
+      "identifier_value": "CORRECT-ME",
+      "identifier_namespace": "vendor-a",
+      "valid_from": "2021-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.vendor",
+      "source_revision": "correction-002",
+      "supersedes_mapping_id": "10000000-0000-4000-8000-000000000011",
+      "correction_reason": "Vendor corrected the listing assignment; the original assertion remains retained."
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000013",
+      "instrument_id": "44444444-4444-4444-8444-444444444443",
+      "identifier_scheme": "contract",
+      "identifier_value": "ESZ6",
+      "identifier_namespace": "fixture-venue",
+      "valid_from": "2026-01-01T00:00:00Z",
+      "valid_to": "2026-12-31T00:00:00Z",
+      "source": "fixture.exchange",
+      "source_revision": "contract-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000014",
+      "instrument_id": "44444444-4444-4444-8444-444444444443",
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "ESZ6",
+      "identifier_namespace": "fixture-venue",
+      "valid_from": "2026-01-01T00:00:00Z",
+      "valid_to": "2026-12-31T00:00:00Z",
+      "source": "fixture.exchange",
+      "source_revision": "contract-001"
+    },
+    {
+      "mapping_id": "10000000-0000-4000-8000-000000000015",
+      "instrument_id": "55555555-5555-4555-8555-555555555551",
+      "identifier_scheme": "chain",
+      "identifier_value": "0x0000000000000000000000000000000000000001",
+      "identifier_namespace": "fixture-chain",
+      "valid_from": "2020-01-01T00:00:00Z",
+      "valid_to": null,
+      "source": "fixture.chain",
+      "source_revision": "chain-001"
+    }
+  ],
+  "expected_resolutions": [
+    {
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "ABC",
+      "identifier_namespace": "xnas",
+      "valid_at": "2021-12-31T23:59:59Z",
+      "instrument_id": "11111111-1111-4111-8111-111111111113"
+    },
+    {
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "ABC",
+      "identifier_namespace": "xnas",
+      "valid_at": "2022-01-01T00:00:00Z",
+      "instrument_id": "22222222-2222-4222-8222-222222222223"
+    },
+    {
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "REL",
+      "identifier_namespace": "xlon",
+      "valid_at": "2019-12-31T23:59:59Z",
+      "instrument_id": "33333333-3333-4333-8333-333333333332"
+    },
+    {
+      "identifier_scheme": "venue_symbol",
+      "identifier_value": "REL",
+      "identifier_namespace": "xlon",
+      "valid_at": "2021-01-01T00:00:00Z",
+      "instrument_id": "33333333-3333-4333-8333-333333333333"
+    },
+    {
+      "identifier_scheme": "vendor",
+      "identifier_value": "CORRECT-ME",
+      "identifier_namespace": "vendor-a",
+      "valid_at": "2022-01-01T00:00:00Z",
+      "instrument_id": "33333333-3333-4333-8333-333333333333"
+    },
+    {
+      "identifier_scheme": "isin",
+      "identifier_value": "US0378331005",
+      "identifier_namespace": null,
+      "valid_at": "2022-01-01T00:00:00Z",
+      "instrument_id": "11111111-1111-4111-8111-111111111112"
+    },
+    {
+      "identifier_scheme": "contract",
+      "identifier_value": "ESZ6",
+      "identifier_namespace": "fixture-venue",
+      "valid_at": "2026-06-01T00:00:00Z",
+      "instrument_id": "44444444-4444-4444-8444-444444444443"
+    },
+    {
+      "identifier_scheme": "chain",
+      "identifier_value": "0x0000000000000000000000000000000000000001",
+      "identifier_namespace": "fixture-chain",
+      "valid_at": "2026-01-01T00:00:00Z",
+      "instrument_id": "55555555-5555-4555-8555-555555555551"
+    }
+  ],
+  "ambiguous_query": {
+    "identifier_scheme": "ticker",
+    "identifier_value": "DUAL",
+    "identifier_namespace": null,
+    "valid_at": "2023-01-01T00:00:00Z"
+  },
+  "delisting_gap_query": {
+    "identifier_scheme": "venue_symbol",
+    "identifier_value": "REL",
+    "identifier_namespace": "xlon",
+    "valid_at": "2020-06-01T00:00:00Z"
+  },
+  "correction_history": {
+    "identifier_scheme": "vendor",
+    "identifier_value": "CORRECT-ME",
+    "identifier_namespace": "vendor-a",
+    "mapping_ids": [
+      "10000000-0000-4000-8000-000000000011",
+      "10000000-0000-4000-8000-000000000012"
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+C01 repository-local property and failure evidence
+Result: pinned Hypothesis runs 50 derandomized examples for exact round trips and half-open symbol-reuse boundaries.
+Result: invalid UUIDs, checksums, namespaces, text, UTC instants, intervals, hierarchy, references, and overlap reject.
+Result: missing, changed, forked, or cyclic correction lineage rejects without selecting a favorable record.
+Result: unknown and namespace-ambiguous temporal queries raise typed failures; no input-order fallback exists.
+Boundary: knowledge-time/as-of history is not inferred; that bitemporal contract remains C04-owned.

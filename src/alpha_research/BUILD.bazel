@@ -4,8 +4,14 @@ package(default_visibility = ["//visibility:public"])
 
 py_library(
     name = "alpha_research",
-    srcs = glob(["**/*.py"]),
+    srcs = glob(
+        ["**/*.py"],
+        exclude = ["instrument_identity/**/*.py"],
+    ),
     data = ["py.typed"],
     imports = [".."],
-    deps = ["//tools/governance/src/alpha_research_governance"],
+    deps = [
+        "//src/alpha_research/instrument_identity",
+        "//tools/governance/src/alpha_research_governance",
+    ],
 )

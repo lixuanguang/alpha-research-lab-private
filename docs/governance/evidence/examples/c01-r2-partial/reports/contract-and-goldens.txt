@@ -1,0 +1,7 @@
+C01 repository-local contract and golden-fixture evidence
+Scope: immutable canonical IDs and current-projection temporal mappings; no C02-C08 or D04 behavior.
+Result: all five identity kinds and all eight external identifier schemes are exercised.
+Result: exact and reverse round trips, symbol reuse, delisting gap, relisting, ambiguity, and vendor correction tests pass.
+Result: the retained synthetic JSON fixture is explicitly non-authoritative and carries source/revision/correction context.
+Fixture SHA-256: 181281a439f2cb6da13ca9268eebcc8d4bd34b6e016edcd685ad25741d993c30.
+Limitation: representative entitled source reconciliation and independent review remain C01-F01/C01-F03.

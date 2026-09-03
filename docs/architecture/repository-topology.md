@@ -92,13 +92,17 @@ canonical tools never depend back on compatibility code. Engineering tests are
 the only current reverse consumer of both surfaces.
 
 The registry now assigns every Python implementation, facade, typing marker,
-engineering-test source, and B02-B03 build-test source under
+engineering-test source, C01 unit-test source, and B02-B03 build-test source under
 `tools/governance/src/alpha_research_governance/`, `src/alpha_research/`,
-`tests/engineering/`, and `tests/build/` to exactly one of 24 owned
+`tests/engineering/`, `tests/unit/`, and `tests/build/` to exactly one of 28 owned
 targets. Each target declares kind, layer, accountable owner, supported platform,
 direct dependencies, exact reverse visibility, and exact source paths. The
 validator derives direct imports for both namespaces with deterministic AST
 parsing and rejects missing or stale declarations.
+
+C01 adds the first owned `library` kind for the foundational instrument-identity
+target and its direct unit-test consumer. This is current-source registration,
+not a new B01 delivery slice or a change to B01's partial status and findings.
 
 `load_topology()` validates a supplied registry against a repository root.
 `validate_repository()` also validates the B01c synthetic SHA-bound evidence

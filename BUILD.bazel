@@ -73,6 +73,15 @@ filegroup(
 )
 
 filegroup(
+    name = "instrument_identity_evidence_data",
+    srcs = [
+        "docs/governance/change-risk-policy.toml",
+        "docs/governance/evidence/examples/c01-r2-partial/manifest.toml",
+    ] + glob(["docs/governance/evidence/examples/c01-r2-partial/reports/**"]),
+    visibility = ["//tests/engineering:__pkg__"],
+)
+
+filegroup(
     name = "ci_policy_data",
     srcs = [
         "docs/architecture/ci-policy.toml",
@@ -146,10 +155,12 @@ test_suite(
         "//tests/build/fixtures/sql:generated_sql_test",
         "//tests/build/fixtures/sql:invalid_substitution_test",
         "//tests/engineering:ci_runner_test",
+        "//tests/engineering:instrument_identity_evidence_test",
         "//tests/engineering:artifact_supply_chain_test",
         "//tests/engineering:engineering_standards_test",
         "//tests/engineering:dependency_admission_test",
         "//tests/engineering:remote_execution_test",
+        "//tests/unit:instrument_identity_test",
     ],
 )
 

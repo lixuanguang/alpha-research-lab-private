@@ -46,6 +46,7 @@ _EXPECTED_SOURCE_ROOTS = (
     "src/alpha_research",
     "tests/build",
     "tests/engineering",
+    "tests/unit",
     "tools/governance/src/alpha_research_governance",
 )
 _EXPECTED_LAYER_ORDER = (
@@ -306,8 +307,8 @@ def _validate_graph(topology: RepositoryTopology, repository_root: Path) -> None
     )
     declared_sources: dict[str, str] = {}
     for unit in topology.units:
-        if unit.kind not in {"compatibility", "test", "tool"}:
-            findings.append(f"{unit.unit_id}: kind must be compatibility, test, or tool")
+        if unit.kind not in {"compatibility", "library", "test", "tool"}:
+            findings.append(f"{unit.unit_id}: kind must be compatibility, library, test, or tool")
         if unit.layer not in layer_index:
             findings.append(f"{unit.unit_id}: unknown layer {unit.layer!r}")
         if unit.owner_role not in ownership_roles:

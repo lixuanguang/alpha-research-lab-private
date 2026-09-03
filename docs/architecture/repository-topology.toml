@@ -24,6 +24,7 @@ source_roots = [
   "src/alpha_research",
   "tests/build",
   "tests/engineering",
+  "tests/unit",
   "tools/governance/src/alpha_research_governance",
 ]
 maximum_source_files = 1000
@@ -170,6 +171,20 @@ sources = [
 ]
 
 [[units]]
+unit_id = "library.alpha_research.instrument_identity"
+kind = "library"
+layer = "foundation"
+owner_role = "domain_architecture"
+supported_platforms = ["any"]
+dependencies = []
+visibility = ["test.unit.instrument_identity"]
+sources = [
+  "src/alpha_research/instrument_identity/__init__.py",
+  "src/alpha_research/instrument_identity/catalog.py",
+  "src/alpha_research/instrument_identity/models.py",
+]
+
+[[units]]
 unit_id = "test.build"
 kind = "test"
 layer = "verification"
@@ -227,6 +242,7 @@ sources = [
   "tests/engineering/test_dependency_admission.py",
   "tests/engineering/test_engineering_standards.py",
   "tests/engineering/test_evidence_governance.py",
+  "tests/engineering/test_instrument_identity_evidence.py",
   "tests/engineering/test_inventory_governance.py",
   "tests/engineering/test_ownership_governance.py",
   "tests/engineering/test_package_definition.py",
@@ -239,6 +255,16 @@ sources = [
   "tests/engineering/test_root_commands.py",
   "tests/engineering/test_security_controls.py",
 ]
+
+[[units]]
+unit_id = "test.unit.instrument_identity"
+kind = "test"
+layer = "verification"
+owner_role = "domain_architecture"
+supported_platforms = ["any"]
+dependencies = ["library.alpha_research.instrument_identity"]
+visibility = []
+sources = ["tests/unit/test_instrument_identity.py"]
 
 [[units]]
 unit_id = "tool.governance.architecture_governance"
