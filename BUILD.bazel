@@ -66,6 +66,30 @@ filegroup(
 )
 
 filegroup(
+    name = "dependency_admission_data",
+    srcs = [
+        ".github/workflows/ci.yml",
+        ".pre-commit-config.yaml",
+        "MODULE.bazel.lock",
+        "Makefile",
+        "docs/architecture/build-tool-dependencies.toml",
+        "docs/architecture/ci-tool-dependencies.toml",
+        "docs/architecture/dependency-admission.toml",
+        "docs/architecture/engineering-tool-dependencies.toml",
+        "docs/architecture/remote-execution.toml",
+        "docs/governance/change-risk-policy.toml",
+        "docs/governance/evidence/examples/b07-r2-partial/manifest.toml",
+        "environments/dev/toolchain.toml",
+        "flake.lock",
+        "pyproject.toml",
+        "requirements.bazel.txt",
+        "uv.lock",
+        "//tools/governance:pyproject.toml",
+    ] + glob(["docs/governance/evidence/examples/b07-r2-partial/reports/**"]),
+    visibility = ["//tests/engineering:__pkg__"],
+)
+
+filegroup(
     name = "engineering_standards_data",
     srcs = [
         "docs/architecture/engineering-standards.toml",
@@ -103,6 +127,7 @@ test_suite(
         "//tests/build/fixtures/sql:generated_sql_test",
         "//tests/build/fixtures/sql:invalid_substitution_test",
         "//tests/engineering:engineering_standards_test",
+        "//tests/engineering:dependency_admission_test",
         "//tests/engineering:remote_execution_test",
     ],
 )

@@ -1,0 +1,16 @@
+B07 repository-local registry, lock, and platform evidence
+
+Scope: complete Python registry, uv/Bazel/Nix/action locks, source digests, licenses,
+native-artifact declarations, and supported wheel availability.
+Result: passed.
+
+The B07 policy reconciles every external uv.lock package to one exact version and approved
+license disposition, and binds every complete lock surface by SHA-256. Source distributions
+and every wheel require SHA-256 digests. Pure
+packages require a universal wheel; native-artifact packages require locked Darwin arm64 and
+Linux x86_64 wheels. The Bazel registry, Nix input, Bazel Python subset, and GitHub Action
+surfaces reject missing digests, unapproved sources, unresolved transitive edges, and mutable
+references. The B02-B06 records remain retained and dependency-ordered.
+
+Linux clean-machine installation without source fallback, organization-registry
+reconciliation, and qualified license review remain B07-F02 and B07-F03.

@@ -42,7 +42,7 @@ _APPLICABLE_GATES = (
     "QG13",
     "QG14",
 )
-_OPEN_FINDING_IDS = ("B04-F01", "B04-F02", "B04-F03")
+_ENGINEERING_STANDARDS_OPEN_FINDING_IDS = ("B04-F01", "B04-F02", "B04-F03")
 _SOURCE_ROOTS = (
     "src/alpha_research",
     "tests",
@@ -165,7 +165,7 @@ _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
         PackageGateRequirement(gate_id=gate_id, status="passed") for gate_id in _APPLICABLE_GATES
     ),
     expected_package_status="partial",
-    expected_finding_ids=_OPEN_FINDING_IDS,
+    expected_finding_ids=_ENGINEERING_STANDARDS_OPEN_FINDING_IDS,
     approvals_permitted=False,
     waivers_permitted=False,
     additional_required_gates_permitted=False,
@@ -341,8 +341,9 @@ def load_standards(path: Path) -> EngineeringStandards:
     open_finding_ids = _strings(document.get("open_finding_ids"), context="open_finding_ids")
     findings = _tables(document.get("findings"), context="findings")
     if (
-        open_finding_ids != _OPEN_FINDING_IDS
-        or tuple(item.get("finding_id") for item in findings) != _OPEN_FINDING_IDS
+        open_finding_ids != _ENGINEERING_STANDARDS_OPEN_FINDING_IDS
+        or tuple(item.get("finding_id") for item in findings)
+        != _ENGINEERING_STANDARDS_OPEN_FINDING_IDS
     ):
         raise EngineeringStandardsError(
             ["partial engineering-standards status requires the exact open findings"]

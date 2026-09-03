@@ -3,7 +3,7 @@
 from alpha_research_governance.program_governance import (
     APPLICABLE_GATE_IDS,
     METRIC_IDS,
-    PACKAGE_IDS,
+    ROADMAP_PACKAGE_IDS,
     MetricDefinition,
     MetricObservation,
     MetricSummary,
@@ -21,7 +21,7 @@ from alpha_research_governance.program_governance import (
 __all__ = [
     "APPLICABLE_GATE_IDS",
     "METRIC_IDS",
-    "PACKAGE_IDS",
+    "ROADMAP_PACKAGE_IDS",
     "MetricDefinition",
     "MetricObservation",
     "MetricSummary",

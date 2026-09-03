@@ -13,8 +13,8 @@ from alpha_research_governance.change_risk.constraints import (
     APPLICABILITY_TRIGGERS,
     BLUEPRINT_CONDITIONAL_GATES,
     BLUEPRINT_REQUIRED_GATES,
+    CHANGE_RISK_OPEN_FINDING_IDS,
     EXPECTED_DIMENSIONS,
-    EXPECTED_OPEN_FINDING_IDS,
     EXPECTED_RETENTION_CLASSES,
     EXPECTED_REVIEWER_GROUPS,
     EXPECTED_ROLLOUT_MODES,
@@ -313,9 +313,9 @@ def _load_policy(path: Path) -> ChangeRiskPolicy:
 
     package_status = policy_document.get("package_status")
     if package_status == "partial":
-        if tuple(findings) != EXPECTED_OPEN_FINDING_IDS:
+        if tuple(findings) != CHANGE_RISK_OPEN_FINDING_IDS:
             raise ChangeRiskPolicyError(
-                f"{path}: partial status requires findings {list(EXPECTED_OPEN_FINDING_IDS)!r}"
+                f"{path}: partial status requires findings {list(CHANGE_RISK_OPEN_FINDING_IDS)!r}"
             )
     elif package_status == "validated":
         if policy_document.get("operating_track") == "solo_bootstrap":

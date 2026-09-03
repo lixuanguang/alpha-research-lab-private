@@ -1,0 +1,137 @@
+schema_version = 1
+bundle_id = "b07-r2-partial"
+roadmap_id = "B07"
+commit_sha = "dddddddddddddddddddddddddddddddddddddddd"
+owner_role = "platform"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = []
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["B07-F01", "B07-F02", "B07-F03"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "shared_sensitive"
+reversibility = "compatibility_window"
+computationally_material = true
+economically_or_risk_relevant = false
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Formatting, strict typing, static security analysis, immutable action pins, and runtime-install scanning cover B07 source and integrations."
+evidence_ids = ["integrations-and-failure"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "Complete uv, Bazel, Nix, Bazel-subset, and action locks require immutable sources and SHA-256 or NAR digests."
+evidence_ids = ["registry-lock-and-platforms"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Success, boundary, malformed, missing, duplicate, stale, mismatch, vulnerability, override, signal, runtime-install, and CLI failure paths are tested."
+evidence_ids = ["registry-lock-and-platforms", "vulnerability-and-exploitability", "integrations-and-failure"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Exact-set, uniqueness, transitive-closure, license-partition, supported-wheel, freshness, and bounded-expiry invariants are enforced; no numerical behavior changes."
+evidence_ids = ["registry-lock-and-platforms", "vulnerability-and-exploitability"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "No domain schema, dataset, point-in-time state, lineage contract, or canonical data representation is changed."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "No research hypothesis, feature, model, metric conclusion, trial, validation, or promotion behavior is introduced."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "Installed command, Make, pre-commit, Bazel, frozen uv, and hosted merged-result interfaces consume the same admission contract."
+evidence_ids = ["integrations-and-failure"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "Admission scans are bounded by the finite locked graph; no runtime-latency or target-host performance claim is made."
+evidence_ids = ["registry-lock-and-platforms"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Unknown, missing, malformed, unhashed, unsupported, stale, skipped, mutable, or unresolved dependency state blocks and preserves the reviewed Git rollback."
+evidence_ids = ["registry-lock-and-platforms", "vulnerability-and-exploitability", "integrations-and-failure"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Direct/transitive sources, digests, licenses, vulnerabilities, exploitability, maintenance, platforms, native artifacts, registries, overrides, and runtime installs are controlled."
+evidence_ids = ["registry-lock-and-platforms", "vulnerability-and-exploitability", "integrations-and-failure"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "The contract documents scope, decisions, interfaces, migration, rollout, rollback, runbook, findings, non-goals, and B08 successor."
+evidence_ids = ["documentation-and-monitoring"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "Checker and audit failures are owned repository/CI signals; no deployed dashboard, SLO, alert route, or target observation is claimed."
+evidence_ids = ["documentation-and-monitoring", "integrations-and-failure"]
+
+[[artifacts]]
+evidence_id = "registry-lock-and-platforms"
+artifact_type = "test_report"
+path = "reports/registry-lock-and-platforms.txt"
+sha256 = "b342fac82af4a05c1a00a3527c9e78bcc5a2ca4e3ebcb7c110cf3b591948062d"
+
+[[artifacts]]
+evidence_id = "vulnerability-and-exploitability"
+artifact_type = "security_report"
+path = "reports/vulnerability-and-exploitability.txt"
+sha256 = "c2ff175bd23843cfef059d60a239cd9d2b03433236535e79c8263f2d267d37b0"
+
+[[artifacts]]
+evidence_id = "integrations-and-failure"
+artifact_type = "integration_report"
+path = "reports/integrations-and-failure.txt"
+sha256 = "8e4d165c02d1d301a0e69ab2a1c3d0406764e34236fd21d17861b4264a8d7f34"
+
+[[artifacts]]
+evidence_id = "documentation-and-monitoring"
+artifact_type = "documentation"
+path = "reports/documentation-and-monitoring.txt"
+sha256 = "a87c61db58e797660d4551948a56ca79ecacc42d885fd60984602526830dfc80"
+
+[[findings]]
+finding_id = "B07-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent Platform Code Owner, domain, SRE, and Security review is unavailable during solo bootstrap."
+closure_condition = "Named independent reviewers resolve findings and approve the exact B07 policy, graph, dispositions, integrations, rollback, and evidence commit."
+
+[[findings]]
+finding_id = "B07-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected exact-commit audit retention, Linux x86_64 wheel installation, approved-registry controls, and blocking source/digest/reference/runtime-install mutation exercises are unavailable locally."
+closure_condition = "Protected CI retains the audit, installs selected wheels without source fallback, and proves unapproved, mutable, unhashed, and runtime-install states block."
+
+[[findings]]
+finding_id = "B07-F03"
+owner_role = "security"
+unavailable_evidence = "Qualified license review, upstream Scorecard signals, organization registry reconciliation, and independent vulnerability and exploitability review are unavailable."
+closure_condition = "Qualified and Security reviewers reconcile every component and signal, resolve obligations and findings, and approve patch and EOL dispositions."

@@ -20,7 +20,7 @@ REQUIRED_APPROVER_ROLES = {
     "security",
     "compliance",
 }
-REQUIRED_OPEN_FINDING_IDS = ["A01-F01", "A01-F02", "A01-F03"]
+REPOSITORY_CHARTER_OPEN_FINDING_IDS = ["A01-F01", "A01-F02", "A01-F03"]
 
 
 def _load_register() -> dict[str, object]:
@@ -140,5 +140,5 @@ def test_acceptance_cannot_close_without_inventory_controls_and_approvals() -> N
         )
     else:
         assert acceptance["package_status"] == "partial"
-        assert finding_ids == REQUIRED_OPEN_FINDING_IDS
+        assert finding_ids == REPOSITORY_CHARTER_OPEN_FINDING_IDS
         assert acceptance["open_finding_ids"] == finding_ids

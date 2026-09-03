@@ -38,10 +38,11 @@ Adding a real resource changes the kind to `populated` in the same change.
 
 ## Current population
 
-The current repository has fourteen provisional controls: A01 through A08 plus
+The current repository has fifteen provisional controls: A01 through A08 plus
 B01's governed repository topology, B02's hermetic build graph, and B03's
 clean-machine developer environment, B04's engineering standards, B05's
-affected/full CI policy, and B06's authenticated remote-execution control. B01c
+affected/full CI policy, B06's authenticated remote-execution control, and B07's
+dependency-admission control. B01c
 incremented the A02-A08 control records to version 2 because their implementation
 lineage named the canonical `tools/governance` targets instead of compatibility
 facades. B02 increments the affected A03, A06, A08, and B01 records. B03
@@ -51,13 +52,15 @@ control. B05 increments A06, A08, B01, and B02 for catalog state, program
 readiness/events, topology, and complete-graph inputs, and adds its own control.
 B06 increments A06, A08, B01, B02, and B05 for catalog state, program readiness,
 topology, Bazel configuration, and hosted-CI integration, and adds its own control.
+B07 increments the same integration records for catalog state, readiness, lock
+inputs, root automation, and hosted audit execution, and adds its own control.
 All other kinds are
 explicitly empty because the corresponding canonical data, research, risk,
 trading, deployment, and release packages do not yet exist. A Git commit, wheel,
 research roadmap, evidence fixture, or proposed strategy is not silently promoted
 into a dataset, model, strategy, service, limit, venue, or release.
 
-All fourteen control records remain `provisional`. Their source checks are active
+All fifteen control records remain `provisional`. Their source checks are active
 repository-local controls, but they are not institutionally validated, deployed,
 released, or activated resources.
 
@@ -116,14 +119,15 @@ calculation, or risk envelope.
 ## Migration, rollout, rollback, monitoring, and runbook
 
 Catalog schema version 1 remains compatible and has no persisted data, service
-state, or runtime migration. Catalog version 6 adds B06 after versions 1-5 added
-B01 through B05. Version 3 incremented A03, A06, A08, B01, and B02 for B03's
+state, or runtime migration. Catalog version 7 adds B07 after versions 1-6 added
+B01 through B06. Version 3 incremented A03, A06, A08, B01, and B02 for B03's
 ownership, catalog, program-state, topology, and predecessor-evidence changes.
 B04 increments A03, A04, A06, A08, B01, and B02 for suppression governance, risk
 metadata, catalog/program state, topology, and build-input changes; all stable
 inventory identities are preserved. B05 increments A06, A08, B01, and B02 while
 preserving those identities. B06 increments A06, A08, B01, B02, and B05 while
-adding its provisional remote-execution control. Future
+adding its provisional remote-execution control. B07 increments the same records
+while adding its dependency-admission control and preserving stable identities. Future
 incompatible catalog changes require a versioned compatibility plan and retained
 readers; ordinary metadata corrections increment the affected record version.
 
@@ -152,7 +156,7 @@ These are not waivers or approvals. A06 remains partial until all three close.
 
 ## Non-goals
 
-- Creating B07 dependency admission, later target domain directories, canonical
+- Creating B08 supply-chain artifacts, later target domain directories, canonical
   schemas (C), data/model registries (D/E), services, limits, venue adapters, or
   releases.
 - Connecting an external catalog, forge, deployment registry, identity system,

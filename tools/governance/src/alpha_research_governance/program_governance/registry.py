@@ -31,7 +31,9 @@ from alpha_research_governance.program_governance.models import (
     ProgramGovernanceError,
 )
 
-PACKAGE_IDS = tuple(f"{wave}{number:02d}" for wave in "ABCDEFGHIJKL" for number in range(1, 9))
+ROADMAP_PACKAGE_IDS = tuple(
+    f"{wave}{number:02d}" for wave in "ABCDEFGHIJKL" for number in range(1, 9)
+)
 METRIC_IDS = (
     "kpi.build_duration_seconds",
     "kpi.test_duration_seconds",
@@ -56,7 +58,7 @@ APPLICABLE_GATE_IDS = (
     "QG14",
 )
 
-_EXPECTED_FINDING_IDS = ("A08-F01", "A08-F02", "A08-F03")
+_PROGRAM_GOVERNANCE_OPEN_FINDING_IDS = ("A08-F01", "A08-F02", "A08-F03")
 _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
     roadmap_package_id="A08",
     accountable_owner_role="platform",
@@ -76,7 +78,7 @@ _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
         PackageGateRequirement(gate_id=gate_id, status="passed") for gate_id in APPLICABLE_GATE_IDS
     ),
     expected_package_status="partial",
-    expected_finding_ids=_EXPECTED_FINDING_IDS,
+    expected_finding_ids=_PROGRAM_GOVERNANCE_OPEN_FINDING_IDS,
     approvals_permitted=False,
     waivers_permitted=False,
     additional_required_gates_permitted=False,
@@ -426,11 +428,11 @@ def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
                 any_of_dependency_groups=groups,
             )
         )
-    if tuple(package.package_id for package in packages) != PACKAGE_IDS:
+    if tuple(package.package_id for package in packages) != ROADMAP_PACKAGE_IDS:
         raise ProgramGovernanceError(
             ["roadmap must declare A01-L08 exactly once in dependency order"]
         )
-    package_ids = frozenset(PACKAGE_IDS)
+    package_ids = frozenset(ROADMAP_PACKAGE_IDS)
     findings: list[str] = []
     for package in packages:
         referenced = package.dependencies + tuple(
@@ -508,7 +510,7 @@ def _parse_package_states(
         finding_ids = _require_strings(
             entry.get("open_finding_ids"), context=f"{context}.open_finding_ids"
         )
-        if package_id not in PACKAGE_IDS:
+        if package_id not in ROADMAP_PACKAGE_IDS:
             raise ProgramGovernanceError([f"{context}.package_id is unsupported"])
         if status != "partial":
             raise ProgramGovernanceError(
@@ -550,7 +552,7 @@ def _parse_package_states(
             )
         )
     state_ids = tuple(state.package_id for state in states)
-    if state_ids != PACKAGE_IDS[: len(state_ids)] or "A08" not in state_ids:
+    if state_ids != ROADMAP_PACKAGE_IDS[: len(state_ids)] or "A08" not in state_ids:
         raise ProgramGovernanceError(
             ["package_states must be a contiguous implemented prefix including A01-A08"]
         )
@@ -620,7 +622,7 @@ def _parse_metric(
         raise ProgramGovernanceError([f"{context}: metric units must use lower_snake_case"])
     if scale <= 0:
         raise ProgramGovernanceError([f"{context}.scale must be positive"])
-    if any(package not in PACKAGE_IDS for package in producer_packages):
+    if any(package not in ROADMAP_PACKAGE_IDS for package in producer_packages):
         raise ProgramGovernanceError([f"{context}: producer package is unsupported"])
     if any(_TOKEN.fullmatch(dimension) is None for dimension in dimensions):
         raise ProgramGovernanceError([f"{context}: dimensions must use lower_snake_case"])
@@ -762,7 +764,7 @@ def _load_program(
     declared_findings = _require_strings(
         program_document.get("open_finding_ids"), context="open_finding_ids"
     )
-    if finding_ids != _EXPECTED_FINDING_IDS or declared_findings != finding_ids:
+    if finding_ids != _PROGRAM_GOVERNANCE_OPEN_FINDING_IDS or declared_findings != finding_ids:
         raise ProgramGovernanceError(["A08 partial status requires the exact open findings"])
     local_evidence_manifest_path = _require_string(
         program_document, "local_evidence_manifest_path", context=str(path)

@@ -18,7 +18,7 @@ from alpha_research_governance.evidence.models import (
 _GATE = re.compile(r"^QG(?:0[1-9]|1[0-5])$")
 _FIELD_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 _COMMIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
-_EXPECTED_FINDINGS = ("A05-F01", "A05-F02")
+_MERGE_EVIDENCE_OPEN_FINDING_IDS = ("A05-F01", "A05-F02")
 _EXPECTED_ROOT_KEYS = {
     "accountable_owner_role",
     "applicable_gates",
@@ -129,9 +129,9 @@ def _load_policy(path: Path) -> EvidencePolicy:
         ):
             raise EvidenceGovernanceError([f"findings[{index}] has missing or unknown fields"])
         finding_ids.append(cast(str, finding["finding_id"]))
-    if tuple(finding_ids) != _EXPECTED_FINDINGS:
+    if tuple(finding_ids) != _MERGE_EVIDENCE_OPEN_FINDING_IDS:
         raise EvidenceGovernanceError(
-            [f"{path}: partial status requires findings {list(_EXPECTED_FINDINGS)!r}"]
+            [f"{path}: partial status requires findings {list(_MERGE_EVIDENCE_OPEN_FINDING_IDS)!r}"]
         )
 
     commit_sha = policy_document.get("example_commit_sha")

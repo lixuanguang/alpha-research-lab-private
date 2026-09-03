@@ -69,6 +69,9 @@ jobs:
       - name: Install locked environment
         run: uv sync --frozen
 
+      - name: Audit admitted Python dependencies
+        run: make dependency-audit
+
       - name: Install pinned Bazel launcher
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:

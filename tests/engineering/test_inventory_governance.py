@@ -41,7 +41,7 @@ def _validate_inventory_fixture(path: Path) -> None:
 def test_repository_inventory_is_versioned_partial_and_complete_for_current_scope() -> None:
     inventory = validate_repository(REPOSITORY_ROOT)
 
-    assert inventory.catalog_version == 6
+    assert inventory.catalog_version == 7
     assert inventory.package_status == "partial"
     assert inventory.maximum_items == 10_000
     assert inventory.query_workload_iterations == 10_000
@@ -53,7 +53,7 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
     assert [item.inventory_id for item in inventory.items] == sorted(
         item.inventory_id for item in inventory.items
     )
-    assert len(inventory.items) == 14
+    assert len(inventory.items) == 15
     assert {item.kind for item in inventory.items} == {"control"}
     assert all(item.status == "provisional" for item in inventory.items)
     repository_topology_control = next(
@@ -116,6 +116,19 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
     )
     assert remote_execution_control.dependencies == ("inv.control.governance.b05_ci_policy",)
     assert remote_execution_control.deployment_status == "not_deployable"
+    dependency_admission_control = next(
+        item
+        for item in inventory.items
+        if item.inventory_id == "inv.control.governance.b07_dependency_admission"
+    )
+    assert dependency_admission_control.dependencies == (
+        "inv.control.governance.b02_hermetic_build_graph",
+        "inv.control.governance.b03_clean_machine_environment",
+        "inv.control.governance.b04_engineering_standards",
+        "inv.control.governance.b05_ci_policy",
+        "inv.control.governance.b06_remote_execution",
+    )
+    assert dependency_admission_control.deployment_status == "not_deployable"
 
 
 def test_inventory_query_workload_stays_within_governed_budget() -> None:
@@ -146,7 +159,7 @@ def test_inventory_dates_require_extended_calendar_format(
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path,
-        'as_of_date = "2026-09-02"',
+        'as_of_date = "2026-09-03"',
         f'as_of_date = "{invalid_date}"',
     )
 
@@ -359,7 +372,7 @@ def test_cli_emits_stable_json_for_populated_and_empty_queries(
     assert first_output == second_output
 
     controls = json.loads(first_output)
-    assert controls["count"] == 14
+    assert controls["count"] == 15
     assert [item["inventory_id"] for item in controls["items"]] == sorted(
         item["inventory_id"] for item in controls["items"]
     )

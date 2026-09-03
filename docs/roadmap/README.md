@@ -327,8 +327,7 @@ the shared kernel is the production path.
 ## Current repository mapping
 
 Repository-local implementations and deterministic checks now exist from the
-repository charter through affected and full continuous integration (packages
-`A01` through `B06`).
+repository charter through dependency admission (packages `A01` through `B07`).
 Each remains `partial` on the solo-bootstrap track: all locally resolvable controls
 through program governance pass, while their recorded organization, protected-forge,
 target-control-plane, independent-review, and qualified applicability evidence
@@ -348,8 +347,10 @@ selection, full-lane authority, hygiene, secret and schema checks, drift
 enforcement, and CI evidence events. B06 adds the repository-owned authenticated
 remote client boundary, isolated namespace, deterministic two-shard partition,
 strict flake/quarantine semantics, resource budgets, guarded main-push integration,
-and verified remote-disabled local fallback. B07-B08 requirements are not
-implemented or marked validated.
+and verified remote-disabled local fallback. B07 adds exact dependency admission,
+lock/source/digest/license/platform reconciliation, repository-owned vulnerability
+and exploitability decisions, advisory maintenance signals, and runtime-install
+prohibition. B08 requirements are not implemented or marked validated.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -507,6 +508,23 @@ and authorizes no release, promotion, deployment, activation, credentials, marke
 access, capital, or expanded risk authority. The next selector is dependency
 admission (`B07`).
 
+### Active dependency-admission delivery state
+
+Dependency admission (`B07`) is provisionally implemented under solo bootstrap by
+the [dependency-admission contract](../architecture/dependency-admission.md). The
+repository reconciles all locked external Python packages and B02-B06 provisional
+records to exact sources, digests, licenses, supported wheels/native artifacts,
+registries, patch/EOL review, and runtime-install prohibition. Exact pip-audit
+reports block incomplete coverage or unresolved vulnerabilities; fresh commit-bound
+Scorecard reports are advisory inputs and never admission authority.
+
+B07 retains medium-risk (`R2`) evidence and open independent-review, protected
+exact-commit/Linux/registry mutation, qualified license and exploitability, and
+target-environment findings. It remains `partial` and authorizes no release,
+promotion, deployment, activation, credentials, market access, capital, or expanded
+risk authority. Its whole-artifact supply-chain successor is B08; no B08 behavior is
+implemented here.
+
 ## Recommended adoption order
 
 1. Preserve the completed governance hardening, toolchain-refresh evidence, and
@@ -528,8 +546,10 @@ admission (`B07`).
 6. Preserve fast/full CI and schema compatibility (`B05`) plus B06's deterministic
    local fallback, cache isolation, strict flake behavior, resource budgets, R2
    evidence, and open findings.
-7. Implement dependency admission (`B07`) before introducing the analytical,
-   orchestration, experiment, optimization, provider, or trading candidates above.
+7. Preserve dependency admission (`B07`), its exact graph, repository-owned
+   decisions, runtime-install prohibition, R2 evidence, and open findings before
+   introducing the analytical, orchestration, experiment, optimization, provider,
+   or trading candidates above.
 8. Implement SBOM, provenance, signing, and verification (`B08`) before durable data
    or release artifacts depend on the new graph.
 9. Introduce each remaining library only in its owning C-J package through a

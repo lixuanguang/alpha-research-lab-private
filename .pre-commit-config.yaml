@@ -34,6 +34,13 @@ repos:
         always_run: true
         pass_filenames: false
 
+      - id: dependency-admission
+        name: check dependency admission and immutable lock surfaces
+        entry: uv run --frozen alpha-governance-dependencies
+        language: system
+        always_run: true
+        pass_filenames: false
+
       - id: ci-secret-scan
         name: check committed text for secrets
         entry: uv run --frozen alpha-governance-ci scan-secrets

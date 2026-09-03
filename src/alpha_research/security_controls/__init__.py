@@ -2,8 +2,8 @@
 
 from alpha_research_governance.security_controls import (
     APPLICABLE_GATE_IDS,
-    DEPENDENCY_PACKAGE_IDS,
     JURISDICTION_IDS,
+    SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS,
     THREAT_CATEGORIES,
     AuthoritySource,
     EvidenceSource,
@@ -22,8 +22,8 @@ from alpha_research_governance.security_controls import (
 
 __all__ = [
     "APPLICABLE_GATE_IDS",
-    "DEPENDENCY_PACKAGE_IDS",
     "JURISDICTION_IDS",
+    "SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS",
     "THREAT_CATEGORIES",
     "AuthoritySource",
     "EvidenceSource",

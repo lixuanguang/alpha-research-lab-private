@@ -40,7 +40,7 @@ _APPLICABLE_GATES = (
     "QG13",
     "QG14",
 )
-_EXPECTED_FINDING_IDS = ("B01-F01", "B01-F02")
+_REPOSITORY_TOPOLOGY_OPEN_FINDING_IDS = ("B01-F01", "B01-F02")
 _EXPECTED_REMAINING_SLICES: tuple[str, ...] = ()
 _EXPECTED_SOURCE_ROOTS = (
     "src/alpha_research",
@@ -75,7 +75,7 @@ _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
         PackageGateRequirement(gate_id=gate_id, status="passed") for gate_id in _APPLICABLE_GATES
     ),
     expected_package_status="partial",
-    expected_finding_ids=_EXPECTED_FINDING_IDS,
+    expected_finding_ids=_REPOSITORY_TOPOLOGY_OPEN_FINDING_IDS,
     approvals_permitted=False,
     waivers_permitted=False,
     additional_required_gates_permitted=False,
@@ -504,7 +504,9 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
     layer_order = _require_strings(topology_document.get("layer_order"), context="layer_order")
     if layer_order != _EXPECTED_LAYER_ORDER:
         findings.append(f"{path}: layer_order must preserve the governed dependency direction")
-    if tuple(finding_ids) != _EXPECTED_FINDING_IDS or open_finding_ids != tuple(finding_ids):
+    if tuple(finding_ids) != _REPOSITORY_TOPOLOGY_OPEN_FINDING_IDS or open_finding_ids != tuple(
+        finding_ids
+    ):
         findings.append(f"{path}: partial status requires the exact B01 findings")
     evidence_sha = _require_string(
         topology_document, "local_evidence_commit_sha", context=str(path)

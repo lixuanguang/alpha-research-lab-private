@@ -39,7 +39,7 @@ RESOURCE_KINDS = (
 )
 RESOURCE_STATUSES = ("planned", "provisional", "validated", "deprecated", "retired")
 
-_EXPECTED_FINDING_IDS = ("A06-F01", "A06-F02", "A06-F03")
+_RESOURCE_INVENTORY_OPEN_FINDING_IDS = ("A06-F01", "A06-F02", "A06-F03")
 _APPLICABLE_GATES = {
     "QG01",
     "QG02",
@@ -75,7 +75,7 @@ _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
         for gate_id in sorted(_APPLICABLE_GATES)
     ),
     expected_package_status="partial",
-    expected_finding_ids=_EXPECTED_FINDING_IDS,
+    expected_finding_ids=_RESOURCE_INVENTORY_OPEN_FINDING_IDS,
     approvals_permitted=False,
     waivers_permitted=False,
     additional_required_gates_permitted=False,
@@ -513,8 +513,10 @@ def _load_inventory(
         findings.append("open_finding_ids must exactly match findings")
     package_status = _require_string(inventory_document, "package_status", context=str(path))
     if package_status == "partial":
-        if tuple(finding_ids) != _EXPECTED_FINDING_IDS:
-            findings.append(f"partial status requires findings {list(_EXPECTED_FINDING_IDS)!r}")
+        if tuple(finding_ids) != _RESOURCE_INVENTORY_OPEN_FINDING_IDS:
+            findings.append(
+                f"partial status requires findings {list(_RESOURCE_INVENTORY_OPEN_FINDING_IDS)!r}"
+            )
     elif package_status == "validated":
         if inventory_document.get("operating_track") == "solo_bootstrap":
             findings.append("solo_bootstrap packages cannot claim validated status")

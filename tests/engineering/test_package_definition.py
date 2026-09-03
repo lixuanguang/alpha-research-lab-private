@@ -56,6 +56,7 @@ def test_governance_path_target_and_owned_commands_are_explicit() -> None:
         "alpha-governance-architecture",
         "alpha-governance-change-risk",
         "alpha-governance-ci",
+        "alpha-governance-dependencies",
         "alpha-governance-engineering-standards",
         "alpha-governance-evidence",
         "alpha-governance-inventory",

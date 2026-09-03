@@ -11,7 +11,7 @@ import pytest
 
 from alpha_research.program_governance import (
     METRIC_IDS,
-    PACKAGE_IDS,
+    ROADMAP_PACKAGE_IDS,
     MetricObservation,
     ProgramGovernanceError,
     load_observations,
@@ -91,10 +91,10 @@ def _write_observation_events(tmp_path: Path, events: list[dict[str, object]]) -
 def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     program = validate_repository(REPOSITORY_ROOT)
 
-    assert tuple(package.package_id for package in program.packages) == PACKAGE_IDS
+    assert tuple(package.package_id for package in program.packages) == ROADMAP_PACKAGE_IDS
     assert tuple(metric.metric_id for metric in program.metrics) == METRIC_IDS
     assert len(program.packages) == 96
-    assert len(program.package_states) == 14
+    assert len(program.package_states) == 15
     assert program.package_status == "partial"
     assert program.risk_class == "R2"
     assert program.maximum_observations == 10_000
@@ -132,6 +132,13 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
         "B06-F01",
         "B06-F02",
         "B06-F03",
+    )
+    dependency_admission_state = program.state_for("B07")
+    assert dependency_admission_state is not None
+    assert dependency_admission_state.open_finding_ids == (
+        "B07-F01",
+        "B07-F02",
+        "B07-F03",
     )
 
 
@@ -177,7 +184,7 @@ def test_program_dates_require_extended_calendar_format(tmp_path: Path, invalid_
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         path,
-        'as_of_date = "2026-09-02"',
+        'as_of_date = "2026-09-03"',
         f'as_of_date = "{invalid_date}"',
     )
 
@@ -197,7 +204,7 @@ def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> No
     assert packages_by_id["L06"].any_of_dependency_groups == (("L01", "L02", "L04"),)
     assert packages_by_id["L07"].any_of_dependency_groups == (("L01", "L02", "L03", "L04"),)
     assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
-        "B07",
+        "B08",
         "C01",
     )
     assert program.ready_packages(institutional=True) == ()
@@ -497,11 +504,11 @@ def test_cli_emits_stable_filtered_dashboard(
     dashboard = json.loads(first)
     assert dashboard["package_count"] == 96
     assert len(dashboard["packages"]) == 8
-    assert dashboard["next_solo_ready_package"] == "B07"
+    assert dashboard["next_solo_ready_package"] == "B08"
     assert dashboard["next_institutionally_ready_package"] is None
     assert dashboard["observation_count"] == 5
     assert all(item["definition"]["hard_gate_substitute"] is False for item in dashboard["metrics"])
 
     assert main([str(REPOSITORY_ROOT), "--ready", "solo"]) == 0
     ready = json.loads(capsys.readouterr().out)
-    assert [item["package_id"] for item in ready["packages"]] == ["B07", "C01"]
+    assert [item["package_id"] for item in ready["packages"]] == ["B08", "C01"]

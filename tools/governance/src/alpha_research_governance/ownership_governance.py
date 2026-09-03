@@ -27,7 +27,7 @@ _REQUIRED_DOMAINS = {
     "simulation",
     "trading",
 }
-_REQUIRED_OPEN_FINDING_IDS = ("A03-F01", "A03-F02", "A03-F03")
+_OWNERSHIP_GOVERNANCE_OPEN_FINDING_IDS = ("A03-F01", "A03-F02", "A03-F03")
 _ROLE = re.compile(r"^[a-z][a-z0-9_]*$")
 _PRINCIPAL = re.compile(r"^@[A-Za-z0-9][A-Za-z0-9-]*(?:/[A-Za-z0-9][A-Za-z0-9-]*)?$")
 
@@ -193,10 +193,10 @@ def validate_repository(
         for finding in open_findings
         if isinstance(finding.get("finding_id"), str)
     )
-    if package_status == "partial" and finding_ids != _REQUIRED_OPEN_FINDING_IDS:
+    if package_status == "partial" and finding_ids != _OWNERSHIP_GOVERNANCE_OPEN_FINDING_IDS:
         findings.append(
             f"{registry_path}: partial status requires findings "
-            f"{list(_REQUIRED_OPEN_FINDING_IDS)!r}"
+            f"{list(_OWNERSHIP_GOVERNANCE_OPEN_FINDING_IDS)!r}"
         )
 
     domains = _optional_table_list(registry, "domains")

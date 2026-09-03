@@ -16,6 +16,7 @@ dependencies = [
 alpha-governance-architecture = "alpha_research_governance.architecture_governance:main"
 alpha-governance-change-risk = "alpha_research_governance.change_risk:main"
 alpha-governance-ci = "alpha_research_governance.ci_policy:main"
+alpha-governance-dependencies = "alpha_research_governance.dependency_admission:main"
 alpha-governance-engineering-standards = "alpha_research_governance.engineering_standards:main"
 alpha-governance-evidence = "alpha_research_governance.evidence:main"
 alpha-governance-inventory = "alpha_research_governance.inventory:main"

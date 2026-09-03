@@ -1,0 +1,212 @@
+schema_version = 1
+roadmap_package = "B07"
+operating_track = "solo_bootstrap"
+package_status = "partial"
+accountable_owner_role = "platform"
+risk_class = "R2"
+successor_package = "B08"
+as_of_date = "2026-09-03"
+review_due_on = "2026-12-01"
+runtime_installation_allowed = false
+maximum_signal_age_days = 7
+emergency_override_maximum_days = 30
+patch_cadence_days = 30
+supported_platforms = ["darwin_arm64", "linux_x86_64"]
+approved_python_indexes = ["https://pypi.org/simple"]
+lock_paths = [
+  "uv.lock",
+  "requirements.bazel.txt",
+  "MODULE.bazel.lock",
+  "flake.lock",
+  ".github/workflows/ci.yml",
+]
+runtime_scan_roots = ["src", "tools"]
+applicable_gate_ids = [
+  "QG01",
+  "QG02",
+  "QG03",
+  "QG04",
+  "QG05",
+  "QG06",
+  "QG09",
+  "QG10",
+  "QG11",
+  "QG12",
+  "QG13",
+  "QG14",
+]
+local_evidence_manifest_path = "docs/governance/evidence/examples/b07-r2-partial/manifest.toml"
+local_evidence_commit_sha = "dddddddddddddddddddddddddddddddddddddddd"
+open_finding_ids = ["B07-F01", "B07-F02", "B07-F03"]
+native_python_packages = [
+  "ast-serialize",
+  "charset-normalizer",
+  "coverage",
+  "hypothesis",
+  "librt",
+  "msgpack",
+  "mypy",
+  "pydantic-core",
+  "pyyaml",
+  "ruff",
+  "tomli",
+]
+vulnerability_decisions = []
+emergency_overrides = []
+
+[lock_digests]
+"uv.lock" = "f445b2f534b2524aa48b1a95c016456c3d6132a9b978c31fff099de1de6d9b91"
+"requirements.bazel.txt" = "3ccf62c10da388fd59e5606f7fbff708758df5da9d5a661c8e7001e1be703203"
+"MODULE.bazel.lock" = "d071e04040e390f9353b240cc26c5d3c0fdfb6a432d3d60f147e781110efce4b"
+"flake.lock" = "59dcd10f73b4392d83afb7ad11ce635f7c23ab529e21065fc073fbd2a30661e5"
+".github/workflows/ci.yml" = "5fa6c3bf9d791b4edc59f4f4192152236104f0bd04f436c82e2e94f331e2ab43"
+
+[pip_audit]
+version = "2.10.1"
+service = "pypi"
+command_mode = "exact_locked_graph"
+failure_policy = "block_unresolved_findings_or_skips"
+
+[scorecard]
+version = "5.5.0"
+signal_role = "advisory_input_not_admission_authority"
+required_checks = ["License", "Maintained", "Pinned-Dependencies", "Vulnerabilities"]
+
+[[license_groups]]
+license_expression = "Apache-2.0"
+disposition = "approved"
+packages = [
+  "bandit==1.9.4",
+  "cachecontrol==0.14.4",
+  "coverage==7.15.4",
+  "cyclonedx-python-lib==11.12.0",
+  "license-expression==30.4.4",
+  "msgpack==1.2.2",
+  "pip-api==0.0.34",
+  "pip-audit==2.10.1",
+  "py-serializable==2.1.0",
+  "requests==2.34.2",
+  "sortedcontainers==2.4.0",
+  "stevedore==5.9.1",
+  "trove-classifiers==2026.6.1.19",
+]
+
+[[license_groups]]
+license_expression = "Apache-2.0 OR BSD-2-Clause"
+disposition = "approved"
+packages = ["packaging==26.3"]
+
+[[license_groups]]
+license_expression = "BSD-2-Clause"
+disposition = "approved"
+packages = [
+  "boolean-py==5.0",
+  "pygments==2.21.0",
+]
+
+[[license_groups]]
+license_expression = "BSD-3-Clause"
+disposition = "approved"
+packages = [
+  "colorama==0.4.6",
+  "idna==3.19",
+  "nodeenv==1.10.0",
+]
+
+[[license_groups]]
+license_expression = "MIT"
+disposition = "approved"
+packages = [
+  "annotated-types==0.8.0",
+  "ast-serialize==0.8.0",
+  "cfgv==3.5.0",
+  "charset-normalizer==3.5.1",
+  "filelock==3.32.4",
+  "hatchling==1.32.0",
+  "identify==2.6.19",
+  "iniconfig==2.3.0",
+  "librt==0.15.0",
+  "markdown-it-py==4.2.0",
+  "mdurl==0.1.2",
+  "mypy-extensions==1.1.0",
+  "mypy==2.3.1",
+  "packageurl-python==0.17.6",
+  "pip-requirements-parser==32.0.1",
+  "pip==26.2.1",
+  "platformdirs==4.11.4",
+  "pluggy==1.6.0",
+  "pre-commit-hooks==6.0.0",
+  "pre-commit==4.6.2",
+  "pydantic-core==2.46.5",
+  "pydantic==2.13.5",
+  "pyparsing==3.3.2",
+  "pytest-cov==7.1.0",
+  "pytest==9.1.1",
+  "python-discovery==1.5.3",
+  "pyyaml==6.0.3",
+  "rich==15.0.0",
+  "ruamel-yaml==0.19.1",
+  "ruff==0.16.5",
+  "tomli-w==1.2.0",
+  "tomli==2.4.1",
+  "tomlkit==0.15.1",
+  "typing-inspection==0.4.4",
+  "urllib3==2.7.0",
+  "virtualenv==21.7.4",
+]
+
+[[license_groups]]
+license_expression = "MPL-2.0"
+disposition = "approved"
+packages = [
+  "certifi==2026.7.22",
+  "hypothesis==6.167.1",
+  "pathspec==1.1.1",
+]
+
+[[license_groups]]
+license_expression = "PSF-2.0"
+disposition = "approved"
+packages = [
+  "defusedxml==0.7.1",
+  "distlib==0.4.3",
+  "typing-extensions==4.16.0",
+]
+
+[[migrated_records]]
+roadmap_package = "B02"
+path = "docs/architecture/build-tool-dependencies.toml"
+
+[[migrated_records]]
+roadmap_package = "B03"
+path = "environments/dev/toolchain.toml"
+
+[[migrated_records]]
+roadmap_package = "B04"
+path = "docs/architecture/engineering-tool-dependencies.toml"
+
+[[migrated_records]]
+roadmap_package = "B05"
+path = "docs/architecture/ci-tool-dependencies.toml"
+
+[[migrated_records]]
+roadmap_package = "B06"
+path = "docs/architecture/remote-execution.toml"
+
+[[findings]]
+finding_id = "B07-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent Platform Code Owner, domain, SRE, and Security review of the exact admission policy, decisions, migrations, scanner boundary, tests, and rollback is unavailable during solo bootstrap."
+closure_condition = "Named independent reviewers resolve findings and record commit-bound approval of the exact B07 policy, dependency graph, license dispositions, exploitability decisions, integrations, and evidence."
+
+[[findings]]
+finding_id = "B07-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected merged-result pip-audit execution, retained exact-commit reports, Linux x86_64 clean-machine wheel installation, approved-registry controls, and mutable-reference rejection exercises are unavailable from this local checkout."
+closure_condition = "Protected CI audits the exact lock and reviewed commit, retains the report, installs every selected Linux x86_64 wheel without source fallback, and proves unapproved sources, mutable references, missing digests, and runtime installation are blocked."
+
+[[findings]]
+finding_id = "B07-F03"
+owner_role = "security"
+unavailable_evidence = "Qualified license-obligation review, upstream OpenSSF Scorecard signals, organization registry reconciliation, and independent vulnerability and exploitability review are unavailable during solo bootstrap."
+closure_condition = "Security and qualified reviewers reconcile all direct and transitive components, review current Scorecard and vulnerability signals, resolve license obligations and exploitability findings, approve patch/EOL dispositions, and retain exact-source evidence."

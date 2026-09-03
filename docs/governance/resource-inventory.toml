@@ -3,8 +3,8 @@ roadmap_package = "A06"
 operating_track = "solo_bootstrap"
 package_status = "partial"
 accountable_owner_role = "platform"
-catalog_version = 6
-as_of_date = "2026-09-02"
+catalog_version = 7
+as_of_date = "2026-09-03"
 inventory_scope = "Repository-local governed resources visible in this checkout; organization and external control-plane reconciliation remains open."
 maximum_items = 10000
 query_workload_iterations = 10000
@@ -69,7 +69,7 @@ rationale = "Git commits and bootstrap wheels are not signed immutable platform 
 kind = "control"
 population_status = "populated"
 owner_role = "platform"
-rationale = "A01-A08 and B01-B06 provide repository-local governance and build controls with explicit provisional status."
+rationale = "A01-A08 and B01-B07 provide repository-local governance and build controls with explicit provisional status."
 
 [[items]]
 inventory_id = "inv.control.governance.a01_repository_boundary"
@@ -211,7 +211,7 @@ review_due_on = "2026-11-30"
 [[items]]
 inventory_id = "inv.control.governance.a06_resource_inventory"
 kind = "control"
-record_version = 7
+record_version = 8
 name = "A06 governed resource inventory"
 owner_role = "platform"
 criticality = "T3"
@@ -287,7 +287,7 @@ review_due_on = "2026-11-30"
 [[items]]
 inventory_id = "inv.control.governance.a08_program_governance"
 kind = "control"
-record_version = 7
+record_version = 8
 name = "A08 program dependency and KPI governance"
 owner_role = "platform"
 criticality = "T3"
@@ -332,7 +332,7 @@ review_due_on = "2026-11-30"
 [[items]]
 inventory_id = "inv.control.governance.b01_repository_topology"
 kind = "control"
-record_version = 6
+record_version = 7
 name = "B01 governed repository topology and enforcement"
 owner_role = "platform"
 criticality = "T3"
@@ -379,7 +379,7 @@ review_due_on = "2026-11-30"
 [[items]]
 inventory_id = "inv.control.governance.b02_hermetic_build_graph"
 kind = "control"
-record_version = 5
+record_version = 6
 name = "B02 pinned hermetic build graph"
 owner_role = "platform"
 criticality = "T3"
@@ -510,7 +510,7 @@ review_due_on = "2026-11-30"
 [[items]]
 inventory_id = "inv.control.governance.b05_ci_policy"
 kind = "control"
-record_version = 2
+record_version = 3
 name = "B05 affected and full continuous-integration policy"
 owner_role = "platform"
 criticality = "T3"
@@ -594,6 +594,57 @@ deployment_evidence = []
 status_evidence = [
   "docs/architecture/remote-execution.md",
   "docs/governance/evidence/examples/b06-r2-partial/manifest.toml",
+]
+review_due_on = "2026-12-01"
+
+[[items]]
+inventory_id = "inv.control.governance.b07_dependency_admission"
+kind = "control"
+record_version = 1
+name = "B07 dependency admission and exploitability governance"
+owner_role = "platform"
+criticality = "T3"
+status = "provisional"
+dependencies = [
+  "inv.control.governance.b02_hermetic_build_graph",
+  "inv.control.governance.b03_clean_machine_environment",
+  "inv.control.governance.b04_engineering_standards",
+  "inv.control.governance.b05_ci_policy",
+  "inv.control.governance.b06_remote_execution",
+]
+retention_class = "shared_contract_compatibility_lifecycle"
+source_paths = [
+  ".github/workflows/ci.yml",
+  ".pre-commit-config.yaml",
+  "Makefile",
+  "docs/architecture/dependency-admission.md",
+  "docs/architecture/dependency-admission.toml",
+  "pyproject.toml",
+  "tests/engineering/test_dependency_admission.py",
+  "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py",
+  "uv.lock",
+]
+lineage_refs = [
+  "inv.control.governance.b02_hermetic_build_graph",
+  "inv.control.governance.b03_clean_machine_environment",
+  "inv.control.governance.b04_engineering_standards",
+  "inv.control.governance.b05_ci_policy",
+  "inv.control.governance.b06_remote_execution",
+  ".github/workflows/ci.yml",
+  ".pre-commit-config.yaml",
+  "Makefile",
+  "docs/architecture/dependency-admission.md",
+  "docs/architecture/dependency-admission.toml",
+  "pyproject.toml",
+  "tests/engineering/test_dependency_admission.py",
+  "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py",
+  "uv.lock",
+]
+deployment_status = "not_deployable"
+deployment_evidence = []
+status_evidence = [
+  "docs/architecture/dependency-admission.md",
+  "docs/governance/evidence/examples/b07-r2-partial/manifest.toml",
 ]
 review_due_on = "2026-12-01"
 

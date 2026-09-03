@@ -10,8 +10,8 @@ import pytest
 
 from alpha_research.security_controls import (
     APPLICABLE_GATE_IDS,
-    DEPENDENCY_PACKAGE_IDS,
     JURISDICTION_IDS,
+    SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS,
     THREAT_CATEGORIES,
     SecurityControlError,
     load_control_map,
@@ -88,7 +88,7 @@ def test_repository_map_is_versioned_partial_and_complete_for_current_scope() ->
     assert control_map.operating_track == "solo_bootstrap"
     assert control_map.accountable_owner_role == "security"
     assert control_map.risk_class == "R2"
-    assert control_map.dependency_package_ids == DEPENDENCY_PACKAGE_IDS
+    assert control_map.dependency_package_ids == SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS
     assert control_map.applicable_gate_ids == APPLICABLE_GATE_IDS
     assert control_map.local_evidence_commit_sha == "3" * 40
     assert control_map.finding_ids == ("A07-F01", "A07-F02", "A07-F03", "A07-F04")

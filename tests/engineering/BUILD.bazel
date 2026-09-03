@@ -4,6 +4,18 @@ load("@rules_python//python:defs.bzl", "py_test")
 package(default_visibility = ["//visibility:private"])
 
 py_test(
+    name = "dependency_admission_test",
+    srcs = ["test_dependency_admission.py"],
+    data = ["//:dependency_admission_data"],
+    main = "test_dependency_admission.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [
+        "//tools/governance/src/alpha_research_governance",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
     name = "engineering_standards_test",
     srcs = ["test_engineering_standards.py"],
     data = ["//:engineering_standards_data"],

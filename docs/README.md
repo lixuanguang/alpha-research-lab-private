@@ -40,8 +40,11 @@ authoritative full merged-result lane, secret and generated-diff hygiene, Buf
 compatibility, configuration-drift checks, and CI duration events. The
 repository also has B06's authenticated remote client boundary, isolated cache
 namespace, deterministic two-way test sharding, strict flake handling, bounded
-resources, guarded main-push integration, and remote-disabled local fallback. The
-repository does not yet contain canonical contracts, data plane, simulator,
+resources, guarded main-push integration, and remote-disabled local fallback. B07
+adds exact dependency admission for sources, digests, locks, licenses,
+vulnerability and exploitability decisions, maintenance, supported wheels and
+native artifacts, registries, patch/EOL cadence, and runtime-install prohibition.
+The repository does not yet contain canonical contracts, data plane, simulator,
 independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
 asset certification evidence.
 
@@ -138,8 +141,14 @@ The [B06 remote-execution contract](architecture/remote-execution.md) selects a
 BuildBuddy-compatible REAPI v2 boundary through a proposed ADR, isolates trusted
 cache writes, partitions the complete test graph deterministically, forbids
 whole-test retry and silent remote fallback, caps resources, and preserves a
-complete remote-disabled local path. Service provisioning and B07 admission remain
-open findings.
+complete remote-disabled local path. Service provisioning remains an open finding.
+
+The [B07 dependency-admission contract](architecture/dependency-admission.md)
+reconciles every locked external Python package and the B02-B06 provisional
+records, blocks mutable or unhashed lock surfaces and runtime installation, and
+keeps pip-audit and Scorecard as signals under repository-owned admission and
+exploitability decisions. Qualified, protected-forge, target-platform, registry,
+and independent-review evidence remains open.
 
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
@@ -158,6 +167,8 @@ Current root commands are:
 | `make lint` | Run Ruff lint checks across current Python source |
 | `make typecheck` | Run strict mypy checks across current Python source |
 | `make engineering-standards-check` | Validate B04 language admission, exact tools, warnings, suppressions, numerical/generated-code rules, baselines, dependency record, and evidence |
+| `make dependency-admission-check` | Validate B07 sources, locks, digests, licenses, platforms, decisions, integrations, evidence, and runtime-install prohibition without network access |
+| `make dependency-audit` | Run the exact admitted pip-audit signal over the validated locked graph and reject coverage gaps or unresolved vulnerabilities |
 | `make architecture-check` | Lint ADRs, the decision log, and repository-local documentation links |
 | `make ownership-check` | Validate A03 ownership, independent-review policy, CODEOWNERS, and path coverage |
 | `make change-risk-check` | Validate A04 R0-R4 classification, gates, reviewers, rollout, retention, samples, and findings |
@@ -189,8 +200,8 @@ Current root commands are:
 
 Running `make` without a target is currently equivalent to `make check`.
 
-This interface is a provisional B02-B06 implementation, not completion of wave B.
-B07-B08 own final admission and supply-chain evidence.
+This interface is a provisional B02-B07 implementation, not completion of wave B.
+B08 owns whole-artifact supply-chain evidence and consumer verification.
 
 ## Documentation map
 
@@ -210,6 +221,7 @@ B07-B08 own final admission and supply-chain evidence.
 | [Language and static quality standards](architecture/engineering-standards.md) | B04 admitted-language, formatter/linter/type/warning/sanitizer, suppression, generated-code, numerical, API, property/state-machine, baseline, dependency, and evidence contract |
 | [Affected and full continuous integration](architecture/ci-policy.md) | B05 affected/reverse-dependency selection, merged-result authority, hygiene, secrets, schema compatibility, drift, events, evidence, and findings |
 | [Remote cache, execution, sharding, and flake control](architecture/remote-execution.md) | B06 provider ADR, authenticated trust boundary, namespace isolation, deterministic shards, strict flake behavior, resource budgets, fallback, evidence, and findings |
+| [Dependency admission and exploitability governance](architecture/dependency-admission.md) | B07 exact sources, digests, locks, licenses, signals, exploitability decisions, maintenance, platforms, native artifacts, registries, runtime-install prohibition, evidence, and findings |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

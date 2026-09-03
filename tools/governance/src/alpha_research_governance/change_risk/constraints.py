@@ -110,7 +110,7 @@ EXPECTED_RETENTION_CLASSES = {
     "R3": "deployable_service_lifecycle",
     "R4": "release_activation_and_audit_lifecycle",
 }
-EXPECTED_OPEN_FINDING_IDS = ("A04-F01", "A04-F02", "A04-F03")
+CHANGE_RISK_OPEN_FINDING_IDS = ("A04-F01", "A04-F02", "A04-F03")
 NON_WAIVABLE_LIVE_CONTROLS = {
     "point_in_time_causality",
     "immutable_artifact_identity",

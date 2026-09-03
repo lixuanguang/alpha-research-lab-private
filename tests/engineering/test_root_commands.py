@@ -10,6 +10,7 @@ GOVERNANCE_COMMANDS = (
     "alpha-governance-architecture",
     "alpha-governance-change-risk",
     "alpha-governance-ci",
+    "alpha-governance-dependencies",
     "alpha-governance-engineering-standards",
     "alpha-governance-evidence",
     "alpha-governance-inventory",
@@ -41,6 +42,7 @@ def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
         "uv run --frozen ruff format --check src tests tools/governance/src",
         "uv run --frozen mypy --strict src tests tools/governance/src",
         "uv run --frozen alpha-governance-engineering-standards",
+        "uv run --frozen alpha-governance-dependencies",
         "uv run --frozen alpha-governance-architecture",
         "uv run --frozen alpha-governance-ownership",
         "uv run --frozen alpha-governance-change-risk",
@@ -72,6 +74,7 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
         assert canonical_command in pre_commit
     assert "make ci-full" in continuous_integration
     assert "make ci-fast" in continuous_integration
+    assert "make dependency-audit" in continuous_integration
     assert "make remote-build" in continuous_integration
     assert "make remote-test" in continuous_integration
     assert "github.event_name == 'push'" in continuous_integration
@@ -81,6 +84,7 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
     for command_suffix in ("ownership", "change-risk", "evidence"):
         assert f"uv run --frozen alpha-governance-{command_suffix}" in pre_commit
     assert "id: repository-topology" in pre_commit
+    assert "id: dependency-admission" in pre_commit
     assert "always_run: true" in pre_commit
 
     automation_configuration = makefile + pre_commit + continuous_integration
@@ -108,6 +112,8 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
         "ci-policy-check",
         "ci-secrets-check",
         "ci-schema-check",
+        "dependency-admission-check",
+        "dependency-audit",
         "engineering-standards-check",
         "inventory-check",
         "program-governance-check",

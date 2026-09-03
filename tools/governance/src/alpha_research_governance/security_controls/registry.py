@@ -42,7 +42,7 @@ THREAT_CATEGORIES = (
     "software_supply_chain",
 )
 JURISDICTION_IDS = ("GB", "GLOBAL", "SG", "US")
-DEPENDENCY_PACKAGE_IDS = ("A02", "A06")
+SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS = ("A02", "A06")
 APPLICABLE_GATE_IDS = (
     "QG01",
     "QG02",
@@ -58,7 +58,7 @@ APPLICABLE_GATE_IDS = (
     "QG14",
 )
 
-_EXPECTED_FINDING_IDS = ("A07-F01", "A07-F02", "A07-F03", "A07-F04")
+_SECURITY_CONTROL_OPEN_FINDING_IDS = ("A07-F01", "A07-F02", "A07-F03", "A07-F04")
 _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
     roadmap_package_id="A07",
     accountable_owner_role="security",
@@ -78,7 +78,7 @@ _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
         PackageGateRequirement(gate_id=gate_id, status="passed") for gate_id in APPLICABLE_GATE_IDS
     ),
     expected_package_status="partial",
-    expected_finding_ids=_EXPECTED_FINDING_IDS,
+    expected_finding_ids=_SECURITY_CONTROL_OPEN_FINDING_IDS,
     approvals_permitted=False,
     waivers_permitted=False,
     additional_required_gates_permitted=False,
@@ -620,9 +620,9 @@ def _load_control_map(
     dependency_package_ids = _require_strings(
         control_map_document.get("dependency_package_ids"), context="dependency_package_ids"
     )
-    if dependency_package_ids != DEPENDENCY_PACKAGE_IDS:
+    if dependency_package_ids != SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS:
         raise SecurityControlError(
-            [f"dependency_package_ids must be exactly {DEPENDENCY_PACKAGE_IDS!r}"]
+            [f"dependency_package_ids must be exactly {SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS!r}"]
         )
     applicable_gate_ids = _require_strings(
         control_map_document.get("applicable_gate_ids"), context="applicable_gate_ids"
@@ -924,8 +924,10 @@ def _load_control_map(
     if open_finding_ids != tuple(finding_ids):
         findings.append("open_finding_ids must exactly match findings")
     package_status = _require_string(control_map_document, "package_status", context=str(path))
-    if package_status != "partial" or tuple(finding_ids) != _EXPECTED_FINDING_IDS:
-        findings.append(f"solo-bootstrap A07 must remain partial with {_EXPECTED_FINDING_IDS!r}")
+    if package_status != "partial" or tuple(finding_ids) != _SECURITY_CONTROL_OPEN_FINDING_IDS:
+        findings.append(
+            f"solo-bootstrap A07 must remain partial with {_SECURITY_CONTROL_OPEN_FINDING_IDS!r}"
+        )
     stale_roles = sorted(used_roles - ownership_roles)
     if stale_roles:
         findings.append(f"control map contains stale ownership roles: {stale_roles!r}")
