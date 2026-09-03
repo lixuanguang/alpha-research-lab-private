@@ -5,8 +5,9 @@
 This document defines the target architecture and dependency model for the
 institutional quantitative monorepo. It is subordinate to the
 [implementation blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
-and describes target state, not capabilities already present in the bootstrap
-repository.
+and describes the target state. C01's first implemented thin-waist subset is
+documented in the [canonical instrument-identity contract](instrument-identity.md);
+the remaining architecture is not implied to exist in the bootstrap repository.
 
 Detailed semantic boundaries are in [contracts.md](contracts.md). Testing,
 operations, security, and promotion controls are in
@@ -202,7 +203,8 @@ policy, checker, and property/state-machine target. [B05](ci-policy.md) adds the
 affected/reverse-dependency fast lane and authoritative full merged-result lane;
 [B07](dependency-admission.md) controls dependencies, and
 [B08](artifact-supply-chain.md) controls whole-artifact evidence and consumption.
-None creates the remaining target tree, production artifact registry, or runtime.
+[C01](instrument-identity.md) adds the first canonical library without creating
+the remaining target tree, production artifact registry, data service, or runtime.
 
 ## Build and reproducibility architecture
 

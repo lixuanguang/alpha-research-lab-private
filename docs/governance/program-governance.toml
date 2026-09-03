@@ -225,6 +225,22 @@ deferred_evidence_classes = [
 evidence_paths = ["docs/architecture/artifact-supply-chain.md"]
 open_finding_ids = ["B08-F01", "B08-F02", "B08-F03"]
 
+[[package_states]]
+package_id = "C01"
+status = "partial"
+owner_role = "domain_architecture"
+repository_local_status = "passed"
+deferred_evidence_classes = [
+  "external_control_plane",
+  "independent_review",
+  "target_environment",
+]
+evidence_paths = [
+  "docs/architecture/instrument-identity.md",
+  "docs/governance/evidence/examples/c01-r2-partial/manifest.toml",
+]
+open_finding_ids = ["C01-F01", "C01-F02", "C01-F03"]
+
 [[metrics]]
 metric_id = "kpi.build_duration_seconds"
 name = "Clean build duration"

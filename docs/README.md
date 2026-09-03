@@ -48,10 +48,12 @@ The B08 whole-artifact supply-chain boundary adds deterministic SPDX 2.3 SBOMs,
 SLSA provenance, lock/toolchain/test identity, protected-context Cosign signing,
 immutable digest publication, and fail-closed consumer verification. Its external
 signing, registry, independent-review, and target-environment evidence remains
-open.
-The repository does not yet contain canonical contracts, data plane, simulator,
-independent risk gateway, OMS/EMS, deployment lanes, observability substrate, or
-asset certification evidence.
+open. C01 adds the first canonical domain contract: immutable internal instrument
+identity plus validity-dated, source-attributed symbology with ambiguity-safe
+resolution and retained corrections.
+The repository does not yet contain the remaining canonical contracts, data
+plane, simulator, independent risk gateway, OMS/EMS, deployment lanes,
+observability substrate, or asset certification evidence.
 
 Existing Python bootstrap work is useful input to waves A and B, but it does not
 by itself satisfy milestone M0. A wave is complete only when its exit evidence is
@@ -161,6 +163,12 @@ and a Sigstore bundle. It rejects native-library omission, unsigned or tampered
 content, mutable references, revoked signers, and digest overwrite. Its local
 content store is validation evidence, not I01's production registry.
 
+The [C01 instrument-identity contract](architecture/instrument-identity.md)
+defines opaque internal IDs, distinct economic/listing/series/contract concepts,
+UTC valid-time symbology, exact global and provider-local identifier rules,
+ambiguity-safe resolution, and append-only correction lineage. Its fixture is
+synthetic and its package remains partial pending independent and target evidence.
+
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
 [governed repository topology](architecture/repository-topology.md). B01c makes
@@ -237,6 +245,7 @@ independent-review, or target-environment evidence.
 | [Remote cache, execution, sharding, and flake control](architecture/remote-execution.md) | B06 provider ADR, authenticated trust boundary, namespace isolation, deterministic shards, strict flake behavior, resource budgets, fallback, evidence, and findings |
 | [Dependency admission and exploitability governance](architecture/dependency-admission.md) | B07 exact sources, digests, locks, licenses, signals, exploitability decisions, maintenance, platforms, native artifacts, registries, runtime-install prohibition, evidence, and findings |
 | [Whole-artifact supply chain](architecture/artifact-supply-chain.md) | B08 SPDX SBOM, SLSA provenance, signed attestation boundary, immutable digest publication, consumer verification, rollback, evidence, and findings |
+| [Canonical instrument identity](architecture/instrument-identity.md) | C01 stable internal identities, temporal symbology, ambiguity and correction semantics, goldens, evidence, and C02 boundary |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

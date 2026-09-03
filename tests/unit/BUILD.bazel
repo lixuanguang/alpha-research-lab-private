@@ -1,0 +1,17 @@
+load("@alpha_research_pypi//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_test")
+
+package(default_visibility = ["//visibility:private"])
+
+py_test(
+    name = "instrument_identity_test",
+    srcs = ["test_instrument_identity.py"],
+    data = ["//tests/golden/instrument_identity:c01_symbology.json"],
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    main = "test_instrument_identity.py",
+    deps = [
+        "//src/alpha_research/instrument_identity",
+        requirement("hypothesis"),
+        requirement("pytest"),
+    ],
+)
