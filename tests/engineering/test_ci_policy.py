@@ -24,6 +24,7 @@ from alpha_research.ci_policy import (
     verify_git_merge_parents,
 )
 from alpha_research.program_governance import load_observations, load_program
+from alpha_research_governance import ci_policy
 from alpha_research_governance.ci_policy.policy import (
     _private_key_scanner_dependency_findings,
 )
@@ -313,3 +314,41 @@ def test_command_and_revision_failures_are_explicit(tmp_path: Path) -> None:
         )
     with pytest.raises(CIPolicyError, match="non-option Git ref"):
         resolve_git_commit(tmp_path, "--unsafe")
+
+
+def test_ci_cli_uses_typed_dispatch_and_preserves_domain_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    policy = load_continuous_integration_policy(POLICY_PATH)
+    scanned: list[tuple[Path, tuple[str, ...]]] = []
+    monkeypatch.setattr(
+        ci_policy,
+        "validate_continuous_integration_repository",
+        lambda _root: policy,
+    )
+    monkeypatch.setattr(
+        ci_policy,
+        "_scan_paths_for_secrets",
+        lambda root, paths: scanned.append((root, tuple(paths))),
+    )
+    root_arguments = ["--repository-root", str(tmp_path)]
+
+    assert ci_policy.main(root_arguments) == 0
+    assert "CI policy passed for 2 lanes" in capsys.readouterr().out
+
+    assert ci_policy.main([*root_arguments, "scan-secrets", "src/alpha.py", "tests/test.py"]) == 0
+    assert scanned == [(tmp_path, ("src/alpha.py", "tests/test.py"))]
+    assert "Secret scan passed for 2 governed paths." in capsys.readouterr().out
+
+    assert ci_policy.main([*root_arguments, "scan-secrets"]) == 1
+    assert "scan-secrets accepts paths" in capsys.readouterr().err
+
+    assert ci_policy.main([*root_arguments, "select", "--base-ref", "HEAD"]) == 2
+    assert "--head-ref" in capsys.readouterr().err
+
+    assert ci_policy.main(["-h"]) == 0
+    help_output = capsys.readouterr().out
+    assert "scan-secrets" in help_output
+    assert "install-completion" not in help_output

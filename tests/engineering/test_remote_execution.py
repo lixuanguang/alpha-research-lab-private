@@ -431,6 +431,8 @@ def test_remote_cli_dispatches_commands_and_preserves_exit_status(
     monkeypatch.setattr(remote_execution, "run_quarantine_diagnostics", record_quarantine)
 
     root_arguments = ["--repository-root", str(tmp_path)]
+    assert remote_execution.main(root_arguments) == 0
+    assert "Remote execution policy passed" in capsys.readouterr().out
     assert remote_execution.main([*root_arguments, "build", "--context", "trusted"]) == 17
     assert (
         remote_execution.main(
@@ -451,6 +453,14 @@ def test_remote_cli_dispatches_commands_and_preserves_exit_status(
     monkeypatch.setattr(remote_execution, "run_remote_build", fail_build)
     assert remote_execution.main([*root_arguments, "build", "--context", "untrusted"]) == 1
     assert "blocked untrusted" in capsys.readouterr().err
+
+    assert remote_execution.main([*root_arguments, "build"]) == 2
+    assert "--context" in capsys.readouterr().err
+
+    assert remote_execution.main(["-h"]) == 0
+    help_output = capsys.readouterr().out
+    assert "quarantine" in help_output
+    assert "install-completion" not in help_output
 
 
 if __name__ == "__main__":

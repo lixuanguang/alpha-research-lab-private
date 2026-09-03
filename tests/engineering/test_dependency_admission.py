@@ -70,8 +70,8 @@ def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() ->
     assert policy.successor_package == "B08"
     assert policy.pip_audit_version == "2.10.1"
     assert policy.scorecard_version == "5.5.0"
-    assert len(policy.packages) == 61
-    assert len({package.name for package in policy.packages}) == 61
+    assert len(policy.packages) == 64
+    assert len({package.name for package in policy.packages}) == 64
     assert len([package for package in policy.packages if package.native_artifacts]) == 11
     assert policy.vulnerability_decisions == ()
     assert policy.emergency_overrides == ()
@@ -91,7 +91,7 @@ def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() ->
         ('disposition = "approved"', 'disposition = "ignored"', "approved"),
         ('version = "2.10.1"', 'version = "2.9.0"', "pip-audit"),
         (
-            '"uv.lock" = "f445b2f534b2524aa48b1a95c016456c3d6132a9b978c31fff099de1de6d9b91"',
+            '"uv.lock" = "ba148d5f1ea020cceff9d6b78230b46fb2a044e2d276572288b4b94dac514896"',
             '"uv.lock" = "not-a-digest"',
             "lock_digests",
         ),

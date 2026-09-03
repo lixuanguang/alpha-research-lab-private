@@ -434,6 +434,80 @@ def test_canonical_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
+        pytest.param(
+            "schema_version = 1",
+            "schema_version = true",
+            "schema_version must be 1",
+            id="wrong-schema-version-type",
+        ),
+        pytest.param(
+            "\n\n[risk_classes.R0]",
+            "\nunknown_dimension = []\n\n[risk_classes.R0]",
+            "dimensions must be exactly",
+            id="unknown-dimension",
+        ),
+        pytest.param(
+            '{ value = "documentation_only", minimum_class = "R0" }',
+            '{ value = 1, minimum_class = "R0" }',
+            r"dimensions\.blast_radius\[1\]\.value must be a string",
+            id="wrong-dimension-value-type",
+        ),
+        pytest.param(
+            "minimum_approvals = 1",
+            'minimum_approvals = "1"',
+            r"risk_classes\.R0\.minimum_approvals must be a non-negative integer",
+            id="wrong-class-approval-count-type",
+        ),
+        pytest.param(
+            '{ trigger = "computationally_material", gates = ["QG10"] }',
+            '{ trigger = "computationally_material", gates = [1] }',
+            r"risk_classes\.R1\.conditional_gate_rules\[1\]\.gates must be an array",
+            id="wrong-conditional-gate-type",
+        ),
+        pytest.param(
+            'roles = ["code_owner"], minimum_approvals = 1, independent = false',
+            'roles = ["code_owner"], minimum_approvals = 1, independent = "false"',
+            r"risk_classes\.R0\.reviewer_groups\[1\]\.independent must be Boolean",
+            id="wrong-reviewer-independence-type",
+        ),
+        pytest.param(
+            "capital_at_risk = false",
+            'capital_at_risk = "false"',
+            r"sample_changes\[1\]\.capital_at_risk must be Boolean",
+            id="wrong-sample-boolean-type",
+        ),
+        pytest.param(
+            'owner_role = "platform_ci"',
+            "owner_role = 1",
+            r"findings\[1\]\.owner_role is required",
+            id="wrong-finding-owner-type",
+        ),
+    ],
+)
+def test_policy_input_schema_preserves_structural_error_contract(
+    tmp_path: Path, old: str, new: str, message: str
+) -> None:
+    path = _mutated_policy(tmp_path, old, new)
+
+    with pytest.raises(ChangeRiskPolicyError, match=message):
+        load_policy(path)
+
+
+def test_policy_input_schema_preserves_existing_extensible_root_contract(
+    tmp_path: Path,
+) -> None:
+    path = _mutated_policy(
+        tmp_path,
+        "schema_version = 1",
+        'schema_version = 1\nextension_note = "synthetic"',
+    )
+
+    assert load_policy(path).package_status == "partial"
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
         ('  "QG08",\n  "QG09",', '  "QG09",', "weakens mandatory gates"),
         ("minimum_approvals = 4", "minimum_approvals = 1", "minimum_approvals weakens"),
         (

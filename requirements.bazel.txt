@@ -1,8 +1,15 @@
 # Generated from the exact uv.lock versions used by the Bazel runtime graph.
+annotated-doc==0.0.5
 annotated-types==0.8.0
 hypothesis==6.167.1
+markdown-it-py==4.2.0
+mdurl==0.1.2
 pydantic==2.13.5
 pydantic-core==2.46.5
+pygments==2.21.0
+rich==15.0.0
+shellingham==1.5.4
 sortedcontainers==2.4.0
+typer==0.27.2
 typing-extensions==4.16.0
 typing-inspection==0.4.4

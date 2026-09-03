@@ -143,6 +143,63 @@ def test_manifest_rejects_artifact_path_escape(tmp_path: Path, unsafe_path: str)
 @pytest.mark.parametrize(
     ("old", "new", "message"),
     [
+        pytest.param(
+            "\n\n[change]",
+            "\nunexpected_field = true\n\n[change]",
+            "fields must be exactly",
+            id="unknown-root-field",
+        ),
+        pytest.param(
+            "schema_version = 1",
+            "schema_version = true",
+            "schema_version must be 1",
+            id="wrong-schema-version-type",
+        ),
+        pytest.param(
+            'additional_required_gates = ["QG15"]',
+            "additional_required_gates = [1]",
+            "additional_required_gates must be an array of non-empty strings",
+            id="wrong-root-array-item-type",
+        ),
+        pytest.param(
+            "capital_at_risk = false",
+            'capital_at_risk = "false"',
+            r"change\.capital_at_risk must be Boolean",
+            id="wrong-change-boolean-type",
+        ),
+        pytest.param(
+            'evidence_ids = ["source-hygiene"]',
+            'evidence_ids = ["source-hygiene"]\nunexpected_field = true',
+            r"gates\[1\] has missing or unknown fields",
+            id="unknown-gate-field",
+        ),
+        pytest.param(
+            'path = "reports/source-hygiene.txt"',
+            "path = 1",
+            r"artifacts\[1\]\.path must be a non-empty string",
+            id="wrong-artifact-path-type",
+        ),
+        pytest.param(
+            'owner_role = "platform_ci"',
+            "owner_role = 1",
+            r"findings\[1\]\.owner_role must be a non-empty string",
+            id="wrong-finding-owner-type",
+        ),
+    ],
+)
+def test_manifest_input_schema_preserves_structural_error_contract(
+    tmp_path: Path, old: str, new: str, message: str
+) -> None:
+    bundle = _bundle_fixture(tmp_path)
+    _replace_evidence_fixture_text(bundle / "manifest.toml", old, new)
+
+    with pytest.raises(EvidenceGovernanceError, match=message):
+        _validate_fixture_manifest(bundle)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
         ('risk_class = "R0"', 'risk_class = "R1"', "does not match A04 classification"),
         (
             'evidence_retention_class = "source_governance_record"',
@@ -288,6 +345,46 @@ def test_policy_cannot_weaken_required_evidence_gates_or_hide_findings(tmp_path:
     policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     _replace_evidence_fixture_text(policy, 'finding_id = "A05-F02"', 'finding_id = "A05-OTHER"')
     with pytest.raises(EvidenceGovernanceError, match="partial status requires findings"):
+        load_policy(policy)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        pytest.param(
+            "\n\n[[mr_fields]]",
+            "\nunexpected_field = true\n\n[[mr_fields]]",
+            "fields must be exactly",
+            id="unknown-root-field",
+        ),
+        pytest.param(
+            'applicable_gates = ["QG01", "QG03", "QG12", "QG13", "QG15"]',
+            "applicable_gates = [1]",
+            "applicable_gates must contain non-empty strings",
+            id="wrong-gate-item-type",
+        ),
+        pytest.param(
+            'key = "problem_or_hypothesis"',
+            "key = 1",
+            r"mr_fields\[1\]\.key must be lower_snake_case",
+            id="wrong-mr-field-type",
+        ),
+        pytest.param(
+            'heading = "Problem or hypothesis"',
+            'heading = "Problem or hypothesis"\nunexpected_field = true',
+            r"mr_fields\[1\] must contain key and heading",
+            id="unknown-mr-field",
+        ),
+    ],
+)
+def test_policy_input_schema_preserves_structural_error_contract(
+    tmp_path: Path, old: str, new: str, message: str
+) -> None:
+    policy = tmp_path / "merge-evidence-policy.toml"
+    policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    _replace_evidence_fixture_text(policy, old, new)
+
+    with pytest.raises(EvidenceGovernanceError, match=message):
         load_policy(policy)
 
 

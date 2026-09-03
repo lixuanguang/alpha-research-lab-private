@@ -111,6 +111,7 @@ _APPROVED_PYTHON_LICENSES = {
     "Apache-2.0 OR BSD-2-Clause",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "ISC",
     "MIT",
     "MPL-2.0",
     "PSF-2.0",
