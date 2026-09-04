@@ -119,6 +119,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 f"Dependency admission passed for {len(policy.packages)} locked Python packages; "
                 f"package status is {policy.package_status}."
             )
+            for record in policy.bootstrap_wheel_admissions:
+                print(
+                    f"BOOTSTRAP ONLY: {record.name}=={record.version}; "
+                    f"source-to-wheel binding unverified; {record.finding_id}; "
+                    f"owner={record.owner_role}; expires={record.expires_on}; "
+                    "artifact release blocked."
+                )
             return 0
         command = cli_arguments.pop(0)
         if command == "audit" and not cli_arguments:

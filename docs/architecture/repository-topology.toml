@@ -312,6 +312,7 @@ owner_role = "platform"
 supported_platforms = ["any"]
 dependencies = [
   "tool.governance.change_risk",
+  "tool.governance.dependency_admission",
   "tool.governance.evidence",
   "tool.governance.foundation",
 ]
@@ -391,7 +392,7 @@ dependencies = [
   "tool.governance.evidence",
   "tool.governance.foundation",
 ]
-visibility = ["test.engineering"]
+visibility = ["test.engineering", "tool.governance.artifact_supply_chain"]
 sources = [
   "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py",
   "tools/governance/src/alpha_research_governance/dependency_admission/__main__.py",

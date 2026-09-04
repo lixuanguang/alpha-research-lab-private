@@ -24,6 +24,13 @@ Consumers must provide the exact `sha256:<digest>` of the artifact and repeat al
 policy and signature checks. Unknown fields, missing evidence, mutable names,
 symlinks, digest drift, untrusted signing context, or revoked identity fail closed.
 
+B07's bounded bootstrap publication-evidence tier permits development checks but
+blocks this artifact lifecycle. Creation, signing and consumer verification all
+require release-eligible dependency admission. Any bootstrap-only record blocks
+the entire graph; removing it without replacing its missing source evidence or
+removing the dependency also fails. This guard adds no signing authority and
+preserves B08's own SLSA, SBOM and signature requirements.
+
 The artifact input may be a binary or a deterministic archive produced by an
 owning target. B08 does not define how a container, model, configuration bundle,
 or later domain artifact is built. It secures that opaque, whole output. Archive

@@ -55,6 +55,7 @@ native_python_packages = [
 ]
 vulnerability_decisions = []
 emergency_overrides = []
+bootstrap_wheel_admissions = []
 
 [lock_digests]
 "uv.lock" = "b4298e898165fb12a42420e54032906e25a536a9218b687ded00f107bbc50cdf"

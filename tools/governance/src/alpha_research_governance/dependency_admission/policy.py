@@ -23,7 +23,9 @@ from alpha_research_governance.dependency_admission.models import (
     VulnerabilityDecision,
 )
 from alpha_research_governance.dependency_admission.wheel_sources import (
+    parse_bootstrap_wheels,
     parse_wheel_sources,
+    verify_bootstrap_wheels,
     verify_wheel_sources,
 )
 from alpha_research_governance.evidence import (
@@ -325,7 +327,10 @@ def load_policy(path: Path) -> DependencyAdmission:
         document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     except tomllib.TOMLDecodeError as error:
         raise DependencyAdmissionError([f"{path}: invalid TOML: {error}"]) from error
-    if not _ROOT_KEYS <= set(document) or set(document) - _ROOT_KEYS - {"wheel_source_admissions"}:
+    if not _ROOT_KEYS <= set(document) or set(document) - _ROOT_KEYS - {
+        "wheel_source_admissions",
+        "bootstrap_wheel_admissions",
+    }:
         raise DependencyAdmissionError([f"{path}: has missing or unknown fields"])
     expected = {
         "accountable_owner_role": "platform",
@@ -483,6 +488,19 @@ def load_policy(path: Path) -> DependencyAdmission:
         maximum_days=maximum_override_days,
     )
 
+    wheel_sources = parse_wheel_sources(
+        document.get("wheel_source_admissions", []), tuple(packages), _APPROVED_PYTHON_LICENSES
+    )
+    bootstrap_wheels = parse_bootstrap_wheels(
+        document.get("bootstrap_wheel_admissions", []),
+        tuple(packages),
+        _APPROVED_PYTHON_LICENSES,
+        as_of_date=as_of_date,
+        review_due_on=review_due_on,
+    )
+    if {record.name for record in wheel_sources} & {record.name for record in bootstrap_wheels}:
+        raise DependencyAdmissionError(["a package cannot use both wheel admission profiles"])
+
     try:
         return DependencyAdmission(
             package_status="partial",
@@ -507,11 +525,8 @@ def load_policy(path: Path) -> DependencyAdmission:
             local_evidence_manifest_path=cast(str, document["local_evidence_manifest_path"]),
             local_evidence_commit_sha=evidence_sha,
             open_finding_ids=finding_ids,
-            wheel_source_admissions=parse_wheel_sources(
-                document.get("wheel_source_admissions", []),
-                tuple(packages),
-                _APPROVED_PYTHON_LICENSES,
-            ),
+            wheel_source_admissions=wheel_sources,
+            bootstrap_wheel_admissions=bootstrap_wheels,
         )
     except ValidationError as error:
         raise DependencyAdmissionError([f"{path}: model validation failed"]) from error
@@ -557,7 +572,9 @@ def _wheel_platform_findings(
     return []
 
 
-def _python_lock_findings(root: Path, policy: DependencyAdmission) -> list[str]:
+def _python_lock_findings(
+    root: Path, policy: DependencyAdmission, *, validation_date: date | None = None
+) -> list[str]:
     locked = _locked_python_packages(root / "uv.lock")
     findings: list[str] = []
     external_names = {
@@ -567,6 +584,7 @@ def _python_lock_findings(root: Path, policy: DependencyAdmission) -> list[str]:
     }
     admitted = {package.name for package in policy.packages}
     wheel_sources = {record.name: record for record in policy.wheel_source_admissions}
+    bootstrap_wheels = {record.name: record for record in policy.bootstrap_wheel_admissions}
     if external_names != admitted:
         findings.append(
             "uv.lock external packages and dependency admissions differ: "
@@ -585,6 +603,16 @@ def _python_lock_findings(root: Path, policy: DependencyAdmission) -> list[str]:
         if package.name in wheel_sources:
             try:
                 verify_wheel_sources(root, item, wheel_sources[package.name])
+            except DependencyAdmissionError as error:
+                findings.extend(f"{package.name}: {finding}" for finding in error.findings)
+        elif package.name in bootstrap_wheels:
+            try:
+                verify_bootstrap_wheels(
+                    root,
+                    item,
+                    bootstrap_wheels[package.name],
+                    validation_date=date.today() if validation_date is None else validation_date,
+                )
             except DependencyAdmissionError as error:
                 findings.extend(f"{package.name}: {finding}" for finding in error.findings)
         elif (
@@ -610,6 +638,26 @@ def _python_lock_findings(root: Path, policy: DependencyAdmission) -> list[str]:
             if not isinstance(dependency, dict) or dependency.get("name") not in locked:
                 findings.append(f"{package.name} has an unresolved transitive dependency")
     return findings
+
+
+def require_release_admission(repository_root: Path) -> None:
+    """Reject bootstrap-only dependencies at artifact creation, signing and consumption."""
+    root = repository_root.resolve(strict=True)
+    policy = load_policy(root / "docs/architecture/dependency-admission.toml")
+    if policy.bootstrap_wheel_admissions:
+        names = ", ".join(record.name for record in policy.bootstrap_wheel_admissions)
+        raise DependencyAdmissionError(
+            [f"bootstrap-only dependencies block artifact release: {names}"]
+        )
+    # Removing a bootstrap record must not turn its unprovenanced locked wheel into a release.
+    findings = _python_lock_findings(root, policy)
+    if policy.review_due_on < date.today():
+        findings.append("dependency admission review is stale")
+    for relative, expected_digest in policy.lock_digests:
+        if hashlib.sha256((root / relative).read_bytes()).hexdigest() != expected_digest:
+            findings.append(f"{relative} differs from its admitted SHA-256 digest")
+    if findings:
+        raise DependencyAdmissionError(findings)
 
 
 def _migrated_record_findings(root: Path, policy: DependencyAdmission) -> list[str]:
@@ -879,7 +927,7 @@ def validate_repository(
     policy = load_policy(root / "docs/architecture/dependency-admission.toml")
     today = date.today() if validation_date is None else validation_date
     findings = (
-        _python_lock_findings(root, policy)
+        _python_lock_findings(root, policy, validation_date=today)
         + _migrated_record_findings(root, policy)
         + _lock_surface_findings(root)
         + _runtime_install_findings(root, policy)

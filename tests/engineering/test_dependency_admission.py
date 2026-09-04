@@ -24,6 +24,7 @@ from alpha_research_governance.dependency_admission import (
     validate_repository,
 )
 from alpha_research_governance.dependency_admission.models import (
+    BootstrapWheelAdmission,
     EvidenceFile,
     PythonPackageAdmission,
     SourceArchive,
@@ -34,9 +35,12 @@ from alpha_research_governance.dependency_admission.policy import (
     _lock_surface_findings,
     _python_lock_findings,
     _runtime_install_findings,
+    require_release_admission,
 )
 from alpha_research_governance.dependency_admission.wheel_sources import (
+    parse_bootstrap_wheels,
     parse_wheel_sources,
+    verify_bootstrap_wheels,
     verify_wheel_sources,
 )
 
@@ -783,6 +787,317 @@ def test_alternative_flows_through_existing_policy_and_lock_validator(
     ]
     (tmp_path / record.wheels[0].bundle.path).write_bytes(b"tampered")
     assert any("digest mismatch" in finding for finding in _python_lock_findings(tmp_path, policy))
+
+
+def _bootstrap_fixture(root: Path) -> tuple[BootstrapWheelAdmission, dict[str, object]]:
+    record, locked = _wheel_source_fixture(root)
+    data = record.model_dump(
+        mode="json", exclude={"builder_id", "build_type", "build_parameters_sha256"}
+    )
+    for wheel in data["wheels"]:
+        path = root / wheel["bundle"]["path"]
+        bundle = json.loads(path.read_bytes())
+        statement = json.loads(base64.b64decode(bundle["dsseEnvelope"]["payload"]))
+        statement["predicateType"] = "https://docs.pypi.org/attestations/publish/v1"
+        statement["predicate"] = None
+        bundle["dsseEnvelope"]["payload"] = base64.b64encode(
+            json.dumps(statement).encode()
+        ).decode()
+        wheel["bundle"] = _evidence_file(root, path.name, json.dumps(bundle).encode()).model_dump()
+    data.update(
+        usage="isolated_development_and_ci",
+        source_to_wheel_binding="unverified",
+        finding_id="B07-DEP-001",
+        reviewed_on="2026-09-04",
+        expires_on="2026-10-04",
+        residual_risk="The publisher's wheel may differ from the inspected upstream sources.",
+        closure_condition="Supply signed source-to-wheel build evidence or remove the dependency.",
+    )
+    for kind in ("source_review", "security_review", "native_inventory", "compatibility_report"):
+        data[kind] = _evidence_file(
+            root, kind + ".txt", b"Synthetic review evidence; no real approval.\n"
+        ).model_dump()
+    return _parse_bootstrap_record([data])[0], locked
+
+
+def _parse_bootstrap_record(value: object) -> tuple[BootstrapWheelAdmission, ...]:
+    return parse_bootstrap_wheels(
+        value,
+        (
+            PythonPackageAdmission(
+                name="numpy",
+                version="2.4.6",
+                native_artifacts=True,
+                license_expression="BSD-3-Clause",
+            ),
+        ),
+        {"BSD-3-Clause"},
+        as_of_date=date(2026, 9, 3),
+        review_due_on=date(2026, 12, 2),
+    )
+
+
+@pytest.mark.parametrize("when", [date(2026, 9, 4), date(2026, 10, 4)])
+@pytest.mark.parametrize("empty_object", [False, True])
+def test_bootstrap_publication_verification_is_explicit_and_date_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    wheel_cosign: None,
+    when: date,
+    empty_object: bool,
+) -> None:
+    record, locked = _bootstrap_fixture(tmp_path)
+    if empty_object:
+        data = record.model_dump(mode="json")
+        for wheel in data["wheels"]:
+            path = tmp_path / wheel["bundle"]["path"]
+            bundle = json.loads(path.read_bytes())
+            statement = json.loads(base64.b64decode(bundle["dsseEnvelope"]["payload"]))
+            statement["predicate"] = {}
+            bundle["dsseEnvelope"]["payload"] = base64.b64encode(
+                json.dumps(statement).encode()
+            ).decode()
+            wheel["bundle"] = _evidence_file(
+                tmp_path, path.name, json.dumps(bundle).encode()
+            ).model_dump()
+        record = _parse_bootstrap_record([data])[0]
+    calls: list[list[str]] = []
+
+    def inspect(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        if command[1] != "version":
+            assert (
+                command[command.index("--type") + 1]
+                == "https://docs.pypi.org/attestations/publish/v1"
+            )
+            assert "--check-claims=true" in command
+            assert (
+                command[command.index("--certificate-identity") + 1] == record.certificate_identity
+            )
+            assert command[command.index("--certificate-oidc-issuer") + 1] == record.oidc_issuer
+            assert command[command.index("--digest") + 1] in {"c" * 64, "d" * 64}
+            assert not any("ignore" in arg or "regexp" in arg for arg in command)
+        return _fake_cosign(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", inspect)
+    verify_bootstrap_wheels(tmp_path, locked, record, validation_date=when)
+    assert len(calls) == 3
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("usage", "production"),
+        ("source_to_wheel_binding", "verified"),
+        ("owner_role", "unknown"),
+        ("finding_id", ""),
+        ("residual_risk", ""),
+        ("closure_condition", ""),
+        ("source_review", {}),
+        ("unknown", True),
+        ("reviewed_on", "2026-09-02"),
+        ("expires_on", "2026-09-04"),
+        ("expires_on", "2026-10-05"),
+        ("expires_on", "2026-12-03"),
+        ("name", "unadmitted"),
+        ("version", "0.0.0"),
+    ],
+)
+def test_bootstrap_policy_rejects_missing_unsafe_or_unbounded_decisions(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    record, _ = _bootstrap_fixture(tmp_path)
+    data = record.model_dump(mode="json")
+    data[field] = value
+    with pytest.raises(DependencyAdmissionError):
+        _parse_bootstrap_record([data])
+
+
+@pytest.mark.parametrize("case", ["missing", "empty", "tampered", "symlink", "expired", "future"])
+def test_bootstrap_review_failures_stop_before_verifier_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    record, locked = _bootstrap_fixture(tmp_path)
+    path = tmp_path / record.security_review.path
+    when = date(2026, 9, 4)
+    if case == "missing":
+        path.unlink()
+    elif case == "empty":
+        data = record.model_dump(mode="json")
+        data["security_review"] = _evidence_file(tmp_path, path.name, b" \n").model_dump()
+        record = _parse_bootstrap_record([data])[0]
+    elif case == "tampered":
+        path.write_bytes(b"changed")
+    elif case == "symlink":
+        path.unlink()
+        path.symlink_to(tmp_path / record.source_review.path)
+    elif case == "expired":
+        when = date(2026, 10, 5)
+    else:
+        when = date(2026, 9, 3)
+
+    def unexpected(*args: object, **kwargs: object) -> None:
+        pytest.fail("review failure must precede verifier execution")
+
+    monkeypatch.setattr(subprocess, "run", unexpected)
+    with pytest.raises(DependencyAdmissionError, match=r"missing|empty|digest|symlinks|expired"):
+        verify_bootstrap_wheels(tmp_path, locked, record, validation_date=when)
+
+
+@pytest.mark.parametrize(
+    "case", ["body", "type", "subject", "tampered", "signature", "sdist", "missing_wheel"]
+)
+def test_bootstrap_does_not_bypass_publication_signature_or_lock_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    wheel_cosign: None,
+    case: str,
+) -> None:
+    record, locked = _bootstrap_fixture(tmp_path)
+    path = tmp_path / record.wheels[0].bundle.path
+    if case in {"body", "type", "subject"}:
+        bundle = json.loads(path.read_bytes())
+        statement = json.loads(base64.b64decode(bundle["dsseEnvelope"]["payload"]))
+        if case == "body":
+            statement["predicate"] = {"verified": True}
+        elif case == "type":
+            statement["predicateType"] = "https://slsa.dev/provenance/v1"
+        else:
+            statement["subject"][0]["digest"]["sha256"] = "f" * 64
+        bundle["dsseEnvelope"]["payload"] = base64.b64encode(
+            json.dumps(statement).encode()
+        ).decode()
+        data = record.model_dump(mode="json")
+        data["wheels"][0]["bundle"] = _evidence_file(
+            tmp_path, path.name, json.dumps(bundle).encode()
+        ).model_dump()
+        record = _parse_bootstrap_record([data])[0]
+    elif case == "tampered":
+        path.write_bytes(b"changed")
+    elif case == "sdist":
+        locked["sdist"] = {"hash": "malformed"}
+    elif case == "missing_wheel":
+        cast(list[object], locked["wheels"]).pop()
+
+    def verify(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if case == "signature" and command[1] != "version":
+            return subprocess.CompletedProcess(command, 1)
+        return _fake_cosign(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", verify)
+    with pytest.raises(DependencyAdmissionError):
+        verify_bootstrap_wheels(tmp_path, locked, record, validation_date=date(2026, 9, 4))
+
+
+def test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    wheel_cosign: None,
+) -> None:
+    record, locked = _bootstrap_fixture(tmp_path)
+    policy_path = tmp_path / "docs/architecture/dependency-admission.toml"
+    policy_path.parent.mkdir(parents=True)
+    original = POLICY_PATH.read_text()
+    policy_path.write_text(
+        original.replace(
+            "bootstrap_wheel_admissions = []",
+            "bootstrap_wheel_admissions = " + _inline_toml([record.model_dump(mode="json")]),
+        )
+    )
+    policy = load_policy(policy_path)
+    parts = (REPOSITORY_ROOT / "uv.lock").read_text().split("[[package]]")
+    for index, part in enumerate(parts):
+        if '\nname = "numpy"\n' in part:
+            parts[index] = (
+                '\nname = "numpy"\n'
+                + "\n".join(f"{key} = {_inline_toml(value)}" for key, value in locked.items())
+                + "\n"
+            )
+            break
+    (tmp_path / "uv.lock").write_text("[[package]]".join(parts))
+    monkeypatch.setattr(subprocess, "run", _fake_cosign)
+    assert _python_lock_findings(tmp_path, policy, validation_date=date(2026, 9, 4)) == []
+    assert any(
+        "expired" in f
+        for f in _python_lock_findings(tmp_path, policy, validation_date=date(2026, 10, 5))
+    )
+    with pytest.raises(DependencyAdmissionError, match="bootstrap-only"):
+        require_release_admission(tmp_path)
+    policy_path.write_text(original)
+    for relative in policy.lock_paths:
+        if relative != "uv.lock":
+            destination = tmp_path / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((REPOSITORY_ROOT / relative).read_bytes())
+    with pytest.raises(DependencyAdmissionError, match="lacks a digest-bound source distribution"):
+        require_release_admission(tmp_path)
+
+
+def test_bootstrap_and_build_profiles_cannot_overlap(tmp_path: Path) -> None:
+    bootstrap, _ = _bootstrap_fixture(tmp_path)
+    build, _ = _wheel_source_fixture(tmp_path)
+    policy_path = _policy_fixture(tmp_path)
+    policy_path.write_text(
+        "wheel_source_admissions = "
+        + _inline_toml([build.model_dump(mode="json")])
+        + "\n"
+        + policy_path.read_text().replace(
+            "bootstrap_wheel_admissions = []",
+            "bootstrap_wheel_admissions = " + _inline_toml([bootstrap.model_dump(mode="json")]),
+        )
+    )
+    with pytest.raises(DependencyAdmissionError, match="both wheel admission profiles"):
+        load_policy(policy_path)
+
+
+def test_bootstrap_report_paths_and_duplicate_records_are_rejected(tmp_path: Path) -> None:
+    record, _ = _bootstrap_fixture(tmp_path)
+    data = record.model_dump(mode="json")
+    with pytest.raises(DependencyAdmissionError, match="duplicate"):
+        _parse_bootstrap_record([data, data])
+    data["source_review"]["path"] = "../outside.txt"
+    with pytest.raises(DependencyAdmissionError, match="canonical and relative"):
+        _parse_bootstrap_record([data])
+
+
+def test_cli_reports_bootstrap_limit_and_legacy_policy_remains_supported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    record, _ = _bootstrap_fixture(tmp_path)
+    policy_path = _policy_fixture(tmp_path)
+    legacy = policy_path.read_text().replace("bootstrap_wheel_admissions = []\n", "")
+    policy_path.write_text(legacy)
+    assert load_policy(policy_path).bootstrap_wheel_admissions == ()
+    policy_path.write_text(
+        "bootstrap_wheel_admissions = "
+        + _inline_toml([record.model_dump(mode="json")])
+        + "\n"
+        + legacy
+    )
+    policy = load_policy(policy_path)
+    monkeypatch.setattr(
+        "alpha_research_governance.dependency_admission.validate_repository", lambda _root: policy
+    )
+    assert main([]) == 0
+    output = capsys.readouterr().out
+    assert "BOOTSTRAP ONLY: numpy==2.4.6" in output
+    assert "unverified; B07-DEP-001" in output
+    assert "owner=platform; expires=2026-10-04; artifact release blocked" in output
+
+
+def test_release_admission_evaluates_the_current_graph_without_bootstrap_bypass() -> None:
+    policy = load_policy(POLICY_PATH)
+    if policy.bootstrap_wheel_admissions:
+        with pytest.raises(DependencyAdmissionError, match="bootstrap-only"):
+            require_release_admission(REPOSITORY_ROOT)
+    else:
+        require_release_admission(REPOSITORY_ROOT)
 
 
 if __name__ == "__main__":

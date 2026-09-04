@@ -48,7 +48,9 @@ without source fallback remains external acceptance evidence.
 [ADR 0012](decisions/0012-wheel-only-source-admission.md) adds an explicit alternate
 source path for native packages published without a PyPI sdist. All 73 current
 packages retain their existing sdist records. There are currently no activated
-wheel-only admissions, and no dependency or lock changes accompany this extension.
+wheel-only admissions. Two explicit evidence profiles are available: authenticated
+SLSA build evidence and bounded bootstrap publication evidence. Neither is an
+automatic exemption, and no dependency or lock changes accompany this revision.
 
 The optional root `wheel_source_admissions` array contains strict records with
 the fields below. Omitting it preserves the existing behavior. An entry must match
@@ -56,6 +58,8 @@ an exact native package already declared in the license and native-package polic
 Duplicate or stale entries fail. A present `sdist` key, even malformed, cannot be
 overridden. All wheel hashes, approved registries, platform, transitive, license,
 vulnerability, review-expiry and complete-lock checks remain in force.
+This profile continues to require signed build evidence; it never falls back to
+publication evidence when a signature, material or subject check fails.
 
 | Field | Required evidence |
 | --- | --- |
@@ -96,16 +100,76 @@ Archive bytes are digest-identified as with existing sdist records; admission do
 not fetch them. Each newly locked wheel, source correction, signer change, trust
 rotation or build-parameter change requires a new reviewed record and replay.
 
-QuantLib 1.40 and 1.43 publish no PyPI sdist. Available PyPI publish attestations
-identify the publisher but do not supply this source-to-build evidence. They are
-explicitly rejected as an alternative. QuantLib remains unadmitted and C03 remains
-unimplemented until an adequate upstream or governed build evidence path exists.
-No local report or synthetic signature is used to fill that gap.
+### Bounded solo-bootstrap publication evidence
+
+The optional root `bootstrap_wheel_admissions` array permits an exact native
+package without a PyPI sdist to be evaluated for isolated development and CI.
+It explicitly accepts an unverified source-to-wheel relationship; publication
+signatures do not become build provenance. A package cannot appear in both
+profiles. Unknown, stale, duplicate or conflicting records fail closed.
+
+Each record shares `name`, `version`, `owner_role`, `rationale`, `sources`,
+`certificate_identity`, `oidc_issuer`, `trusted_root` and `wheels` with the build
+profile. All corresponding source, license, path, digest, registry and complete
+wheel-set checks still apply. It additionally requires:
+
+| Field | Required value or evidence |
+| --- | --- |
+| `usage` | Exactly `isolated_development_and_ci` |
+| `source_to_wheel_binding` | Exactly `unverified`; no claimed build assurance |
+| `finding_id` | Unique `B07-DEP-NNN` identity for the residual evidence gap |
+| `reviewed_on`, `expires_on` | A positive window of at most 30 days, starting no earlier than the policy date and ending by its review deadline |
+| `residual_risk`, `closure_condition` | 40-2000 character explanation of the accepted binary/source risk and how to close it |
+| `source_review` | Digest-bound retained review of source revisions, archive hashes, source completeness and license disposition |
+| `security_review` | Digest-bound retained vulnerability, maintenance, publisher/trust and permitted-use assessment |
+| `native_inventory` | Digest-bound retained inventory of native and bundled components, with known coverage gaps stated |
+| `compatibility_report` | Digest-bound retained installation and compatibility results with platform, version and test identities; unavailable target evidence stays explicit |
+
+The owner must be `platform`. Every report is required, bounded, nonempty and
+hash-checked using the same safe file reader. Report presence does not establish
+independent approval or the truth/completeness of its content. The owner must
+review the actual evidence; unresolved local defects cannot be deferred as
+external findings. Target-platform and qualified review obligations remain
+B07-F02/F03. Isolated execution is an environment obligation, not a claim that
+this metadata parser sandboxes imported Python/native code.
+
+The validator accepts only in-toto v1 PyPI publish statements, an exact wheel
+subject, and a null or empty-object predicate body. The same pinned Cosign, exact
+signer/issuer, trusted-root, claims, certificate-transparency and transparency-log
+checks apply. No insecure verifier flag, synthetic approval, source-hash-only
+fallback or runtime package installation is permitted. The record must be in
+effect on the validation date, inclusive of its expiry date. Expired and
+not-yet-effective records block repository validation; there is no automatic
+renewal. CLI success lists each bootstrap package, owner, expiry and open finding.
+
+**Artifact boundary:** B08 calls `require_release_admission()` before artifact
+creation, before signing, and during consumer verification (including publication).
+Any bootstrap record blocks the entire current dependency graph at those
+boundaries, even if expired. There is no target-specific exemption because the
+current graph cannot prove a package is excluded from a particular artifact.
+Removing the record alone also fails: B08 rechecks the dependency policy, Python
+source/wheel graph, review deadline and admitted lock hashes. Replace the record
+with complete build evidence, or remove/replace the dependency and update its
+declarations, locks and admissions together. Ordinary sdist admissions retain
+their existing evidence contract. No new B08 CLI, signing permissions or registry
+is introduced.
+
+This is a development admission tier, not SLSA certification or a production
+waiver. B08's own artifact provenance, signatures and release controls remain
+mandatory. The blueprint's B07 source/lock/license controls and B08 artifact
+controls apply at their respective boundaries; its institutional milestones are
+not completed by this tier.
+
+QuantLib remains unadmitted and C03 unimplemented. Its publication signatures may
+now support a complete bootstrap admission, alongside all required source,
+review, compatibility and lock evidence. A signed-build route remains available.
+The owning C03 change must supply an actual record; this revision activates none.
 
 The [QuantLib prerequisite investigation](../governance/evidence/quantlib-1.40-investigation/README.md)
 retains real Darwin/Linux publication-signature checks, immutable source hashes,
 observed upstream evidence gaps, and the native-build and artifact-source closure
-requirements. It adds no admission or policy exception.
+requirements for the stronger profile. Those historical observations remain valid;
+the bootstrap policy revision changes the permitted scope of use.
 
 The existing command enforces this profile automatically. On failure, stop the
 dependency update, retain package/version, wheel digest, bundle and verifier

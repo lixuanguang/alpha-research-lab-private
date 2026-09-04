@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess  # nosec B404  # [owner=platform; rationale=pinned Cosign verification only; expires=2027-03-01]
 import tempfile
+from datetime import date, timedelta
 from pathlib import Path, PurePosixPath
 from typing import cast
 from urllib.parse import urlsplit
@@ -18,14 +19,17 @@ from urllib.parse import urlsplit
 from pydantic import TypeAdapter, ValidationError
 
 from alpha_research_governance.dependency_admission.models import (
+    BootstrapWheelAdmission,
     DependencyAdmissionError,
     EvidenceFile,
     PythonPackageAdmission,
+    WheelEvidenceAdmission,
     WheelSourceAdmission,
 )
 
 _COSIGN_VERSION = "3.1.3"
 _PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
+_PUBLICATION_TYPE = "https://docs.pypi.org/attestations/publish/v1"
 _MAX_EVIDENCE_BYTES = 5_000_000
 _MAX_WHEELS = 100
 
@@ -66,6 +70,54 @@ def parse_wheel_sources(
         records = TypeAdapter(tuple[WheelSourceAdmission, ...]).validate_json(json.dumps(value))
     except (ValidationError, ValueError, TypeError) as error:
         raise DependencyAdmissionError(["invalid wheel source admission fields"]) from error
+    _validate_wheel_records(records, packages, approved_licenses)
+    return records
+
+
+def parse_bootstrap_wheels(
+    value: object,
+    packages: tuple[PythonPackageAdmission, ...],
+    approved_licenses: set[str],
+    *,
+    as_of_date: date,
+    review_due_on: date,
+) -> tuple[BootstrapWheelAdmission, ...]:
+    """Require exact bootstrap scope, owned residual risk, reports and a bounded review window."""
+    try:
+        records = TypeAdapter(tuple[BootstrapWheelAdmission, ...]).validate_json(json.dumps(value))
+    except (ValidationError, ValueError, TypeError) as error:
+        raise DependencyAdmissionError(["invalid bootstrap wheel admission fields"]) from error
+    _validate_wheel_records(records, packages, approved_licenses)
+    finding_ids = [record.finding_id for record in records]
+    if len(finding_ids) != len(set(finding_ids)):
+        raise DependencyAdmissionError(["duplicate bootstrap finding identity"])
+    for record in records:
+        if not (
+            as_of_date <= record.reviewed_on < record.expires_on <= review_due_on
+            and record.expires_on <= record.reviewed_on + timedelta(days=30)
+        ):
+            raise DependencyAdmissionError(
+                ["bootstrap review must expire within 30 days and policy review"]
+            )
+        for report in _bootstrap_reports(record):
+            _relative_path(report.path)
+    return records
+
+
+def _bootstrap_reports(record: BootstrapWheelAdmission) -> tuple[EvidenceFile, ...]:
+    return (
+        record.source_review,
+        record.security_review,
+        record.native_inventory,
+        record.compatibility_report,
+    )
+
+
+def _validate_wheel_records(
+    records: tuple[WheelEvidenceAdmission, ...],
+    packages: tuple[PythonPackageAdmission, ...],
+    approved_licenses: set[str],
+) -> None:
     admitted = {package.name: package for package in packages}
     names = [record.name for record in records]
     if len(names) != len(set(names)):
@@ -78,12 +130,10 @@ def parse_wheel_sources(
             raise DependencyAdmissionError(["wheel source admission requires Platform ownership"])
         if not 1 <= len(record.sources) <= 100 or not 1 <= len(record.wheels) <= _MAX_WHEELS:
             raise DependencyAdmissionError(["wheel source and artifact counts are out of bounds"])
-        for url in (
-            record.builder_id,
-            record.build_type,
-            record.certificate_identity,
-            record.oidc_issuer,
-        ):
+        urls: tuple[str, ...] = (record.certificate_identity, record.oidc_issuer)
+        if isinstance(record, WheelSourceAdmission):
+            urls += (record.builder_id, record.build_type)
+        for url in urls:
             _https(url)
         for source in record.sources:
             _https(source.uri)
@@ -109,7 +159,6 @@ def parse_wheel_sources(
                 raise DependencyAdmissionError(["invalid wheel filename"])
         for evidence in (record.trusted_root, *(wheel.bundle for wheel in record.wheels)):
             _relative_path(evidence.path)
-    return records
 
 
 def _read_evidence(root: Path, record: EvidenceFile) -> bytes:
@@ -187,15 +236,24 @@ def _statement(bundle: bytes) -> dict[str, object]:
 
 
 def _check_statement(
-    statement: dict[str, object], record: WheelSourceAdmission, filename: str, digest: str
+    statement: dict[str, object], record: WheelEvidenceAdmission, filename: str, digest: str
 ) -> None:
+    predicate_type = (
+        _PUBLICATION_TYPE if isinstance(record, BootstrapWheelAdmission) else _PREDICATE_TYPE
+    )
     if (
         set(statement) != {"_type", "predicateType", "subject", "predicate"}
         or statement.get("_type") != "https://in-toto.io/Statement/v1"
-        or statement.get("predicateType") != _PREDICATE_TYPE
+        or statement.get("predicateType") != predicate_type
         or statement.get("subject") != [{"name": filename, "digest": {"sha256": digest}}]
     ):
         raise DependencyAdmissionError(["provenance type or exact wheel subject mismatch"])
+    if isinstance(record, BootstrapWheelAdmission):
+        if statement["predicate"] not in (None, {}):
+            raise DependencyAdmissionError(["unsupported publication predicate body"])
+        return
+    if not isinstance(record, WheelSourceAdmission):
+        raise DependencyAdmissionError(["unsupported wheel admission profile"])
     predicate = _object(statement["predicate"])
     if set(predicate) != {"buildDefinition", "runDetails"}:
         raise DependencyAdmissionError(["unsupported SLSA predicate fields"])
@@ -253,6 +311,30 @@ def verify_wheel_sources(
     root: Path, locked: dict[str, object], record: WheelSourceAdmission
 ) -> None:
     """Check every locked wheel's materials and authenticate the same bytes with Cosign."""
+    _verify_wheel_evidence(root, locked, record)
+
+
+def verify_bootstrap_wheels(
+    root: Path,
+    locked: dict[str, object],
+    record: BootstrapWheelAdmission,
+    *,
+    validation_date: date,
+) -> None:
+    """Authenticate publication only after current bootstrap review evidence passes."""
+    if not record.reviewed_on <= validation_date <= record.expires_on:
+        raise DependencyAdmissionError(
+            [f"bootstrap finding {record.finding_id} is expired or not yet effective"]
+        )
+    for report in _bootstrap_reports(record):
+        if not _read_evidence(root, report).strip():
+            raise DependencyAdmissionError(["bootstrap review report is empty"])
+    _verify_wheel_evidence(root, locked, record)
+
+
+def _verify_wheel_evidence(
+    root: Path, locked: dict[str, object], record: WheelEvidenceAdmission
+) -> None:
     if "sdist" in locked:
         raise DependencyAdmissionError(["wheel-only admission cannot replace an existing sdist"])
     wheels = locked.get("wheels")
@@ -310,7 +392,9 @@ def verify_wheel_sources(
                     "--certificate-oidc-issuer",
                     record.oidc_issuer,
                     "--type",
-                    _PREDICATE_TYPE,
+                    _PUBLICATION_TYPE
+                    if isinstance(record, BootstrapWheelAdmission)
+                    else _PREDICATE_TYPE,
                     "--digest",
                     wheel.sha256,
                     "--digestAlg",

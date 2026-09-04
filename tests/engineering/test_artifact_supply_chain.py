@@ -21,6 +21,7 @@ from alpha_research_governance.artifact_supply_chain import (
     validate_repository,
     verify_bundle,
 )
+from alpha_research_governance.dependency_admission.models import DependencyAdmissionError
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 SOURCE_COMMIT_SHA = "a" * 40
@@ -88,6 +89,15 @@ class DeterministicArtifactToolRunner:
 @pytest.fixture
 def artifact_supply_chain_policy() -> ArtifactSupplyChainPolicy:
     return load_policy(REPOSITORY_ROOT / "docs/architecture/artifact-supply-chain.toml")
+
+
+@pytest.fixture(autouse=True)
+def synthetic_dependency_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Use an eligible graph for synthetic artifacts; B07 tests validate actual admission."""
+    monkeypatch.setattr(
+        "alpha_research_governance.artifact_supply_chain.bundle.require_release_admission",
+        lambda _root: None,
+    )
 
 
 def _create_test_artifact_and_evidence(tmp_path: Path) -> tuple[Path, Path]:
@@ -468,3 +478,53 @@ def test_root_package_bazel_label_is_accepted(
         build_platform="darwin-arm64",
     )
     assert created_bundle.build_target == "//:docs_bundle"
+
+
+@pytest.mark.parametrize("operation", ["create", "sign", "verify", "publish"])
+def test_bootstrap_dependency_denial_blocks_every_artifact_boundary_before_tools(
+    tmp_path: Path,
+    artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    runner = DeterministicArtifactToolRunner()
+    bundle, digest = _create_test_bundle(tmp_path, artifact_supply_chain_policy, runner)
+    runner.executed_commands.clear()
+
+    def deny(root: Path) -> None:
+        assert root == REPOSITORY_ROOT
+        raise DependencyAdmissionError(
+            ["bootstrap-only dependencies block artifact release: numpy"]
+        )
+
+    monkeypatch.setattr(
+        "alpha_research_governance.artifact_supply_chain.bundle.require_release_admission", deny
+    )
+    with pytest.raises(ArtifactSupplyChainError, match="bootstrap-only"):
+        if operation == "create":
+            _create_test_bundle(tmp_path, artifact_supply_chain_policy, runner, name="blocked")
+        elif operation == "sign":
+            _sign_test_bundle_in_protected_main_context(
+                bundle, artifact_supply_chain_policy, runner
+            )
+        elif operation == "verify":
+            verify_bundle(
+                bundle,
+                expected_artifact_digest=digest,
+                repository_root=REPOSITORY_ROOT,
+                policy=artifact_supply_chain_policy,
+                runner=runner,
+            )
+        else:
+            publish_bundle(
+                bundle,
+                expected_artifact_digest=digest,
+                registry_root=tmp_path / "registry",
+                repository_root=REPOSITORY_ROOT,
+                policy=artifact_supply_chain_policy,
+                runner=runner,
+            )
+    assert runner.executed_commands == []
+    assert not (bundle / "signature.sigstore.json").exists()
+    assert not (tmp_path / "blocked").exists()
+    assert not (tmp_path / "registry" / "sha256" / digest.removeprefix("sha256:")).exists()

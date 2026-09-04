@@ -2,6 +2,13 @@
 
 ## Result and authority
 
+**Historical investigation:** the blocked result below describes the policy at
+the time of investigation. The subsequent
+[bounded bootstrap policy revision](../../../architecture/dependency-admission.md#bounded-solo-bootstrap-publication-evidence)
+permits a separate publication-evidence route with owned review, expiry and
+artifact-release denial. QuantLib is still unadmitted; a complete record and
+the owning package's local checks are required. The source-to-build gap remains.
+
 **Blocked: QuantLib is not admitted and C03 remains unimplemented.** This
 2026-09-04 investigation follows the request to try resolving C03's dependency
 prerequisite. It records new observations against clean main
@@ -13,6 +20,10 @@ and [ADR 0012](../../../architecture/decisions/0012-wheel-only-source-admission.
 remain unchanged. This is supplemental investigative evidence, not an A05
 acceptance manifest, dependency admission, signature over a build claim, or
 institutional approval. B07 remains partial on the solo-bootstrap track.
+
+The subsequent [public-evidence recheck](public-evidence-recheck.md) extends the
+inspection to all 42 wheels across 1.40 and 1.43 and prepares an unsent upstream
+request. It found no SLSA build evidence and does not change the blocked result.
 
 ## Work completed
 

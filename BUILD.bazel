@@ -56,10 +56,12 @@ filegroup(
 filegroup(
     name = "artifact_supply_chain_data",
     srcs = [
+        ".github/workflows/ci.yml",
         ".pre-commit-config.yaml",
         "MODULE.bazel.lock",
         "Makefile",
         "docs/architecture/artifact-supply-chain.toml",
+        "docs/architecture/dependency-admission.toml",
         "docs/architecture/decisions/0001-build-and-developer-tooling.md",
         "docs/governance/change-risk-policy.toml",
         "docs/governance/evidence/examples/b08-r2-partial/manifest.toml",
