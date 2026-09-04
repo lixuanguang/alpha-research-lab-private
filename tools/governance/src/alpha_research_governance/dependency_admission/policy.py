@@ -111,6 +111,7 @@ _ACTION_PINS = {
     "actions/checkout": "34e114876b0b11c390a56381ad16ebd13914f8d5",
     "astral-sh/setup-uv": "c771a70e6277c0a99b617c7a806ffedaca235ff9",
     "bazel-contrib/setup-bazel": "c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86",
+    "sigstore/cosign-installer": "6f9f17788090df1f26f669e9d70d6ae9567deba6",
 }
 _APPROVED_PYTHON_LICENSES = {
     "Apache-2.0",

@@ -32,6 +32,11 @@ jobs:
       - name: Install locked environment
         run: uv sync --frozen
 
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v3.1.3"
+
       - name: Install pinned Bazel launcher
         uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
         with:
@@ -68,6 +73,11 @@ jobs:
 
       - name: Install locked environment
         run: uv sync --frozen
+
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v3.1.3"
 
       - name: Audit admitted Python dependencies
         run: make dependency-audit
