@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 roadmap_package = "A08"
 operating_track = "solo_bootstrap"
 package_status = "partial"
@@ -18,7 +18,7 @@ applicable_gate_ids = [
   "QG13",
   "QG14",
 ]
-as_of_date = "2026-09-03"
+as_of_date = "2026-09-04"
 roadmap_path = "docs/roadmap/README.md"
 observation_schema_version = 1
 maximum_observations = 10000
@@ -30,6 +30,9 @@ open_finding_ids = ["A08-F01", "A08-F02", "A08-F03"]
 [[package_states]]
 package_id = "A01"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -43,6 +46,9 @@ open_finding_ids = ["A01-F01", "A01-F02", "A01-F03"]
 [[package_states]]
 package_id = "A02"
 status = "partial"
+implementation_status = "complete"
+domain_id = "documentation_governance"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = ["independent_review"]
@@ -52,6 +58,9 @@ open_finding_ids = ["A02-F01"]
 [[package_states]]
 package_id = "A03"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = ["external_control_plane", "independent_review"]
@@ -64,6 +73,9 @@ open_finding_ids = ["A03-F01", "A03-F02", "A03-F03"]
 [[package_states]]
 package_id = "A04"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = ["external_control_plane", "independent_review"]
@@ -73,6 +85,9 @@ open_finding_ids = ["A04-F01", "A04-F02", "A04-F03"]
 [[package_states]]
 package_id = "A05"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = ["external_control_plane", "independent_review"]
@@ -82,6 +97,9 @@ open_finding_ids = ["A05-F01", "A05-F02"]
 [[package_states]]
 package_id = "A06"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -95,6 +113,9 @@ open_finding_ids = ["A06-F01", "A06-F02", "A06-F03"]
 [[package_states]]
 package_id = "A07"
 status = "partial"
+implementation_status = "complete"
+domain_id = "security"
+technical_finding_ids = []
 owner_role = "security"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -109,6 +130,9 @@ open_finding_ids = ["A07-F01", "A07-F02", "A07-F03", "A07-F04"]
 [[package_states]]
 package_id = "A08"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -122,6 +146,9 @@ open_finding_ids = ["A08-F01", "A08-F02", "A08-F03"]
 [[package_states]]
 package_id = "B01"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = ["external_control_plane", "independent_review"]
@@ -131,6 +158,9 @@ open_finding_ids = ["B01-F01", "B01-F02"]
 [[package_states]]
 package_id = "B02"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -144,6 +174,9 @@ open_finding_ids = ["B02-F01", "B02-F02", "B02-F03"]
 [[package_states]]
 package_id = "B03"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -158,6 +191,9 @@ open_finding_ids = ["B03-F01", "B03-F02", "B03-F03"]
 [[package_states]]
 package_id = "B04"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -172,6 +208,9 @@ open_finding_ids = ["B04-F01", "B04-F02", "B04-F03"]
 [[package_states]]
 package_id = "B05"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -186,6 +225,9 @@ open_finding_ids = ["B05-F01", "B05-F02", "B05-F03"]
 [[package_states]]
 package_id = "B06"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -200,6 +242,9 @@ open_finding_ids = ["B06-F01", "B06-F02", "B06-F03"]
 [[package_states]]
 package_id = "B07"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -214,6 +259,9 @@ open_finding_ids = ["B07-F01", "B07-F02", "B07-F03"]
 [[package_states]]
 package_id = "B08"
 status = "partial"
+implementation_status = "complete"
+domain_id = "repository_platform"
+technical_finding_ids = []
 owner_role = "platform"
 repository_local_status = "passed"
 deferred_evidence_classes = [
@@ -228,6 +276,9 @@ open_finding_ids = ["B08-F01", "B08-F02", "B08-F03"]
 [[package_states]]
 package_id = "C01"
 status = "partial"
+implementation_status = "complete"
+domain_id = "schemas"
+technical_finding_ids = []
 owner_role = "domain_architecture"
 repository_local_status = "passed"
 deferred_evidence_classes = [

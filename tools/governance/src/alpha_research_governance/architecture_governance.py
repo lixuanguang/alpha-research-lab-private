@@ -12,6 +12,11 @@ from urllib.parse import unquote, urlsplit
 from pydantic import ValidationError
 
 from alpha_research_governance._models import ImmutableModel
+from alpha_research_governance.operating_model import (
+    OperatingModel,
+    OperatingModelError,
+    load_operating_model,
+)
 
 _DECISION_FILENAME = re.compile(r"^(?P<identifier>[0-9]{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
 _MARKDOWN_LINK = re.compile(r"(?<!!)\[[^\]]+\]\((?P<destination>[^)]+)\)")
@@ -45,7 +50,14 @@ _REQUIRED_SECTIONS = (
     "Reversal plan",
     "Review and evidence",
 )
-_ALLOWED_STATUSES = {"Proposed", "Accepted", "Rejected", "Deprecated", "Superseded"}
+_ALLOWED_STATUSES = {
+    "Proposed",
+    "Founder accepted",
+    "Accepted",
+    "Rejected",
+    "Deprecated",
+    "Superseded",
+}
 
 
 class _DecisionLogEntry(ImmutableModel):
@@ -112,7 +124,13 @@ def _has_commit_bound_approval(value: str) -> bool:
     return approval.scheme == "https" and bool(approval.hostname) and not has_credentials
 
 
-def validate_adr(path: Path, *, expected_identifier: int, template: bool = False) -> None:
+def validate_adr(
+    path: Path,
+    *,
+    expected_identifier: int,
+    template: bool = False,
+    operating_model: OperatingModel | None = None,
+) -> None:
     """Validate one ADR's identity, metadata, required sections, and lifecycle fields."""
     text = path.read_text(encoding="utf-8")
     findings: list[str] = []
@@ -153,6 +171,21 @@ def validate_adr(path: Path, *, expected_identifier: int, template: bool = False
                 f"{path}: Accepted ADRs require 'commit=<40-or-64-hex>; "
                 "approval=<HTTPS evidence URL>'"
             )
+        if status == "Founder accepted":
+            scope = metadata.get("Operating domain", "")
+            if operating_model is None or decision_date is None:
+                findings.append(f"{path}: founder acceptance requires the operating model and date")
+            else:
+                try:
+                    operating_model.resolve(
+                        domain_id=scope, operation="implementation", on_date=decision_date
+                    )
+                except OperatingModelError as error:
+                    findings.append(f"{path}: {error}")
+                if metadata["Approval evidence"] != f"founder={operating_model.founder_principal}":
+                    findings.append(
+                        f"{path}: founder acceptance must identify the registered founder"
+                    )
 
     previous_position = -1
     for section in _REQUIRED_SECTIONS:
@@ -250,7 +283,9 @@ def _validate_decision_log(
                 )
 
 
-def validate_decision_directory(directory: Path) -> tuple[Path, ...]:
+def validate_decision_directory(
+    directory: Path, *, operating_model: OperatingModel | None = None
+) -> tuple[Path, ...]:
     """Validate the ADR template, contiguous record identifiers, and decision log."""
     findings: list[str] = []
     template_path = directory / "template.md"
@@ -279,7 +314,7 @@ def validate_decision_directory(directory: Path) -> tuple[Path, ...]:
 
     for identifier, path in zip(identifiers, decisions, strict=True):
         try:
-            validate_adr(path, expected_identifier=identifier)
+            validate_adr(path, expected_identifier=identifier, operating_model=operating_model)
         except ArchitectureGovernanceError as error:
             findings.extend(error.findings)
 
@@ -348,7 +383,10 @@ def _validate_repository(repository_root: Path) -> tuple[Path, ...]:
     """Run every repository-local architecture-governance check."""
     resolved_repository_root = repository_root.resolve()
     decisions = validate_decision_directory(
-        resolved_repository_root / "docs" / "architecture" / "decisions"
+        resolved_repository_root / "docs" / "architecture" / "decisions",
+        operating_model=load_operating_model(
+            resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
+        ),
     )
     validate_local_links(
         resolved_repository_root,
@@ -361,6 +399,8 @@ def validate_repository(repository_root: Path) -> tuple[Path, ...]:
     """Run architecture checks while preserving the public domain-error contract."""
     try:
         return _validate_repository(repository_root)
+    except OperatingModelError as error:
+        raise ArchitectureGovernanceError([str(error)]) from error
     except ValidationError as error:
         raise ArchitectureGovernanceError(
             [f"{repository_root}: architecture model validation failed"]

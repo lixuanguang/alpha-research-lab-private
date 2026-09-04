@@ -106,28 +106,29 @@ Language-specific symbols follow the applicable coding guide.
 
 ## Source governance policy
 
-`main` is the protected integration branch. No direct push to `main` is allowed;
-changes must arrive through a reviewed pull or merge request bound to an exact
-commit and its required checks and approvals. Administrators and automation are
-not implicit bypasses. Emergency access must be explicit, time-bounded, audited,
-and reviewed under the later access-control packages.
+The [current operating policy](domain-ownership.md#current-operating-policy)
+governs solo implementation and supersedes blueprint organizational sequencing.
+The founder may review and merge changes after applicable technical checks;
+unavailable independent reviewers do not block engineering completion. Keep
+source revisions and CI results. This policy does not change forge settings.
 
-This policy does not prove that the forge currently enforces it. A01 acceptance
-requires independently inspectable branch-rule evidence showing direct pushes are
-blocked. The current verification status is recorded as pending.
+For institutional acceptance, `main` requires protected integration, exact-commit
+reviews and controls against direct pushes and implicit administrator bypasses.
+The register retains those requirements and their pending external evidence for
+the shared-team handover.
 
 ## Acceptance, rollout, and rollback
 
-Acceptance requires platform, quantitative research, trading engineering, risk,
+Institutional acceptance requires platform, quantitative research, trading engineering, risk,
 SRE, security, and compliance approval; an attested complete repository
 inventory; a tracked authoritative blueprint; and verified protected-branch
 enforcement. Pending evidence is explicit in the register and must not be treated
 as a waiver or approval.
 
-The Platform role owns A01 implementation and disposition of its findings during
-solo bootstrap. That accountable implementation role is not an institutional
-approval and cannot substitute for any required independent or cross-functional
-review.
+The founder owns A01 implementation. Passing repository-local checks complete
+the implementation recorded in the program register. Organizational acceptance
+is a separate final handover after the relevant roles join; retained external
+findings do not make completed engineering partial.
 
 Adoption is a governance change only. It does not move code, alter a runtime, or
 activate trading. Rollback is a reviewed revert of this charter and register; it
@@ -142,8 +143,8 @@ runtime monitoring or runbook changes are introduced by A01.
 | A01-F02 | Platform/CI | Independently inspectable protected-main enforcement | The external forge proves direct pushes and bypasses are blocked and retains the branch-rule evidence |
 | A01-F03 | Platform | Commit-bound cross-functional approval | Named Platform, Quantitative Research, Trading Engineering, Risk, SRE, Security, and Compliance reviewers resolve findings and approve the exact reviewed commit |
 
-These findings are not waivers or approvals. A01 remains partial until all three
-close with the required external evidence.
+These findings retain institutional evidence obligations. A01's institutional
+acceptance remains partial until they close; its implementation status is separate.
 
 ## Non-goals
 

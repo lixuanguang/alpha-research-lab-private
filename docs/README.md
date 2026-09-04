@@ -14,11 +14,12 @@ yet implement the data platform, simulator, independent risk gateway, OMS/EMS, o
 production deployment. The proposed first workload is a digital-asset
 factor-residual strategy under its separate certification package.
 
-Work remains partial under the
-[solo-bootstrap track](roadmap/README.md#solo-bootstrap-execution-overlay).
-Package contracts retain their evidence and open findings. Local implementation
-does not satisfy independent review, target-environment acceptance, or authorize
-trading. QuantLib 1.43 has a development admission expiring 2026-10-04 with
+The [solo operating policy](governance/domain-ownership.md#current-operating-policy)
+separates engineering completion from institutional acceptance. The 17 registered
+A01-C01 packages show complete repository-local implementation; governance is not
+required until relevant hires join. C02/C03 state reconciliation is migration
+step 3. Package contracts retain institutional evidence and findings separately.
+QuantLib 1.43 has a development admission expiring 2026-10-04 with
 unverified source-to-wheel binding; B08 artifact release remains blocked. See
 [financial units](architecture/financial-units.md) for the boundary.
 

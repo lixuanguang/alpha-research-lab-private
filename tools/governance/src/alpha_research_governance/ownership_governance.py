@@ -13,6 +13,8 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import cast
 
+from alpha_research_governance.operating_model import OperatingModelError, load_operating_model
+
 _REQUIRED_DOMAINS = {
     "assets",
     "data",
@@ -139,12 +141,19 @@ def validate_repository(
     findings: list[str] = []
 
     expected_scalar_values: dict[str, object] = {
-        "schema_version": 1,
         "roadmap_package": "A03",
         "operating_track": "solo_bootstrap",
         "unmatched_path_policy": "reject",
         "author_may_satisfy_independent_review": False,
     }
+    schema_version = registry.get("schema_version")
+    if type(schema_version) is not int or schema_version not in {1, 2}:
+        findings.append(f"{registry_path}: schema_version must be 1 or 2")
+    if schema_version == 2:
+        try:
+            load_operating_model(registry_path)
+        except OperatingModelError as error:
+            findings.append(str(error))
     for key, expected in expected_scalar_values.items():
         if registry.get(key) != expected:
             findings.append(f"{registry_path}: {key} must be {expected!r}")

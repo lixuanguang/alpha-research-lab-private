@@ -9,6 +9,7 @@ from typing import Self
 from pydantic import field_validator, model_validator
 
 from alpha_research_governance._models import ImmutableModel
+from alpha_research_governance.operating_model import GovernanceStatus, ImplementationStatus
 
 
 class ProgramGovernanceError(ValueError):
@@ -49,18 +50,34 @@ class PackageState(ImmutableModel):
     deferred_evidence_classes: tuple[str, ...]
     evidence_paths: tuple[str, ...]
     open_finding_ids: tuple[str, ...]
+    implementation_status: ImplementationStatus = "in_progress"
+    governance_status: GovernanceStatus = "pending"
+    domain_id: str | None = None
+    technical_finding_ids: tuple[str, ...] = ()
+    assigned_reviewers: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def completion_requires_technical_evidence(self) -> Self:
+        """Keep technical failure distinct from unstaffed governance requirements."""
+        if self.implementation_status == "complete" and (
+            self.repository_local_status != "passed" or self.technical_finding_ids
+        ):
+            raise ValueError("completion requires passing repository-local evidence")
+        return self
 
     def is_solo_provisionally_satisfied(self) -> bool:
         """Return whether the state can satisfy a solo-bootstrap dependency."""
-        return (
-            self.status in {"partial", "validated"}
-            and self.repository_local_status == "passed"
-            and (self.status == "validated" or bool(self.deferred_evidence_classes))
-        )
+        return self.implementation_status == "complete"
 
     def as_json(self) -> dict[str, object]:
         """Return the stable dashboard representation."""
         return {
+            "implementation_status": self.implementation_status,
+            "governance_status": self.governance_status,
+            "domain_id": self.domain_id,
+            "technical_finding_ids": list(self.technical_finding_ids),
+            "assigned_reviewers": list(self.assigned_reviewers),
+            "institutional_status": self.status,
             "deferred_evidence_classes": list(self.deferred_evidence_classes),
             "evidence_paths": list(self.evidence_paths),
             "open_finding_ids": list(self.open_finding_ids),
@@ -230,6 +247,18 @@ class ProgramGovernance(ImmutableModel):
     package_states: tuple[PackageState, ...]
     metrics: tuple[MetricDefinition, ...]
     finding_ids: tuple[str, ...]
+
+    @property
+    def implementation_status(self) -> ImplementationStatus:
+        """Derive A08 implementation status from its single authoritative state."""
+        state = self.state_for(self.roadmap_package)
+        return "planned" if state is None else state.implementation_status
+
+    @property
+    def governance_status(self) -> GovernanceStatus:
+        """Report scoped handover independently of historical institutional acceptance."""
+        state = self.state_for(self.roadmap_package)
+        return "pending" if state is None else state.governance_status
 
     def state_for(self, package_id: str) -> PackageState | None:
         """Return an explicit package state, or ``None`` for planned work."""

@@ -7,10 +7,11 @@
 | Roadmap package | A02 or owning package |
 | Status | Proposed |
 | Decision owner | Accountable role |
+| Operating domain | Domain ID from the ownership register; required for Founder accepted |
 | Decision date | YYYY-MM-DD |
 | Review date | YYYY-MM-DD |
 | Supersedes | None or ADR link |
-| Approval evidence | Pending or `commit=<40-or-64-hex>; approval=<HTTPS evidence URL>` |
+| Approval evidence | Pending, `founder=@lixuanguang`, or institutional `commit=<40-or-64-hex>; approval=<HTTPS evidence URL>` |
 
 ## Context
 

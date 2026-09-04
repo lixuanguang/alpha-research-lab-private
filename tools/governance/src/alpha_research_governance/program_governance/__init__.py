@@ -95,6 +95,9 @@ def _build_package_payload(program: ProgramGovernance, package: PackageNode) -> 
     package_state = program.state_for(package.package_id)
     package_payload["state"] = (
         {
+            "implementation_status": "planned",
+            "governance_status": None,
+            "technical_finding_ids": [],
             "evidence_paths": [],
             "open_finding_ids": [],
             "owner_role": None,
@@ -158,6 +161,9 @@ def _build_program_dashboard_payload(
         "operating_track": program.operating_track,
         "package_count": len(program.packages),
         "package_status": program.package_status,
+        "implementation_status": program.implementation_status,
+        "governance_status": program.governance_status,
+        "institutional_status": program.package_status,
         "packages": [_build_package_payload(program, package) for package in selected_packages],
         "risk_class": program.risk_class,
         "roadmap_package": program.roadmap_package,
@@ -207,6 +213,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
     else:
         print(
             f"Program governance passed for {len(program.packages)} packages and "
-            f"{len(program.metrics)} KPIs; package status is {program.package_status}."
+            f"{len(program.metrics)} KPIs; implementation is {program.implementation_status}; "
+            f"governance is {program.governance_status}; "
+            f"institutional acceptance is {program.package_status}."
         )
     return 0

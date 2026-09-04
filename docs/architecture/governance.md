@@ -3,9 +3,11 @@
 ## Purpose
 
 This A02 process governs cross-cutting architecture choices. The
-[decision log](decisions/README.md) is authoritative for ADR status. Proposed
-records support solo-bootstrap implementation but are not accepted decisions
-until their required owner approval and commit-bound evidence exist.
+[decision log](decisions/README.md) is authoritative for ADR status. Under the
+[current operating policy](../governance/domain-ownership.md#current-operating-policy),
+`Founder accepted` decisions authorize repository implementation after the founder
+decides the scope, rationale, alternatives and reversal. `Accepted` continues to
+mean institutional acceptance with the existing commit-bound review evidence.
 
 ## When an ADR is required
 
@@ -31,11 +33,14 @@ cross-cutting choice in code.
 2. Record the owner, context, measurable drivers, at least two meaningful
    alternatives, consequences, migration/rollout, reversal, review date, and
    evidence. Link affected contracts, roadmap packages, and exceptions.
-3. Add the record to the decision log in the same change. `Proposed` records may
-   guide bounded solo-bootstrap work but do not represent independent acceptance.
-4. Obtain the risk-class reviewers and record commit-bound approval evidence
-   before changing status to `Accepted`. The author cannot invent an unavailable
-   reviewer or approval.
+3. Add the record to the decision log in the same change. For founder acceptance,
+   set `Status` to `Founder accepted`, record an `Operating domain` from the
+   ownership register and `Approval evidence` as `founder=@lixuanguang`. The
+   decision date must fall within the registered founder's effective assignment.
+4. Institutional `Accepted` status still requires the risk-class reviewers and
+   commit-bound approval evidence. Founder acceptance does not assert independent
+   review. A later hire reviews material decisions in their handover scope rather
+   than retroactively invalidating every founder decision.
 5. Review on the recorded date or earlier when assumptions, measurements,
    incidents, target environments, regulations, dependencies, or supported use
    change materially.
@@ -43,7 +48,7 @@ cross-cutting choice in code.
    permanently and link the successor or rationale. Never rewrite decision
    history to hide an earlier choice.
 
-Allowed statuses are `Proposed`, `Accepted`, `Rejected`, `Deprecated`, and
+Allowed statuses are `Proposed`, `Founder accepted`, `Accepted`, `Rejected`, `Deprecated`, and
 `Superseded`. Accepted ADRs require approval evidence in the exact form
 `commit=<40-or-64-hex>; approval=<HTTPS evidence URL>` so a free-form assertion
 cannot change lifecycle status. The URL remains externally verified evidence; its
@@ -98,5 +103,5 @@ There are no active architecture exceptions for A02.
 Adopting this process changes documentation governance and CI checks only. It
 does not migrate schemas, data, state, runtimes, or credentials. Rollback requires
 a reviewed revert or superseding ADR and must preserve the decision history and
-findings. Hosted-CI execution and Code Owner approval remain external evidence;
-their absence keeps A02 partial under solo bootstrap.
+findings. Institutional evidence remains separately recorded; its absence does
+not prevent A02 engineering completion under the current operating policy.

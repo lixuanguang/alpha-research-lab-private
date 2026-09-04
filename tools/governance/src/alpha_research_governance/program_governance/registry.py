@@ -22,6 +22,12 @@ from alpha_research_governance.evidence import (
     validate_manifest,
     validate_package_evidence,
 )
+from alpha_research_governance.operating_model import (
+    ImplementationStatus,
+    OperatingModel,
+    OperatingModelError,
+    load_operating_model,
+)
 from alpha_research_governance.program_governance.models import (
     MetricDefinition,
     MetricObservation,
@@ -127,6 +133,7 @@ _STATE_KEYS = {
     "repository_local_status",
     "status",
 }
+_STATE_V2_KEYS = _STATE_KEYS | {"implementation_status", "domain_id", "technical_finding_ids"}
 _METRIC_REQUIRED_KEYS = {
     "aggregation",
     "baseline_status",
@@ -489,11 +496,14 @@ def _parse_package_states(
     *,
     repository_root: Path,
     ownership_roles: frozenset[str],
+    schema_version: int,
+    operating_model: OperatingModel | None,
 ) -> tuple[PackageState, ...]:
     states: list[PackageState] = []
+    evaluation_date = date.today()
     for index, entry in enumerate(_require_table_list(value, context="package_states"), 1):
         context = f"package_states[{index}]"
-        if set(entry) != _STATE_KEYS:
+        if set(entry) != (_STATE_KEYS if schema_version == 1 else _STATE_V2_KEYS):
             raise ProgramGovernanceError([f"{context} has missing or unknown fields"])
         package_id = _require_string(entry, "package_id", context=context)
         status = _require_string(entry, "status", context=context)
@@ -508,7 +518,9 @@ def _parse_package_states(
             entry.get("evidence_paths"), context=f"{context}.evidence_paths"
         )
         finding_ids = _require_strings(
-            entry.get("open_finding_ids"), context=f"{context}.open_finding_ids"
+            entry.get("open_finding_ids"),
+            context=f"{context}.open_finding_ids",
+            allow_empty=schema_version == 2,
         )
         if package_id not in ROADMAP_PACKAGE_IDS:
             raise ProgramGovernanceError([f"{context}.package_id is unsupported"])
@@ -516,14 +528,14 @@ def _parse_package_states(
             raise ProgramGovernanceError(
                 [f"{context}: solo-bootstrap implemented packages must remain partial"]
             )
-        if repository_local_status != "passed":
+        if schema_version == 1 and repository_local_status != "passed":
             raise ProgramGovernanceError(
                 [f"{context}: implemented dependencies require passing repository-local evidence"]
             )
         if owner_role not in ownership_roles:
             raise ProgramGovernanceError([f"{context}: stale owner role {owner_role!r}"])
         invalid_classes = sorted(set(deferred_classes) - _ALLOWED_DEFERRED_CLASSES)
-        if invalid_classes or not deferred_classes:
+        if invalid_classes or (schema_version == 1 and not deferred_classes):
             raise ProgramGovernanceError(
                 [f"{context}: deferred evidence classes must be recognized and non-empty"]
             )
@@ -540,6 +552,37 @@ def _parse_package_states(
             raise ProgramGovernanceError(
                 [f"{context}: evidence paths do not retain findings {missing_findings!r}"]
             )
+        implementation_status: ImplementationStatus = "complete"
+        domain_id = None
+        technical_findings: tuple[str, ...] = ()
+        rules = None
+        if schema_version == 2:
+            domain_id = _require_string(entry, "domain_id", context=context)
+            implementation_status = cast(
+                ImplementationStatus,
+                _require_string(entry, "implementation_status", context=context),
+            )
+            technical_findings = _require_strings(
+                entry.get("technical_finding_ids"),
+                context=f"{context}.technical_finding_ids",
+                allow_empty=True,
+            )
+            if repository_local_status not in {"not_started", "passed", "failed"}:
+                raise ProgramGovernanceError([f"{context}: invalid repository_local_status"])
+            if operating_model is None:
+                raise ProgramGovernanceError(["version-2 states require the operating model"])
+            rules = operating_model.resolve(
+                domain_id=domain_id, operation="implementation", on_date=evaluation_date
+            )
+            if implementation_status == "complete":
+                rules.require_local_completion(
+                    repository_local_status=repository_local_status,
+                    technical_finding_ids=technical_findings,
+                )
+            if repository_local_status == "failed" and implementation_status != "blocked":
+                raise ProgramGovernanceError([f"{context}: failed local evidence requires blocked"])
+            if technical_findings and implementation_status != "blocked":
+                raise ProgramGovernanceError([f"{context}: technical findings require blocked"])
         states.append(
             PackageState(
                 package_id=package_id,
@@ -549,6 +592,11 @@ def _parse_package_states(
                 deferred_evidence_classes=deferred_classes,
                 evidence_paths=evidence_paths,
                 open_finding_ids=finding_ids,
+                implementation_status=implementation_status,
+                domain_id=domain_id,
+                technical_finding_ids=technical_findings,
+                governance_status="pending" if rules is None else rules.governance_status,
+                assigned_reviewers=() if rules is None else rules.assigned_reviewers,
             )
         )
     state_ids = tuple(state.package_id for state in states)
@@ -716,7 +764,6 @@ def _load_program(
     if set(program_document) != _ROOT_KEYS:
         raise ProgramGovernanceError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
     expected_scalars: dict[str, object] = {
-        "schema_version": 1,
         "roadmap_package": "A08",
         "operating_track": "solo_bootstrap",
         "package_status": "partial",
@@ -724,6 +771,9 @@ def _load_program(
         "risk_class": "R2",
         "observation_schema_version": 1,
     }
+    schema_version = program_document.get("schema_version")
+    if type(schema_version) is not int or schema_version not in {1, 2}:
+        raise ProgramGovernanceError([f"{path}: schema_version must be 1 or 2"])
     for key, expected in expected_scalars.items():
         if program_document.get(key) != expected:
             raise ProgramGovernanceError([f"{path}: {key} must be {expected!r}"])
@@ -745,10 +795,13 @@ def _load_program(
         else ownership_register_path
     )
     ownership_roles = _ownership_roles(ownership_path)
+    operating_model = load_operating_model(ownership_path) if schema_version == 2 else None
     package_states = _parse_package_states(
         program_document.get("package_states"),
         repository_root=resolved_repository_root,
         ownership_roles=ownership_roles,
+        schema_version=schema_version,
+        operating_model=operating_model,
     )
     metrics = tuple(
         _parse_metric(entry, index=index, ownership_roles=ownership_roles)
@@ -779,7 +832,7 @@ def _load_program(
     )
     if _REVISION.fullmatch(local_evidence_commit_sha) is None:
         raise ProgramGovernanceError(["local_evidence_commit_sha must be a full digest"])
-    return ProgramGovernance(
+    program = ProgramGovernance(
         schema_version=cast(int, program_document["schema_version"]),
         roadmap_package=cast(str, program_document["roadmap_package"]),
         operating_track=cast(str, program_document["operating_track"]),
@@ -806,6 +859,18 @@ def _load_program(
         metrics=metrics,
         finding_ids=finding_ids,
     )
+    if schema_version == 2:
+        for package in packages:
+            state = program.state_for(package.package_id)
+            if state is not None and state.implementation_status == "complete":
+                if not program._dependencies_ready(package, institutional=False):
+                    raise ProgramGovernanceError(
+                        [
+                            f"{package.package_id}: completion requires "
+                            "complete technical dependencies"
+                        ]
+                    )
+    return program
 
 
 def load_program(
@@ -821,6 +886,8 @@ def load_program(
             repository_root=repository_root,
             ownership_register_path=ownership_register_path,
         )
+    except OperatingModelError as error:
+        raise ProgramGovernanceError([str(error)]) from error
     except ValidationError as error:
         raise ProgramGovernanceError([f"{path}: program model validation failed"]) from error
 

@@ -6,7 +6,7 @@
 | --- | --- |
 | Package | A02 - Architecture principles and ADR framework |
 | Operating track | Solo bootstrap |
-| Status | Partial |
+| Institutional acceptance | Partial; implementation is tracked in the program register |
 | Accountable owner role | Platform |
 | Risk class | R0 |
 | Applicable gates | QG01, QG13 |
@@ -21,9 +21,11 @@ deterministic checker and tests executed by the root and CI interfaces.
 The checker fails closed when a log row's ID, title, link target, status, owner,
 or review date differs from its ADR metadata.
 
-The thirteen records remain `Proposed` because solo-bootstrap implementation cannot
-manufacture Code Owner acceptance. This package is therefore partial even when
-all repository-local checks pass.
+The original thirteen records retain their recorded `Proposed` status. New
+decisions may use `Founder accepted` under the
+[current operating policy](../../governance/domain-ownership.md#current-operating-policy).
+No historical approval is invented. A02 implementation completion is recorded
+separately from institutional acceptance in the program register.
 
 ## Decision records
 
@@ -42,6 +44,7 @@ all repository-local checks pass.
 | 0011 | [Versioned venue-calendar adapter](0011-versioned-venue-calendar-adapter.md) | Proposed | Domain Architecture | 2026-12-03 |
 | 0012 | [Wheel-only source admission](0012-wheel-only-source-admission.md) | Proposed | Platform | 2026-12-03 |
 | 0013 | [Explicit financial units and conventions](0013-explicit-financial-units-and-conventions.md) | Proposed | Domain Architecture | 2026-10-04 |
+| 0014 | [Founder implementation acceptance](0014-founder-implementation-acceptance.md) | Founder accepted | platform | 2026-12-04 |
 
 ## Closed validation evidence
 

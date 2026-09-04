@@ -161,17 +161,18 @@ def test_stale_dependency_and_visibility_are_rejected(tmp_path: Path) -> None:
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
-        "dependencies = []\nvisibility = [\n"
+        'dependencies = ["tool.governance.foundation"]\nvisibility = [\n'
         '  "compatibility.alpha_research.ownership_governance",\n'
         '  "test.engineering",\n]\nsources = '
         '["tools/governance/src/alpha_research_governance/ownership_governance.py"]',
-        'dependencies = ["tool.governance.foundation"]\nvisibility = [\n'
+        'dependencies = ["tool.governance.change_risk", "tool.governance.foundation"]\n'
+        "visibility = [\n"
         '  "compatibility.alpha_research.ownership_governance",\n'
         '  "test.engineering",\n]\nsources = '
         '["tools/governance/src/alpha_research_governance/ownership_governance.py"]',
     )
 
-    with pytest.raises(RepositoryTopologyError, match=r"stale=.*foundation"):
+    with pytest.raises(RepositoryTopologyError, match=r"stale=.*change_risk"):
         load_topology(register, repository_root=fixture_repository_root)
 
 
