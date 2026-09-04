@@ -56,9 +56,11 @@ def validate_package_evidence(manifest: EvidenceManifest, profile: PackageEviden
             f"{context} must use the required gate statuses; mismatches={mismatched_statuses!r}"
         )
 
-    expected_bundle_status = (
-        "accepted" if profile.expected_package_status == "validated" else "partial"
-    )
+    expected_bundle_status = {
+        "validated": "accepted",
+        "partial": "partial",
+        "implementation_complete": "implementation_accepted",
+    }[profile.expected_package_status]
     if manifest.bundle_status != expected_bundle_status:
         findings.append(f"{context} package status must be {profile.expected_package_status!r}")
     if manifest.open_finding_ids != profile.expected_finding_ids:

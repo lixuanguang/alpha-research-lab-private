@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 roadmap_package = "A05"
 operating_track = "solo_bootstrap"
 package_status = "partial"
@@ -11,119 +11,152 @@ example_mr_body_path = "docs/governance/evidence/examples/a05-valid/mr.md"
 example_manifest_path = "docs/governance/evidence/examples/a05-valid/manifest.toml"
 example_commit_sha = "1111111111111111111111111111111111111111"
 
+founder_example_mr_body_path = "docs/governance/evidence/examples/founder-pr.md"
+
 [[mr_fields]]
+key = "problem_change"
+heading = "Problem / change"
+
+[[mr_fields]]
+key = "affected_scope"
+heading = "Affected scope"
+
+[[mr_fields]]
+key = "validation_result"
+heading = "Validation result"
+
+[[mr_fields]]
+key = "risks_reversal"
+heading = "Risks / reversal"
+
+[[conditional_mr_fields]]
+key = "migration"
+heading = "Migration / compatibility"
+trigger = "migration"
+
+[[conditional_mr_fields]]
+key = "benchmark"
+heading = "Benchmark"
+trigger = "benchmark"
+
+[[conditional_mr_fields]]
+key = "operational"
+heading = "Operational plan"
+trigger = "operational"
+
+[[institutional_mr_fields]]
 key = "problem_or_hypothesis"
 heading = "Problem or hypothesis"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "roadmap_and_issue"
 heading = "Roadmap package and linked issue"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "accountable_owner"
 heading = "Accountable owner"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "scope"
 heading = "Scope"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "non_goals"
 heading = "Non-goals"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "risk_classification"
 heading = "Risk class and classification facts"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "affected_systems"
 heading = "Affected packages, services, strategies, assets, venues, and accounts"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "data_lineage"
 heading = "Data lineage impact"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "model_lineage"
 heading = "Model lineage impact"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "contract_changes"
 heading = "Schema, data, model, configuration, and limit changes"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "control_impact"
 heading = "Security, entitlement, regulatory, and model-risk impact"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "quality_gates"
 heading = "QG01-QG15 applicability and rationale"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "test_plan"
 heading = "Test plan and acceptance thresholds"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "benchmark_delta"
 heading = "Benchmark delta"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "research_validation"
 heading = "Point-in-time, leakage, and research validation"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "integration_scenarios"
 heading = "Replay, integration, and failure scenarios"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "economic_risk_evidence"
 heading = "Cost, capacity, and risk evidence"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "performance_resilience"
 heading = "Performance and resilience budgets"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "evidence_manifest"
 heading = "Evidence manifest"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "migration_compatibility"
 heading = "Migration and compatibility"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "rollout"
 heading = "Rollout and activation separation"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "rollback"
 heading = "Rollback target and stop or kill procedure"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "monitoring"
 heading = "Monitoring and alerts"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "runbook"
 heading = "Runbook impact"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "post_deploy_checks"
 heading = "Post-deploy checks and observation window"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "code_owners"
 heading = "Code Owners"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "independent_validation"
 heading = "Independent research or model validation"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "control_reviewers"
 heading = "Risk, SRE, security, and compliance review"
 
-[[mr_fields]]
+[[institutional_mr_fields]]
 key = "waivers_and_findings"
 heading = "Waivers, open findings, owners, expiry, and closure conditions"
 

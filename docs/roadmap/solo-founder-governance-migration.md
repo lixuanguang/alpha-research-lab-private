@@ -1,7 +1,7 @@
 # Solo-founder governance audit and migration plan
 
 Audit: 2026-09-04, revision `e3a0efd08fdc128c9a0a83dc314645da5996133f`.
-Status: step 1 implemented on 2026-09-05; steps 2-5 remain pending. Audit findings
+Status: steps 1-2 implemented on 2026-09-05; steps 3-5 remain pending. Audit findings
 below describe the recorded baseline. The
 [current operating policy](../governance/domain-ownership.md#current-operating-policy)
 and [ADR 0014](../architecture/decisions/0014-founder-implementation-acceptance.md)
@@ -11,6 +11,13 @@ Step 1 validation: the full CI lane passed in the pinned Nix development
 environment, including pre-commit, 18 Bazel test targets, 534 Python tests and
 one integration test. The program now reports complete local implementation for
 the 17 registered packages, with governance not required under the founder roster.
+
+Step 2 validation: the authoritative full CI lane passed in the pinned Nix
+development environment, including pre-commit, 18 Bazel test targets, 564 Python
+tests and one integration test. The real hosted event path accepts the four-section
+founder example and generates commit-bound diff metadata; behavioral tests retain
+version-1 institutional reading and reject incomplete, tampered or operation-mismatched
+founder implementation evidence.
 
 **Recommendation: make engineering completion achievable by the founder now.
 Make organizational governance completion a final, conditional handover step

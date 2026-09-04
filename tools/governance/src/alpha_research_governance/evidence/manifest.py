@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import tomllib
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -25,6 +26,7 @@ from alpha_research_governance.evidence.models import (
     EvidenceManifest,
     GateEvidence,
 )
+from alpha_research_governance.operating_model import OperatingModel, Operation
 
 _COMMIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -98,6 +100,12 @@ class _EvidenceManifestInput(ImmutableModel):
     findings: list[_FindingInput]
     open_finding_ids: list[str]
     waived_controls: list[str]
+
+
+class _ImplementationManifestInput(_EvidenceManifestInput):
+    operating_domain: str
+    accepted_by: str
+    accepted_on: str
 
 
 _ROOT_KEYS = frozenset(_EvidenceManifestInput.model_fields)
@@ -374,6 +382,8 @@ def _validate_manifest(
     *,
     expected_commit_sha: str,
     change_policy: ChangeRiskPolicy,
+    operating_model: OperatingModel | None,
+    operation: Operation,
 ) -> EvidenceManifest:
     """Validate a manifest, change-risk binding, artifact digests, and acceptance."""
     if _COMMIT_SHA.fullmatch(expected_commit_sha) is None:
@@ -385,11 +395,16 @@ def _validate_manifest(
     except tomllib.TOMLDecodeError as error:
         raise EvidenceGovernanceError([f"{path}: invalid TOML: {error}"]) from error
     try:
-        manifest_document = _EvidenceManifestInput.model_validate(parsed_document)
+        input_model = (
+            _ImplementationManifestInput
+            if isinstance(parsed_document, dict) and parsed_document.get("schema_version") == 2
+            else _EvidenceManifestInput
+        )
+        manifest_document = input_model.model_validate(parsed_document)
     except ValidationError as error:
         raise _manifest_input_error(path, error) from error
-    if manifest_document.schema_version != 1:
-        raise EvidenceGovernanceError([f"{path}: schema_version must be 1"])
+    if manifest_document.schema_version not in {1, 2}:
+        raise EvidenceGovernanceError([f"{path}: schema_version must be 1 or 2"])
 
     bundle_id = _validated_string(manifest_document.bundle_id, context=f"{path}.bundle_id")
     roadmap_id = _validated_string(manifest_document.roadmap_id, context=f"{path}.roadmap_id")
@@ -411,7 +426,10 @@ def _validate_manifest(
         raise EvidenceGovernanceError([f"{path}: commit_sha does not match expected commit"])
     if _ROLE.fullmatch(owner_role) is None:
         raise EvidenceGovernanceError([f"{path}: owner_role must be lower_snake_case"])
-    if bundle_status not in _BUNDLE_STATUSES:
+    implementation = isinstance(manifest_document, _ImplementationManifestInput)
+    if implementation and bundle_status != "implementation_accepted":
+        raise EvidenceGovernanceError(["schema_version 2 requires implementation_accepted status"])
+    if not implementation and bundle_status not in _BUNDLE_STATUSES:
         raise EvidenceGovernanceError([f"{path}: bundle_status must be partial or accepted"])
 
     change = _parse_change(manifest_document.change)
@@ -482,7 +500,44 @@ def _validate_manifest(
     if prohibited_waivers:
         raise EvidenceGovernanceError(["R4 manifest cannot waive a non-waivable hard control"])
 
-    if bundle_status == "partial":
+    accepted_on: date | None = None
+    if isinstance(manifest_document, _ImplementationManifestInput):
+        if operating_model is None:
+            raise EvidenceGovernanceError(
+                ["implementation acceptance requires the operating model"]
+            )
+        if operation != "implementation":
+            raise EvidenceGovernanceError(
+                ["implementation evidence cannot authorize institutional operations"]
+            )
+        if manifest_document.accepted_by != operating_model.founder_principal:
+            raise EvidenceGovernanceError(
+                ["implementation acceptance requires the recorded founder"]
+            )
+        if approvals or waived_controls:
+            raise EvidenceGovernanceError(
+                ["implementation evidence cannot contain institutional approvals or waivers"]
+            )
+        incomplete_implementation = tuple(
+            gate.gate_id
+            for gate in gates
+            if (gate.gate_id in required_gates and gate.status != "passed")
+            or gate.status in {"failed", "deferred"}
+        )
+        try:
+            accepted_on = date.fromisoformat(manifest_document.accepted_on)
+            rules = operating_model.resolve(
+                domain_id=manifest_document.operating_domain,
+                operation=operation,
+                on_date=accepted_on,
+            )
+            rules.require_local_completion(
+                repository_local_status="failed" if incomplete_implementation else "passed",
+                technical_finding_ids=open_finding_ids,
+            )
+        except ValueError as error:
+            raise EvidenceGovernanceError([str(error)]) from error
+    elif bundle_status == "partial":
         if not open_finding_ids:
             raise EvidenceGovernanceError(["partial bundle requires at least one open finding"])
     else:
@@ -522,6 +577,18 @@ def _validate_manifest(
         gates=gates,
         artifacts=artifacts,
         approvals=approvals,
+        schema_version=2 if implementation else 1,
+        operating_domain=(
+            manifest_document.operating_domain
+            if isinstance(manifest_document, _ImplementationManifestInput)
+            else None
+        ),
+        accepted_by=(
+            manifest_document.accepted_by
+            if isinstance(manifest_document, _ImplementationManifestInput)
+            else None
+        ),
+        accepted_on=accepted_on,
     )
 
 
@@ -530,6 +597,8 @@ def validate_manifest(
     *,
     expected_commit_sha: str,
     change_policy: ChangeRiskPolicy,
+    operating_model: OperatingModel | None = None,
+    operation: Operation = "implementation",
 ) -> EvidenceManifest:
     """Validate evidence while preserving the public domain-error contract."""
     try:
@@ -537,6 +606,8 @@ def validate_manifest(
             path,
             expected_commit_sha=expected_commit_sha,
             change_policy=change_policy,
+            operating_model=operating_model,
+            operation=operation,
         )
     except ValidationError as error:
         raise EvidenceGovernanceError([f"{path}: manifest model validation failed"]) from error
