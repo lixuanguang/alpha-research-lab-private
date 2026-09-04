@@ -1,0 +1,31 @@
+C03 operations, governance and deferred evidence.
+A04 actual classifier result: R2, shared_domain/shared_or_candidate/shared_sensitive,
+no capital, compatibility_window, computationally_material and economically_or_risk_relevant.
+Required gates QG01-QG14; minimum Code Owner plus independent domain review, with
+Platform/SRE and Security participation for the native dependency. No approvals exist.
+QG07/QG08 cover dimensional cancellation, sign preservation and FX/rounding error
+budgets; no fee/capacity/portfolio/risk engine or independent risk approval is claimed.
+No existing consumer, persisted schema, database, service or runtime is migrated.
+The requested Pydantic migration replaces dataclass constructors and internal
+replacement calls; C03 model_copy validates changes. Mutation raises ValidationError.
+Raw framework construction is unsupported. No persisted or versioned wire format
+changes; Pydantic and QuantLib dependency versions remain unchanged.
+Rollout is local/full merged-result verification, golden replay and impact analysis.
+Rollback reverts C03 library, tests, build inputs, dependency/locks/admission and
+documentation together; preserve diagnostics. Removing a bootstrap record alone
+cannot bypass B08's lock/source and release checks.
+On errors stop the calculation; retain safe dimensions, context/revision, calendar
+source, adapter version and cause. Domain owners reconcile inputs before replay.
+On admission expiry or integrity failure Platform removes/replaces the dependency
+or performs an actual renewed bounded review. No automatic renewal or release exemption.
+C03-F01: Domain Architecture owns independent exact-commit API/numerical/platform/
+security review. C03-F02: Platform/CI owns protected Darwin/Linux installation,
+merged-result golden/full tests and target budgets. C03-F03: Domain Architecture
+owns independent entitled target-domain currency/instrument/convention reconciliation.
+B07-DEP-001: Platform must obtain authenticated complete source-to-wheel build
+evidence for all locked wheels, reviewed by Security, or remove/replace the dependency.
+Inherited B07-F01/F02/F03 remain open. These are neither approvals nor waivers.
+C03 remains partial. No release, promotion, deployment, activation, credentials,
+market access, capital, venue/account/instrument expansion or expanded risk authority.
+C04 is the next documented selector only after all local checks pass. It is not
+implemented. No new production monitoring, SLO, alert or runbook authority is created.

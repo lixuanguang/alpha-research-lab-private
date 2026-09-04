@@ -1,0 +1,601 @@
+"""Retain hand-calculated, property, context, boundary and failure evidence for C03."""
+
+from __future__ import annotations
+
+import json
+import operator
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta
+from decimal import Decimal, Inexact, localcontext
+from fractions import Fraction
+from importlib.metadata import PackageNotFoundError
+from pathlib import Path
+from time import perf_counter
+from typing import Any
+from uuid import UUID
+
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from pydantic import BaseModel, ValidationError
+
+from alpha_research.financial_units import (
+    BusinessDayConvention as BDC,
+)
+from alpha_research.financial_units import (
+    Compounding,
+    ConventionError,
+    Currency,
+    DayCount,
+    DayCountResult,
+    Dimension,
+    Duration,
+    EvaluationContext,
+    FXRate,
+    Lot,
+    Money,
+    Multiplier,
+    Price,
+    Quantity,
+    QuantityKind,
+    QuantLibConventions,
+    Rate,
+    RateConvention,
+    Rounding,
+    Tick,
+    UnitError,
+    Volatility,
+    Yield,
+    adjust_business_day,
+    conventions,
+    settlement_date,
+)
+from alpha_research.instrument_identity import InstrumentId
+from alpha_research.venue_calendar import SettlementCalendar
+
+D = Decimal
+SHARES = Dimension(instrument_id=InstrumentId(UUID(int=1)), kind=QuantityKind.SHARE)
+CONTRACTS = Dimension(instrument_id=InstrumentId(UUID(int=2)), kind=QuantityKind.CONTRACT)
+CONTEXT = EvaluationContext(evaluation_date=date(2024, 1, 1), convention_revision="c03-v1")
+CONVENTION = RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.SIMPLE)
+FIXTURE = Path(__file__).parents[1] / "golden/financial_units/c03_units.json"
+
+
+def dynamic(value: Any) -> Any:
+    """Expose deliberately malformed runtime input at the validation test boundary."""
+    return value
+
+
+def fixture() -> Any:
+    # JSON is an untyped test-input boundary; each case is checked against the owned API.
+    return json.loads(FIXTURE.read_text())
+
+
+def calendar() -> SettlementCalendar:
+    return SettlementCalendar(
+        calendar_id="synthetic",
+        calendar_version="v1",
+        timezone_name="UTC",
+        covered_from=date(2024, 8, 29),
+        covered_through=date(2024, 9, 5),
+        settlement_dates=(
+            date(2024, 8, 29),
+            date(2024, 8, 30),
+            date(2024, 9, 3),
+            date(2024, 9, 4),
+            date(2024, 9, 5),
+        ),
+        source="synthetic",
+        source_revision="v1",
+    )
+
+
+def test_hand_calculated_golden_day_counts() -> None:
+    data = fixture()
+    assert data["quantlib_version"] == conventions.QUANTLIB_VERSION
+    for case in data["day_counts"]:
+        result = QuantLibConventions().year_fraction(
+            context=CONTEXT,
+            start=date.fromisoformat(case["start"]),
+            end=date.fromisoformat(case["end"]),
+            day_count=DayCount(case["basis"]),
+        )
+        expected = case["numerator"] / case["denominator"]
+        assert float(result.duration.value) == pytest.approx(
+            expected,
+            abs=float(data["tolerance"]["absolute_years"]),
+            rel=float(data["tolerance"]["relative"]),
+        )
+        assert result.context == CONTEXT
+        assert result.duration.day_count == DayCount(case["basis"])
+
+
+def test_tick_and_lot_goldens_cover_sign_and_half_even_ties() -> None:
+    for case in fixture()["rounding"]:
+        price = Price(value=D(case["value"]), currency=Currency.USD, per=SHARES)
+        quantity = Quantity(value=price.value, dimension=SHARES)
+        tick = Tick(value=D(case["tick"]), currency=Currency.USD, per=SHARES)
+        lot = Lot(value=tick.value, dimension=SHARES)
+        assert price.rounded(tick, mode=Rounding(case["mode"])).value == D(case["expected"])
+        assert quantity.rounded(lot, mode=Rounding(case["mode"])).value == D(case["expected"])
+
+
+@settings(max_examples=50, derandomize=True, database=None)
+@given(st.integers(-100_000, 100_000), st.integers(1, 100), st.sampled_from(list(Rounding)))
+def test_rounding_is_on_grid_idempotent_and_has_bounded_error(
+    raw: int, step: int, mode: Rounding
+) -> None:
+    value = D(raw) / 1000
+    quantum = D(step) / 100
+    price = Price(value=value, currency=Currency.USD, per=SHARES)
+    quantity = Quantity(value=value, dimension=SHARES)
+    tick = Tick(value=quantum, currency=Currency.USD, per=SHARES)
+    lot = Lot(value=quantum, dimension=SHARES)
+    rounded = price.rounded(tick, mode=mode)
+    assert Fraction(rounded.value) / Fraction(quantum) == int(
+        Fraction(rounded.value) / Fraction(quantum)
+    )
+    assert rounded.rounded(tick, mode=mode) == rounded
+    assert quantity.rounded(lot, mode=mode).value == rounded.value
+    error = Fraction(rounded.value) - Fraction(value)
+    if mode is Rounding.HALF_EVEN:
+        assert abs(error) <= Fraction(quantum) / 2
+    else:
+        assert abs(error) < Fraction(quantum)
+    if mode is Rounding.FLOOR:
+        assert error <= 0
+    elif mode is Rounding.CEILING:
+        assert error >= 0
+    elif mode is Rounding.TOWARD_ZERO:
+        assert abs(rounded.value) <= abs(value)
+
+
+@settings(max_examples=50, derandomize=True, database=None)
+@given(st.integers(-1_000_000, 1_000_000), st.integers(1, 10000))
+def test_fx_conversion_has_declared_currency_rounding_tolerance(raw: int, rate: int) -> None:
+    money = Money(value=D(raw) / 100, currency=Currency.EUR)
+    fx = FXRate(value=D(rate) / 100, base=Currency.EUR, quote=Currency.USD)
+    converted = fx.convert(money, target=Currency.USD, mode=Rounding.HALF_EVEN)
+    exact = Fraction(money.value) * Fraction(fx.value)
+    assert abs(Fraction(converted.value) - exact) <= Fraction(1, 200)
+    restored = fx.convert(converted, target=Currency.EUR, mode=Rounding.HALF_EVEN)
+    # One half-minor-unit error in each currency, expressed back in base units.
+    assert abs(Fraction(restored.value) - Fraction(money.value)) <= (
+        Fraction(1, 200) / Fraction(fx.value) + Fraction(1, 200)
+    )
+
+
+def test_money_fx_quantity_multiplier_and_negative_price_reconcile() -> None:
+    quantity = Quantity(value=D("-2"), dimension=CONTRACTS)
+    multiplier = Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES)
+    shares = multiplier.apply(quantity)
+    assert shares == Quantity(value=D("-200"), dimension=SHARES)
+    amount = Price(value=D("-5.25"), currency=Currency.USD, per=SHARES).amount(shares)
+    assert amount == Money(value=D("1050"), currency=Currency.USD)
+    fx = FXRate(value=D("150"), base=Currency.USD, quote=Currency.JPY)
+    assert fx.convert(amount, target=Currency.JPY, mode=Rounding.HALF_EVEN).value == D("157500")
+    assert (amount + amount - amount) == amount
+    assert Money(value=D("-1.005"), currency=Currency.USD).rounded(mode=Rounding.FLOOR).value == D(
+        "-1.01"
+    )
+
+
+@pytest.mark.parametrize(
+    "bad", [1, True, 1.0, "1", D("NaN"), D("sNaN"), D("Infinity"), D("1e18"), D("1e-19")]
+)
+def test_invalid_decimal_values_fail_without_coercion(bad: Any) -> None:
+    with pytest.raises(UnitError):
+        Money(value=bad, currency=Currency.USD)
+
+
+def test_magnitude_and_precision_boundaries_fail_closed() -> None:
+    valid = Money(value=D("999999999999999999.999999999999999999"), currency=Currency.USD)
+    with pytest.raises(UnitError, match="magnitude"):
+        valid + Money(value=D("0.000000000000000001"), currency=Currency.USD)
+    with pytest.raises(UnitError, match="representable"):
+        Price(value=D("1e-18"), currency=Currency.USD, per=SHARES).amount(
+            Quantity(value=D("0.1"), dimension=SHARES)
+        )
+    assert Money(value=D("-0"), currency=Currency.USD).value == 0
+
+
+def test_all_numeric_types_are_immutable_and_distinct() -> None:
+    rate = Rate(value=D("-0.02"), convention=CONVENTION)
+    yield_quote = Yield(value=D("-0.02"), convention=CONVENTION)
+    assert rate != yield_quote
+    with pytest.raises(UnitError, match="types and dimensions"):
+        rate + yield_quote
+    with pytest.raises(ValidationError, match="frozen"):
+        setattr(rate, "value", D("3"))
+    with pytest.raises(UnitError):
+        Volatility(value=D("-0.01"), day_count=DayCount.ACTUAL_365_FIXED)
+    with pytest.raises(UnitError):
+        Duration(value=D("-1"), day_count=DayCount.ACTUAL_360)
+    assert (rate + rate).value == D("-0.04")
+    vol = Volatility(value=D("0.2"), day_count=DayCount.ACTUAL_365_FIXED)
+    assert (vol + vol).value == D("0.4")
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda: dynamic(Money)(value=D("1"), currency="USD"),
+        lambda: dynamic(Dimension)(instrument_id=UUID(int=1), kind=QuantityKind.SHARE),
+        lambda: dynamic(Dimension)(instrument_id=InstrumentId(UUID(int=1)), kind="share"),
+        lambda: dynamic(Quantity)(value=D("1"), dimension={}),
+        lambda: dynamic(Price)(value=D("1"), currency=Currency.USD, per={}),
+        lambda: dynamic(RateConvention)(day_count="actual_360", compounding=Compounding.SIMPLE),
+        lambda: RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC),
+        lambda: RateConvention(
+            day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC, payments_per_year=True
+        ),
+        lambda: CONVENTION.model_copy(update={"payments_per_year": 1}),
+        lambda: EvaluationContext(evaluation_date=datetime(2024, 1, 1), convention_revision="v1"),
+        lambda: CONTEXT.model_copy(update={"convention_revision": " "}),
+        lambda: FXRate(value=D("1"), base=Currency.USD, quote=Currency.USD),
+        lambda: FXRate(value=D("0"), base=Currency.USD, quote=Currency.EUR),
+        lambda: Tick(value=D("0"), currency=Currency.USD, per=SHARES),
+        lambda: Lot(value=D("-1"), dimension=SHARES),
+        lambda: Multiplier(value=D("0"), input_dimension=SHARES, output_dimension=SHARES),
+    ],
+)
+def test_invalid_units_and_conventions(operation: Any) -> None:
+    with pytest.raises(UnitError):
+        operation()
+
+
+def test_mismatched_arithmetic_rounding_fx_and_multiplier_reject() -> None:
+    money = Money(value=D("1"), currency=Currency.USD)
+    price = Price(value=D("1"), currency=Currency.USD, per=SHARES)
+    quantity = Quantity(value=D("1"), dimension=CONTRACTS)
+    with pytest.raises(UnitError):
+        money + money.model_copy(update={"currency": Currency.EUR})
+    with pytest.raises(UnitError):
+        price.amount(quantity)
+    with pytest.raises(UnitError):
+        price.rounded(Tick(value=D("0.1"), currency=Currency.EUR, per=SHARES), mode=Rounding.FLOOR)
+    with pytest.raises(UnitError):
+        quantity.rounded(Lot(value=D("1"), dimension=SHARES), mode=Rounding.FLOOR)
+    with pytest.raises(UnitError):
+        Multiplier(value=D("100"), input_dimension=SHARES, output_dimension=CONTRACTS).apply(
+            quantity
+        )
+    with pytest.raises(UnitError):
+        FXRate(value=D("1.1"), base=Currency.EUR, quote=Currency.USD).convert(
+            money, target=Currency.JPY, mode=Rounding.HALF_EVEN
+        )
+    with pytest.raises(UnitError):
+        dynamic(money.rounded)(mode="nearest")
+    with pytest.raises(TypeError):
+        operator.mul(money, price)
+
+
+def test_decimal_context_cannot_change_any_exact_operation() -> None:
+    with localcontext() as context:
+        context.prec = 2
+        context.traps[Inexact] = True
+        money = Money(value=D("123.456"), currency=Currency.USD)
+        assert (money + money).value == D("246.912")
+        assert money.rounded(mode=Rounding.HALF_EVEN).value == D("123.46")
+        fx = FXRate(value=D("3"), base=Currency.EUR, quote=Currency.USD)
+        assert fx.convert(money, target=Currency.EUR, mode=Rounding.HALF_EVEN).value == D("41.15")
+        assert Price(value=D("123.45"), currency=Currency.USD, per=SHARES).amount(
+            Quantity(value=D("3"), dimension=SHARES)
+        ).value == D("370.35")
+
+
+@pytest.mark.parametrize(
+    ("convention", "candidate", "expected"),
+    [
+        (BDC.UNADJUSTED, date(2024, 8, 31), date(2024, 8, 31)),
+        (BDC.FOLLOWING, date(2024, 8, 31), date(2024, 9, 3)),
+        (BDC.MODIFIED_FOLLOWING, date(2024, 8, 31), date(2024, 8, 30)),
+        (BDC.PRECEDING, date(2024, 9, 1), date(2024, 8, 30)),
+        (BDC.MODIFIED_PRECEDING, date(2024, 9, 1), date(2024, 9, 3)),
+    ],
+)
+def test_business_day_and_settlement_goldens(
+    convention: BDC, candidate: date, expected: date
+) -> None:
+    assert adjust_business_day(candidate, calendar=calendar(), convention=convention) == expected
+    assert (
+        settlement_date(candidate, business_day_lag=0, calendar=calendar(), convention=convention)
+        == expected
+    )
+    assert settlement_date(
+        date(2024, 8, 30), business_day_lag=2, calendar=calendar(), convention=BDC.FOLLOWING
+    ) == date(2024, 9, 4)
+
+
+@pytest.mark.parametrize("lag", [-1, 367, True, 1.0])
+def test_bad_settlement_lag_rejects(lag: Any) -> None:
+    with pytest.raises(ConventionError, match="lag"):
+        settlement_date(
+            date(2024, 8, 30), business_day_lag=lag, calendar=calendar(), convention=BDC.FOLLOWING
+        )
+
+
+def test_calendar_coverage_and_unknown_conventions_fail_closed() -> None:
+    for candidate in (date(2024, 8, 28), date(2024, 9, 6)):
+        with pytest.raises(ConventionError, match="coverage"):
+            adjust_business_day(candidate, calendar=calendar(), convention=BDC.UNADJUSTED)
+    with pytest.raises(ConventionError, match="coverage"):
+        settlement_date(
+            date(2024, 9, 5), business_day_lag=1, calendar=calendar(), convention=BDC.FOLLOWING
+        )
+    empty = calendar().model_copy(update={"settlement_dates": ()})
+    with pytest.raises(ConventionError, match="coverage"):
+        adjust_business_day(date(2024, 8, 31), calendar=empty, convention=BDC.FOLLOWING)
+    with pytest.raises(UnitError):
+        adjust_business_day(date(2024, 8, 31), calendar=calendar(), convention=dynamic("following"))
+
+
+def test_native_failure_nonfinite_and_version_mismatch_are_owned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def calculate() -> None:
+        QuantLibConventions().time_to(
+            context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
+        )
+
+    monkeypatch.setattr(conventions, "version", lambda _: "1.40")
+    with pytest.raises(ConventionError, match="exactly"):
+        calculate()
+
+    def missing(_: str) -> str:
+        raise PackageNotFoundError
+
+    monkeypatch.setattr(conventions, "version", missing)
+    with pytest.raises(ConventionError, match="unavailable"):
+        calculate()
+    monkeypatch.setattr(conventions, "version", lambda _: "1.43")
+
+    class BadCounter:
+        def yearFraction(self, start: object, end: object) -> float:
+            return float("nan")
+
+    monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", BadCounter)
+    with pytest.raises(ConventionError, match="invalid year"):
+        calculate()
+
+    def fail() -> None:
+        raise RuntimeError("synthetic native failure")
+
+    monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", fail)
+    with pytest.raises(ConventionError, match="evaluation failed") as error:
+        calculate()
+    assert isinstance(error.value.__cause__, RuntimeError)
+
+
+def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls() -> None:
+    # Settings is touched only in this adversarial test, never by the owned adapter.
+    saved = getattr(conventions, "_ql").Settings.instance().evaluationDate
+    try:
+        getattr(conventions, "_ql").Settings.instance().evaluationDate = getattr(
+            conventions, "_ql"
+        ).Date(1, 1, 1999)
+        contexts = [
+            CONTEXT.model_copy(update={"evaluation_date": date(2024, 1, day)}) for day in (1, 2, 3)
+        ]
+
+        def evaluate(context: EvaluationContext) -> Decimal:
+            return (
+                QuantLibConventions()
+                .time_to(context=context, end=date(2024, 1, 4), day_count=DayCount.ACTUAL_360)
+                .duration.value
+            )
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            results = list(pool.map(evaluate, contexts))
+        assert results == [evaluate(context) for context in contexts]
+        assert results[0] > results[1] > results[2]
+        assert getattr(conventions, "_ql").Settings.instance().evaluationDate == getattr(
+            conventions, "_ql"
+        ).Date(1, 1, 1999)
+    finally:
+        getattr(conventions, "_ql").Settings.instance().evaluationDate = saved
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (date(1900, 1, 1), date(2024, 1, 1)),
+        (date(2024, 1, 1), date(2200, 1, 1)),
+        (date(2024, 1, 2), date(2024, 1, 1)),
+    ],
+)
+def test_day_count_invalid_dates_fail(start: date, end: date) -> None:
+    with pytest.raises(ConventionError):
+        QuantLibConventions().year_fraction(
+            context=CONTEXT, start=start, end=end, day_count=DayCount.ACTUAL_360
+        )
+
+
+@settings(max_examples=50, derandomize=True, database=None)
+@given(st.integers(0, 365), st.integers(0, 365))
+def test_actual360_intervals_are_additive(first: int, second: int) -> None:
+    adapter = QuantLibConventions()
+    start = CONTEXT.evaluation_date
+    middle = start + timedelta(days=first)
+    end = middle + timedelta(days=second)
+
+    def years(left: date, right: date) -> Decimal:
+        return adapter.year_fraction(
+            context=CONTEXT, start=left, end=right, day_count=DayCount.ACTUAL_360
+        ).duration.value
+
+    # Three 1e-15 roundings permit at most 1.5e-15 years absolute accumulation error.
+    assert abs(years(start, middle) + years(middle, end) - years(start, end)) <= D("1.5e-15")
+
+
+@pytest.mark.parametrize("bad", [float("inf"), -1.0, 1, True, None])
+def test_native_results_reject_wrong_type_sign_and_infinity(
+    monkeypatch: pytest.MonkeyPatch,
+    bad: Any,
+) -> None:
+    class Counter:
+        def yearFraction(self, start: object, end: object) -> Any:
+            return bad
+
+    monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", Counter)
+    with pytest.raises(ConventionError, match="invalid year"):
+        QuantLibConventions().time_to(
+            context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
+        )
+
+
+@pytest.mark.parametrize("bad", ["actual_360", None, 1])
+def test_unknown_day_count_is_not_coerced(bad: Any) -> None:
+    with pytest.raises(UnitError, match="day count"):
+        QuantLibConventions().time_to(context=CONTEXT, end=date(2025, 1, 1), day_count=bad)
+
+
+@pytest.mark.performance
+def test_financial_rounding_local_diagnostic_budget() -> None:
+    price = Price(value=D("123.456"), currency=Currency.USD, per=SHARES)
+    tick = Tick(value=D("0.05"), currency=Currency.USD, per=SHARES)
+    start = perf_counter()
+    for _ in range(10_000):
+        assert price.rounded(tick, mode=Rounding.HALF_EVEN).value == D("123.45")
+    elapsed = perf_counter() - start
+    print(f"C03 10000 tick-rounding operations: {elapsed:.6f}s; local budget 2s")
+    assert elapsed < 2
+
+
+def test_modified_adjustment_compares_year_as_well_as_month() -> None:
+    bounded = SettlementCalendar(
+        calendar_id="synthetic-sparse",
+        calendar_version="v1",
+        timezone_name="UTC",
+        covered_from=date(2024, 1, 1),
+        covered_through=date(2025, 1, 31),
+        settlement_dates=(date(2024, 1, 1), date(2025, 1, 31)),
+        source="synthetic",
+        source_revision="v1",
+    )
+    assert adjust_business_day(
+        date(2024, 1, 30), calendar=bounded, convention=BDC.MODIFIED_FOLLOWING
+    ) == date(2024, 1, 1)
+    assert adjust_business_day(
+        date(2025, 1, 2), calendar=bounded, convention=BDC.MODIFIED_PRECEDING
+    ) == date(2025, 1, 31)
+
+
+def test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation() -> None:
+    invalid_id = InstrumentId(UUID(int=1)).model_copy(update={"uuid_value": UUID(int=0)})
+    with pytest.raises(UnitError, match="non-nil"):
+        Dimension(instrument_id=invalid_id, kind=QuantityKind.SHARE)
+    invalid_calendar = calendar().model_copy(
+        update={"settlement_dates": (date(2024, 9, 3), date(2024, 8, 30))}
+    )
+    with pytest.raises(ConventionError, match="invalid settlement"):
+        adjust_business_day(date(2024, 8, 31), calendar=invalid_calendar, convention=BDC.FOLLOWING)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        SHARES,
+        CONVENTION,
+        CONTEXT,
+        Money(value=D("1.25"), currency=Currency.USD),
+        Quantity(value=D("2"), dimension=SHARES),
+        Price(value=D("1.25"), currency=Currency.USD, per=SHARES),
+        Tick(value=D("0.05"), currency=Currency.USD, per=SHARES),
+        Lot(value=D("1"), dimension=SHARES),
+        Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES),
+        FXRate(value=D("1.1"), base=Currency.EUR, quote=Currency.USD),
+        Rate(value=D("0.05"), convention=CONVENTION),
+        Yield(value=D("0.05"), convention=CONVENTION),
+        Volatility(value=D("0.2"), day_count=DayCount.ACTUAL_365_FIXED),
+        Duration(value=D("1"), day_count=DayCount.ACTUAL_360),
+        DayCountResult(
+            context=CONTEXT,
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 2),
+            duration=Duration(value=D("0.002777777777778"), day_count=DayCount.ACTUAL_360),
+        ),
+    ],
+)
+def test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics(
+    model: BaseModel,
+) -> None:
+    assert isinstance(model, BaseModel)
+    assert type(model).model_validate(dict(model)) == model
+    assert type(model).model_validate(model) == model
+    for deep in (False, True):
+        copied = model.model_copy(deep=deep)
+        assert copied == model and copied is not model
+        assert hash(copied) == hash(model)
+    field = next(iter(type(model).model_fields))
+    with pytest.raises(ValidationError, match="frozen"):
+        setattr(model, field, getattr(model, field))
+    with pytest.raises(UnitError, match="Extra inputs"):
+        model.model_copy(update={"unknown_field": "synthetic-sensitive-input"})
+
+
+@pytest.mark.parametrize("bad", [D("NaN"), D("1e18"), D("1e-19"), 1.0, "1.25"])
+def test_model_copy_revalidates_decimal_updates_without_mutating_original(bad: Any) -> None:
+    money = Money(value=D("1.25"), currency=Currency.USD)
+    with pytest.raises(UnitError):
+        money.model_copy(update={"value": bad})
+    assert money.value == D("1.25")
+    assert money.model_copy(update={"value": D("2.50")}).value == D("2.50")
+
+
+def test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies() -> None:
+    with pytest.raises(ValidationError, match="dimension"):
+        Quantity.model_validate({"value": D("1"), "dimension": SHARES.model_dump()})
+
+    class DerivedDimension(Dimension):
+        """Exercise the unsupported nested-subclass boundary."""
+
+    derived = DerivedDimension(instrument_id=SHARES.instrument_id, kind=SHARES.kind)
+    with pytest.raises(UnitError, match="dimension"):
+        Quantity(value=D("1"), dimension=derived)
+    # Deliberately call the framework's unchecked primitive to represent hostile input.
+    invalid = BaseModel.model_copy(SHARES, update={"kind": "share"})
+    with pytest.raises(UnitError, match="kind"):
+        Quantity(value=D("1"), dimension=invalid)
+    original = Quantity(value=D("1"), dimension=SHARES)
+    with pytest.raises(UnitError, match="kind"):
+        original.model_copy(update={"dimension": invalid})
+
+
+def test_constructor_errors_preserve_owned_types_and_hide_input_values() -> None:
+    secret = "synthetic-sensitive-input"
+    with pytest.raises(UnitError) as caught:
+        Money(value=D("1"), currency=dynamic(secret))
+    assert secret not in str(caught.value)
+    assert isinstance(caught.value.__cause__, ValidationError)
+    assert secret not in str(caught.value.__cause__)
+    assert "errors.pydantic.dev" not in str(caught.value)
+    with pytest.raises(ValidationError) as structured:
+        Money.model_validate({"value": D("1"), "currency": secret})
+    assert secret not in str(structured.value)
+    with pytest.raises(ConventionError, match="adapter version"):
+        DayCountResult(
+            context=CONTEXT,
+            start=date(2024, 1, 1),
+            end=date(2024, 1, 2),
+            duration=Duration(value=D("0"), day_count=DayCount.ACTUAL_360),
+            adapter_version="1.40",
+        )
+
+
+if __name__ == "__main__":
+    raise SystemExit(
+        pytest.main(
+            [
+                __file__,
+                "-q",
+                "-W",
+                "error",
+                "--strict-markers",
+                "-o",
+                "markers=performance: local diagnostic timing",
+                "-m",
+                "not performance",
+            ]
+        )
+    )

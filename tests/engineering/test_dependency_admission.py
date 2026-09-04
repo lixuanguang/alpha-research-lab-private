@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tomllib
 from datetime import UTC, date, datetime
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
@@ -55,6 +56,34 @@ def _policy_fixture(tmp_path: Path) -> Path:
     return path
 
 
+def _without_bootstrap(text: str) -> str:
+    """Isolate legacy and synthetic profile fixtures from current consumer records."""
+    return "bootstrap_wheel_admissions = []\n" + text.split("[[bootstrap_wheel_admissions]]")[
+        0
+    ].replace("bootstrap_wheel_admissions = []\n", "")
+
+
+def _copy_current_wheel_evidence(root: Path) -> None:
+    """Materialize structural-test inputs; process doubles do not authenticate signatures."""
+    data = tomllib.loads(POLICY_PATH.read_text())
+    for record in data.get("bootstrap_wheel_admissions", []):
+        reports = [
+            record[key]
+            for key in (
+                "source_review",
+                "security_review",
+                "native_inventory",
+                "compatibility_report",
+                "trusted_root",
+            )
+        ]
+        reports.extend(wheel["bundle"] for wheel in record["wheels"])
+        for report in reports:
+            target = root / report["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((REPOSITORY_ROOT / report["path"]).read_bytes())
+
+
 def _replace(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert old in text
@@ -88,9 +117,9 @@ def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() ->
     assert policy.successor_package == "B08"
     assert policy.pip_audit_version == "2.10.1"
     assert policy.scorecard_version == "5.5.0"
-    assert len(policy.packages) == 73
-    assert len({package.name for package in policy.packages}) == 73
-    assert len([package for package in policy.packages if package.native_artifacts]) == 13
+    assert len(policy.packages) == 74
+    assert len({package.name for package in policy.packages}) == 74
+    assert len([package for package in policy.packages if package.native_artifacts]) == 14
     assert policy.vulnerability_decisions == ()
     assert policy.emergency_overrides == ()
     assert policy.open_finding_ids == ("B07-F01", "B07-F02", "B07-F03")
@@ -109,7 +138,7 @@ def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() ->
         ('disposition = "approved"', 'disposition = "ignored"', "approved"),
         ('version = "2.10.1"', 'version = "2.9.0"', "pip-audit"),
         (
-            '"uv.lock" = "b4298e898165fb12a42420e54032906e25a536a9218b687ded00f107bbc50cdf"',
+            '"uv.lock" = "22f953c3cabb20af3d8203e188accb9a1011b4784b9674d77bc535930ffd31bd"',
             '"uv.lock" = "not-a-digest"',
             "lock_digests",
         ),
@@ -334,8 +363,16 @@ def test_scorecard_invalid_or_inconclusive_signal_fails_closed(
         )
 
 
-def test_exact_lock_wheels_and_transitives_match_registry() -> None:
-    assert _python_lock_findings(REPOSITORY_ROOT, load_policy(POLICY_PATH)) == []
+def test_exact_lock_wheels_and_transitives_match_registry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    wheel_cosign: None,
+) -> None:
+    # Real authentication remains blocking in validate_repository above and the full lane.
+    _copy_current_wheel_evidence(tmp_path)
+    (tmp_path / "uv.lock").write_bytes((REPOSITORY_ROOT / "uv.lock").read_bytes())
+    monkeypatch.setattr(subprocess, "run", _fake_cosign)
+    assert _python_lock_findings(tmp_path, load_policy(POLICY_PATH)) == []
 
 
 @pytest.mark.skipif(
@@ -757,6 +794,7 @@ def test_alternative_flows_through_existing_policy_and_lock_validator(
     wheel_cosign: None,
 ) -> None:
     record, replacement = _wheel_source_fixture(tmp_path)
+    _copy_current_wheel_evidence(tmp_path)
     policy_path = _policy_fixture(tmp_path)
     policy_path.write_text(
         "wheel_source_admissions = "
@@ -999,13 +1037,17 @@ def test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release(
     wheel_cosign: None,
 ) -> None:
     record, locked = _bootstrap_fixture(tmp_path)
+    record = record.model_copy(update={"finding_id": "B07-DEP-002"})
     policy_path = tmp_path / "docs/architecture/dependency-admission.toml"
     policy_path.parent.mkdir(parents=True)
     original = POLICY_PATH.read_text()
+    _copy_current_wheel_evidence(tmp_path)
     policy_path.write_text(
-        original.replace(
-            "bootstrap_wheel_admissions = []",
-            "bootstrap_wheel_admissions = " + _inline_toml([record.model_dump(mode="json")]),
+        original
+        + "\n[[bootstrap_wheel_admissions]]\n"
+        + "\n".join(
+            key + " = " + _inline_toml(value)
+            for key, value in record.model_dump(mode="json").items()
         )
     )
     policy = load_policy(policy_path)
@@ -1027,7 +1069,7 @@ def test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release(
     )
     with pytest.raises(DependencyAdmissionError, match="bootstrap-only"):
         require_release_admission(tmp_path)
-    policy_path.write_text(original)
+    policy_path.write_text(_without_bootstrap(original))
     for relative in policy.lock_paths:
         if relative != "uv.lock":
             destination = tmp_path / relative
@@ -1045,7 +1087,7 @@ def test_bootstrap_and_build_profiles_cannot_overlap(tmp_path: Path) -> None:
         "wheel_source_admissions = "
         + _inline_toml([build.model_dump(mode="json")])
         + "\n"
-        + policy_path.read_text().replace(
+        + _without_bootstrap(policy_path.read_text()).replace(
             "bootstrap_wheel_admissions = []",
             "bootstrap_wheel_admissions = " + _inline_toml([bootstrap.model_dump(mode="json")]),
         )
@@ -1071,7 +1113,9 @@ def test_cli_reports_bootstrap_limit_and_legacy_policy_remains_supported(
 ) -> None:
     record, _ = _bootstrap_fixture(tmp_path)
     policy_path = _policy_fixture(tmp_path)
-    legacy = policy_path.read_text().replace("bootstrap_wheel_admissions = []\n", "")
+    legacy = _without_bootstrap(policy_path.read_text()).replace(
+        "bootstrap_wheel_admissions = []\n", ""
+    )
     policy_path.write_text(legacy)
     assert load_policy(policy_path).bootstrap_wheel_admissions == ()
     policy_path.write_text(

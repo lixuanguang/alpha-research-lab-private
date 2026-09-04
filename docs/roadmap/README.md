@@ -121,7 +121,7 @@ rejected.
 | --- | --- | --- | --- | --- |
 | C01 | Stable instrument identity and temporal symbology mappings with retained auditable fixtures | Hypothesis 6.167 | Provider symbols terminate at adapters; canonical IDs and invariants are owned | B01-B05 |
 | C02 | Venue, session, calendar, market-status, and timezone contracts | `exchange_calendars` 4.13.2 | Versioned source/override adapter and pinned fixtures; never live authority | C01 |
-| C03 | Typed units, currencies, prices, quantities, and conventions | QuantLib 1.40 | Explicit day-count/convention adapters and evaluation context; no ambient global state | C01-C02 |
+| C03 | Typed units, currencies, prices, quantities, and conventions | QuantLib 1.43 | Explicit day-count/convention adapters and evaluation context; no ambient global state | C01-C02 |
 | C04 | Event, receipt, ingestion, knowledge, valid-time, sequence, and bitemporal model | — | Repository-owned thin-waist contract | C01-C03 |
 | C05 | Versioned market, reference, and lifecycle event schemas plus analytical representations | Protobuf, Buf, PyArrow 25.0.1 | Translate generated and Arrow types into owned domain types | C01-C04 |
 | C06 | Idempotent order, execution, and fill state machines with explicit invalid transitions | Hypothesis 6.167 | Property/state-machine tests; no framework-owned order model | C01-C05 |
@@ -547,8 +547,9 @@ A B07 admission follow-up under
 [ADR 0012](../architecture/decisions/0012-wheel-only-source-admission.md) adds an
 explicit upstream-source path for native packages without a PyPI sdist. It requires
 pinned source records and authenticated build provenance for every locked wheel;
-publication attestations alone are insufficient. No wheel-only dependency is
-admitted by this change. B07 remains partial and C03 remains unimplemented.
+publication attestations alone are insufficient for that build profile. The later
+bounded bootstrap profile permits the explicitly unverified, release-blocked C03
+QuantLib 1.43 admission described below. B07 remains partial.
 
 ### Active whole-artifact supply-chain delivery state
 
@@ -608,9 +609,28 @@ reconciliation findings. It remains `partial` and authorizes no release,
 promotion, deployment, activation, credentials, market access, capital, or
 expanded risk authority. It does not implement C03 units/conventions, C04
 knowledge-time history, D04 temporal master-data ingestion, live venue authority,
-or instrument-to-venue eligibility. The next documented selector is `C03`.
+or instrument-to-venue eligibility. Its `C03` successor is provisionally implemented
+separately below.
 The A08 machine-readable readiness registry is outside this delivery's scope and
 is unchanged; this C02 status does not claim a dashboard update or approval.
+
+### Active financial-unit and convention delivery state
+
+Typed financial units and conventions (`C03`) are provisionally implemented by the
+[financial-unit contract](../architecture/financial-units.md). Immutable owned
+money, FX, price, yield, volatility, rate, duration, multiplier, tick, lot and
+quantity values reject dimensional and precision errors. Explicit signed rounding,
+FX conversion, named day-count adapters and bounded C02 settlement conventions
+have hand-calculated and deterministic property/failure evidence.
+
+The maintainer selected QuantLib 1.43 after 1.40 failed warnings-as-errors native
+import compatibility. Its exact bootstrap admission expires 2026-10-04, retains
+unverified source-to-wheel binding (B07-DEP-001), and blocks all B08 artifact release.
+C03 is R2 with QG01-QG14 and remains `partial` pending independent, protected-platform
+and target-domain evidence. No A08 readiness registry, inventory, root command or
+CI lane is added. It authorizes no release, promotion, deployment, activation,
+credentials, market access, capital or expanded risk authority. The next selector
+is `C04`; time/bitemporal and accounting/valuation behavior is not implemented here.
 
 ## Recommended adoption order
 

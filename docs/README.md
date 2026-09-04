@@ -53,6 +53,8 @@ identity plus validity-dated, source-attributed symbology with ambiguity-safe
 resolution and retained corrections. C02 adds immutable venue, session, holiday,
 half-day, auction, halt, price-limit, settlement-calendar, and timezone contracts
 behind an exact-version reference adapter with synthetic cross-timezone fixtures.
+C03 adds typed exact financial values, explicit rounding/FX conversion and bounded
+convention adapters using QuantLib 1.43 under time-limited development admission.
 The repository does not yet contain the remaining canonical contracts, data
 plane, simulator, independent risk gateway, OMS/EMS, deployment lanes,
 observability substrate, or asset certification evidence.
@@ -255,6 +257,7 @@ independent-review, or target-environment evidence.
 | [Whole-artifact supply chain](architecture/artifact-supply-chain.md) | B08 SPDX SBOM, SLSA provenance, signed attestation boundary, immutable digest publication, consumer verification, rollback, evidence, and findings |
 | [Canonical instrument identity](architecture/instrument-identity.md) | C01 stable internal identities, temporal symbology, ambiguity and correction semantics, goldens, evidence, and C02 boundary |
 | [Venue, session, calendar, and market status](architecture/venue-calendar.md) | C02 venue/MIC/timezone values, versioned source and override adapter, sessions, closures, auctions, halts, limits, settlement dates, goldens, evidence, and C03 boundary |
+| [Typed financial units and conventions](architecture/financial-units.md) | C03 exact monetary/unit arithmetic, rounding/FX, explicit day-count context, bounded settlement conventions, admission, evidence and C04 boundary |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

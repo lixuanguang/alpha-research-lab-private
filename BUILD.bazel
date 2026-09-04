@@ -93,6 +93,15 @@ filegroup(
 )
 
 filegroup(
+    name = "financial_units_evidence_data",
+    srcs = [
+        "docs/governance/change-risk-policy.toml",
+        "docs/governance/evidence/examples/c03-r2-partial/manifest.toml",
+    ] + glob(["docs/governance/evidence/examples/c03-r2-partial/reports/**"]),
+    visibility = ["//tests/engineering:__pkg__"],
+)
+
+filegroup(
     name = "ci_policy_data",
     srcs = [
         "docs/architecture/ci-policy.toml",
@@ -124,7 +133,10 @@ filegroup(
         "requirements.bazel.txt",
         "uv.lock",
         "//tools/governance:pyproject.toml",
-    ] + glob(["docs/governance/evidence/examples/b07-r2-partial/reports/**"]),
+    ] + glob([
+        "docs/governance/evidence/examples/b07-r2-partial/reports/**",
+        "docs/governance/evidence/examples/c03-r2-partial/reports/**",
+    ]),
     visibility = ["//tests/engineering:__pkg__"],
 )
 
@@ -168,12 +180,14 @@ test_suite(
         "//tests/engineering:ci_runner_test",
         "//tests/engineering:instrument_identity_evidence_test",
         "//tests/engineering:venue_calendar_evidence_test",
+        "//tests/engineering:financial_units_evidence_test",
         "//tests/engineering:artifact_supply_chain_test",
         "//tests/engineering:engineering_standards_test",
         "//tests/engineering:dependency_admission_test",
         "//tests/engineering:remote_execution_test",
         "//tests/unit:instrument_identity_test",
         "//tests/unit:venue_calendar_test",
+        "//tests/unit:financial_units_test",
     ],
 )
 

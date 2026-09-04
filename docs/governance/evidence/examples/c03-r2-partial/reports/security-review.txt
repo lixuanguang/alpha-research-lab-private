@@ -1,0 +1,17 @@
+QuantLib 1.43 security review, 2026-09-04; local evidence, not independent approval.
+All 26 public PyPI 1.43 publication bundles verified using admitted Cosign 3.1.3,
+exact QuantLib-SWIG wheels.yml@refs/tags/v1.43 identity, GitHub OIDC issuer,
+retained Sigstore root, claims and transparency verification. The uv CPython 3.12
+lock selects 10 ABI3 wheels; every selected bundle and subject is retained and hashed.
+The retained verification.json records all 26 actual exit-zero results on Darwin.
+The source workflow uses SWIG 4.4.1; 1.43 is the current published stable release
+observed from PyPI on 2026-09-04. No maintenance support/EOL commitment is inferred.
+The exact pip-audit 2.10.1 scan passed for all 74 external locked Python packages,
+with no reported vulnerabilities or skipped packages; pip-audit.json is retained.
+Upstream Scorecard and independent exploitability/source/license review remain
+B07-F03; native build identity remains B07-DEP-001.
+Use is restricted to isolated development and CI with no secrets, live authority or
+external executable flow. No application runtime installation is introduced. B08's
+existing release guard blocks the entire graph for create/sign/publish/verify.
+Review expires 2026-10-04 without automatic renewal; Platform owns replacement or
+complete build-evidence closure. This report supplies no independent Security approval.

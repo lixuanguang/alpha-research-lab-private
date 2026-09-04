@@ -12,6 +12,7 @@ EXPECTED_RUNTIME_REQUIREMENTS = {
     "alpha-research-governance==0.1.0",
     "exchange-calendars==4.13.2",
     "pydantic==2.13.5",
+    "quantlib==1.43",
 }
 EXPECTED_TOOL_REQUIREMENTS = {"pydantic==2.13.5", "typer==0.27.2"}
 
