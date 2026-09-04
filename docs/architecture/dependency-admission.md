@@ -43,6 +43,73 @@ manylinux or musllinux wheel, in addition to the digest-bound source record. The
 checker does not execute or trust wheel metadata. Target-platform installation
 without source fallback remains external acceptance evidence.
 
+### Wheel-only source evidence
+
+[ADR 0012](decisions/0012-wheel-only-source-admission.md) adds an explicit alternate
+source path for native packages published without a PyPI sdist. All 73 current
+packages retain their existing sdist records. There are currently no activated
+wheel-only admissions, and no dependency or lock changes accompany this extension.
+
+The optional root `wheel_source_admissions` array contains strict records with
+the fields below. Omitting it preserves the existing behavior. An entry must match
+an exact native package already declared in the license and native-package policy.
+Duplicate or stale entries fail. A present `sdist` key, even malformed, cannot be
+overridden. All wheel hashes, approved registries, platform, transitive, license,
+vulnerability, review-expiry and complete-lock checks remain in force.
+
+| Field | Required evidence |
+| --- | --- |
+| `name`, `version`, `owner_role`, `rationale` | Exact admitted native package, `platform` owner, and 40-2000 character source-path justification |
+| `sources` | 1-100 ordered source records: credential-free HTTPS `uri` containing its exact 40-hex `revision` as a path segment, lowercase SHA-256 `sha256`, and admitted `license_expression` |
+| `builder_id`, `build_type` | Exact HTTPS SLSA builder and build-type identities |
+| `build_parameters_sha256` | SHA-256 of UTF-8 JSON containing `externalParameters` and `internalParameters`, with sorted keys, compact separators, ASCII escaping, and no trailing newline or non-finite values |
+| `certificate_identity`, `oidc_issuer` | Exact credential-free HTTPS identity and issuer; no regular-expression matching |
+| `trusted_root` | Repository-relative `path` and SHA-256 of retained Sigstore trusted-root JSON |
+| `wheels` | 1-100 records containing exact package/version wheel `filename`, `sha256`, and a `bundle` with repository-relative `path` and SHA-256 |
+
+Each bundle must use `application/vnd.dev.sigstore.bundle.v0.3+json` and a DSSE
+`application/vnd.in-toto+json` payload. The statement is in-toto v1 with SLSA
+provenance v1, a single exact wheel subject, and a predicate with `buildDefinition`
+and `runDetails`. The build definition has exactly `buildType`,
+`externalParameters`, `internalParameters`, and `resolvedDependencies`. The two
+parameter fields are JSON objects. Materials must exactly equal the ordered
+source list projected to `{"uri": URI, "digest": {"sha256": SHA256, "gitCommit": REVISION}}`.
+The run details require `builder: {"id": BUILDER_ID}` and may carry standard
+`metadata` and `byproducts`. Unknown fields outside those metadata objects,
+duplicate JSON keys, unsupported profiles, or mismatched identities fail closed.
+
+Cosign 3.1.3 authenticates the same checked bundle bytes using the retained trust
+root, exact signer/issuer, SLSA type and locked SHA-256, with claims and transparency
+checks enabled. The command uses the pinned Nix developer environment when Cosign
+is not on the host PATH. Its explicit `--trusted-root` and local bundle avoid
+mutable trust-cache/network resolution. Missing/incompatible tools, nonzero exits,
+or 60-second timeouts block admission. Evidence reads are capped at 5,000,000 bytes,
+reject symlinks at every path component, and verify hashes before copying inputs
+to a private temporary directory. No archive is executed or extracted.
+
+The signed materials bind asserted build inputs to exact wheel bytes. This is not
+a claim of reproducible native builds, a particular SLSA assurance level, safe
+source code, or independent approval. Platform/Security must review that sources
+include the complete native-library, Python-binding and build-recipe inputs, that
+the builder/signer is appropriate, and that retained trust roots are authentic.
+Archive bytes are digest-identified as with existing sdist records; admission does
+not fetch them. Each newly locked wheel, source correction, signer change, trust
+rotation or build-parameter change requires a new reviewed record and replay.
+
+QuantLib 1.40 and 1.43 publish no PyPI sdist. Available PyPI publish attestations
+identify the publisher but do not supply this source-to-build evidence. They are
+explicitly rejected as an alternative. QuantLib remains unadmitted and C03 remains
+unimplemented until an adequate upstream or governed build evidence path exists.
+No local report or synthetic signature is used to fill that gap.
+
+The existing command enforces this profile automatically. On failure, stop the
+dependency update, retain package/version, wheel digest, bundle and verifier
+diagnostic, reconcile sources/provenance with Platform and Security, then rerun
+admission and full checks. Do not disable claims, SCT or transparency-log checks.
+Rollback is a reviewed revert together with removal/replacement of any dependent
+wheel-only package and its lock entries. Current consumers require no migration.
+Existing B07-F01-F03 retain independent, protected-CI and qualified-review closure.
+
 Runtime package installation is prohibited. The `src` and `tools` runtime source
 trees are scanned for `pip install`, `python -m pip install`, `uv pip install`, and
 `uv add` execution. `uv sync --frozen` remains a declared developer/CI bootstrap

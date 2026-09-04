@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import subprocess
 from datetime import UTC, date, datetime
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from typing import IO, cast
 
 import pytest
 
@@ -20,10 +23,21 @@ from alpha_research_governance.dependency_admission import (
     run_pip_audit,
     validate_repository,
 )
+from alpha_research_governance.dependency_admission.models import (
+    EvidenceFile,
+    PythonPackageAdmission,
+    SourceArchive,
+    WheelProvenance,
+    WheelSourceAdmission,
+)
 from alpha_research_governance.dependency_admission.policy import (
     _lock_surface_findings,
     _python_lock_findings,
     _runtime_install_findings,
+)
+from alpha_research_governance.dependency_admission.wheel_sources import (
+    parse_wheel_sources,
+    verify_wheel_sources,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -371,6 +385,404 @@ def test_live_audit_missing_tool_version_and_cli_usage_are_explicit(
 
     assert main(["unsupported"]) == 2
     assert "usage:" in capsys.readouterr().err
+
+
+def _evidence_file(root: Path, filename: str, content: bytes) -> EvidenceFile:
+    (root / filename).write_bytes(content)
+    return EvidenceFile(path=filename, sha256=hashlib.sha256(content).hexdigest())
+
+
+def _wheel_source_fixture(root: Path) -> tuple[WheelSourceAdmission, dict[str, object]]:
+    """Make synthetic source claims; the fake runner does not authenticate these signatures."""
+    sources = (
+        SourceArchive(
+            uri="https://example.invalid/source/archive/" + "a" * 40,
+            revision="a" * 40,
+            sha256="b" * 64,
+            license_expression="BSD-3-Clause",
+        ),
+    )
+    parameters = {"externalParameters": {"version": "2.4.6"}, "internalParameters": {}}
+    wheels = []
+    locked = []
+    for platform, digest in (("macosx_11_0_arm64", "c" * 64), ("manylinux_2_28_x86_64", "d" * 64)):
+        filename = f"numpy-2.4.6-cp312-cp312-{platform}.whl"
+        statement = {
+            "_type": "https://in-toto.io/Statement/v1",
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "subject": [{"name": filename, "digest": {"sha256": digest}}],
+            "predicate": {
+                "buildDefinition": {
+                    "buildType": "https://example.invalid/native-wheel/v1",
+                    **parameters,
+                    "resolvedDependencies": [
+                        {
+                            "uri": source.uri,
+                            "digest": {"sha256": source.sha256, "gitCommit": source.revision},
+                        }
+                        for source in sources
+                    ],
+                },
+                "runDetails": {"builder": {"id": "https://example.invalid/builder"}},
+            },
+        }
+        bundle = json.dumps(
+            {
+                "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+                "verificationMaterial": {},
+                "dsseEnvelope": {
+                    "payloadType": "application/vnd.in-toto+json",
+                    "payload": base64.b64encode(json.dumps(statement).encode()).decode(),
+                    "signatures": [],
+                },
+            }
+        ).encode()
+        wheels.append(
+            WheelProvenance(
+                filename=filename,
+                sha256=digest,
+                bundle=_evidence_file(root, platform + ".json", bundle),
+            )
+        )
+        locked.append(
+            {"url": "https://files.pythonhosted.org/" + filename, "hash": "sha256:" + digest}
+        )
+    return WheelSourceAdmission(
+        name="numpy",
+        version="2.4.6",
+        owner_role="platform",
+        rationale="Synthetic native-wheel source evidence for deterministic validator tests only.",
+        sources=sources,
+        wheels=tuple(wheels),
+        builder_id="https://example.invalid/builder",
+        build_type="https://example.invalid/native-wheel/v1",
+        build_parameters_sha256=hashlib.sha256(
+            json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+        certificate_identity="https://example.invalid/workflow@refs/tags/v1",
+        oidc_issuer="https://example.invalid/issuer",
+        trusted_root=_evidence_file(root, "trust.json", b"{}"),
+    ), {"version": "2.4.6", "source": {"registry": "https://pypi.org/simple"}, "wheels": locked}
+
+
+def _parse_source_record(value: object) -> tuple[WheelSourceAdmission, ...]:
+    package = PythonPackageAdmission(
+        name="numpy",
+        version="2.4.6",
+        native_artifacts=True,
+        license_expression="BSD-3-Clause",
+    )
+    return parse_wheel_sources(value, (package,), {"BSD-3-Clause"})
+
+
+def _fake_cosign(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    output = cast(IO[str], kwargs["stdout"])
+    output.write("GitVersion:    v3.1.3\n" if command[1:] == ["version"] else "Verified OK\n")
+    return subprocess.CompletedProcess(command, 0)
+
+
+@pytest.fixture
+def wheel_cosign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    executable = tmp_path / "cosign"
+    executable.write_text("synthetic path; subprocess execution is mocked")
+    monkeypatch.setattr(
+        "alpha_research_governance.dependency_admission.wheel_sources.shutil.which",
+        lambda _: str(executable),
+    )
+
+
+def test_wheel_only_source_verification_pins_inputs_and_verifier_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    wheel_cosign: None,
+) -> None:
+    record, locked = _wheel_source_fixture(tmp_path)
+    assert _parse_source_record([record.model_dump(mode="json")]) == (record,)
+    calls: list[list[str]] = []
+
+    def inspect(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        assert command[0] == str(tmp_path / "cosign")
+        assert kwargs["timeout"] == 60
+        assert kwargs["env"] == {"PATH": os.environ.get("PATH", "")}
+        if command[1] != "version":
+            bundle = Path(command[command.index("--bundle") + 1])
+            trust = Path(command[command.index("--trusted-root") + 1])
+            assert bundle.parent != tmp_path and trust.read_bytes() == b"{}"
+            assert bundle.is_file()
+            assert "--check-claims=true" in command
+            assert (
+                command[command.index("--certificate-identity") + 1] == record.certificate_identity
+            )
+            assert command[command.index("--certificate-oidc-issuer") + 1] == record.oidc_issuer
+            assert command[command.index("--type") + 1] == "https://slsa.dev/provenance/v1"
+            assert not any("ignore" in arg or "regexp" in arg for arg in command)
+        return _fake_cosign(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", inspect)
+    verify_wheel_sources(tmp_path, locked, record)
+    assert len(calls) == 3
+    assert {call[call.index("--digest") + 1] for call in calls[1:]} == {"c" * 64, "d" * 64}
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("name", "unregistered", "exact native"),
+        ("version", "2.4.5", "exact native"),
+        ("owner_role", "unknown", "Platform"),
+        ("rationale", "", "fields"),
+        ("sources", [], "counts"),
+        ("wheels", [], "counts"),
+        ("builder_id", "http://example.invalid", "HTTPS"),
+        ("oidc_issuer", "https://user:password@example.invalid", "HTTPS"),
+        ("certificate_identity", "https://example.invalid?secret=bad", "HTTPS"),
+        ("build_parameters_sha256", "mutable", "fields"),
+        ("unknown", True, "fields"),
+    ],
+)
+def test_wheel_source_policy_rejects_invalid_records(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    record, _ = _wheel_source_fixture(tmp_path)
+    data = record.model_dump(mode="json")
+    data[field] = value
+    with pytest.raises(DependencyAdmissionError, match=message):
+        _parse_source_record([data])
+
+
+@pytest.mark.parametrize(
+    ("part", "field", "value", "message"),
+    [
+        ("sources", "uri", "https://example.invalid/main", "immutable revision"),
+        ("sources", "sha256", "", "fields"),
+        ("sources", "license_expression", "unreviewed", "license"),
+        ("wheels", "filename", "other-2.4.6-cp312-cp312-linux.whl", "filename"),
+        ("wheels", "sha256", True, "fields"),
+    ],
+)
+def test_nested_wheel_source_identity_is_strict(
+    tmp_path: Path,
+    part: str,
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    record, _ = _wheel_source_fixture(tmp_path)
+    data = record.model_dump(mode="json")
+    data[part][0][field] = value
+    with pytest.raises(DependencyAdmissionError, match=message):
+        _parse_source_record([data])
+
+
+@pytest.mark.parametrize("part", ["records", "sources", "wheels"])
+def test_duplicate_wheel_source_evidence_is_rejected(tmp_path: Path, part: str) -> None:
+    record, _ = _wheel_source_fixture(tmp_path)
+    data = record.model_dump(mode="json")
+    records = [data]
+    if part == "records":
+        records.append(data)
+    else:
+        data[part].append(data[part][0])
+    with pytest.raises(DependencyAdmissionError, match="duplicate"):
+        _parse_source_record(records)
+
+
+@pytest.mark.parametrize(
+    "path", ["../escape.json", "/tmp/escape.json", "./trust.json", "a//b", "a/../b"]
+)
+def test_wheel_source_paths_cannot_escape(tmp_path: Path, path: str) -> None:
+    record, _ = _wheel_source_fixture(tmp_path)
+    data = record.model_dump(mode="json")
+    data["trusted_root"]["path"] = path
+    with pytest.raises(DependencyAdmissionError, match="canonical and relative"):
+        _parse_source_record([data])
+
+
+@pytest.mark.parametrize(
+    "case", ["missing", "tampered", "symlink", "directory_symlink", "oversized"]
+)
+def test_wheel_source_files_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    wheel_cosign: None,
+) -> None:
+    record, locked = _wheel_source_fixture(tmp_path)
+    trust = tmp_path / record.trusted_root.path
+    if case == "missing":
+        trust.unlink()
+    elif case == "tampered":
+        trust.write_bytes(b"changed")
+    elif case == "symlink":
+        trust.unlink()
+        trust.symlink_to(tmp_path / record.wheels[0].bundle.path)
+    elif case == "directory_symlink":
+        (tmp_path / "link").symlink_to(tmp_path, target_is_directory=True)
+        data = record.model_dump(mode="json")
+        data["trusted_root"]["path"] = "link/trust.json"
+        record = _parse_source_record([data])[0]
+    else:
+        trust.write_bytes(b"x" * 5_000_001)
+    monkeypatch.setattr(subprocess, "run", _fake_cosign)
+    with pytest.raises(
+        DependencyAdmissionError, match=r"missing|digest mismatch|symlinks|size bound"
+    ):
+        verify_wheel_sources(tmp_path, locked, record)
+
+
+@pytest.mark.parametrize("case", ["omitted", "added", "duplicate", "digest", "source", "sdist"])
+def test_wheel_provenance_must_cover_the_complete_lock(tmp_path: Path, case: str) -> None:
+    record, locked = _wheel_source_fixture(tmp_path)
+    wheels = cast(list[dict[str, str]], locked["wheels"])
+    if case == "omitted":
+        wheels.pop()
+    elif case == "added":
+        wheels.append(
+            {"url": "https://files.pythonhosted.org/new.whl", "hash": "sha256:" + "e" * 64}
+        )
+    elif case == "duplicate":
+        wheels.append(wheels[0])
+    elif case == "digest":
+        wheels[0]["hash"] = "sha256:" + "e" * 64
+    elif case == "source":
+        wheels[0]["url"] = wheels[0]["url"].replace("files.pythonhosted.org", "example.invalid")
+    else:
+        locked["sdist"] = {"hash": "malformed"}
+    with pytest.raises(
+        DependencyAdmissionError, match=r"wheel set|duplicate|unapproved|existing sdist"
+    ):
+        verify_wheel_sources(tmp_path, locked, record)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "publish_only",
+        "subject",
+        "builder",
+        "parameters",
+        "materials",
+        "unknown",
+        "duplicate_json",
+        "encoding",
+    ],
+)
+def test_provenance_claims_are_checked_before_signature_acceptance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    wheel_cosign: None,
+) -> None:
+    record, locked = _wheel_source_fixture(tmp_path)
+    path = tmp_path / record.wheels[0].bundle.path
+    bundle = json.loads(path.read_bytes())
+    statement = json.loads(base64.b64decode(bundle["dsseEnvelope"]["payload"]))
+    predicate = statement["predicate"]
+    if case == "publish_only":
+        statement["predicateType"] = "https://docs.pypi.org/attestations/publish/v1"
+    elif case == "subject":
+        statement["subject"][0]["digest"]["sha256"] = "f" * 64
+    elif case == "builder":
+        predicate["runDetails"]["builder"]["id"] = "https://example.invalid/attacker"
+    elif case == "parameters":
+        predicate["buildDefinition"]["externalParameters"]["version"] = "2.4.5"
+    elif case == "materials":
+        predicate["buildDefinition"]["resolvedDependencies"] = []
+    elif case == "unknown":
+        predicate["buildDefinition"]["ignored"] = True
+    payload = json.dumps(statement)
+    if case == "duplicate_json":
+        payload = payload.replace('"subject":', '"subject": [], "subject":')
+    bundle["dsseEnvelope"]["payload"] = (
+        "%%%" if case == "encoding" else base64.b64encode(payload.encode()).decode()
+    )
+    evidence = _evidence_file(tmp_path, path.name, json.dumps(bundle).encode())
+    data = record.model_dump(mode="json")
+    data["wheels"][0]["bundle"] = evidence.model_dump()
+    record = _parse_source_record([data])[0]
+    monkeypatch.setattr(subprocess, "run", _fake_cosign)
+    with pytest.raises(DependencyAdmissionError, match=r"mismatch|unsupported|JSON|encoding"):
+        verify_wheel_sources(tmp_path, locked, record)
+
+
+@pytest.mark.parametrize("case", ["signature", "missing_tool", "timeout", "wrong_version"])
+def test_wheel_sources_require_successful_exact_verifier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    wheel_cosign: None,
+) -> None:
+    record, locked = _wheel_source_fixture(tmp_path)
+
+    def failing(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if case == "missing_tool":
+            raise FileNotFoundError("cosign")
+        if case == "timeout":
+            raise subprocess.TimeoutExpired(command, 60)
+        if case == "wrong_version":
+            cast(IO[str], kwargs["stdout"]).write("GitVersion:    v3.1.30\n")
+            return subprocess.CompletedProcess(command, 0)
+        if command[1] == "version":
+            return _fake_cosign(command, **kwargs)
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(subprocess, "run", failing)
+    with pytest.raises(DependencyAdmissionError, match="Cosign"):
+        verify_wheel_sources(tmp_path, locked, record)
+
+
+def _inline_toml(value: object) -> str:
+    if isinstance(value, dict):
+        return (
+            "{"
+            + ", ".join(f"{json.dumps(key)} = {_inline_toml(item)}" for key, item in value.items())
+            + "}"
+        )
+    if isinstance(value, list):
+        return "[" + ", ".join(_inline_toml(item) for item in value) + "]"
+    return json.dumps(value)
+
+
+def test_alternative_flows_through_existing_policy_and_lock_validator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    wheel_cosign: None,
+) -> None:
+    record, replacement = _wheel_source_fixture(tmp_path)
+    policy_path = _policy_fixture(tmp_path)
+    policy_path.write_text(
+        "wheel_source_admissions = "
+        + _inline_toml([record.model_dump(mode="json")])
+        + "\n"
+        + policy_path.read_text(),
+    )
+    policy = load_policy(policy_path)
+    assert policy.wheel_source_admissions == (record,)
+    parts = (REPOSITORY_ROOT / "uv.lock").read_text().split("[[package]]")
+    for index, part in enumerate(parts):
+        if '\nname = "numpy"\n' in part:
+            parts[index] = (
+                '\nname = "numpy"\n'
+                + "\n".join(f"{key} = {_inline_toml(value)}" for key, value in replacement.items())
+                + "\n\n"
+            )
+            break
+    else:
+        pytest.fail("numpy fixture missing")
+    (tmp_path / "uv.lock").write_text("[[package]]".join(parts))
+    monkeypatch.setattr(subprocess, "run", _fake_cosign)
+    assert _python_lock_findings(tmp_path, policy) == []
+    original = load_policy(POLICY_PATH)
+    assert original.wheel_source_admissions == ()
+    assert _python_lock_findings(tmp_path, original) == [
+        "numpy lacks a digest-bound source distribution"
+    ]
+    (tmp_path / record.wheels[0].bundle.path).write_bytes(b"tampered")
+    assert any("digest mismatch" in finding for finding in _python_lock_findings(tmp_path, policy))
 
 
 if __name__ == "__main__":

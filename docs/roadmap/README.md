@@ -543,6 +543,13 @@ promotion, deployment, activation, credentials, market access, capital, or expan
 risk authority. Its whole-artifact supply-chain successor is B08; that successor's
 implementation does not change B07's partial status or close its findings.
 
+A B07 admission follow-up under
+[ADR 0012](../architecture/decisions/0012-wheel-only-source-admission.md) adds an
+explicit upstream-source path for native packages without a PyPI sdist. It requires
+pinned source records and authenticated build provenance for every locked wheel;
+publication attestations alone are insufficient. No wheel-only dependency is
+admitted by this change. B07 remains partial and C03 remains unimplemented.
+
 ### Active whole-artifact supply-chain delivery state
 
 Whole-artifact supply-chain controls (`B08`) are provisionally implemented under
