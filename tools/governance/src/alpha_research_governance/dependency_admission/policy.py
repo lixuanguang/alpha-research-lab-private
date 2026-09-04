@@ -22,6 +22,10 @@ from alpha_research_governance.dependency_admission.models import (
     PythonPackageAdmission,
     VulnerabilityDecision,
 )
+from alpha_research_governance.dependency_admission.wheel_sources import (
+    parse_wheel_sources,
+    verify_wheel_sources,
+)
 from alpha_research_governance.evidence import (
     PackageEvidenceProfile,
     PackageGateRequirement,
@@ -321,7 +325,7 @@ def load_policy(path: Path) -> DependencyAdmission:
         document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     except tomllib.TOMLDecodeError as error:
         raise DependencyAdmissionError([f"{path}: invalid TOML: {error}"]) from error
-    if set(document) != _ROOT_KEYS:
+    if not _ROOT_KEYS <= set(document) or set(document) - _ROOT_KEYS - {"wheel_source_admissions"}:
         raise DependencyAdmissionError([f"{path}: has missing or unknown fields"])
     expected = {
         "accountable_owner_role": "platform",
@@ -503,6 +507,11 @@ def load_policy(path: Path) -> DependencyAdmission:
             local_evidence_manifest_path=cast(str, document["local_evidence_manifest_path"]),
             local_evidence_commit_sha=evidence_sha,
             open_finding_ids=finding_ids,
+            wheel_source_admissions=parse_wheel_sources(
+                document.get("wheel_source_admissions", []),
+                tuple(packages),
+                _APPROVED_PYTHON_LICENSES,
+            ),
         )
     except ValidationError as error:
         raise DependencyAdmissionError([f"{path}: model validation failed"]) from error
@@ -557,6 +566,7 @@ def _python_lock_findings(root: Path, policy: DependencyAdmission) -> list[str]:
         if item.get("source") in ({"registry": "https://pypi.org/simple"},)
     }
     admitted = {package.name for package in policy.packages}
+    wheel_sources = {record.name: record for record in policy.wheel_source_admissions}
     if external_names != admitted:
         findings.append(
             "uv.lock external packages and dependency admissions differ: "
@@ -572,7 +582,12 @@ def _python_lock_findings(root: Path, policy: DependencyAdmission) -> list[str]:
         if source != {"registry": "https://pypi.org/simple"}:
             findings.append(f"{package.name} uses an unapproved package source")
         sdist = item.get("sdist")
-        if (
+        if package.name in wheel_sources:
+            try:
+                verify_wheel_sources(root, item, wheel_sources[package.name])
+            except DependencyAdmissionError as error:
+                findings.extend(f"{package.name}: {finding}" for finding in error.findings)
+        elif (
             not isinstance(sdist, dict)
             or not isinstance(sdist.get("hash"), str)
             or _HASH.fullmatch(cast(str, sdist["hash"])) is None

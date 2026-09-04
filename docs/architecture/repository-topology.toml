@@ -397,6 +397,7 @@ sources = [
   "tools/governance/src/alpha_research_governance/dependency_admission/__main__.py",
   "tools/governance/src/alpha_research_governance/dependency_admission/models.py",
   "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+  "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py",
 ]
 
 [[units]]
