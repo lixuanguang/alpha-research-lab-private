@@ -1,10 +1,20 @@
-schema_version = 1
+schema_version = 2
 roadmap_package = "A03"
 operating_track = "solo_bootstrap"
 package_status = "partial"
 codeowners_path = "CODEOWNERS"
 unmatched_path_policy = "reject"
 author_may_satisfy_independent_review = false
+
+[operating_model]
+founder_principal = "@lixuanguang"
+
+[[role_assignments]]
+principal = "@lixuanguang"
+role = "founder"
+domains = ["assets", "data", "documentation_governance", "platform_runtime", "portfolio", "repository_platform", "research", "risk", "schemas", "security", "simulation", "trading"]
+status = "active"
+effective_from = "2026-09-04"
 
 [forge_enforcement]
 protected_branch = "main"

@@ -1,4 +1,33 @@
-# Domain Ownership and Independent Review
+# Domain Ownership and Operating Model
+
+## Current operating policy
+
+The version-2 [register](domain-ownership.toml) names `@lixuanguang` as the
+founder. Its `role_assignments` are actual people and effective domain scopes;
+the domain role catalog below remains the institutional target. This operating
+policy supersedes blueprint organizational sequencing for solo implementation.
+
+The founder decides implementation scope and acceptance after applicable
+technical checks. No external approval or missing-person finding is required
+to complete engineering. The [program register](program-governance.toml) owns
+`implementation_status`; its historical `status` remains institutional acceptance.
+The shared operating-model resolver derives `governance_status = not_required`
+while no active hire covers the domain, and `pending` once one does. That handover
+does not undo technical completion. Final handover acceptance is a later
+migration step; this resolver does not manufacture `complete` governance.
+
+Record a hire as `active` only after the person has joined, has working access,
+and has been assigned a role in the listed domains. `planned` and `inactive`
+assignments do not activate governance. `effective_from` is inclusive;
+`effective_until` is exclusive. One identity can have several roles but is never
+counted as several independent people. The founder cannot be registered again
+as a hired reviewer. No hire in one domain activates another domain's reviews.
+
+The resolver evaluates staffing on the current date, independently of the KPI
+snapshot date. Release, activation and institutional acceptance always resolve
+to the existing institutional profile. The R0-R4 policy and retained evidence
+bundles keep that meaning. The existing PR-body/evidence interface is migrated
+in step 2; the delivery dependency graph is migrated in step 3.
 
 ## Control metadata
 
@@ -6,13 +35,13 @@
 | --- | --- |
 | Roadmap package | A03 |
 | Operating track | Solo bootstrap |
-| Package status | Partial |
+| Institutional acceptance | Partial; implementation is tracked in the program register |
 | Accountable owner role | Platform |
 | Risk class | R0 governance change |
 | Applicable gates | QG12, QG13 |
 | Machine-readable policy | [Domain ownership register](domain-ownership.toml) |
 
-The register is authoritative for path ownership, required review roles,
+The register is authoritative for path ownership, institutional review roles,
 independent-review roles, escalation roles, forge enforcement, and open findings.
 The root `CODEOWNERS` file must mirror its ordered patterns and principals exactly.
 The ownership checker rejects mapping drift, missing required domains, role
@@ -24,7 +53,7 @@ recorded deliberately. For overlapping prefix patterns, the checker requires the
 broader rule to precede the narrower rule so last-match routing cannot silently
 replace a security owner with a broader domain owner.
 
-## Review and escalation policy
+## Institutional review and escalation policy
 
 - The accountable role owns contract clarity, compatibility, tests, operations,
   and the disposition of findings for its domain.
@@ -39,9 +68,9 @@ replace a security owner with a broader domain owner.
 - Source visibility and Code Owner status grant no data entitlement, credential,
   deployment, activation, venue, account, capital, or risk authority.
 
-The current `@lixuanguang` principal is the real solo-maintainer routing identity,
-not evidence of independent review. It must be replaced by provisioned role
-principals when the organization establishes the team-based operating model.
+The current `@lixuanguang` principal is the real founder routing identity,
+not evidence of independent review. Update routing for domains assigned to new
+owners as the organization establishes the team-based operating model.
 
 ## Enforcement and evidence
 

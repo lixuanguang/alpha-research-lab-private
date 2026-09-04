@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -13,9 +14,95 @@ from alpha_research.ownership_governance import (
     OwnershipGovernanceError,
     validate_repository,
 )
+from alpha_research_governance.operating_model import OperatingModelError, load_operating_model
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 REGISTER_PATH = REPOSITORY_ROOT / "docs" / "governance" / "domain-ownership.toml"
+
+
+@pytest.mark.parametrize(
+    ("status", "effective_from", "expected"),
+    [
+        ("planned", "2026-09-04", "not_required"),
+        ("active", "2026-09-06", "not_required"),
+        ("inactive", "2026-09-04", "not_required"),
+        ("active", "2026-09-04", "pending"),
+    ],
+)
+def test_only_effective_scoped_hires_activate_handover(
+    tmp_path: Path, status: str, effective_from: str, expected: str
+) -> None:
+    """Hiring activates only the joined person's assigned domain, without blocking engineering."""
+    _, register, _ = _policy_fixture(tmp_path)
+    with register.open("a") as stream:
+        stream.write(f'''\n[[role_assignments]]
+principal = "@security-hire"
+role = "security"
+domains = ["security"]
+status = "{status}"
+effective_from = "{effective_from}"
+''')
+    model = load_operating_model(register)
+    security = model.resolve(
+        domain_id="security", operation="implementation", on_date=date(2026, 9, 5)
+    )
+    platform = model.resolve(
+        domain_id="repository_platform", operation="implementation", on_date=date(2026, 9, 5)
+    )
+    assert security.governance_status == expected
+    assert platform.governance_status == "not_required"
+    assert platform.assigned_reviewers == ()
+    security.require_local_completion(repository_local_status="passed", technical_finding_ids=())
+
+
+def test_solo_completion_needs_technical_evidence_but_no_external_approval() -> None:
+    """The same resolver rejects technical failures and institutional operation shortcuts."""
+    model = load_operating_model(REGISTER_PATH)
+    rules = model.resolve(
+        domain_id="repository_platform", operation="implementation", on_date=date(2026, 9, 5)
+    )
+    assert rules.profile == "founder"
+    assert rules.assigned_reviewers == ()
+    rules.require_local_completion(repository_local_status="passed", technical_finding_ids=())
+    for result, findings in [("failed", ()), ("passed", ("broken-schema",))]:
+        with pytest.raises(OperatingModelError, match="passing repository-local evidence"):
+            rules.require_local_completion(
+                repository_local_status=result, technical_finding_ids=findings
+            )
+    for operation in ("release", "activation", "institutional_acceptance"):
+        institutional = model.resolve(
+            domain_id="repository_platform", operation=operation, on_date=date(2026, 9, 5)
+        )
+        with pytest.raises(OperatingModelError, match="cannot authorize institutional"):
+            institutional.require_local_completion(
+                repository_local_status="passed", technical_finding_ids=()
+            )
+
+
+@pytest.mark.parametrize(
+    ("principal", "role", "domain", "message"),
+    [
+        ("@lixuanguang", "security", "security", "founder cannot"),
+        ("@new-hire", "invented_role", "security", "not defined"),
+        ("@new-hire", "security", "unknown", "unknown assignment domain"),
+        ("@organization/team", "security", "security", "individual @user"),
+    ],
+)
+def test_operating_model_rejects_invented_or_misleading_assignments(
+    tmp_path: Path, principal: str, role: str, domain: str, message: str
+) -> None:
+    """A role catalog or duplicate founder identity is not evidence of a new hire."""
+    _, register, _ = _policy_fixture(tmp_path)
+    with register.open("a") as stream:
+        stream.write(f'''\n[[role_assignments]]
+principal = "{principal}"
+role = "{role}"
+domains = ["{domain}"]
+status = "active"
+effective_from = "2026-09-04"
+''')
+    with pytest.raises(OperatingModelError, match=message):
+        load_operating_model(register)
 
 
 def _policy_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:

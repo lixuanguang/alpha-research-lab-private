@@ -102,6 +102,11 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     assert program.finding_ids == ("A08-F01", "A08-F02", "A08-F03")
     assert all(state.status == "partial" for state in program.package_states)
     assert all(state.repository_local_status == "passed" for state in program.package_states)
+    assert program.schema_version == 2
+    assert program.implementation_status == "complete"
+    assert program.governance_status == "not_required"
+    assert all(state.implementation_status == "complete" for state in program.package_states)
+    assert all(state.governance_status == "not_required" for state in program.package_states)
     assert all(metric.collection_mode == "automatic_event" for metric in program.metrics)
     assert all(not metric.manual_entry_allowed for metric in program.metrics)
     assert all(not metric.hard_gate_substitute for metric in program.metrics)
@@ -198,7 +203,7 @@ def test_program_dates_require_extended_calendar_format(tmp_path: Path) -> None:
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         path,
-        'as_of_date = "2026-09-03"',
+        'as_of_date = "2026-09-04"',
         'as_of_date = "20260901"',
     )
 
@@ -524,3 +529,94 @@ def test_cli_emits_stable_filtered_dashboard(
     assert main([str(REPOSITORY_ROOT), "--ready", "solo"]) == 0
     ready = json.loads(capsys.readouterr().out)
     assert [item["package_id"] for item in ready["packages"]] == ["C02"]
+
+
+def test_solo_package_completes_without_invented_findings(tmp_path: Path) -> None:
+    """Legacy external gaps are optional for new implementation completion records."""
+    path = _policy_fixture(tmp_path)
+    _replace_program_fixture_text(
+        path,
+        'open_finding_ids = ["A01-F01", "A01-F02", "A01-F03"]',
+        "open_finding_ids = []",
+    )
+    program = load_program(path, repository_root=REPOSITORY_ROOT)
+    state = program.state_for("A01")
+    assert state is not None
+    assert state.implementation_status == "complete"
+    assert state.open_finding_ids == ()
+    assert state.technical_finding_ids == ()
+    assert state.assigned_reviewers == ()
+    assert state.governance_status == "not_required"
+    assert program.ready_packages(institutional=True) == ()
+
+
+def test_blocked_technical_dependency_stops_solo_readiness(tmp_path: Path) -> None:
+    """Failed C01 evidence remains visible and prevents the next dependent package."""
+    path = _policy_fixture(tmp_path)
+    text = path.read_text()
+    prefix, suffix = text.split('package_id = "C01"', 1)
+    suffix = suffix.replace(
+        'implementation_status = "complete"', 'implementation_status = "blocked"', 1
+    )
+    suffix = suffix.replace(
+        'repository_local_status = "passed"', 'repository_local_status = "failed"', 1
+    )
+    path.write_text(prefix + 'package_id = "C01"' + suffix)
+    program = load_program(path, repository_root=REPOSITORY_ROOT)
+    assert program.ready_packages(institutional=False) == ()
+
+
+def test_technical_findings_cannot_be_hidden_by_complete_status(tmp_path: Path) -> None:
+    """A finding about technical behavior blocks completion even with passing tests."""
+    path = _policy_fixture(tmp_path)
+    _replace_program_fixture_text(
+        path, "technical_finding_ids = []", 'technical_finding_ids = ["broken-schema"]'
+    )
+    with pytest.raises(ProgramGovernanceError, match="no technical findings"):
+        load_program(path, repository_root=REPOSITORY_ROOT)
+
+
+def test_program_reader_retains_version_one_semantics(tmp_path: Path) -> None:
+    """Old records remain readable with their original institutional acceptance meaning."""
+    path = _policy_fixture(tmp_path)
+    lines = path.read_text().replace("schema_version = 2", "schema_version = 1", 1).splitlines()
+    path.write_text(
+        "\n".join(
+            line
+            for line in lines
+            if not line.startswith(
+                ("implementation_status =", "domain_id =", "technical_finding_ids =")
+            )
+        )
+        + "\n"
+    )
+    program = load_program(path, repository_root=REPOSITORY_ROOT)
+    assert program.schema_version == 1
+    assert program.ready_packages(institutional=True) == ()
+    assert program.ready_packages(institutional=False)[0].package_id == "C02"
+    assert all(state.status == "partial" for state in program.package_states)
+
+
+def test_hiring_derives_scoped_governance_without_rewriting_package_states(tmp_path: Path) -> None:
+    """Only Security's handover becomes pending, and all completed engineering stays complete."""
+    register = tmp_path / "ownership.toml"
+    register.write_text(
+        (REPOSITORY_ROOT / "docs/governance/domain-ownership.toml").read_text()
+        + """
+[[role_assignments]]
+principal = "@security-hire"
+role = "security"
+domains = ["security"]
+status = "active"
+effective_from = "2026-09-04"
+"""
+    )
+    program = load_program(
+        POLICY_PATH, repository_root=REPOSITORY_ROOT, ownership_register_path=register
+    )
+    pending = [
+        state.package_id for state in program.package_states if state.governance_status == "pending"
+    ]
+    assert pending == ["A07"]
+    assert all(state.implementation_status == "complete" for state in program.package_states)
+    assert program.ready_packages(institutional=False)[0].package_id == "C02"

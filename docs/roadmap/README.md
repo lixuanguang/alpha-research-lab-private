@@ -16,9 +16,10 @@ prose leads with the package name and places the selector in parentheses. If a
 package exceeds reviewable size, split it into code, migration, backfill, and
 rollout MRs while preserving the selector as an epic.
 Prefer one logical behavior change and keep non-generated changes near or below
-400 lines where practical. Every MR inherits its R0-R4 approvers and mandatory
+400 lines where practical. Institutional acceptance uses the R0-R4 approvers and
 QG01-QG15 evidence from
 [quality and operations](../architecture/operations.md).
+Solo implementation follows the operating policy below.
 
 A wave is complete only when exit evidence is demonstrated in the target
 environment. Code merge, a favorable metric, or a dashboard score alone does not
@@ -26,49 +27,34 @@ complete a package.
 
 ## Solo-bootstrap execution overlay
 
-The repository currently has one maintainer. Until the required team and
-independent review functions exist, implementation may use a provisional
-solo-bootstrap track. This overlay changes the execution status of work, not the
-roadmap dependency graph, package exit criteria, quality gates, promotion rules,
-or definition of institutional completion.
+The repository currently has one founder. The
+[current operating policy](../governance/domain-ownership.md#current-operating-policy)
+supersedes the blueprint's organizational sequencing for solo implementation.
 
-Two states must remain distinct:
+The version-2 program registry separates three meanings:
 
-- **Provisionally implemented:** the smallest coherent package behavior and all
-  repository-local evidence within the maintainer's control are complete, while
-  explicitly identified organizational or external acceptance evidence is
-  deferred. Its package status remains `partial`.
-- **Validated:** every required artifact, test, compatibility check, target-
-  environment exercise, approval, and exit-evidence item exists. Only this state
-  completes a dependency for institutional validation or a wave exit.
+- **Implementation:** planned, in_progress, complete or blocked. Complete means
+  the declared repository-local behavior and applicable technical checks pass
+  with no technical findings. Founder acceptance is sufficient.
+- **Governance:** not_required until a relevant hire is active in the package's
+  domain, then pending for scoped handover. An unfilled role is not a defect,
+  overdue task or reason to reverse engineering completion.
+- **Institutional acceptance:** existing partial/validated records, evidence and
+  operation-specific requirements remain available for future acceptance.
 
-Solo-bootstrap work may move to the next provisional package only when:
+Technical prerequisites still determine development readiness. Step 1 retains
+this roadmap's dependency graph and package coverage; step 3 will distinguish
+implementation dependencies from release and organizational dependencies and
+reconcile the later C02/C03 package states.
 
-1. The predecessor's required repository-local artifacts and deterministic tests
-   exist and pass.
-2. No missing technical prerequisite, architectural decision, schema, migration,
-   safety control, or locally enforceable security control is being deferred.
-3. Every remaining finding genuinely requires an unavailable independent role,
-   organization, external control plane, or target acceptance environment.
-4. The new package can be implemented and tested coherently without pretending
-   the predecessor is validated or absorbing a separate missing technical package.
+Organizational completion is the final conditional handover after relevant hires
+join. Review the current baseline and material unresolved issues within each
+hire's scope. Do not require reapproval of every historical commit in wave order.
+If no hires join, this handover remains inactive indefinitely.
 
-Each provisional package records its risk class, applicable gates, completed
-evidence, deferred evidence, owner, closure condition, and explicit non-goals.
-The maintainer may cover implementation roles but must not manufacture independent
-risk, model-validation, SRE, security, compliance, legal, venue, or capital-owner
-approval.
-
-Solo bootstrap never permits production credentials, external executable order
-flow, deployment or activation authority, capital exposure, or expansion of a
-venue, account, instrument, or risk envelope. Paper, shadow, canary, live, release,
-and promotion claims retain all original gates and target-environment evidence.
-
-When the team forms, provisional packages are reviewed in original dependency
-order. Deferred gates are executed, findings are remediated, and commit-bound
-approvals are recorded before any package becomes `validated`. Provisional work
-is not grandfathered, and a later provisional implementation cannot compensate
-for a failed earlier hard gate.
+Repository implementation does not authorize release, production credentials,
+executable external orders or capital exposure. Those operations retain their
+applicable technical controls and institutional acceptance requirements.
 
 ## Milestones
 

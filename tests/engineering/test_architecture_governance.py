@@ -13,6 +13,7 @@ from alpha_research.architecture_governance import (
     validate_local_links,
     validate_repository,
 )
+from alpha_research_governance.operating_model import load_operating_model
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 
@@ -81,6 +82,7 @@ def test_repository_architecture_governance_is_valid() -> None:
         "0011-versioned-venue-calendar-adapter.md",
         "0012-wheel-only-source-admission.md",
         "0013-explicit-financial-units-and-conventions.md",
+        "0014-founder-implementation-acceptance.md",
     ]
 
 
@@ -160,6 +162,30 @@ def test_accepted_adr_requires_commit_bound_https_approval(tmp_path: Path) -> No
     )
     with pytest.raises(ArchitectureGovernanceError, match="HTTPS evidence URL"):
         validate_adr(path, expected_identifier=1)
+
+
+def test_founder_adr_acceptance_uses_registered_identity_and_scope(tmp_path: Path) -> None:
+    """Founder decisions are valid for implementation without fabricated external approvals."""
+    path = tmp_path / "0001-test-decision.md"
+    text = _adr_text(
+        status="Founder accepted",
+        decision_date="2026-09-05",
+        approval_evidence="founder=@lixuanguang",
+    ).replace(
+        "| Decision owner | platform |",
+        "| Decision owner | platform |\n| Operating domain | repository_platform |",
+    )
+    path.write_text(text)
+    model = load_operating_model(REPOSITORY_ROOT / "docs/governance/domain-ownership.toml")
+    validate_adr(path, expected_identifier=1, operating_model=model)
+    with pytest.raises(ArchitectureGovernanceError, match="requires the operating model"):
+        validate_adr(path, expected_identifier=1)
+    path.write_text(text.replace("founder=@lixuanguang", "founder=@invented"))
+    with pytest.raises(ArchitectureGovernanceError, match="registered founder"):
+        validate_adr(path, expected_identifier=1, operating_model=model)
+    path.write_text(text.replace("repository_platform", "unknown_domain"))
+    with pytest.raises(ArchitectureGovernanceError, match="unknown operating domain"):
+        validate_adr(path, expected_identifier=1, operating_model=model)
 
 
 def test_decision_log_rejects_unlogged_and_noncontiguous_records(tmp_path: Path) -> None:

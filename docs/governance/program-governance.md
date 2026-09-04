@@ -6,7 +6,9 @@
 | --- | --- |
 | Roadmap package | A08 |
 | Operating track | Solo bootstrap |
-| Package status | Partial |
+| Implementation | Complete for the repository-local A08 contract |
+| Governance | Not required until a relevant hire joins |
+| Institutional acceptance | Partial |
 | Accountable owner role | Platform |
 | Risk class | R2 shared governance and measurement contract |
 | Dependencies | A01-A07, provisionally satisfied with open findings |
@@ -22,11 +24,22 @@ expressions. The checker expands exact ranges, represents conditional asset
 dependencies as explicit `any of` groups, rejects unknown or duplicate packages,
 and fails on self-dependencies or cycles.
 
-The program policy records implementation state only for A01-C01. Packages without
+The version-2 program policy records implementation state only for A01-C01. Packages without
 an explicit state remain `planned`; no empty package is treated as implemented.
-Every partial dependency records passing repository-local evidence, its retained
-finding IDs, and only the deferred evidence classes permitted by the solo-bootstrap
-overlay. A partial package is never reported as validated or wave-complete.
+Each state separates `implementation_status`, `technical_finding_ids` and
+`domain_id` from its retained institutional `status`, findings and deferred
+evidence. Governance status and assigned reviewers are derived from the
+[current operating policy](domain-ownership.md#current-operating-policy).
+Completed implementation requires passing local evidence, no technical findings
+and complete technical dependencies. It does not require an external approval or
+an invented finding. A failed local result requires blocked implementation.
+
+Version-1 records remain readable with their original partial/validated meaning.
+Existing evidence manifests still prove their original institutional contract;
+they are not rewritten as founder approvals. In JSON, `status` and `package_status`
+remain compatibility fields for institutional acceptance; use the explicit
+`implementation_status` and `governance_status` fields for current work. Unregistered
+packages have planned implementation and no evaluated governance status.
 
 ## Delivery dashboard and readiness
 
@@ -36,9 +49,8 @@ state, and the next package ready under institutional or solo-provisional rules.
 Readiness is derived from the graph:
 
 - Institutional readiness requires every dependency to be `validated`.
-- Solo readiness accepts a `partial` dependency only when its repository-local
-  status is `passed` and its remaining evidence is explicitly external,
-  organizational, independent, qualified, or target-environment evidence.
+- Solo readiness requires complete implementation of its dependencies. Pending
+  organizational handover does not change technical readiness.
 - A later package cannot make an earlier partial package validated and cannot
   hide a missing dependency behind a score.
 
@@ -52,9 +64,11 @@ uv run --frozen alpha-governance-program \
   --metric kpi.research_reproducibility_percent
 ```
 
-With C01 repository-local evidence present, A01-C01 remain `partial` and the next
-solo-provisionally ready package is C02. Institutional readiness remains empty
-because none of the provisional A01-C01 states is validated.
+The 17 registered A01-C01 states show complete local implementation and no active
+governance requirement under the current founder assignment. Their institutional
+acceptance remains partial. The existing graph still returns C02: reconciling
+C02/C03 and separating dependency purposes is migration step 3, not a new claim
+that those packages lack implementation. Institutional readiness remains empty.
 
 ## KPI and observation contract
 
@@ -122,11 +136,11 @@ merged-result evidence is unavailable.
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
-Schema version 1 is additive and has no database, runtime state, generated client,
-or existing observation consumer to migrate. B01c, B02-B08, and C01 add their
-partial package states without changing graph or observation schemas. Future
-incompatible graph or event changes require a versioned compatibility window and
-retained old readers.
+Schema version 2 adds implementation state while retaining version-1 program
+reading and observation schema version 1. The ownership roster is evaluated at
+the current date; it is independent of the observation snapshot's `as_of_date`.
+Migration step 1 changes no dependency edges or KPI semantics. A later handover
+implementation will record governance completion against reviewed evidence.
 
 Rollout adds one repository validator to the root, pre-commit, and hosted-CI
 interfaces. It does not connect a target telemetry backend or deploy/activate a
@@ -155,7 +169,8 @@ metrics they own after representative target baselines exist.
 | A08-F02 | Domain Architecture | Named metric owners, Code Owner, and independent reviewer resolve findings and approve the exact graph, definitions, baselines, and numeric targets |
 | A08-F03 | Platform/CI | Protected CI validates the exact merged result, publishes the commit-bound dashboard, and retains pass and blocking-mutation evidence |
 
-These findings are not waivers or approvals. A08 remains partial until all close.
+These findings retain institutional acceptance obligations. They do not prevent
+local implementation completion or make an unstaffed role an active blocker.
 
 ## Non-goals
 

@@ -9,6 +9,12 @@ service tiers, change classes, QG01-QG15 catalog, promotion controls, and
 definition of done. A score or favorable PnL cannot compensate for a failed
 mandatory control.
 
+For solo implementation, the
+[current operating policy](../governance/domain-ownership.md#current-operating-policy)
+supersedes organizational approval prerequisites in this catalog. Technical
+requirements still apply to the capability being implemented. Human review and
+target-operation acceptance remain separate from engineering completion.
+
 ## Service criticality
 
 | Tier | Examples | Minimum posture |
@@ -43,12 +49,14 @@ Implementation starts only when the MR has:
 
 - A linked roadmap item or issue, owner, risk class, and impacted systems.
 - Explicit scope and non-goals.
-- An approved ADR for cross-cutting changes.
+- An ADR accepted by the founder for cross-cutting solo implementation, or the
+  applicable institutional decision for an institutional operation.
 - Data, model, schema, security, entitlement, regulatory, and model-risk impact
   analysis as applicable.
 - Test and benchmark plans with acceptance thresholds.
 - Migration, rollout, rollback, monitoring, and runbook plans.
-- Dependency and reviewer availability.
+- Available technical dependencies. Unstaffed review roles do not prevent
+  implementation; active scoped hires create a separate handover requirement.
 
 ### Required MR shape
 
@@ -79,7 +87,7 @@ change.
 | QG14 | Observability/SLO | Metrics, logs, traces, audit, dashboards, alerts, cardinality, SLO, owner, and synthetic alert evidence |
 | QG15 | Deployment/promotion | Staging/merged result, paper, shadow, canary, rollout/rollback, activation envelope, signed release manifest, post-deploy validation |
 
-### Mandatory gates and approvers
+### Institutional gates and approvers
 
 | Class | Mandatory gates | Minimum approvers |
 | --- | --- | --- |
@@ -267,7 +275,15 @@ trial ledger through data, code, build, model, simulation, risk, approvals,
 deployment, decisions, orders, incidents, rollback, and retirement without private
 workstation state.
 
-An MR or capability is done only when all applicable conditions hold:
+Implementation is done when its declared repository-local behavior, applicable
+technical tests, compatibility and documentation pass, no technical finding
+remains, and the founder accepts the work. The program registry records this as
+`implementation_status = complete`. Governance is `not_required` until a relevant
+hire joins, then `pending` for scoped handover. Neither state grants release or
+activation authority. A failing local check or technical prerequisite blocks
+completion regardless of team size.
+
+Institutional acceptance and operation additionally require these applicable conditions:
 
 - Code and tests merge through the required affected-target and merged-result
   pipelines with mandatory approvals.
