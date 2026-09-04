@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -47,28 +47,49 @@ class EvidenceFile(ImmutableModel):
 
 
 class WheelProvenance(ImmutableModel):
-    """Bind one locked wheel to a retained Sigstore build-attestation bundle."""
+    """Bind one locked wheel to a retained Sigstore attestation bundle."""
 
     filename: str
     sha256: Sha256
     bundle: EvidenceFile
 
 
-class WheelSourceAdmission(ImmutableModel):
-    """Require authenticated SLSA source evidence in place of an absent PyPI sdist."""
+class WheelEvidenceAdmission(ImmutableModel):
+    """Identify reviewed sources, locked wheels and their expected attestation signer."""
 
     name: str
     version: str
     owner_role: str
     rationale: Annotated[str, Field(min_length=40, max_length=2000)]
     sources: tuple[SourceArchive, ...]
-    builder_id: str
-    build_type: str
-    build_parameters_sha256: Sha256
     certificate_identity: str
     oidc_issuer: str
     trusted_root: EvidenceFile
     wheels: tuple[WheelProvenance, ...]
+
+
+class WheelSourceAdmission(WheelEvidenceAdmission):
+    """Require authenticated SLSA source evidence in place of an absent PyPI sdist."""
+
+    builder_id: str
+    build_type: str
+    build_parameters_sha256: Sha256
+
+
+class BootstrapWheelAdmission(WheelEvidenceAdmission):
+    """Accept an explicit source-to-wheel evidence gap for bounded bootstrap use only."""
+
+    usage: Literal["isolated_development_and_ci"]
+    source_to_wheel_binding: Literal["unverified"]
+    finding_id: Annotated[str, Field(pattern=r"^B07-DEP-[0-9]{3}$")]
+    reviewed_on: date
+    expires_on: date
+    residual_risk: Annotated[str, Field(min_length=40, max_length=2000)]
+    closure_condition: Annotated[str, Field(min_length=40, max_length=2000)]
+    source_review: EvidenceFile
+    security_review: EvidenceFile
+    native_inventory: EvidenceFile
+    compatibility_report: EvidenceFile
 
 
 class VulnerabilityDecision(ImmutableModel):
@@ -121,3 +142,4 @@ class DependencyAdmission(ImmutableModel):
     local_evidence_commit_sha: str
     open_finding_ids: tuple[str, ...]
     wheel_source_admissions: tuple[WheelSourceAdmission, ...] = ()
+    bootstrap_wheel_admissions: tuple[BootstrapWheelAdmission, ...] = ()

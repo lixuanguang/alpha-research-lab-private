@@ -20,6 +20,13 @@ to carry a hashed `sdist` in `uv.lock`; it could not express equivalent upstream
 source evidence. The roadmap does not exempt candidates from admission. This
 change repairs B07 and does not install QuantLib or implement C03.
 
+Revised on 2026-09-04 following the maintainer's request for a bounded bootstrap
+alternative. Requiring upstream signed build evidence only when PyPI lacks an
+sdist creates an uneven evidence bar: the ordinary hashed-sdist path also does
+not authenticate the source-to-wheel relationship. The revision makes that gap
+explicit for development use while preserving the stronger build profile and
+the artifact release boundary. Earlier investigative evidence remains historical.
+
 ## Decision drivers
 
 - Preserve exact source and binary identity, complete lock coverage, native
@@ -33,11 +40,13 @@ change repairs B07 and does not install QuantLib or implement C03.
 
 - **Remove the source requirement:** loses a control and is rejected.
 - **Record source URLs and publication attestations:** publication identifies the
-  uploader, not the build inputs; it cannot establish the required relationship.
+  uploader, not the build inputs; accepted only in the bounded bootstrap tier
+  with owned residual risk, review evidence, expiry and an enforced artifact block.
 - **Build repository-owned QuantLib wheels:** requires separate native build,
   reproducibility, platform, and publication work outside this fix.
 - **Explicit authenticated upstream-source alternative:** selected; requires a
-  stronger source-to-artifact link than a standalone source-archive hash.
+  stronger source-to-artifact link than a standalone source-archive hash and
+  remains the build-evidence profile.
 
 ## Decision
 
@@ -53,14 +62,35 @@ per-wheel Sigstore v0.3 bundles. Require in-toto v1 SLSA provenance v1 matching 
 exact wheel subject and complete ordered source-material list. Use already
 admitted Cosign 3.1.3 with claims, certificate transparency, and transparency-log
 verification enabled. Reject publication-only evidence and insecure options.
-No B07 import of dependent B08 code or new dependency is introduced.
+No B07 import of dependent B08 code or new external dependency is introduced.
+
+Add separate optional `bootstrap_wheel_admissions` records for the existing
+solo-bootstrap, partial operating track. Require an exact native package, the
+same complete source/wheel identities and safe evidence reads, authenticated
+PyPI publication with a null/empty predicate, Platform ownership, a unique
+`B07-DEP-NNN` finding, explicit unverified source-to-wheel binding and residual
+risk, a closure condition, and retained source/security/native/compatibility
+reports. Reviews expire within 30 days and within the policy review window;
+future and expired records fail. The only permitted usage is
+`isolated_development_and_ci`. A package cannot select both profiles. All other
+dependency controls remain in force, including no replacement of a present sdist.
+
+B08 imports B07's release-admission guard. Every active bootstrap record blocks
+artifact creation, signing, publication and consumer verification for the whole
+locked graph, with no target-specific bypass. The guard rechecks source/wheel
+admission, review expiry and lock hashes, so deleting a record without resolving
+the underlying dependency does not enable release. The target dependency edge
+and required Bazel data are declared. No root command or external signing access
+is added.
 
 ## Consequences
 
 Existing admissions need no changes or Cosign invocation. Wheel-only packages
-gain an admission route, but must supply adequate signed build evidence. No
-wheel-source records are activated here. In particular, QuantLib's PyPI publish
-attestations alone do not admit it. Source completeness, including native-library,
+gain two explicit admission routes; publication evidence is never reclassified
+as build provenance or assigned a SLSA level. No records are activated here.
+QuantLib's PyPI publish attestations alone still do not admit it: the owning
+change must also satisfy the complete bootstrap record, reviews and locked graph.
+Source completeness, including native-library,
 binding, and build-recipe inputs, remains an explicit Platform/Security review duty.
 
 Evidence reads are bounded and reject noncanonical paths, missing files and
@@ -75,6 +105,15 @@ existing checker, Make, pre-commit, and CI paths share enforcement. No root comm
 CI lane, resource inventory, or A08 readiness change is needed. Future admissions
 must retain evidence files as declared build inputs and update locks, reviews,
 source records and evidence together. Nothing is deployed or activated.
+
+This separates the blueprint's B07 development dependency decisions from B08's
+artifact provenance and consumption controls. It does not complete a milestone,
+relax artifact identity/signature requirements, or waive production acceptance.
+The accepted bootstrap risk is that authenticated upstream wheel bytes may not
+match the inspected sources. Environment isolation and qualified assessment are
+separate obligations; record parsing does not sandbox package execution or
+prove report content. Missing local compatibility or security work still blocks
+the owning admission.
 
 ## Reversal plan
 
@@ -99,6 +138,11 @@ Linux and real target evidence), and B07-F03 (qualified source/license/security
 review). Review again on the stated date or any verifier, trust, profile, platform,
 or first-consumer change. B07 remains partial and grants no release, promotion,
 deployment, activation, credentials, market access, capital, or expanded risk authority.
+
+The follow-up retains R2 QG01-QG06 and QG09-QG14, with B08 QG15 boundary regression
+evidence. The indivisible scope includes profile parsing, signature reuse, expiry,
+release denial, tests and their documentation. See the retained
+[bootstrap admission evidence](../../governance/evidence/examples/b07-r2-partial/reports/bootstrap-wheel-admission.txt).
 
 Primary references: [PyPI publish predicate](https://docs.pypi.org/attestations/publish/v1/),
 [SLSA provenance v1](https://slsa.dev/spec/v1.1/provenance),

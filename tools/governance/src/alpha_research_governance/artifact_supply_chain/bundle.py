@@ -22,6 +22,8 @@ from alpha_research_governance.artifact_supply_chain.models import (
     ArtifactTool,
 )
 from alpha_research_governance.artifact_supply_chain.policy import compute_regular_file_sha256
+from alpha_research_governance.dependency_admission.models import DependencyAdmissionError
+from alpha_research_governance.dependency_admission.policy import require_release_admission
 
 ProcessRunner = Callable[[list[str], Path, Mapping[str, str]], subprocess.CompletedProcess[str]]
 
@@ -288,6 +290,16 @@ def _verify_current_repository_identities(
         != policy.toolchain_sha256
     ):
         raise ArtifactSupplyChainError(["repository toolchain identity drifted"])
+    _require_release_dependencies(repository_root)
+
+
+def _require_release_dependencies(repository_root: Path) -> None:
+    try:
+        require_release_admission(repository_root)
+    except (DependencyAdmissionError, OSError, ValueError) as error:
+        raise ArtifactSupplyChainError(
+            [f"artifact dependency admission failed: {error}"]
+        ) from error
 
 
 def create_bundle(
@@ -529,6 +541,7 @@ def sign_bundle(
     signature_path = bundle_path / "signature.sigstore.json"
     if signature_path.exists() or signature_path.is_symlink():
         raise ArtifactSupplyChainError(["signature bundle already exists"])
+    _require_release_dependencies(Path.cwd() if repository_root is None else repository_root)
     _verify_artifact_tool_version(
         policy.cosign,
         working_directory=bundle_path,
