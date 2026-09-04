@@ -102,6 +102,11 @@ explicitly rejected as an alternative. QuantLib remains unadmitted and C03 remai
 unimplemented until an adequate upstream or governed build evidence path exists.
 No local report or synthetic signature is used to fill that gap.
 
+The [QuantLib prerequisite investigation](../governance/evidence/quantlib-1.40-investigation/README.md)
+retains real Darwin/Linux publication-signature checks, immutable source hashes,
+observed upstream evidence gaps, and the native-build and artifact-source closure
+requirements. It adds no admission or policy exception.
+
 The existing command enforces this profile automatically. On failure, stop the
 dependency update, retain package/version, wheel digest, bundle and verifier
 diagnostic, reconcile sources/provenance with Platform and Security, then rerun
