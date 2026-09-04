@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
@@ -10,6 +11,7 @@ from pydantic import field_serializer, field_validator, model_validator
 
 from alpha_research_governance._models import ImmutableModel
 from alpha_research_governance.change_risk import ChangeRiskInput, ReviewApproval, RiskClass
+from alpha_research_governance.operating_model import Operation
 
 _GATE = re.compile(r"^QG(?:0[1-9]|1[0-5])$")
 _FINDING_ID = re.compile(r"^(?P<package>[A-L]0[1-8])-F[0-9]{2}$")
@@ -32,6 +34,21 @@ class MrField(ImmutableModel):
     heading: str
 
 
+class ConditionalMrField(MrField):
+    """An extra section required only for the declared or detected impact."""
+
+    trigger: Literal["migration", "benchmark", "operational"]
+
+
+class MrContext(ImmutableModel):
+    """Optional semantic facts that cannot reliably be inferred from filenames."""
+
+    migration: bool = False
+    benchmark: bool = False
+    operation: Operation = "implementation"
+    change: ChangeRiskInput | None = None
+
+
 class EvidencePolicy(ImmutableModel):
     """Authoritative repository-local evidence policy."""
 
@@ -44,12 +61,21 @@ class EvidencePolicy(ImmutableModel):
     fields: tuple[MrField, ...]
     package_status: str
     finding_ids: tuple[str, ...]
+    schema_version: Literal[1, 2] = 1
+    institutional_fields: tuple[MrField, ...] = ()
+    conditional_fields: tuple[ConditionalMrField, ...] = ()
+    founder_example_mr_body_path: Path | None = None
 
-    @field_validator("template_path", "example_mr_body_path", "example_manifest_path")
+    @field_validator(
+        "template_path",
+        "example_mr_body_path",
+        "example_manifest_path",
+        "founder_example_mr_body_path",
+    )
     @classmethod
-    def repository_relative_path(cls, value: Path) -> Path:
+    def repository_relative_path(cls, value: Path | None) -> Path | None:
         """Reject paths that cannot represent repository-contained policy inputs."""
-        if value.is_absolute() or ".." in value.parts:
+        if value is not None and (value.is_absolute() or ".." in value.parts):
             raise ValueError("path must stay inside the repository")
         return value
 
@@ -86,7 +112,7 @@ class PackageEvidenceProfile(ImmutableModel):
     risk_class: RiskClass
     classification_facts: ChangeRiskInput
     gate_requirements: tuple[PackageGateRequirement, ...]
-    expected_package_status: Literal["partial", "validated"]
+    expected_package_status: Literal["partial", "validated", "implementation_complete"]
     expected_finding_ids: tuple[str, ...]
     approvals_permitted: bool
     waivers_permitted: bool
@@ -120,8 +146,8 @@ class PackageEvidenceProfile(ImmutableModel):
             raise ValueError("expected_finding_ids must contain unique values")
         if self.expected_package_status == "partial" and not self.expected_finding_ids:
             raise ValueError("partial package profiles require expected_finding_ids")
-        if self.expected_package_status == "validated" and self.expected_finding_ids:
-            raise ValueError("validated package profiles cannot retain expected_finding_ids")
+        if self.expected_package_status != "partial" and self.expected_finding_ids:
+            raise ValueError("completed package profiles cannot retain expected_finding_ids")
         if any(
             (matched := _FINDING_ID.fullmatch(finding_id)) is None
             or matched.group("package") != self.roadmap_package_id
@@ -185,3 +211,7 @@ class EvidenceManifest(ImmutableModel):
     gates: tuple[GateEvidence, ...]
     artifacts: tuple[ArtifactEvidence, ...]
     approvals: tuple[ApprovalEvidence, ...]
+    schema_version: Literal[1, 2] = 1
+    operating_domain: str | None = None
+    accepted_by: str | None = None
+    accepted_on: date | None = None

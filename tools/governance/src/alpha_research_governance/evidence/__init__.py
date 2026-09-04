@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 from alpha_research_governance.change_risk import classify_change
 from alpha_research_governance.change_risk import load_policy as load_change_risk_policy
@@ -12,32 +14,41 @@ from alpha_research_governance.evidence.manifest import validate_manifest
 from alpha_research_governance.evidence.models import (
     ApprovalEvidence,
     ArtifactEvidence,
+    ConditionalMrField,
     EvidenceGovernanceError,
     EvidenceManifest,
     EvidencePolicy,
     GateEvidence,
+    MrContext,
     MrField,
     PackageEvidenceProfile,
     PackageGateRequirement,
 )
 from alpha_research_governance.evidence.mr import (
+    classify_mr,
+    lint_github_event,
     validate_github_event,
     validate_mr_body,
     validate_template,
 )
 from alpha_research_governance.evidence.package import validate_package_evidence
 from alpha_research_governance.evidence.policy import load_policy
+from alpha_research_governance.operating_model import Operation, load_operating_model
 
 __all__ = [
     "ApprovalEvidence",
     "ArtifactEvidence",
+    "ConditionalMrField",
     "EvidenceGovernanceError",
     "EvidenceManifest",
     "EvidencePolicy",
     "GateEvidence",
+    "MrContext",
     "MrField",
     "PackageEvidenceProfile",
     "PackageGateRequirement",
+    "classify_mr",
+    "lint_github_event",
     "load_policy",
     "main",
     "validate_github_event",
@@ -51,7 +62,7 @@ __all__ = [
 _USAGE = (
     "usage: python -m alpha_research_governance.evidence [repository-root] "
     "[--mr-body PATH | --github-event PATH] "
-    "[--manifest PATH --expected-commit-sha SHA]"
+    "[--manifest PATH --expected-commit-sha SHA] [--operation OPERATION]"
 )
 
 
@@ -81,7 +92,14 @@ def validate_repository(repository_root: Path) -> tuple[EvidencePolicy, Evidence
     example_mr_path = _repository_path(resolved_repository_root, policy.example_mr_body_path)
     example_manifest_path = _repository_path(resolved_repository_root, policy.example_manifest_path)
     validate_template(template_path.read_text(encoding="utf-8"), policy)
-    example_fields = validate_mr_body(example_mr_path.read_text(encoding="utf-8"), policy)
+    example_fields = validate_mr_body(
+        example_mr_path.read_text(encoding="utf-8"), policy, profile="institutional"
+    )
+    if policy.founder_example_mr_body_path is not None:
+        founder_example = _repository_path(
+            resolved_repository_root, policy.founder_example_mr_body_path
+        )
+        validate_mr_body(founder_example.read_text(encoding="utf-8"), policy)
     if example_fields["evidence_manifest"] != policy.example_manifest_path.as_posix():
         raise EvidenceGovernanceError(
             ["example MR evidence manifest field must match the A05 policy path"]
@@ -119,7 +137,7 @@ def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, dict[str, str]]:
     repository_root: Path | None = None
     options: dict[str, str] = {}
     index = 0
-    allowed = {"--expected-commit-sha", "--github-event", "--manifest", "--mr-body"}
+    allowed = {"--expected-commit-sha", "--github-event", "--manifest", "--mr-body", "--operation"}
     while index < len(arguments):
         argument = arguments[index]
         if argument.startswith("--"):
@@ -136,6 +154,12 @@ def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, dict[str, str]]:
         raise EvidenceGovernanceError([_USAGE])
     if ("--manifest" in options) != ("--expected-commit-sha" in options):
         raise EvidenceGovernanceError([_USAGE])
+    if "--operation" in options and (
+        "--manifest" not in options
+        or options["--operation"]
+        not in {"implementation", "institutional_acceptance", "release", "activation"}
+    ):
+        raise EvidenceGovernanceError([_USAGE])
     return (Path.cwd() if repository_root is None else repository_root), options
 
 
@@ -149,26 +173,38 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return 2
     try:
         policy, _ = validate_repository(repository_root)
+        change_policy = load_change_risk_policy(
+            repository_root.resolve() / "docs" / "governance" / "change-risk-policy.toml"
+        )
         if mr_body := options.get("--mr-body"):
             validate_mr_body(
-                _input_path(repository_root, mr_body).read_text(encoding="utf-8"), policy
+                _input_path(repository_root, mr_body).read_text(encoding="utf-8"),
+                policy,
+                change_policy=change_policy,
             )
         if github_event := options.get("--github-event"):
-            validate_github_event(_input_path(repository_root, github_event), policy)
-        if manifest_path := options.get("--manifest"):
-            change_policy = load_change_risk_policy(
-                repository_root.resolve() / "docs" / "governance" / "change-risk-policy.toml"
+            metadata = lint_github_event(
+                _input_path(repository_root, github_event),
+                policy,
+                repository_root=repository_root,
+                change_policy=change_policy,
             )
+            print(json.dumps(metadata, sort_keys=True))
+        if manifest_path := options.get("--manifest"):
             validate_manifest(
                 _input_path(repository_root, manifest_path),
                 expected_commit_sha=options["--expected-commit-sha"],
                 change_policy=change_policy,
+                operating_model=load_operating_model(
+                    repository_root.resolve() / "docs" / "governance" / "domain-ownership.toml"
+                ),
+                operation=cast(Operation, options.get("--operation", "implementation")),
             )
     except (EvidenceGovernanceError, OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
     print(
-        f"Evidence governance passed for {len(policy.fields)} MR fields; "
-        f"package status is {policy.package_status}."
+        f"Evidence governance passed for {len(policy.fields)} default MR fields; "
+        "institutional fixtures retain their recorded acceptance status."
     )
     return 0

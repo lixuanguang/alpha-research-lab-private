@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from alpha_research_governance._models import ImmutableModel
 from alpha_research_governance.evidence.models import (
+    ConditionalMrField,
     EvidenceGovernanceError,
     EvidencePolicy,
     MrField,
@@ -20,7 +21,6 @@ _FIELD_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 _COMMIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _MERGE_EVIDENCE_OPEN_FINDING_IDS = ("A05-F01", "A05-F02")
 _EXPECTED_SCALARS: dict[str, object] = {
-    "schema_version": 1,
     "roadmap_package": "A05",
     "operating_track": "solo_bootstrap",
     "package_status": "partial",
@@ -56,6 +56,16 @@ class _EvidencePolicyInput(ImmutableModel):
     example_commit_sha: str
     mr_fields: list[_MrFieldInput]
     findings: list[_FindingInput]
+
+
+class _ConditionalMrFieldInput(_MrFieldInput):
+    trigger: str
+
+
+class _EvidencePolicyV2Input(_EvidencePolicyInput):
+    institutional_mr_fields: list[_MrFieldInput]
+    conditional_mr_fields: list[_ConditionalMrFieldInput]
+    founder_example_mr_body_path: str
 
 
 _EXPECTED_ROOT_KEYS = frozenset(_EvidencePolicyInput.model_fields)
@@ -130,13 +140,20 @@ def _load_policy(path: Path) -> EvidencePolicy:
     except tomllib.TOMLDecodeError as error:
         raise EvidenceGovernanceError([f"{path}: invalid TOML: {error}"]) from error
     try:
-        policy_document = _EvidencePolicyInput.model_validate(parsed_document)
+        input_model = (
+            _EvidencePolicyV2Input
+            if isinstance(parsed_document, dict) and parsed_document.get("schema_version") == 2
+            else _EvidencePolicyInput
+        )
+        policy_document = input_model.model_validate(parsed_document)
     except ValidationError as error:
         raise _policy_input_error(path, error) from error
 
     for key, expected in _EXPECTED_SCALARS.items():
         if getattr(policy_document, key) != expected:
             raise EvidenceGovernanceError([f"{path}: {key} must be {expected!r}"])
+    if policy_document.schema_version not in {1, 2}:
+        raise EvidenceGovernanceError([f"{path}: schema_version must be 1 or 2"])
 
     applicable_gates = _validated_strings(
         policy_document.applicable_gates, context="applicable_gates"
@@ -164,6 +181,46 @@ def _load_policy(path: Path) -> EvidencePolicy:
         raise EvidenceGovernanceError([f"{path}: MR field keys must be unique"])
     if len({field.heading for field in fields}) != len(fields):
         raise EvidenceGovernanceError([f"{path}: MR field headings must be unique"])
+
+    institutional_fields: tuple[MrField, ...] = ()
+    conditional_fields: tuple[ConditionalMrField, ...] = ()
+    founder_example_path: Path | None = None
+    if isinstance(policy_document, _EvidencePolicyV2Input):
+        if tuple(field.key for field in fields) != (
+            "problem_change",
+            "affected_scope",
+            "validation_result",
+            "risks_reversal",
+        ):
+            raise EvidenceGovernanceError(["version-2 policy requires the four founder fields"])
+        institutional_fields = tuple(
+            MrField(key=field.key, heading=field.heading)
+            for field in policy_document.institutional_mr_fields
+        )
+        conditional_fields = tuple(
+            ConditionalMrField.model_validate(field.model_dump())
+            for field in policy_document.conditional_mr_fields
+        )
+        if {field.trigger for field in conditional_fields} != {
+            "migration",
+            "benchmark",
+            "operational",
+        } or len(conditional_fields) != 3:
+            raise EvidenceGovernanceError(["conditional fields require each impact trigger once"])
+        for group in (institutional_fields, (*fields, *conditional_fields)):
+            if (
+                not group
+                or len({field.key for field in group}) != len(group)
+                or len({field.heading for field in group}) != len(group)
+                or any(
+                    not field.heading.strip() or not _FIELD_KEY.fullmatch(field.key)
+                    for field in group
+                )
+            ):
+                raise EvidenceGovernanceError(["MR fields require unique, non-empty keys/headings"])
+        founder_example_path = _repository_relative_path(
+            policy_document.founder_example_mr_body_path, context="founder_example_mr_body_path"
+        )
 
     finding_ids: list[str] = []
     for index, finding in enumerate(policy_document.findings, 1):
@@ -201,6 +258,10 @@ def _load_policy(path: Path) -> EvidencePolicy:
         fields=tuple(fields),
         package_status="partial",
         finding_ids=tuple(finding_ids),
+        schema_version=2 if isinstance(policy_document, _EvidencePolicyV2Input) else 1,
+        institutional_fields=institutional_fields,
+        conditional_fields=conditional_fields,
+        founder_example_mr_body_path=founder_example_path,
     )
 
 
