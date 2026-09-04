@@ -1,0 +1,7 @@
+C02 repository-local contract and golden-fixture evidence
+Scope: immutable venue/session/calendar/market-state values and one reference-only adapter; no C03 or live-authority behavior.
+Result: XNYS and XLON fixtures cross both 2024 DST changes without host-local timezone dependence; explicit New York conversion preserves the gap and fold.
+Result: retained fixtures cover an XNYS holiday and half-day plus an XHKG intraday break and one-label request.
+Result: venue IDs, MIC-shaped values, IANA timezones, closures, auctions, halts, limits, settlement dates, and exact source/override versions are owned values.
+Fixture SHA-256: 137d1a25a14c54758786bd2d0331c20e06a346c548878756754f64d6ade04a17.
+Limitation: approved source reconciliation and independent review remain C02-F01/C02-F03.

@@ -6,12 +6,16 @@ py_library(
     name = "alpha_research",
     srcs = glob(
         ["**/*.py"],
-        exclude = ["instrument_identity/**/*.py"],
+        exclude = [
+            "instrument_identity/**/*.py",
+            "venue_calendar/**/*.py",
+        ],
     ),
     data = ["py.typed"],
     imports = [".."],
     deps = [
         "//src/alpha_research/instrument_identity",
+        "//src/alpha_research/venue_calendar",
         "//tools/governance/src/alpha_research_governance",
     ],
 )

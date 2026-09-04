@@ -27,7 +27,7 @@ The admitted dependency identity is the union of five immutable surfaces:
 5. full Git commit pins for every GitHub Action in the current CI workflow.
 
 Only `https://pypi.org/simple` is admitted for Python packages. Every one of the
-61 external locked Python packages has an exact version, source-distribution
+73 external locked Python packages has an exact version, source-distribution
 digest, wheel digests, an approved license disposition, and an explicit
 native-artifact fact. The policy separately binds each complete lock surface by
 its SHA-256 digest, so a semantically valid but unreviewed graph change still
@@ -52,8 +52,9 @@ installer.
 ## License, maintenance, patch, and EOL decisions
 
 The repository admits the current Python graph under exact SPDX-style
-dispositions for Apache-2.0, Apache-2.0 OR BSD-2-Clause, BSD-2-Clause,
-BSD-3-Clause, MIT, MPL-2.0, and PSF-2.0. A package cannot self-declare a new
+dispositions for Apache-2.0, the admitted Apache/BSD alternatives, BSD-2-Clause,
+BSD-3-Clause, ISC, MIT, MPL-2.0, PSF-2.0, and NumPy's exact composite SPDX
+expression. A package cannot self-declare a new
 license group: the policy parser rejects unrecognized expressions and any lock
 package missing from the complete disposition set. The migrated Nix, Bazel,
 quality-tool, scanner, and remote-service records retain their source, digest,
@@ -76,7 +77,7 @@ dependency resolution disabled. This avoids silently omitting a platform-marked
 package absent from the current host environment. The tool is a signal only: its
 own documentation states that it audits dependency trees rather than application
 code and cannot establish exploitability. B07 therefore parses its JSON
-independently, requires exact coverage and versions for all 61 admitted external
+independently, requires exact coverage and versions for all 73 admitted external
 packages, rejects a skip, duplicate, version mismatch, or omitted package, and
 blocks every reported vulnerability without an exact repository-owned decision.
 Scanner exit codes are not suppressed. See the
@@ -119,6 +120,12 @@ Migration changes admission ownership, not predecessor package status. B02-B06
 remain partial until their own external and independent evidence closes. B07 does
 not reclassify their evidence, rewrite their synthetic manifests, provision the
 remote service, or claim target-environment acceptance.
+
+C02 extends the admitted graph with exact `exchange-calendars==4.13.2` and its
+eight transitives. NumPy and pandas are recorded as native-wheel packages for both
+supported platforms, and NumPy is constrained to 2.4.6 for the documented
+warnings-as-errors compatibility boundary. This record does not make the calendar
+source authoritative or close B07's qualified and target-platform findings.
 
 ## Interfaces and failure behavior
 
@@ -171,9 +178,10 @@ control, deployment, release, promotion, activation, or executable order path.
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
-This is an additive policy and lock migration. It adds `pip-audit` and its exact
-transitives to the development lock but changes no runtime package, domain schema,
-data, model, persisted state, service, credential, or external registry. Rollout
+This is an additive policy and lock migration. B07 originally added `pip-audit`
+and its exact transitives; C02 now adds the admitted calendar graph without
+changing B07's partial status. It changes no persisted state, service, credential,
+or external registry. Rollout
 adds the offline check to Make, pre-commit, Bazel, and the retained uv path, then
 adds live vulnerability scanning to the authoritative hosted merged-result lane.
 
@@ -207,8 +215,8 @@ venue/account/instrument expansion, or increased risk authority.
 
 B07 does not emit or verify a whole-artifact SBOM, provenance, signature,
 attestation, immutable publication, or consumer admission. Those belong to B08.
-It does not implement K05's ongoing vulnerability operations, any analytical or
-provider dependency from later packages, domain behavior, a production registry,
-deployment, or activation.
+It does not implement K05's ongoing vulnerability operations, any unowned
+analytical or provider dependency from later packages, C02 domain behavior, a
+production registry, deployment, or activation.
 
 The next documented selector is `B08`.

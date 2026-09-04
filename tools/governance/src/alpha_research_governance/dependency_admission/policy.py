@@ -109,8 +109,10 @@ _ACTION_PINS = {
 _APPROVED_PYTHON_LICENSES = {
     "Apache-2.0",
     "Apache-2.0 OR BSD-2-Clause",
+    "Apache-2.0 OR BSD-3-Clause",
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
     "ISC",
     "MIT",
     "MPL-2.0",

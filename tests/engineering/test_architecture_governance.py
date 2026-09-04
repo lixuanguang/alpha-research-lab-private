@@ -78,6 +78,7 @@ def test_repository_architecture_governance_is_valid() -> None:
         "0008-pydantic-boundary-models.md",
         "0009-remote-execution-service.md",
         "0010-pydantic-instrument-identity-models.md",
+        "0011-versioned-venue-calendar-adapter.md",
     ]
 
 

@@ -50,7 +50,9 @@ immutable digest publication, and fail-closed consumer verification. Its externa
 signing, registry, independent-review, and target-environment evidence remains
 open. C01 adds the first canonical domain contract: immutable internal instrument
 identity plus validity-dated, source-attributed symbology with ambiguity-safe
-resolution and retained corrections.
+resolution and retained corrections. C02 adds immutable venue, session, holiday,
+half-day, auction, halt, price-limit, settlement-calendar, and timezone contracts
+behind an exact-version reference adapter with synthetic cross-timezone fixtures.
 The repository does not yet contain the remaining canonical contracts, data
 plane, simulator, independent risk gateway, OMS/EMS, deployment lanes,
 observability substrate, or asset certification evidence.
@@ -169,6 +171,12 @@ UTC valid-time symbology, exact global and provider-local identifier rules,
 ambiguity-safe resolution, and append-only correction lineage. Its fixture is
 synthetic and its package remains partial pending independent and target evidence.
 
+The [C02 venue-calendar contract](architecture/venue-calendar.md) defines stable
+venue identities, exact MIC and IANA timezone metadata, bounded UTC session
+snapshots, versioned overrides, explicit market-state precedence, and bounded
+settlement dates. Its pinned fixtures are non-authoritative; live venue/calendar
+authority and target reconciliation remain unavailable.
+
 B01's canonical repository checks are the installed `alpha-governance-*`
 commands documented in the
 [governed repository topology](architecture/repository-topology.md). B01c makes
@@ -246,6 +254,7 @@ independent-review, or target-environment evidence.
 | [Dependency admission and exploitability governance](architecture/dependency-admission.md) | B07 exact sources, digests, locks, licenses, signals, exploitability decisions, maintenance, platforms, native artifacts, registries, runtime-install prohibition, evidence, and findings |
 | [Whole-artifact supply chain](architecture/artifact-supply-chain.md) | B08 SPDX SBOM, SLSA provenance, signed attestation boundary, immutable digest publication, consumer verification, rollback, evidence, and findings |
 | [Canonical instrument identity](architecture/instrument-identity.md) | C01 stable internal identities, temporal symbology, ambiguity and correction semantics, goldens, evidence, and C02 boundary |
+| [Venue, session, calendar, and market status](architecture/venue-calendar.md) | C02 venue/MIC/timezone values, versioned source and override adapter, sessions, closures, auctions, halts, limits, settlement dates, goldens, evidence, and C03 boundary |
 | [Architecture principles](architecture/principles.md) | A02 invariants, design principles, dependency rules, and cross-cutting change rule |
 | [Architecture governance](architecture/governance.md) | A02 ADR lifecycle, deprecation policy, exception process, and evidence requirements |
 | [Architecture decision log](architecture/decisions/README.md) | A02 template, proposed foundational decisions, package evidence, and deferred findings |

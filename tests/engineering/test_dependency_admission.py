@@ -70,9 +70,9 @@ def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() ->
     assert policy.successor_package == "B08"
     assert policy.pip_audit_version == "2.10.1"
     assert policy.scorecard_version == "5.5.0"
-    assert len(policy.packages) == 64
-    assert len({package.name for package in policy.packages}) == 64
-    assert len([package for package in policy.packages if package.native_artifacts]) == 11
+    assert len(policy.packages) == 73
+    assert len({package.name for package in policy.packages}) == 73
+    assert len([package for package in policy.packages if package.native_artifacts]) == 13
     assert policy.vulnerability_decisions == ()
     assert policy.emergency_overrides == ()
     assert policy.open_finding_ids == ("B07-F01", "B07-F02", "B07-F03")
@@ -91,7 +91,7 @@ def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() ->
         ('disposition = "approved"', 'disposition = "ignored"', "approved"),
         ('version = "2.10.1"', 'version = "2.9.0"', "pip-audit"),
         (
-            '"uv.lock" = "2946bbb597d3eacddd94050b8bd417b0fb850d35e83e1f5a2c1200ddc8255366"',
+            '"uv.lock" = "b4298e898165fb12a42420e54032906e25a536a9218b687ded00f107bbc50cdf"',
             '"uv.lock" = "not-a-digest"',
             "lock_digests",
         ),
@@ -325,7 +325,7 @@ def test_exact_lock_wheels_and_transitives_match_registry() -> None:
 )
 def test_repository_review_expiry_fails_closed() -> None:
     with pytest.raises(DependencyAdmissionError, match="review is stale"):
-        validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 12, 2))
+        validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 12, 4))
 
 
 def test_mutable_action_reference_and_runtime_install_are_rejected(tmp_path: Path) -> None:

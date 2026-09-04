@@ -11,6 +11,7 @@ requires-python = "==3.12.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "alpha-research-governance==0.1.0",
+    "exchange-calendars==4.13.2",
     "pydantic==2.13.5",
 ]
 
@@ -34,6 +35,7 @@ dev = [
 [tool.uv]
 required-version = "==0.12.7"
 default-groups = ["dev"]
+constraint-dependencies = ["numpy==2.4.6"]
 
 [tool.uv.sources]
 alpha-research-governance = { path = "tools/governance", editable = false }

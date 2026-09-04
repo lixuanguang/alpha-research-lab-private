@@ -92,17 +92,18 @@ canonical tools never depend back on compatibility code. Engineering tests are
 the only current reverse consumer of both surfaces.
 
 The registry now assigns every Python implementation, facade, typing marker,
-engineering-test source, C01 unit-test source, and B02-B03 build-test source under
+engineering-test source, C01-C02 unit-test source, and B02-B03 build-test source under
 `tools/governance/src/alpha_research_governance/`, `src/alpha_research/`,
-`tests/engineering/`, `tests/unit/`, and `tests/build/` to exactly one of 28 owned
+`tests/engineering/`, `tests/unit/`, and `tests/build/` to exactly one of 30 owned
 targets. Each target declares kind, layer, accountable owner, supported platform,
 direct dependencies, exact reverse visibility, and exact source paths. The
 validator derives direct imports for both namespaces with deterministic AST
 parsing and rejects missing or stale declarations.
 
-C01 adds the first owned `library` kind for the foundational instrument-identity
-target and its direct unit-test consumer. This is current-source registration,
-not a new B01 delivery slice or a change to B01's partial status and findings.
+C01 and C02 add owned `library` kinds for foundational instrument-identity and
+venue-calendar targets with their direct unit-test consumers. This is
+current-source registration, not a new B01 delivery slice or a change to B01's
+partial status and findings.
 
 `load_topology()` validates a supplied registry against a repository root.
 `validate_repository()` also validates the B01c synthetic SHA-bound evidence
@@ -129,10 +130,11 @@ addition is `tools/governance`. B01 did not create `schemas/`, `data/`,
 
 ## Packaging and compatibility contract
 
-The root distribution declares exact `alpha-research-governance==0.1.0` and
-`pydantic==2.13.5` runtime dependencies for its compatibility facades and C01
-instrument-identity boundary. The governance tool target owns the same exact
-Pydantic input and uses the same pinned Python and Hatchling versions.
+The root distribution declares exact `alpha-research-governance==0.1.0`,
+`pydantic==2.13.5`, and `exchange-calendars==4.13.2` runtime dependencies for its
+compatibility facades and C01-C02 domain boundaries. C02 constrains NumPy to the
+admitted `2.4.6` compatibility version. The governance tool target owns the same
+exact Pydantic input and uses the same pinned Python and Hatchling versions.
 The lock records the governance tool as a non-editable repository-local path
 package, so canonical commands do not depend on ambient source paths, the
 caller's working directory, or a network.

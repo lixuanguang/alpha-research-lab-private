@@ -16,3 +16,17 @@ py_test(
         requirement("pytest"),
     ],
 )
+
+py_test(
+    name = "venue_calendar_test",
+    srcs = ["test_venue_calendar.py"],
+    data = ["//tests/golden/venue_calendar:c02_calendars.json"],
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    main = "test_venue_calendar.py",
+    deps = [
+        "//src/alpha_research/venue_calendar",
+        requirement("hypothesis"),
+        requirement("pydantic"),
+        requirement("pytest"),
+    ],
+)

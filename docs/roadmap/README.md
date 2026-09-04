@@ -363,6 +363,12 @@ identifiers. It retains symbol reuse, delist/relist, ambiguity, and vendor
 correction goldens and fails closed on invalid or unsafe state. C01 remains partial
 because independent review, protected merged-result replay, and entitled
 target-environment reconciliation are unavailable locally.
+C02 adds stable venue/MIC/timezone values, bounded UTC sessions, breaks, auctions,
+holidays, half-days, halts, price-limit state, settlement calendars, and exact
+calendar/override attribution behind the pinned reference-only adapter. Synthetic
+cross-timezone and DST fixtures are retained. C02 remains partial because
+independent review, protected merged-result execution, and entitled target-source
+reconciliation are unavailable locally.
 Legacy `ENG-*`, `CRY-*`, `DATA-*`, `RES-*`, `PORT-*`, `EXEC-*`, `GOV-*`,
 `SCALE-*`, and `ASSET-*` platform IDs are superseded by the stable implementation
 selectors `A01` through `L08`. Research-stage selectors `R01` through `R16` remain
@@ -571,9 +577,33 @@ C01 is an A04 R2 change with QG01-QG06 and QG09-QG14. It retains independent
 review, protected merged-result Linux replay, and entitled target-environment
 reconciliation findings. It remains `partial` and authorizes no release,
 promotion, deployment, activation, credentials, market access, capital, or
-expanded risk authority. It does not implement C02 calendars or venue state, C04
-knowledge-time selection, C05 events, or D04 master-data services. The next
-documented selector is `C02`.
+expanded risk authority. It does not absorb C02 calendars or venue state, C04
+knowledge-time selection, C05 events, or D04 master-data services. Its `C02`
+successor is now provisionally implemented without changing C01's partial status
+or findings.
+
+### Active venue-calendar delivery state
+
+Venue, session, calendar, market-status, and timezone contracts (`C02`) are
+provisionally implemented under solo bootstrap by the
+[venue-calendar contract](../architecture/venue-calendar.md). Immutable owned
+values cover venue IDs, MICs, IANA timezones, bounded UTC sessions, breaks,
+auctions, closures, halts, price-limit states, settlement dates, exact source
+versions, and retained overrides. The `exchange_calendars==4.13.2` adapter is
+strictly reference-only; version mismatch, timezone mismatch, unsafe intervals,
+unknown labels, and unattributed overrides fail closed. Synthetic fixtures cover
+New York and London DST changes, a New York holiday and half-day, and a Hong Kong
+intraday break without consulting host-local timezone state.
+
+C02 is an A04 R2 change with QG01-QG06 and QG09-QG14. It retains independent
+review, protected merged-result Linux execution, and entitled target-source
+reconciliation findings. It remains `partial` and authorizes no release,
+promotion, deployment, activation, credentials, market access, capital, or
+expanded risk authority. It does not implement C03 units/conventions, C04
+knowledge-time history, D04 temporal master-data ingestion, live venue authority,
+or instrument-to-venue eligibility. The next documented selector is `C03`.
+The A08 machine-readable readiness registry is outside this delivery's scope and
+is unchanged; this C02 status does not claim a dashboard update or approval.
 
 ## Recommended adoption order
 
@@ -606,9 +636,12 @@ documented selector is `C02`.
 9. Preserve C01's opaque identity, temporal symbology, ambiguity-safe resolution,
    correction lineage, R2 evidence, and open findings before adding venue/time
    contracts or persistent master data.
-10. Introduce each remaining library only in its owning C-J package through a
+10. Preserve C02's versioned venue/session/calendar boundary, timezone invariants,
+    pinned synthetic fixtures, R2 evidence, and open findings before adding unit
+    and convention contracts.
+11. Introduce each remaining library only in its owning C-J package through a
    narrow adapter and contract suite. Do not create a repository-wide dependency
    bundle or install every table candidate in advance.
-11. Run the NautilusTrader comparison only after C contracts and initial F golden
+12. Run the NautilusTrader comparison only after C contracts and initial F golden
     fixtures exist; otherwise the framework, rather than the repository's
     contracts, would define the comparison.
