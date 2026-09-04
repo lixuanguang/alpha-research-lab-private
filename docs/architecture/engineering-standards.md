@@ -33,10 +33,11 @@ root, and blocks C, C++, or Rust source until an owned native target and sanitiz
 profile are admitted.
 
 B02 and B03 remain provisional dependencies. Their Bazel graph, exact Python
-toolchain, clean-machine shell, sandbox, and rollback are preserved. The
-[pre-B01 refresh](../roadmap/pre-b01-toolchain-refresh.md) remains historical
-compatibility evidence; B04 does not repeat it or claim that existing tools have
-undergone final B07 admission.
+toolchain, clean-machine shell, sandbox, and rollback are preserved. The completed
+pre-B01 toolchain refresh is retained in Git history (`ba121d4`, formerly
+`docs/roadmap/pre-b01-toolchain-refresh.md`). Current pins and admission decisions
+belong to the lock and [dependency-admission contract](dependency-admission.md).
+B04 does not repeat that refresh or claim final B07 admission.
 
 No economic, data, schema, research, model, strategy, risk, execution, runtime, or
 deployment behavior is introduced. Fast affected-target selection and authoritative
