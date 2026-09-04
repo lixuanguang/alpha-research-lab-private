@@ -175,6 +175,8 @@ Additional rules:
   [ADR 0010](../architecture/decisions/0010-pydantic-instrument-identity-models.md),
   and the C02 venue/calendar boundary uses the same strict immutable pattern under
   [ADR 0011](../architecture/decisions/0011-versioned-venue-calendar-adapter.md).
+  C03 financial units use the same framework with validated replacement under
+  [ADR 0013](../architecture/decisions/0013-explicit-financial-units-and-conventions.md).
 
 ## Errors and resource management
 

@@ -1,0 +1,40 @@
+{
+  "observed_on": "2026-09-04",
+  "execution_host": "darwin_arm64",
+  "linux_dt_needed": [
+    "libQuantLib-4575fab8.so.0.0.0",
+    "libstdc++.so.6",
+    "libm.so.6",
+    "libgcc_s.so.1",
+    "libpthread.so.0",
+    "libc.so.6"
+  ],
+  "darwin_otool": [
+    "/usr/lib/libc++.1.dylib",
+    "/usr/lib/libSystem.B.dylib"
+  ],
+  "files": [
+    {
+      "name": "quantlib-1.43-cp39-abi3-macosx_11_0_arm64.whl",
+      "sha256": "85d70b28778afca84b9b6ae74ef05a1069b2dca00e80fc74aa8ddf438259dc0c"
+    },
+    {
+      "name": "quantlib-1.43-cp39-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "35cd2c178aa9a30c3b7a9ca050536037c3185afd6728e6a1cf2085adef54464e"
+    },
+    {
+      "name": "_QuantLib.darwin.so",
+      "sha256": "04a53b6f425e728083149241f77e9b9711db845614ce65d2544a09a0970597d8"
+    },
+    {
+      "name": "_QuantLib.linux.so",
+      "sha256": "a2a50e566b2cd6706085c4bb7da15f73419da1f4dd2d9359c51bd91d95aca889"
+    }
+  ],
+  "bundled_linux_libraries": [
+    {
+      "path": "quantlib.libs/libQuantLib-4575fab8.so.0.0.0",
+      "sha256": "5abeaac950562bf6fae354aa55ec473f9c5c874e7db1d781a7d297206d0578b8"
+    }
+  ]
+}

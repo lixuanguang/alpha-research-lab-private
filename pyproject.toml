@@ -13,6 +13,7 @@ dependencies = [
     "alpha-research-governance==0.1.0",
     "exchange-calendars==4.13.2",
     "pydantic==2.13.5",
+    "QuantLib==1.43",
 ]
 
 [project.scripts]

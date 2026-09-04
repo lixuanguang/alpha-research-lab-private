@@ -7,6 +7,7 @@ py_library(
     srcs = glob(
         ["**/*.py"],
         exclude = [
+            "financial_units/**/*.py",
             "instrument_identity/**/*.py",
             "venue_calendar/**/*.py",
         ],
@@ -14,6 +15,7 @@ py_library(
     data = ["py.typed"],
     imports = [".."],
     deps = [
+        "//src/alpha_research/financial_units",
         "//src/alpha_research/instrument_identity",
         "//src/alpha_research/venue_calendar",
         "//tools/governance/src/alpha_research_governance",

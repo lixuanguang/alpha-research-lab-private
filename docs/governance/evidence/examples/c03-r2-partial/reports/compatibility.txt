@@ -1,0 +1,20 @@
+QuantLib 1.43 compatibility evidence, 2026-09-04, local Darwin arm64 CPython 3.12.14.
+Exact PyPI wheel installed with uv 0.12.7 --only-binary :all: in a temporary isolated
+venv. Import under -X faulthandler -W error and five explicit day counters succeeded.
+QuantLib 1.40 imported normally but repeatedly exited 139 under -W error; -W always
+reported missing __module__ on SWIG builtins. It was never added to the repository.
+User selected 1.43; it removes the observed warning/crash without changing filters.
+The final C03 behavior suite passes 82 cases including hand-calculated day counts,
+signed tick/lot goldens, three derandomized 50-example properties, dimensional failures,
+precision/overflow, ambient Decimal isolation, concurrent explicit evaluation dates,
+settlement conventions, sparse multi-year adjustments, unchecked C01/C02 copies,
+coverage failures and owned native-error translation. The separate evidence test
+passes in the installed/full Python suite and as an executing Bazel target.
+The Pydantic 2.13.5 migration retains all numerical goldens and adds strict model,
+validated-copy, nested-input, hash/equality and error-boundary regression coverage.
+The local 10,000-rounding diagnostic passes in 0.188941 seconds against its existing
+2-second budget. All 83 C03 cases, including this diagnostic, passed together in
+the rebuilt installed package on Nix-pinned CPython 3.12.14.
+Strict source and focused-test typing passes. Final full-lane results are retained
+in integration-security-performance.txt. Linux installation/execution, protected
+merged-result replay and independent domain review remain C03-F01/F02 and B07-F02.

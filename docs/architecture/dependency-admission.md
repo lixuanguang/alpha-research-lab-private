@@ -27,10 +27,11 @@ The admitted dependency identity is the union of five immutable surfaces:
 5. full Git commit pins for every GitHub Action in the current CI workflow.
 
 Only `https://pypi.org/simple` is admitted for Python packages. Every one of the
-73 external locked Python packages has an exact version, source-distribution
-digest, wheel digests, an approved license disposition, and an explicit
-native-artifact fact. The policy separately binds each complete lock surface by
-its SHA-256 digest, so a semantically valid but unreviewed graph change still
+74 external locked Python packages has an exact version, wheel digests,
+an approved license disposition and an explicit native-artifact fact. The 73
+ordinary packages have source-distribution digests; C03 QuantLib 1.43 uses the
+explicit bounded bootstrap source/publication profile below. The policy separately
+binds each complete lock surface by its SHA-256 digest, so a semantically valid but unreviewed graph change still
 fails admission. Dependencies may be added only by changing the owning
 declaration, complete lock, B07 admission record, tests, and evidence together.
 Unknown packages, sources, versions, dependencies, licenses, wheels, platforms,
@@ -46,11 +47,11 @@ without source fallback remains external acceptance evidence.
 ### Wheel-only source evidence
 
 [ADR 0012](decisions/0012-wheel-only-source-admission.md) adds an explicit alternate
-source path for native packages published without a PyPI sdist. All 73 current
-packages retain their existing sdist records. There are currently no activated
-wheel-only admissions. Two explicit evidence profiles are available: authenticated
-SLSA build evidence and bounded bootstrap publication evidence. Neither is an
-automatic exemption, and no dependency or lock changes accompany this revision.
+source path for native packages published without a PyPI sdist. All 73 ordinary
+packages retain their existing sdist records. C03 activates one bounded bootstrap
+admission for QuantLib 1.43 through 2026-10-04. Two explicit evidence profiles are
+available: authenticated SLSA build evidence and bounded bootstrap publication evidence. Neither is an
+automatic exemption. The first consumer is recorded in the [C03 contract](financial-units.md).
 
 The optional root `wheel_source_admissions` array contains strict records with
 the fields below. Omitting it preserves the existing behavior. An entry must match
@@ -160,10 +161,11 @@ mandatory. The blueprint's B07 source/lock/license controls and B08 artifact
 controls apply at their respective boundaries; its institutional milestones are
 not completed by this tier.
 
-QuantLib remains unadmitted and C03 unimplemented. Its publication signatures may
-now support a complete bootstrap admission, alongside all required source,
-review, compatibility and lock evidence. A signed-build route remains available.
-The owning C03 change must supply an actual record; this revision activates none.
+C03 admits QuantLib 1.43 for isolated development/CI with all 10 locked wheel
+publication bundles, immutable source records, local review/compatibility/native
+evidence and an expiry of 2026-10-04. Source-to-wheel binding remains unverified
+under Platform-owned B07-DEP-001; all graph artifact release is denied. The
+signed-build route remains available. See the [C03 evidence](../governance/evidence/examples/c03-r2-partial/manifest.toml).
 
 The [QuantLib prerequisite investigation](../governance/evidence/quantlib-1.40-investigation/README.md)
 retains real Darwin/Linux publication-signature checks, immutable source hashes,
@@ -176,7 +178,8 @@ dependency update, retain package/version, wheel digest, bundle and verifier
 diagnostic, reconcile sources/provenance with Platform and Security, then rerun
 admission and full checks. Do not disable claims, SCT or transparency-log checks.
 Rollback is a reviewed revert together with removal/replacement of any dependent
-wheel-only package and its lock entries. Current consumers require no migration.
+wheel-only package and its lock entries. Reverting the active QuantLib admission
+also requires removing or replacing the C03 adapter and its declared dependency.
 Existing B07-F01-F03 retain independent, protected-CI and qualified-review closure.
 
 Runtime package installation is prohibited. The `src` and `tools` runtime source

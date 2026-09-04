@@ -46,6 +46,21 @@ py_test(
 )
 
 py_test(
+    name = "financial_units_evidence_test",
+    srcs = ["test_financial_units_evidence.py"],
+    data = [
+        "//:financial_units_evidence_data",
+        "//tests/golden/financial_units:c03_units.json",
+    ],
+    main = "test_financial_units_evidence.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [
+        "//tools/governance/src/alpha_research_governance",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
     name = "ci_runner_test",
     srcs = ["test_ci_runner.py"],
     data = ["//:ci_policy_data"],

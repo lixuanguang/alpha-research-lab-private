@@ -30,3 +30,19 @@ py_test(
         requirement("pytest"),
     ],
 )
+
+py_test(
+    name = "financial_units_test",
+    srcs = ["test_financial_units.py"],
+    data = ["//tests/golden/financial_units:c03_units.json"],
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    main = "test_financial_units.py",
+    deps = [
+        "//src/alpha_research/financial_units",
+        "//src/alpha_research/instrument_identity",
+        "//src/alpha_research/venue_calendar",
+        requirement("hypothesis"),
+        requirement("pydantic"),
+        requirement("pytest"),
+    ],
+)

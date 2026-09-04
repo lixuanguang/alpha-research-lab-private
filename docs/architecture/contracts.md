@@ -6,9 +6,10 @@ These contracts define the thin waist shared by research, replay, paper, shadow,
 canary, live operation, and every asset package. They are subordinate to the
 [implementation blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
 and describe target behavior. The C01 instrument-identity subset and C02
-venue-calendar subset are implemented by the
+venue-calendar subset and C03 financial-unit subset are implemented by the
 [canonical instrument-identity contract](instrument-identity.md) and
-[venue-calendar contract](venue-calendar.md), respectively; the remaining sections
+[venue-calendar contract](venue-calendar.md) and
+[financial-unit contract](financial-units.md), respectively; the remaining sections
 describe capabilities not yet implemented in the bootstrap repository.
 
 Canonical cross-asset contracts are established in wave C before platform

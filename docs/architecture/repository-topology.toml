@@ -171,13 +171,27 @@ sources = [
 ]
 
 [[units]]
+unit_id = "library.alpha_research.financial_units"
+kind = "library"
+layer = "foundation"
+owner_role = "domain_architecture"
+supported_platforms = ["any"]
+dependencies = ["library.alpha_research.instrument_identity", "library.alpha_research.venue_calendar"]
+visibility = ["test.unit.financial_units"]
+sources = [
+  "src/alpha_research/financial_units/__init__.py",
+  "src/alpha_research/financial_units/conventions.py",
+  "src/alpha_research/financial_units/models.py",
+]
+
+[[units]]
 unit_id = "library.alpha_research.instrument_identity"
 kind = "library"
 layer = "foundation"
 owner_role = "domain_architecture"
 supported_platforms = ["any"]
 dependencies = []
-visibility = ["test.unit.instrument_identity"]
+visibility = ["library.alpha_research.financial_units", "test.unit.financial_units", "test.unit.instrument_identity"]
 sources = [
   "src/alpha_research/instrument_identity/__init__.py",
   "src/alpha_research/instrument_identity/catalog.py",
@@ -191,7 +205,7 @@ layer = "foundation"
 owner_role = "domain_architecture"
 supported_platforms = ["any"]
 dependencies = []
-visibility = ["test.unit.venue_calendar"]
+visibility = ["library.alpha_research.financial_units", "test.unit.financial_units", "test.unit.venue_calendar"]
 sources = [
   "src/alpha_research/venue_calendar/__init__.py",
   "src/alpha_research/venue_calendar/adapter.py",
@@ -256,6 +270,7 @@ sources = [
   "tests/engineering/test_dependency_admission.py",
   "tests/engineering/test_engineering_standards.py",
   "tests/engineering/test_evidence_governance.py",
+  "tests/engineering/test_financial_units_evidence.py",
   "tests/engineering/test_instrument_identity_evidence.py",
   "tests/engineering/test_inventory_governance.py",
   "tests/engineering/test_ownership_governance.py",
@@ -270,6 +285,16 @@ sources = [
   "tests/engineering/test_security_controls.py",
   "tests/engineering/test_venue_calendar_evidence.py",
 ]
+
+[[units]]
+unit_id = "test.unit.financial_units"
+kind = "test"
+layer = "verification"
+owner_role = "domain_architecture"
+supported_platforms = ["any"]
+dependencies = ["library.alpha_research.financial_units", "library.alpha_research.instrument_identity", "library.alpha_research.venue_calendar"]
+visibility = []
+sources = ["tests/unit/test_financial_units.py"]
 
 [[units]]
 unit_id = "test.unit.instrument_identity"

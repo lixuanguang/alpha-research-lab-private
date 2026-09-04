@@ -1,0 +1,16 @@
+load("@alpha_research_pypi//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_library")
+
+package(default_visibility = ["//visibility:public"])
+
+py_library(
+    name = "financial_units",
+    srcs = ["__init__.py", "conventions.py", "models.py"],
+    imports = ["../.."],
+    deps = [
+        "//src/alpha_research/instrument_identity",
+        "//src/alpha_research/venue_calendar",
+        requirement("pydantic"),
+        requirement("quantlib"),
+    ],
+)

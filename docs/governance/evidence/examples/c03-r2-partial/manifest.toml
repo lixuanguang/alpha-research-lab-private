@@ -1,0 +1,173 @@
+schema_version = 1
+bundle_id = "c03-r2-partial"
+roadmap_id = "C03"
+commit_sha = "3333333333333333333333333333333333333333"
+owner_role = "domain_architecture"
+risk_class = "R2"
+evidence_retention_class = "shared_contract_compatibility_lifecycle"
+additional_required_gates = []
+bundle_status = "partial"
+waived_controls = []
+open_finding_ids = ["C03-F01", "C03-F02", "C03-F03"]
+approvals = []
+
+[change]
+capital_at_risk = false
+blast_radius = "shared_domain"
+data_model_materiality = "shared_or_candidate"
+security_privilege = "shared_sensitive"
+reversibility = "compatibility_window"
+computationally_material = true
+economically_or_risk_relevant = true
+model_or_trading_relevant = false
+declared_class = "R2"
+
+[[gates]]
+gate_id = "QG01"
+status = "passed"
+rationale = "Source formatting, strict typing, warnings-as-errors and static/security checks cover the owned library and tests."
+evidence_ids = ["integration-security-performance"]
+
+[[gates]]
+gate_id = "QG02"
+status = "passed"
+rationale = "Exact dependency/source/wheel locks, explicit dates, rational arithmetic and deterministic fixtures preserve repository-local reproducibility."
+evidence_ids = ["contract-and-goldens", "working-tree-inputs"]
+
+[[gates]]
+gate_id = "QG03"
+status = "passed"
+rationale = "Success, boundary, precision, dimensional, native, version and settlement failure paths are covered."
+evidence_ids = ["properties-and-failures"]
+
+[[gates]]
+gate_id = "QG04"
+status = "passed"
+rationale = "Hand-calculated day counts and exact rounding/FX properties retain justified tolerances and context-isolation checks."
+evidence_ids = ["properties-and-failures"]
+
+[[gates]]
+gate_id = "QG05"
+status = "passed"
+rationale = "Golden and convention revisions, explicit interval/context and adapter version are retained; no wire or PIT query is introduced."
+evidence_ids = ["contract-and-goldens", "working-tree-inputs"]
+
+[[gates]]
+gate_id = "QG06"
+status = "passed"
+rationale = "No research/model/trial/promotion logic is introduced; independent domain acceptance remains deferred."
+evidence_ids = ["operations-and-rollback"]
+
+[[gates]]
+gate_id = "QG07"
+status = "passed"
+rationale = "Signed unit cancellation and FX rounding error budgets are tested; no costs/capacity model is introduced."
+evidence_ids = ["properties-and-failures"]
+
+[[gates]]
+gate_id = "QG08"
+status = "passed"
+rationale = "Currency/instrument/unit/convention mismatch and unsafe precision fail closed; no portfolio/risk gateway or risk approval is introduced."
+evidence_ids = ["properties-and-failures"]
+
+[[gates]]
+gate_id = "QG09"
+status = "passed"
+rationale = "Owned installed and Bazel APIs share fixtures and tests; dependency and release-boundary regressions retain enforcement."
+evidence_ids = ["integration-security-performance"]
+
+[[gates]]
+gate_id = "QG10"
+status = "passed"
+rationale = "A bounded local rounding diagnostic is retained without target-environment performance certification."
+evidence_ids = ["integration-security-performance"]
+
+[[gates]]
+gate_id = "QG11"
+status = "passed"
+rationale = "Invalid native results, exceptions, versions and coverage fail without mutating inputs or ambient evaluation state."
+evidence_ids = ["properties-and-failures"]
+
+[[gates]]
+gate_id = "QG12"
+status = "passed"
+rationale = "Complete locked vulnerability scan, source/native reviews and real publication signatures pass; unverified build binding remains bounded and release-blocked."
+evidence_ids = ["integration-security-performance", "locked-vulnerability-scan", "native-observations", "publication-verification"]
+
+[[gates]]
+gate_id = "QG13"
+status = "passed"
+rationale = "ADR, API, ownership, limitations, migration, rollback, runbook, evidence and successor are documented."
+evidence_ids = ["operations-and-rollback"]
+
+[[gates]]
+gate_id = "QG14"
+status = "passed"
+rationale = "Safe typed errors and explicit context/version attribution are local diagnostic signals; no deployed monitoring or SLO is claimed."
+evidence_ids = ["operations-and-rollback"]
+
+[[artifacts]]
+evidence_id = "contract-and-goldens"
+artifact_type = "test_report"
+path = "reports/contract-and-goldens.txt"
+sha256 = "06fcf2224dfe4e8083a170be19cf4b9dbc8ff7b712d96d96c3d2f54f9022c456"
+
+[[artifacts]]
+evidence_id = "properties-and-failures"
+artifact_type = "test_report"
+path = "reports/properties-and-failures.txt"
+sha256 = "7d93dd2982ef9dacc08d137af6381f915d7eff4c4efb01778631e0238020b655"
+
+[[artifacts]]
+evidence_id = "integration-security-performance"
+artifact_type = "integration_report"
+path = "reports/integration-security-performance.txt"
+sha256 = "9de14049643a7284c29b5198a05b4fecff89d3d9fa539d5dbea0e4feff1c463d"
+
+[[artifacts]]
+evidence_id = "operations-and-rollback"
+artifact_type = "documentation"
+path = "reports/operations-and-rollback.txt"
+sha256 = "a9842f1ba6cc7e3a8fcec8536bce51d1d593f6c45d5ff10a1b20e66be34ba6f1"
+
+[[findings]]
+finding_id = "C03-F01"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent exact-commit Code Owner, domain, Platform/SRE and Security review is unavailable during solo bootstrap."
+closure_condition = "Named independent reviewers resolve findings and approve the exact API, tolerances, native dependency, rollback and evidence commit."
+
+[[findings]]
+finding_id = "C03-F02"
+owner_role = "platform_ci"
+unavailable_evidence = "Protected merged-result Linux execution, cross-platform native comparison and target-budget evidence are unavailable locally."
+closure_condition = "Protected CI installs exact wheels on supported Darwin/Linux targets, retains full/golden/context/failure replay and target performance evidence for the reviewed commit."
+
+[[findings]]
+finding_id = "C03-F03"
+owner_role = "domain_architecture"
+unavailable_evidence = "Independent entitled target-domain currency, instrument-unit, rounding and day-count/settlement reconciliation is unavailable locally."
+closure_condition = "Independent domain and data owners reconcile representative certified inputs and convention results against authoritative sources and retain the evidence."
+
+[[artifacts]]
+evidence_id = "working-tree-inputs"
+artifact_type = "implementation_snapshot"
+path = "reports/working-tree-inputs.json"
+sha256 = "9a0955e32d80943da9ca896f495d5e2e1ffb1e09151c36046eb3fb2dd726df50"
+
+[[artifacts]]
+evidence_id = "locked-vulnerability-scan"
+artifact_type = "security_report"
+path = "reports/pip-audit.json"
+sha256 = "c0231142446fb3cf9c1ef69732323eac46c6279bb9560ff45dfbe35ba40a5e1e"
+
+[[artifacts]]
+evidence_id = "native-observations"
+artifact_type = "security_report"
+path = "reports/native-observations.json"
+sha256 = "b461bbc64a771960919bc9384c0751155aa6eece71afa1b94c92f5859c2a5dd8"
+
+[[artifacts]]
+evidence_id = "publication-verification"
+artifact_type = "security_report"
+path = "reports/quantlib-1.43/verification.json"
+sha256 = "7939f05a5aa9c24834e4ce4de9db8e479dcd22842fe1397425c5a23f41ba262b"
