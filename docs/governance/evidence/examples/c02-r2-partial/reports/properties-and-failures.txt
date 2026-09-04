@@ -1,0 +1,8 @@
+C02 repository-local property and failure evidence
+Result: pinned Hypothesis runs 50 derandomized examples for deterministic market-state projection and explicit venue-timezone round trips.
+Result: invalid UUIDs, MICs, timezone names, UTC instants, interval ordering, overlaps, closures, settlement bounds, and override targets reject.
+Result: unknown source calendars, source/venue timezone mismatch, incompatible installed versions, invalid optional source timestamps, out-of-coverage state, unknown session labels, and missing or mismatched override attribution reject.
+Result: half-open auction, halt, limit, break, and close boundaries use documented precedence without favorable-state fallback or partial mutation.
+Result: closure-only requests return exact empty coverage, repeated non-overlapping auctions remain valid, claimed source revisions are checked, duplicate source labels reject, and source query errors are translated.
+Result: direct snapshots reject retained override records that disagree with the resulting sessions.
+Boundary: the adapter is reference-only; knowledge-time history, source priority, persistence, live venue state, and order permission remain later-package work.

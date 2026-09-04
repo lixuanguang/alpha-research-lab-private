@@ -75,11 +75,11 @@ sha256 = "59dcd10f73b4392d83afb7ad11ce635f7c23ab529e21065fc073fbd2a30661e5"
 
 [[locks]]
 path = "requirements.bazel.txt"
-sha256 = "86a0c5a718b85053d5964311aac4da9b682e8177c7dff417b13ae44604a236fc"
+sha256 = "ae11864cab2fb03cc8722eda96aa2f5a5723cb376cf2cbac3225f75a3dfcbcdf"
 
 [[locks]]
 path = "uv.lock"
-sha256 = "2946bbb597d3eacddd94050b8bd417b0fb850d35e83e1f5a2c1200ddc8255366"
+sha256 = "b4298e898165fb12a42420e54032906e25a536a9218b687ded00f107bbc50cdf"
 
 [[findings]]
 finding_id = "B08-F01"

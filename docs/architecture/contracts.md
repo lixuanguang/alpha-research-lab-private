@@ -5,9 +5,11 @@
 These contracts define the thin waist shared by research, replay, paper, shadow,
 canary, live operation, and every asset package. They are subordinate to the
 [implementation blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
-and describe target behavior. C01's instrument-identity subset is implemented by
-the [canonical instrument-identity contract](instrument-identity.md); the remaining
-sections describe capabilities not yet implemented in the bootstrap repository.
+and describe target behavior. The C01 instrument-identity subset and C02
+venue-calendar subset are implemented by the
+[canonical instrument-identity contract](instrument-identity.md) and
+[venue-calendar contract](venue-calendar.md), respectively; the remaining sections
+describe capabilities not yet implemented in the bootstrap repository.
 
 Canonical cross-asset contracts are established in wave C before platform
 components specialize them. Asset implementations are certified separately in
@@ -46,6 +48,22 @@ selection, and the other bullets remain target contracts for later packages.
   listed contracts.
 - Adjusted equity series are derived; raw prices and corporate actions remain
   independently available.
+
+## Venues, calendars, and market state
+
+C02 implements the bounded repository-owned venue/session contract. Stable venue
+IDs bind exact MIC-shaped values to explicit IANA timezones. Immutable calendar
+snapshots contain UTC half-open sessions, breaks, auctions, closures, interruptions,
+price-limit states, settlement dates, and exact base/override attribution. The
+pinned `exchange_calendars` adapter is reference-only and cannot represent live
+venue authority. Unknown, incompatible, out-of-coverage, overlapping, or
+unattributed state fails closed.
+
+The detailed API, precedence, DST behavior, source boundary, fixture coverage, and
+operational constraints are normative in the
+[C02 venue-calendar contract](venue-calendar.md). Live source ingestion,
+knowledge-time history, instrument-to-venue listing association, trading
+eligibility, order acceptance, and venue connectivity remain later-package work.
 
 ### Time semantics
 

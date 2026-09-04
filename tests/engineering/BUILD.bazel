@@ -31,6 +31,21 @@ py_test(
 )
 
 py_test(
+    name = "venue_calendar_evidence_test",
+    srcs = ["test_venue_calendar_evidence.py"],
+    data = [
+        "//:venue_calendar_evidence_data",
+        "//tests/golden/venue_calendar:c02_calendars.json",
+    ],
+    main = "test_venue_calendar_evidence.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [
+        "//tools/governance/src/alpha_research_governance",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
     name = "ci_runner_test",
     srcs = ["test_ci_runner.py"],
     data = ["//:ci_policy_data"],

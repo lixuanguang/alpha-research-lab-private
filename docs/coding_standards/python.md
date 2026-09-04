@@ -172,7 +172,9 @@ Additional rules:
   [ADR 0008](../architecture/decisions/0008-pydantic-boundary-models.md). This does
   not authorize validation-framework dependencies in economic or trading-domain
   models. The C01 instrument-identity exception is narrowly authorized by
-  [ADR 0010](../architecture/decisions/0010-pydantic-instrument-identity-models.md).
+  [ADR 0010](../architecture/decisions/0010-pydantic-instrument-identity-models.md),
+  and the C02 venue/calendar boundary uses the same strict immutable pattern under
+  [ADR 0011](../architecture/decisions/0011-versioned-venue-calendar-adapter.md).
 
 ## Errors and resource management
 

@@ -21,7 +21,7 @@ deterministic checker and tests executed by the root and CI interfaces.
 The checker fails closed when a log row's ID, title, link target, status, owner,
 or review date differs from its ADR metadata.
 
-The ten records remain `Proposed` because solo-bootstrap implementation cannot
+The eleven records remain `Proposed` because solo-bootstrap implementation cannot
 manufacture Code Owner acceptance. This package is therefore partial even when
 all repository-local checks pass.
 
@@ -39,6 +39,7 @@ all repository-local checks pass.
 | 0008 | [Pydantic boundary models](0008-pydantic-boundary-models.md) | Proposed | Platform | 2026-11-30 |
 | 0009 | [Remote execution service](0009-remote-execution-service.md) | Proposed | Platform | 2026-12-01 |
 | 0010 | [Pydantic instrument-identity models](0010-pydantic-instrument-identity-models.md) | Proposed | Domain Architecture | 2026-12-02 |
+| 0011 | [Versioned venue-calendar adapter](0011-versioned-venue-calendar-adapter.md) | Proposed | Domain Architecture | 2026-12-03 |
 
 ## Closed validation evidence
 

@@ -185,6 +185,20 @@ sources = [
 ]
 
 [[units]]
+unit_id = "library.alpha_research.venue_calendar"
+kind = "library"
+layer = "foundation"
+owner_role = "domain_architecture"
+supported_platforms = ["any"]
+dependencies = []
+visibility = ["test.unit.venue_calendar"]
+sources = [
+  "src/alpha_research/venue_calendar/__init__.py",
+  "src/alpha_research/venue_calendar/adapter.py",
+  "src/alpha_research/venue_calendar/models.py",
+]
+
+[[units]]
 unit_id = "test.build"
 kind = "test"
 layer = "verification"
@@ -254,6 +268,7 @@ sources = [
   "tests/engineering/test_repository_topology.py",
   "tests/engineering/test_root_commands.py",
   "tests/engineering/test_security_controls.py",
+  "tests/engineering/test_venue_calendar_evidence.py",
 ]
 
 [[units]]
@@ -265,6 +280,16 @@ supported_platforms = ["any"]
 dependencies = ["library.alpha_research.instrument_identity"]
 visibility = []
 sources = ["tests/unit/test_instrument_identity.py"]
+
+[[units]]
+unit_id = "test.unit.venue_calendar"
+kind = "test"
+layer = "verification"
+owner_role = "domain_architecture"
+supported_platforms = ["any"]
+dependencies = ["library.alpha_research.venue_calendar"]
+visibility = []
+sources = ["tests/unit/test_venue_calendar.py"]
 
 [[units]]
 unit_id = "tool.governance.architecture_governance"

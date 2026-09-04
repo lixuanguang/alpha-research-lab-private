@@ -10,6 +10,7 @@ from typing import cast
 REPOSITORY_ROOT = Path(__file__).parents[2]
 EXPECTED_RUNTIME_REQUIREMENTS = {
     "alpha-research-governance==0.1.0",
+    "exchange-calendars==4.13.2",
     "pydantic==2.13.5",
 }
 EXPECTED_TOOL_REQUIREMENTS = {"pydantic==2.13.5", "typer==0.27.2"}
@@ -55,6 +56,7 @@ def test_governance_path_target_and_owned_commands_are_explicit() -> None:
             "path": "tools/governance",
         }
     }
+    assert uv["constraint-dependencies"] == ["numpy==2.4.6"]
     assert set(scripts) == {
         "alpha-governance-architecture",
         "alpha-governance-artifacts",

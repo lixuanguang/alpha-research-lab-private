@@ -5,8 +5,8 @@ package_status = "partial"
 accountable_owner_role = "platform"
 risk_class = "R2"
 successor_package = "B08"
-as_of_date = "2026-09-03"
-review_due_on = "2026-12-01"
+as_of_date = "2026-09-04"
+review_due_on = "2026-12-03"
 runtime_installation_allowed = false
 maximum_signal_age_days = 7
 emergency_override_maximum_days = 30
@@ -46,6 +46,8 @@ native_python_packages = [
   "librt",
   "msgpack",
   "mypy",
+  "numpy",
+  "pandas",
   "pydantic-core",
   "pyyaml",
   "ruff",
@@ -55,8 +57,8 @@ vulnerability_decisions = []
 emergency_overrides = []
 
 [lock_digests]
-"uv.lock" = "2946bbb597d3eacddd94050b8bd417b0fb850d35e83e1f5a2c1200ddc8255366"
-"requirements.bazel.txt" = "86a0c5a718b85053d5964311aac4da9b682e8177c7dff417b13ae44604a236fc"
+"uv.lock" = "b4298e898165fb12a42420e54032906e25a536a9218b687ded00f107bbc50cdf"
+"requirements.bazel.txt" = "ae11864cab2fb03cc8722eda96aa2f5a5723cb376cf2cbac3225f75a3dfcbcdf"
 "MODULE.bazel.lock" = "d071e04040e390f9353b240cc26c5d3c0fdfb6a432d3d60f147e781110efce4b"
 "flake.lock" = "59dcd10f73b4392d83afb7ad11ce635f7c23ab529e21065fc073fbd2a30661e5"
 ".github/workflows/ci.yml" = "5fa6c3bf9d791b4edc59f4f4192152236104f0bd04f436c82e2e94f331e2ab43"
@@ -80,6 +82,7 @@ packages = [
   "cachecontrol==0.14.4",
   "coverage==7.15.4",
   "cyclonedx-python-lib==11.12.0",
+  "exchange-calendars==4.13.2",
   "license-expression==30.4.4",
   "msgpack==1.2.2",
   "pip-api==0.0.34",
@@ -89,6 +92,7 @@ packages = [
   "sortedcontainers==2.4.0",
   "stevedore==5.9.1",
   "trove-classifiers==2026.6.1.19",
+  "tzdata==2026.3",
 ]
 
 [[license_groups]]
@@ -111,6 +115,8 @@ packages = [
   "colorama==0.4.6",
   "idna==3.19",
   "nodeenv==1.10.0",
+  "pandas==3.0.5",
+  "toolz==1.1.0",
 ]
 
 [[license_groups]]
@@ -131,6 +137,7 @@ packages = [
   "hatchling==1.32.0",
   "identify==2.6.19",
   "iniconfig==2.3.0",
+  "korean-lunar-calendar==0.4.0",
   "librt==0.15.0",
   "markdown-it-py==4.2.0",
   "mdurl==0.1.2",
@@ -145,6 +152,7 @@ packages = [
   "pre-commit==4.6.2",
   "pydantic-core==2.46.5",
   "pydantic==2.13.5",
+  "pyluach==2.3.0",
   "pyparsing==3.3.2",
   "pytest-cov==7.1.0",
   "pytest==9.1.1",
@@ -153,6 +161,7 @@ packages = [
   "rich==15.0.0",
   "ruamel-yaml==0.19.1",
   "ruff==0.16.5",
+  "six==1.17.0",
   "tomli-w==1.2.0",
   "tomli==2.4.1",
   "tomlkit==0.15.1",
@@ -161,6 +170,16 @@ packages = [
   "urllib3==2.7.0",
   "virtualenv==21.7.4",
 ]
+
+[[license_groups]]
+license_expression = "Apache-2.0 OR BSD-3-Clause"
+disposition = "approved"
+packages = ["python-dateutil==2.9.0.post0"]
+
+[[license_groups]]
+license_expression = "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0"
+disposition = "approved"
+packages = ["numpy==2.4.6"]
 
 [[license_groups]]
 license_expression = "MPL-2.0"
