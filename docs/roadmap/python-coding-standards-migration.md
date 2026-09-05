@@ -2,7 +2,7 @@
 
 Audit date: 2026-09-05. Baseline revision:
 `d3a40ca98d71208426c8501d8d4a1aaaa049768d`.
-Status: steps 1–3 implemented on 2026-09-05; steps 4–7 remain planned. The findings
+Status: steps 1–4 implemented on 2026-09-05; steps 5–7 remain planned. The findings
 below describe the original audited revision, before step-1 enforcement.
 
 The requested target is segregated, commented import groups; stringent typing
@@ -276,7 +276,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 1. Establish the executable contract — implemented | Updated the Python guide; extended the existing checker, pre-commit hook and Bazel inputs/tests. Froze 3,079 original-revision obligations. | 55 focused tests cover new/moved/multiplied debt, missing Google sections, aliased `Any`, imports and invalid exception metadata. See the step-1 validation record below. |
 | 2. Normalize imports — implemented | Activated the heading settings and applied import-only fixes in runtime, tooling and test batches. Retired all 243 import obligations. | Ruff import/format checks pass; complete AST comparison confirms unchanged import targets, aliases, relative levels and execution order. See the step-2 validation record below. |
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
-| 4. Strengthen library and parsing boundaries | Pilot Pydantic typing on a small governance model, then audit shared bases, JSON/TOML readers and native adapters. Depends on step 3 for negative-test compatibility. | Enforced mypy scopes pass additional flags; every remaining diagnostic has a concrete cause and retirement task. Stub conformance, validation and existing native goldens pass. |
+| 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
 | 5. Document existing contracts | Start with exported domain APIs, shared model validation and high-level governance operations; then private helpers, test classes and fixtures. Depends on step 1; combine docs for moved functions with step 6. | Required Google sections are checked; public contracts describe actual units/errors/side effects; residual exceptions are exact and justified. |
 | 6. Refactor workflows into classes | Pilot change-risk classification, then loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | Existing callers and CLI behavior remain compatible; methods have typed dependencies and docs; behavior and repeated-call tests pass. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
@@ -378,6 +378,63 @@ are 735 definition summaries, 1,229 structured-documentation obligations and 805
 function dispositions. Inferred library and parsing types remain step-4 work;
 source-level completion does not claim that every expression is free of inferred
 dynamic typing.
+
+### Step 4 implementation
+
+The Pydantic pilot used the small governance `OperatingRules`/change-risk models
+and the shared immutable base before enabling `pydantic.mypy` across both
+packages. Typed constructors, extra-keyword rejection and dynamic-alias checks
+are active. Four validators now use `ValidationInfo[object]` because they consume
+only field names and make no assumption about caller-supplied context. Custom
+constructors and their owned validation-error translation remain intact.
+The plugin identifies frozen fields statically, so the two existing tests of
+runtime frozen-field assignment now have governed line-scoped `misc` suppressions.
+They still execute the original assignments and expect runtime validation errors.
+
+`disallow_any_explicit` and `disallow_any_unimported` now apply to the entire
+root check, including tests and five local stub files. Decorated signatures are
+checked across both owned packages. Expression checks additionally apply to
+financial conventions, the governance immutable base, change-risk models, CI
+policy parsing, the operating model, the new typing checker and its tests.
+The engineering-standards policy checks the plugin settings, exact module scopes
+and stub search path, preventing configuration drift.
+
+The consumed QuantLib 1.43, exchange-calendars 4.13.2 and pandas 3.0.5 surfaces
+have narrow local stubs. All four `import-untyped` suppressions were removed.
+QuantLib counters use their actual common `DayCounter` base, and tests access the
+native settings and monkeypatch targets through typed module imports. Stubtest
+checks the declarations without an allowlist; behavioral tests exercise the
+five day-count conventions, date constructors, XNYS/XHKG timestamp shapes and
+NaT break sentinels. Stubs are declared in Bazel adapter/build inputs and the
+source distribution, with unchanged dependency pins and lockfiles.
+
+TOML readers retain the standard library's guaranteed string-keyed root shape
+without asserting JSON's narrower value domain. Operating settings and domain
+tables are shape-checked before projection into existing strict models. CI
+policy readers use typed raw tables and their existing closed-schema validators.
+Artifact JSON is captured as `object` before its existing shape check; toolchain
+tables now pass the existing table-array validator before access. Dependency
+admission validates both JSON lock roots and the dependency-group/dev shapes
+before nested access. Wrong JSON roots now produce the existing domain error.
+
+The separate [inferred-debt inventory](../architecture/python-typing-debt.json)
+records **690 remaining diagnostics, 359 exact identities across 50 files**.
+Its revision identifies this slice's starting commit; measurements reflect the
+completed boundary changes. Each obligation has a cause and concrete retirement
+task, including framework signatures, serialized/fixture records, error details,
+reflection, collection narrowing, regex results and callback inference. Nine
+Hypothesis-decorated test signatures remain among those diagnostics. This is
+unfinished inferred-typing work for the later owning-module slices and step 7;
+it is not a claim that every expression is free of dynamic types.
+
+`make typecheck`, the rollback lane and pre-commit run strict mypy, the full-scope
+stronger inventory probe and native stubtest. The probe validates its machine
+output and rejects process failures, new/moved/multiplied debt, stale entries,
+missing tasks and duplicate identities. It never writes allowances. Inventory
+bytes are checksum-pinned. All 2,769 pre-existing source-standard obligations
+remain unchanged; no source debt was regenerated or added. One exact expiring
+framework exception retains the upstream `get_calendar` factory as a module-level
+stub declaration, with its owner, rationale and AST fingerprint recorded.
 
 ### Class migration queue
 
@@ -551,3 +608,37 @@ fixture changed.
 
 These are local checks for step 3; this slice did not run `make ci-full` or hosted
 CI. Steps 4–7 remain planned.
+
+
+## Step 4 validation record — 2026-09-05
+
+Validation used starting revision `298091a52aee0488dc545d072c63b9b5809f27d1`.
+Both local packages were rebuilt offline as non-editable installs in the existing
+pinned environment. Dependencies, lockfiles, source-standard debt and golden
+fixtures are unchanged. The existing pinned Cosign and Syft executables were
+included on `PATH` for repository checks.
+
+| Check | Observed result |
+| --- | --- |
+| Initial full-scope extra-flag probe after step 3 | 160 diagnostics in 27 files before enabling the Pydantic plugin and boundary fixes. |
+| Pydantic static compatibility probes | Valid governance construction and the custom positional `InstrumentId(UUID)` constructor pass. Four invalid examples are rejected: frozen-field assignment, a list for a tuple field, an extra constructor keyword and a string for a UUID argument. |
+| `make lint format-check typecheck engineering-standards-check architecture-check` | Passed. Ruff and strict mypy cover 136 Python/stub files. The seven expression scopes pass; source/typing inventories and exact configuration guards pass; 14 ADRs and documentation links validate. |
+| Stronger full-scope diagnostic reconciliation | Exactly 690 remaining diagnostics, 359 identities across 50 files; each has a concrete cause and retirement task. Nine decorated Hypothesis signatures remain in this total. |
+| Native `mypy.stubtest` | Passed over 1,548 inspected modules with `--ignore-missing-stub` for the deliberately partial surface; no allowlist. |
+| Pytest, default non-integration/non-performance selection | 655 passed, 9 deselected. Includes 22 added cases for inventory drift/tool failures, malformed parsing roots, native signatures/return shapes, plus all existing domain goldens and invalid-input tests. |
+| Existing test compatibility | All existing test-function names and decorators in the four modified test modules remain unchanged; native settings checks now use typed access to the same native module and singleton. |
+| `bazel test --config=ci //...` | All 20 targets passed, including the new `python_typing_test` and all native-domain, developer-environment and governance tests. |
+| `pre-commit run --all-files` | Every hook passed, including the shared typecheck command and all governance policies. |
+| Source distribution and wheel | Offline build passed; inspected source archive contains all five native `.pyi` files, their build declaration, documentation and stubtest configuration. The development cache is excluded. |
+| Source-standard debt and whitespace | Existing 2,769 source obligations remain byte-for-byte unchanged; no new allowances. The exact upstream-factory exception validates. `git diff --check` passed. |
+
+Early local verification exposed the expected root-command test update and
+missing structured docs in a new nested test callback; both were corrected and
+the final checks above passed. The initial direct pytest invocation lacked the
+installed console-command directory on `PATH`; the final suite ran through the
+pinned uv environment after rebuilding both packages.
+
+These are local checks for step 4. This slice did not run `make ci-full`, the
+separate integration/performance selections or hosted CI. Steps 5–7 remain
+planned, including retirement of the remaining inferred-typing tasks before
+unconditional adoption closes.

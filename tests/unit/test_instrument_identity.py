@@ -341,7 +341,7 @@ def test_instrument_identity_models_are_strict_frozen_pydantic_boundaries() -> N
     with pytest.raises(ValidationError):
         InstrumentId.model_validate({"uuid_value": instrument_id.uuid_value, "unexpected": True})
     with pytest.raises(ValidationError):
-        instrument_id.uuid_value = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+        instrument_id.uuid_value = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")  # type: ignore[misc]  # [owner=platform; rationale=exercise frozen-field runtime rejection at the original assignment; expires=2027-03-01]
 
     tampered_id = InstrumentId.model_construct(uuid_value=UUID(int=0))
     with pytest.raises(InstrumentIdentityValidationError, match="non-nil UUID"):

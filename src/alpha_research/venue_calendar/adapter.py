@@ -10,9 +10,9 @@ from importlib.metadata import version as installed_version
 from typing import Protocol, cast
 
 # third party library imports
-import exchange_calendars as _exchange_calendars  # type: ignore[import-untyped]  # [owner=domain_architecture; rationale=pinned library has no py.typed marker and is isolated behind an owned adapter; expires=2027-02-28]
-import pandas as _pandas  # type: ignore[import-untyped]  # [owner=domain_architecture; rationale=only the pinned source NaT sentinel is used at the untyped adapter boundary; expires=2027-02-28]
-from exchange_calendars.errors import (  # type: ignore[import-untyped]  # [owner=domain_architecture; rationale=translate untyped dependency errors; expires=2027-02-28]
+import exchange_calendars as _exchange_calendars
+import pandas as _pandas
+from exchange_calendars.errors import (
     CalendarError as _ExchangeCalendarError,
 )
 from exchange_calendars.errors import (

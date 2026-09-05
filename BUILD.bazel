@@ -45,6 +45,7 @@ filegroup(
         "uv.lock",
         "//tests/fixtures/governance/evidence:legacy_evidence",
         "//tools/governance:pyproject.toml",
+        "//tools/typing:native_stubs",
     ],
     visibility = ["//tests/build:__pkg__"],
 )
@@ -134,6 +135,7 @@ filegroup(
         "requirements.bazel.txt",
         "uv.lock",
         "//tools/governance:pyproject.toml",
+        "//tools/typing:native_stubs",
     ] + glob([
         "docs/governance/evidence/examples/b07-r2-partial/reports/**",
         "docs/governance/evidence/examples/c03-r2-partial/reports/**",
@@ -148,6 +150,7 @@ filegroup(
         "docs/architecture/engineering-tool-dependencies.toml",
         "docs/architecture/python-standards-debt.json",
         "docs/architecture/python-standards-exceptions.toml",
+        "docs/architecture/python-typing-debt.json",
         "uv.lock",
     ],
     visibility = ["//tests/engineering:__pkg__"],
@@ -186,6 +189,7 @@ test_suite(
         "//tests/engineering:financial_units_evidence_test",
         "//tests/engineering:artifact_supply_chain_test",
         "//tests/engineering:engineering_standards_test",
+        "//tests/engineering:python_typing_test",
         "//tests/engineering:dependency_admission_test",
         "//tests/engineering:remote_execution_test",
         "//tests/unit:instrument_identity_test",

@@ -124,3 +124,14 @@ py_test(
         requirement("pytest"),
     ],
 )
+
+py_test(
+    name = "python_typing_test",
+    srcs = ["test_python_typing.py"],
+    main = "test_python_typing.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [
+        "//tools/governance/src/alpha_research_governance",
+        requirement("pytest"),
+    ],
+)

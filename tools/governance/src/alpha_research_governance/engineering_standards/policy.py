@@ -51,6 +51,7 @@ _SOURCE_ROOTS = (
     "src/alpha_research",
     "tests",
     "tools/governance/src/alpha_research_governance",
+    "tools/typing/stubs",
 )
 _TOOL_VERSIONS = {
     "bandit": "1.9.4",
@@ -737,6 +738,39 @@ def validate_repository(
     mypy_configuration = _table(tool_configuration.get("mypy"), context="pyproject.toml.tool.mypy")
     if mypy_configuration.get("strict") is not True:
         findings.append("Python migration must retain strict mypy checking")
+    for flag in ("disallow_any_explicit", "disallow_any_unimported"):
+        if mypy_configuration.get(flag) is not True:
+            findings.append(f"Python boundary typing must retain {flag}")
+    if mypy_configuration.get("plugins") != ["pydantic.mypy"]:
+        findings.append("Python boundary typing requires the pinned Pydantic mypy plugin")
+    plugin_configuration = _table(
+        tool_configuration.get("pydantic-mypy"), context="pyproject.toml.tool.pydantic-mypy"
+    )
+    for flag in ("init_typed", "init_forbid_extra", "warn_required_dynamic_aliases"):
+        if plugin_configuration.get(flag) is not True:
+            findings.append(f"Pydantic typing must retain {flag}")
+    expected_typing_scopes: list[dict[str, object]] = [
+        {
+            "module": ["alpha_research.*", "alpha_research_governance.*"],
+            "disallow_any_decorated": True,
+        },
+        {
+            "module": [
+                "alpha_research.financial_units.conventions",
+                "alpha_research_governance._models",
+                "alpha_research_governance.change_risk.models",
+                "alpha_research_governance.ci_policy.policy",
+                "alpha_research_governance.engineering_standards.python_typing",
+                "alpha_research_governance.operating_model",
+                "test_python_typing",
+            ],
+            "disallow_any_expr": True,
+        },
+    ]
+    if mypy_configuration.get("overrides") != expected_typing_scopes:
+        findings.append("Python boundary typing enforcement scopes drifted")
+    if mypy_configuration.get("mypy_path") != ["src", "tools/governance/src", "tools/typing/stubs"]:
+        findings.append("Python boundary typing must resolve owned native stubs")
     ruff_configuration = _table(tool_configuration.get("ruff"), context="pyproject.toml.tool.ruff")
     ruff_lint = _table(ruff_configuration.get("lint"), context="pyproject.toml.tool.ruff.lint")
     if "I" not in _strings(ruff_lint.get("select"), context="Ruff selected rules"):

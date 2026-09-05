@@ -9,7 +9,7 @@ CI_EVENT_LOG ?= build/ci/continuous-integration-events.jsonl
 CI_RUN_ID ?= local
 CI_ENVIRONMENT ?= local
 CI_EVIDENCE_URL ?=
-PYTHON_PATHS := src tests tools/governance/src
+PYTHON_PATHS := src tests tools/governance/src tools/typing/stubs
 BAZEL_BUILD_TARGETS := //src/alpha_research:alpha_research //tools/governance/src/alpha_research_governance:all //tests/build/fixtures/sql:build_evidence //:docs_bundle
 
 .PHONY: sync lock-check format format-check lint typecheck governance-check program-status engineering-standards-check dependency-admission-check dependency-audit artifact-supply-chain-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check remote-execution-policy-check remote-build remote-test remote-quarantine remote-local-fallback-check ci-secrets-check ci-schema-check ci-fast ci-full security bazel-build bazel-test bazel-check integration-test performance-test rollback-test rollback-build rollback-check test smoke build check
@@ -31,6 +31,8 @@ lint:
 
 typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
+	$(UV) run --frozen python -m alpha_research_governance.engineering_standards.python_typing
+	$(UV) run --frozen python -m mypy.stubtest --mypy-config-file=tools/typing/stubtest.toml --ignore-missing-stub QuantLib exchange_calendars pandas
 
 governance-check: engineering-standards-check dependency-admission-check artifact-supply-chain-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check remote-execution-policy-check
 

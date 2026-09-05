@@ -1,0 +1,2976 @@
+{
+  "schema_version": 1,
+  "baseline_revision": "298091a52aee0488dc545d072c63b9b5809f27d1",
+  "mypy_version": "2.3.1",
+  "tasks": {
+    "callbacks": {
+      "owner_role": "platform",
+      "cause": "A lambda passed to sorting, bisect, regex substitution or monkeypatch loses its parameter type under the stronger expression probe.",
+      "retirement": "Give the callback an explicit Callable contract or typed named implementation; retain ordering keys, injected failure behavior and monkeypatch target entry points."
+    },
+    "callbacks+framework": {
+      "owner_role": "platform",
+      "cause": "A lambda passed to sorting, bisect, regex substitution or monkeypatch loses its parameter type under the stronger expression probe. Framework decorators, context objects or entry-point return types retain upstream dynamic parameters.",
+      "retirement": "Give the callback an explicit Callable contract or typed named implementation; retain ordering keys, injected failure behavior and monkeypatch target entry points. Type the consumed Typer/Click or pytest callable/context contract and narrow raw results; verify dispatch, collection and exit behavior without changing framework entry points."
+    },
+    "callbacks+regex": {
+      "owner_role": "platform",
+      "cause": "A lambda passed to sorting, bisect, regex substitution or monkeypatch loses its parameter type under the stronger expression probe. Typeshed regex groups/findall expose dynamic group values for string patterns, which propagate into parsed policy fields.",
+      "retirement": "Give the callback an explicit Callable contract or typed named implementation; retain ordering keys, injected failure behavior and monkeypatch target entry points. Bind match/group results to checked string or optional-string values, handle unmatched groups explicitly and preserve existing grammar/error cases."
+    },
+    "collections": {
+      "owner_role": "platform",
+      "cause": "Built-in collection narrowing, dict.fromkeys or heterogeneous container inference retains generic members despite subsequent field checks.",
+      "retirement": "Narrow element/key shapes before iteration and contextually type collection construction; preserve acceptance of invalid test inputs and rejection at the original validation boundary."
+    },
+    "collections+payload": {
+      "owner_role": "platform",
+      "cause": "Built-in collection narrowing, dict.fromkeys or heterogeneous container inference retains generic members despite subsequent field checks. Pydantic model_dump/model_copy/model_validate interfaces contextually introduce dynamic dictionary members, including deliberately invalid boundary payloads.",
+      "retirement": "Narrow element/key shapes before iteration and contextually type collection construction; preserve acceptance of invalid test inputs and rejection at the original validation boundary. Use a schema-specific TypedDict or validated record for serialized data and an explicitly typed invalid-input payload at negative-test boundaries; preserve validation and error entry points."
+    },
+    "collections+payload+reflection": {
+      "owner_role": "platform",
+      "cause": "Built-in collection narrowing, dict.fromkeys or heterogeneous container inference retains generic members despite subsequent field checks. Pydantic model_dump/model_copy/model_validate interfaces contextually introduce dynamic dictionary members, including deliberately invalid boundary payloads. Dynamic getattr/globals or AST attribute inspection supplies unchecked values or callables that are narrowed only after access.",
+      "retirement": "Narrow element/key shapes before iteration and contextually type collection construction; preserve acceptance of invalid test inputs and rejection at the original validation boundary. Use a schema-specific TypedDict or validated record for serialized data and an explicitly typed invalid-input payload at negative-test boundaries; preserve validation and error entry points. Replace stable reflective members with typed protocols or explicit field access; validate genuinely raw attributes as object before use, preserving malformed-value rejection and copy semantics."
+    },
+    "collections+reader": {
+      "owner_role": "platform",
+      "cause": "Built-in collection narrowing, dict.fromkeys or heterogeneous container inference retains generic members despite subsequent field checks. The stdlib JSON/TOML reader has a dynamic declared result at a direct call or in a raw fixture consumer.",
+      "retirement": "Narrow element/key shapes before iteration and contextually type collection construction; preserve acceptance of invalid test inputs and rejection at the original validation boundary. Bind raw JSON to object and validate its exact shape; contextually type guaranteed TOML string-keyed tables while retaining native date/time values, then construct the consumer record before nested access."
+    },
+    "collections+regex": {
+      "owner_role": "platform",
+      "cause": "Built-in collection narrowing, dict.fromkeys or heterogeneous container inference retains generic members despite subsequent field checks. Typeshed regex groups/findall expose dynamic group values for string patterns, which propagate into parsed policy fields.",
+      "retirement": "Narrow element/key shapes before iteration and contextually type collection construction; preserve acceptance of invalid test inputs and rejection at the original validation boundary. Bind match/group results to checked string or optional-string values, handle unmatched groups explicitly and preserve existing grammar/error cases."
+    },
+    "error_details": {
+      "owner_role": "platform",
+      "cause": "Pydantic ErrorDetails includes arbitrary input/context values, so iteration and access retain dynamic members despite excluded input output.",
+      "retirement": "Validate consumed error fields and optional exception context into a narrow error record before formatting; keep exact locations, owned exception translation and sensitive-input hiding."
+    },
+    "error_details+reader": {
+      "owner_role": "platform",
+      "cause": "Pydantic ErrorDetails includes arbitrary input/context values, so iteration and access retain dynamic members despite excluded input output. The stdlib JSON/TOML reader has a dynamic declared result at a direct call or in a raw fixture consumer.",
+      "retirement": "Validate consumed error fields and optional exception context into a narrow error record before formatting; keep exact locations, owned exception translation and sensitive-input hiding. Bind raw JSON to object and validate its exact shape; contextually type guaranteed TOML string-keyed tables while retaining native date/time values, then construct the consumer record before nested access."
+    },
+    "exception_args": {
+      "owner_role": "platform",
+      "cause": "Exception.args has dynamically typed elements even when the current exception class conventionally supplies a location or message.",
+      "retirement": "Capture exception arguments as raw objects, validate each consumed location/message shape and keep current source-scanner failure diagnostics."
+    },
+    "framework": {
+      "owner_role": "platform",
+      "cause": "Framework decorators, context objects or entry-point return types retain upstream dynamic parameters.",
+      "retirement": "Type the consumed Typer/Click or pytest callable/context contract and narrow raw results; verify dispatch, collection and exit behavior without changing framework entry points."
+    },
+    "hypothesis": {
+      "owner_role": "platform",
+      "cause": "Pinned Hypothesis decorators expose an ellipsis callable and dynamic strategy/decorator expressions even when test parameters are annotated.",
+      "retirement": "Provide a verified signature-preserving contract for the consumed Hypothesis decorators or adopt a pinned upstream typing fix; preserve all generated cases and collected node IDs."
+    },
+    "payload": {
+      "owner_role": "platform",
+      "cause": "Pydantic model_dump/model_copy/model_validate interfaces contextually introduce dynamic dictionary members, including deliberately invalid boundary payloads.",
+      "retirement": "Use a schema-specific TypedDict or validated record for serialized data and an explicitly typed invalid-input payload at negative-test boundaries; preserve validation and error entry points."
+    },
+    "payload+reader": {
+      "owner_role": "platform",
+      "cause": "Pydantic model_dump/model_copy/model_validate interfaces contextually introduce dynamic dictionary members, including deliberately invalid boundary payloads. The stdlib JSON/TOML reader has a dynamic declared result at a direct call or in a raw fixture consumer.",
+      "retirement": "Use a schema-specific TypedDict or validated record for serialized data and an explicitly typed invalid-input payload at negative-test boundaries; preserve validation and error entry points. Bind raw JSON to object and validate its exact shape; contextually type guaranteed TOML string-keyed tables while retaining native date/time values, then construct the consumer record before nested access."
+    },
+    "payload+reflection": {
+      "owner_role": "platform",
+      "cause": "Pydantic model_dump/model_copy/model_validate interfaces contextually introduce dynamic dictionary members, including deliberately invalid boundary payloads. Dynamic getattr/globals or AST attribute inspection supplies unchecked values or callables that are narrowed only after access.",
+      "retirement": "Use a schema-specific TypedDict or validated record for serialized data and an explicitly typed invalid-input payload at negative-test boundaries; preserve validation and error entry points. Replace stable reflective members with typed protocols or explicit field access; validate genuinely raw attributes as object before use, preserving malformed-value rejection and copy semantics."
+    },
+    "reader": {
+      "owner_role": "platform",
+      "cause": "The stdlib JSON/TOML reader has a dynamic declared result at a direct call or in a raw fixture consumer.",
+      "retirement": "Bind raw JSON to object and validate its exact shape; contextually type guaranteed TOML string-keyed tables while retaining native date/time values, then construct the consumer record before nested access."
+    },
+    "reflection": {
+      "owner_role": "platform",
+      "cause": "Dynamic getattr/globals or AST attribute inspection supplies unchecked values or callables that are narrowed only after access.",
+      "retirement": "Replace stable reflective members with typed protocols or explicit field access; validate genuinely raw attributes as object before use, preserving malformed-value rejection and copy semantics."
+    },
+    "regex": {
+      "owner_role": "platform",
+      "cause": "Typeshed regex groups/findall expose dynamic group values for string patterns, which propagate into parsed policy fields.",
+      "retirement": "Bind match/group results to checked string or optional-string values, handle unmatched groups explicitly and preserve existing grammar/error cases."
+    }
+  },
+  "obligations": [
+    {
+      "path": "src/alpha_research/financial_units/models.py",
+      "symbol": "_FinancialUnitModel.__init__",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
+      "count": 3,
+      "task": "error_details"
+    },
+    {
+      "path": "src/alpha_research/financial_units/models.py",
+      "symbol": "_FinancialUnitModel.__init__",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
+      "count": 1,
+      "task": "error_details"
+    },
+    {
+      "path": "src/alpha_research/financial_units/models.py",
+      "symbol": "_FinancialUnitModel.model_copy",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "reflection"
+    },
+    {
+      "path": "src/alpha_research/financial_units/models.py",
+      "symbol": "_FinancialUnitModel.model_copy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 4,
+      "task": "reflection"
+    },
+    {
+      "path": "src/alpha_research/financial_units/models.py",
+      "symbol": "_Value._combine",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "reflection"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog._validate_mapping_graph",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog._validate_mapping_graph",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, str]]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog._validate_mapping_graph",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, str]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog.current_projection_mappings",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 5,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog.current_projection_mappings",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | str\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog.current_projection_mappings",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, Any | str, Any, Any, str]]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog.current_projection_mappings",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, Any | str, Any, Any, str]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog.get_mapping_history_for_identifier",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog.get_mapping_history_for_identifier",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, int, str]]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/catalog.py",
+      "symbol": "SymbologyCatalog.get_mapping_history_for_identifier",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, int, str]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/models.py",
+      "symbol": "_validation_error_message",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
+      "count": 4,
+      "task": "error_details"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/models.py",
+      "symbol": "_validation_error_message",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any] | None\")",
+      "count": 2,
+      "task": "error_details"
+    },
+    {
+      "path": "src/alpha_research/instrument_identity/models.py",
+      "symbol": "_validation_error_message",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
+      "count": 1,
+      "task": "error_details"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/adapter.py",
+      "symbol": "_apply_overrides",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/adapter.py",
+      "symbol": "_apply_overrides",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, Any]]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/adapter.py",
+      "symbol": "_apply_overrides",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, Any]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/adapter.py",
+      "symbol": "_as_date",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "reflection"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/adapter.py",
+      "symbol": "_as_date",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | None\")",
+      "count": 2,
+      "task": "reflection"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/adapter.py",
+      "symbol": "_as_utc_datetime",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | None\")",
+      "count": 2,
+      "task": "reflection"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/models.py",
+      "symbol": "VenueCalendarSnapshot._validate_sessions",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/models.py",
+      "symbol": "VenueCalendarSnapshot._validate_sessions",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, Any]]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/models.py",
+      "symbol": "VenueCalendarSnapshot._validate_sessions",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, Any]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/models.py",
+      "symbol": "VenueCalendarSnapshot.market_state_at",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/models.py",
+      "symbol": "VenueCalendarSnapshot.market_state_at",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], Any]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/models.py",
+      "symbol": "_validation_error_message",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
+      "count": 4,
+      "task": "error_details"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/models.py",
+      "symbol": "_validation_error_message",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any] | None\")",
+      "count": 2,
+      "task": "error_details"
+    },
+    {
+      "path": "src/alpha_research/venue_calendar/models.py",
+      "symbol": "_validation_error_message",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
+      "count": 1,
+      "task": "error_details"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_dependency_record_errors",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_dependency_record_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | None\")",
+      "count": 5,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_dependency_record_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 2,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_dependency_record_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 5,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_dependency_record_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"enumerate[Any]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_dependency_record_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"set[Any]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_dependency_record_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[int, Any]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_evidence_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | None\")",
+      "count": 8,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_evidence_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 5,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "_evidence_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 6,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/build_graph_test.py",
+      "symbol": "main",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_contract_errors",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_contract_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_contract_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"enumerate[Any]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_contract_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"set[Any]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_contract_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[int, Any]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_evidence_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | None\")",
+      "count": 7,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_evidence_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 5,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_evidence_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 6,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "_flake_lock_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 3,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/build/developer_environment_test.py",
+      "symbol": "main",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "DeterministicArtifactToolRunner.__call__",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 3,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "DeterministicArtifactToolRunner.__call__",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 4,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "DeterministicArtifactToolRunner.__call__",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[Any, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "DeterministicArtifactToolRunner.__call__",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, list[Any]]\")",
+      "count": 4,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "artifact_supply_chain_policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type overloaded function)",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "synthetic_dependency_boundary",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], None]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "test_creation_is_deterministic_and_binds_whole_artifact_inputs",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 4,
+      "task": "reader"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "test_creation_is_deterministic_and_binds_whole_artifact_inputs",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "test_native_library_omission_and_tool_failure_fail_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "test_signing_context_sha_and_revoked_identity_fail_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_artifact_supply_chain.py",
+      "symbol": "test_unsigned_tampered_and_unknown_manifest_state_is_rejected",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 3,
+      "task": "reader"
+    },
+    {
+      "path": "tests/engineering/test_change_risk.py",
+      "symbol": "_validated_change_update",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_change_risk.py",
+      "symbol": "policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type overloaded function)",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tests/engineering/test_change_risk.py",
+      "symbol": "test_approval_validation_rejects_same_class_decision_tampering",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_ci_policy.py",
+      "symbol": "test_ci_cli_uses_typed_dispatch_and_preserves_domain_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any, Any], None]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_policy.py",
+      "symbol": "test_ci_cli_uses_typed_dispatch_and_preserves_domain_errors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], CIPolicy]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_runner.py",
+      "symbol": "test_affected_lane_executes_forced_full_selection_after_preflight",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any, Any], None]\")",
+      "count": 2,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_runner.py",
+      "symbol": "test_affected_lane_executes_forced_full_selection_after_preflight",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any, Any], str]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_runner.py",
+      "symbol": "test_affected_lane_executes_forced_full_selection_after_preflight",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], CIPolicy]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_runner.py",
+      "symbol": "test_affected_lane_executes_forced_full_selection_after_preflight",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, ...]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_runner.py",
+      "symbol": "test_affected_lane_executes_forced_full_selection_after_preflight",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, tuple[Any, ...]]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_runner.py",
+      "symbol": "test_authoritative_lane_runs_every_control_and_complete_test_path_in_order",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], CIPolicy]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_runner.py",
+      "symbol": "test_authoritative_lane_runs_every_control_and_complete_test_path_in_order",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[str]]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_ci_runner.py",
+      "symbol": "test_timed_phase_stops_on_failure_and_emits_a_failed_event",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 3,
+      "task": "reader"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_bootstrap_fixture",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 9,
+      "task": "payload+reader"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_bootstrap_fixture",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 6,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_bootstrap_fixture",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_copy_current_wheel_evidence",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 7,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_copy_current_wheel_evidence",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | list[Never]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_copy_current_wheel_evidence",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Generator[Any, None, None]\")",
+      "count": 1,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_copy_current_wheel_evidence",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 2,
+      "task": "reader"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_copy_current_wheel_evidence",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 3,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_wheel_source_fixture",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 3,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_wheel_source_fixture",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_wheel_source_fixture",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[Any, Any]]\")",
+      "count": 2,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "_wheel_source_fixture",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, list[Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_alternative_flows_through_existing_policy_and_lock_validator",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_alternative_flows_through_existing_policy_and_lock_validator",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_and_build_profiles_cannot_overlap",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_and_build_profiles_cannot_overlap",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_does_not_bypass_publication_signature_or_lock_checks",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 9,
+      "task": "payload+reader"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_does_not_bypass_publication_signature_or_lock_checks",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_does_not_bypass_publication_signature_or_lock_checks",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict_items[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_policy_rejects_missing_unsafe_or_unbounded_decisions",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_policy_rejects_missing_unsafe_or_unbounded_decisions",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_publication_verification_is_explicit_and_date_bounded",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 9,
+      "task": "payload+reader"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_publication_verification_is_explicit_and_date_bounded",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 4,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_publication_verification_is_explicit_and_date_bounded",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_report_paths_and_duplicate_records_are_rejected",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_report_paths_and_duplicate_records_are_rejected",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 4,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_report_paths_and_duplicate_records_are_rejected",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 2,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_review_failures_stop_before_verifier_execution",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_bootstrap_review_failures_stop_before_verifier_execution",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_cli_reports_bootstrap_limit_and_legacy_policy_remains_supported",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], DependencyAdmission]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_cli_reports_bootstrap_limit_and_legacy_policy_remains_supported",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_cli_reports_bootstrap_limit_and_legacy_policy_remains_supported",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_duplicate_wheel_source_evidence_is_rejected",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_duplicate_wheel_source_evidence_is_rejected",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 4,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_duplicate_wheel_source_evidence_is_rejected",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 3,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_live_audit_missing_tool_version_and_cli_usage_are_explicit",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_live_audit_uses_the_complete_exact_lock_graph",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_nested_wheel_source_identity_is_strict",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_nested_wheel_source_identity_is_strict",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_nested_wheel_source_identity_is_strict",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_pip_audit_coverage_gaps_fail_closed",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_pip_audit_coverage_gaps_fail_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 3,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_pip_audit_coverage_gaps_fail_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_pip_audit_coverage_gaps_fail_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_provenance_claims_are_checked_before_signature_acceptance",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 13,
+      "task": "payload+reader"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_provenance_claims_are_checked_before_signature_acceptance",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_provenance_claims_are_checked_before_signature_acceptance",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_scorecard_invalid_or_inconclusive_signal_fails_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_vulnerability_requires_exact_owned_exploitability_decision",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 5,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_only_source_verification_pins_inputs_and_verifier_options",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_only_source_verification_pins_inputs_and_verifier_options",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_source_files_fail_closed",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_source_files_fail_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_source_files_fail_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_source_paths_cannot_escape",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_source_paths_cannot_escape",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_source_paths_cannot_escape",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_source_policy_rejects_invalid_records",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "test_wheel_source_policy_rejects_invalid_records",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "wheel_cosign",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
+      "count": 1,
+      "task": "callbacks+framework"
+    },
+    {
+      "path": "tests/engineering/test_dependency_admission.py",
+      "symbol": "wheel_cosign",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type overloaded function)",
+      "count": 1,
+      "task": "callbacks+framework"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_accepts_governed_bounded_values",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_accepts_governed_bounded_values",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_accepts_governed_bounded_values",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"SearchStrategy[Any]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_accepts_governed_bounded_values",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_accepts_governed_bounded_values",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_rejects_a_missing_required_field",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_rejects_a_missing_required_field",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_rejects_a_missing_required_field",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"SearchStrategy[Any]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_engineering_standards.py",
+      "symbol": "test_suppression_metadata_rejects_a_missing_required_field",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/engineering/test_evidence_governance.py",
+      "symbol": "test_declared_facts_are_recomputed_and_activate_high_risk_evidence",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_evidence_governance.py",
+      "symbol": "test_github_event_lints_body_and_requires_full_head_sha",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 2,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_evidence_governance.py",
+      "symbol": "test_github_event_lints_body_and_requires_full_head_sha",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[Any, Any]]\")",
+      "count": 2,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_evidence_governance.py",
+      "symbol": "test_hosted_cli_uses_real_diff_accepts_four_sections_and_blocks_missing_evidence",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 6,
+      "task": "reader"
+    },
+    {
+      "path": "tests/engineering/test_evidence_governance.py",
+      "symbol": "test_hosted_cli_uses_real_diff_accepts_four_sections_and_blocks_missing_evidence.write_event",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 4,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_evidence_governance.py",
+      "symbol": "test_hosted_cli_uses_real_diff_accepts_four_sections_and_blocks_missing_evidence.write_event",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[Any, Any]]\")",
+      "count": 3,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_inventory_governance.py",
+      "symbol": "test_cli_emits_stable_json_for_populated_and_empty_queries",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 11,
+      "task": "reader"
+    },
+    {
+      "path": "tests/engineering/test_inventory_governance.py",
+      "symbol": "test_cli_emits_stable_json_for_populated_and_empty_queries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Generator[Any, None, None]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_inventory_governance.py",
+      "symbol": "test_cli_emits_stable_json_for_populated_and_empty_queries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_inventory_governance.py",
+      "symbol": "test_dependency_cycle_check_handles_catalog_limit_depth",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_inventory_governance.py",
+      "symbol": "test_dependency_cycle_check_handles_catalog_limit_depth",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_package_evidence.py",
+      "symbol": "_changed_gate_status",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_package_evidence.py",
+      "symbol": "_changed_gate_status",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_package_evidence.py",
+      "symbol": "_changed_risk_fact",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_package_evidence.py",
+      "symbol": "_changed_risk_fact",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_package_evidence.py",
+      "symbol": "_copy_manifest_with_updates",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_package_evidence.py",
+      "symbol": "_copy_manifest_with_updates",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_program_governance.py",
+      "symbol": "_downgrade_current_policy",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "callbacks+regex"
+    },
+    {
+      "path": "tests/engineering/test_program_governance.py",
+      "symbol": "_downgrade_current_policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
+      "count": 1,
+      "task": "callbacks+regex"
+    },
+    {
+      "path": "tests/engineering/test_program_governance.py",
+      "symbol": "_downgrade_current_policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 1,
+      "task": "callbacks+regex"
+    },
+    {
+      "path": "tests/engineering/test_program_governance.py",
+      "symbol": "test_cli_emits_stable_filtered_dashboard",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 10,
+      "task": "reader"
+    },
+    {
+      "path": "tests/engineering/test_program_governance.py",
+      "symbol": "test_cli_emits_stable_filtered_dashboard",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/engineering/test_pydantic_models.py",
+      "symbol": "_captured_validation_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_pydantic_models.py",
+      "symbol": "test_json_mode_preserves_boundary_shapes",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_pydantic_models.py",
+      "symbol": "test_json_mode_preserves_boundary_shapes",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_pydantic_models.py",
+      "symbol": "test_json_mode_preserves_boundary_shapes",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 3,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_pydantic_models.py",
+      "symbol": "test_repository_relative_paths_are_model_local_invariants",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_pydantic_models.py",
+      "symbol": "test_strict_paths_dates_datetimes_tuples_and_frozensets_fail",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 9,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_pydantic_models.py",
+      "symbol": "test_strict_paths_dates_datetimes_tuples_and_frozensets_fail",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_pydantic_models.py",
+      "symbol": "test_strict_paths_dates_datetimes_tuples_and_frozensets_fail",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, list[Any]]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_remote_execution.py",
+      "symbol": "test_authenticated_runner_hides_secret_from_argv_and_child_environment",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_remote_execution.py",
+      "symbol": "test_empty_remote_shard_validates_context_without_invoking_bazel",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"def <lambda>(*_args: Any, **_kwargs: Any) -> None\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_remote_execution.py",
+      "symbol": "test_remote_cli_dispatches_commands_and_preserves_exit_status",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], RemoteExecutionPolicy]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_remote_execution.py",
+      "symbol": "test_remote_entrypoints_validate_select_and_propagate_results",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/engineering/test_remote_execution.py",
+      "symbol": "test_trusted_context_rejects_untrusted_missing_secret_wrong_revision_and_dirty",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_remote_execution.py",
+      "symbol": "test_trusted_context_rejects_untrusted_missing_secret_wrong_revision_and_dirty",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"def <lambda>(_root: Any, *arguments: Any) -> str\")",
+      "count": 2,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/engineering/test_security_controls.py",
+      "symbol": "test_cli_emits_byte_stable_filtered_json",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 11,
+      "task": "reader"
+    },
+    {
+      "path": "tests/engineering/test_security_controls.py",
+      "symbol": "test_cli_emits_byte_stable_filtered_json",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 3,
+      "task": "collections"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "TestFinancialFixtureValidation.test_rejects_missing_fields_and_scalar_coercion",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reflection"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_actual360_intervals_are_additive",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_actual360_intervals_are_additive",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_actual360_intervals_are_additive",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "payload+reflection"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "payload+reflection"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload+reflection"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"type[BaseModel]\")",
+      "count": 1,
+      "task": "payload+reflection"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_calendar_coverage_and_unknown_conventions_fail_closed",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_constructor_errors_preserve_owned_types_and_hide_input_values",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_fx_conversion_has_declared_currency_rounding_tolerance",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_fx_conversion_has_declared_currency_rounding_tolerance",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_fx_conversion_has_declared_currency_rounding_tolerance",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_native_failure_nonfinite_and_version_mismatch_are_owned",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
+      "count": 2,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[str, Any]]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"type[BaseModel]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"SearchStrategy[Any]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_financial_units.py",
+      "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_instrument_identity.py",
+      "symbol": "test_instrument_identity_models_are_strict_frozen_pydantic_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 2,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/unit/test_instrument_identity.py",
+      "symbol": "test_instrument_identity_models_are_strict_frozen_pydantic_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"type[BaseModel]\")",
+      "count": 1,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/unit/test_instrument_identity.py",
+      "symbol": "test_property_exact_identifier_round_trip_is_stable",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_instrument_identity.py",
+      "symbol": "test_property_exact_identifier_round_trip_is_stable",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_instrument_identity.py",
+      "symbol": "test_property_exact_identifier_round_trip_is_stable",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_instrument_identity.py",
+      "symbol": "test_property_symbol_reuse_obeys_half_open_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_instrument_identity.py",
+      "symbol": "test_property_symbol_reuse_obeys_half_open_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_instrument_identity.py",
+      "symbol": "test_property_symbol_reuse_obeys_half_open_boundaries",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_adapter_rejects_mislabeled_source_revision_and_duplicate_source_sessions",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_explicit_venue_timezone_round_trip_preserves_instant",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_explicit_venue_timezone_round_trip_preserves_instant",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_explicit_venue_timezone_round_trip_preserves_instant",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_incompatible_calendar_library_version_fails_before_source_use",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_market_state_projection_is_deterministic_for_every_boundary_offset",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_market_state_projection_is_deterministic_for_every_boundary_offset",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_market_state_projection_is_deterministic_for_every_boundary_offset",
+      "code": "misc",
+      "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
+      "count": 1,
+      "task": "hypothesis"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_source_session_query_failure_is_translated",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"def <lambda>(**_: Any) -> FailingCalendar\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 5,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[Any, Any]]\")",
+      "count": 1,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, list[Any]]\")",
+      "count": 1,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tests/unit/test_venue_calendar.py",
+      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"type[BaseModel]\")",
+      "count": 1,
+      "task": "collections+payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/_cli.py",
+      "symbol": "run_typer",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 3,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "_decision_log_entries",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 5,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "_heading_anchors",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "_heading_anchors",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "_section_body",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any | None\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "_section_body",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "validate_adr",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"bool | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "validate_local_links",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "validate_local_links",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Literal[''] | Any | bool\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "validate_local_links",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"bool | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "validate_local_links",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 10,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "validate_local_links",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | bool | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/architecture_governance.py",
+      "symbol": "validate_local_links",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, str, str] | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/__init__.py",
+      "symbol": "main",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "_normalize_spdx_document",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "_normalize_spdx_document",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], bytes]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "_normalize_spdx_document",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "_verify_file_digest_record",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"set[Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "create_bundle",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "create_bundle",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], Any]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "verify_bundle",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "verify_bundle",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"set[Any]\")",
+      "count": 4,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py",
+      "symbol": "verify_bundle",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[str, Any]]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py",
+      "symbol": "load_policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/change_risk/classification.py",
+      "symbol": "classify_change",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/change_risk/classification.py",
+      "symbol": "classify_change",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], Any]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/change_risk/classification.py",
+      "symbol": "classify_change",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], int]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/change_risk/policy.py",
+      "symbol": "_policy_input_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
+      "count": 7,
+      "task": "error_details"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/change_risk/policy.py",
+      "symbol": "_policy_input_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
+      "count": 3,
+      "task": "error_details"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "<module>",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "<module>",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "<module>",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, list[Any]]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_fast",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_full",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_initialize_cli",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_scan_secrets",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_schema_check",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_select",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_serialize_affected_selection",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_state",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
+      "symbol": "_verify_merged_result",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/runner.py",
+      "symbol": "_serialize_ci_event",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 4,
+      "task": "payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/selection.py",
+      "symbol": "attach_bazel_reverse_dependencies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/selection.py",
+      "symbol": "attach_bazel_reverse_dependencies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/selection.py",
+      "symbol": "attach_bazel_reverse_dependencies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"set[Any]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/selection.py",
+      "symbol": "attach_bazel_reverse_dependencies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, ...]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/ci_policy/selection.py",
+      "symbol": "attach_bazel_reverse_dependencies",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, tuple[Any, ...]]\")",
+      "count": 2,
+      "task": "payload"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py",
+      "symbol": "main",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "_load_json_signal",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "_lock_surface_findings",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 5,
+      "task": "collections+regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "_lock_surface_findings",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "collections+regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "_locked_python_packages",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "_migrated_record_findings",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "assess_pip_audit_report",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "assess_pip_audit_report",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"enumerate[Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "assess_pip_audit_report",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"set[Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "assess_pip_audit_report",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[int, Any]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "assess_scorecard_report",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 2,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/policy.py",
+      "symbol": "load_policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py",
+      "symbol": "_json_object",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "_locked_packages",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Generator[Any, None, None]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "_locked_packages",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "_locked_packages",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, ...]\")",
+      "count": 2,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "_locked_packages",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, str, tuple[Any, ...]]\")",
+      "count": 1,
+      "task": "collections+reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "_owner_roles",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "_validate_dependency_record",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "load_standards",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "source_tree_findings",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "exception_args"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "source_tree_findings",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, ...]\")",
+      "count": 1,
+      "task": "exception_args"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "validate_repository",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
+      "symbol": "validate_suppression_line",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 2,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_debt.py",
+      "symbol": "PythonStandardsChecker.findings",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "error_details+reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_debt.py",
+      "symbol": "PythonStandardsChecker.findings",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
+      "count": 1,
+      "task": "error_details+reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "PythonSourceChecker._tokenize",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "exception_args"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "PythonSourceChecker._tokenize",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, ...]\")",
+      "count": 1,
+      "task": "exception_args"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "PythonSourceChecker.scan",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 3,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "PythonSourceChecker.scan",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, ...]]\")",
+      "count": 3,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "PythonSourceChecker.scan",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, ...]\")",
+      "count": 3,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "_AnyChecker._bind_alias_expression",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | int\")",
+      "count": 1,
+      "task": "reflection"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "_AnyChecker._visit_statement",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 7,
+      "task": "reflection"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "_AnyChecker._visit_statement",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | None\")",
+      "count": 2,
+      "task": "reflection"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+      "symbol": "_DocumentationChecker._described_arguments",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/manifest.py",
+      "symbol": "_manifest_input_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
+      "count": 5,
+      "task": "error_details"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/manifest.py",
+      "symbol": "_manifest_input_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
+      "count": 3,
+      "task": "error_details"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/manifest.py",
+      "symbol": "_validate_manifest",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/models.py",
+      "symbol": "PackageEvidenceProfile.coherent_profile",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"bool | Any\")",
+      "count": 2,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/mr.py",
+      "symbol": "_context",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/mr.py",
+      "symbol": "_context",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 4,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/mr.py",
+      "symbol": "_without_fenced_code",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/mr.py",
+      "symbol": "_without_fenced_code",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Literal[''] | Any | bool | None\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/mr.py",
+      "symbol": "_without_fenced_code",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Literal[''] | Any | bool\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/mr.py",
+      "symbol": "_without_fenced_code",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"bool | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/mr.py",
+      "symbol": "_without_fenced_code",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/package.py",
+      "symbol": "validate_package_evidence",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 4,
+      "task": "reflection"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/package.py",
+      "symbol": "validate_package_evidence",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 2,
+      "task": "reflection"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/policy.py",
+      "symbol": "_load_policy",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "collections+payload+reflection"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/policy.py",
+      "symbol": "_load_policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Any | bool\")",
+      "count": 1,
+      "task": "collections+payload+reflection"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/policy.py",
+      "symbol": "_load_policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "collections+payload+reflection"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/policy.py",
+      "symbol": "_policy_input_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
+      "count": 3,
+      "task": "error_details"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/evidence/policy.py",
+      "symbol": "_policy_input_error",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
+      "count": 1,
+      "task": "error_details"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/inventory/registry.py",
+      "symbol": "_find_dependency_cycles",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any | None]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/inventory/registry.py",
+      "symbol": "_parse_inventory_item",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"bool | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/models.py",
+      "symbol": "PackageNode.all_dependency_ids",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any | None]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+      "symbol": "_find_dependency_cycles",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any | None]\")",
+      "count": 1,
+      "task": "collections"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+      "symbol": "_load_observations",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+      "symbol": "_load_observations",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, Any, Any, Any]]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+      "symbol": "_load_observations",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[Any, Any, Any, Any]\")",
+      "count": 1,
+      "task": "callbacks"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+      "symbol": "_load_roadmap",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Generator[str | Any, None, None]\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+      "symbol": "_load_roadmap",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"bool | Any\")",
+      "count": 1,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+      "symbol": "_load_roadmap",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 10,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+      "symbol": "_parse_dependency_expression",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
+      "count": 6,
+      "task": "regex"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "<module>",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "<module>",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "<module>",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"tuple[str, list[Any]]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "_build",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "_initialize_cli",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "_quarantine",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "_state",
+      "code": "misc",
+      "message": "Expression has type \"Any\"",
+      "count": 2,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "_test",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
+      "symbol": "_validate",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"Callable[[CommandFunctionType], CommandFunctionType]\")",
+      "count": 1,
+      "task": "framework"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/remote_execution/policy.py",
+      "symbol": "load_policy",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/repository_topology/registry.py",
+      "symbol": "_ownership_roles",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    },
+    {
+      "path": "tools/governance/src/alpha_research_governance/repository_topology/registry.py",
+      "symbol": "load_topology",
+      "code": "misc",
+      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
+      "count": 1,
+      "task": "reader"
+    }
+  ]
+}

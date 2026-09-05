@@ -80,7 +80,7 @@ def _read_bounded_json_object(path: Path) -> dict[str, object]:
     if path.stat().st_size > _MAXIMUM_JSON_DOCUMENT_BYTES:
         raise ArtifactSupplyChainError([f"{path.name} exceeds the governed JSON size limit"])
     try:
-        parsed_document = json.loads(
+        parsed_document: object = json.loads(
             path.read_text(encoding="utf-8"),
             object_pairs_hook=_build_mapping_rejecting_duplicate_json_keys,
         )

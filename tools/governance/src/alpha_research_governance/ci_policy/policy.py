@@ -179,7 +179,7 @@ def _parse_continuous_integration_lanes(value: object) -> tuple[CILane, ...]:
 def load_continuous_integration_policy(path: Path) -> CIPolicy:
     """Load the continuous-integration TOML policy with a closed schema."""
     try:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
         raise CIPolicyError([f"cannot load CI policy: {error}"]) from error
     if set(document) != _POLICY_KEYS:
@@ -285,7 +285,7 @@ def load_continuous_integration_policy(path: Path) -> CIPolicy:
 def _private_key_scanner_dependency_findings(root: Path) -> list[str]:
     path = root / "docs/architecture/ci-tool-dependencies.toml"
     try:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
         return [f"cannot load the continuous-integration dependency record: {error}"]
     dependencies = document.get("dependencies")

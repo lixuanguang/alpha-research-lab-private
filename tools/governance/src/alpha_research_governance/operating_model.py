@@ -8,7 +8,7 @@ import re
 import tomllib
 from datetime import date
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal, Self, cast
 
 # third party library imports
 from pydantic import ValidationError, field_validator, model_validator
@@ -172,20 +172,25 @@ class OperatingModel(ImmutableModel):
 def load_operating_model(path: Path) -> OperatingModel:
     """Read staffing from the version-2 ownership register, retaining its role catalog."""
     try:
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
         if document.get("schema_version") != 2:
             raise OperatingModelError("operating model requires ownership schema_version 2")
         settings = document.get("operating_model")
-        if not isinstance(settings, dict) or set(settings) != {"founder_principal"}:
+        if not isinstance(settings, dict):
+            raise OperatingModelError("operating_model requires exactly founder_principal")
+        settings_table = cast(dict[str, object], settings)
+        if set(settings_table) != {"founder_principal"}:
             raise OperatingModelError("operating_model requires exactly founder_principal")
         domains = document.get("domains")
         if not isinstance(domains, list) or not all(isinstance(domain, dict) for domain in domains):
             raise OperatingModelError("operating domains must be tables")
+        domain_tables = cast(list[dict[str, object]], domains)
         payload = {
-            "founder_principal": settings["founder_principal"],
+            "founder_principal": settings_table["founder_principal"],
             "assignments": document.get("role_assignments"),
             "domains": [
-                {key: domain.get(key) for key in DomainRoles.model_fields} for domain in domains
+                {key: domain.get(key) for key in DomainRoles.model_fields}
+                for domain in domain_tables
             ],
         }
         return OperatingModel.model_validate_json(json.dumps(payload))

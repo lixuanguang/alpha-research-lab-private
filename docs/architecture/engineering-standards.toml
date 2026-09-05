@@ -25,6 +25,7 @@ source_roots = [
   "src/alpha_research",
   "tests",
   "tools/governance/src/alpha_research_governance",
+  "tools/typing/stubs",
 ]
 local_evidence_manifest_path = "docs/governance/evidence/examples/b04-r2-partial/manifest.toml"
 local_evidence_commit_sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

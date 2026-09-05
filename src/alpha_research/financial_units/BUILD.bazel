@@ -6,6 +6,7 @@ package(default_visibility = ["//visibility:public"])
 py_library(
     name = "financial_units",
     srcs = ["__init__.py", "conventions.py", "models.py"],
+    data = ["//tools/typing:native_stubs"],
     imports = ["../.."],
     deps = [
         "//src/alpha_research/instrument_identity",

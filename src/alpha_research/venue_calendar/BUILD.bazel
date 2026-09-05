@@ -10,6 +10,7 @@ py_library(
         "adapter.py",
         "models.py",
     ],
+    data = ["//tools/typing:native_stubs"],
     imports = ["../.."],
     deps = [
         requirement("exchange-calendars"),

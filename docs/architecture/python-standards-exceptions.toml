@@ -2,4 +2,14 @@
 # Dates use native TOML dates. Source fingerprints are SHA-256 of ast.dump for the
 # named definition, with include_attributes=False, so blank lines do not renew debt.
 schema_version = 1
-exceptions = []
+
+[[exceptions]]
+path = "tools/typing/stubs/exchange_calendars/__init__.pyi"
+symbol = "get_calendar"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "domain_architecture"
+rationale = "Describe the consumed upstream factory under its actual module-level API; an owned class would misrepresent the native binding."
+expires = 2027-03-01
+source_sha256 = "569d3e435771abcec673d7c308bcb8ac1f6d97deb65d42050620ea00d320f87e"

@@ -40,9 +40,13 @@ def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
     assert "bazel " not in rollback_dry_run.stdout
     assert rollback_dry_run.stdout.splitlines() == [
         "uv lock --check",
-        "uv run --frozen ruff check src tests tools/governance/src",
-        "uv run --frozen ruff format --check src tests tools/governance/src",
-        "uv run --frozen mypy --strict src tests tools/governance/src",
+        "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs",
+        "uv run --frozen ruff format --check src tests tools/governance/src tools/typing/stubs",
+        "uv run --frozen mypy --strict src tests tools/governance/src tools/typing/stubs",
+        "uv run --frozen python -m alpha_research_governance.engineering_standards.python_typing",
+        "uv run --frozen python -m mypy.stubtest "
+        "--mypy-config-file=tools/typing/stubtest.toml "
+        "--ignore-missing-stub QuantLib exchange_calendars pandas",
         "uv run --frozen alpha-governance-engineering-standards",
         "uv run --frozen alpha-governance-dependencies",
         "uv run --frozen alpha-governance-artifacts",

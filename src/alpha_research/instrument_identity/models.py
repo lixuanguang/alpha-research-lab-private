@@ -562,7 +562,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
 
     @field_validator("source", "source_revision", mode="before")
     @classmethod
-    def stable_attribution(cls, value: object, info: ValidationInfo) -> str:
+    def stable_attribution(cls, value: object, info: ValidationInfo[object]) -> str:
         """Require stable source-attribution tokens."""
         if not isinstance(value, str) or _ATTRIBUTION_PATTERN.fullmatch(value) is None:
             raise InstrumentIdentityValidationError(
