@@ -463,14 +463,16 @@ def validate_repository(repository_root: Path) -> ArtifactSupplyChainPolicy:
             f"{artifact_supply_chain_policy.toolchain_path} digest drifted from B08 policy"
         )
     try:
-        toolchain_registry = tomllib.loads(
+        toolchain_registry: dict[str, object] = tomllib.loads(
             (resolved_repository_root / artifact_supply_chain_policy.toolchain_path).read_text(
                 encoding="utf-8"
             )
         )
         admitted_tool_versions = {
             item.get("tool_id"): item.get("version")
-            for item in cast(list[dict[str, object]], toolchain_registry.get("tools", []))
+            for item in _require_toml_table_array(
+                toolchain_registry.get("tools", []), context="toolchain.tools"
+            )
         }
     except (OSError, tomllib.TOMLDecodeError, TypeError) as error:
         raise ArtifactSupplyChainError([f"invalid toolchain registry: {error}"]) from error

@@ -178,7 +178,7 @@ class Venue(_VenueCalendarModel):
 
     @field_validator("venue_id", "mic", "operating_mic", mode="before")
     @classmethod
-    def typed_identity_fields(cls, value: object, info: ValidationInfo) -> object:
+    def typed_identity_fields(cls, value: object, info: ValidationInfo[object]) -> object:
         """Require owned identity values rather than coercing nested mappings."""
         expected_type = VenueId if info.field_name == "venue_id" else MarketIdentifierCode
         if not isinstance(value, expected_type):
@@ -640,7 +640,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
 
     @field_validator("venue", "version", "settlement_calendar", mode="before")
     @classmethod
-    def typed_snapshot_values(cls, value: object, info: ValidationInfo) -> object:
+    def typed_snapshot_values(cls, value: object, info: ValidationInfo[object]) -> object:
         """Keep raw nested mappings outside the canonical snapshot boundary."""
         if info.field_name == "settlement_calendar" and value is None:
             return None
@@ -660,7 +660,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
         "sessions", "applied_overrides", "closures", "interruptions", "price_limits", mode="before"
     )
     @classmethod
-    def typed_snapshot_sequences(cls, value: object, info: ValidationInfo) -> object:
+    def typed_snapshot_sequences(cls, value: object, info: ValidationInfo[object]) -> object:
         """Require immutable sequences of owned records before nested validation."""
         expected_types = {
             "sessions": TradingSession,

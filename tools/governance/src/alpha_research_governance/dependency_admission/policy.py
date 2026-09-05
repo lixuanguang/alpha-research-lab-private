@@ -717,7 +717,8 @@ def _migrated_record_findings(root: Path, policy: DependencyAdmission) -> list[s
 
 def _lock_surface_findings(root: Path) -> list[str]:
     findings: list[str] = []
-    module_lock = json.loads((root / "MODULE.bazel.lock").read_text(encoding="utf-8"))
+    raw_module_lock: object = json.loads((root / "MODULE.bazel.lock").read_text(encoding="utf-8"))
+    module_lock = _table(raw_module_lock, context="MODULE.bazel.lock")
     hashes = module_lock.get("registryFileHashes")
     if (
         not isinstance(hashes, dict)
@@ -731,7 +732,8 @@ def _lock_surface_findings(root: Path) -> list[str]:
         )
     ):
         findings.append("MODULE.bazel.lock contains an unapproved or unhashed registry input")
-    flake_lock = json.loads((root / "flake.lock").read_text(encoding="utf-8"))
+    raw_flake_lock: object = json.loads((root / "flake.lock").read_text(encoding="utf-8"))
+    flake_lock = _table(raw_flake_lock, context="flake.lock")
     nodes = flake_lock.get("nodes")
     if not isinstance(nodes, dict):
         findings.append("flake.lock nodes are malformed")
@@ -946,8 +948,11 @@ def validate_repository(
         observed_digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
         if observed_digest != expected_digest:
             findings.append(f"{relative} differs from its admitted SHA-256 digest")
-    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-    dev = pyproject.get("dependency-groups", {}).get("dev", [])
+    pyproject: dict[str, object] = tomllib.loads(
+        (root / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    groups = _table(pyproject.get("dependency-groups", {}), context="dependency-groups")
+    dev = _strings(groups.get("dev", []), context="dependency-groups.dev", allow_empty=True)
     if "pip-audit==2.10.1" not in dev:
         findings.append("pyproject.toml is missing exact pip-audit 2.10.1 admission")
     integrations = {

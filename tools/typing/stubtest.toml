@@ -1,0 +1,4 @@
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = ["$MYPY_CONFIG_FILE_DIR/stubs"]

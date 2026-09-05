@@ -131,11 +131,22 @@ Additional rules:
   This is a source-level rule and applies to `src`, `tests`, and governance
   tooling. Parse untyped boundary data as `object`, validate and narrow it
   immediately, and construct a precise owned type.
-- Keep the configured strict `mypy` check across all current scopes: `src`,
-  `tests`, and governance tooling. The explicit-`Any` rule does not newly make
-  every inferred library `Any` diagnostic a global failure; those boundary
-  diagnostics remain a measured, unresolved step-4 inventory until their
-  libraries or adapters are typed.
+- Keep strict `mypy` across `src`, `tests`, governance tooling and the owned
+  native stubs under `tools/typing/stubs`. The pinned Pydantic plugin requires
+  `init_typed`, `init_forbid_extra` and `warn_required_dynamic_aliases`.
+  `disallow_any_explicit` and `disallow_any_unimported` apply throughout;
+  `disallow_any_decorated` applies to both owned packages. Preserve custom
+  constructor entry points and runtime negative tests when adopting these checks.
+- `disallow_any_expr` is enforced in the audited modules listed in
+  `pyproject.toml`. The full-scope stronger probe reconciles the remaining
+  [inferred typing inventory](../architecture/python-typing-debt.json) by exact
+  file, qualified symbol, diagnostic and multiplicity. Each entry has a concrete
+  cause and retirement task. New, moved, multiplied or resolved debt fails;
+  retire resolved entries and update the checksum together without regenerating
+  allowances. Complete the remaining tasks before migration step 7 closes.
+- `make typecheck` and pre-commit run the same checks, including native stubtest.
+  Follow the [boundary typing contract](../../tools/typing/README.md) when
+  changing a stub, native dependency, parser or serialized model contract.
 - Do not use `cast` to make an unsafe value appear valid. A cast requires an
   invariant the type checker cannot express and that the code actually establishes.
 - Use `TypeGuard` or explicit validation for reusable narrowing logic.

@@ -6,13 +6,16 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from pathlib import Path
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 # third party library imports
+import exchange_calendars
+import pandas
 import pytest
+from exchange_calendars.errors import CalendarError, NoSessionsError
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel, ValidationError
@@ -945,7 +948,7 @@ def test_venue_calendar_models_are_strict_frozen_pydantic_boundaries() -> None:
     with pytest.raises(ValidationError):
         VenueId.model_validate({"uuid_value": venue_id.uuid_value, "unexpected": True})
     with pytest.raises(ValidationError):
-        venue_id.uuid_value = UUID("22222222-2222-4222-8222-222222222222")
+        venue_id.uuid_value = UUID("22222222-2222-4222-8222-222222222222")  # type: ignore[misc]  # [owner=platform; rationale=exercise frozen-field runtime rejection at the original assignment; expires=2027-03-01]
     with pytest.raises(ValidationError, match="must be a VenueId"):
         Venue.model_validate(
             {
@@ -987,3 +990,33 @@ def test_invalid_optional_source_instant_is_not_treated_as_an_absent_break() -> 
             field_name="session break",
             optional=True,
         )
+
+
+class TestCalendarStubConformance:
+    """Check the declared calendar factory, timestamp and sentinel contracts."""
+
+    @pytest.mark.parametrize("name", ["XNYS", "XHKG"])
+    def test_native_schedule_surface(self, name: str) -> None:
+        """Verify both continuous sessions and intraday-break sessions against the stubs."""
+        calendar = exchange_calendars.get_calendar(
+            name, start=date(2024, 11, 25), end=date(2024, 11, 29), side="left"
+        )
+        assert isinstance(calendar.name, str)
+        assert isinstance(calendar.tz, tzinfo)
+        assert isinstance(pandas.NaT, datetime)
+        assert all(isinstance(label, datetime) for label in calendar.early_closes)
+        labels = tuple(calendar.sessions)
+        assert labels and all(isinstance(label, datetime) for label in labels)
+        for label in labels:
+            session = label.date()
+            for stamp in (calendar.session_open(session), calendar.session_close(session)):
+                assert isinstance(stamp, datetime) and stamp.tzinfo is not None
+            for stamp in (
+                calendar.session_break_start(session),
+                calendar.session_break_end(session),
+            ):
+                if name == "XNYS":
+                    assert stamp is pandas.NaT
+                else:
+                    assert isinstance(stamp, datetime) and stamp.tzinfo is not None
+        assert issubclass(NoSessionsError, CalendarError)

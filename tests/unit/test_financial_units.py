@@ -17,6 +17,7 @@ from uuid import UUID
 
 # third party library imports
 import pytest
+import QuantLib as ql
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -453,7 +454,7 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
             """Return the deliberately malformed native result without validating it."""
             return float("nan")
 
-    monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", BadCounter)
+    monkeypatch.setattr(ql, "Actual360", BadCounter)
     with pytest.raises(ConventionError, match="invalid year"):
         calculate()
 
@@ -461,7 +462,7 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
         """Simulate an exception from native counter construction."""
         raise RuntimeError("synthetic native failure")
 
-    monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", fail)
+    monkeypatch.setattr(ql, "Actual360", fail)
     with pytest.raises(ConventionError, match="evaluation failed") as error:
         calculate()
     assert isinstance(error.value.__cause__, RuntimeError)
@@ -470,11 +471,9 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
 def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls() -> None:
     """Keep concurrent evaluation contexts independent of native global date state."""
     # Settings is touched only in this adversarial test, never by the owned adapter.
-    saved = getattr(conventions, "_ql").Settings.instance().evaluationDate
+    saved = ql.Settings.instance().evaluationDate
     try:
-        getattr(conventions, "_ql").Settings.instance().evaluationDate = getattr(
-            conventions, "_ql"
-        ).Date(1, 1, 1999)
+        ql.Settings.instance().evaluationDate = ql.Date(1, 1, 1999)
         contexts = [
             CONTEXT.model_copy(update={"evaluation_date": date(2024, 1, day)}) for day in (1, 2, 3)
         ]
@@ -491,11 +490,9 @@ def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls(
             results = list(pool.map(evaluate, contexts))
         assert results == [evaluate(context) for context in contexts]
         assert results[0] > results[1] > results[2]
-        assert getattr(conventions, "_ql").Settings.instance().evaluationDate == getattr(
-            conventions, "_ql"
-        ).Date(1, 1, 1999)
+        assert ql.Settings.instance().evaluationDate == ql.Date(1, 1, 1999)
     finally:
-        getattr(conventions, "_ql").Settings.instance().evaluationDate = saved
+        ql.Settings.instance().evaluationDate = saved
 
 
 @pytest.mark.parametrize(
@@ -547,7 +544,7 @@ def test_native_results_reject_wrong_type_sign_and_infinity(
             """Return the deliberately malformed native result without validating it."""
             return bad
 
-    monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", Counter)
+    monkeypatch.setattr(ql, "Actual360", Counter)
     with pytest.raises(ConventionError, match="invalid year"):
         QuantLibConventions().time_to(
             context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
@@ -699,6 +696,32 @@ def test_constructor_errors_preserve_owned_types_and_hide_input_values() -> None
             duration=Duration(value=D("0"), day_count=DayCount.ACTUAL_360),
             adapter_version="1.40",
         )
+
+
+class TestQuantLibStubConformance:
+    """Verify the consumed native return types and convention identifiers."""
+
+    def test_native_day_counter_surface(self) -> None:
+        """Check every declared native convention against its installed implementation."""
+        assert ql.__version__ == conventions.QUANTLIB_VERSION
+        assert all(
+            type(value) is int
+            for value in (
+                ql.ActualActual.ISDA,
+                ql.Thirty360.BondBasis,
+                ql.Thirty360.European,
+            )
+        )
+        counters: tuple[ql.DayCounter, ...] = (
+            ql.Actual360(),
+            ql.Actual365Fixed(),
+            ql.ActualActual(ql.ActualActual.ISDA),
+            ql.Thirty360(ql.Thirty360.BondBasis),
+            ql.Thirty360(ql.Thirty360.European),
+        )
+        for counter in counters:
+            value = counter.yearFraction(ql.Date(1, 1, 2024), ql.Date(1, 7, 2024))
+            assert type(value) is float and 0.49 < value < 0.51
 
 
 if __name__ == "__main__":

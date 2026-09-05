@@ -14,7 +14,7 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, ClassVar
 
 # third party library imports
-import QuantLib as _ql  # type: ignore[import-untyped]  # [owner=domain_architecture; rationale=exact native dependency lacks stubs and is confined to this adapter; expires=2027-03-01]
+import QuantLib as _ql
 from pydantic import BeforeValidator
 
 # project library imports
@@ -103,6 +103,7 @@ class QuantLibConventions:
                 raise ConventionError(f"QuantLib must be exactly {QUANTLIB_VERSION}")
         except PackageNotFoundError as error:
             raise ConventionError("QuantLib distribution is unavailable") from error
+        counter: _ql.DayCounter
         try:
             match day_count:
                 case DayCount.ACTUAL_360:

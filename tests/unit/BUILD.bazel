@@ -25,6 +25,8 @@ py_test(
     main = "test_venue_calendar.py",
     deps = [
         "//src/alpha_research/venue_calendar",
+        requirement("exchange-calendars"),
+        requirement("pandas"),
         requirement("hypothesis"),
         requirement("pydantic"),
         requirement("pytest"),
@@ -42,6 +44,7 @@ py_test(
         "//src/alpha_research/instrument_identity",
         "//src/alpha_research/venue_calendar",
         requirement("hypothesis"),
+        requirement("quantlib"),
         requirement("pydantic"),
         requirement("pytest"),
     ],

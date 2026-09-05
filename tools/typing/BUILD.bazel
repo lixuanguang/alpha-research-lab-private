@@ -1,0 +1,6 @@
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "native_stubs",
+    srcs = glob(["stubs/**/*.pyi"]) + ["README.md", "stubtest.toml"],
+)
