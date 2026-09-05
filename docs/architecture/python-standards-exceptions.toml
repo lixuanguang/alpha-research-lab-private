@@ -1,0 +1,5 @@
+# Exact reviewed design exceptions; no migration debt or blanket module exclusions.
+# Dates use native TOML dates. Source fingerprints are SHA-256 of ast.dump for the
+# named definition, with include_attributes=False, so blank lines do not renew debt.
+schema_version = 1
+exceptions = []

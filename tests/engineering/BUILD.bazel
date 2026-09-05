@@ -99,6 +99,21 @@ py_test(
 )
 
 py_test(
+    name = "python_standards_test",
+    srcs = [
+        "test_python_debt.py",
+        "test_python_source_standards.py",
+    ],
+    data = ["//:engineering_standards_data"],
+    main = "test_python_debt.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [
+        "//tools/governance/src/alpha_research_governance",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
     name = "remote_execution_test",
     srcs = ["test_remote_execution.py"],
     data = ["//:remote_execution_policy_data"],

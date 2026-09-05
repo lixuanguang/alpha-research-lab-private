@@ -29,8 +29,8 @@ Python targets. It adds the `alpha-governance-engineering-standards` checker and
 sandboxed Bazel property/state-machine test target. The checker binds exact tool
 versions to the uv lock, validates warnings-as-errors configuration, rejects an
 unowned or expired suppression, prevents generated source outside an admitted
-root, and blocks C, C++, or Rust source until an owned native target and sanitizer
-profile are admitted.
+root, enforces the staged Python standards contract, and blocks C, C++, or Rust
+source until an owned native target and sanitizer profile are admitted.
 
 B02 and B03 remain provisional dependencies. Their Bazel graph, exact Python
 toolchain, clean-machine shell, sandbox, and rollback are preserved. The completed
@@ -43,12 +43,15 @@ No economic, data, schema, research, model, strategy, risk, execution, runtime, 
 deployment behavior is introduced. Fast affected-target selection and authoritative
 merged-result policy remain B05-owned.
 
-The initial repository-internal checker intentionally keeps contract parsing and
-repository cross-checks in one policy module because they share one closed set of
-B04 invariants and have one consumer lifecycle. This exceeds the preferred
-400-line source-file guideline; split it only when another admitted language or
-generated-source root creates an independently testable policy boundary, so an
-early abstraction cannot let the two validation paths drift.
+The initial repository-internal checker kept contract parsing and repository
+cross-checks in one policy module because they shared one closed set of B04
+invariants and one consumer lifecycle. The Python standards migration introduces
+an independently testable Python-standard boundary for import headings, source
+typing, documentation, and class dispositions. Those checks may use a focused
+component while retaining the existing command and lifecycle. Keep unrelated
+contract parsing together until another admitted language or generated-source
+root creates a similarly independent boundary; an early abstraction must not let
+validation paths drift.
 
 ## Language admission and warnings policy
 
@@ -73,6 +76,69 @@ sanitizer. Before native source enters a governed root, the owning change must:
 Python does not claim a native memory sanitizer. A Python extension inherits the
 owning native target's sanitizer requirements and must additionally satisfy the
 binding lifetime, GIL, exception, and differential-test rules.
+
+## Python standards migration contract
+
+Step 1 extends the existing `alpha-governance-engineering-standards` command; it
+does not add a dependency or a separate approval stage. The command enforces the
+following staged Python rules:
+
+- Every nonempty import category has its exact comment heading and blank-line
+  separation. `__future__` imports stay in their own group immediately after the
+  module docstring. `alpha_research` and `alpha_research_governance` are both
+  first-party; relative and `TYPE_CHECKING` imports follow the same rules.
+- Owned source and tests contain no explicit `Any`, including aliases, qualified
+  references, container members, type aliases, and quoted annotations. Strict
+  mypy remains required across `src`, `tests`, and governance tooling. Inferred
+  `Any` from an untyped library or framework remains a step-4 unresolved
+  inventory item and is not newly disallowed globally.
+- Every module, class, and named function, including private helpers, has a
+  Google-style summary. Public APIs include every applicable `Args:`,
+  `Returns:`/`Yields:`, and `Raises:` section. Reviewers check that the prose is
+  meaningful; metadata checks cannot prove a prose justification.
+- High-level domain, policy, validation, loading, and orchestration operations
+  prefer cohesive classes. Low-level, framework, and compatibility functions
+  require an explicit rationale.
+
+The exact migration debt is stored in the checksum-pinned JSON file
+[`docs/architecture/python-standards-debt.json`](python-standards-debt.json).
+Each entry is keyed by file, qualified symbol, rule, detail, and multiplicity.
+New debt is never auto-baselined. A resolved stale entry fails until it is
+pruned; a moved obligation fails as both the stale old entry and the new
+obligation. Updating the inventory or its checksum is an explicit, reviewed
+retirement and never a blanket count update.
+
+Exact exceptions are separate in
+[`docs/architecture/python-standards-exceptions.toml`](python-standards-exceptions.toml).
+They are limited to low-level, framework, or compatibility functions and
+inherited-doc contracts. Each exception records an owner, rationale, expiry, and
+source fingerprint. Expired or unknown-owner entries, unsupported categories,
+fingerprint mismatches, and stale exceptions fail the command. Exceptions cannot
+waive the explicit-`Any`, import-heading, or syntax rules. The metadata check
+cannot establish whether a rationale is substantively justified; that remains a
+review responsibility.
+
+Exception records use the exact fields `path`, `symbol`, `rule`, `detail`, `kind`,
+`owner_role`, `rationale`, `expires`, and `source_sha256`. Use a native TOML date
+for `expires`, with at most 180 days remaining at validation time, and at least
+12 rationale characters after trimming surrounding whitespace. The fingerprint
+is SHA-256 of the definition's `ast.dump(node, include_attributes=False)` UTF-8 bytes under the
+pinned Python interpreter. Whitespace and line relocation do not change it;
+definition changes do. Duplicate qualified definitions cannot receive an
+ambiguous exception. `PYC001` permits `low_level`, `framework`, or `compatibility`;
+`PYD001`/`PYD002` permit only `inherited_contract`. Each record discharges exactly
+one finding and may not overlap the legacy inventory.
+
+The scanner validates summaries and structured sections, including each public
+parameter. It checks `Raises:` for explicit raises in a function's own body;
+reviewers must also document relevant failures propagated by collaborators.
+Private helpers and `test_` functions under `tests/` may use summary-only docs.
+It inspects source-level type syntax, including quoted annotations and generic
+bounds; mypy remains responsible for inferred types and signature correctness.
+
+Do not enable Ruff `D` or `ANN` as a blanket global requirement while legacy debt
+remains. Expand active Ruff selection as exact debt is retired. The existing
+strict and lint controls remain in force throughout the migration.
 
 ## Suppressions
 

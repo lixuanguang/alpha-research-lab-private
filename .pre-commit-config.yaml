@@ -31,7 +31,7 @@ repos:
         name: check language and static quality standards
         entry: uv run --frozen alpha-governance-engineering-standards
         language: system
-        files: ^(pyproject\.toml|uv\.lock|docs/(architecture/engineering-(standards\.(md|toml)|tool-dependencies\.toml)|coding_standards/.*\.md)|src/.*\.(py|pyi)|tests/.*\.py|tools/governance/src/.*\.py)$
+        files: ^(pyproject\.toml|uv\.lock|docs/(architecture/(engineering-(standards\.(md|toml)|tool-dependencies\.toml)|python-standards-(debt\.json|exceptions\.toml))|coding_standards/.*\.md)|src/.*\.(py|pyi)|tests/.*\.(py|pyi)|tools/governance/src/.*\.(py|pyi))$
         pass_filenames: false
 
       - id: dependency-admission
