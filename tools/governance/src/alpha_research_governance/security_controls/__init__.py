@@ -57,6 +57,23 @@ _USAGE = (
 
 
 def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, bool, dict[str, str]]:
+    """Parse security-control CLI tokens and derive the requested output mode.
+
+    Args:
+        arguments: Ordered command-line tokens containing at most one repository root,
+            the ``--json`` flag, and at most one selection filter.
+
+    Returns:
+        A tuple containing the selected repository root (defaulting to the current
+        working directory), whether JSON output is required, and the supplied exact
+        ``--threat-category``, ``--control-owner-role`` or ``--jurisdiction`` filter.
+
+    Raises:
+        SecurityControlError: If an option is duplicated or unknown, a value is missing,
+            more than one selection filter is supplied, or more than one positional
+            repository root is supplied. Filter values are retained for ``main`` to
+            validate where a registry of allowed values exists.
+    """
     repository_root: Path | None = None
     should_emit_json = False
     filters: dict[str, str] = {}
@@ -90,6 +107,18 @@ def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, bool, dict[str, st
 def _build_security_control_payload(
     control_map: SecurityControlMap, filters: dict[str, str]
 ) -> dict[str, object]:
+    """Build the stable JSON payload for the validated control-map selection.
+
+    Args:
+        control_map: Validated map whose records and metadata supply the payload.
+        filters: Parsed selection mapping containing at most one supported filter.
+
+    Returns:
+        A fresh JSON-compatible mapping containing map metadata and all assets and
+        boundaries, with threats, controls, jurisdictions and regulatory mappings
+        selected by their exact filter. Authority sources are restricted to sources
+        referenced by the selected jurisdiction profiles; tuple fields become lists.
+    """
     category = filters.get("--threat-category")
     owner_role = filters.get("--control-owner-role")
     jurisdiction_id = filters.get("--jurisdiction")
@@ -134,7 +163,34 @@ def _build_security_control_payload(
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Validate security governance or emit a deterministic filtered JSON control map."""
+    """Validate security governance or emit a deterministic filtered control map.
+
+    The repository root defaults to ``Path.cwd()``. The command reads the authoritative
+    control map, ownership register and local evidence, writes no files, and launches no
+    subprocesses. With no ``--json`` flag and no filter it prints a human summary. The
+    explicit flag or any selection filter selects JSON output; category, owner and
+    jurisdiction matching is exact, and the payload preserves stored order while
+    restricting threats, controls, or jurisdiction-linked mappings as requested. Parser
+    errors are caught as status ``2``; expected ``SecurityControlError`` and ``OSError``
+    failures during validation are caught as status ``1``.
+
+    Args:
+        arguments: Optional command-line tokens. ``None`` consumes ``sys.argv[1:]``;
+            otherwise provide an optional repository root, ``--json``, and at most one
+            ``--threat-category CATEGORY``, ``--control-owner-role ROLE`` or
+            ``--jurisdiction ID`` filter.
+
+    Returns:
+        ``0`` after printing the human validation summary or compact, sorted JSON;
+        ``1`` after printing an unsupported category, jurisdiction, governance failure
+        or filesystem failure to standard error; or ``2`` after printing the exact usage
+        for malformed argument syntax.
+
+    Raises:
+        OSError: If resolving the default working directory or writing output fails
+            outside the guarded parsing and validation blocks.
+        UnicodeDecodeError: If a repository input read as UTF-8 has invalid encoding.
+    """
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     try:
         repository_root, should_emit_json, filters = _parse_arguments(cli_arguments)

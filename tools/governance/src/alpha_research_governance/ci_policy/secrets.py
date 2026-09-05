@@ -1,4 +1,4 @@
-"""High-confidence repository secret detection for CI preflight."""
+"""Detect high-confidence repository secrets for CI preflight."""
 
 from __future__ import annotations
 
@@ -26,12 +26,24 @@ _SECRET_PATTERNS = {
 
 
 def secret_pattern_ids() -> tuple[str, ...]:
-    """Return the closed high-confidence pattern set."""
+    """Return the sorted identifiers of the configured high-confidence patterns.
+
+    Returns:
+        A tuple containing every configured pattern identifier in lexical order.
+    """
     return tuple(sorted(_SECRET_PATTERNS))
 
 
 def scan_secret_bytes(payload: bytes) -> tuple[str, ...]:
-    """Return pattern identifiers found without disclosing matching material."""
+    """Scan bytes for configured high-confidence patterns without disclosing matches.
+
+    Args:
+        payload: Byte content to inspect.
+
+    Returns:
+        A tuple of matching pattern identifiers in lexical order; matching secret
+        material is never returned.
+    """
     return tuple(
         pattern_id
         for pattern_id, pattern in sorted(_SECRET_PATTERNS.items())
@@ -45,7 +57,29 @@ def scan_secret_paths(
     *,
     maximum_file_bytes: int,
 ) -> None:
-    """Fail closed on unsafe files or any high-confidence secret match."""
+    """Scan bounded repository files and reject unsafe paths or detected patterns.
+
+    Normalize the supplied paths, check containment, scan each distinct path in
+    sorted order, and skip paths that do not exist after those checks. For an
+    existing path, check the final path for symlink and regular-file status and
+    stat its size before reading it; those checks do not provide a filesystem
+    snapshot or close races between checks and reads. This scanner covers the
+    configured high-confidence patterns and does not claim to detect every leak.
+    It reads file metadata and contents, reporting identifiers and paths rather
+    than matching file contents. It does not write files.
+
+    Args:
+        repository_root: Existing repository directory that bounds file access.
+        paths: Repository-relative paths to inspect after normalization.
+        maximum_file_bytes: Inclusive per-file byte limit for scanning.
+
+    Raises:
+        CIPolicyError: A path fails lexical repository-relative normalization,
+            escapes the repository, names a symlink or non-regular file, exceeds
+            the byte limit, or contains a configured secret pattern.
+        OSError: The repository or an inspected file cannot be resolved, inspected,
+            or read.
+    """
     findings: list[str] = []
     normalized = normalize_changed_paths(tuple(("M", path) for path in paths))
     repository_root = repository_root.resolve(strict=True)

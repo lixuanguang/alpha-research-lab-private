@@ -64,6 +64,21 @@ _USAGE = (
 def _parse_arguments(
     arguments: Sequence[str],
 ) -> tuple[Path, Path | None, bool, bool, dict[str, str]]:
+    """Parse program CLI options and derive the requested output mode.
+
+    Args:
+        arguments: Ordered command-line tokens containing an optional repository root,
+            output flags, an observation path, and at most one selection option.
+
+    Returns:
+        A tuple containing the repository root (defaulting to the current working
+        directory), optional observations path, whether JSON output is required, whether
+        status generation was requested, and the supplied selection options.
+
+    Raises:
+        ProgramGovernanceError: If an option is unknown, duplicated, missing its value, or
+            combined with an incompatible option.
+    """
     repository_root: Path | None = None
     observation_path: Path | None = None
     should_emit_json = False
@@ -112,6 +127,16 @@ def _parse_arguments(
 
 
 def _build_package_payload(program: ProgramGovernance, package: PackageNode) -> dict[str, object]:
+    """Build one JSON-compatible package record with its effective state.
+
+    Args:
+        program: Validated program whose explicit package states supply status data.
+        package: Roadmap package to serialize.
+
+    Returns:
+        A fresh dictionary containing the package's stable JSON fields and a ``state``
+        mapping. Missing explicit state receives the dashboard's planned-state defaults.
+    """
     package_payload = package.as_json()
     package_state = program.state_for(package.package_id)
     package_payload["state"] = (
@@ -137,6 +162,18 @@ def _build_program_dashboard_payload(
     observations: tuple[MetricObservation, ...],
     selection_options: dict[str, str],
 ) -> dict[str, object]:
+    """Build the deterministic dashboard payload for the requested program selection.
+
+    Args:
+        program: Validated roadmap, package-state, and metric definitions.
+        observations: Validated events to summarize in metric definition order.
+        selection_options: Parsed ``--wave``, ``--metric``, or ``--ready`` selectors.
+
+    Returns:
+        A fresh JSON-compatible mapping containing program metadata, aggregation limits,
+        selected package records, selected metric definitions with summaries, observation
+        count, finding IDs, and the next solo and institutional readiness IDs.
+    """
     selected_packages = program.packages
     selected_metrics = program.metrics
     ready_mode = selection_options.get("--ready")
@@ -199,7 +236,35 @@ def _build_program_dashboard_payload(
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Validate program governance or emit a deterministic graph and KPI dashboard."""
+    """Validate program governance or emit a deterministic graph and KPI dashboard.
+
+    The command reads the policy and optional JSONL observations; a relative observations
+    path is passed to the loader relative to the process working directory. ``--write-status``
+    loads the program policy and overwrites its configured generated Markdown path without
+    running the full repository validator, and cannot be combined with JSON, observations,
+    or selectors. ``ProgramGovernanceError`` and ``OSError`` failures from policy and
+    observation loading are caught; decoding errors and failures while resolving the
+    default working directory or building and printing the dashboard propagate to the
+    caller.
+
+    Args:
+        arguments: Optional command-line arguments. Omit this value to consume
+            ``sys.argv[1:]``; provide an optional repository root and supported program
+            selectors or observation options.
+
+    Returns:
+        ``0`` after printing validation text, compact JSON, or a status-write confirmation;
+        ``1`` after printing a handled governance or filesystem failure, or an unsupported
+        selector value, to stderr; or ``2`` after printing usage for an invalid argument
+        combination.
+
+    Raises:
+        UnicodeDecodeError: If a policy, status, or observation file is not valid UTF-8.
+        ValueError: If dashboard aggregation encounters an invalid metric definition or
+            numeric result after loading has completed.
+        OSError: If resolving the default working directory or writing output fails
+            outside the loading handler.
+    """
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     try:
         (

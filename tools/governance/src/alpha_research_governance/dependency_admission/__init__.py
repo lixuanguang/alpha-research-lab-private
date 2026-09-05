@@ -42,7 +42,33 @@ __all__ = [
 
 
 def run_pip_audit(repository_root: Path, policy: DependencyAdmission) -> None:
-    """Run the exact admitted scanner and apply repository-owned disposition policy."""
+    """Run the admitted pip-audit command against the policy's package list.
+
+    The command writes an exact ``name==version`` requirement file and asks pip-audit for
+    JSON output in a private temporary directory. It invokes ``pip-audit`` through
+    ``PATH`` with dependency resolution disabled, the admitted vulnerability service,
+    a scanner service timeout of 15 seconds, and strict JSON reporting; this option is
+    not a subprocess timeout. The temporary directory is removed by its context manager,
+    and the function emits no output or repository files. Scanner statuses ``0`` and
+    ``1`` are accepted only when the independently assessed report passes.
+
+    Args:
+        repository_root: Repository directory used as the scanner process working
+            directory.
+        policy: Validated dependency-admission policy supplying the exact package names,
+            versions and vulnerability service.
+
+    Raises:
+        DependencyAdmissionError: If the admitted distribution is absent or has the wrong
+            version, pip-audit cannot start, no JSON report is produced, report assessment
+            finds an admission failure, or the scanner exits with a status other than
+            ``0`` or ``1``.
+        OSError: If temporary-directory or requirement-file setup, or another
+            unhandled filesystem operation, fails. An ``OSError`` raised while
+            starting pip-audit is translated to ``DependencyAdmissionError``.
+        UnicodeDecodeError: If captured pip-audit output cannot be decoded as text by
+            ``subprocess.run``.
+    """
     try:
         observed_version = importlib.metadata.version("pip-audit")
     except importlib.metadata.PackageNotFoundError as error:
@@ -111,7 +137,33 @@ def run_pip_audit(repository_root: Path, policy: DependencyAdmission) -> None:
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Run offline admission validation, live audit, or signal assessment."""
+    """Validate dependency admission, run its audit, or assess a supplied signal report.
+
+    The command uses ``Path.cwd()`` as its repository root. With no command, it loads
+    and validates the repository policy, lock surfaces, integrations, source scans and
+    local evidence, then prints the package count and any bootstrap-only records.
+    ``audit`` additionally writes a temporary exact requirements file, invokes the
+    pinned pip-audit process, reads its temporary JSON report and cleans up the
+    temporary directory. ``audit-report`` and ``scorecard-report`` assess only the
+    supplied report against the validated policy; they do not run the corresponding
+    scanner or establish exploitability. Expected ``DependencyAdmissionError``,
+    ``OSError`` and ``ValueError`` failures are caught and translated to status ``1``.
+
+    Args:
+        arguments: Optional command-line tokens. ``None`` consumes ``sys.argv[1:]``;
+            otherwise provide no command, ``audit``, ``audit-report REPORT``, or
+            ``scorecard-report REPORT REPOSITORY COMMIT``.
+
+    Returns:
+        ``0`` after printing a successful offline validation, live audit, accepted audit
+        report, or advisory-only Scorecard result; ``1`` after printing a caught
+        dependency, filesystem or value failure to standard error; or ``2`` after
+        printing the exact usage for an unsupported command or operand count.
+
+    Raises:
+        OSError: If resolving the default working directory or writing usage output
+            fails outside the guarded validation and audit block.
+    """
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     repository_root = Path.cwd()
     try:

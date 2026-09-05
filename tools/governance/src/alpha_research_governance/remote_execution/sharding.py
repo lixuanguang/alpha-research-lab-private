@@ -1,4 +1,4 @@
-"""Deterministic, order-independent whole-target sharding."""
+"""Partition complete test-target sets deterministically without input-order dependence."""
 
 from __future__ import annotations
 
@@ -20,7 +20,29 @@ def shard_targets(
     seed: str,
     maximum_targets: int,
 ) -> tuple[TestShard, ...]:
-    """Partition unique Bazel labels using a stable SHA-256 seeded modulo."""
+    """Partition unique, syntactically valid test labels into deterministic shards.
+
+    Sort the labels before assigning each one with the first eight bytes of the
+    SHA-256 digest of the seed, a NUL separator, and the target, reduced modulo
+    ``shard_count``. Return exactly ``shard_count`` records, including empty
+    shards; each record's labels remain sorted. This validates label syntax but
+    does not resolve labels through Bazel.
+
+    Args:
+        targets: Iterable of distinct test-target labels to partition.
+        shard_count: Positive number of shards to return, including empty shards.
+        seed: Non-empty seed text of at most 128 characters for stable assignment.
+        maximum_targets: Inclusive upper bound on the complete target count.
+
+    Returns:
+        A tuple of ``TestShard`` records indexed from zero through
+        ``shard_count - 1``.
+
+    Raises:
+        RemoteExecutionError: A bound is invalid, the seed is empty or too long,
+            targets are duplicated, the target count exceeds the budget, or a
+            target fails the accepted label syntax.
+    """
     if shard_count < 1:
         raise RemoteExecutionError(["shard_count must be positive"])
     if maximum_targets < 1:
@@ -60,7 +82,24 @@ def select_shard(
     seed: str,
     maximum_targets: int,
 ) -> TestShard:
-    """Return one validated shard without weakening the complete partition."""
+    """Select one shard from the complete validated deterministic partition.
+
+    Args:
+        targets: Iterable of distinct test-target labels to partition.
+        shard_index: Zero-based index in the half-open range
+            ``[0, shard_count)``.
+        shard_count: Positive number of shards used for the complete partition.
+        seed: Non-empty seed text of at most 128 characters for stable assignment.
+        maximum_targets: Inclusive upper bound on the complete target count.
+
+    Returns:
+        The ``TestShard`` at ``shard_index`` after validating the complete target
+        set and preserving the full partition rules.
+
+    Raises:
+        RemoteExecutionError: ``shard_index`` is outside its half-open range or
+            the target set fails any validation performed by ``shard_targets``.
+    """
     if shard_index < 0 or shard_index >= shard_count:
         raise RemoteExecutionError(
             [f"shard_index must be in the half-open range [0, {shard_count})"]
