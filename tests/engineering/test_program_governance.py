@@ -24,6 +24,7 @@ from alpha_research.program_governance import (
 REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "program-governance.toml"
 ROADMAP_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "README.md"
+RESEARCH_PROGRAM_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "research-program.md"
 
 
 def _policy_fixture(tmp_path: Path) -> Path:
@@ -42,6 +43,17 @@ def _replace_program_fixture_text(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+def _remove_package_state(path: Path, package_id: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    marker = f'[[package_states]]\npackage_id = "{package_id}"'
+    start = text.index(marker)
+    following_state = text.find("[[package_states]]", start + len(marker))
+    following_metric = text.find("[[metrics]]", start + len(marker))
+    candidates = [index for index in (following_state, following_metric) if index >= 0]
+    end = min(candidates)
+    path.write_text(text[:start] + text[end:], encoding="utf-8")
 
 
 def _metric_observation_event(
@@ -94,7 +106,7 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     assert tuple(package.package_id for package in program.packages) == ROADMAP_PACKAGE_IDS
     assert tuple(metric.metric_id for metric in program.metrics) == METRIC_IDS
     assert len(program.packages) == 96
-    assert len(program.package_states) == 17
+    assert len(program.package_states) == 19
     assert program.package_status == "partial"
     assert program.risk_class == "R2"
     assert program.maximum_observations == 10_000
@@ -102,7 +114,7 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     assert program.finding_ids == ("A08-F01", "A08-F02", "A08-F03")
     assert all(state.status == "partial" for state in program.package_states)
     assert all(state.repository_local_status == "passed" for state in program.package_states)
-    assert program.schema_version == 2
+    assert program.schema_version == 3
     assert program.implementation_status == "complete"
     assert program.governance_status == "not_required"
     assert all(state.implementation_status == "complete" for state in program.package_states)
@@ -159,6 +171,20 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
         "C01-F02",
         "C01-F03",
     )
+    venue_calendar_state = program.state_for("C02")
+    assert venue_calendar_state is not None
+    assert venue_calendar_state.open_finding_ids == (
+        "C02-F01",
+        "C02-F02",
+        "C02-F03",
+    )
+    financial_units_state = program.state_for("C03")
+    assert financial_units_state is not None
+    assert financial_units_state.open_finding_ids == (
+        "C03-F01",
+        "C03-F02",
+        "C03-F03",
+    )
 
 
 @pytest.mark.performance
@@ -203,7 +229,7 @@ def test_program_dates_require_extended_calendar_format(tmp_path: Path) -> None:
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         path,
-        'as_of_date = "2026-09-04"',
+        'as_of_date = "2026-09-05"',
         'as_of_date = "20260901"',
     )
 
@@ -216,14 +242,24 @@ def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> No
     packages_by_id = {package.package_id: package for package in program.packages}
 
     assert packages_by_id["A08"].dependencies == tuple(f"A{number:02d}" for number in range(1, 8))
+    assert packages_by_id["A08"].team_handover_dependencies == ("A03",)
     assert packages_by_id["H02"].dependencies[-4:] == ("I01", "I02", "I03", "I04")
     assert packages_by_id["L01"].dependencies == tuple(
         f"{wave}{number:02d}" for wave in "CDEFGHIJK" for number in range(1, 9)
     )
     assert packages_by_id["L06"].any_of_dependency_groups == (("L01", "L02", "L04"),)
     assert packages_by_id["L07"].any_of_dependency_groups == (("L01", "L02", "L03", "L04"),)
+    assert packages_by_id["B07"].dependencies == ("B02", "B03", "B04", "B05")
+    assert packages_by_id["B07"].operation_release_dependencies == ("B06",)
+    assert packages_by_id["B07"].as_json()["dependency_purposes"] == {
+        "implementation": {"all_of": ["B02", "B03", "B04", "B05"], "any_of": []},
+        "operation_release": {"all_of": ["B06"], "any_of": []},
+        "team_handover": {"all_of": [], "any_of": []},
+    }
+    assert packages_by_id["D01"].dependencies == ("C04",)
+    assert packages_by_id["D01"].operation_release_dependencies == ("B08",)
     assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
-        "C02",
+        "C04",
     )
     assert program.ready_packages(institutional=True) == ()
 
@@ -249,7 +285,8 @@ def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: P
     _replace_program_fixture_text(
         missing,
         "| A08 | Program dependency graph and owned baseline KPIs | — | "
-        "Metrics are non-vanity signals and never replace hard gates | A01-A07 |",
+        "Metrics are non-vanity signals and never replace hard gates | "
+        "implementation: A01-A07; team handover: A03 |",
         "",
     )
     with pytest.raises(ProgramGovernanceError, match="A01-L08 exactly once"):
@@ -264,6 +301,48 @@ def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: P
     )
     with pytest.raises(ProgramGovernanceError, match="must declare objective, library/tool"):
         load_roadmap(malformed)
+
+    purpose_cycle = _roadmap_fixture(tmp_path)
+    _replace_program_fixture_text(
+        purpose_cycle,
+        "| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, "
+        "and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate "
+        "namespaces and trust; pass poisoning tests; retain verified local fallback | B05 |",
+        "| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, "
+        "and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate "
+        "namespaces and trust; pass poisoning tests; retain verified local fallback | "
+        "implementation: B05; operation/release: B07 |",
+    )
+    with pytest.raises(ProgramGovernanceError, match="dependency cycle"):
+        load_roadmap(purpose_cycle)
+
+
+def test_roadmap_parses_team_handover_purpose_without_changing_technical_readiness(
+    tmp_path: Path,
+) -> None:
+    path = _roadmap_fixture(tmp_path)
+    _replace_program_fixture_text(
+        path,
+        "| C02 | Venue, session, calendar, market-status, and timezone contracts | "
+        "`exchange_calendars` 4.13.2 | Versioned source/override adapter and pinned "
+        "fixtures; never live authority | C01 |",
+        "| C02 | Venue, session, calendar, market-status, and timezone contracts | "
+        "`exchange_calendars` 4.13.2 | Versioned source/override adapter and pinned "
+        "fixtures; never live authority | implementation: C01; team handover: A03 |",
+    )
+
+    package = next(item for item in load_roadmap(path) if item.package_id == "C02")
+    assert package.dependencies == ("C01",)
+    assert package.team_handover_dependencies == ("A03",)
+
+
+def test_research_entry_rules_separate_technical_progress_from_operations_and_review() -> None:
+    text = RESEARCH_PROGRAM_PATH.read_text(encoding="utf-8")
+
+    assert "must have complete implementation and no technical finding" in text
+    assert "It does not require\ninstitutional `validated` status" in text
+    assert "Pending organizational handover does not block" in text
+    assert "before final-OOS access and certification" in text
 
 
 def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
@@ -521,14 +600,15 @@ def test_cli_emits_stable_filtered_dashboard(
     dashboard = json.loads(first)
     assert dashboard["package_count"] == 96
     assert len(dashboard["packages"]) == 8
-    assert dashboard["next_solo_ready_package"] == "C02"
+    assert dashboard["next_solo_ready_package"] == "C04"
+    assert dashboard["next_implementation_ready_package"] == "C04"
     assert dashboard["next_institutionally_ready_package"] is None
     assert dashboard["observation_count"] == 5
     assert all(item["definition"]["hard_gate_substitute"] is False for item in dashboard["metrics"])
 
     assert main([str(REPOSITORY_ROOT), "--ready", "solo"]) == 0
     ready = json.loads(capsys.readouterr().out)
-    assert [item["package_id"] for item in ready["packages"]] == ["C02"]
+    assert [item["package_id"] for item in ready["packages"]] == ["C04"]
 
 
 def test_solo_package_completes_without_invented_findings(tmp_path: Path) -> None:
@@ -562,8 +642,39 @@ def test_blocked_technical_dependency_stops_solo_readiness(tmp_path: Path) -> No
         'repository_local_status = "passed"', 'repository_local_status = "failed"', 1
     )
     path.write_text(prefix + 'package_id = "C01"' + suffix)
+    with pytest.raises(
+        ProgramGovernanceError, match="C02: completion requires complete technical dependencies"
+    ):
+        load_program(path, repository_root=REPOSITORY_ROOT)
+
+
+def test_non_contiguous_state_and_operational_dependency_do_not_block_delivery(
+    tmp_path: Path,
+) -> None:
+    """B06 service acceptance is not an implementation prerequisite for B07."""
+    path = _policy_fixture(tmp_path)
+    _remove_package_state(path, "B06")
+
     program = load_program(path, repository_root=REPOSITORY_ROOT)
-    assert program.ready_packages(institutional=False) == ()
+
+    assert program.state_for("B06") is None
+    assert program.state_for("B07") is not None
+    assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
+        "B06",
+        "C04",
+    )
+
+
+def test_missing_implementation_dependency_still_blocks_non_contiguous_state(
+    tmp_path: Path,
+) -> None:
+    path = _policy_fixture(tmp_path)
+    _remove_package_state(path, "C02")
+
+    with pytest.raises(
+        ProgramGovernanceError, match="C03: completion requires complete technical dependencies"
+    ):
+        load_program(path, repository_root=REPOSITORY_ROOT)
 
 
 def test_technical_findings_cannot_be_hidden_by_complete_status(tmp_path: Path) -> None:
@@ -579,7 +690,7 @@ def test_technical_findings_cannot_be_hidden_by_complete_status(tmp_path: Path) 
 def test_program_reader_retains_version_one_semantics(tmp_path: Path) -> None:
     """Old records remain readable with their original institutional acceptance meaning."""
     path = _policy_fixture(tmp_path)
-    lines = path.read_text().replace("schema_version = 2", "schema_version = 1", 1).splitlines()
+    lines = path.read_text().replace("schema_version = 3", "schema_version = 1", 1).splitlines()
     path.write_text(
         "\n".join(
             line
@@ -593,8 +704,28 @@ def test_program_reader_retains_version_one_semantics(tmp_path: Path) -> None:
     program = load_program(path, repository_root=REPOSITORY_ROOT)
     assert program.schema_version == 1
     assert program.ready_packages(institutional=True) == ()
-    assert program.ready_packages(institutional=False)[0].package_id == "C02"
+    assert program.ready_packages(institutional=False)[0].package_id == "C04"
     assert all(state.status == "partial" for state in program.package_states)
+
+
+def test_program_reader_retains_version_two_dependency_semantics(tmp_path: Path) -> None:
+    """Version 2 keeps its original rule that every roadmap edge blocks completion."""
+    path = _policy_fixture(tmp_path)
+    _replace_program_fixture_text(path, "schema_version = 3", "schema_version = 2")
+    text = path.read_text(encoding="utf-8")
+    prefix, suffix = text.split('package_id = "B06"', 1)
+    suffix = suffix.replace(
+        'implementation_status = "complete"', 'implementation_status = "blocked"', 1
+    )
+    suffix = suffix.replace(
+        'repository_local_status = "passed"', 'repository_local_status = "failed"', 1
+    )
+    path.write_text(prefix + 'package_id = "B06"' + suffix, encoding="utf-8")
+
+    with pytest.raises(
+        ProgramGovernanceError, match="B07: completion requires complete technical dependencies"
+    ):
+        load_program(path, repository_root=REPOSITORY_ROOT)
 
 
 def test_hiring_derives_scoped_governance_without_rewriting_package_states(tmp_path: Path) -> None:
@@ -619,4 +750,4 @@ effective_from = "2026-09-04"
     ]
     assert pending == ["A07"]
     assert all(state.implementation_status == "complete" for state in program.package_states)
-    assert program.ready_packages(institutional=False)[0].package_id == "C02"
+    assert program.ready_packages(institutional=False)[0].package_id == "C04"

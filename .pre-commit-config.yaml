@@ -121,7 +121,7 @@ repos:
         name: check program dependency and KPI governance
         entry: uv run --frozen alpha-governance-program
         language: system
-        files: ^(docs/README\.md|docs/architecture/repository-topology\.(md|toml)|docs/governance/(program-governance\.(md|toml)|resource-inventory\.(md|toml)|evidence/examples/a08-r2-partial/.*)|docs/roadmap/README\.md|src/alpha_research/program_governance/[a-z_]+\.py|tools/governance/src/alpha_research_governance/program_governance/[a-z_]+\.py|tests/engineering/(test_program_governance|test_inventory_governance|test_repository_topology|test_root_commands)\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
+        files: ^(docs/README\.md|docs/architecture/repository-topology\.(md|toml)|docs/governance/(program-governance\.(md|toml)|resource-inventory\.(md|toml)|evidence/examples/a08-r2-partial/.*)|docs/roadmap/(README|research-program)\.md|src/alpha_research/program_governance/[a-z_]+\.py|tools/governance/src/alpha_research_governance/program_governance/[a-z_]+\.py|tests/engineering/(test_program_governance|test_inventory_governance|test_repository_topology|test_root_commands)\.py|Makefile|\.github/workflows/ci\.yml|\.pre-commit-config\.yaml)$
         pass_filenames: false
 
       - id: trailing-whitespace

@@ -31,7 +31,7 @@ The repository currently has one founder. The
 [current operating policy](../governance/domain-ownership.md#current-operating-policy)
 supersedes the blueprint's organizational sequencing for solo implementation.
 
-The version-2 program registry separates three meanings:
+The version-3 program registry separates three meanings:
 
 - **Implementation:** planned, in_progress, complete or blocked. Complete means
   the declared repository-local behavior and applicable technical checks pass
@@ -42,10 +42,13 @@ The version-2 program registry separates three meanings:
 - **Institutional acceptance:** existing partial/validated records, evidence and
   operation-specific requirements remain available for future acceptance.
 
-Technical prerequisites still determine development readiness. Step 1 retains
-this roadmap's dependency graph and package coverage; step 3 will distinguish
-implementation dependencies from release and organizational dependencies and
-reconcile the later C02/C03 package states.
+Each dependency expression is an implementation dependency unless it uses an
+explicit `implementation:`, `operation/release:`, or `team handover:` prefix.
+Only implementation edges determine the active delivery queue. Operational edges
+become relevant when the named operation is requested, and handover edges apply
+only after the corresponding staffing trigger. Exact ranges and `any of` groups
+remain supported within a purpose. This keeps the 96 stable package IDs without
+making unavailable services or reviewers prerequisites for local engineering.
 
 Organizational completion is the final conditional handover after relevant hires
 join. Review the current baseline and material unresolved issues within each
@@ -77,7 +80,7 @@ applicable technical controls and institutional acceptance requirements.
 | A05 | MR template and SHA-bound machine-readable evidence bundle | — | Evidence must bind to the reviewed revision | A04 |
 | A06 | Data, model, strategy, service, limit, venue, release, and control inventories | — | Repository owns inventory schema and identifiers | A01-A05 |
 | A07 | Threat model and jurisdiction-tailored regulatory control map | — | Qualified legal/compliance applicability remains external evidence | A02, A06 |
-| A08 | Program dependency graph and owned baseline KPIs | — | Metrics are non-vanity signals and never replace hard gates | A01-A07 |
+| A08 | Program dependency graph and owned baseline KPIs | — | Metrics are non-vanity signals and never replace hard gates | implementation: A01-A07; team handover: A03 |
 
 **Wave evidence:** protected source, approved charter and ADR process, complete
 ownership, enforced change classes, reconstructable evidence, inventories, threat
@@ -93,7 +96,7 @@ model, and non-vanity program metrics.
 | B04 | Language, sanitizer, numerical, generated-code, and property/state-machine standards | Hypothesis 6.167; admitted language sanitizers | The existing-tool refresh is complete; add new tools through provisional B07-compatible records; no domain behavior | B02-B03 |
 | B05 | Fast affected/reverse-dependency CI plus full merged-result lane, hygiene, secrets, schema compatibility, drift checks, and evidence events | Bazel affected targets, Buf, pre-commit, admitted secret scanner | Full merged result remains authoritative; root/Bazel/local/hosted interfaces must agree | B01-B04 |
 | B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate namespaces and trust; pass poisoning tests; retain verified local fallback | B05 |
-| B07 | Dependency admission covering source, digest, lock, license, vulnerabilities, exploitability, maintenance, platforms, wheels/native code, registry, patch/EOL, and runtime-install prohibition | pip-audit 2.10.1; OpenSSF Scorecard | Signals only; migrate provisional B02-B06 records; repository owns admission and exploitability decision | B02-B06 |
+| B07 | Dependency admission covering source, digest, lock, license, vulnerabilities, exploitability, maintenance, platforms, wheels/native code, registry, patch/EOL, and runtime-install prohibition | pip-audit 2.10.1; OpenSSF Scorecard | Signals only; migrate provisional B02-B06 records; repository owns admission and exploitability decision | implementation: B02-B05; operation/release: B06 |
 | B08 | Whole-artifact SBOM, provenance, signatures, attestations, immutable publication, and consumer verification | Syft; Cosign | Include native/shared libraries, toolchain and lock identity; verify digest and policy at consumption | B07, A07 |
 
 **Wave evidence:** clean sandboxed local/CI builds have identical digests,
@@ -122,7 +125,7 @@ schema changes are caught by golden, property, compatibility, and replay tests.
 
 | ID | Objective / delivery | Library/tool to use or incorporate | Incorporation boundary / restriction | Depends on |
 | --- | --- | --- | --- | --- |
-| D01 | Immutable entitled raw landing with checksums, retention, and encryption | Object store/catalog selected by ADR | Repository owns dataset identity, entitlements, retention, and integrity policy | B08, C04 |
+| D01 | Immutable entitled raw landing with checksums, retention, and encryption | Object store/catalog selected by ADR | Repository owns dataset identity, entitlements, retention, and integrity policy | implementation: C04; operation/release: B08 |
 | D02 | Connector SDK with checkpoints, backpressure, idempotency, dead letters, and replay | Official Databento/Alpaca SDKs; evaluate Temporal Python 1.32 | Provider types stay adapter-local; Temporal is control-plane recovery only, never event transport/hot path | D01, C05 |
 | D03 | Deterministic canonical normalization and cross-source reconciliation | PyArrow 25.0.1, Polars 1.44.1, DuckDB 1.5.5, Pandera 0.33 | Measure execution; Pandera validates boundaries but owns no canonical schema, PIT, or publication | D01-D02, C08 |
 | D04 | Temporal reference/master data, priority rules, full knowledge/valid-time history, overrides, and source evidence | `exchange_calendars` 4.13.2; official provider SDKs | All mappings and calendars sit behind versioned owned adapters | C01-C05, D03 |

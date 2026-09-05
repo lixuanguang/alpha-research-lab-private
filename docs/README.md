@@ -15,10 +15,10 @@ production deployment. The proposed first workload is a digital-asset
 factor-residual strategy under its separate certification package.
 
 The [solo operating policy](governance/domain-ownership.md#current-operating-policy)
-separates engineering completion from institutional acceptance. The 17 registered
-A01-C01 packages show complete repository-local implementation; governance is not
-required until relevant hires join. C02/C03 state reconciliation is migration
-step 3. Package contracts retain institutional evidence and findings separately.
+separates engineering completion from institutional acceptance. The 19 registered
+A01-C03 packages show complete repository-local implementation; governance is not
+required until relevant hires join. The technical delivery queue now selects C04.
+Package contracts retain institutional evidence and findings separately.
 QuantLib 1.43 has a development admission expiring 2026-10-04 with
 unverified source-to-wheel binding; B08 artifact release remains blocked. See
 [financial units](architecture/financial-units.md) for the boundary.

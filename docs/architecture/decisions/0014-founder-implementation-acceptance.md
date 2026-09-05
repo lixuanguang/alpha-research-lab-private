@@ -51,9 +51,10 @@ step, and this decision does not claim that it has happened.
 
 ## Migration and rollout
 
-Migrate the ownership and program readers before records, retain version-1 program
-reading, and expose separate status fields in the existing CLI. Step 2 migrates
-the PR evidence interface; step 3 revises dependencies and reconciles C02/C03.
+The ownership and program readers were migrated before records, retain version-1
+and version-2 program reading, and expose separate status fields in the existing
+CLI. Step 2 migrated the PR evidence interface; step 3 revised dependency purposes
+and reconciled C02/C03.
 
 ## Reversal plan
 

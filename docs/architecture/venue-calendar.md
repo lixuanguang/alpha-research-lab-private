@@ -6,7 +6,8 @@
 | --- | --- |
 | Roadmap package | C02 |
 | Operating track | Solo bootstrap |
-| Package status | Partial |
+| Implementation status | Complete |
+| Institutional status | Partial |
 | Accountable owner role | Domain Architecture |
 | Dependencies | C01, provisionally satisfied with open findings |
 | Change risk | R2 shared-domain and shared-library contract |
@@ -206,7 +207,8 @@ operator control.
 | C02-F02 | Platform/CI | Protected merged-result Linux execution, retained exact-commit fixture replay, and Darwin/Linux native-wheel comparison are unavailable locally | Protected CI installs the exact admitted graph, runs affected/full tests and the retained fixture on the reviewed merged result, and retains pass and blocking-mutation evidence |
 | C02-F03 | Data Platform | Approved MIC registry reconciliation, authoritative venue calendars, settlement calendars, halt/limit feeds, and independent target-environment comparison are unavailable in this repository | Accountable data/venue owners reconcile representative target venues across DST, holidays, half-days, breaks, exceptional closures, auctions, halts, limits, and settlement dates and retain non-sensitive evidence |
 
-These findings are not approvals or waivers. C02 remains `partial` until all close.
+These findings are not approvals or waivers. C02 implementation is complete;
+institutional status remains `partial` until all close.
 The admitted dependency graph also retains B07-F03's Security-owned qualified
 license-obligation and independent vulnerability/Scorecard review; local license
 dispositions and scanner results do not close that inherited finding.
@@ -224,8 +226,9 @@ deployment, activation, executable order permission, venue/account/instrument
 expansion, capital, or expanded risk authority. The next documented selector is
 typed units, currencies, prices, quantities, and conventions (`C03`).
 
-C02 does not own A08 readiness reporting. Its program-state registry and derived
-dashboard remain unchanged; this delivery records status and successor only in
-the roadmap, this contract, and C02 evidence. It adds no root command, CI lane, or
-resource-inventory entry. Existing build and source-ownership registrations cover
-only the new C02 library, tests, and evidence inputs.
+C02 does not own A08 readiness reporting. Governance migration step 3 reconciles
+this demonstrated implementation in the program registry; the A08 validator still
+derives the queue. C03 is also reconciled, so the current technical successor is
+C04. C02 adds no separate root command, CI lane, or resource-inventory entry.
+Existing build and source-ownership registrations cover only the C02 library,
+tests, and evidence inputs.

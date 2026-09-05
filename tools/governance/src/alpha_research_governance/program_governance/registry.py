@@ -371,7 +371,63 @@ def _parse_dependency_list(expression: str) -> tuple[str, ...]:
 
 def _parse_dependency_expression(
     expression: str,
-) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+) -> tuple[
+    tuple[str, ...],
+    tuple[tuple[str, ...], ...],
+    tuple[str, ...],
+    tuple[tuple[str, ...], ...],
+    tuple[str, ...],
+    tuple[tuple[str, ...], ...],
+]:
+    purpose_match = re.match(
+        r"^(?:implementation|operation/release|team handover)(?: any of)?: ", expression
+    )
+    if purpose_match is not None:
+        requirements: dict[str, tuple[str, ...]] = {}
+        any_of_requirements: dict[str, tuple[tuple[str, ...], ...]] = {}
+        for clause in expression.split(";"):
+            clause_match = re.fullmatch(
+                r"(implementation|operation/release|team handover)( any of)?: (.+)",
+                clause.strip(),
+            )
+            if clause_match is None:
+                raise ProgramGovernanceError(
+                    [f"roadmap dependency purpose is malformed: {clause.strip()}"]
+                )
+            raw_purpose, raw_any_of, raw_dependencies = clause_match.groups()
+            purpose = raw_purpose.replace("/", "_").replace(" ", "_")
+            dependencies = _parse_dependency_list(raw_dependencies.strip())
+            if raw_any_of is None:
+                if purpose in requirements:
+                    raise ProgramGovernanceError(
+                        [f"roadmap repeats {raw_purpose} dependencies: {expression}"]
+                    )
+                requirements[purpose] = dependencies
+                continue
+            if purpose in any_of_requirements:
+                raise ProgramGovernanceError(
+                    [f"roadmap repeats {raw_purpose} any-of dependencies: {expression}"]
+                )
+            if len(dependencies) < 2:
+                raise ProgramGovernanceError(
+                    ["any-of dependency group must contain at least two packages"]
+                )
+            any_of_requirements[purpose] = (dependencies,)
+        for purpose, dependencies in requirements.items():
+            grouped = {item for group in any_of_requirements.get(purpose, ()) for item in group}
+            if set(dependencies) & grouped:
+                raise ProgramGovernanceError(
+                    [f"roadmap repeats a dependency across all-of and any-of: {expression}"]
+                )
+        return (
+            requirements.get("implementation", ()),
+            any_of_requirements.get("implementation", ()),
+            requirements.get("operation_release", ()),
+            any_of_requirements.get("operation_release", ()),
+            requirements.get("team_handover", ()),
+            any_of_requirements.get("team_handover", ()),
+        )
+
     parts = expression.split(";")
     if len(parts) > 2:
         raise ProgramGovernanceError([f"roadmap dependency expression is malformed: {expression}"])
@@ -388,7 +444,7 @@ def _parse_dependency_expression(
                 ["any-of dependency group must contain at least two packages"]
             )
         groups = (group,)
-    return dependencies, groups
+    return dependencies, groups, (), (), (), ()
 
 
 def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
@@ -425,7 +481,14 @@ def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
             raise ProgramGovernanceError(
                 [f"{package_id}: roadmap row is outside its Wave {package_id[0]} section"]
             )
-        dependencies, groups = _parse_dependency_expression(expression)
+        (
+            dependencies,
+            groups,
+            operation_release_dependencies,
+            operation_release_groups,
+            team_handover_dependencies,
+            team_handover_groups,
+        ) = _parse_dependency_expression(expression)
         packages.append(
             PackageNode(
                 package_id=package_id,
@@ -433,6 +496,10 @@ def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
                 objective=objective,
                 dependencies=dependencies,
                 any_of_dependency_groups=groups,
+                operation_release_dependencies=operation_release_dependencies,
+                operation_release_any_of_dependency_groups=operation_release_groups,
+                team_handover_dependencies=team_handover_dependencies,
+                team_handover_any_of_dependency_groups=team_handover_groups,
             )
         )
     if tuple(package.package_id for package in packages) != ROADMAP_PACKAGE_IDS:
@@ -442,9 +509,7 @@ def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
     package_ids = frozenset(ROADMAP_PACKAGE_IDS)
     findings: list[str] = []
     for package in packages:
-        referenced = package.dependencies + tuple(
-            item for group in package.any_of_dependency_groups for item in group
-        )
+        referenced = package.all_dependency_ids()
         unknown = sorted(set(referenced) - package_ids)
         if unknown:
             findings.append(f"{package.package_id}: unknown dependencies {unknown!r}")
@@ -465,11 +530,7 @@ def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
 
 
 def _find_dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
-    graph = {
-        package.package_id: package.dependencies
-        + tuple(item for group in package.any_of_dependency_groups for item in group)
-        for package in packages
-    }
+    graph = {package.package_id: package.all_dependency_ids() for package in packages}
     states: dict[str, int] = {}
     cycles: list[str] = []
 
@@ -520,7 +581,7 @@ def _parse_package_states(
         finding_ids = _require_strings(
             entry.get("open_finding_ids"),
             context=f"{context}.open_finding_ids",
-            allow_empty=schema_version == 2,
+            allow_empty=schema_version >= 2,
         )
         if package_id not in ROADMAP_PACKAGE_IDS:
             raise ProgramGovernanceError([f"{context}.package_id is unsupported"])
@@ -556,7 +617,7 @@ def _parse_package_states(
         domain_id = None
         technical_findings: tuple[str, ...] = ()
         rules = None
-        if schema_version == 2:
+        if schema_version >= 2:
             domain_id = _require_string(entry, "domain_id", context=context)
             implementation_status = cast(
                 ImplementationStatus,
@@ -570,7 +631,7 @@ def _parse_package_states(
             if repository_local_status not in {"not_started", "passed", "failed"}:
                 raise ProgramGovernanceError([f"{context}: invalid repository_local_status"])
             if operating_model is None:
-                raise ProgramGovernanceError(["version-2 states require the operating model"])
+                raise ProgramGovernanceError(["versioned states require the operating model"])
             rules = operating_model.resolve(
                 domain_id=domain_id, operation="implementation", on_date=evaluation_date
             )
@@ -600,9 +661,22 @@ def _parse_package_states(
             )
         )
     state_ids = tuple(state.package_id for state in states)
-    if state_ids != ROADMAP_PACKAGE_IDS[: len(state_ids)] or "A08" not in state_ids:
+    if schema_version < 3 and (
+        state_ids != ROADMAP_PACKAGE_IDS[: len(state_ids)] or "A08" not in state_ids
+    ):
         raise ProgramGovernanceError(
             ["package_states must be a contiguous implemented prefix including A01-A08"]
+        )
+    expected_state_order = tuple(
+        package_id for package_id in ROADMAP_PACKAGE_IDS if package_id in set(state_ids)
+    )
+    if schema_version >= 3 and (
+        state_ids != expected_state_order
+        or len(state_ids) != len(set(state_ids))
+        or "A08" not in state_ids
+    ):
+        raise ProgramGovernanceError(
+            ["package_states must be unique, in roadmap order, and include A08"]
         )
     return tuple(states)
 
@@ -772,8 +846,8 @@ def _load_program(
         "observation_schema_version": 1,
     }
     schema_version = program_document.get("schema_version")
-    if type(schema_version) is not int or schema_version not in {1, 2}:
-        raise ProgramGovernanceError([f"{path}: schema_version must be 1 or 2"])
+    if type(schema_version) is not int or schema_version not in {1, 2, 3}:
+        raise ProgramGovernanceError([f"{path}: schema_version must be 1, 2, or 3"])
     for key, expected in expected_scalars.items():
         if program_document.get(key) != expected:
             raise ProgramGovernanceError([f"{path}: {key} must be {expected!r}"])
@@ -795,7 +869,7 @@ def _load_program(
         else ownership_register_path
     )
     ownership_roles = _ownership_roles(ownership_path)
-    operating_model = load_operating_model(ownership_path) if schema_version == 2 else None
+    operating_model = load_operating_model(ownership_path) if schema_version >= 2 else None
     package_states = _parse_package_states(
         program_document.get("package_states"),
         repository_root=resolved_repository_root,
@@ -859,7 +933,7 @@ def _load_program(
         metrics=metrics,
         finding_ids=finding_ids,
     )
-    if schema_version == 2:
+    if schema_version >= 2:
         for package in packages:
             state = program.state_for(package.package_id)
             if state is not None and state.implementation_status == "complete":
