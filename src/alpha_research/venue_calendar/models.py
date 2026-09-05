@@ -36,6 +36,7 @@ class CalendarCoverageError(VenueCalendarError):
 
 
 def _validation_error_message(error: ValidationError) -> str:
+    """Join validation messages in field order, retaining translated domain causes."""
     messages: list[str] = []
     for detail in error.errors(include_input=False, include_url=False):
         context = detail.get("ctx")
@@ -50,7 +51,14 @@ def _validation_error_message(error: ValidationError) -> str:
 
 
 class _VenueCalendarModel(BaseModel):
-    """Preserve strict immutable value semantics at the C02 boundary."""
+    """Preserve strict immutable value semantics at the C02 boundary.
+
+    Normal construction validates defaults and nested instances, rejects extra
+    fields, and translates Pydantic failures to VenueCalendarValidationError.
+    Freezing prevents field assignment. Inherited ``model_construct`` and
+    ``model_copy(update=...)`` are trusted-data operations without field validation;
+    construct a new model when replacement data must be checked.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -62,6 +70,14 @@ class _VenueCalendarModel(BaseModel):
     )
 
     def __init__(self, **data: object) -> None:
+        """Validate supplied fields and translate framework validation failures.
+
+        Args:
+            data: Fields of the concrete calendar model; unknown fields are rejected.
+
+        Raises:
+            VenueCalendarValidationError: A field or model invariant fails validation.
+        """
         try:
             super().__init__(**data)
         except ValidationError as error:
@@ -73,6 +89,7 @@ _MIC_PATTERN = re.compile(r"^[A-Z0-9]{4}$")
 
 
 def _require_bounded_text(candidate: object, *, field_name: str, maximum_length: int) -> str:
+    """Reject empty, padded, overlong text and Unicode control, format or surrogate characters."""
     if not isinstance(candidate, str) or not candidate or candidate != candidate.strip():
         raise VenueCalendarValidationError(
             f"{field_name} must be non-empty without surrounding whitespace"
@@ -87,6 +104,7 @@ def _require_bounded_text(candidate: object, *, field_name: str, maximum_length:
 
 
 def _require_stable_token(candidate: object, *, field_name: str) -> str:
+    """Require a 128-character ASCII token starting with a letter or digit and using ._:/+-."""
     identifier_text = _require_bounded_text(candidate, field_name=field_name, maximum_length=128)
     if _STABLE_TOKEN_PATTERN.fullmatch(identifier_text) is None:
         raise VenueCalendarValidationError(f"{field_name} must be a stable token")
@@ -94,7 +112,19 @@ def _require_stable_token(candidate: object, *, field_name: str) -> str:
 
 
 def require_utc_datetime(candidate: object, *, field_name: str) -> datetime:
-    """Require an aware UTC instant without consulting host-local timezone state."""
+    """Require an aware UTC instant without consulting host-local timezone state.
+
+    Args:
+        candidate: Value to check; its UTC offset must be zero at that instant.
+        field_name: Field label included in validation failures.
+
+    Returns:
+        The original datetime without timezone conversion or replacement.
+
+    Raises:
+        VenueCalendarValidationError: The value is not an aware datetime with a zero UTC
+            offset.
+    """
     if not isinstance(candidate, datetime) or candidate.tzinfo is None:
         raise VenueCalendarValidationError(f"{field_name} must be timezone-aware UTC")
     if candidate.utcoffset() != timedelta(0):
@@ -103,12 +133,14 @@ def require_utc_datetime(candidate: object, *, field_name: str) -> datetime:
 
 
 def _require_date(candidate: object, *, field_name: str) -> date:
+    """Require a date value, explicitly rejecting datetime subclasses."""
     if not isinstance(candidate, date) or isinstance(candidate, datetime):
         raise VenueCalendarValidationError(f"{field_name} must be a date")
     return candidate
 
 
 def _require_timezone_name(candidate: object, *, field_name: str) -> str:
+    """Validate a bounded timezone name against the available IANA timezone database."""
     timezone_name = _require_bounded_text(candidate, field_name=field_name, maximum_length=128)
     try:
         ZoneInfo(timezone_name)
@@ -120,23 +152,47 @@ def _require_timezone_name(candidate: object, *, field_name: str) -> str:
 
 
 def _require_non_nil_uuid(candidate: object, *, field_name: str) -> UUID:
+    """Require a UUID instance other than the all-zero identifier."""
     if not isinstance(candidate, UUID) or candidate.int == 0:
         raise VenueCalendarValidationError(f"{field_name} must be a non-nil UUID")
     return candidate
 
 
 class VenueId(_VenueCalendarModel):
-    """Hold one opaque repository-issued stable venue identifier."""
+    """Hold one opaque repository-issued stable venue identifier.
+
+    Attributes:
+        uuid_value: Typed non-nil UUID; construction does not issue IDs or check registry
+            membership.
+    """
 
     uuid_value: UUID
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate the opaque identity after strict field validation."""
+        """Validate the opaque identity after strict field validation.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: The stored UUID is invalid or all-zero.
+        """
         _require_non_nil_uuid(self.uuid_value, field_name="venue_id")
 
     @classmethod
     def from_canonical_text(cls, value: str) -> VenueId:
-        """Parse the canonical lower-case UUID representation."""
+        """Parse the canonical lower-case UUID representation.
+
+        Args:
+            value: Exact lowercase hyphenated text for a non-nil venue UUID.
+
+        Returns:
+            A validated venue identifier.
+
+        Raises:
+            VenueCalendarValidationError: The text is malformed, noncanonical or represents the
+                all-zero UUID.
+        """
         if not isinstance(value, str):
             raise VenueCalendarValidationError("venue_id must be a UUID string")
         try:
@@ -148,27 +204,61 @@ class VenueId(_VenueCalendarModel):
         return cls(uuid_value=parsed)
 
     def __str__(self) -> str:
+        """Render the venue ID as lowercase hyphenated UUID text.
+
+        Returns:
+            The canonical string representation of uuid_value.
+        """
         return str(self.uuid_value)
 
 
 class MarketIdentifierCode(_VenueCalendarModel):
-    """Represent one exact ISO 10383 MIC-shaped identifier."""
+    """Represent one exact ISO 10383 MIC-shaped identifier.
+
+    Validation checks four uppercase ASCII letters or digits; it does not verify
+    assignment in an external MIC registry.
+
+    Attributes:
+        value: Exact four-character MIC-shaped token, preserved without normalization.
+    """
 
     value: str
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate the exact MIC shape without normalization."""
+        """Validate the exact MIC shape without normalization.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: The value is not exactly four uppercase ASCII letters
+                or digits.
+        """
         if not isinstance(self.value, str) or _MIC_PATTERN.fullmatch(self.value) is None:
             raise VenueCalendarValidationError(
                 "market_identifier_code must contain four uppercase ASCII letters or digits"
             )
 
     def __str__(self) -> str:
+        """Render the exact MIC-shaped token without normalization.
+
+        Returns:
+            The stored four-character value.
+        """
         return self.value
 
 
 class Venue(_VenueCalendarModel):
-    """Bind one stable venue identity to exact MIC and timezone metadata."""
+    """Bind one stable venue identity to exact MIC and timezone metadata.
+
+    Attributes:
+        venue_id: Owned stable venue identifier.
+        mic: Owned MIC-shaped identifier for this venue.
+        operating_mic: Owned MIC-shaped identifier for its operator; no registry linkage is
+            checked.
+        name: Unpadded nonempty display name, up to 128 characters.
+        timezone_name: Available IANA timezone name used for explicit local-time conversion.
+    """
 
     venue_id: VenueId
     mic: MarketIdentifierCode
@@ -179,7 +269,19 @@ class Venue(_VenueCalendarModel):
     @field_validator("venue_id", "mic", "operating_mic", mode="before")
     @classmethod
     def typed_identity_fields(cls, value: object, info: ValidationInfo[object]) -> object:
-        """Require owned identity values rather than coercing nested mappings."""
+        """Require owned identity values rather than coercing nested mappings.
+
+        Args:
+            value: Candidate VenueId or MarketIdentifierCode.
+            info: Pydantic metadata selecting venue_id, mic or operating_mic.
+
+        Returns:
+            The supplied owned value for subsequent field validation.
+
+        Raises:
+            VenueCalendarValidationError: The value does not have the owned type required by the
+                selected field.
+        """
         expected_type = VenueId if info.field_name == "venue_id" else MarketIdentifierCode
         if not isinstance(value, expected_type):
             raise VenueCalendarValidationError(
@@ -188,7 +290,15 @@ class Venue(_VenueCalendarModel):
         return value
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate owned venue metadata after strict field validation."""
+        """Validate owned venue metadata after strict field validation.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: An identity type, bounded name or available IANA
+                timezone is invalid.
+        """
         if not isinstance(self.venue_id, VenueId):
             raise VenueCalendarValidationError("venue_id must be a VenueId")
         if not isinstance(self.mic, MarketIdentifierCode):
@@ -199,7 +309,18 @@ class Venue(_VenueCalendarModel):
         _require_timezone_name(self.timezone_name, field_name="venue timezone_name")
 
     def local_time(self, instant: datetime) -> datetime:
-        """Convert an explicit UTC instant to the venue's IANA timezone."""
+        """Convert an explicit UTC instant to the venue's IANA timezone.
+
+        Args:
+            instant: Aware datetime with a zero UTC offset.
+
+        Returns:
+            A new aware datetime in the venue timezone, preserving the instant and DST fold.
+
+        Raises:
+            VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
+                offset.
+        """
         return require_utc_datetime(instant, field_name="instant").astimezone(
             ZoneInfo(self.timezone_name)
         )
@@ -213,7 +334,18 @@ class CalendarAuthority(StrEnum):
 
 
 class CalendarSourceVersion(_VenueCalendarModel):
-    """Identify a deterministic base source and optional override revision."""
+    """Identify a deterministic base source and optional override revision.
+
+    Attributes:
+        calendar_version: Stable token identifying the complete projected calendar version.
+        base_source: Stable base-provider token.
+        base_source_revision: Exact base revision token.
+        adapter_name: Stable adapter identity token.
+        adapter_version: Exact adapter version token.
+        authority: Typed reference-only or synthetic-fixture authority declaration.
+        override_source: Optional override-provider token; requires override_revision.
+        override_revision: Optional exact override revision; requires override_source.
+    """
 
     calendar_version: str
     base_source: str
@@ -225,7 +357,15 @@ class CalendarSourceVersion(_VenueCalendarModel):
     override_revision: str | None = None
 
     def model_post_init(self, _context: object, /) -> None:
-        """Require exact source identity and paired override attribution."""
+        """Require exact source identity and paired override attribution.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: A source token or authority is invalid, or override
+                source and revision are unpaired.
+        """
         _require_stable_token(self.calendar_version, field_name="calendar_version")
         _require_stable_token(self.base_source, field_name="base_source")
         _require_stable_token(self.base_source_revision, field_name="base_source_revision")
@@ -260,14 +400,31 @@ class AuctionKind(StrEnum):
 
 
 class AuctionWindow(_VenueCalendarModel):
-    """Describe one half-open auction interval within a trading session."""
+    """Describe one half-open auction interval within a trading session.
+
+    The window validates its own UTC bounds; TradingSession checks containment
+    and ordering against other auctions. Auction and break windows may overlap.
+
+    Attributes:
+        kind: Typed auction classification.
+        starts_at: Inclusive aware UTC start.
+        ends_at: Exclusive aware UTC end strictly later than the start.
+    """
 
     kind: AuctionKind
     starts_at: datetime
     ends_at: datetime
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate the non-empty UTC auction interval."""
+        """Validate the non-empty UTC auction interval.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: The auction kind is invalid or bounds are not aware
+                UTC instants in increasing order.
+        """
         if not isinstance(self.kind, AuctionKind):
             raise VenueCalendarValidationError("auction kind must be an AuctionKind")
         start = require_utc_datetime(self.starts_at, field_name="auction starts_at")
@@ -276,13 +433,40 @@ class AuctionWindow(_VenueCalendarModel):
             raise VenueCalendarValidationError("auction ends_at must be after starts_at")
 
     def contains(self, instant: datetime) -> bool:
-        """Return whether an explicit UTC instant lies in the half-open window."""
+        """Return whether an explicit UTC instant lies in this half-open auction window.
+
+        Args:
+            instant: Aware datetime with a zero UTC offset.
+
+        Returns:
+            True from the inclusive start until the exclusive end defined by starts_at and
+            ends_at.
+
+        Raises:
+            VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
+                offset.
+        """
         checked = require_utc_datetime(instant, field_name="instant")
         return self.starts_at <= checked < self.ends_at
 
 
 class TradingSession(_VenueCalendarModel):
-    """Describe one venue session with optional break and auction windows."""
+    """Describe one venue session with optional break and auction windows.
+
+    The label is an explicit date, not derived from UTC bounds. Sessions may
+    cross midnight. Breaks are strictly inside the session; auctions are ordered,
+    non-overlapping and contained in the session, but may overlap the break.
+
+    Attributes:
+        session_label: Unique session date within the owning snapshot.
+        opens_at: Inclusive aware UTC opening instant.
+        closes_at: Exclusive aware UTC closing instant, later than opening.
+        kind: Schedule classification; defaults to REGULAR.
+        break_starts_at: Optional inclusive aware UTC break start, paired with
+            break_ends_at.
+        break_ends_at: Optional exclusive aware UTC break end.
+        auctions: Immutable tuple of owned auction windows, in time order.
+    """
 
     session_label: date
     opens_at: datetime
@@ -295,7 +479,17 @@ class TradingSession(_VenueCalendarModel):
     @field_validator("auctions", mode="before")
     @classmethod
     def typed_auctions(cls, value: object) -> object:
-        """Require immutable owned auction values before nested validation."""
+        """Require immutable owned auction values before nested validation.
+
+        Args:
+            value: Tuple containing only AuctionWindow instances; an empty tuple is admitted.
+
+        Returns:
+            The original tuple for subsequent validation.
+
+        Raises:
+            VenueCalendarValidationError: The value is not a tuple of AuctionWindow instances.
+        """
         if not isinstance(value, tuple) or not all(
             isinstance(auction, AuctionWindow) for auction in value
         ):
@@ -305,7 +499,16 @@ class TradingSession(_VenueCalendarModel):
         return value
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate ordered session, break, and auction boundaries."""
+        """Validate ordered session, break, and auction boundaries.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: The label, kind or UTC bounds are invalid; a break is
+                unpaired or not strictly internal; or auctions are unordered, overlapping or
+                outside the session.
+        """
         _require_date(self.session_label, field_name="session_label")
         opens_at = require_utc_datetime(self.opens_at, field_name="session opens_at")
         closes_at = require_utc_datetime(self.closes_at, field_name="session closes_at")
@@ -343,7 +546,22 @@ class TradingSession(_VenueCalendarModel):
             prior_end = auction.ends_at
 
     def contains(self, instant: datetime) -> bool:
-        """Return whether an explicit UTC instant lies in this half-open session."""
+        """Return whether an explicit UTC instant lies in this half-open session.
+
+        Containment includes auctions, breaks and halts; it does not determine
+        continuous-trading eligibility.
+
+        Args:
+            instant: Aware datetime with a zero UTC offset.
+
+        Returns:
+            True from the inclusive start until the exclusive end defined by opens_at and
+            closes_at.
+
+        Raises:
+            VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
+                offset.
+        """
         checked = require_utc_datetime(instant, field_name="instant")
         return self.opens_at <= checked < self.closes_at
 
@@ -356,7 +574,17 @@ class ClosureKind(StrEnum):
 
 
 class CalendarClosure(_VenueCalendarModel):
-    """Name one source-attributed date on which no session exists."""
+    """Name one source-attributed date on which no session exists.
+
+    The snapshot checks date coverage and absence of a session with that label.
+
+    Attributes:
+        calendar_date: Explicit date of the closure; datetimes are rejected.
+        kind: Typed holiday or ad-hoc closure classification.
+        name: Unpadded nonempty description, up to 128 characters.
+        source: Stable attribution token, up to 128 characters.
+        source_revision: Stable source revision token, up to 128 characters.
+    """
 
     calendar_date: date
     kind: ClosureKind
@@ -365,7 +593,15 @@ class CalendarClosure(_VenueCalendarModel):
     source_revision: str
 
     def model_post_init(self, _context: object, /) -> None:
-        """Require an attributed closure date and bounded description."""
+        """Require an attributed closure date and bounded description.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: The date, closure kind, bounded name or attribution
+                token is invalid.
+        """
         _require_date(self.calendar_date, field_name="calendar closure date")
         if not isinstance(self.kind, ClosureKind):
             raise VenueCalendarValidationError("closure kind must be a ClosureKind")
@@ -381,7 +617,20 @@ class InterruptionKind(StrEnum):
 
 
 class MarketInterruption(_VenueCalendarModel):
-    """Represent one source-attributed half-open halt interval."""
+    """Represent one source-attributed half-open halt interval.
+
+    The snapshot checks that the halt lies in exactly one session and does not
+    overlap other halts. Halts can overlap auctions, breaks and price limits.
+
+    Attributes:
+        interruption_id: Stable token identifying the halt.
+        kind: Typed interruption classification, currently HALT.
+        starts_at: Inclusive aware UTC start.
+        ends_at: Exclusive aware UTC end strictly after the start.
+        reason: Unpadded nonempty explanation, up to 256 characters.
+        source: Stable attribution token.
+        source_revision: Stable source revision token.
+    """
 
     interruption_id: str
     kind: InterruptionKind
@@ -392,7 +641,15 @@ class MarketInterruption(_VenueCalendarModel):
     source_revision: str
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate the halt interval and its source attribution."""
+        """Validate the halt interval and its source attribution.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: An ID, kind, bounded reason, attribution token or
+                increasing UTC interval is invalid.
+        """
         _require_stable_token(self.interruption_id, field_name="interruption_id")
         if not isinstance(self.kind, InterruptionKind):
             raise VenueCalendarValidationError("interruption kind must be an InterruptionKind")
@@ -405,7 +662,19 @@ class MarketInterruption(_VenueCalendarModel):
         _require_stable_token(self.source_revision, field_name="interruption source_revision")
 
     def contains(self, instant: datetime) -> bool:
-        """Return whether an explicit UTC instant lies in the half-open interruption."""
+        """Return whether an explicit UTC instant lies in this half-open interruption.
+
+        Args:
+            instant: Aware datetime with a zero UTC offset.
+
+        Returns:
+            True from the inclusive start until the exclusive end defined by starts_at and
+            ends_at.
+
+        Raises:
+            VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
+                offset.
+        """
         checked = require_utc_datetime(instant, field_name="instant")
         return self.starts_at <= checked < self.ends_at
 
@@ -420,7 +689,19 @@ class PriceLimitState(StrEnum):
 
 
 class PriceLimitWindow(_VenueCalendarModel):
-    """Represent one source-attributed half-open non-normal limit interval."""
+    """Represent one source-attributed half-open non-normal limit interval.
+
+    The snapshot checks single-session containment and non-overlap with other
+    price-limit windows. A price limit can coexist with an auction, break or halt.
+
+    Attributes:
+        limit_id: Stable token identifying the limit window.
+        state: Typed non-NONE price-limit state.
+        starts_at: Inclusive aware UTC start.
+        ends_at: Exclusive aware UTC end strictly after the start.
+        source: Stable attribution token.
+        source_revision: Stable source revision token.
+    """
 
     limit_id: str
     state: PriceLimitState
@@ -430,7 +711,15 @@ class PriceLimitWindow(_VenueCalendarModel):
     source_revision: str
 
     def model_post_init(self, _context: object, /) -> None:
-        """Require a non-normal attributed price-limit interval."""
+        """Require a non-normal attributed price-limit interval.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: An ID or attribution token is invalid, state is
+                untyped or NONE, or UTC bounds are invalid.
+        """
         _require_stable_token(self.limit_id, field_name="limit_id")
         if not isinstance(self.state, PriceLimitState) or self.state is PriceLimitState.NONE:
             raise VenueCalendarValidationError(
@@ -444,7 +733,19 @@ class PriceLimitWindow(_VenueCalendarModel):
         _require_stable_token(self.source_revision, field_name="price-limit source_revision")
 
     def contains(self, instant: datetime) -> bool:
-        """Return whether an explicit UTC instant lies in the half-open limit interval."""
+        """Return whether an explicit UTC instant lies in this half-open price-limit window.
+
+        Args:
+            instant: Aware datetime with a zero UTC offset.
+
+        Returns:
+            True from the inclusive start until the exclusive end defined by starts_at and
+            ends_at.
+
+        Raises:
+            VenueCalendarValidationError: The input is not an aware datetime with a zero UTC
+                offset.
+        """
         checked = require_utc_datetime(instant, field_name="instant")
         return self.starts_at <= checked < self.ends_at
 
@@ -460,7 +761,16 @@ class MarketStatus(StrEnum):
 
 
 class MarketState(_VenueCalendarModel):
-    """Return schedule, auction, halt, and independent price-limit state together."""
+    """Return schedule, auction, halt, and independent price-limit state together.
+
+    Attributes:
+        status: Typed schedule state. CLOSED forbids session, auction, halt and limit
+            metadata.
+        price_limit_state: Independent typed limit state, always NONE when closed.
+        session_label: Required date for every non-CLOSED state, including BREAK and HALTED.
+        auction_kind: Present exactly when status is AUCTION.
+        interruption_id: Stable halt token present exactly when status is HALTED.
+    """
 
     status: MarketStatus
     price_limit_state: PriceLimitState
@@ -469,7 +779,15 @@ class MarketState(_VenueCalendarModel):
     interruption_id: str | None = None
 
     def model_post_init(self, _context: object, /) -> None:
-        """Reject incoherent schedule, auction, halt, or limit state."""
+        """Reject incoherent schedule, auction, halt, or limit state.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: Types or metadata violate the CLOSED, session-label,
+                auction-kind or halt-ID coupling rules.
+        """
         if not isinstance(self.status, MarketStatus):
             raise VenueCalendarValidationError("market state status must be a MarketStatus")
         if not isinstance(self.price_limit_state, PriceLimitState):
@@ -514,7 +832,21 @@ class SessionOverrideAction(StrEnum):
 
 
 class SessionOverride(_VenueCalendarModel):
-    """Apply one source-attributed, versioned change to a base session."""
+    """Describe one source-attributed, versioned change to a base session.
+
+    Construction validates the instruction; the adapter applies it to the base
+    calendar. A snapshot checks that the recorded result matches the instruction.
+
+    Attributes:
+        override_id: Stable override token, unique within a snapshot.
+        action: Typed ADD, REPLACE or REMOVE instruction.
+        session_label: Date of the targeted session.
+        reason: Unpadded nonempty explanation, up to 256 characters.
+        source: Stable token matching the snapshot override source.
+        source_revision: Stable token matching the snapshot override revision.
+        replacement: Same-label owned session required for ADD/REPLACE and forbidden for
+            REMOVE.
+    """
 
     override_id: str
     action: SessionOverrideAction
@@ -527,13 +859,31 @@ class SessionOverride(_VenueCalendarModel):
     @field_validator("replacement", mode="before")
     @classmethod
     def typed_replacement(cls, value: object) -> object:
-        """Require an owned replacement session when one is present."""
+        """Require an owned replacement session when one is present.
+
+        Args:
+            value: Candidate TradingSession, or None for a removal.
+
+        Returns:
+            The original session or None; action-specific presence is checked later.
+
+        Raises:
+            VenueCalendarValidationError: A supplied value is not a TradingSession.
+        """
         if value is not None and not isinstance(value, TradingSession):
             raise VenueCalendarValidationError("replacement must be a TradingSession")
         return value
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate action, replacement label, and override attribution."""
+        """Validate action, replacement label, and override attribution.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: An ID, date, reason, action or attribution is invalid;
+                or replacement presence or label disagrees with the action.
+        """
         _require_stable_token(self.override_id, field_name="override_id")
         if not isinstance(self.action, SessionOverrideAction):
             raise VenueCalendarValidationError(
@@ -560,7 +910,22 @@ class SessionOverride(_VenueCalendarModel):
 
 
 class SettlementCalendar(_VenueCalendarModel):
-    """Hold a bounded versioned set of eligible settlement dates."""
+    """Hold a bounded versioned set of eligible settlement dates.
+
+    Dates and coverage are independent of trading-session eligibility. An empty
+    settlement-date tuple is valid. Queries do not infer weekends or holidays.
+
+    Attributes:
+        calendar_id: Stable token identifying the settlement calendar.
+        calendar_version: Exact calendar version token.
+        timezone_name: Available IANA timezone for date interpretation, not automatic query
+            conversion.
+        covered_from: Inclusive first covered date.
+        covered_through: Inclusive last covered date, at or after covered_from.
+        settlement_dates: Immutable, strictly increasing, unique dates within coverage.
+        source: Stable source attribution token.
+        source_revision: Exact source revision token.
+    """
 
     calendar_id: str
     calendar_version: str
@@ -572,7 +937,15 @@ class SettlementCalendar(_VenueCalendarModel):
     source_revision: str
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate exact settlement dates and finite source coverage."""
+        """Validate exact settlement dates and finite source coverage.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: Metadata or coverage is invalid, or eligible dates are
+                not an immutable, unique, strictly increasing tuple within coverage.
+        """
         _require_stable_token(self.calendar_id, field_name="settlement calendar_id")
         _require_stable_token(self.calendar_version, field_name="settlement calendar_version")
         _require_timezone_name(self.timezone_name, field_name="settlement timezone_name")
@@ -601,7 +974,18 @@ class SettlementCalendar(_VenueCalendarModel):
         _require_stable_token(self.source_revision, field_name="settlement source_revision")
 
     def is_settlement_day(self, candidate: date) -> bool:
-        """Return whether a date is explicitly eligible for settlement."""
+        """Return whether a date is explicitly eligible for settlement.
+
+        Args:
+            candidate: Date within inclusive settlement coverage; datetimes are rejected.
+
+        Returns:
+            True only if the date is recorded as eligible; False for other covered dates.
+
+        Raises:
+            VenueCalendarValidationError: The candidate is not a date or is a datetime.
+            UnknownSettlementDateError: The candidate lies outside settlement coverage.
+        """
         checked = _require_date(candidate, field_name="candidate settlement date")
         if not self.covered_from <= checked <= self.covered_through:
             raise UnknownSettlementDateError(
@@ -610,7 +994,19 @@ class SettlementCalendar(_VenueCalendarModel):
         return checked in self.settlement_dates
 
     def settlement_day_on_or_after(self, candidate: date) -> date:
-        """Return the first recorded settlement date on or after a date."""
+        """Return the first recorded settlement date on or after a date.
+
+        Args:
+            candidate: Date within inclusive settlement coverage; datetimes are rejected.
+
+        Returns:
+            The earliest eligible date greater than or equal to the candidate.
+
+        Raises:
+            VenueCalendarValidationError: The candidate is not a date or is a datetime.
+            UnknownSettlementDateError: The candidate is outside coverage, or no eligible date
+                remains.
+        """
         checked = _require_date(candidate, field_name="candidate settlement date")
         if not self.covered_from <= checked <= self.covered_through:
             raise UnknownSettlementDateError(
@@ -625,7 +1021,32 @@ class SettlementCalendar(_VenueCalendarModel):
 
 
 class VenueCalendarSnapshot(_VenueCalendarModel):
-    """Hold one immutable, bounded projection of venue and settlement state."""
+    """Hold one immutable, bounded projection of venue and settlement state.
+
+    Coverage bounds are inclusive session-label dates. When no session contains
+    a queried instant, coverage is checked using its venue-local date. A session
+    that crosses midnight can contain instants outside those local-date bounds.
+    Construction validates supplied records; it does not fetch source data or
+    apply overrides. Optional settlement coverage is checked by that calendar
+    independently and need not equal trading coverage.
+
+    Attributes:
+        venue: Validated venue identity and timezone.
+        version: Validated source, adapter, authority and optional override attribution.
+        covered_from: Inclusive first covered session-label date.
+        covered_through: Inclusive last covered session-label date.
+        sessions: Owned sessions ordered by opening instant, with unique labels and no
+            overlap.
+        applied_overrides: Owned instructions with unique IDs and labels, matching resulting
+            sessions.
+        closures: Owned closures in strictly increasing date order, disjoint from session
+            labels.
+        interruptions: Owned halts with unique IDs, ordered and non-overlapping within one
+            session each.
+        price_limits: Owned limit windows with unique IDs, ordered and non-overlapping
+            within one session each.
+        settlement_calendar: Optional independently bounded settlement calendar.
+    """
 
     venue: Venue
     version: CalendarSourceVersion
@@ -641,7 +1062,20 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
     @field_validator("venue", "version", "settlement_calendar", mode="before")
     @classmethod
     def typed_snapshot_values(cls, value: object, info: ValidationInfo[object]) -> object:
-        """Keep raw nested mappings outside the canonical snapshot boundary."""
+        """Keep raw nested mappings outside the canonical snapshot boundary.
+
+        Args:
+            value: Owned Venue, CalendarSourceVersion or SettlementCalendar; only the latter
+                admits None.
+            info: Pydantic metadata identifying venue, version or settlement_calendar.
+
+        Returns:
+            The original owned value or admitted None for subsequent validation.
+
+        Raises:
+            VenueCalendarValidationError: The value does not have the owned type required by the
+                selected field.
+        """
         if info.field_name == "settlement_calendar" and value is None:
             return None
         expected_types = {
@@ -661,7 +1095,21 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
     )
     @classmethod
     def typed_snapshot_sequences(cls, value: object, info: ValidationInfo[object]) -> object:
-        """Require immutable sequences of owned records before nested validation."""
+        """Require immutable sequences of owned records before nested validation.
+
+        Args:
+            value: Tuple of the owned record type selected by the field; empty tuples are
+                admitted.
+            info: Pydantic metadata identifying sessions, applied_overrides, closures,
+                interruptions or price_limits.
+
+        Returns:
+            The original tuple for subsequent nested and cross-record validation.
+
+        Raises:
+            VenueCalendarValidationError: The value is not a tuple or contains an item of the
+                wrong owned type.
+        """
         expected_types = {
             "sessions": TradingSession,
             "applied_overrides": SessionOverride,
@@ -679,7 +1127,15 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
         return value
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate the complete immutable snapshot before publication."""
+        """Validate the complete immutable snapshot before publication.
+
+        Args:
+            _context: Pydantic initialization context; unused by this invariant check.
+
+        Raises:
+            VenueCalendarValidationError: Owned types, coverage, session ordering,
+                closure/override consistency, attribution or overlay containment is invalid.
+        """
         if not isinstance(self.venue, Venue):
             raise VenueCalendarValidationError("venue must be a Venue")
         if not isinstance(self.version, CalendarSourceVersion):
@@ -698,6 +1154,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
             raise VenueCalendarValidationError("settlement_calendar must be a SettlementCalendar")
 
     def _validate_sessions(self, covered_from: date, covered_through: date) -> None:
+        """Reject unordered, overlapping or duplicate-label sessions and labels outside coverage."""
         if not isinstance(self.sessions, tuple) or not all(
             isinstance(session, TradingSession) for session in self.sessions
         ):
@@ -717,6 +1174,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
                 raise VenueCalendarValidationError("trading sessions cannot overlap")
 
     def _validate_overrides(self, covered_from: date, covered_through: date) -> None:
+        """Check unique covered overrides, version attribution and their resulting session state."""
         if not isinstance(self.applied_overrides, tuple) or not all(
             isinstance(override, SessionOverride) for override in self.applied_overrides
         ):
@@ -758,6 +1216,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
                 )
 
     def _validate_closures(self, covered_from: date, covered_through: date) -> None:
+        """Check unique sorted covered closure dates without colliding session labels."""
         if not isinstance(self.closures, tuple) or not all(
             isinstance(closure, CalendarClosure) for closure in self.closures
         ):
@@ -778,6 +1237,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
             raise VenueCalendarValidationError("closure date lies outside snapshot coverage")
 
     def _validate_intervals(self) -> None:
+        """Check unique, ordered, non-overlapping halts and limits within single sessions."""
         if not isinstance(self.interruptions, tuple) or not all(
             isinstance(item, MarketInterruption) for item in self.interruptions
         ):
@@ -822,7 +1282,19 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
                 prior_end = ends_at
 
     def session_for_label(self, session_label: date) -> TradingSession:
-        """Return one exact session label or fail closed."""
+        """Return one exact session label or fail closed.
+
+        Args:
+            session_label: Exact date label to find; datetimes are rejected.
+
+        Returns:
+            The recorded session with that label, without next-session adjustment.
+
+        Raises:
+            VenueCalendarValidationError: The label is not a date or is a datetime.
+            UnknownSessionError: No session has the label, whether inside or outside snapshot
+                coverage.
+        """
         checked = _require_date(session_label, field_name="session_label")
         for session in self.sessions:
             if session.session_label == checked:
@@ -830,7 +1302,19 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
         raise UnknownSessionError(f"unknown session label {checked.isoformat()}")
 
     def closure_for_date(self, calendar_date: date) -> CalendarClosure | None:
-        """Return an attributed closure when one is recorded."""
+        """Return an attributed closure when one is recorded.
+
+        Args:
+            calendar_date: Date within inclusive snapshot coverage; datetimes are rejected.
+
+        Returns:
+            The recorded closure, or None for a covered date without one. Absence does not
+            establish that the date is a session.
+
+        Raises:
+            VenueCalendarValidationError: The candidate is not a date or is a datetime.
+            CalendarCoverageError: The date lies outside snapshot coverage.
+        """
         checked = _require_date(calendar_date, field_name="calendar_date")
         if not self.covered_from <= checked <= self.covered_through:
             raise CalendarCoverageError(
@@ -842,7 +1326,27 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
         return None
 
     def market_state_at(self, instant: datetime) -> MarketState:
-        """Resolve deterministic venue state at an explicit UTC instant."""
+        """Resolve deterministic venue state at an explicit UTC instant.
+
+        Containing sessions take precedence over the local-date coverage fallback,
+        including sessions crossing midnight. Session close and each overlay end are
+        exclusive; auction state takes precedence when an auction overlaps a break.
+
+        Args:
+            instant: Aware datetime with zero UTC offset, tested against half-open session and
+                overlay intervals.
+
+        Returns:
+            HALTED, AUCTION, BREAK or CONTINUOUS in that precedence order within a session, with
+            an independent price-limit state; CLOSED with no limit outside sessions on covered
+            venue-local dates.
+
+        Raises:
+            VenueCalendarValidationError: The instant is not an aware datetime with a zero UTC
+                offset.
+            CalendarCoverageError: No session contains the instant and its venue-local date is
+                outside coverage.
+        """
         checked = require_utc_datetime(instant, field_name="instant")
         session_index = bisect_right(self.sessions, checked, key=lambda item: item.opens_at) - 1
         session = self.sessions[session_index] if session_index >= 0 else None
