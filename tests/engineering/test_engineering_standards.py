@@ -61,6 +61,17 @@ REPRESENTATIVE_POLICY_MUTATIONS = (
 
 
 def _policy_fixture(tmp_path: Path) -> Path:
+    """Copy and overwrite the repository policy in a temporary TOML fixture.
+
+    Args:
+        tmp_path: Pytest temporary directory for the current test case.
+
+    Returns:
+        Temporary policy path containing the repository's exact policy text.
+
+    Raises:
+        OSError: If reading the source policy or writing the fixture fails.
+    """
     path = tmp_path / "engineering-standards.toml"
     path.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     return path
@@ -68,6 +79,7 @@ def _policy_fixture(tmp_path: Path) -> Path:
 
 @pytest.mark.skipif(UNDER_BAZEL, reason="repository evidence rejects Bazel runfile symlinks")
 def test_repository_standards_bind_exact_tools_languages_and_baselines() -> None:
+    """Validate exact tool, language, baseline, and open-finding policy bindings."""
     standards = validate_repository(REPOSITORY_ROOT, validation_date=VALIDATION_DATE)
 
     assert standards.package_status == "partial"
@@ -93,6 +105,7 @@ def test_repository_standards_bind_exact_tools_languages_and_baselines() -> None
 
 @pytest.mark.parametrize(("old", "new"), REPRESENTATIVE_POLICY_MUTATIONS)
 def test_representative_policy_mutations_are_rejected(tmp_path: Path, old: str, new: str) -> None:
+    """Reject representative mutations that alter or weaken governed policy values."""
     path = _policy_fixture(tmp_path)
     content = path.read_text(encoding="utf-8")
     assert old in content
@@ -103,6 +116,7 @@ def test_representative_policy_mutations_are_rejected(tmp_path: Path, old: str, 
 
 
 def test_unknown_field_and_malformed_toml_fail_closed(tmp_path: Path) -> None:
+    """Reject unknown policy fields and malformed TOML with controlled errors."""
     unknown = _policy_fixture(tmp_path)
     unknown.write_text(unknown.read_text(encoding="utf-8") + "\nunknown = true\n", encoding="utf-8")
     with pytest.raises(EngineeringStandardsError, match="missing or unknown fields"):
@@ -115,6 +129,7 @@ def test_unknown_field_and_malformed_toml_fail_closed(tmp_path: Path) -> None:
 
 
 def test_dependency_record_version_and_native_artifact_drift_fail_closed(tmp_path: Path) -> None:
+    """Reject dependency-version drift and removed native-artifact evidence."""
     architecture = tmp_path / "docs/architecture"
     architecture.mkdir(parents=True)
     dependency_record = architecture / "engineering-tool-dependencies.toml"
@@ -150,6 +165,7 @@ def test_dependency_record_version_and_native_artifact_drift_fail_closed(tmp_pat
 def test_suppression_metadata_accepts_governed_bounded_values(
     owner: str, rationale: str, days: int
 ) -> None:
+    """Accept governed suppression metadata with valid ownership and bounded expiry."""
     expiry = date.fromordinal(VALIDATION_DATE.toordinal() + days)
     line = (
         "value = call()  # nosec B603 "
@@ -171,6 +187,7 @@ def test_suppression_metadata_accepts_governed_bounded_values(
 @settings(max_examples=50, derandomize=True, deadline=None)
 @given(field=strategies.sampled_from(("owner", "rationale", "expires")))
 def test_suppression_metadata_rejects_a_missing_required_field(field: str) -> None:
+    """Reject suppression metadata missing any required owner, rationale, or expiry field."""
     metadata = {
         "owner": "owner=platform",
         "rationale": "rationale=preserve public behavior",
@@ -189,6 +206,7 @@ def test_suppression_metadata_rejects_a_missing_required_field(field: str) -> No
 
 
 def test_expired_unknown_owner_and_excessive_lifetime_are_rejected() -> None:
+    """Report expired, ungoverned-owner, and overlong suppression metadata."""
     cases = (
         (
             "[owner=platform; rationale=preserve behavior; expires=2026-09-01]",
@@ -215,6 +233,7 @@ def test_expired_unknown_owner_and_excessive_lifetime_are_rejected() -> None:
 
 
 def test_source_scan_rejects_generated_and_unadmitted_native_source(tmp_path: Path) -> None:
+    """Report generated source, unadmitted native source, and malformed Python input."""
     standards = load_standards(POLICY_PATH)
     for source_root in standards.source_roots:
         (tmp_path / source_root).mkdir(parents=True)
@@ -240,6 +259,7 @@ def test_source_scan_rejects_generated_and_unadmitted_native_source(tmp_path: Pa
 
 @pytest.mark.performance
 def test_suppression_validation_workload_stays_within_budget() -> None:
+    """Keep repeated suppression validation within the configured performance budget."""
     standards = load_standards(POLICY_PATH)
     started_at = perf_counter()
     for _ in range(standards.validation_workload_iterations):
@@ -261,6 +281,7 @@ def test_suppression_validation_workload_stays_within_budget() -> None:
 def test_cli_reports_success_usage_error_and_missing_repository(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Return success, usage-error, and missing-repository statuses with matching output."""
     if not UNDER_BAZEL:
         assert main([str(REPOSITORY_ROOT)]) == 0
         assert "package status is partial" in capsys.readouterr().out

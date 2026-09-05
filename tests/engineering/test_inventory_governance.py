@@ -26,22 +26,57 @@ CATALOG_PATH = REPOSITORY_ROOT / "docs" / "governance" / "resource-inventory.tom
 
 
 def _catalog_fixture(tmp_path: Path) -> Path:
+    """Copy the repository catalog into a temporary fixture, overwriting any existing copy.
+
+    Args:
+        tmp_path: Pytest-managed directory that receives the copied catalog.
+
+    Returns:
+        Path to the writable TOML fixture; the repository catalog remains unchanged.
+
+    Raises:
+        OSError: If the source catalog cannot be read or the fixture cannot be written.
+    """
     path = tmp_path / "resource-inventory.toml"
     path.write_text(CATALOG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     return path
 
 
 def _replace_inventory_fixture_text(path: Path, old: str, new: str) -> None:
+    """Replace the first matching text fragment in a temporary inventory fixture.
+
+    Args:
+        path: Temporary TOML fixture to read and rewrite.
+        old: Exact fragment that must occur in the fixture.
+        new: Replacement fragment written in place of the first match.
+
+    Raises:
+        AssertionError: If ``old`` does not occur in the fixture.
+        OSError: If the fixture cannot be read or written.
+    """
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
 def _validate_inventory_fixture(path: Path) -> None:
+    """Load a temporary inventory and validate its references against the real repository.
+
+    This helper exercises ``load_inventory`` only; it does not run the separate local
+    evidence-bundle checks performed by ``validate_repository``.
+
+    Args:
+        path: Temporary inventory TOML file to validate.
+
+    Raises:
+        InventoryGovernanceError: If the fixture violates inventory governance rules.
+        OSError: If the inventory or ownership register cannot be read.
+    """
     load_inventory(path, repository_root=REPOSITORY_ROOT)
 
 
 def test_repository_inventory_is_versioned_partial_and_complete_for_current_scope() -> None:
+    """Verify the authoritative inventory's version, partial status, limits, items and lineage."""
     inventory = validate_repository(REPOSITORY_ROOT)
 
     assert inventory.catalog_version == 8
@@ -146,6 +181,7 @@ def test_repository_inventory_is_versioned_partial_and_complete_for_current_scop
 
 @pytest.mark.performance
 def test_inventory_query_workload_stays_within_governed_budget() -> None:
+    """Keep repeated inventory queries with varied filters within the recorded time budget."""
     inventory = validate_repository(REPOSITORY_ROOT)
 
     started_at = perf_counter()
@@ -167,6 +203,7 @@ def test_inventory_query_workload_stays_within_governed_budget() -> None:
 
 
 def test_inventory_dates_require_extended_calendar_format(tmp_path: Path) -> None:
+    """Reject a catalog date that is not an ISO extended calendar date."""
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path,
@@ -179,6 +216,7 @@ def test_inventory_dates_require_extended_calendar_format(tmp_path: Path) -> Non
 
 
 def test_stale_owner_generates_a_finding(tmp_path: Path) -> None:
+    """Report a finding when an inventory item names an unregistered owner role."""
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path,
@@ -191,6 +229,7 @@ def test_stale_owner_generates_a_finding(tmp_path: Path) -> None:
 
 
 def test_missing_dependency_lineage_generates_a_finding(tmp_path: Path) -> None:
+    """Report missing lineage when an item's dependency is omitted from its lineage references."""
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path,
@@ -204,6 +243,7 @@ def test_missing_dependency_lineage_generates_a_finding(tmp_path: Path) -> None:
 
 
 def test_unresolved_dependency_and_cycle_fail_closed(tmp_path: Path) -> None:
+    """Reject both an unknown dependency and a dependency cycle in separate fixtures."""
     unresolved = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         unresolved,
@@ -224,6 +264,7 @@ def test_unresolved_dependency_and_cycle_fail_closed(tmp_path: Path) -> None:
 
 
 def test_population_state_must_match_registered_items(tmp_path: Path) -> None:
+    """Reject a kind population declaration that disagrees with its registered item count."""
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path,
@@ -236,6 +277,7 @@ def test_population_state_must_match_registered_items(tmp_path: Path) -> None:
 
 
 def test_deployed_resource_requires_deployment_evidence(tmp_path: Path) -> None:
+    """Reject a deployed resource whose record lacks deployment evidence."""
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path, 'deployment_status = "not_deployable"', 'deployment_status = "deployed"'
@@ -246,6 +288,7 @@ def test_deployed_resource_requires_deployment_evidence(tmp_path: Path) -> None:
 
 
 def test_deployed_resource_accepts_explicit_deployment_evidence(tmp_path: Path) -> None:
+    """Accept a synthetic deployed service with a declared valid HTTPS evidence reference."""
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path,
@@ -286,6 +329,7 @@ review_due_on = "2026-11-30"
 
 
 def test_overdue_review_and_unsafe_source_path_generate_findings(tmp_path: Path) -> None:
+    """Report stale review and repository-escaping source-path findings independently."""
     stale = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         stale, 'review_due_on = "2026-11-30"', 'review_due_on = "2026-08-29"'
@@ -313,6 +357,7 @@ def test_overdue_review_and_unsafe_source_path_generate_findings(tmp_path: Path)
 def test_external_evidence_url_cannot_embed_credentials_or_be_malformed(
     tmp_path: Path, unsafe_url: str, message: str
 ) -> None:
+    """Reject evidence references containing credentials or malformed external URLs."""
     path = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         path,
@@ -325,6 +370,7 @@ def test_external_evidence_url_cannot_embed_credentials_or_be_malformed(
 
 
 def test_dependency_cycle_check_handles_catalog_limit_depth() -> None:
+    """Handle a 1,500-item dependency chain without falsely reporting a cycle."""
     template = validate_repository(REPOSITORY_ROOT).items[0]
     item_count = 1_500
     items = tuple(
@@ -349,6 +395,7 @@ def test_dependency_cycle_check_handles_catalog_limit_depth() -> None:
 def test_partial_catalog_requires_exact_findings_and_solo_cannot_validate(
     tmp_path: Path,
 ) -> None:
+    """Enforce exact partial findings and prohibit validated claims under solo bootstrap rules."""
     wrong_finding = _catalog_fixture(tmp_path)
     _replace_inventory_fixture_text(
         wrong_finding, 'finding_id = "A06-F02"', 'finding_id = "A06-OTHER"'
@@ -374,6 +421,7 @@ def test_partial_catalog_requires_exact_findings_and_solo_cannot_validate(
 def test_cli_emits_stable_json_for_populated_and_empty_queries(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Verify deterministic filtered JSON for populated controls and an empty dataset query."""
     assert main([str(REPOSITORY_ROOT), "--kind", "control"]) == 0
     first_output = capsys.readouterr().out
     assert main([str(REPOSITORY_ROOT), "--kind", "control"]) == 0

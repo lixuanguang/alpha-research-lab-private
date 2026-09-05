@@ -24,6 +24,18 @@ GOVERNANCE_COMMANDS = (
 
 
 def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
+    """Run Make from the repository root while capturing output and status.
+
+    Args:
+        *arguments: Make options, targets and variable assignments passed without a shell.
+
+    Returns:
+        Completed process with captured text stdout and stderr; nonzero exit status
+        does not raise because callers assert it explicitly.
+
+    Raises:
+        OSError: If the Make process cannot be started.
+    """
     return subprocess.run(
         ["make", "--no-print-directory", *arguments],
         cwd=REPOSITORY_ROOT,
@@ -34,6 +46,7 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
+    """Verify the uv dry-run check sequence remains available without Bazel commands."""
     rollback_dry_run = _run_make("-n", "BUILD_BACKEND=uv", "check")
 
     assert rollback_dry_run.returncode == 0, rollback_dry_run.stderr
@@ -69,6 +82,7 @@ def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
 
 
 def test_repository_automation_wires_current_toolchain_and_governance_checks() -> None:
+    """Verify Make, pre-commit and CI reference the current toolchain and governance commands."""
     makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
     pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     continuous_integration = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(
@@ -139,6 +153,7 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
 
 
 def test_affected_and_authoritative_full_ci_root_interfaces_are_explicit() -> None:
+    """Verify dry-run fast and full CI commands include their required revision boundaries."""
     fast = _run_make("-n", "ci-fast", "CI_BASE_REF=HEAD", "CI_HEAD_REF=HEAD")
     full = _run_make("-n", "ci-full", "CI_BASE_REF=HEAD")
 

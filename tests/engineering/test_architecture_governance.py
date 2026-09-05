@@ -31,6 +31,20 @@ def _adr_text(
     approval_evidence: str = "Pending; test fixture",
     include_reversal: bool = True,
 ) -> str:
+    """Build synthetic ADR text with configurable, unvalidated metadata.
+
+    Args:
+        identifier: Numeric ADR identifier rendered with four digits.
+        status: Lifecycle status written into the control metadata table.
+        owner: Decision owner written into the control metadata table.
+        decision_date: Decision date string written into the control metadata.
+        review_date: Review date string written into the control metadata.
+        approval_evidence: Approval or founder evidence written into metadata.
+        include_reversal: Whether to include the required reversal-plan section.
+
+    Returns:
+        Markdown text containing the metadata and sections, with an optional reversal plan.
+    """
     sections = [
         ("Context", "A bounded decision is required."),
         ("Decision drivers", "- Preserve deterministic behavior."),
@@ -69,6 +83,7 @@ def _adr_text(
 
 
 def test_repository_architecture_governance_is_valid() -> None:
+    """Validate the repository ADR set and its canonical filenames."""
     decisions = validate_repository(REPOSITORY_ROOT)
 
     assert [path.name for path in decisions] == [
@@ -100,6 +115,7 @@ def test_repository_architecture_governance_is_valid() -> None:
 def test_adr_lint_rejects_invalid_lifecycle_metadata(
     tmp_path: Path, status: str, owner: str, message: str
 ) -> None:
+    """Reject unsupported status, unassigned ownership, and incomplete acceptance evidence."""
     path = tmp_path / "0001-test-decision.md"
     path.write_text(_adr_text(status=status, owner=owner), encoding="utf-8")
 
@@ -108,6 +124,7 @@ def test_adr_lint_rejects_invalid_lifecycle_metadata(
 
 
 def test_adr_lint_rejects_invalid_review_date_boundaries(tmp_path: Path) -> None:
+    """Reject dates outside extended YYYY-MM-DD and reviews not later than the decision date."""
     path = tmp_path / "0001-test-decision.md"
     invalid_boundaries = (
         ("2026/08/25", "2026-11-25"),
@@ -125,6 +142,7 @@ def test_adr_lint_rejects_invalid_review_date_boundaries(tmp_path: Path) -> None
 
 
 def test_adr_lint_rejects_missing_reversal_plan(tmp_path: Path) -> None:
+    """Reject an ADR fixture that omits the required reversal-plan section."""
     path = tmp_path / "0001-test-decision.md"
     path.write_text(_adr_text(include_reversal=False), encoding="utf-8")
 
@@ -133,6 +151,7 @@ def test_adr_lint_rejects_missing_reversal_plan(tmp_path: Path) -> None:
 
 
 def test_accepted_adr_requires_commit_bound_https_approval(tmp_path: Path) -> None:
+    """Accept commit-bound HTTPS evidence and reject insecure or malformed approval URLs."""
     path = tmp_path / "0001-test-decision.md"
     path.write_text(
         _adr_text(
@@ -192,6 +211,7 @@ def test_founder_adr_acceptance_uses_registered_identity_and_scope(tmp_path: Pat
 
 
 def test_decision_log_rejects_unlogged_and_noncontiguous_records(tmp_path: Path) -> None:
+    """Reject a decision directory with missing log records and noncontiguous identifiers."""
     directory = tmp_path / "decisions"
     directory.mkdir()
     (directory / "template.md").write_text(_adr_text(identifier=0), encoding="utf-8")
@@ -206,6 +226,7 @@ def test_decision_log_rejects_unlogged_and_noncontiguous_records(tmp_path: Path)
 
 
 def test_decision_log_rejects_adr_metadata_drift(tmp_path: Path) -> None:
+    """Reject log records whose title, filename, status, owner, or review date diverges."""
     mutations = (
         ("[Test decision]", "[Wrong title]", "title does not match"),
         ("(0001-test-decision.md)", "(0001-wrong.md)", "filename does not match"),
@@ -234,6 +255,7 @@ def test_decision_log_rejects_adr_metadata_drift(tmp_path: Path) -> None:
 
 
 def test_decision_log_rejects_invalid_record_structure(tmp_path: Path) -> None:
+    """Reject missing, duplicate, unexpected, or malformed decision-log rows."""
     invalid_records = (
         ("", "missing decision record 0001"),
         (
@@ -272,6 +294,7 @@ def test_decision_log_rejects_invalid_record_structure(tmp_path: Path) -> None:
 
 
 def test_decision_directory_rejects_uncontrolled_markdown_filename(tmp_path: Path) -> None:
+    """Reject a decision directory containing an uncontrolled Markdown filename."""
     directory = tmp_path / "decisions"
     directory.mkdir()
     (directory / "template.md").write_text(_adr_text(identifier=0), encoding="utf-8")
@@ -283,6 +306,7 @@ def test_decision_directory_rejects_uncontrolled_markdown_filename(tmp_path: Pat
 
 
 def test_local_link_check_accepts_anchor_and_rejects_missing_target(tmp_path: Path) -> None:
+    """Accept a valid local anchor and reject missing files or heading targets."""
     docs = tmp_path / "docs"
     docs.mkdir()
     source = docs / "source.md"
