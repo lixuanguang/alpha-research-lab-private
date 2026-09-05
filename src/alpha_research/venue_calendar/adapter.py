@@ -56,16 +56,25 @@ class _ExchangeCalendar(Protocol):
     sessions: Iterable[object]
     early_closes: Iterable[object]
 
-    def session_open(self, session: date) -> object: ...
+    def session_open(self, session: date) -> object:
+        """Return the source opening timestamp for an eligible session label."""
+        ...
 
-    def session_close(self, session: date) -> object: ...
+    def session_close(self, session: date) -> object:
+        """Return the source closing timestamp for an eligible session label."""
+        ...
 
-    def session_break_start(self, session: date) -> object: ...
+    def session_break_start(self, session: date) -> object:
+        """Return the source break start or its missing-break sentinel."""
+        ...
 
-    def session_break_end(self, session: date) -> object: ...
+    def session_break_end(self, session: date) -> object:
+        """Return the source break end or its missing-break sentinel."""
+        ...
 
 
 def _calendar_library_version() -> str:
+    """Read installed distribution metadata or report an unavailable calendar library."""
     try:
         return installed_version(EXCHANGE_CALENDARS_DISTRIBUTION)
     except PackageNotFoundError as error:
@@ -75,6 +84,13 @@ def _calendar_library_version() -> str:
 
 
 def _load_exchange_calendar(*, calendar_name: str, start: date, end: date) -> _ExchangeCalendar:
+    """Load the pinned source calendar and verify its consumed schedule surface.
+
+    The source constructor may extend the end date to find a session in an empty
+    interval. Snapshot construction subsequently filters labels to the original
+    inclusive bounds. Library aliases are resolved here; the caller checks that
+    the resolved name and timezone exactly match the requested venue.
+    """
     if _calendar_library_version() != EXCHANGE_CALENDARS_VERSION:
         raise IncompatibleCalendarLibraryError(
             f"{EXCHANGE_CALENDARS_DISTRIBUTION} must be exactly {EXCHANGE_CALENDARS_VERSION}"
@@ -123,6 +139,7 @@ def _load_exchange_calendar(*, calendar_name: str, start: date, end: date) -> _E
 
 
 def _as_date(candidate: object, *, field_name: str) -> date:
+    """Extract a source session label's date without applying a timezone conversion."""
     if isinstance(candidate, datetime):
         return candidate.date()
     if isinstance(candidate, date):
@@ -138,6 +155,7 @@ def _as_date(candidate: object, *, field_name: str) -> date:
 def _as_utc_datetime(
     candidate: object, *, field_name: str, optional: bool = False
 ) -> datetime | None:
+    """Normalize aware source timestamps to UTC, allowing None or NaT only if optional."""
     if optional and (candidate is None or candidate is _pandas.NaT):
         return None
     converted: object = candidate
@@ -153,6 +171,7 @@ def _as_utc_datetime(
 
 
 def _required_utc_datetime(candidate: object, *, field_name: str) -> datetime:
+    """Normalize one mandatory aware timestamp to UTC or raise CalendarAdapterError."""
     converted = _as_utc_datetime(candidate, field_name=field_name)
     if converted is None:
         raise CalendarAdapterError(f"calendar source returned invalid {field_name}")
@@ -162,6 +181,7 @@ def _required_utc_datetime(candidate: object, *, field_name: str) -> datetime:
 def _adapt_session(
     calendar: _ExchangeCalendar, *, session_label: date, kind: SessionKind
 ) -> TradingSession:
+    """Query source session boundaries and validate an owned UTC session with optional break."""
     try:
         source_open = calendar.session_open(session_label)
         source_close = calendar.session_close(session_label)
@@ -189,6 +209,12 @@ def _apply_overrides(
     base_sessions: tuple[TradingSession, ...],
     overrides: tuple[SessionOverride, ...],
 ) -> tuple[TradingSession, ...]:
+    """Apply unique explicit add, replace, or remove instructions to a copied session map.
+
+    ADD requires an absent label; REPLACE and REMOVE require an existing label.
+    Conflicting labels or IDs fail. Return sessions ordered by opening instant and
+    label without mutating the input tuples or their immutable records.
+    """
     sessions_by_label = {session.session_label: session for session in base_sessions}
     if len(sessions_by_label) != len(base_sessions):
         raise CalendarAdapterError("calendar source session labels must be unique")
@@ -252,7 +278,45 @@ class ExchangeCalendarsAdapter:
         price_limits: tuple[PriceLimitWindow, ...] = (),
         settlement_calendar: SettlementCalendar | None = None,
     ) -> VenueCalendarSnapshot:
-        """Adapt an explicit bounded source range without using host-local time."""
+        """Adapt an explicit bounded source range without using host-local time.
+
+        Read the installed library's metadata and schedule, convert session times
+        to UTC, apply the supplied overrides, and validate a new owned snapshot.
+        No files are written and no network requests are made by this adapter.
+        Source construction may populate the third-party library's calendar cache.
+
+        Args:
+            venue: Owned venue whose IANA timezone must match the source calendar.
+            calendar_name: Exact nonempty source name, at most 32 characters without
+                surrounding whitespace; aliases resolving to another name fail.
+            version: Attribution naming exchange_calendars as adapter and base source,
+                both at the pinned version, plus override attribution when used.
+            start: Inclusive first session-label date; datetimes are rejected.
+            end: Inclusive last session-label date, on or after ``start``.
+            overrides: Immutable add, replace, or remove instructions with unique IDs
+                and labels, whose source and revision match ``version``.
+            closures: Explicit closure assertions retained and checked against sessions.
+            interruptions: Explicit halt or pause windows retained in the snapshot;
+                the base schedule does not infer them.
+            price_limits: Explicit price-limit windows retained in the snapshot;
+                the base schedule does not infer them.
+            settlement_calendar: Optional independently attributed settlement schedule;
+                trading sessions are not used to infer settlement eligibility.
+
+        Returns:
+            A validated snapshot with the requested inclusive date coverage and UTC
+            sessions, including early-close classifications and any supplied overlays.
+            An interval without sessions can produce a valid empty schedule.
+
+        Raises:
+            VenueCalendarValidationError: Arguments, attribution, override actions,
+                or the assembled snapshot violate owned model invariants.
+            IncompatibleCalendarLibraryError: The installed calendar distribution
+                is missing or differs from the pinned version.
+            CalendarAdapterError: Source loading or session queries fail, required
+                source members or timestamp shapes are invalid, the resolved name
+                or timezone differs, or source session labels are duplicated.
+        """
         if not isinstance(venue, Venue):
             raise VenueCalendarValidationError("venue must be a Venue")
         if not isinstance(version, CalendarSourceVersion):

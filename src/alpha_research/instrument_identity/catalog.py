@@ -54,12 +54,35 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         mappings: tuple[SymbologyMapping, ...],
         **extra: object,
     ) -> None:
+        """Validate an immutable identity graph and its retained mapping assertions.
+
+        Args:
+            identities: Nonempty tuple with unique IDs and registered economic roots.
+            mappings: Tuple of assertions, including superseded history; may be empty.
+                Current intervals for each exact identifier must not overlap.
+            **extra: Unknown constructor fields, rejected by strict validation.
+
+        Raises:
+            InstrumentIdentityValidationError: Fields, references, correction chains,
+                or current mapping intervals violate the catalog invariants.
+        """
         super().__init__(identities=identities, mappings=mappings, **extra)
 
     @field_validator("identities", mode="before")
     @classmethod
     def valid_identities(cls, value: object) -> tuple[InstrumentIdentity, ...]:
-        """Require a populated immutable sequence of validated identities."""
+        """Require a populated immutable sequence of validated identities.
+
+        Args:
+            value: Raw identities field before nested field validation.
+
+        Returns:
+            The original nonempty tuple of InstrumentIdentity instances.
+
+        Raises:
+            InstrumentIdentityValidationError: The value is empty, is not a tuple,
+                or contains an item of the wrong type.
+        """
         if not isinstance(value, tuple) or not all(
             isinstance(identity, InstrumentIdentity) for identity in value
         ):
@@ -73,7 +96,18 @@ class SymbologyCatalog(_InstrumentIdentityModel):
     @field_validator("mappings", mode="before")
     @classmethod
     def valid_mappings(cls, value: object) -> tuple[SymbologyMapping, ...]:
-        """Require an immutable sequence of validated mapping assertions."""
+        """Require an immutable sequence of validated mapping assertions.
+
+        Args:
+            value: Raw mappings field before nested field validation.
+
+        Returns:
+            The original tuple of SymbologyMapping instances, including an empty tuple.
+
+        Raises:
+            InstrumentIdentityValidationError: The value is not a tuple or contains
+                an item of the wrong type.
+        """
         if not isinstance(value, tuple) or not all(
             isinstance(mapping, SymbologyMapping) for mapping in value
         ):
@@ -84,12 +118,23 @@ class SymbologyCatalog(_InstrumentIdentityModel):
 
     @model_validator(mode="after")
     def coherent_graph(self) -> Self:
-        """Validate canonical identity, mapping, interval, and correction graphs."""
+        """Validate canonical identity, mapping, interval, and correction graphs.
+
+        Returns:
+            This catalog unchanged after validating both graphs.
+
+        Raises:
+            InstrumentIdentityValidationError: IDs are duplicated; references or
+                economic roots are invalid; a correction changes its identifier or
+                source, lacks a new revision, forks, or cycles; or current intervals
+                for an exact identifier overlap.
+        """
         self._validate_identity_graph()
         self._validate_mapping_graph()
         return self
 
     def _validate_identity_graph(self) -> None:
+        """Reject duplicate IDs and missing or incorrectly typed economic roots."""
         identities_by_instrument_id = {
             identity.instrument_id: identity for identity in self.identities
         }
@@ -107,6 +152,7 @@ class SymbologyCatalog(_InstrumentIdentityModel):
                 )
 
     def _validate_mapping_graph(self) -> None:
+        """Reject broken references, invalid correction chains, and current interval overlap."""
         registered_instrument_ids = {identity.instrument_id for identity in self.identities}
         mappings_by_mapping_id = {mapping.mapping_id: mapping for mapping in self.mappings}
         if len(mappings_by_mapping_id) != len(self.mappings):
@@ -180,6 +226,7 @@ class SymbologyCatalog(_InstrumentIdentityModel):
                 previous_mapping = mapping
 
     def _superseded_mapping_ids(self) -> frozenset[MappingId]:
+        """Collect every predecessor explicitly replaced by a retained correction."""
         return frozenset(
             mapping.supersedes_mapping_id
             for mapping in self.mappings
@@ -187,7 +234,14 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         )
 
     def current_projection_mappings(self) -> tuple[SymbologyMapping, ...]:
-        """Return the deterministic current projection while retaining all history."""
+        """Return the deterministic current projection while retaining all history.
+
+        Returns:
+            Unsuperseded assertions ordered by scheme, namespace, identifier value,
+            valid-from instant, and mapping ID. This removes corrected predecessors
+            without filtering valid time or selecting a historical knowledge time.
+            The retained ``mappings`` tuple is unchanged.
+        """
         superseded_mapping_ids = self._superseded_mapping_ids()
         return tuple(
             sorted(
@@ -207,7 +261,18 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         )
 
     def get_instrument_identity(self, instrument_id: InstrumentId) -> InstrumentIdentity:
-        """Return one canonical identity, failing closed when it is unknown."""
+        """Return one canonical identity, failing closed when it is unknown.
+
+        Args:
+            instrument_id: Owned canonical instrument ID to find.
+
+        Returns:
+            The registered immutable identity with that ID.
+
+        Raises:
+            InstrumentIdentityValidationError: The argument is not an InstrumentId.
+            UnknownInstrumentError: No identity is registered under the ID.
+        """
         if not isinstance(instrument_id, InstrumentId):
             raise InstrumentIdentityValidationError("instrument_id must be an InstrumentId")
         for identity in self.identities:
@@ -223,6 +288,20 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         A query without a namespace deliberately searches every namespace. If
         more than one current mapping is valid, resolution raises instead of
         selecting a provider or venue implicitly.
+
+        Args:
+            identifier_query: Scheme, value, and optional exact namespace to match.
+            valid_at: Aware datetime with zero UTC offset; other offsets are rejected.
+                Intervals include ``valid_from`` and exclude a non-null ``valid_to``.
+
+        Returns:
+            The single unsuperseded assertion matching the query at valid time.
+
+        Raises:
+            InstrumentIdentityValidationError: The query type or UTC instant is invalid.
+            UnknownIdentifierError: No current assertion matches at that instant.
+            AmbiguousIdentifierError: More than one current assertion matches,
+                even if the assertions refer to the same instrument.
         """
         if not isinstance(identifier_query, IdentifierQuery):
             raise InstrumentIdentityValidationError("identifier_query must be an IdentifierQuery")
@@ -252,7 +331,21 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         valid_at: datetime,
         identifier_scheme: IdentifierScheme | None = None,
     ) -> tuple[SymbologyMapping, ...]:
-        """Return current identifiers for a canonical instrument at valid time."""
+        """Return current identifiers for a canonical instrument at valid time.
+
+        Args:
+            instrument_id: Registered canonical ID whose identifiers are requested.
+            valid_at: Aware zero-offset UTC instant for the half-open valid intervals.
+            identifier_scheme: Optional scheme filter; None includes every scheme.
+
+        Returns:
+            Matching unsuperseded assertions in current-projection order; an empty
+            tuple when the registered instrument has no matching valid identifiers.
+
+        Raises:
+            InstrumentIdentityValidationError: An argument type or UTC instant is invalid.
+            UnknownInstrumentError: The canonical instrument is not registered.
+        """
         self.get_instrument_identity(instrument_id)
         valid_at_utc = require_utc_datetime(valid_at, field_name="valid_at")
         if identifier_scheme is not None and not isinstance(identifier_scheme, IdentifierScheme):
@@ -270,7 +363,20 @@ class SymbologyCatalog(_InstrumentIdentityModel):
     def get_mapping_history_for_identifier(
         self, external_identifier: ExternalIdentifier
     ) -> tuple[SymbologyMapping, ...]:
-        """Return every retained assertion for one exact identifier."""
+        """Return every retained assertion for one exact identifier.
+
+        Args:
+            external_identifier: Exact scheme, value, and namespace whose history
+                is requested; this does not perform a wildcard namespace search.
+
+        Returns:
+            All matching assertions, including superseded ones, ordered by valid-from
+            instant, correction depth, and mapping ID. Unknown identifiers return
+            an empty tuple; no valid-time or knowledge-time filtering is applied.
+
+        Raises:
+            InstrumentIdentityValidationError: The argument is not an ExternalIdentifier.
+        """
         if not isinstance(external_identifier, ExternalIdentifier):
             raise InstrumentIdentityValidationError(
                 "external_identifier must be an ExternalIdentifier"
@@ -278,6 +384,14 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         mappings_by_mapping_id = {mapping.mapping_id: mapping for mapping in self.mappings}
 
         def correction_depth_for_mapping(mapping: SymbologyMapping) -> int:
+            """Count retained predecessors for ordering one validated correction chain.
+
+            Args:
+                mapping: Assertion from this catalog's validated acyclic mapping graph.
+
+            Returns:
+                Zero for an original assertion, otherwise the number of predecessors.
+            """
             correction_depth = 0
             current_mapping = mapping
             while current_mapping.supersedes_mapping_id is not None:

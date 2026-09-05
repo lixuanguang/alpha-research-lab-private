@@ -64,7 +64,16 @@ class DayCountResult(_FinancialUnitModel):
     adapter_version: str = QUANTLIB_VERSION
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate the interval and exact native-adapter identity."""
+        """Validate the interval and exact native-adapter identity.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: Context, dates, or duration have an unexpected concrete type.
+            ConventionError: The interval is reversed or the adapter version differs
+                from the pinned version.
+        """
         require_type(self.context, EvaluationContext, "context")
         require_type(self.start, date, "start")
         require_type(self.end, date, "end")
@@ -89,6 +98,24 @@ class QuantLibConventions:
         Native double output is rounded once to 1e-15 years. Golden acceptance uses
         absolute tolerance 1e-12 years and relative tolerance 2e-15 over 1901-2199.
         No cashflow, curve, fixing, reference-period, or global date is inferred.
+
+        Args:
+            context: Caller-supplied evaluation date and convention revision, retained
+                for attribution; the evaluation date need not equal ``start``.
+            start: Inclusive interval start as an exact date in 1901-2199.
+            end: Interval end as an exact date in 1901-2199, on or after ``start``.
+            day_count: Explicit supported day-count variant used by the native counter.
+
+        Returns:
+            Attributed result containing a nonnegative duration in years, rounded
+            once with ties to even, together with the original dates and context.
+
+        Raises:
+            UnitError: An input has an unexpected concrete type or the rounded native
+                result exceeds the owned Decimal bounds.
+            ConventionError: Any date, including the evaluation date, is outside
+                1901-2199; the interval is reversed; the pinned library is unavailable
+                or mismatched; or native evaluation fails or returns an invalid value.
         """
         require_type(context, EvaluationContext, "context")
         require_type(day_count, DayCount, "day count")
@@ -135,7 +162,23 @@ class QuantLibConventions:
     def time_to(
         self, *, context: EvaluationContext, end: date, day_count: DayCount
     ) -> DayCountResult:
-        """Measure from the caller's evaluation date, never the process-wide Settings date."""
+        """Measure from the caller's evaluation date, never the process-wide Settings date.
+
+        Args:
+            context: Explicit start date and convention revision to retain.
+            end: Interval end, on or after the evaluation date, in 1901-2199.
+            day_count: Supported day-count variant for the elapsed year fraction.
+
+        Returns:
+            The result of ``year_fraction`` starting at ``context.evaluation_date``,
+            with the same rounding and attribution.
+
+        Raises:
+            UnitError: An input has an unexpected concrete type or the rounded native
+                result exceeds the owned Decimal bounds.
+            ConventionError: Date coverage, interval ordering, library compatibility,
+                or native-result validation fails as described by ``year_fraction``.
+        """
         require_type(context, EvaluationContext, "context")
         return self.year_fraction(
             context=context, start=context.evaluation_date, end=end, day_count=day_count
@@ -145,7 +188,26 @@ class QuantLibConventions:
 def adjust_business_day(
     candidate: date, *, calendar: SettlementCalendar, convention: BusinessDayConvention
 ) -> date:
-    """Adjust within C02's complete explicit coverage; never invent holidays or weekdays."""
+    """Adjust within C02's complete explicit coverage; never invent holidays or weekdays.
+
+    Modified conventions reverse direction if the first selected date changes
+    month. Coverage is checked before either search; missing coverage in the first
+    direction raises even when the reverse direction contains an eligible date.
+
+    Args:
+        candidate: Exact date inside the calendar's inclusive coverage.
+        calendar: Validated settlement dates and complete coverage to search.
+        convention: Direction and month rule; UNADJUSTED retains a covered date
+            even if it is absent from the eligible settlement dates.
+
+    Returns:
+        The selected eligible date, or the covered candidate for UNADJUSTED.
+
+    Raises:
+        UnitError: An argument has an unexpected concrete type.
+        ConventionError: Calendar revalidation fails, the candidate is outside
+            coverage, or a required directional search has no eligible date.
+    """
     require_type(candidate, date, "candidate")
     require_type(calendar, SettlementCalendar, "settlement calendar")
     require_type(convention, BusinessDayConvention, "business-day convention")
@@ -162,6 +224,17 @@ def adjust_business_day(
     preceding = bisect_right(dates, candidate) - 1
 
     def select(index: int) -> date:
+        """Select an eligible date without allowing indexing beyond known coverage.
+
+        Args:
+            index: Position in the calendar's sorted eligible settlement dates.
+
+        Returns:
+            The eligible date at the requested position.
+
+        Raises:
+            ConventionError: The position is outside the retained dates.
+        """
         if not 0 <= index < len(dates):
             raise ConventionError("settlement calendar cannot determine adjustment within coverage")
         return dates[index]
@@ -194,6 +267,22 @@ def settlement_date(
 
     A zero lag returns the explicitly adjusted date. Positive lags exclude the
     adjusted anchor even when UNADJUSTED leaves it on a non-settlement date.
+
+    Args:
+        trade_date: Exact date inside the calendar's inclusive coverage.
+        business_day_lag: Number of eligible dates after the adjusted anchor;
+            an exact integer from zero through 366, excluding booleans.
+        calendar: Explicit settlement schedule used for both adjustment and lag.
+        convention: Business-day adjustment applied to the trade date first.
+
+    Returns:
+        The adjusted anchor for zero lag, otherwise the requested subsequent
+        eligible date. No additional adjustment or calendar extrapolation occurs.
+
+    Raises:
+        UnitError: A date, calendar, or convention has an unexpected concrete type.
+        ConventionError: The lag is invalid, anchor adjustment fails, or too few
+            eligible dates remain within calendar coverage.
     """
     if type(business_day_lag) is not int or not 0 <= business_day_lag <= 366:
         raise ConventionError("business-day lag must be an integer between 0 and 366")
