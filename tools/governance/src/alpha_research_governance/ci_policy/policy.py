@@ -85,6 +85,21 @@ _FINDING_KEYS = {"closure_condition", "finding_id", "owner_role", "unavailable_e
 
 
 def _require_unique_string_array(value: object, *, context: str) -> tuple[str, ...]:
+    """Require a non-empty list of distinct strings and preserve its order.
+
+    Args:
+        value: Candidate TOML value; only a non-empty ``list`` whose items are
+            all strings is accepted. Individual strings may be empty; this
+            helper does not reject empty string elements.
+        context: Field path included in validation findings.
+
+    Returns:
+        A tuple containing the input strings in their original order.
+
+    Raises:
+        CIPolicyError: If the value is not a non-empty string list or contains
+            duplicate strings.
+    """
     if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
         raise CIPolicyError([f"{context} must be a non-empty string array"])
     values = tuple(cast(list[str], value))
@@ -94,6 +109,19 @@ def _require_unique_string_array(value: object, *, context: str) -> tuple[str, .
 
 
 def _require_positive_integer(document: dict[str, object], key: str) -> int:
+    """Require a present integer value that is at least one.
+
+    Args:
+        document: Parsed policy fields to inspect without modifying them.
+        key: Field name whose value must be checked.
+
+    Returns:
+        The positive integer stored under ``key``.
+
+    Raises:
+        CIPolicyError: If ``key`` is absent, has a non-integer value, is a
+            Boolean, or is less than one.
+    """
     value = document.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise CIPolicyError([f"{key} must be a positive integer"])
@@ -106,6 +134,28 @@ def _require_safe_repository_paths(
     context: str,
     directory_prefixes: bool = False,
 ) -> tuple[str, ...]:
+    """Require unique lexically safe repository-relative POSIX paths.
+
+    Args:
+        value: Candidate TOML value containing a non-empty list of string
+            path values; each value must pass the lexical safety checks. The
+            helper does not inspect the filesystem or require the paths to
+            exist.
+        context: Field path included in validation findings.
+        directory_prefixes: Whether each original path must end in ``/`` and
+            is checked lexically after removing that trailing slash. Defaults
+            to ``False``; ordinary paths do not require a trailing slash.
+
+    Returns:
+        A tuple of the original path strings, preserving their input order and
+        directory-prefix slashes.
+
+    Raises:
+        CIPolicyError: If the value is not a unique non-empty string list or a
+            path, including an empty path, is absolute, non-canonical,
+            parent-traversing, option-like, contains a control character, or
+            violates the directory-prefix convention.
+    """
     values = _require_unique_string_array(value, context=context)
     for raw_path in values:
         candidate = raw_path.removesuffix("/") if directory_prefixes else raw_path
@@ -124,6 +174,26 @@ def _require_safe_repository_paths(
 
 
 def _parse_continuous_integration_lanes(value: object) -> tuple[CILane, ...]:
+    """Parse lanes and compare the final entry for each ID with the fixed contract.
+
+    Args:
+        value: Candidate TOML ``lanes`` value. It must be a list of tables;
+            each table must have exactly the fields used by ``CILane``.
+
+    Returns:
+        The constructed lanes as a tuple in the input order after the values
+        match the required fast and full lane definitions. Contract comparison
+        uses the final constructed entry for each lane ID; earlier duplicate
+        entries remain in this returned tuple.
+
+    Raises:
+        CIPolicyError: If the collection shape, lane fields, lane values, or
+            required final fast/full contract is invalid. Key and value
+            failures while constructing a lane are translated into an indexed
+            finding, with the original exception preserved as the cause. The
+            contract does not independently require unique lane IDs or input
+            ordering beyond matching the fixed values for each final ID.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise CIPolicyError(["lanes must be an array of tables"])
     lanes: list[CILane] = []
@@ -177,7 +247,30 @@ def _parse_continuous_integration_lanes(value: object) -> tuple[CILane, ...]:
 
 
 def load_continuous_integration_policy(path: Path) -> CIPolicy:
-    """Load the continuous-integration TOML policy with a closed schema."""
+    """Load and validate the repository's closed-schema CI policy.
+
+    The loader reads ``path`` as UTF-8 TOML, requires the exact root key set,
+    checks the fixed B05 package, gate, scanner, evidence and lane contracts,
+    and constructs the immutable policy record. Positive integer limits and
+    repository path collections are validated through the private helpers.
+
+    Args:
+        path: TOML policy file to read. The file is not modified.
+
+    Returns:
+        The validated continuous-integration policy, including ordered gates,
+        scanner pattern IDs, safe repository paths, lanes and evidence identity.
+
+    Raises:
+        CIPolicyError: If the file cannot be read or parsed, or if its schema,
+            fixed values, collections, paths or lane contract is invalid. Read
+            and TOML errors are translated with their original causes; helper
+            validation findings are propagated.
+        ValidationError: If a value reaches the final immutable model with a
+            type that the explicit policy checks do not cover.
+        UnicodeError: If the policy file is not valid UTF-8; this decoding
+            failure is not translated by the loader.
+    """
     try:
         document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
@@ -283,6 +376,26 @@ def load_continuous_integration_policy(path: Path) -> CIPolicy:
 
 
 def _private_key_scanner_dependency_findings(root: Path) -> list[str]:
+    """Check the pinned private-key scanner record and lock binding.
+
+    Args:
+        root: Repository root containing the dependency record and ``uv.lock``.
+            Neither file is modified.
+
+    Returns:
+        Findings in discovery order. A dependency-record read or TOML parse
+        failure is returned as one finding. Root-field and malformed-dependency
+        checks may return several accumulated findings; scanner-record and
+        lock-content mismatches are appended when those checks are reached. An
+        empty list means the checked record and lock fragments match the exact
+        CI contract.
+
+    Raises:
+        OSError: If reading ``uv.lock`` fails after the dependency record has
+            passed its shape checks.
+        UnicodeError: If a strict UTF-8 read or decode is invalid at a boundary
+            that this helper does not translate.
+    """
     path = root / "docs/architecture/ci-tool-dependencies.toml"
     try:
         document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -355,6 +468,27 @@ def _private_key_scanner_dependency_findings(root: Path) -> list[str]:
 
 
 def _continuous_integration_repository_findings(root: Path, policy: CIPolicy) -> list[str]:
+    """Collect schema, generated-source, Git and interface findings.
+
+    Args:
+        root: Existing resolved absolute repository root used for recursive
+            Protobuf discovery, Git execution and interface-file reads. The
+            function does not modify the repository.
+        policy: Loaded CI policy providing governed schema roots and generated
+            artifact prefixes.
+
+    Returns:
+        Findings in validation order. Missing or invalid schema modules,
+        ungoverned Protobuf files, a nonzero ``git ls-files`` status, tracked
+        generated artifacts and missing required interface fragments are
+        reported as strings.
+
+    Raises:
+        OSError: If repository traversal, Git startup, or required interface
+            file reads fail.
+        UnicodeError: If strict UTF-8 decoding of Git output or an interface
+            file fails.
+    """
     findings: list[str] = []
     for module_root in policy.schema_module_roots:
         module = root / module_root
@@ -417,7 +551,34 @@ def _continuous_integration_repository_findings(root: Path, policy: CIPolicy) ->
 
 
 def validate_continuous_integration_repository(repository_root: Path) -> CIPolicy:
-    """Validate policy, scanner admission, interfaces, schemas, and evidence."""
+    """Validate the complete repository-local CI contract and evidence.
+
+    Validation resolves ``repository_root``, loads the CI policy, checks the
+    admitted scanner and repository interfaces, then validates the retained
+    evidence manifest against the change-risk policy and the exact B05 package
+    profile. The repository and its evidence files are read only.
+
+    Args:
+        repository_root: Existing repository directory containing the CI policy,
+            dependency record, lockfile, interfaces, schemas and evidence.
+
+    Returns:
+        The loaded CI policy when every repository and evidence check succeeds.
+
+    Raises:
+        CIPolicyError: If policy loading or repository checks produce CI
+            findings. Policy-file read and TOML errors are translated by the
+            policy loader; repository helper findings are aggregated before
+            this error is raised.
+        ChangeRiskPolicyError: If the referenced change-risk policy is invalid.
+        EvidenceGovernanceError: If the retained manifest is invalid or does
+            not satisfy the exact B05 evidence profile.
+        ValidationError: If the loaded CI policy reaches model construction with
+            a type not covered by its explicit policy checks.
+        OSError: If root resolution or an unhandled repository read or process
+            startup fails.
+        UnicodeError: If an unhandled strict text read or decode fails.
+    """
     root = repository_root.resolve(strict=True)
     policy = load_continuous_integration_policy(root / "docs/architecture/ci-policy.toml")
     findings = _private_key_scanner_dependency_findings(
@@ -462,5 +623,17 @@ def validate_continuous_integration_repository(repository_root: Path) -> CIPolic
 
 
 def compute_evidence_report_sha256(path: Path) -> str:
-    """Return the SHA-256 used by the retained evidence manifest."""
+    """Compute the lowercase SHA-256 digest of an evidence report.
+
+    Args:
+        path: Evidence report file to read in binary mode. The file is not
+            modified.
+
+    Returns:
+        The 64-character lowercase hexadecimal SHA-256 digest of the complete
+        file contents.
+
+    Raises:
+        OSError: If the report cannot be opened or read.
+    """
     return hashlib.sha256(path.read_bytes()).hexdigest()

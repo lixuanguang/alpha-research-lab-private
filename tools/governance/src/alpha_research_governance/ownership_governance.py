@@ -37,19 +37,49 @@ _PRINCIPAL = re.compile(r"^@[A-Za-z0-9][A-Za-z0-9-]*(?:/[A-Za-z0-9][A-Za-z0-9-]*
 
 
 class OwnershipGovernanceError(ValueError):
-    """Report one or more deterministic ownership-governance findings."""
+    """Report ordered ownership-governance findings as one domain error.
+
+    Attributes:
+        findings: Tuple copy of the supplied messages, preserving order and duplicates.
+    """
 
     def __init__(self, findings: Sequence[str]) -> None:
+        """Copy findings and join them with newlines for the exception message.
+
+        Args:
+            findings: Ordered diagnostic messages. An empty sequence is accepted; later
+                mutation of the supplied sequence does not change this exception.
+        """
         self.findings = tuple(findings)
         super().__init__("\n".join(self.findings))
 
 
 def _optional_table(container: dict[str, object], key: str) -> dict[str, object] | None:
+    """Return an optional dictionary entry without copying or validating its contents.
+
+    Args:
+        container: Parsed TOML table to inspect.
+        key: Field name whose value may be a nested table.
+
+    Returns:
+        The original dictionary when ``container[key]`` is a dictionary, retaining object
+        aliasing; otherwise ``None`` for a missing or differently typed value.
+    """
     value = container.get(key)
     return cast(dict[str, object], value) if isinstance(value, dict) else None
 
 
 def _optional_table_list(container: dict[str, object], key: str) -> list[dict[str, object]] | None:
+    """Return an optional list of dictionaries without copying nested values.
+
+    Args:
+        container: Parsed TOML table to inspect.
+        key: Field name whose value may be a table array.
+
+    Returns:
+        The original list when it contains only dictionaries, including an empty list;
+        otherwise ``None`` for a missing, non-list, or mixed-type value.
+    """
     value = container.get(key)
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         return None
@@ -59,6 +89,23 @@ def _optional_table_list(container: dict[str, object], key: str) -> list[dict[st
 def _optional_string_list(
     container: dict[str, object], key: str, *, context: str, findings: list[str]
 ) -> list[str]:
+    """Read an optional string list and append one finding when its shape is invalid.
+
+    A missing value, non-list, or list containing any non-string appends
+    ``"{context}: {key} must be an array of strings"`` and returns a new empty list. An
+    empty list is valid, and a valid list is returned by reference; entries are not checked
+    for emptiness or uniqueness. Existing ``findings`` entries remain in place.
+
+    Args:
+        container: Parsed TOML table to inspect.
+        key: Field name whose value may be a string list.
+        context: Domain context included in an invalid-shape finding.
+        findings: Mutable finding accumulator to append on invalid input.
+
+    Returns:
+        The original valid list, preserving aliasing and order, or a new empty list after a
+        shape finding is appended.
+    """
     value = container.get(key)
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         findings.append(f"{context}: {key} must be an array of strings")
@@ -67,6 +114,23 @@ def _optional_string_list(
 
 
 def _load_registry(path: Path) -> dict[str, object]:
+    """Read a UTF-8 TOML registry and require a table-shaped root.
+
+    The parsed dictionary is returned with its nested values untouched; schema and semantic
+    checks belong to ``validate_repository``. TOML syntax failures are translated with the
+    path context, while file and UTF-8 decoding failures propagate.
+
+    Args:
+        path: Registry TOML file to read.
+
+    Returns:
+        The parsed root dictionary, retaining its parser-produced key/value structure.
+
+    Raises:
+        OwnershipGovernanceError: If TOML is malformed or the parsed root is not a table.
+        OSError: If the file cannot be read.
+        UnicodeDecodeError: If the file is not valid UTF-8.
+    """
     try:
         parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
@@ -77,6 +141,31 @@ def _load_registry(path: Path) -> dict[str, object]:
 
 
 def _parse_codeowners(path: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Parse the repository's limited exact/prefix CODEOWNERS syntax.
+
+    Blank and full-line comment records are skipped. Each remaining line must contain a
+    pattern followed by one or more ``@user`` or ``@org/team`` principals. Only ``*`` and
+    absolute patterns are admitted; an absolute pattern containing ``*`` is rejected, so
+    ``/path`` is exact and ``/path/`` is a prefix. This parser does not implement GitHub's
+    full glob, negation, or other CODEOWNERS semantics. It has no escaped-space or
+    inline-comment handling. Entries retain file order and duplicates; lines with a pattern
+    and owner tokens contribute an entry even when their pattern or principals are invalid,
+    while ownerless lines contribute only findings. Principal syntax is checked locally
+    without forge lookup.
+
+    Args:
+        path: CODEOWNERS file to read as UTF-8.
+
+    Returns:
+        Ordered ``(pattern, owners)`` records, with owners retaining line order.
+
+    Raises:
+        OwnershipGovernanceError: If any non-comment line lacks an owner, uses an invalid
+            pattern, or contains an invalid owner principal. All such findings are reported
+            in line order.
+        OSError: If the file cannot be read.
+        UnicodeDecodeError: If the file is not valid UTF-8.
+    """
     findings: list[str] = []
     entries: list[tuple[str, tuple[str, ...]]] = []
     for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -99,6 +188,20 @@ def _parse_codeowners(path: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
 
 
 def _matches(pattern: str, repository_path: str) -> bool:
+    """Apply the ownership matcher for one admitted exact or prefix pattern.
+
+    ``*`` matches every path. Other patterns lose one leading slash before comparison;
+    slash-terminated patterns use raw ``startswith`` prefix matching, while other patterns
+    require exact equality. Paths are not normalized and prefix boundaries are not otherwise
+    interpreted.
+
+    Args:
+        pattern: Admitted ownership pattern.
+        repository_path: Repository-relative path to test.
+
+    Returns:
+        Whether the pattern matches ``repository_path`` under these simple rules.
+    """
     if pattern == "*":
         return True
     normalized = pattern.removeprefix("/")
@@ -110,13 +213,48 @@ def _matches(pattern: str, repository_path: str) -> bool:
 
 
 def _prefix_pattern_contains(broader: str, narrower: str) -> bool:
-    """Return whether a directory pattern contains a different narrower pattern."""
+    """Return whether one slash-ended directory pattern strictly contains another.
+
+    Comparison removes one leading slash from each pattern and uses raw string-prefix
+    matching. The function returns ``False`` when ``broader`` is ``"*"``, does not end in
+    ``"/"``, or equals ``narrower``; an exact-file ``narrower`` can otherwise be contained.
+    Path normalization and full glob semantics are not applied.
+
+    Args:
+        broader: Candidate directory-prefix pattern.
+        narrower: Candidate pattern that may be nested beneath ``broader``.
+
+    Returns:
+        ``True`` only for a distinct narrower string with the broader prefix.
+    """
     if broader == "*" or not broader.endswith("/") or broader == narrower:
         return False
     return narrower.removeprefix("/").startswith(broader.removeprefix("/"))
 
 
 def _repository_paths(repository_root: Path) -> tuple[str, ...]:
+    """Discover tracked and untracked repository paths through a fixed Git query.
+
+    The function resolves ``git`` with ``shutil.which`` and runs exactly
+    ``git ls-files --cached --others --exclude-standard -z`` with ``repository_root`` as
+    ``cwd``, captured output, no shell, ``check=False``, and no timeout. The query includes
+    all tracked paths through ``--cached`` and nonignored untracked paths through
+    ``--others --exclude-standard``. It splits NUL-delimited output, removes empty records,
+    and preserves Git's output order without sorting, deduplicating, or normalizing paths.
+    The query is read-only.
+
+    Args:
+        repository_root: Directory supplied as the Git process working directory.
+
+    Returns:
+        Repository paths decoded from Git output in its original order.
+
+    Raises:
+        OwnershipGovernanceError: If ``git`` is unavailable or exits nonzero; stderr is
+            decoded with replacement characters for the failure message.
+        OSError: If the Git process cannot be started or its working directory is invalid.
+        UnicodeDecodeError: If a successful Git path record is not valid UTF-8.
+    """
     git_executable = shutil.which("git")
     if git_executable is None:
         raise OwnershipGovernanceError(["git executable is unavailable"])
@@ -310,7 +448,27 @@ def validate_repository(
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Run the ownership-governance checker from the command line."""
+    """Run the ownership-governance checker from the command line.
+
+    The CLI accepts at most one positional repository root and no options. With no argument
+    it uses the current working directory. Validation errors and ``OSError`` raised during
+    validation are printed to stderr and return status 1; too many arguments prints usage
+    and returns status 2. Successful validation prints the domain count and returns status 0.
+
+    Args:
+        arguments: Optional ordered command-line tokens. ``None`` consumes ``sys.argv[1:]``;
+            one token selects the repository root.
+
+    Returns:
+        ``0`` for successful validation, ``1`` for a caught governance or validation I/O
+        failure, or ``2`` for an invalid argument count.
+
+    Raises:
+        OSError: If resolving the default working directory or writing CLI output fails;
+            output writes are not caught, including while reporting a validation failure.
+        UnicodeDecodeError: If validation decodes invalid UTF-8; this error is not caught by
+            the CLI wrapper.
+    """
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     if len(cli_arguments) > 1:
         print(

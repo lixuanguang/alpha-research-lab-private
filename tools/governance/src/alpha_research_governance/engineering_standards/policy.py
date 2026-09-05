@@ -178,18 +178,59 @@ _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
 
 
 def _table(value: object, *, context: str) -> dict[str, object]:
+    """Require a parsed value to be a TOML table without deep validation.
+
+    Args:
+        value: Parsed TOML value expected to be a dictionary. The object is
+            returned unchanged; keys and nested values are checked by callers.
+        context: Policy location used in a validation finding.
+
+    Returns:
+        The same dictionary object, narrowed for field access.
+
+    Raises:
+        EngineeringStandardsError: If ``value`` is not a TOML table.
+    """
     if not isinstance(value, dict):
         raise EngineeringStandardsError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
 def _tables(value: object, *, context: str) -> list[dict[str, object]]:
+    """Require an ordered list of parsed TOML tables.
+
+    Args:
+        value: Parsed TOML value expected to be a list containing only dictionaries.
+            An empty list is accepted; nested fields are not inspected here.
+        context: Policy location used in a validation finding.
+
+    Returns:
+        The same list object, narrowed for ordered field access.
+
+    Raises:
+        EngineeringStandardsError: If ``value`` is not a list of dictionaries.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise EngineeringStandardsError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
 def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+    """Require an ordered list of unique, non-empty strings.
+
+    Args:
+        value: Parsed TOML value expected to be a list of strings. Whitespace-only
+            strings are retained because this helper does not strip values.
+        context: Policy location used in a validation finding.
+        allow_empty: Whether an empty list is accepted; defaults to ``False``.
+
+    Returns:
+        A tuple containing the supplied strings in input order.
+
+    Raises:
+        EngineeringStandardsError: If the value is not a list of non-empty strings,
+            is empty when ``allow_empty`` is false, or contains duplicates.
+    """
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise EngineeringStandardsError([f"{context} must be an array of strings"])
     values = tuple(cast(list[str], value))
@@ -201,6 +242,22 @@ def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple
 
 
 def _positive_integer(table: dict[str, object], key: str, *, context: str) -> int:
+    """Require a table field to be an integer greater than or equal to one.
+
+    Boolean values are rejected even though ``bool`` is an ``int`` subclass.
+
+    Args:
+        table: Parsed TOML table containing the field.
+        key: Field name to retrieve.
+        context: Policy location used in a validation finding.
+
+    Returns:
+        The positive integer value unchanged.
+
+    Raises:
+        EngineeringStandardsError: If the field is missing, non-integer, boolean,
+            or less than one.
+    """
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise EngineeringStandardsError([f"{context}.{key} must be a positive integer"])
@@ -208,6 +265,24 @@ def _positive_integer(table: dict[str, object], key: str, *, context: str) -> in
 
 
 def _iso_date(value: object, *, context: str) -> date:
+    """Parse one canonical ``YYYY-MM-DD`` string into a calendar date.
+
+    This helper checks representation and calendar validity only. It does not
+    compare the date with today or enforce a freshness or expiry window; callers
+    supply those policy boundaries separately.
+
+    Args:
+        value: Parsed TOML value expected to be a canonical ISO date string.
+        context: Policy location used in a validation finding.
+
+    Returns:
+        The parsed ``date`` value.
+
+    Raises:
+        EngineeringStandardsError: If ``value`` is not a string, is not a valid
+            calendar date, or is not written in canonical ISO form. Invalid date
+            errors from ``date.fromisoformat`` are translated and chained.
+    """
     if not isinstance(value, str):
         raise EngineeringStandardsError([f"{context} must use YYYY-MM-DD"])
     try:
@@ -220,6 +295,26 @@ def _iso_date(value: object, *, context: str) -> date:
 
 
 def _parse_tools(value: object) -> tuple[ToolStandard, ...]:
+    """Parse and enforce the exact ordered engineering-tool declarations.
+
+    Each entry must be a TOML table with exactly ``roles``, ``tool_id`` and
+    ``version`` keys. Roles are required to be non-empty and unique; the resulting
+    records must then contain the seven configured tools, exact versions and role
+    tuples, with tool IDs in sorted order. The helper validates this tools section
+    only; root policy fields and lock/install bindings are checked by later callers.
+
+    Args:
+        value: Parsed ``tools`` array of TOML tables. An empty array is rejected by
+            the exact tool-pin checks after shape parsing.
+
+    Returns:
+        Immutable tool records in the supplied sorted order.
+
+    Raises:
+        EngineeringStandardsError: If the value or entry shapes are invalid, a
+            role list is empty or duplicated, or the exact tool/version/role/order
+            contract drifts.
+    """
     tools: list[ToolStandard] = []
     for index, entry in enumerate(_tables(value, context="tools"), 1):
         if set(entry) != {"roles", "tool_id", "version"}:
@@ -250,6 +345,27 @@ def _parse_tools(value: object) -> tuple[ToolStandard, ...]:
 
 
 def _parse_languages(value: object) -> tuple[LanguageStandard, ...]:
+    """Parse and enforce the exact admitted and dormant language declarations.
+
+    Each entry must have exactly the six language fields ``admission_status``,
+    ``language_id``, ``sanitizers``, ``source_extensions``, ``version`` and
+    ``warnings_policy``. Scalar fields must be non-empty strings; source extensions
+    must be a non-empty unique list, while sanitizers may be empty. The resulting
+    records must use the configured ``python``, ``c_cpp``, ``rust`` order and exact
+    policy tuples. Root policy and source-tree behavior are validated elsewhere.
+
+    Args:
+        value: Parsed ``languages`` array of TOML tables. An empty array is rejected
+            by the required language ordering and exact-policy checks.
+
+    Returns:
+        Immutable language records in policy order.
+
+    Raises:
+        EngineeringStandardsError: If the value or entry fields are malformed, a
+            required string/list is invalid, or language identity/order/policy
+            values drift.
+    """
     languages: list[LanguageStandard] = []
     required = {
         "admission_status",
@@ -514,7 +630,37 @@ def validate_suppression_line(
     maximum_lifetime_days: int,
     minimum_rationale_characters: int,
 ) -> tuple[str, ...]:
-    """Validate owner, rationale, and bounded expiry for one suppression line."""
+    """Validate selected metadata on one recognized source-suppression line.
+
+    The function searches raw line text with regular expressions; it does not
+    tokenize or parse the source language. Lines without a supported suppression
+    marker short-circuit to an empty result, even if they contain metadata-like
+    text. A line with a recognized marker must contain trailing owner/rationale/expiry
+    metadata with the exact required shape; missing metadata returns one finding.
+    When metadata is present, owner membership and stripped rationale length are
+    checked, then the caller-supplied expiry window is evaluated. Both boundaries
+    are inclusive: expiry on ``validation_date`` and on
+    ``validation_date + maximum_lifetime_days`` is accepted. The function does not
+    select today's date or mutate the line.
+
+    Args:
+        line: Source line to inspect for a supported suppression marker and trailing
+            metadata.
+        owner_roles: Governed owner-role names accepted for the suppression.
+        validation_date: Caller-supplied date from which expiry is measured.
+        maximum_lifetime_days: Inclusive maximum number of days after validation.
+        minimum_rationale_characters: Minimum length after trimming rationale edges.
+
+    Returns:
+        An ordered tuple of findings for owner, rationale, and expiry violations;
+        an empty tuple means this line has no detected suppression finding.
+
+    Raises:
+        EngineeringStandardsError: If a recognized line has metadata with an
+            invalid calendar date. The date parsing failure is translated by
+            ``_iso_date`` and raises before any accumulated owner or rationale
+            findings are returned; other findings are returned rather than raised.
+    """
     if _SUPPRESSION.search(line) is None:
         return ()
     metadata = _SUPPRESSION_METADATA.search(line)
@@ -536,6 +682,28 @@ def validate_suppression_line(
 
 
 def _owner_roles(path: Path) -> frozenset[str]:
+    """Collect role names referenced by domain ownership declarations.
+
+    For each parsed domain, each of ``accountable_role``,
+    ``required_review_roles``, ``independent_review_roles`` and ``escalation_roles``
+    accepts either a string or a list. This projection collects strings, including
+    empty strings, from either form and ignores non-string values; unrelated fields
+    and ownership records are ignored. Role names are deduplicated by the returned
+    set. It does not validate the complete ownership schema or role naming policy.
+
+    Args:
+        path: UTF-8 TOML ownership file containing a ``domains`` array.
+
+    Returns:
+        A frozen set of collected role names.
+
+    Raises:
+        EngineeringStandardsError: If the root value or ``domains`` value is not
+            a TOML table/list of tables.
+        OSError: If the ownership file cannot be opened or read.
+        UnicodeDecodeError: If the ownership file is not valid UTF-8.
+        tomllib.TOMLDecodeError: If the ownership file is malformed TOML.
+    """
     document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     roles: set[str] = set()
     for domain in _tables(document.get("domains"), context="domains"):
@@ -554,6 +722,32 @@ def _owner_roles(path: Path) -> frozenset[str]:
 
 
 def _locked_packages(path: Path) -> dict[str, tuple[str, str, tuple[str, ...]]]:
+    """Project usable sdist lock records into a package lookup mapping.
+
+    Each dictionary package table contributes only when its name and version are
+    strings, ``sdist`` is a table with a string ``hash``, and ``dependencies`` is
+    a list. An absent ``dependencies`` field defaults to an empty list. The
+    projection includes dependency-table ``name`` strings in lock order, preserving
+    duplicate names; dictionary tables with unusable consumed fields and malformed
+    dependency items are skipped. A non-dictionary member of the package array is
+    rejected by ``_tables`` before projection. If package names repeat, the later
+    usable entry overwrites the earlier value while the dictionary's original
+    insertion position is retained. This helper does not validate digest format,
+    package uniqueness, or wheel data.
+
+    Args:
+        path: UTF-8 TOML lockfile containing a ``package`` array.
+
+    Returns:
+        Mapping from package name to ``(version, sdist_hash, dependency_names)``.
+
+    Raises:
+        EngineeringStandardsError: If the root value or ``package`` value is not
+            a TOML table/list of tables.
+        OSError: If the lockfile cannot be opened or read.
+        UnicodeDecodeError: If the lockfile is not valid UTF-8.
+        tomllib.TOMLDecodeError: If the lockfile is malformed TOML.
+    """
     document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     result: dict[str, tuple[str, str, tuple[str, ...]]] = {}
     for package in _tables(document.get("package"), context="package"):
