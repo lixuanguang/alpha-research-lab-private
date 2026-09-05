@@ -45,6 +45,7 @@ PROGRAM_PATH = REPOSITORY_ROOT / "docs" / "governance" / "program-governance.tom
 
 
 def test_repository_ci_policy_is_complete_partial_and_fail_closed() -> None:
+    """Retain full-lane authority, merged-result requirements and explicit partial status."""
     policy = validate_continuous_integration_repository(REPOSITORY_ROOT)
 
     assert policy.package_status == "partial"
@@ -62,6 +63,7 @@ def test_repository_ci_policy_is_complete_partial_and_fail_closed() -> None:
 
 
 def test_name_status_parser_retains_rename_boundaries_and_rejects_invalid_input() -> None:
+    """Keep both rename paths while rejecting truncated, unsafe and over-budget diffs."""
     changes = parse_git_name_status(
         b"M\0src/current.py\0R100\0src/old.py\0src/new.py\0",
         maximum_changed_files=3,
@@ -85,6 +87,7 @@ def test_name_status_parser_retains_rename_boundaries_and_rejects_invalid_input(
 
 
 def test_bazel_owner_selection_includes_reverse_dependencies_and_safe_broadening() -> None:
+    """Attach reverse dependencies and force full scope for unowned or foundational paths."""
     policy = load_continuous_integration_policy(POLICY_PATH)
     query_xml = """<?xml version="1.0"?>
 <query version="2">
@@ -125,6 +128,7 @@ def test_bazel_owner_selection_includes_reverse_dependencies_and_safe_broadening
 
 @pytest.mark.performance
 def test_selection_workload_stays_inside_the_repository_local_budget() -> None:
+    """Select the owner of 1,000 changed paths within the policy's millisecond budget."""
     policy = load_continuous_integration_policy(POLICY_PATH)
     records = tuple(("M", f"src/example/file_{index}.py") for index in range(1000))
     owners = {path: ("//src/example:library",) for _, path in records}
@@ -138,6 +142,7 @@ def test_selection_workload_stays_inside_the_repository_local_budget() -> None:
 
 
 def test_secret_detection_covers_tokens_keys_boundaries_and_safe_errors(tmp_path: Path) -> None:
+    """Detect synthetic credentials and reject oversized, linked or out-of-root scan paths."""
     assigned = b"api_key=" + b"A" * 24
     github = b"gh" + b"p_" + b"B" * 36
     private_key = b"-----BEGIN " + b"PRIVATE KEY-----"
@@ -171,6 +176,7 @@ def test_secret_detection_covers_tokens_keys_boundaries_and_safe_errors(tmp_path
 def test_ci_duration_event_matches_program_observation_contract_and_local_log_scope_is_bounded(
     tmp_path: Path,
 ) -> None:
+    """Ingest a two-second CI event and reject invalid log paths, evidence and time windows."""
     started_at = datetime(2026, 9, 2, tzinfo=UTC)
     event = _build_ci_duration_event(
         phase="build",
@@ -225,6 +231,19 @@ def test_ci_duration_event_matches_program_observation_contract_and_local_log_sc
 
 
 def _git(repository: Path, *arguments: str) -> str:
+    """Run Git in the temporary fixture repository and return stripped captured output.
+
+    Args:
+        repository: Working directory for Git, including commands that initialize it.
+        *arguments: Arguments passed directly to Git without a shell; may change the fixture.
+
+    Returns:
+        Standard output with leading and trailing whitespace removed.
+
+    Raises:
+        OSError: Git cannot be started in the supplied directory.
+        subprocess.CalledProcessError: Git exits with a nonzero status.
+    """
     completed = subprocess.run(
         ["git", *arguments],
         cwd=repository,
@@ -236,6 +255,7 @@ def _git(repository: Path, *arguments: str) -> str:
 
 
 def test_merged_result_verification_binds_exact_base_and_head_parents(tmp_path: Path) -> None:
+    """Accept the fixture's exact merge parents and reject dirty or mismatched hosted results."""
     repository = tmp_path / "repository"
     repository.mkdir()
     _git(repository, "init", "--initial-branch", "main")
@@ -279,6 +299,7 @@ def test_merged_result_verification_binds_exact_base_and_head_parents(tmp_path: 
 
 
 def test_policy_rejects_status_gate_and_lane_weakening(tmp_path: Path) -> None:
+    """Reject promotion of partial status, a missing gate or weakened full-lane authority."""
     text = POLICY_PATH.read_text(encoding="utf-8")
     mutations = (
         ('package_status = "partial"', 'package_status = "validated"', "package_status"),
@@ -293,6 +314,7 @@ def test_policy_rejects_status_gate_and_lane_weakening(tmp_path: Path) -> None:
 
 
 def test_policy_rejects_unsafe_paths_and_dependency_record_drift(tmp_path: Path) -> None:
+    """Reject escaping schema roots and report scanner license and lock-identity drift."""
     policy_text = POLICY_PATH.read_text(encoding="utf-8").replace(
         'schema_module_roots = ["tests/build/fixtures/proto"]',
         'schema_module_roots = ["../outside"]',
@@ -317,6 +339,7 @@ def test_policy_rejects_unsafe_paths_and_dependency_record_drift(tmp_path: Path)
 
 
 def test_command_and_revision_failures_are_explicit(tmp_path: Path) -> None:
+    """Translate command-start failure and reject option-shaped Git references."""
     with pytest.raises(CIPolicyError, match="command could not start"):
         _run_command_and_capture_output(
             ["continuous-integration-command-does-not-exist"], root=tmp_path
@@ -330,6 +353,7 @@ def test_ci_cli_uses_typed_dispatch_and_preserves_domain_errors(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Preserve CI CLI validation, scan dispatch, domain/usage exit codes and help output."""
     policy = load_continuous_integration_policy(POLICY_PATH)
     scanned: list[tuple[Path, tuple[str, ...]]] = []
     monkeypatch.setattr(

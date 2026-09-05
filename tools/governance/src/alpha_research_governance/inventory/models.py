@@ -1,4 +1,9 @@
-"""Define domain models for the governed resource inventory."""
+"""Define domain models for the governed resource inventory.
+
+These immutable records and serializers perform no file or network I/O.
+Registry loading validates catalog-wide ownership, references and status
+evidence; direct construction validates strict field types only.
+"""
 
 from __future__ import annotations
 
@@ -10,15 +15,33 @@ from alpha_research_governance._models import ImmutableModel
 
 
 class InventoryGovernanceError(ValueError):
-    """Report one or more deterministic inventory findings."""
+    """Report ordered inventory-governance findings in one exception.
+
+    Attributes:
+        findings: Immutable tuple preserving supplied diagnostic order and duplicates.
+    """
 
     def __init__(self, findings: list[str] | tuple[str, ...]) -> None:
+        """Retain findings and join them into the exception message.
+
+        Args:
+            findings: Messages copied to a tuple and joined with newlines, without sorting.
+        """
         self.findings = tuple(findings)
         super().__init__("\n".join(self.findings))
 
 
 class KindPopulation(ImmutableModel):
-    """Declared population state and owner for one inventory kind."""
+    """Declare whether an inventory kind is populated and who owns that claim.
+
+    The inventory loader compares this declaration with actual item counts.
+
+    Attributes:
+        kind: Resource-kind key.
+        population_status: Declared populated or empty state.
+        owner_role: Role accountable for this resource kind.
+        rationale: Explanation of the population declaration.
+    """
 
     kind: str
     population_status: str
@@ -26,7 +49,11 @@ class KindPopulation(ImmutableModel):
     rationale: str
 
     def as_json(self) -> dict[str, str]:
-        """Return the stable JSON representation used by inventory queries."""
+        """Return the stable JSON-compatible population record.
+
+        Returns:
+            A fresh dictionary of the four stored string fields, without encoding JSON text.
+        """
         return {
             "kind": self.kind,
             "owner_role": self.owner_role,
@@ -36,7 +63,30 @@ class KindPopulation(ImmutableModel):
 
 
 class InventoryItem(ImmutableModel):
-    """One versioned resource record with ownership and evidence lineage."""
+    """Describe a versioned resource with ownership, dependencies and evidence lineage.
+
+    The inventory loader checks owner roles, reference resolution, dependency
+    cycles, retention/deployment states and review dates. Direct construction
+    validates field types without establishing those catalog-wide guarantees.
+
+    Attributes:
+        inventory_id: Stable inventory key used by dependency and lineage references.
+        kind: Declared resource-kind token.
+        record_version: Version of this resource record.
+        name: Human-readable resource name.
+        owner_role: Role accountable for the resource.
+        criticality: Declared criticality classification.
+        status: Declared resource lifecycle status.
+        dependencies: Inventory IDs of required resources.
+        retention_class: Declared evidence/data retention class.
+        source_paths: Repository source paths expected to be represented in lineage_refs.
+        lineage_refs: Inventory IDs, repository paths or external evidence references
+            supporting lineage.
+        deployment_status: Declared deployment or activation state.
+        deployment_evidence: References supporting deployment claims.
+        status_evidence: References supporting lifecycle-status claims.
+        review_due_on: Review deadline compared with catalog as_of_date by the loader.
+    """
 
     inventory_id: str
     kind: str
@@ -55,7 +105,13 @@ class InventoryItem(ImmutableModel):
     review_due_on: date
 
     def as_json(self) -> dict[str, object]:
-        """Return the stable JSON representation used by inventory queries."""
+        """Return the stable JSON-compatible resource record.
+
+        Returns:
+            A fresh dictionary with tuple fields copied to lists and review_due_on rendered as
+            ISO calendar-date text. Reference order is preserved; no files are read or JSON text
+            encoded.
+        """
         return {
             "criticality": self.criticality,
             "dependencies": list(self.dependencies),
@@ -76,7 +132,28 @@ class InventoryItem(ImmutableModel):
 
 
 class ResourceInventory(ImmutableModel):
-    """Validated resource catalog and package state."""
+    """Hold resource records and package metadata used by inventory queries.
+
+    Use load_inventory for kind coverage, item bounds, ownership, references,
+    lineage and dependency validation. Direct construction checks typed fields.
+    The query operation filters stored records without sorting, checking external
+    evidence or enforcing benchmark limits.
+
+    Attributes:
+        catalog_version: Declared resource-catalog version.
+        as_of_date: Snapshot date used for review-deadline checks.
+        inventory_scope: Declared scope of governed resources.
+        package_status: Declared inventory-capability status.
+        maximum_items: Catalog item-count bound enforced by the loader.
+        query_workload_iterations: Iteration count for the governed query benchmark.
+        query_workload_budget_ms: Benchmark budget in milliseconds; queries do not enforce a
+            timeout.
+        local_evidence_manifest_path: Recorded local evidence manifest path.
+        local_evidence_commit_sha: Commit identity used to bind local evidence.
+        kinds: Population declarations for resource kinds.
+        items: Resource records in stored order.
+        finding_ids: Retained unresolved inventory-governance findings.
+    """
 
     catalog_version: int
     as_of_date: date
@@ -98,7 +175,17 @@ class ResourceInventory(ImmutableModel):
         status: str | None = None,
         owner_role: str | None = None,
     ) -> tuple[InventoryItem, ...]:
-        """Return a deterministically ordered filtered inventory view."""
+        """Return records matching all supplied filters in stored order.
+
+        Args:
+            kind: Exact case-sensitive kind, or None to leave kind unrestricted.
+            status: Exact case-sensitive lifecycle status, or None to leave status unrestricted.
+            owner_role: Exact case-sensitive owner role, or None to leave owner unrestricted.
+
+        Returns:
+            A tuple of the original matching item objects. None imposes no constraint; empty or
+            unknown strings match only equal stored values, and no matches yield an empty tuple.
+        """
         return tuple(
             item
             for item in self.items
