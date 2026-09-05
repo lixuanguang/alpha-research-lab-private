@@ -69,6 +69,19 @@ _USAGE = (
 
 
 def _repository_path(repository_root: Path, relative: Path) -> Path:
+    """Resolve a policy path and reject locations outside the repository root.
+
+    Args:
+        repository_root: Repository root that bounds the resolved path.
+        relative: Policy-provided path to resolve beneath the root.
+
+    Returns:
+        An absolute, normalized path within ``repository_root``.
+
+    Raises:
+        EvidenceGovernanceError: If the resolved path escapes the repository root.
+        OSError: If path resolution fails.
+    """
     resolved_root = repository_root.resolve()
     resolved = (resolved_root / relative).resolve()
     try:
@@ -79,13 +92,40 @@ def _repository_path(repository_root: Path, relative: Path) -> Path:
 
 
 def _input_path(repository_root: Path, value: str) -> Path:
-    """Resolve a CLI input relative to the selected repository root."""
+    """Construct a CLI input path relative to the selected repository root.
+
+    Args:
+        repository_root: Repository root used for relative input values.
+        value: Absolute or repository-relative path supplied on the command line.
+
+    Returns:
+        The unchanged absolute path, or a path rooted at the resolved repository root.
+        Neither form is checked for repository containment.
+    """
     path = Path(value)
     return path if path.is_absolute() else repository_root.resolve() / path
 
 
 def validate_repository(repository_root: Path) -> tuple[EvidencePolicy, EvidenceManifest]:
-    """Validate evidence policy, template, example MR, and example bundle."""
+    """Validate evidence policy, template, example MR, and example bundle.
+
+    Args:
+        repository_root: Repository root containing the A05 policy and its referenced
+            template, examples, change-risk policy, and manifest artifacts.
+
+    Returns:
+        A pair containing the validated evidence policy followed by its validated example
+        manifest. The manifest includes the policy-bound change classification and gate
+        evidence.
+
+    Raises:
+        EvidenceGovernanceError: If any policy, template, example MR, change-risk binding,
+            manifest, gate, finding, or artifact check fails.
+        ChangeRiskPolicyError: If the repository change-risk policy cannot be loaded or
+            validated.
+        OSError: If a referenced repository file cannot be resolved or read.
+        UnicodeDecodeError: If a referenced repository file is not valid UTF-8.
+    """
     resolved_repository_root = repository_root.resolve()
     policy = load_policy(
         resolved_repository_root / "docs" / "governance" / "merge-evidence-policy.toml"
@@ -136,6 +176,20 @@ def validate_repository(repository_root: Path) -> tuple[EvidencePolicy, Evidence
 
 
 def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, dict[str, str]]:
+    """Parse evidence options and enforce supported combinations.
+
+    Args:
+        arguments: Ordered command-line tokens containing an optional repository root and
+            supported option/value pairs.
+
+    Returns:
+        A pair containing the selected repository root, defaulting to the current working
+        directory, and a mapping from each supplied option to its following value.
+
+    Raises:
+        EvidenceGovernanceError: If an option is unknown, duplicated, missing its value,
+            combined with an incompatible option, or supplied with an invalid operation.
+    """
     repository_root: Path | None = None
     options: dict[str, str] = {}
     index = 0
@@ -166,7 +220,28 @@ def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, dict[str, str]]:
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Run repository, MR-body, event, and evidence-manifest checks."""
+    """Run repository, MR-body, event, and evidence-manifest checks.
+
+    The command reads policy and evidence files, may print JSON metadata for
+    ``--github-event``, and uses ``implementation`` as the default ``--operation`` for
+    manifest validation. Governance, filesystem, and value failures from validation are
+    caught; failures while resolving the default working directory, printing output, or
+    handling unexpected conditions propagate to the caller.
+
+    Args:
+        arguments: Optional command-line arguments. Omit this value to consume
+            ``sys.argv[1:]``; provide an optional repository root and supported evidence
+            input options.
+
+    Returns:
+        ``0`` after printing the validation summary, ``1`` after printing a handled
+        governance, filesystem, or value failure to stderr, or ``2`` after printing usage
+        for invalid argument combinations.
+
+    Raises:
+        OSError: If resolving the default working directory or writing output fails
+            outside the validation handler.
+    """
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     try:
         repository_root, options = _parse_arguments(cli_arguments)

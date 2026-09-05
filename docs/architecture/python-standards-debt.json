@@ -74,16 +74,10 @@
     ],
     "tests/build/build_graph_test.py": [
       ["_dependency_record_errors", "PYC001", "module-level-function"],
-      ["_dependency_record_errors", "PYD001", "summary"],
       ["_evidence_errors", "PYC001", "module-level-function"],
-      ["_evidence_errors", "PYD001", "summary"],
       ["_report_artifact_path", "PYC001", "module-level-function"],
-      ["_report_artifact_path", "PYD001", "summary"],
       ["_repository_root", "PYC001", "module-level-function"],
-      ["_repository_root", "PYD001", "summary"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD001", "summary"],
-      ["main", "PYD002", "Returns"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tests/build/developer_environment_test.py": [
       ["_assert_script_failure", "PYC001", "module-level-function"],
@@ -97,27 +91,17 @@
     ],
     "tests/build/fixtures/proto/buf_compatibility_test.py": [
       ["_run", "PYC001", "module-level-function"],
-      ["_run", "PYD001", "summary"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD001", "summary"],
-      ["main", "PYD002", "Returns"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tests/build/fixtures/proto/buf_toolchain_test.py": [
       ["_run", "PYC001", "module-level-function"],
-      ["_run", "PYD001", "summary"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD001", "summary"],
-      ["main", "PYD002", "Returns"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tests/build/fixtures/sql/generated_sql_test.py": [
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD001", "summary"],
-      ["main", "PYD002", "Returns"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tests/build/sandbox_test.py": [
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD001", "summary"],
-      ["main", "PYD002", "Returns"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tests/engineering/test_architecture_governance.py": [
       ["_adr_text", "PYC001", "module-level-function"],
@@ -576,14 +560,7 @@
       ["test_versioned_override_add_replace_and_remove_actions_are_exact", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/_cli.py": [
-      ["run_typer", "PYC001", "module-level-function"],
-      ["run_typer", "PYD002", "Args"],
-      ["run_typer", "PYD002", "Raises"],
-      ["run_typer", "PYD002", "Returns"],
-      ["run_typer", "PYD002", "parameter:app"],
-      ["run_typer", "PYD002", "parameter:arguments"],
-      ["run_typer", "PYD002", "parameter:handled_errors"],
-      ["run_typer", "PYD002", "parameter:program_name"]
+      ["run_typer", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/architecture_governance.py": [
       ["ArchitectureGovernanceError.__init__", "PYD001", "summary"],
@@ -635,11 +612,7 @@
     ],
     "tools/governance/src/alpha_research_governance/artifact_supply_chain/__init__.py": [
       ["_print_usage", "PYC001", "module-level-function"],
-      ["_print_usage", "PYD001", "summary"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py": [
       ["_build_file_digest_record", "PYC001", "module-level-function"],
@@ -754,13 +727,7 @@
     ],
     "tools/governance/src/alpha_research_governance/change_risk/__init__.py": [
       ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"],
-      ["validate_repository", "PYC001", "module-level-function"],
-      ["validate_repository", "PYD002", "Args"],
-      ["validate_repository", "PYD002", "Returns"],
-      ["validate_repository", "PYD002", "parameter:repository_root"]
+      ["validate_repository", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/change_risk/policy.py": [
       ["_ChangeRiskPolicyInput", "PYD001", "summary"],
@@ -807,24 +774,17 @@
       ["load_policy", "PYD002", "parameter:path"]
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/__init__.py": [
-      ["_CICLIState", "PYD001", "summary"],
       ["_fast", "PYC001", "module-level-function"],
       ["_full", "PYC001", "module-level-function"],
       ["_initialize_cli", "PYC001", "module-level-function"],
       ["_print_validation_result", "PYC001", "module-level-function"],
-      ["_print_validation_result", "PYD001", "summary"],
       ["_scan_secrets", "PYC001", "module-level-function"],
       ["_schema_check", "PYC001", "module-level-function"],
       ["_select", "PYC001", "module-level-function"],
       ["_serialize_affected_selection", "PYC001", "module-level-function"],
-      ["_serialize_affected_selection", "PYD001", "summary"],
       ["_state", "PYC001", "module-level-function"],
-      ["_state", "PYD001", "summary"],
       ["_verify_merged_result", "PYC001", "module-level-function"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/policy.py": [
       ["_continuous_integration_repository_findings", "PYC001", "module-level-function"],
@@ -935,17 +895,8 @@
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/secrets.py": [
       ["scan_secret_bytes", "PYC001", "module-level-function"],
-      ["scan_secret_bytes", "PYD002", "Args"],
-      ["scan_secret_bytes", "PYD002", "Returns"],
-      ["scan_secret_bytes", "PYD002", "parameter:payload"],
       ["scan_secret_paths", "PYC001", "module-level-function"],
-      ["scan_secret_paths", "PYD002", "Args"],
-      ["scan_secret_paths", "PYD002", "Raises"],
-      ["scan_secret_paths", "PYD002", "parameter:maximum_file_bytes"],
-      ["scan_secret_paths", "PYD002", "parameter:paths"],
-      ["scan_secret_paths", "PYD002", "parameter:repository_root"],
-      ["secret_pattern_ids", "PYC001", "module-level-function"],
-      ["secret_pattern_ids", "PYD002", "Returns"]
+      ["secret_pattern_ids", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/selection.py": [
       ["_repository_path_from_bazel_source_label", "PYC001", "module-level-function"],
@@ -982,14 +933,7 @@
     ],
     "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py": [
       ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"],
-      ["run_pip_audit", "PYC001", "module-level-function"],
-      ["run_pip_audit", "PYD002", "Args"],
-      ["run_pip_audit", "PYD002", "Raises"],
-      ["run_pip_audit", "PYD002", "parameter:policy"],
-      ["run_pip_audit", "PYD002", "parameter:repository_root"]
+      ["run_pip_audit", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/dependency_admission/policy.py": [
       ["_https_url", "PYC001", "module-level-function"],
@@ -1109,10 +1053,7 @@
       ["verify_wheel_sources", "PYD002", "parameter:root"]
     ],
     "tools/governance/src/alpha_research_governance/engineering_standards/__init__.py": [
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/engineering_standards/policy.py": [
       ["_iso_date", "PYC001", "module-level-function"],
@@ -1165,18 +1106,9 @@
     "tools/governance/src/alpha_research_governance/evidence/__init__.py": [
       ["_input_path", "PYC001", "module-level-function"],
       ["_parse_arguments", "PYC001", "module-level-function"],
-      ["_parse_arguments", "PYD001", "summary"],
       ["_repository_path", "PYC001", "module-level-function"],
-      ["_repository_path", "PYD001", "summary"],
       ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"],
-      ["validate_repository", "PYC001", "module-level-function"],
-      ["validate_repository", "PYD002", "Args"],
-      ["validate_repository", "PYD002", "Raises"],
-      ["validate_repository", "PYD002", "Returns"],
-      ["validate_repository", "PYD002", "parameter:repository_root"]
+      ["validate_repository", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/evidence/manifest.py": [
       ["_ApprovalInput", "PYD001", "summary"],
@@ -1296,12 +1228,7 @@
     ],
     "tools/governance/src/alpha_research_governance/inventory/__init__.py": [
       ["_parse_arguments", "PYC001", "module-level-function"],
-      ["_parse_arguments", "PYD001", "summary"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Raises"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/inventory/registry.py": [
       ["_find_dependency_cycles", "PYC001", "module-level-function"],
@@ -1379,16 +1306,9 @@
     ],
     "tools/governance/src/alpha_research_governance/program_governance/__init__.py": [
       ["_build_package_payload", "PYC001", "module-level-function"],
-      ["_build_package_payload", "PYD001", "summary"],
       ["_build_program_dashboard_payload", "PYC001", "module-level-function"],
-      ["_build_program_dashboard_payload", "PYD001", "summary"],
       ["_parse_arguments", "PYC001", "module-level-function"],
-      ["_parse_arguments", "PYD001", "summary"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Raises"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/program_governance/registry.py": [
       ["_expand_range", "PYC001", "module-level-function"],
@@ -1482,20 +1402,14 @@
       ["validate_status_document", "PYD002", "parameter:program"]
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/__init__.py": [
-      ["_RemoteExecutionCLIState", "PYD001", "summary"],
       ["_build", "PYC001", "module-level-function"],
       ["_initialize_cli", "PYC001", "module-level-function"],
       ["_print_validation_result", "PYC001", "module-level-function"],
-      ["_print_validation_result", "PYD001", "summary"],
       ["_quarantine", "PYC001", "module-level-function"],
       ["_state", "PYC001", "module-level-function"],
-      ["_state", "PYD001", "summary"],
       ["_test", "PYC001", "module-level-function"],
       ["_validate", "PYC001", "module-level-function"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/policy.py": [
       ["_require_boolean", "PYC001", "module-level-function"],
@@ -1571,28 +1485,10 @@
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/sharding.py": [
       ["select_shard", "PYC001", "module-level-function"],
-      ["select_shard", "PYD002", "Args"],
-      ["select_shard", "PYD002", "Raises"],
-      ["select_shard", "PYD002", "Returns"],
-      ["select_shard", "PYD002", "parameter:maximum_targets"],
-      ["select_shard", "PYD002", "parameter:seed"],
-      ["select_shard", "PYD002", "parameter:shard_count"],
-      ["select_shard", "PYD002", "parameter:shard_index"],
-      ["select_shard", "PYD002", "parameter:targets"],
-      ["shard_targets", "PYC001", "module-level-function"],
-      ["shard_targets", "PYD002", "Args"],
-      ["shard_targets", "PYD002", "Raises"],
-      ["shard_targets", "PYD002", "Returns"],
-      ["shard_targets", "PYD002", "parameter:maximum_targets"],
-      ["shard_targets", "PYD002", "parameter:seed"],
-      ["shard_targets", "PYD002", "parameter:shard_count"],
-      ["shard_targets", "PYD002", "parameter:targets"]
+      ["shard_targets", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/repository_topology/__init__.py": [
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/repository_topology/registry.py": [
       ["_find_cycles", "PYC001", "module-level-function"],
@@ -1633,13 +1529,8 @@
     ],
     "tools/governance/src/alpha_research_governance/security_controls/__init__.py": [
       ["_build_security_control_payload", "PYC001", "module-level-function"],
-      ["_build_security_control_payload", "PYD001", "summary"],
       ["_parse_arguments", "PYC001", "module-level-function"],
-      ["_parse_arguments", "PYD001", "summary"],
-      ["main", "PYC001", "module-level-function"],
-      ["main", "PYD002", "Args"],
-      ["main", "PYD002", "Returns"],
-      ["main", "PYD002", "parameter:arguments"]
+      ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/security_controls/registry.py": [
       ["_load_control_map", "PYC001", "module-level-function"],

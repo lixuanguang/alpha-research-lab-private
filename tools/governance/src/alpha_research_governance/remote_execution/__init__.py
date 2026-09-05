@@ -1,4 +1,4 @@
-"""Canonical remote-execution policy, sharding, and runner API."""
+"""Expose the canonical remote-execution policy, sharding, and runner API."""
 
 from __future__ import annotations
 
@@ -43,6 +43,13 @@ __all__ = [
 
 
 class _RemoteExecutionCLIState(NamedTuple):
+    """Store the repository root and validated policy for one remote CLI invocation.
+
+    Attributes:
+        repository_root: Repository directory used by the selected command.
+        policy: Validated remote-execution policy for that repository.
+    """
+
     repository_root: Path
     policy: RemoteExecutionPolicy
 
@@ -59,6 +66,18 @@ _APP = typer.Typer(
 
 
 def _state(context: typer.Context) -> _RemoteExecutionCLIState:
+    """Retrieve validated remote-execution state from a Typer context.
+
+    Args:
+        context: Typer invocation context carrying the initialized state.
+
+    Returns:
+        The repository root and validated remote-execution policy stored by the
+        initialization callback.
+
+    Raises:
+        RuntimeError: The context does not contain the expected remote state.
+    """
     state = context.obj
     if not isinstance(state, _RemoteExecutionCLIState):
         raise RuntimeError("remote-execution CLI state is unavailable")
@@ -66,6 +85,11 @@ def _state(context: typer.Context) -> _RemoteExecutionCLIState:
 
 
 def _print_validation_result(policy: RemoteExecutionPolicy) -> None:
+    """Print the successful remote-execution policy summary to standard output.
+
+    Args:
+        policy: Validated policy whose package status is displayed.
+    """
     print(
         "Remote execution policy passed for two deterministic shards; "
         f"package status is {policy.package_status}."
@@ -148,7 +172,25 @@ def _quarantine(
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Validate the policy or execute one explicitly requested governed lane."""
+    """Validate or execute one governed remote-execution lane from Typer.
+
+    With no command, validate the repository policy and print its summary. Selected
+    build, test, and quarantine commands can invoke Git and Bazel and create then
+    remove a temporary credential Bazel rc file while running a lane.
+
+    Args:
+        arguments: Explicit CLI arguments, or ``None`` to read ``sys.argv[1:]``.
+
+    Returns:
+        The translated Typer status, including a lane's integer status, ``0`` for
+        successful ``None`` results, ``1`` for handled policy or operational
+        errors, or a parser error's exit code.
+
+    Raises:
+        TypeError: A dispatched command returns a result other than ``None`` or an integer.
+        Exception: An unexpected exception is not renderable as a Typer parser
+            error and therefore escapes the adapter.
+    """
     return run_typer(
         _APP,
         arguments=arguments,

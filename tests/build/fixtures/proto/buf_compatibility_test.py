@@ -11,6 +11,26 @@ from pathlib import Path
 
 
 def _run(buf: Path, module: Path, baseline: Path) -> subprocess.CompletedProcess[str]:
+    """Run Buf breaking analysis against a baseline module and capture its result.
+
+    The child process receives cache and home paths under ``module.parent``, an
+    empty ``PATH``, the ``C.UTF-8`` locale, and the UTC timezone. Buf may write
+    cache or home data at those paths. A nonzero Buf exit status remains in the
+    returned result because the caller checks whether each compatibility case
+    has the expected status.
+
+    Args:
+        buf: Path to the Buf executable.
+        module: Candidate schema module directory to compare.
+        baseline: Baseline schema module directory for comparison.
+
+    Returns:
+        The completed Buf process with captured text output and exit status.
+
+    Raises:
+        OSError: If the Buf process cannot be started.
+        UnicodeDecodeError: If captured Buf output cannot be decoded as text.
+    """
     environment = {
         "BUF_CACHE_DIR": str(module.parent / "cache"),
         "HOME": str(module.parent / "home"),
@@ -28,6 +48,28 @@ def _run(buf: Path, module: Path, baseline: Path) -> subprocess.CompletedProcess
 
 
 def main() -> int:
+    """Check additive and removal cases against the Buf file-compatibility policy.
+
+    The command-line paths must identify an executable, configuration file, and
+    Protobuf file. The function creates three temporary module copies, adds a
+    field to one copy, removes the existing ``target`` field from another, and
+    runs Buf against the unchanged copy. It returns success only when the
+    additive invocation exits successfully and the removal invocation exits
+    nonzero; it does not inspect the nonzero diagnostic's contents. Temporary
+    files and any Buf cache or home data are removed when the context exits.
+    Usage and explicit compatibility-failure diagnostics are written to stderr.
+
+    Returns:
+        ``0`` when the observed statuses match the expected compatibility
+        behavior, ``1`` when a case has an unexpected status, or ``2`` when the
+        invocation does not contain exactly three paths after the program name.
+
+    Raises:
+        OSError: If an input path, temporary fixture operation, or Buf process
+            cannot be accessed or started.
+        UnicodeDecodeError: If fixture source is not valid UTF-8 or captured Buf
+            output cannot be decoded as text.
+    """
     if len(sys.argv) != 4:
         print("usage: buf_compatibility_test.py BUF CONFIG PROTO", file=sys.stderr)
         return 2

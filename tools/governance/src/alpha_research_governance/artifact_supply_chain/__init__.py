@@ -44,6 +44,7 @@ __all__ = [
 
 
 def _print_usage() -> None:
+    """Print the supported artifact lifecycle command syntax to standard error."""
     print(
         "usage: alpha-governance-artifacts "
         "[create ARTIFACT_PATH ARTIFACT_KIND BUILD_TARGET SOURCE_COMMIT_SHA "
@@ -56,7 +57,36 @@ def _print_usage() -> None:
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Validate policy or execute an explicitly selected artifact lifecycle operation."""
+    """Validate artifact policy or execute one selected lifecycle operation.
+
+    The command uses ``Path.cwd()`` as the repository root and uses the policy, lock,
+    toolchain, integration and evidence files as validation inputs. With no command it
+    prints the policy status. ``create`` runs the configured Syft process and writes an
+    unsigned candidate directory, printing its bundle summary as sorted JSON; ``sign``
+    runs Cosign and writes the candidate's signature bundle before verifying it;
+    ``publish`` verifies a staged copy and writes one content-addressed directory below
+    ``registry_root/sha256/<artifact_digest>``; and ``verify`` runs Cosign verification
+    and prints the verified bundle summary as sorted JSON. Expected
+    ``ArtifactSupplyChainError``, ``OSError`` and ``ValueError`` failures inside the
+    validation and lifecycle block, including its result output, are
+    caught and translated to status ``1``.
+
+    Args:
+        arguments: Optional command-line tokens. ``None`` consumes ``sys.argv[1:]``;
+            otherwise the sequence may contain no command or one of ``create``, ``sign``,
+            ``publish`` or ``verify`` with the operands shown by the usage text.
+
+    Returns:
+        ``0`` after validating the repository or completing a lifecycle operation, ``1``
+        after printing a caught artifact, filesystem or value failure to standard error,
+        or ``2`` after printing usage for an unsupported command or operand count. The
+        initial repository validation runs before command dispatch, so a usage status of
+        ``2`` is reached only when that validation succeeds.
+
+    Raises:
+        OSError: If resolving the default working directory or writing usage output
+            fails outside the guarded validation and lifecycle block.
+    """
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     repository_root = Path.cwd()
     try:

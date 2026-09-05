@@ -13,12 +13,35 @@ from pathlib import Path, PurePosixPath
 
 
 def _repository_root() -> Path:
+    """Construct the repository path from Bazel's runfiles environment.
+
+    Returns:
+        The workspace directory under the runfiles directory named by
+        ``TEST_SRCDIR``.
+
+    Raises:
+        KeyError: If ``TEST_SRCDIR`` or ``TEST_WORKSPACE`` is unset.
+    """
     runfiles = Path(os.environ["TEST_SRCDIR"])
     workspace = os.environ["TEST_WORKSPACE"]
     return runfiles / workspace
 
 
 def _dependency_record_errors(root: Path) -> list[str]:
+    """Validate the declared B02 dependency contract and collect errors.
+
+    Args:
+        root: Repository root containing the dependency record.
+
+    Returns:
+        Validation error messages, or an empty list when the checked fields
+        satisfy the B02 contract.
+
+    Raises:
+        OSError: If the dependency record cannot be read.
+        UnicodeDecodeError: If the dependency record is not valid UTF-8.
+        tomllib.TOMLDecodeError: If the dependency record is not valid TOML.
+    """
     path = root / "docs/architecture/build-tool-dependencies.toml"
     document = tomllib.loads(path.read_text(encoding="utf-8"))
     errors: list[str] = []
@@ -106,6 +129,17 @@ def _dependency_record_errors(root: Path) -> list[str]:
 
 
 def _report_artifact_path(bundle_root: Path, value: object) -> Path | None:
+    """Construct a lexical report path when a manifest value passes confinement checks.
+
+    Args:
+        bundle_root: Root directory of the evidence bundle.
+        value: Candidate artifact path read from the manifest.
+
+    Returns:
+        A candidate path under ``bundle_root/reports`` for a normalized POSIX
+        value, or ``None`` for a non-string or rejected value. The check is
+        lexical; it does not resolve symlinks or inspect the filesystem.
+    """
     if not isinstance(value, str):
         return None
     relative = PurePosixPath(value)
@@ -121,6 +155,23 @@ def _report_artifact_path(bundle_root: Path, value: object) -> Path | None:
 
 
 def _evidence_errors(root: Path) -> list[str]:
+    """Validate the selected B02 evidence fields and report digests.
+
+    Args:
+        root: Repository root containing the B02 partial evidence bundle.
+
+    Returns:
+        Validation error messages, or an empty list when the selected identity,
+        gates, artifact paths, report files, and SHA-256 digests satisfy the
+        exercised checks. The function does not validate the full manifest
+        schema or signatures.
+
+    Raises:
+        OSError: If the manifest cannot be read or a report cannot be read
+            after its existence is checked.
+        UnicodeDecodeError: If the manifest is not valid UTF-8.
+        tomllib.TOMLDecodeError: If the manifest is not valid TOML.
+    """
     bundle_root = root / "docs/governance/evidence/examples/b02-r2-partial"
     manifest = tomllib.loads((bundle_root / "manifest.toml").read_text(encoding="utf-8"))
     errors: list[str] = []
@@ -181,6 +232,25 @@ def _evidence_errors(root: Path) -> list[str]:
 
 
 def main() -> int:
+    """Check pinned B02 build inputs and local evidence fixtures.
+
+    Read build and CI configuration together with local dependency and evidence
+    files from the repository path supplied by Bazel runfiles.
+
+    Returns:
+        Zero when all checked build graph, dependency, and evidence contracts
+        pass; one after reporting a contract mismatch to standard error.
+
+    Raises:
+        KeyError: If Bazel does not provide ``TEST_SRCDIR`` or
+            ``TEST_WORKSPACE``.
+        OSError: If a required repository file cannot be read.
+        UnicodeDecodeError: If a required text file is not valid UTF-8.
+        json.JSONDecodeError: If ``MODULE.bazel.lock`` is not valid JSON.
+        tomllib.TOMLDecodeError: If a checked dependency or evidence file is
+            not valid TOML.
+        AttributeError: If the lock file decodes to a value without ``get``.
+    """
     root = _repository_root()
     module = (root / "MODULE.bazel").read_text(encoding="utf-8")
     bazelrc = (root / ".bazelrc").read_text(encoding="utf-8")

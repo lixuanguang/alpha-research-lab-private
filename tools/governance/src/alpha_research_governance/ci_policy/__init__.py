@@ -1,4 +1,4 @@
-"""Canonical affected and full continuous-integration policy API and command."""
+"""Expose the canonical affected and full continuous-integration policy API and command."""
 
 from __future__ import annotations
 
@@ -72,10 +72,25 @@ __all__ = [
 
 
 def _serialize_affected_selection(selection: AffectedSelection) -> str:
+    """Serialize an affected-target selection as compact canonical JSON.
+
+    Args:
+        selection: Validated selection record to encode.
+
+    Returns:
+        A sorted-key JSON string without insignificant whitespace.
+    """
     return json.dumps(selection.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
 
 
 class _CICLIState(NamedTuple):
+    """Store the repository root and validated policy for one CI CLI invocation.
+
+    Attributes:
+        repository_root: Resolved repository directory used by the command.
+        policy: Validated continuous-integration policy for that repository.
+    """
+
     repository_root: Path
     policy: CIPolicy
 
@@ -93,6 +108,17 @@ _APP = typer.Typer(
 
 
 def _state(context: typer.Context) -> _CICLIState:
+    """Retrieve validated CI CLI state from a Typer context.
+
+    Args:
+        context: Typer invocation context carrying the initialized state.
+
+    Returns:
+        The repository root and validated CI policy stored by the callback.
+
+    Raises:
+        RuntimeError: The context does not contain the expected CI state.
+    """
     state = context.obj
     if not isinstance(state, _CICLIState):
         raise RuntimeError("continuous-integration CLI state is unavailable")
@@ -100,6 +126,11 @@ def _state(context: typer.Context) -> _CICLIState:
 
 
 def _print_validation_result(policy: CIPolicy) -> None:
+    """Print the successful continuous-integration policy summary to standard output.
+
+    Args:
+        policy: Validated policy whose lane and schema counts are displayed.
+    """
     print(
         f"CI policy passed for {len(policy.lanes)} lanes and "
         f"{len(policy.schema_module_roots)} schema module; package status is partial."
@@ -268,7 +299,25 @@ def _full(
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Validate or execute the governed continuous-integration interfaces."""
+    """Validate or execute the governed continuous-integration interfaces from Typer.
+
+    With no command, validate the repository policy and print its summary. Selected
+    commands can invoke Git, Bazel, Buf, or pre-commit, and the fast and full lanes
+    write CI duration records to the repository-local event log.
+
+    Args:
+        arguments: Explicit CLI arguments, or ``None`` to read ``sys.argv[1:]``.
+
+    Returns:
+        The translated Typer status: command status, ``0`` for successful
+        ``None`` results, ``1`` for handled policy or operational errors, or a
+        parser error's exit code.
+
+    Raises:
+        TypeError: A dispatched command returns a result other than ``None`` or an integer.
+        Exception: An unexpected exception is not renderable as a Typer parser
+            error and therefore escapes the adapter.
+    """
     return run_typer(
         _APP,
         arguments=arguments,
