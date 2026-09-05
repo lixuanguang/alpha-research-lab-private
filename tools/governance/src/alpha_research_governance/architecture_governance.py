@@ -64,6 +64,22 @@ _ALLOWED_STATUSES = {
 
 
 class _DecisionLogEntry(ImmutableModel):
+    """Store the strict-shaped fields extracted from one decision-log row.
+
+    The inherited immutable model rejects field coercion and unknown fields,
+    but this record does not validate ADR identity, status, ownership, dates or
+    cross-file consistency. Those semantic checks are performed by the
+    directory validator.
+
+    Attributes:
+        identifier: Four-digit decision identifier captured from the row.
+        title: Markdown link title after surrounding whitespace is stripped.
+        filename: Markdown link destination after surrounding whitespace is stripped.
+        status: Status text recorded in the row.
+        owner: Decision-owner text recorded in the row.
+        review_date: Review-date text recorded in the row.
+    """
+
     identifier: str
     title: str
     filename: str
@@ -73,14 +89,37 @@ class _DecisionLogEntry(ImmutableModel):
 
 
 class ArchitectureGovernanceError(ValueError):
-    """Report one or more deterministic architecture-governance findings."""
+    """Report deterministic architecture-governance findings in input order.
+
+    Attributes:
+        findings: Immutable tuple preserving the supplied order and duplicate
+            messages. The exception message joins these values with newlines.
+    """
 
     def __init__(self, findings: Sequence[str]) -> None:
+        """Capture findings without deduplication or reordering.
+
+        Args:
+            findings: Ordered diagnostic messages; an empty sequence is allowed.
+        """
         self.findings = tuple(findings)
         super().__init__("\n".join(self.findings))
 
 
 def _parse_metadata(text: str) -> dict[str, str]:
+    """Extract matching rows after the first textual metadata marker.
+
+    Args:
+        text: Markdown-like source containing an optional textual ``## Control
+            metadata`` marker. The marker search is unanchored and does not
+            understand Markdown code fences.
+
+    Returns:
+        A dictionary of regex-matching ``| key | value |`` rows. Rows whose
+        parsed key is exactly ``Field`` or ``---``, malformed lines and later
+        level-two sections are ignored; a repeated key overwrites its earlier
+        value. Missing markers return an empty dictionary.
+    """
     control_start = text.find("## Control metadata")
     if control_start < 0:
         return {}
@@ -95,6 +134,20 @@ def _parse_metadata(text: str) -> dict[str, str]:
 
 
 def _section_body(text: str, heading: str) -> str | None:
+    """Return the stripped body of the first matching level-two heading.
+
+    Args:
+        text: Markdown-like source to search. The regex does not distinguish
+            ordinary text from fenced code.
+        heading: Heading text matched literally after ``## ``.
+
+    Returns:
+        The text up to but excluding the next level-two heading, or to the end
+        of input, stripped of surrounding whitespace. Level-three and deeper
+        content remains in the body. ``None`` means no case-sensitive matching
+        heading followed by a newline; an empty string represents a present but
+        blank section.
+    """
     match = re.search(
         rf"^## {re.escape(heading)}\s*$\n(?P<body>.*?)(?=^## |\Z)",
         text,
@@ -104,6 +157,19 @@ def _section_body(text: str, heading: str) -> str | None:
 
 
 def _parse_date(value: str, *, field: str, path: Path, findings: list[str]) -> date | None:
+    """Parse a canonical ISO date and append one finding on failure.
+
+    Args:
+        value: Date text accepted by ``date.fromisoformat`` only when its
+            canonical ``YYYY-MM-DD`` spelling is identical after parsing.
+        field: Metadata field name included in a failure finding.
+        path: ADR path included in a failure finding.
+        findings: Mutable diagnostic list receiving at most one message when
+            parsing or canonicality validation fails.
+
+    Returns:
+        The parsed ``date`` for an exact canonical value, otherwise ``None``.
+    """
     try:
         parsed_date = date.fromisoformat(value)
     except ValueError:
@@ -116,6 +182,18 @@ def _parse_date(value: str, *, field: str, path: Path, findings: list[str]) -> d
 
 
 def _has_commit_bound_approval(value: str) -> bool:
+    """Check the syntactic shape of a commit-bound HTTPS approval value.
+
+    Args:
+        value: Expected ``commit=<40-or-64-lowercase-hex>; approval=<URL>``
+            text.
+
+    Returns:
+        ``True`` only when the anchored format matches and the URL has an
+        HTTPS scheme, a hostname and no parsed credentials. This check does not
+        contact or authenticate the external evidence URL; query and fragment
+        components are otherwise unconstrained.
+    """
     match = _COMMIT_BOUND_APPROVAL.fullmatch(value)
     if match is None:
         return False
@@ -210,6 +288,20 @@ def validate_adr(
 def _decision_log_entries(
     log_path: Path, log: str, findings: list[str]
 ) -> tuple[_DecisionLogEntry, ...]:
+    """Parse candidate decision rows from the decision-records section.
+
+    Args:
+        log_path: Decision-log path used in missing or malformed-row findings.
+        log: Markdown decision log text.
+        findings: Mutable diagnostic list. Missing sections and malformed lines
+            that begin with a four-digit row marker are appended in encounter
+            order; unrelated lines are ignored.
+
+    Returns:
+        Valid regex-matching rows as strict-shaped entries in source order.
+        Duplicate identifiers are retained here and are reported later by
+        ``_validate_decision_log``.
+    """
     block = _section_body(log, "Decision records")
     if block is None:
         findings.append(f"{log_path}: missing required section '## Decision records'")
@@ -336,6 +428,19 @@ def validate_decision_directory(
 
 
 def _heading_anchors(text: str) -> set[str]:
+    """Approximate Markdown heading anchors with duplicate suffixes.
+
+    Args:
+        text: Markdown source whose level-one through level-six headings should
+            be converted into anchors.
+
+    Returns:
+        A set of case-folded, punctuation-stripped, whitespace/hyphen-collapsed
+        anchors. Repeated bases receive ``-1``, ``-2`` and later suffixes in
+        encounter order. The regex also processes headings inside fenced text,
+        and the approximation is repository-local rather than an exact
+        renderer-specific slug algorithm.
+    """
     anchors: set[str] = set()
     counts: dict[str, int] = {}
     for heading in re.findall(r"^#{1,6}\s+(.+?)\s*#*$", text, flags=re.MULTILINE):
@@ -411,7 +516,29 @@ def validate_repository(repository_root: Path) -> tuple[Path, ...]:
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Run the architecture governance checker from the command line."""
+    """Run the architecture-governance checker and map handled failures to status.
+
+    ``None`` consumes ``sys.argv[1:]``; an explicit sequence is used instead.
+    With no arguments the repository root defaults to the process working
+    directory. More than one argument prints usage to stderr and returns ``2``.
+    Domain and filesystem failures from repository validation are printed to
+    stderr and return ``1``; decoding failures, default-working-directory
+    resolution errors, output errors and unexpected exceptions propagate.
+
+    Args:
+        arguments: Optional command-line arguments; at most one repository-root
+            path is accepted.
+
+    Returns:
+        ``0`` after printing the number of validated ADRs, ``1`` after a
+        handled validation/filesystem failure, or ``2`` for excess arguments.
+
+    Raises:
+        OSError: If resolving the default working directory or writing command
+            output fails outside the validation handler.
+        UnicodeDecodeError: If repository text is not valid UTF-8 and the
+            validation path does not translate that decoding failure.
+    """
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     if len(cli_arguments) > 1:
         print(

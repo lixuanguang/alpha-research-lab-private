@@ -33,11 +33,35 @@ _EXPECTED_SCALARS: dict[str, object] = {
 
 
 class _MrFieldInput(ImmutableModel):
+    """Capture one strict merge-request field from the TOML input.
+
+    The inherited immutable boundary requires exactly two string fields, forbids unknown
+    fields, and provides no defaults. The loader checks lower-snake-case keys, nonblank
+    headings, and uniqueness after construction.
+
+    Attributes:
+        key: Machine-readable field key as supplied by the policy.
+        heading: Markdown heading associated with the field.
+    """
+
     key: str
     heading: str
 
 
 class _FindingInput(ImmutableModel):
+    """Capture one strict unresolved-finding record from the TOML input.
+
+    All four string fields are required, strict, and closed to extra keys; none has a
+    default. The loader separately requires truthy values and the exact ordered A05 finding
+    identifiers before retaining only those identifiers in ``EvidencePolicy``.
+
+    Attributes:
+        finding_id: Identifier of the unresolved evidence-governance finding.
+        owner_role: Role accountable for closing the finding.
+        unavailable_evidence: Evidence unavailable during the governed assessment.
+        closure_condition: Evidence or action required to close the finding.
+    """
+
     finding_id: str
     owner_role: str
     unavailable_evidence: str
@@ -45,6 +69,31 @@ class _FindingInput(ImmutableModel):
 
 
 class _EvidencePolicyInput(ImmutableModel):
+    """Define the closed base shape accepted for evidence-policy TOML.
+
+    Every declared field is required and uses strict types; the inherited boundary rejects
+    unknown root fields and supplies no input defaults. This base shape is used for the
+    version-one policy and whenever the parsed ``schema_version`` does not compare equal to
+    ``2``. The loader applies exact scalar values, gate rules, path syntax, field/finding
+    semantics, and supported-version checks after model validation.
+
+    Attributes:
+        schema_version: Input version discriminator; semantic support is limited to 1 or 2.
+        roadmap_package: Expected roadmap package identifier, checked by the loader.
+        operating_track: Expected operating track, checked by the loader.
+        package_status: Expected package status, checked by the loader.
+        accountable_owner_role: Expected accountable role, checked by the loader.
+        risk_class: Expected evidence-policy risk class, checked by the loader.
+        applicable_gates: Ordered quality-gate identifiers admitted by the package.
+        mandatory_package_gates: Ordered quality-gate identifiers required by the package.
+        template_path: Merge-request template path string.
+        example_mr_body_path: Institutional example body path string.
+        example_manifest_path: Example evidence manifest path string.
+        example_commit_sha: Expected example-manifest commit identity.
+        mr_fields: Ordered default merge-request field records.
+        findings: Ordered unresolved-finding records.
+    """
+
     schema_version: int
     roadmap_package: str
     operating_track: str
@@ -62,10 +111,33 @@ class _EvidencePolicyInput(ImmutableModel):
 
 
 class _ConditionalMrFieldInput(_MrFieldInput):
+    """Capture one strict impact-triggered merge-request field.
+
+    ``key`` and ``heading`` retain the base input shape; required ``trigger`` has no
+    default. The loader accepts exactly one each of ``migration``, ``benchmark`` and
+    ``operational`` and validates combined key/heading uniqueness with the default fields.
+
+    Attributes:
+        trigger: Impact category that activates this conditional field.
+    """
+
     trigger: str
 
 
 class _EvidencePolicyV2Input(_EvidencePolicyInput):
+    """Extend the base policy shape with version-two MR profiles.
+
+    The three added fields are required strict collections or strings with no defaults, and
+    this model is selected only when the parsed root has ``schema_version == 2``. The
+    loader requires four ordered founder fields, validates institutional and conditional
+    groups independently, and applies lexical validation to the founder example path.
+
+    Attributes:
+        institutional_mr_fields: Ordered fields retained for institutional MR bodies.
+        conditional_mr_fields: Ordered impact-triggered fields for founder MR bodies.
+        founder_example_mr_body_path: Repository-relative founder example path string.
+    """
+
     institutional_mr_fields: list[_MrFieldInput]
     conditional_mr_fields: list[_ConditionalMrFieldInput]
     founder_example_mr_body_path: str
@@ -75,6 +147,20 @@ _EXPECTED_ROOT_KEYS = frozenset(_EvidencePolicyInput.model_fields)
 
 
 def _policy_input_error(path: Path, error: ValidationError) -> EvidenceGovernanceError:
+    """Translate the first strict input-model error into a stable domain finding.
+
+    The mapping handles root shape/scalar errors, gate and path fields, and indexed MR-field
+    or finding tables; unrecognized locations use a generic policy-model message. It reads
+    only the first Pydantic error detail. Root missing/extra-field diagnostics use the
+    version-one ``_EXPECTED_ROOT_KEYS`` set even when a version-two model produced the error.
+
+    Args:
+        path: Policy path included in root-level diagnostic messages.
+        error: Pydantic validation failure from an input model.
+
+    Returns:
+        An ``EvidenceGovernanceError`` containing the selected domain-level finding.
+    """
     detail = error.errors(include_url=False, include_input=False)[0]
     location = detail["loc"]
     error_type = detail["type"]
@@ -119,6 +205,23 @@ def _policy_input_error(path: Path, error: ValidationError) -> EvidenceGovernanc
 
 
 def _validated_strings(value: list[str], *, context: str) -> tuple[str, ...]:
+    """Check string-list entries for emptiness and duplicates while preserving order.
+
+    This helper expects the strict list already produced by an input model. An empty list
+    passes here because ``all([])`` is true; the caller applies any required cardinality or
+    exact-set rule. Whitespace-only strings are also accepted because only empty strings
+    are rejected.
+
+    Args:
+        value: Strictly typed list of policy strings.
+        context: Field label included in a domain error.
+
+    Returns:
+        A tuple containing the original values in input order.
+
+    Raises:
+        EvidenceGovernanceError: If an entry is empty or a value appears more than once.
+    """
     if not all(value):
         raise EvidenceGovernanceError([f"{context} must contain non-empty strings"])
     values = tuple(value)
@@ -128,6 +231,23 @@ def _validated_strings(value: list[str], *, context: str) -> tuple[str, ...]:
 
 
 def _repository_relative_path(value: str, *, context: str) -> Path:
+    """Convert a policy path after lexical relative-path checks.
+
+    The host ``Path`` constructor determines normalization of repeated separators and
+    ``.`` components. Absolute paths and explicit ``..`` components are rejected; ``.``
+    itself is allowed. This helper does not resolve symlinks, check repository containment,
+    or test that the resulting path exists.
+
+    Args:
+        value: Non-empty path string from the policy.
+        context: Field label included in a domain error.
+
+    Returns:
+        A host ``Path`` constructed from the accepted string.
+
+    Raises:
+        EvidenceGovernanceError: If ``value`` is empty, absolute, or contains ``..``.
+    """
     if not value:
         raise EvidenceGovernanceError([f"{context} must be a repository-relative path"])
     path = Path(value)
@@ -137,7 +257,42 @@ def _repository_relative_path(value: str, *, context: str) -> Path:
 
 
 def _load_policy(path: Path) -> EvidencePolicy:
-    """Load and validate the authoritative evidence policy."""
+    """Parse, semantically validate, and project the authoritative evidence policy.
+
+    The TOML is read as UTF-8. A root whose parsed ``schema_version`` compares equal to
+    ``2`` selects the version-two input model; every other parsed root selects the base
+    model, after which strict field validation and the loader admit only integer versions 1
+    and 2. Input models require all declared fields, use strict types, and reject unknown
+    fields. The loader then requires the A05
+    scalar contract, valid QG01-QG15 gates, mandatory gates ``QG01``, ``QG13`` and ``QG15``,
+    unique ordered MR fields, and the ordered findings ``A05-F01``, ``A05-F02``. Version 2
+    additionally requires the four founder fields in order, one each of the three impact
+    triggers, independently unique institutional and founder/conditional field groups, and
+    a lexically relative founder-example path.
+
+    Lists retain input order when projected into tuples. The output normalizes paths to host
+    ``Path`` values and keeps only finding identifiers; it verifies and discards the input
+    roadmap, track, status, owner, risk, and finding-detail fields, then sets
+    ``package_status`` to ``"partial"``. Version-one output uses empty institutional and
+    conditional tuples and ``None`` for the founder path. Paths are not resolved or checked
+    for existence here; repository callers perform those checks.
+
+    Args:
+        path: Evidence-policy TOML file to read as UTF-8.
+
+    Returns:
+        The normalized immutable ``EvidencePolicy`` with ordered gates, fields, findings,
+        and version-specific MR profiles.
+
+    Raises:
+        EvidenceGovernanceError: If TOML syntax, input shape, scalar contract, gate set,
+            path syntax, field/finding semantics, or version-specific rules fail. TOML and
+            initial input-model failures are translated here with their causes.
+        ValidationError: If later conditional-field or output-model construction fails;
+            the public ``load_policy`` wrapper translates this failure.
+        OSError: If the file cannot be read; the read error propagates.
+        UnicodeDecodeError: If the file is not valid UTF-8; the decoding error propagates.
+    """
     try:
         parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
@@ -269,7 +424,26 @@ def _load_policy(path: Path) -> EvidencePolicy:
 
 
 def load_policy(path: Path) -> EvidencePolicy:
-    """Load evidence policy while preserving its public domain-error contract."""
+    """Load evidence policy while preserving its public domain-error contract.
+
+    Delegates parsing and semantic checks to ``_load_policy``. Domain findings raised there
+    retain their order and propagate unchanged; Pydantic failures from later projection
+    stages are translated to one ``EvidenceGovernanceError`` with the original cause.
+    Version-one output carries empty version-two field groups and no founder path, while
+    version-two output retains its ordered institutional and conditional groups.
+
+    Args:
+        path: Evidence-policy TOML file to read as UTF-8.
+
+    Returns:
+        The normalized immutable policy returned by ``_load_policy``.
+
+    Raises:
+        EvidenceGovernanceError: If policy parsing or semantic validation fails, or if a
+            later Pydantic projection failure is translated by this public boundary.
+        OSError: If reading ``path`` fails; file-system errors propagate.
+        UnicodeDecodeError: If ``path`` is not valid UTF-8; the decoding error propagates.
+    """
     try:
         return _load_policy(path)
     except ValidationError as error:

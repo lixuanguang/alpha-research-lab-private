@@ -152,12 +152,41 @@ _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
 
 
 def _require_toml_table(value: object, *, context: str) -> dict[str, object]:
+    """Require one parsed TOML value to be a table.
+
+    Args:
+        value: Parsed TOML value to inspect. Only a ``dict`` instance is accepted; other
+            mapping types are rejected. This helper does not check key types or nested
+            contents; the TOML parser supplies string keys.
+        context: Dotted or path-like label included in a validation error.
+
+    Returns:
+        The original dictionary with the function's string-keyed object-table type.
+
+    Raises:
+        RemoteExecutionError: If ``value`` is not a dictionary.
+    """
     if not isinstance(value, dict):
         raise RemoteExecutionError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
 def _require_toml_table_array(value: object, *, context: str) -> list[dict[str, object]]:
+    """Require one parsed TOML value to be an array containing only tables.
+
+    Args:
+        value: Parsed TOML value to inspect. An empty list is accepted because this helper
+            checks shape rather than cardinality. It does not inspect table keys or nested
+            values; the TOML parser supplies string keys.
+        context: Dotted or path-like label included in a validation error.
+
+    Returns:
+        The original list with the function's string-keyed object-table element type, in
+            input order.
+
+    Raises:
+        RemoteExecutionError: If ``value`` is not a list of dictionaries.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise RemoteExecutionError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
@@ -166,6 +195,20 @@ def _require_toml_table_array(value: object, *, context: str) -> list[dict[str, 
 def _require_string_tuple(
     value: object, *, context: str, allow_empty: bool = False
 ) -> tuple[str, ...]:
+    """Require a list of non-empty, unique strings and preserve its order.
+
+    Args:
+        value: Parsed TOML value expected to be a list of non-empty strings.
+        context: Dotted or path-like label included in a validation error.
+        allow_empty: Whether an empty list is accepted. Defaults to ``False``.
+
+    Returns:
+        A tuple containing the accepted strings in their original order.
+
+    Raises:
+        RemoteExecutionError: If the value is not a string list, is empty when disallowed,
+            or contains duplicates.
+    """
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise RemoteExecutionError([f"{context} must be an array of non-empty strings"])
     values = tuple(cast(list[str], value))
@@ -177,6 +220,19 @@ def _require_string_tuple(
 
 
 def _require_positive_integer(table: dict[str, object], key: str, *, context: str) -> int:
+    """Require a table field to contain a positive integer.
+
+    Args:
+        table: Parsed TOML table from which to read ``key``.
+        key: Field name to retrieve with ``dict.get``.
+        context: Table label included in a validation error.
+
+    Returns:
+        The field value when it is an integer greater than or equal to one.
+
+    Raises:
+        RemoteExecutionError: If the field is missing, Boolean, non-integer, or less than one.
+    """
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise RemoteExecutionError([f"{context}.{key} must be a positive integer"])
@@ -184,6 +240,19 @@ def _require_positive_integer(table: dict[str, object], key: str, *, context: st
 
 
 def _require_boolean(table: dict[str, object], key: str, *, context: str) -> bool:
+    """Require a table field to contain a Boolean.
+
+    Args:
+        table: Parsed TOML table from which to read ``key``.
+        key: Field name to retrieve with ``dict.get``.
+        context: Table label included in a validation error.
+
+    Returns:
+        The field value when it is a Boolean.
+
+    Raises:
+        RemoteExecutionError: If the field is missing or is not a Boolean.
+    """
     value = table.get(key)
     if not isinstance(value, bool):
         raise RemoteExecutionError([f"{context}.{key} must be Boolean"])
@@ -191,6 +260,19 @@ def _require_boolean(table: dict[str, object], key: str, *, context: str) -> boo
 
 
 def _require_non_empty_string(table: dict[str, object], key: str, *, context: str) -> str:
+    """Require a table field to contain a non-empty string.
+
+    Args:
+        table: Parsed TOML table from which to read ``key``.
+        key: Field name to retrieve with ``dict.get``.
+        context: Table label included in a validation error.
+
+    Returns:
+        The field value when it is a non-empty string.
+
+    Raises:
+        RemoteExecutionError: If the field is missing, not a string, or empty.
+    """
     value = table.get(key)
     if not isinstance(value, str) or not value:
         raise RemoteExecutionError([f"{context}.{key} must be a non-empty string"])
@@ -198,13 +280,56 @@ def _require_non_empty_string(table: dict[str, object], key: str, *, context: st
 
 
 def _require_iso_date(value: object, *, context: str) -> date:
+    """Require a parsed TOML value to be a date object.
+
+    Args:
+        value: Parsed TOML value expected to be a ``date`` instance. No string-format or
+            timezone validation is performed here.
+        context: Field label included in a validation error.
+
+    Returns:
+        The original date object.
+
+    Raises:
+        RemoteExecutionError: If ``value`` is not an instance of ``date``. Date subclasses
+            are accepted by the runtime type check.
+    """
     if not isinstance(value, date):
         raise RemoteExecutionError([f"{context} must use an unquoted YYYY-MM-DD date"])
     return value
 
 
 def load_policy(path: Path) -> RemoteExecutionPolicy:
-    """Load a closed, syntactically and semantically valid remote-execution policy."""
+    """Load and validate a closed remote-execution TOML policy.
+
+    The file must contain exactly the admitted root and nested fields. Scalar values,
+    provider and trust settings, resource budgets, deterministic sharding, quarantine
+    records, local fallback targets, and cross-field restrictions are checked against the
+    remote-execution contract. The evidence path and commit fields are required to be
+    non-empty here; this module checks commit syntax in ``_semantic_findings`` and checks
+    path existence and evidence binding in ``validate_repository``. Quarantine records and
+    diagnostic findings retain their input or contract order; this function does not supply
+    defaults.
+
+    Args:
+        path: TOML policy file to read as UTF-8.
+
+    Returns:
+        The immutable policy assembled from the admitted values. A successful return means
+        the policy's schema and semantic findings passed this module's checks.
+
+    Raises:
+        RemoteExecutionError: If TOML is malformed, fields or values violate the closed
+            schema, final policy-model validation fails, or semantic findings are present.
+            TOML decode failures and final-model Pydantic validation failures are translated
+            with their causes.
+        ValidationError: If construction of an intermediate provider, trust, resource,
+            sharding, flake, quarantine, or fallback model rejects its values; this error
+            propagates unchanged.
+        OSError: If reading ``path`` fails; file-system errors are allowed to propagate.
+        UnicodeDecodeError: If the policy file is not valid UTF-8; the decoding error
+            propagates from ``Path.read_text``.
+    """
     try:
         document = _require_toml_table(
             tomllib.loads(path.read_text(encoding="utf-8")), context=str(path)
@@ -409,6 +534,21 @@ def load_policy(path: Path) -> RemoteExecutionPolicy:
 
 
 def _semantic_findings(policy: RemoteExecutionPolicy) -> list[str]:
+    """Collect ordered findings for remote-execution contract drift.
+
+    Checks admitted provider identity, credential naming, trust contexts, resource and
+    sharding bounds, flake policy, quarantine labels and dates, local fallback switches,
+    target graphs, and the local evidence commit format. Quarantine expiry is measured
+    inclusively from ``policy.flakes.as_of_date`` through the configured maximum number of
+    days; this check does not use the wall clock. The returned list is a diagnostic value
+    and does not mutate ``policy``.
+
+    Args:
+        policy: Immutable policy values to compare with the reviewed contract.
+
+    Returns:
+        Findings in the fixed check order, or an empty list when all checks pass.
+    """
     findings: list[str] = []
     expected_provider = (
         "buildbuddy_cloud",
@@ -511,7 +651,35 @@ def _semantic_findings(policy: RemoteExecutionPolicy) -> list[str]:
 
 
 def validate_repository(repository_root: Path) -> RemoteExecutionPolicy:
-    """Validate policy, integrations, trust boundaries, and local evidence."""
+    """Validate selected repository configuration fragments and local evidence.
+
+    Loads the fixed policy path below ``repository_root`` as supplied, checks for required
+    text fragments in ``.bazelrc``, ``Makefile``, pre-commit configuration, and the CI
+    workflow, then checks credential exclusion, main-push workflow restriction, admitted
+    decision/evidence paths, and the evidence manifest's commit and change-risk binding.
+    These are presence and boundary checks: the function does not execute Bazel, remote
+    execution, CI, or network calls. Repository files are read in the module's fixed path
+    and fragment order, and the function performs no writes or root-path normalization.
+
+    Args:
+        repository_root: Root directory containing the repository files and policy.
+
+    Returns:
+        The loaded immutable policy after all integration and evidence checks pass.
+
+    Raises:
+        RemoteExecutionError: If loading, semantic, integration, trust-boundary, required
+            path, or evidence validation produces a finding. Evidence and change-risk
+            validation errors, including ``ValueError`` subclasses such as
+            ``UnicodeDecodeError``, from the final block are translated with their causes.
+        OSError: If reading the policy or integration files fails before the final evidence
+            validation block. Operating-system errors raised inside the final evidence block
+            are translated to ``RemoteExecutionError``.
+        ValidationError: If an intermediate model in the policy loader rejects its values
+            before the final evidence block.
+        UnicodeDecodeError: If a policy or integration file read before the final evidence
+            block is not valid UTF-8; this decoding error propagates unchanged.
+    """
     policy_path = repository_root / "docs" / "architecture" / "remote-execution.toml"
     policy = load_policy(policy_path)
     findings = _semantic_findings(policy)

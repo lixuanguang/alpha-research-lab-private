@@ -38,6 +38,20 @@ _MAX_WHEELS = 100
 
 
 def _https(value: str) -> None:
+    """Require a credential-free HTTPS URL with no query or fragment.
+
+    This is a syntactic check only; it does not resolve the host or perform any
+    network request. Userinfo, whitespace, ASCII controls, queries, and fragments are
+    rejected so the URL can be retained as source or signer identity evidence.
+
+    Args:
+        value: URL text to inspect.
+
+    Raises:
+        DependencyAdmissionError: If the URL is not HTTPS, has no hostname, or
+            contains credentials, a query, a fragment, whitespace, or ASCII controls.
+        ValueError: If ``urlsplit`` rejects malformed URL authority syntax.
+    """
     parsed = urlsplit(value)
     if (
         parsed.scheme != "https"
@@ -52,6 +66,19 @@ def _https(value: str) -> None:
 
 
 def _relative_path(value: str) -> None:
+    """Require a canonical, relative POSIX path for repository evidence.
+
+    The check rejects absolute paths, empty paths, ``.`` or ``..`` components,
+    non-canonical slash formatting, and characters outside letters, digits,
+    underscore, dot, slash, and hyphen. It performs no filesystem lookup and
+    does not itself check symlink traversal.
+
+    Args:
+        value: Repository-relative path text to inspect.
+
+    Raises:
+        DependencyAdmissionError: If ``value`` is not a canonical relative path.
+    """
     path = PurePosixPath(value)
     if (
         path.is_absolute()
@@ -68,7 +95,36 @@ def parse_wheel_sources(
     packages: tuple[PythonPackageAdmission, ...],
     approved_licenses: set[str],
 ) -> tuple[WheelSourceAdmission, ...]:
-    """Parse explicit alternatives; absent records never exempt a missing source archive."""
+    """Parse authenticated source-binding alternatives for native packages.
+
+    ``value`` is serialized to JSON and validated as a tuple of
+    ``WheelSourceAdmission`` records. Each record must match an already validated
+    native package, Platform ownership, approved source licenses, canonical local
+    evidence paths, HTTPS identities, bounded source and wheel counts, and unique
+    evidence identities. An empty sequence is accepted; absence leaves a package
+    without an alternative source admission and therefore cannot excuse a missing source archive.
+    This parser validates claims and shapes only; it does not download or hash
+    source archives or wheel bytes and does not verify attestations.
+
+    Args:
+        value: JSON-serializable raw record sequence, usually decoded from policy
+            input. Values such as arbitrary Python datetime objects are not valid
+            inputs because ``json.dumps`` runs before model validation.
+        packages: Already validated package admissions used for exact name,
+            version, and native-artifact checks.
+        approved_licenses: License expressions admitted for source archives.
+
+    Returns:
+        Parsed wheel-source records in input order.
+
+    Raises:
+        DependencyAdmissionError: If JSON serialization or model validation fails,
+            or a record violates the cross-record admission and license checks.
+            Serialization and Pydantic validation failures are translated and
+            chained from their original exceptions.
+        ValueError: If URL parsing rejects malformed authority syntax during
+            cross-record validation.
+    """
     try:
         records = TypeAdapter(tuple[WheelSourceAdmission, ...]).validate_json(json.dumps(value))
     except (ValidationError, ValueError, TypeError) as error:
@@ -85,7 +141,40 @@ def parse_bootstrap_wheels(
     as_of_date: date,
     review_due_on: date,
 ) -> tuple[BootstrapWheelAdmission, ...]:
-    """Require exact bootstrap scope, owned residual risk, reports and a bounded review window."""
+    """Parse bounded publication-only wheel admissions for bootstrap use.
+
+    ``value`` is serialized to JSON and validated as a tuple of
+    ``BootstrapWheelAdmission`` records before shared package, license, source,
+    wheel, signer, and path checks run. The caller supplies both policy dates:
+    ``as_of_date <= reviewed_on < expires_on <= review_due_on`` must hold, and
+    expiry must be no later than 30 days after review. The expiry date itself is
+    included by these upper bounds. Finding IDs must be unique, and all four
+    review-report paths must be canonical. An empty sequence is accepted. Parsing
+    records the explicit source-to-wheel gap; it does not download or hash source
+    archives or wheel bytes and does not verify publication attestations.
+
+    Args:
+        value: JSON-serializable raw bootstrap record sequence. Arbitrary Python
+            objects that ``json.dumps`` cannot encode are rejected before model
+            validation.
+        packages: Already validated package admissions used for exact name,
+            version, and native-artifact checks.
+        approved_licenses: License expressions admitted for source archives.
+        as_of_date: Caller-supplied policy assessment date, inclusive for review.
+        review_due_on: Caller-supplied policy review deadline, inclusive for expiry.
+
+    Returns:
+        Parsed bootstrap records in input order.
+
+    Raises:
+        DependencyAdmissionError: If JSON serialization or model validation fails,
+            records duplicate finding IDs, shared admission checks fail, a report
+            path is unsafe, or the caller-supplied review window is violated.
+            Serialization and Pydantic validation failures are translated and
+            chained from their original exceptions.
+        ValueError: If URL parsing rejects malformed authority syntax during
+            cross-record validation.
+    """
     try:
         records = TypeAdapter(tuple[BootstrapWheelAdmission, ...]).validate_json(json.dumps(value))
     except (ValidationError, ValueError, TypeError) as error:
@@ -108,6 +197,15 @@ def parse_bootstrap_wheels(
 
 
 def _bootstrap_reports(record: BootstrapWheelAdmission) -> tuple[EvidenceFile, ...]:
+    """Return bootstrap reports in the order used for pre-verification checks.
+
+    Args:
+        record: Model-validated bootstrap admission containing the four reports.
+
+    Returns:
+        A tuple ordered as source review, security review, native inventory, and
+        compatibility report.
+    """
     return (
         record.source_review,
         record.security_review,
@@ -121,6 +219,26 @@ def _validate_wheel_records(
     packages: tuple[PythonPackageAdmission, ...],
     approved_licenses: set[str],
 ) -> None:
+    """Validate cross-record constraints shared by both wheel profiles.
+
+    Records are expected to have passed model validation. This helper enforces
+    exact admitted package identity and native status, Platform ownership, source
+    and wheel count bounds, HTTPS identities, approved source licenses, unique
+    source/filename/evidence paths, canonical wheel filenames, and canonical
+    repository-relative evidence paths. It inspects claims only and performs no
+    filesystem, network, digest, or signature operation.
+
+    Args:
+        records: Parsed wheel admission records to validate in their input order.
+        packages: Already validated package admissions keyed by normalized name.
+        approved_licenses: License expressions accepted for source archives.
+
+    Raises:
+        DependencyAdmissionError: If a record is duplicated, does not match an
+            admitted native package, violates ownership/count/URL/license rules,
+            repeats an evidence identity, or has an invalid filename or path.
+        ValueError: If URL parsing rejects malformed authority syntax.
+    """
     admitted = {package.name: package for package in packages}
     names = [record.name for record in records]
     if len(names) != len(set(names)):
@@ -165,6 +283,29 @@ def _validate_wheel_records(
 
 
 def _read_evidence(root: Path, record: EvidenceFile) -> bytes:
+    """Read and digest-check one repository-local evidence file.
+
+    The declared path is checked component by component after ``root`` is joined,
+    rejecting symlinks in those appended components before reading at most
+    ``_MAX_EVIDENCE_BYTES + 1`` bytes. The root itself and ancestors above it are
+    not checked for symlinks, and replacement between checks and open/read remains
+    a time-of-check/time-of-use race. This helper reads local bytes only; it does
+    not download evidence.
+
+    Args:
+        root: Repository or fixture root beneath which the declared path is read.
+        record: Model-validated path and expected lowercase SHA-256 identity.
+
+    Returns:
+        The complete evidence content when it is at most 5,000,000 bytes and its
+        digest equals ``record.sha256``.
+
+    Raises:
+        DependencyAdmissionError: If the path is non-canonical, traverses an
+            appended symlink, is missing or non-regular, exceeds the size bound,
+            or has a digest mismatch. Filesystem read errors are translated and
+            chained from ``OSError``.
+    """
     # Reject symlinks at every component, including links that stay within the checkout.
     _relative_path(record.path)
     path = root
@@ -187,6 +328,17 @@ def _read_evidence(root: Path, record: EvidenceFile) -> bytes:
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Build a JSON object while rejecting duplicate member names.
+
+    Args:
+        pairs: Object members in decoder order.
+
+    Returns:
+        A dictionary preserving the first-seen insertion order of unique keys.
+
+    Raises:
+        DependencyAdmissionError: If a key occurs more than once.
+    """
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
@@ -196,12 +348,40 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _object(value: object) -> dict[str, object]:
+    """Require a decoded JSON value to be an object without copying it.
+
+    Args:
+        value: Decoded JSON value expected to be a dictionary.
+
+    Returns:
+        The same dictionary object, typed for field inspection.
+
+    Raises:
+        DependencyAdmissionError: If ``value`` is not a JSON object.
+    """
     if not isinstance(value, dict):
         raise DependencyAdmissionError(["provenance requires JSON objects"])
     return cast(dict[str, object], value)
 
 
 def _json_object(content: bytes) -> dict[str, object]:
+    """Decode one JSON object with duplicate-key and explicit-constant checks.
+
+    Args:
+        content: JSON bytes expected to decode to an object. ``json.loads`` may
+            accept UTF-8, UTF-16, or UTF-32 byte encodings.
+
+    Returns:
+        The decoded object with duplicate keys rejected and member order retained.
+
+    Raises:
+        DependencyAdmissionError: If decoding fails, the top-level value is not
+            an object, a key is duplicated, or an explicit ``NaN``/``Infinity``
+            token is present. These failures are translated to the stable
+            invalid-JSON finding and chained from the underlying parser or
+            validation error. Other numeric behavior, including overflow, remains
+            the behavior of ``json.loads``.
+    """
     try:
         return _object(
             json.loads(
@@ -213,10 +393,40 @@ def _json_object(content: bytes) -> dict[str, object]:
 
 
 def _reject_json_constant(value: str) -> object:
+    """Reject a JSON ``NaN`` or infinity token during strict decoding.
+
+    Args:
+        value: Non-finite token reported by ``json.loads``.
+
+    Raises:
+        DependencyAdmissionError: Always, identifying the rejected token.
+    """
     raise DependencyAdmissionError([f"non-finite provenance JSON constant: {value}"])
 
 
 def _statement(bundle: bytes) -> dict[str, object]:
+    """Decode a supported Sigstore v0.3 DSSE bundle into its in-toto statement.
+
+    The outer bundle and envelope must have their exact supported fields and media
+    types. The payload is base64 with validation enabled and is passed to
+    ``_json_object``; its JSON byte decoding therefore follows the standard
+    library's UTF-8/UTF-16/UTF-32 behavior. Signatures and verification-material
+    contents are left for Cosign. A decoded payload's JSON or object validation
+    error is reported as an invalid DSSE payload encoding because the payload
+    decode block catches ``ValueError`` as well as base64 errors.
+
+    Args:
+        bundle: Sigstore bundle JSON bytes.
+
+    Returns:
+        The decoded in-toto statement object for semantic claim checks.
+
+    Raises:
+        DependencyAdmissionError: If the outer bundle, envelope, payload type,
+            payload encoding, or decoded JSON shape is unsupported or malformed.
+            Payload-block validation failures are translated to the stable payload
+            encoding finding and chained from their causes.
+    """
     document = _json_object(bundle)
     if (
         set(document) != {"mediaType", "verificationMaterial", "dsseEnvelope"}
@@ -241,6 +451,25 @@ def _statement(bundle: bytes) -> dict[str, object]:
 def _check_statement(
     statement: dict[str, object], record: WheelEvidenceAdmission, filename: str, digest: str
 ) -> None:
+    """Check an attestation statement against a supplied wheel admission claim.
+
+    Both profiles require the in-toto type and an exact single-wheel subject whose
+    supplied SHA-256 digest equals ``digest``. Bootstrap records accept only a
+    ``None`` or empty publication predicate, while source records require the
+    exact SLSA build fields, builder, canonical build-parameter digest, and ordered
+    source materials. This function checks claims only; it does not authenticate
+    signatures or download or hash wheel/source bytes.
+
+    Args:
+        statement: Model-independent in-toto statement decoded from a bundle.
+        record: Parsed wheel admission whose expected identities and claims are used.
+        filename: Locked wheel filename expected in the statement subject.
+        digest: Supplied lowercase wheel digest expected in the subject.
+
+    Raises:
+        DependencyAdmissionError: If the statement type, subject, profile-specific
+            predicate, builder, parameters, or source materials do not match.
+    """
     predicate_type = (
         _PUBLICATION_TYPE if isinstance(record, BootstrapWheelAdmission) else _PREDICATE_TYPE
     )
@@ -289,6 +518,31 @@ def _check_statement(
 
 
 def _cosign(arguments: list[str], executable: str) -> str:
+    """Run the supplied Cosign executable with bounded returned diagnostics.
+
+    The command uses the supplied argv without a shell, writes combined stdout and
+    stderr to a temporary file, passes only the current ``PATH`` in its environment,
+    and uses a 60-second subprocess timeout. The child may write an unbounded amount
+    to the temporary file; after completion this helper reads only the first 4,000
+    text characters for its returned diagnostic or failure message. Local
+    trusted-root and bundle arguments do not imply offline execution because no
+    offline flag is added here. Executable discovery and version pinning are
+    performed by the caller.
+
+    Args:
+        arguments: Fixed Cosign arguments supplied by the caller.
+        executable: Resolved Cosign executable path.
+
+    Returns:
+        The first 4,000 characters of combined process output when the exit status
+        is zero.
+
+    Raises:
+        DependencyAdmissionError: If process startup/output handling fails, the
+            process times out, or Cosign exits nonzero. Startup, Unicode, and
+            timeout failures are translated and chained; a nonzero status retains
+            the bounded diagnostic text.
+    """
     # Keep diagnostics bounded; the verifier uses pinned local trust material and no shell.
     try:
         with tempfile.TemporaryFile(mode="w+") as output:
@@ -313,7 +567,33 @@ def _cosign(arguments: list[str], executable: str) -> str:
 def verify_wheel_sources(
     root: Path, locked: dict[str, object], record: WheelSourceAdmission
 ) -> None:
-    """Check every locked wheel's materials and authenticate the same bytes with Cosign."""
+    """Verify a source-bound wheel admission against the complete locked wheel set.
+
+    The lock must omit ``sdist`` and contain wheels from ``files.pythonhosted.org`` with exactly
+    the filenames and supplied ``sha256:`` digests declared by ``record``. The
+    record must already have been admitted by ``parse_wheel_sources``; this
+    verifier does not repeat that parser's full cross-record validation. After
+    lock checks, it reads the retained trust root, resolves the PATH-discovered Cosign
+    executable, stages the private trust root, and checks the reported version
+    before reading any wheel bundle. Each bundle's in-toto/SLSA claims are checked
+    before its signature call. It authenticates the supplied wheel digest; this
+    function does not download or hash wheel or source-archive bytes. Cosign is
+    invoked without a shell and with a PATH-only environment, but no offline flag
+    is added by this module.
+
+    Args:
+        root: Repository or fixture root containing retained evidence files.
+        locked: Parsed lock record for one package, including its ``wheels`` list.
+        record: Admission previously returned by ``parse_wheel_sources``; the
+            verifier assumes its parser-level cross-record checks have passed.
+
+    Raises:
+        DependencyAdmissionError: If the lock, local evidence, attestation claims,
+            Cosign path/version, or signature verification fails. Evidence and
+            Cosign process failures are translated at their helper boundaries.
+        OSError: If temporary staging or other uncaught filesystem operations fail.
+        ValueError: If URL parsing rejects malformed authority syntax in the lock.
+    """
     _verify_wheel_evidence(root, locked, record)
 
 
@@ -324,7 +604,34 @@ def verify_bootstrap_wheels(
     *,
     validation_date: date,
 ) -> None:
-    """Authenticate publication only after current bootstrap review evidence passes."""
+    """Verify a bounded publication-only bootstrap admission in ordered stages.
+
+    The caller-supplied ``validation_date`` must be within the inclusive
+    ``reviewed_on`` through ``expires_on`` interval. Date checking runs first,
+    followed by non-empty digest-checked reads of the four review reports in their
+    fixed order; only then does the shared lock, publication-subject, and Cosign
+    verification run. The record must already have been admitted by
+    ``parse_bootstrap_wheels``; this verifier does not repeat that parser's full
+    cross-record validation. Bootstrap publication authentication does not prove
+    the missing source-to-wheel binding. This function authenticates supplied
+    wheel digests and does not download or hash wheel or source-archive bytes.
+
+    Args:
+        root: Repository or fixture root containing retained evidence files.
+        locked: Parsed lock record for one package, including its ``wheels`` list.
+        record: Admission previously returned by ``parse_bootstrap_wheels`` with
+            bounded review evidence; parser-level checks are assumed complete.
+        validation_date: Caller-supplied date evaluated inclusively against the
+            record's review and expiry dates.
+
+    Raises:
+        DependencyAdmissionError: If the review window, review evidence, lock,
+            publication statement, Cosign identity/version, or signature check
+            fails. Evidence and Cosign process failures are translated at their
+            helper boundaries.
+        OSError: If temporary staging or other uncaught filesystem operations fail.
+        ValueError: If URL parsing rejects malformed authority syntax in the lock.
+    """
     if not record.reviewed_on <= validation_date <= record.expires_on:
         raise DependencyAdmissionError(
             [f"bootstrap finding {record.finding_id} is expired or not yet effective"]
@@ -338,6 +645,34 @@ def verify_bootstrap_wheels(
 def _verify_wheel_evidence(
     root: Path, locked: dict[str, object], record: WheelEvidenceAdmission
 ) -> None:
+    """Verify shared lock coverage, attestation claims, and Cosign signatures.
+
+    The lock must omit ``sdist`` and contain wheel URLs hosted on ``files.pythonhosted.org``
+    with unique filenames. Its exact filename-to-digest mapping must equal the
+    supplied ``record.wheels`` mapping; the supplied digests are compared and
+    passed to Cosign rather than recomputed from downloaded wheel bytes. After the
+    lock checks, the trust-root evidence is read, the PATH-discovered Cosign executable is
+    resolved, the trust root is copied into a private temporary directory, and the
+    reported Cosign version is checked. Only then is each bundle read in wheel
+    order, its statement claims checked, and its private copy sent to the signature
+    call.
+
+    Args:
+        root: Repository or fixture root containing retained trust and bundle files.
+        locked: Parsed package-lock object expected to contain a wheel list.
+        record: Parser-admitted, model-validated wheel admission whose expected
+            digests and identities are compared with the lock and attestation claims.
+
+    Raises:
+        DependencyAdmissionError: If the lock is not wheel-only, its wheel set or
+            wheel artifact host is unapproved, local evidence is invalid, Cosign
+            is unavailable or unpinned, statements mismatch, or any signature
+            fails. Helper-level process and evidence failures are translated and
+            chained.
+        OSError: If temporary staging writes or other uncaught filesystem operations
+            fail outside those helper boundaries.
+        ValueError: If URL parsing rejects malformed authority syntax in the lock.
+    """
     if "sdist" in locked:
         raise DependencyAdmissionError(["wheel-only admission cannot replace an existing sdist"])
     wheels = locked.get("wheels")

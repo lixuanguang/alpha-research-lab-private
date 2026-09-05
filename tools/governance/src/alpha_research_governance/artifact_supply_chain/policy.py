@@ -123,7 +123,24 @@ _ARTIFACT_SUPPLY_CHAIN_EVIDENCE_PROFILE = PackageEvidenceProfile(
 
 
 def compute_regular_file_sha256(file_path: Path) -> str:
-    """Return the SHA-256 digest of a regular file without following symlinks."""
+    """Hash the bytes read from a final path component admitted as a regular file.
+
+    The final component is checked with ``is_symlink()`` and ``is_file()`` before
+    opening it. This is a non-atomic filesystem admission check: parent-directory
+    symlinks are followed, and a concurrent replacement can occur between the
+    check and the read. The function does not constrain the path to the repository.
+
+    Args:
+        file_path: Path to the file whose complete contents should be hashed.
+
+    Returns:
+        The lowercase hexadecimal SHA-256 digest of the bytes read from the file.
+
+    Raises:
+        ArtifactSupplyChainError: If the final path component is missing, is not a
+            regular file, or is a symlink.
+        OSError: If filesystem inspection, opening, or reading the path fails.
+    """
     if file_path.is_symlink() or not file_path.is_file():
         raise ArtifactSupplyChainError([f"required regular file is missing or unsafe: {file_path}"])
     digest = hashlib.sha256()
@@ -134,12 +151,39 @@ def compute_regular_file_sha256(file_path: Path) -> str:
 
 
 def _require_toml_table(value: object, *, context: str) -> dict[str, object]:
+    """Require a runtime dictionary for one parsed TOML table.
+
+    Args:
+        value: Parsed value expected to be a ``dict``. The object is returned as
+            supplied; this helper does not copy or recursively validate it.
+        context: TOML location used in a validation error message.
+
+    Returns:
+        The same dictionary object, typed for subsequent field inspection.
+
+    Raises:
+        ArtifactSupplyChainError: If ``value`` is not a dictionary.
+    """
     if not isinstance(value, dict):
         raise ArtifactSupplyChainError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
 def _require_toml_table_array(value: object, *, context: str) -> list[dict[str, object]]:
+    """Require an ordered list whose every item is a parsed TOML table.
+
+    Args:
+        value: Parsed value expected to be a list of dictionaries. The list may
+            be empty and its items are not copied or recursively validated here.
+        context: TOML location used in a validation error message.
+
+    Returns:
+        The same list object, typed for subsequent field inspection, with item
+        order preserved.
+
+    Raises:
+        ArtifactSupplyChainError: If ``value`` is not a list of dictionaries.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise ArtifactSupplyChainError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
@@ -148,6 +192,20 @@ def _require_toml_table_array(value: object, *, context: str) -> list[dict[str, 
 def _require_unique_string_tuple(
     value: object, *, context: str, allow_empty: bool = False
 ) -> tuple[str, ...]:
+    """Require an ordered list of distinct, non-empty strings.
+
+    Args:
+        value: Parsed value expected to be a list of non-empty strings.
+        context: TOML location used in a validation error message.
+        allow_empty: Whether an empty list is accepted. The default is ``False``.
+
+    Returns:
+        A tuple containing the strings in their input order.
+
+    Raises:
+        ArtifactSupplyChainError: If the value is not a list of non-empty strings,
+            is empty while ``allow_empty`` is false, or contains duplicates.
+    """
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise ArtifactSupplyChainError([f"{context} must contain non-empty strings"])
     result = tuple(cast(list[str], value))
@@ -157,6 +215,19 @@ def _require_unique_string_tuple(
 
 
 def _require_nonempty_string_field(table: dict[str, object], key: str, *, context: str) -> str:
+    """Require a present, non-empty string field without normalizing its value.
+
+    Args:
+        table: Parsed TOML table containing the field.
+        key: Field name to retrieve.
+        context: TOML location used in a validation error message.
+
+    Returns:
+        The field value unchanged, including whitespace that was supplied.
+
+    Raises:
+        ArtifactSupplyChainError: If the field is absent, not a string, or empty.
+    """
     value = table.get(key)
     if not isinstance(value, str) or not value:
         raise ArtifactSupplyChainError([f"{context}.{key} must be a non-empty string"])
@@ -164,6 +235,22 @@ def _require_nonempty_string_field(table: dict[str, object], key: str, *, contex
 
 
 def _require_positive_integer_field(table: dict[str, object], key: str, *, context: str) -> int:
+    """Require an integer field whose value is at least one.
+
+    Boolean values are rejected even though ``bool`` is an ``int`` subclass.
+
+    Args:
+        table: Parsed TOML table containing the field.
+        key: Field name to retrieve.
+        context: TOML location used in a validation error message.
+
+    Returns:
+        The positive integer value unchanged.
+
+    Raises:
+        ArtifactSupplyChainError: If the field is absent, is not an integer, is
+            boolean, or is less than one.
+    """
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ArtifactSupplyChainError([f"{context}.{key} must be a positive integer"])
@@ -171,6 +258,24 @@ def _require_positive_integer_field(table: dict[str, object], key: str, *, conte
 
 
 def _require_safe_repository_relative_path(value: str, *, context: str) -> str:
+    """Require a lexically repository-relative POSIX path.
+
+    This check compares ``PurePosixPath.as_posix()`` with the supplied text and
+    rejects absolute paths and any ``..`` component. It does not resolve the path,
+    inspect the filesystem, reject symlinks, or establish containment after
+    resolution; ``.`` is accepted as a relative path.
+
+    Args:
+        value: Path text to check.
+        context: Policy field used in a validation error message.
+
+    Returns:
+        The original path text unchanged.
+
+    Raises:
+        ArtifactSupplyChainError: If the path is absolute, non-canonical under
+            ``PurePosixPath``, or contains a parent-directory component.
+    """
     path = PurePosixPath(value)
     if path.is_absolute() or path.as_posix() != value or ".." in path.parts:
         raise ArtifactSupplyChainError([f"{context} must stay inside the repository"])
@@ -178,6 +283,24 @@ def _require_safe_repository_relative_path(value: str, *, context: str) -> str:
 
 
 def _parse_artifact_tool(tool_table: dict[str, object], *, tool_name: str) -> ArtifactTool:
+    """Parse one closed artifact-tool declaration.
+
+    The command must match the lowercase executable-name pattern and the version
+    must be non-empty and free of the case-insensitive substring ``latest``. Exact
+    Syft and Cosign identities are checked by ``load_policy`` after this parser.
+
+    Args:
+        tool_table: Parsed ``[tools.<tool_name>]`` table.
+        tool_name: Tool key used in validation error messages.
+
+    Returns:
+        An ``ArtifactTool`` retaining the supplied command and version strings.
+
+    Raises:
+        ArtifactSupplyChainError: If the table has missing or additional fields,
+            either field is empty or not a string, or the command or version is
+            unsafe or floating.
+    """
     if set(tool_table) != _POLICY_TOOL_KEYS:
         raise ArtifactSupplyChainError([f"tools.{tool_name} has missing or unknown fields"])
     command = _require_nonempty_string_field(tool_table, "command", context=f"tools.{tool_name}")
@@ -188,7 +311,36 @@ def _parse_artifact_tool(tool_table: dict[str, object], *, tool_name: str) -> Ar
 
 
 def load_policy(policy_path: Path) -> ArtifactSupplyChainPolicy:
-    """Load a closed, syntactically and semantically valid B08 policy."""
+    """Load and validate the closed B08 artifact supply-chain policy.
+
+    The file is read as UTF-8 TOML. Admission requires the exact root and nested
+    table schemas, B08 metadata and ordered gate/artifact/finding values, the
+    protected-main signing environment, the locked Syft ``1.51.1`` and Cosign
+    ``3.1.3`` identities, the four ordered build locks, lowercase digests, lexically safe
+    repository-relative paths, expected SPDX/SLSA and builder identities, and
+    date values where ``review_due_on`` follows ``as_of_date``. The loader does
+    not compare dates with the current date or verify referenced file contents.
+
+    Args:
+        policy_path: TOML policy file to read.
+
+    Returns:
+        An immutable ``ArtifactSupplyChainPolicy`` populated from the admitted
+        policy and the module's fixed B08 contract values.
+
+    Raises:
+        ArtifactSupplyChainError: If TOML is malformed or an explicit schema,
+            field, ordering, identity, digest, date, or B08 contract check fails.
+            TOML decoding failures are translated and chained from the decoder
+            exception. A type or model-construction failure that is not explicitly
+            raised by this loader can propagate from the parsed values.
+        OSError: If the policy path cannot be opened or read.
+        UnicodeDecodeError: If the policy is not valid UTF-8.
+        TypeError: If parsed dates and datetimes, or datetimes with incompatible
+            timezone awareness, cannot be ordered.
+        pydantic.ValidationError: If the immutable policy model rejects a value
+            that reached construction.
+    """
     try:
         policy_document = _require_toml_table(
             tomllib.loads(policy_path.read_text(encoding="utf-8")), context=str(policy_path)
@@ -437,7 +589,37 @@ def load_policy(policy_path: Path) -> ArtifactSupplyChainPolicy:
 
 
 def validate_repository(repository_root: Path) -> ArtifactSupplyChainPolicy:
-    """Validate B08 policy, pinned identities, integration, and local evidence."""
+    """Validate the repository against its admitted B08 policy and evidence.
+
+    The resolved root supplies the policy, four lockfiles, toolchain registry,
+    integration files, change-risk policy, and local evidence manifest. Validation
+    checks lock and toolchain digests, admitted Syft/Cosign versions, required
+    integration fragments, signer revocation, the manifest's expected commit and
+    change-risk binding, package evidence, and the exact additional ``QG15`` gate.
+    Lock-file absence or digest drift is accumulated with other findings; an
+    unsafe or missing toolchain file fails when its digest is computed.
+
+    Args:
+        repository_root: Repository root whose B08 files and evidence are checked.
+
+    Returns:
+        The loaded ``ArtifactSupplyChainPolicy`` when every repository check passes.
+
+    Raises:
+        ArtifactSupplyChainError: If the policy is invalid, repository identities or
+            integration fragments drift, findings are accumulated, toolchain parsing
+            fails, the signer is revoked, or evidence validation fails. Evidence
+            and toolchain-registry failures are translated and chained. An
+            ``ArtifactSupplyChainError`` from a lock-file digest check is accumulated
+            in the final findings; digest-check I/O errors propagate.
+        OSError: If the policy, lockfile, toolchain file, or integration files cannot
+            be inspected or read. Toolchain-registry and evidence read failures are
+            translated where this function catches them.
+        UnicodeDecodeError: If an uncaught repository text file is not UTF-8.
+        TypeError: If the initial policy loader cannot compare its parsed date values.
+        pydantic.ValidationError: If the initial policy loader's immutable model rejects
+            a value. Such errors inside the final evidence block are translated.
+    """
     resolved_repository_root = repository_root.resolve()
     artifact_supply_chain_policy = load_policy(
         resolved_repository_root / "docs/architecture/artifact-supply-chain.toml"
