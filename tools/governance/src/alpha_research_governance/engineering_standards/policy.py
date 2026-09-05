@@ -20,6 +20,7 @@ from alpha_research_governance.engineering_standards.models import (
     LanguageStandard,
     ToolStandard,
 )
+from alpha_research_governance.engineering_standards.python_debt import PythonStandardsChecker
 from alpha_research_governance.evidence import (
     EvidenceGovernanceError,
     PackageEvidenceProfile,
@@ -730,6 +731,13 @@ def validate_repository(
         context="pyproject.toml",
     )
     tool_configuration = _table(pyproject.get("tool"), context="pyproject.toml.tool")
+    mypy_configuration = _table(tool_configuration.get("mypy"), context="pyproject.toml.tool.mypy")
+    if mypy_configuration.get("strict") is not True:
+        findings.append("Python migration must retain strict mypy checking")
+    ruff_configuration = _table(tool_configuration.get("ruff"), context="pyproject.toml.tool.ruff")
+    ruff_lint = _table(ruff_configuration.get("lint"), context="pyproject.toml.tool.ruff.lint")
+    if "I" not in _strings(ruff_lint.get("select"), context="Ruff selected rules"):
+        findings.append("Python migration must retain Ruff import sorting")
     pytest_config = _table(tool_configuration.get("pytest"), context="pyproject.toml.tool.pytest")
     pytest_options = _table(
         pytest_config.get("ini_options"), context="pyproject.toml.tool.pytest.ini_options"
@@ -753,6 +761,13 @@ def validate_repository(
         findings.append("Python language baseline must remain 3.12.14")
 
     owner_roles = _owner_roles(root / "docs/governance/domain-ownership.toml")
+    findings.extend(
+        PythonStandardsChecker(
+            source_roots=standards.source_roots,
+            owner_roles=owner_roles,
+            validation_date=today,
+        ).findings(root)
+    )
     findings.extend(
         source_tree_findings(
             root,

@@ -146,6 +146,8 @@ filegroup(
     srcs = [
         "docs/architecture/engineering-standards.toml",
         "docs/architecture/engineering-tool-dependencies.toml",
+        "docs/architecture/python-standards-debt.json",
+        "docs/architecture/python-standards-exceptions.toml",
         "uv.lock",
     ],
     visibility = ["//tests/engineering:__pkg__"],

@@ -56,7 +56,14 @@ may be no more than 180 days after validation. Pytest warnings are errors.
 - Import-time work MUST be bounded and free of operational side effects: do not
   perform network access, bulk data loading, process creation, registration with
   external systems, or other operational actions merely by importing a module.
-- Import groups are standard library, third party, then local application code.
+- Every nonempty import category MUST use its exact heading comment:
+  `# standard library imports`, `# third party library imports`, or
+  `# project library imports`. Separate every nonempty group with a blank line.
+  Keep `__future__` imports immediately after the module docstring in their own
+  group, before the headed groups. Treat `alpha_research` and
+  `alpha_research_governance` as first-party project imports. Apply the same
+  headings, ordering, and blank-line rules to relative imports and to imports
+  guarded by `TYPE_CHECKING`; do not add headings for empty categories.
 - Use absolute imports across packages. Relative imports MAY be used within a
   cohesive private subpackage when they improve stability.
 - Never use wildcard imports.
@@ -119,8 +126,16 @@ Additional rules:
   models over unstructured dictionaries and tuples.
 - Use `Protocol` for behavioral structural contracts. Use abstract base classes
   only when shared runtime behavior or nominal registration is required.
-- `Any` is allowed only at an untyped boundary. Contain it, validate/narrow it
-  immediately, and do not let it propagate into domain logic.
+- Owned source and tests MUST NOT use explicit `Any`, including aliases,
+  qualified references, container members, type aliases, or quoted annotations.
+  This is a source-level rule and applies to `src`, `tests`, and governance
+  tooling. Parse untyped boundary data as `object`, validate and narrow it
+  immediately, and construct a precise owned type.
+- Keep the configured strict `mypy` check across all current scopes: `src`,
+  `tests`, and governance tooling. The explicit-`Any` rule does not newly make
+  every inferred library `Any` diagnostic a global failure; those boundary
+  diagnostics remain a measured, unresolved step-4 inventory until their
+  libraries or adapters are typed.
 - Do not use `cast` to make an unsafe value appear valid. A cast requires an
   invariant the type checker cannot express and that the code actually establishes.
 - Use `TypeGuard` or explicit validation for reusable narrowing logic.
@@ -136,7 +151,8 @@ Additional rules:
 
 ## Functions and control flow
 
-- Prefer pure functions for transformations and calculations.
+- Keep transformations and calculations pure where possible, whether expressed
+  as methods or justified low-level functions.
 - Do not mutate an input unless mutation is the explicit contract and is evident
   from the name or type.
 - Never use a mutable object as a default parameter.
@@ -154,8 +170,14 @@ Additional rules:
 
 ## Classes and object design
 
-- Use a class when state and behavior share invariants. Prefer a function or
-  module for stateless behavior.
+- Prefer a cohesive class for high-level domain, policy, validation, loading,
+  and orchestration operations, with typed collaborators and explicit state
+  ownership. Use a class when state and behavior share invariants.
+- A low-level parser, arithmetic kernel, predicate, required framework or CLI
+  callback, or temporary compatibility wrapper MAY remain a module-level
+  function only with an explicit low-level, framework, or compatibility
+  rationale recorded for the function. Do not enforce this preference with a
+  class-to-function ratio or a blanket class requirement.
 - Favor composition over inheritance and keep inheritance trees shallow.
 - Constructors establish valid objects. Fallible I/O or complex parsing belongs
   in a named factory or boundary service.
@@ -252,15 +274,26 @@ Additional rules:
 
 ## Documentation
 
-- Public modules, classes, functions, and methods MUST have useful docstrings unless
-  the contract is entirely obvious and already documented by an inherited protocol.
-- Use an imperative one-line summary. Add sections for parameters, returns, raises,
-  examples, units, and side effects when they add information.
-- A docstring MUST describe semantics rather than repeat annotations.
+- Every module, class, and named function, including methods and private helpers,
+  MUST have a concise Google-style summary. Simple private helpers and tests MAY
+  use a useful one-line summary. Public APIs MUST include every applicable
+  `Args:`, `Returns:` or `Yields:`, and `Raises:` section; document units, time
+  semantics, state changes, I/O, and failure conditions where they affect use.
+  An inherited protocol contract is an exception only when recorded in the
+  standards exception inventory with its source fingerprint.
+- Use an imperative one-line summary and Google section headings. A summary MUST
+  describe semantics rather than repeat annotations. Reviewers remain responsible
+  for the meaning and completeness of prose; metadata checks cannot prove that
+  justification.
 - Non-obvious algorithms SHOULD cite a stable paper, specification, or issue and
   document deviations from it.
 - Comments for type/lint suppression MUST use the tool's error code, be scoped to
   the affected line, and carry the required owner/rationale/expiry suffix.
+
+While legacy documentation debt remains, do not enable Ruff `D` or `ANN` as a
+blanket global requirement. Enforce the audited scopes through the existing
+standards checker and its exact debt and exception records, then expand the
+active Ruff selection as debt is retired.
 
 ## Testing
 
