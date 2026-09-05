@@ -10,8 +10,8 @@ import re
 import subprocess
 import sys
 import tomllib
+from copy import deepcopy
 from pathlib import Path, PurePosixPath
-from typing import Any
 
 EXPECTED_SYSTEMS = ["aarch64-darwin", "x86_64-linux"]
 EXPECTED_TOOLS = {
@@ -30,6 +30,7 @@ EXPECTED_NIXPKGS_NAR_HASH = "sha256-hn1oU2rue2SYK8dAr8+WNZWtbsz1S2W5mnHlSEuh3bo=
 
 
 def _roadmap_named_implementation_tokens(text: str) -> list[str]:
+    """Find roadmap selectors that must not become implementation target names."""
     patterns = (
         re.compile(r"\b[A-L][0-9]{2}_[A-Z][A-Z0-9_]*\b"),
         re.compile(r"//:[a-l][0-9]{2}[a-z0-9_]*\b"),
@@ -42,11 +43,15 @@ def _roadmap_named_implementation_tokens(text: str) -> list[str]:
 
 
 def _repository_root() -> Path:
+    """Resolve the repository data tree supplied by Bazel runfiles."""
     runfiles = Path(os.environ["TEST_SRCDIR"])
     return runfiles / os.environ["TEST_WORKSPACE"]
 
 
-def _contract_errors(document: dict[str, Any]) -> list[str]:
+def _contract_errors(document: object) -> list[str]:
+    """Validate raw TOML tables and narrow tool fields before checking pinned values."""
+    if not isinstance(document, dict):
+        return ["developer-environment contract must be a table"]
     errors: list[str] = []
     exact_header = {
         "schema_version": 1,
@@ -67,7 +72,7 @@ def _contract_errors(document: dict[str, Any]) -> list[str]:
         if document.get(field) != expected:
             errors.append(f"{field} must equal {expected!r}")
 
-    tools = document.get("tools")
+    tools: object = document.get("tools")
     if not isinstance(tools, list):
         return [*errors, "tools must be an array of tables"]
     observed: dict[str, str] = {}
@@ -92,12 +97,13 @@ def _contract_errors(document: dict[str, Any]) -> list[str]:
         r"|^release-artifacts:[a-z0-9_-]+=[0-9a-f]{64}"
         r"(?:,[a-z0-9_-]+=[0-9a-f]{64})+$"
     )
+    tool: object
     for index, tool in enumerate(tools, 1):
         if not isinstance(tool, dict) or set(tool) != required_fields:
             errors.append(f"tools[{index}] fields drifted")
             continue
-        tool_id = tool["tool_id"]
-        version = tool["version"]
+        tool_id: object = tool["tool_id"]
+        version: object = tool["version"]
         if not isinstance(tool_id, str) or tool_id in observed:
             errors.append(f"tools[{index}] has an invalid or duplicate ID")
             continue
@@ -107,10 +113,10 @@ def _contract_errors(document: dict[str, Any]) -> list[str]:
         observed[tool_id] = version
         if tool["supported_systems"] != EXPECTED_SYSTEMS:
             errors.append(f"{tool_id}: supported systems drifted")
-        digest = tool["source_digest"]
+        digest: object = tool["source_digest"]
         if not isinstance(digest, str) or digest_pattern.fullmatch(digest) is None:
             errors.append(f"{tool_id}: source digest is not immutable")
-        source_url = tool["source_url"]
+        source_url: object = tool["source_url"]
         if not isinstance(source_url, str) or not source_url.startswith("https://"):
             errors.append(f"{tool_id}: source URL must be HTTPS")
         if not isinstance(tool["transitive_native_dependencies"], list):
@@ -132,12 +138,25 @@ def _contract_errors(document: dict[str, Any]) -> list[str]:
     return errors
 
 
-def _flake_lock_errors(document: dict[str, Any]) -> list[str]:
-    try:
-        locked = document["nodes"]["nixpkgs"]["locked"]
-        original = document["nodes"]["nixpkgs"]["original"]
-        root_inputs = document["nodes"]["root"]["inputs"]
-    except (KeyError, TypeError):
+def _flake_lock_errors(document: object) -> list[str]:
+    """Check raw JSON mapping shapes before comparing the reviewed flake identity."""
+    if not isinstance(document, dict):
+        return ["flake lock structure is incomplete"]
+    nodes: object = document.get("nodes")
+    if not isinstance(nodes, dict):
+        return ["flake lock structure is incomplete"]
+    nixpkgs: object = nodes.get("nixpkgs")
+    root: object = nodes.get("root")
+    if not isinstance(nixpkgs, dict) or not isinstance(root, dict):
+        return ["flake lock structure is incomplete"]
+    locked: object = nixpkgs.get("locked")
+    original: object = nixpkgs.get("original")
+    root_inputs: object = root.get("inputs")
+    if (
+        not isinstance(locked, dict)
+        or not isinstance(original, dict)
+        or not isinstance(root_inputs, dict)
+    ):
         return ["flake lock structure is incomplete"]
     errors: list[str] = []
     if document.get("version") != 7:
@@ -159,6 +178,7 @@ def _flake_lock_errors(document: dict[str, Any]) -> list[str]:
 
 
 def _assert_script_failure(script: Path, argument: str, expected: str) -> None:
+    """Require the bootstrap command to fail with the intended diagnostic."""
     completed = subprocess.run(
         ["bash", str(script), argument],
         check=False,
@@ -173,6 +193,7 @@ def _assert_script_failure(script: Path, argument: str, expected: str) -> None:
 
 
 def _report_artifact_path(bundle_root: Path, value: object) -> Path | None:
+    """Narrow an artifact name to a normalized path confined to the reports directory."""
     if not isinstance(value, str):
         return None
     relative = PurePosixPath(value)
@@ -188,6 +209,7 @@ def _report_artifact_path(bundle_root: Path, value: object) -> Path | None:
 
 
 def _evidence_errors(root: Path) -> list[str]:
+    """Check local evidence identities, gates and report digests for this environment."""
     bundle_root = root / "docs/governance/evidence/examples/b03-r2-partial"
     manifest_path = bundle_root / "manifest.toml"
     if not manifest_path.is_file():
@@ -258,10 +280,18 @@ def _evidence_errors(root: Path) -> list[str]:
 
 
 def main() -> int:
+    """Check pinned environment files and exercise malformed-input rejection.
+
+    Returns:
+        Zero on success, or one after writing contract errors to standard error.
+
+    Raises:
+        AssertionError: A bootstrap or mutation fixture violates its required contract.
+    """
     root = _repository_root()
     contract_path = root / "environments/dev/toolchain.toml"
-    contract = tomllib.loads(contract_path.read_text(encoding="utf-8"))
-    lock = json.loads((root / "flake.lock").read_text(encoding="utf-8"))
+    contract: object = tomllib.loads(contract_path.read_text(encoding="utf-8"))
+    lock: object = json.loads((root / "flake.lock").read_text(encoding="utf-8"))
     errors = _contract_errors(contract) + _flake_lock_errors(lock) + _evidence_errors(root)
 
     flake = (root / "flake.nix").read_text(encoding="utf-8")
@@ -292,18 +322,45 @@ def main() -> int:
     if (root / ".envrc").read_text(encoding="utf-8").strip() != ("use flake --no-write-lock-file"):
         errors.append("direnv must consume the locked flake without rewriting it")
 
-    duplicate = tomllib.loads(contract_path.read_text(encoding="utf-8"))
-    duplicate["tools"].append(dict(duplicate["tools"][0]))
+    assert isinstance(contract, dict)
+    duplicate = deepcopy(contract)
+    duplicate_tools: object = duplicate.get("tools")
+    assert isinstance(duplicate_tools, list) and duplicate_tools
+    duplicate_tool: object = duplicate_tools[0]
+    assert isinstance(duplicate_tool, dict)
+    duplicate_tools.append(duplicate_tool.copy())
     if not any("duplicate ID" in error for error in _contract_errors(duplicate)):
         errors.append("duplicate tool IDs must fail closed")
-    unsupported = tomllib.loads(contract_path.read_text(encoding="utf-8"))
+    unsupported = deepcopy(contract)
     unsupported["supported_systems"] = [*EXPECTED_SYSTEMS, "aarch64-linux"]
     if not any("supported_systems" in error for error in _contract_errors(unsupported)):
         errors.append("an unsupported platform must fail closed")
-    floating = tomllib.loads(contract_path.read_text(encoding="utf-8"))
-    floating["tools"][0]["version"] = "latest"
+    floating = deepcopy(contract)
+    floating_tools: object = floating.get("tools")
+    assert isinstance(floating_tools, list) and floating_tools
+    floating_tool: object = floating_tools[0]
+    assert isinstance(floating_tool, dict)
+    floating_tool["version"] = "latest"
     if not any("non-floating" in error for error in _contract_errors(floating)):
         errors.append("a floating tool version must fail closed")
+
+    malformed: object
+    malformed_lock: object
+    for malformed in (None, [], "invalid", 7, True):
+        if not _contract_errors(malformed) or not _contract_errors({"tools": malformed}):
+            errors.append("malformed contract tables must fail closed")
+        for malformed_lock in (
+            malformed,
+            {},
+            {"nodes": malformed},
+            {"nodes": {"nixpkgs": malformed, "root": {"inputs": {}}}},
+            {"nodes": {"nixpkgs": {}, "root": malformed}},
+            {"nodes": {"nixpkgs": {"locked": malformed, "original": {}}, "root": {"inputs": {}}}},
+            {"nodes": {"nixpkgs": {"locked": {}, "original": malformed}, "root": {"inputs": {}}}},
+            {"nodes": {"nixpkgs": {"locked": {}, "original": {}}, "root": {"inputs": malformed}}},
+        ):
+            if _flake_lock_errors(malformed_lock) != ["flake lock structure is incomplete"]:
+                errors.append("malformed flake lock tables must fail closed")
 
     script = root / "environments/dev/bootstrap.sh"
     script_text = script.read_text(encoding="utf-8")
