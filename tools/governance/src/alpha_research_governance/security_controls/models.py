@@ -1,4 +1,9 @@
-"""Define domain models for the threat and regulatory control map."""
+"""Define domain models for the threat and regulatory control map.
+
+These immutable records and serializers perform no file or network I/O.
+Registry loading establishes cross-record references, policy constraints and
+evidence consistency; direct construction validates strict field types only.
+"""
 
 from __future__ import annotations
 
@@ -10,15 +15,31 @@ from alpha_research_governance._models import ImmutableModel
 
 
 class SecurityControlError(ValueError):
-    """Report one or more deterministic security-control findings."""
+    """Report ordered security-control findings in one exception.
+
+    Attributes:
+        findings: Immutable tuple preserving supplied diagnostic order and duplicates.
+    """
 
     def __init__(self, findings: list[str] | tuple[str, ...]) -> None:
+        """Retain findings and join them into the exception message.
+
+        Args:
+            findings: Messages copied to a tuple and joined with newlines, without sorting.
+        """
         self.findings = tuple(findings)
         super().__init__("\n".join(self.findings))
 
 
 class ProtectedAsset(ImmutableModel):
-    """One governed asset or authority represented in the threat model."""
+    """Identify a governed asset or authority and its security objectives.
+
+    Attributes:
+        asset_id: Asset key used by boundaries and threats.
+        name: Human-readable asset name.
+        owner_role: Role accountable for protecting the asset.
+        security_objectives: Declared objectives in source order.
+    """
 
     asset_id: str
     name: str
@@ -26,7 +47,12 @@ class ProtectedAsset(ImmutableModel):
     security_objectives: tuple[str, ...]
 
     def as_json(self) -> dict[str, object]:
-        """Return a stable JSON representation."""
+        """Return the stable JSON-compatible record representation.
+
+        Returns:
+            A fresh dictionary of the record fields with security_objectives copied to a list.
+            Source order and scalar values are preserved; no JSON text is encoded.
+        """
         return {
             "asset_id": self.asset_id,
             "name": self.name,
@@ -36,7 +62,19 @@ class ProtectedAsset(ImmutableModel):
 
 
 class TrustBoundary(ImmutableModel):
-    """One change in trust, authority, or security zone."""
+    """Describe a declared change in trust, authority or security zone.
+
+    Attributes:
+        boundary_id: Boundary key used by threat scenarios.
+        name: Human-readable boundary name.
+        source_zone: Zone from which the interaction originates.
+        destination_zone: Zone entered by the interaction; the loader checks that zones
+            differ.
+        asset_ids: Assets affected by the crossing.
+        trust_change: Explanation of the authority or trust transition.
+        owner_role: Role accountable for the boundary.
+        control_ids: Controls assigned to the boundary.
+    """
 
     boundary_id: str
     name: str
@@ -48,7 +86,12 @@ class TrustBoundary(ImmutableModel):
     control_ids: tuple[str, ...]
 
     def as_json(self) -> dict[str, object]:
-        """Return a stable JSON representation."""
+        """Return the stable JSON-compatible record representation.
+
+        Returns:
+            A fresh dictionary of the record fields with asset_ids and control_ids copied to
+            lists. Source order and scalar values are preserved; no JSON text is encoded.
+        """
         return {
             "asset_ids": list(self.asset_ids),
             "boundary_id": self.boundary_id,
@@ -62,7 +105,20 @@ class TrustBoundary(ImmutableModel):
 
 
 class ThreatScenario(ImmutableModel):
-    """One abuse case with explicit affected assets and controls."""
+    """Bind an abuse scenario to affected assets, boundaries and controls.
+
+    Attributes:
+        threat_id: Stable threat key.
+        title: Human-readable threat title.
+        category: Exact threat-category token used by category queries.
+        actor: Declared actor or actor class.
+        abuse_case: Sequence or misuse represented by the scenario.
+        impact: Declared consequence of successful abuse.
+        boundary_ids: Affected trust boundaries.
+        asset_ids: Affected protected assets.
+        control_ids: Controls mapped to the scenario.
+        owner_role: Role accountable for the threat record.
+    """
 
     threat_id: str
     title: str
@@ -76,7 +132,13 @@ class ThreatScenario(ImmutableModel):
     owner_role: str
 
     def as_json(self) -> dict[str, object]:
-        """Return a stable JSON representation."""
+        """Return the stable JSON-compatible record representation.
+
+        Returns:
+            A fresh dictionary of the record fields with asset_ids, boundary_ids and control_ids
+            copied to lists. Source order and scalar values are preserved; no JSON text is
+            encoded.
+        """
         return {
             "abuse_case": self.abuse_case,
             "actor": self.actor,
@@ -92,7 +154,26 @@ class ThreatScenario(ImmutableModel):
 
 
 class SecurityControl(ImmutableModel):
-    """One owned, testable preventive, detective, or responsive control."""
+    """Describe an owned control and the evidence expected to support it.
+
+    The control-map loader checks role independence, supported functions and
+    status/evidence consistency. This record does not execute the test procedure
+    or establish that the control operates in a deployed environment.
+
+    Attributes:
+        control_id: Stable control key.
+        title: Human-readable control title.
+        domain: Declared control domain.
+        owner_role: Accountable implementation role.
+        independent_review_roles: Roles expected to review independently of the owner.
+        objective: Security outcome the control is intended to achieve.
+        control_functions: Declared prevent, detect, respond or recover functions.
+        implementation_packages: Roadmap packages expected to implement the control.
+        implementation_status: Declared planned or repository_local implementation state.
+        test_procedure: Procedure for checking the control.
+        fail_safe_response: Specified response when the control check fails.
+        evidence_source_ids: Evidence sources used to support the declared state.
+    """
 
     control_id: str
     title: str
@@ -108,7 +189,13 @@ class SecurityControl(ImmutableModel):
     evidence_source_ids: tuple[str, ...]
 
     def as_json(self) -> dict[str, object]:
-        """Return a stable JSON representation."""
+        """Return the stable JSON-compatible record representation.
+
+        Returns:
+            A fresh dictionary of the record fields with control_functions,
+            implementation_packages, independent_review_roles and evidence_source_ids copied to
+            lists. Source order and scalar values are preserved; no JSON text is encoded.
+        """
         return {
             "control_functions": list(self.control_functions),
             "control_id": self.control_id,
@@ -126,7 +213,22 @@ class SecurityControl(ImmutableModel):
 
 
 class EvidenceSource(ImmutableModel):
-    """One available or explicitly deferred source of control evidence."""
+    """Describe available control evidence or its explicit deferral requirements.
+
+    The loader requires available evidence to name a repository file, with no
+    future packages or closure condition. Deferred evidence names prerequisites
+    and a closure condition, with no location. Construction does not inspect files.
+
+    Attributes:
+        evidence_source_id: Evidence-source key used by controls and mappings.
+        name: Human-readable evidence name.
+        source_type: Declared evidence category token.
+        status: available or deferred disposition checked by the loader.
+        owner_role: Role responsible for producing or retaining evidence.
+        location: Repository-relative file path for available evidence, otherwise empty.
+        required_packages: Future prerequisite packages for deferred evidence.
+        closure_condition: What must be established to resolve the deferral.
+    """
 
     evidence_source_id: str
     name: str
@@ -138,7 +240,12 @@ class EvidenceSource(ImmutableModel):
     closure_condition: str
 
     def as_json(self) -> dict[str, object]:
-        """Return a stable JSON representation."""
+        """Return the stable JSON-compatible record representation.
+
+        Returns:
+            A fresh dictionary of the record fields with required_packages copied to a list.
+            Source order and scalar values are preserved; no JSON text is encoded.
+        """
         return {
             "closure_condition": self.closure_condition,
             "evidence_source_id": self.evidence_source_id,
@@ -152,7 +259,24 @@ class EvidenceSource(ImmutableModel):
 
 
 class AuthoritySource(ImmutableModel):
-    """One official legal, supervisory, or reference-framework source."""
+    """Record an authority citation and its declared verification date.
+
+    The loader checks source class, trusted URL shape and verification age.
+    Constructing or serializing the record does not fetch the source or determine
+    legal applicability.
+
+    Attributes:
+        source_id: Authority-source key used by profiles and mappings.
+        jurisdiction_id: Jurisdiction or reference scope to which the source is assigned.
+        authority: Named issuing authority.
+        title: Source title.
+        citation: Citation identifying the referenced material.
+        source_class: Declared statute, binding_rule, supervisory_guidance or
+            reference_framework.
+        url: Recorded official source URL.
+        last_verified_on: Declared verification date, compared with map as_of_date by the
+            loader.
+    """
 
     source_id: str
     jurisdiction_id: str
@@ -164,7 +288,13 @@ class AuthoritySource(ImmutableModel):
     last_verified_on: date
 
     def as_json(self) -> dict[str, object]:
-        """Return a stable JSON representation."""
+        """Return the stable JSON-compatible record representation.
+
+        Returns:
+            A fresh dictionary of the record fields with last_verified_on rendered as ISO
+            calendar-date text. Source order and scalar values are preserved; no JSON text is
+            encoded.
+        """
         return {
             "authority": self.authority,
             "citation": self.citation,
@@ -178,7 +308,17 @@ class AuthoritySource(ImmutableModel):
 
 
 class JurisdictionProfile(ImmutableModel):
-    """A jurisdiction-specific scope awaiting qualified applicability review."""
+    """Retain a jurisdiction scope and its unresolved applicability review.
+
+    Attributes:
+        jurisdiction_id: Exact profile key used by source and mapping references.
+        name: Human-readable jurisdiction or reference-scope name.
+        scope: Declared scope to be assessed.
+        applicability_status: Recorded requires_legal_review or reference_only disposition.
+        legal_owner_role: Role responsible for the applicability review.
+        source_ids: Authority citations assigned to this profile.
+        review_due_on: Review date checked against the map snapshot date by the loader.
+    """
 
     jurisdiction_id: str
     name: str
@@ -189,7 +329,13 @@ class JurisdictionProfile(ImmutableModel):
     review_due_on: date
 
     def as_json(self) -> dict[str, object]:
-        """Return a stable JSON representation."""
+        """Return the stable JSON-compatible record representation.
+
+        Returns:
+            A fresh dictionary of the record fields with source_ids copied to a list and
+            review_due_on rendered as ISO calendar-date text. Source order and scalar values are
+            preserved; no JSON text is encoded.
+        """
         return {
             "applicability_status": self.applicability_status,
             "jurisdiction_id": self.jurisdiction_id,
@@ -202,7 +348,20 @@ class JurisdictionProfile(ImmutableModel):
 
 
 class RegulatoryMapping(ImmutableModel):
-    """A non-conclusive mapping from one authority source to platform controls."""
+    """Record a non-conclusive mapping from authority sources to platform controls.
+
+    Attributes:
+        mapping_id: Stable mapping key.
+        jurisdiction_id: Profile governing the mapping scope and review disposition.
+        topic: Topic represented by the mapping.
+        source_ids: Authority citations in this jurisdiction.
+        control_ids: Platform controls mapped to the cited topic.
+        applicability_status: Review disposition expected to match the jurisdiction profile.
+        applicability_rationale: Recorded explanation for the applicability disposition.
+        owner_role: Role expected to match the profile legal owner.
+        evidence_source_ids: Evidence sources supporting the mapping and any required
+            review.
+    """
 
     mapping_id: str
     jurisdiction_id: str
@@ -215,7 +374,13 @@ class RegulatoryMapping(ImmutableModel):
     evidence_source_ids: tuple[str, ...]
 
     def as_json(self) -> dict[str, object]:
-        """Return a stable JSON representation."""
+        """Return the stable JSON-compatible record representation.
+
+        Returns:
+            A fresh dictionary of the record fields with source_ids, control_ids and
+            evidence_source_ids copied to lists. Source order and scalar values are preserved;
+            no JSON text is encoded.
+        """
         return {
             "applicability_rationale": self.applicability_rationale,
             "applicability_status": self.applicability_status,
@@ -230,7 +395,35 @@ class RegulatoryMapping(ImmutableModel):
 
 
 class SecurityControlMap(ImmutableModel):
-    """Validated security package contract and queryable control map."""
+    """Hold the security package records used by control-map queries.
+
+    Use load_control_map to check references, ordering, ownership, status/evidence
+    consistency, authority URLs and review dates. Direct construction checks field
+    types only. Queries preserve stored order and do not assert control efficacy
+    or conclusive legal applicability.
+
+    Attributes:
+        schema_version: Control-map schema version.
+        roadmap_package: Roadmap package owning the capability.
+        operating_track: Declared governance operating track.
+        accountable_owner_role: Role accountable for the map.
+        risk_class: Declared package risk class.
+        dependency_package_ids: Prerequisite roadmap packages.
+        applicable_gate_ids: Quality gates applicable to the capability.
+        as_of_date: Snapshot date used for verification-age and review-deadline checks.
+        package_status: Declared status of the capability.
+        local_evidence_manifest_path: Recorded local evidence manifest path.
+        local_evidence_commit_sha: Commit identity used to bind local evidence.
+        assets: Protected assets in stored order.
+        boundaries: Trust boundaries in stored order.
+        threats: Threat scenarios in stored order.
+        controls: Control records in stored order.
+        evidence_sources: Available or deferred evidence records.
+        authority_sources: Authority citations and verification dates.
+        jurisdictions: Jurisdiction applicability-review profiles.
+        regulatory_mappings: Non-conclusive source/control mappings.
+        finding_ids: Retained unresolved security-governance findings.
+    """
 
     schema_version: int
     roadmap_package: str
@@ -254,15 +447,38 @@ class SecurityControlMap(ImmutableModel):
     finding_ids: tuple[str, ...]
 
     def threats_by_category(self, category: str) -> tuple[ThreatScenario, ...]:
-        """Return threats in stable source order for one category."""
+        """Return threats in stored order for one exact category.
+
+        Args:
+            category: Case-sensitive category token; no token validation or normalization
+                occurs.
+
+        Returns:
+            A tuple of stored matching threat objects, or an empty tuple for any unmatched
+            token.
+        """
         return tuple(threat for threat in self.threats if threat.category == category)
 
     def controls_by_owner(self, owner_role: str) -> tuple[SecurityControl, ...]:
-        """Return controls in stable source order for one owner role."""
+        """Return controls in stored order for one exact owner role.
+
+        Args:
+            owner_role: Case-sensitive role token; role-catalog membership is not checked here.
+
+        Returns:
+            A tuple of stored matching controls, or an empty tuple for any unmatched role.
+        """
         return tuple(control for control in self.controls if control.owner_role == owner_role)
 
     def mappings_for_jurisdiction(self, jurisdiction_id: str) -> tuple[RegulatoryMapping, ...]:
-        """Return mappings in stable source order for one jurisdiction."""
+        """Return mappings in stored order for one exact jurisdiction.
+
+        Args:
+            jurisdiction_id: Case-sensitive jurisdiction key; membership is not checked here.
+
+        Returns:
+            A tuple of stored matching mappings, or an empty tuple for any unmatched key.
+        """
         return tuple(
             mapping
             for mapping in self.regulatory_mappings

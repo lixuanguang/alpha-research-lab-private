@@ -24,7 +24,7 @@ from alpha_research_governance.engineering_standards.python_source import (
 DEBT_PATH = "docs/architecture/python-standards-debt.json"
 EXCEPTIONS_PATH = "docs/architecture/python-standards-exceptions.toml"
 # Updating this pin is an explicit policy change; normal migration only retires debt.
-DEBT_SHA256 = "435671c5c5469d48868217ba087c549f69f9b3df6d69ca10b403bbe7cfd9a07e"
+DEBT_SHA256 = "f7cd5b553ee89677ab3c55362840dd0d33ab7ddda9afb1995ca675154e60e1ab"
 _MIGRATION_STEPS = {"PYI001": 2, "PYT001": 3, "PYD001": 5, "PYD002": 5, "PYC001": 6}
 type FindingKey = tuple[str, str, str, str]
 

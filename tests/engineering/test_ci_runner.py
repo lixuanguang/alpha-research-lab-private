@@ -27,24 +27,62 @@ POLICY_PATH = REPOSITORY_ROOT / "docs" / "architecture" / "ci-policy.toml"
 def test_authoritative_lane_runs_every_control_and_complete_test_path_in_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Require full-lane preflight, whole-graph build/test and rollback checks in order."""
     policy = load_continuous_integration_policy(POLICY_PATH)
     base = "b" * 40
     revision = "a" * 40
     calls: list[tuple[object, ...]] = []
 
     def fake_resolve_git_commit(_root: Path, reference: str) -> str:
+        """Resolve the fixture's two revision names without invoking Git.
+
+        Args:
+            _root: Repository path supplied by the runner; unused by this fake.
+            reference: Either ``base`` or ``HEAD`` from the full-lane workflow.
+
+        Returns:
+            The fixture commit assigned to the requested reference.
+
+        Raises:
+            KeyError: The runner requests an unexpected reference.
+        """
         return {"base": base, "HEAD": revision}[reference]
 
     def record_generated_paths(paths: tuple[str, ...], *, prefixes: tuple[str, ...]) -> None:
+        """Record the generated-artifact preflight inputs without inspecting files.
+
+        Args:
+            paths: Tracked paths submitted for inspection.
+            prefixes: Policy directory prefixes forbidden in tracked changes.
+        """
         calls.append(("generated", paths, prefixes))
 
     def record_secret_scan(_root: Path, paths: tuple[str, ...]) -> None:
+        """Record secret-scan order and scope without reading file contents.
+
+        Args:
+            _root: Repository path supplied by the runner; unused by this recorder.
+            paths: Tracked paths submitted for scanning.
+        """
         calls.append(("secrets", paths))
 
     def record_schema_check(_root: Path, *, modules: tuple[str, ...], base: str) -> None:
+        """Record schema-compatibility scope and its resolved comparison revision.
+
+        Args:
+            _root: Repository path supplied by the runner; unused by this recorder.
+            modules: Protobuf module roots selected for compatibility checks.
+            base: Resolved commit against which schemas would be compared.
+        """
         calls.append(("schemas", modules, base))
 
     def record_pre_commit(_root: Path, arguments: list[str]) -> None:
+        """Snapshot pre-commit arguments for the ordered full-lane assertion.
+
+        Args:
+            _root: Repository path supplied by the runner; unused by this recorder.
+            arguments: File-scope arguments passed to pre-commit.
+        """
         calls.append(("pre-commit", tuple(arguments)))
 
     def record_timed_phase(
@@ -59,6 +97,19 @@ def test_authoritative_lane_runs_every_control_and_complete_test_path_in_order(
         environment: str,
         target: str,
     ) -> None:
+        """Record phase commands and event context without running commands or writing events.
+
+        Args:
+            commands: Ordered argument vectors, copied to tuples for later comparison.
+            root: Execution directory recorded with the phase.
+            phase: Build or test phase identifier.
+            event_stream: Open log stream whose writability is recorded.
+            run_id: Run identity to which the phase would be attributed.
+            revision: Resolved source commit measured by the phase.
+            evidence_url: Retained evidence link, empty for this local fixture.
+            environment: Execution environment label passed through by the runner.
+            target: Lane label used in duration-event dimensions.
+        """
         calls.append(
             (
                 "phase",
@@ -132,6 +183,7 @@ def test_authoritative_lane_runs_every_control_and_complete_test_path_in_order(
 def test_affected_lane_executes_forced_full_selection_after_preflight(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Broaden a foundational diff to whole-graph commands after affected-lane preflight."""
     policy = load_continuous_integration_policy(POLICY_PATH)
     base = "b" * 40
     head = "a" * 40
@@ -149,16 +201,49 @@ def test_affected_lane_executes_forced_full_selection_after_preflight(
     def record_changed_paths(
         _root: Path, base_ref: str, head_ref: str
     ) -> tuple[str, str, tuple[ChangedPath, ...]]:
+        """Record requested refs and return the fixture's resolved foundational change.
+
+        Args:
+            _root: Repository path supplied by the runner; unused by this fake.
+            base_ref: Requested comparison-base reference.
+            head_ref: Requested change-head reference.
+
+        Returns:
+            Base commit, head commit and the single modified ``MODULE.bazel`` record.
+        """
         calls.append(("changes", base_ref, head_ref))
         return base, head, (change,)
 
     def record_generated_paths(paths: tuple[str, ...], *, prefixes: tuple[str, ...]) -> None:
+        """Record the changed-path generated-artifact preflight without inspecting files.
+
+        Args:
+            paths: Changed repository paths submitted for inspection.
+            prefixes: Policy directory prefixes forbidden in tracked changes.
+        """
         calls.append(("generated", paths, prefixes))
 
     def record_schema_check(_root: Path, *, modules: tuple[str, ...], base: str) -> None:
+        """Record the affected schema roots and resolved comparison commit.
+
+        Args:
+            _root: Repository path supplied by the runner; unused by this recorder.
+            modules: Changed Protobuf module roots, empty for the foundational fixture.
+            base: Resolved comparison-base commit.
+        """
         calls.append(("schemas", modules, base))
 
     def record_selection(_root: Path, *, base_ref: str, head_ref: str) -> AffectedSelection:
+        """Record selection refs and supply a preconstructed whole-graph fallback.
+
+        Args:
+            _root: Repository path supplied by the runner; unused by this fake.
+            base_ref: Resolved comparison-base commit supplied to selection.
+            head_ref: Resolved change-head commit supplied to selection.
+
+        Returns:
+            The fixture's full fallback selection, without copying or querying Bazel.
+        """
         calls.append(("selection", base_ref, head_ref))
         return selection
 
@@ -174,6 +259,19 @@ def test_affected_lane_executes_forced_full_selection_after_preflight(
         environment: str,
         target: str,
     ) -> None:
+        """Record affected-lane phase order, command vectors and target label only.
+
+        Args:
+            commands: Ordered argument vectors, copied to tuples for later comparison.
+            root: Execution directory supplied by the runner; unused by this recorder.
+            phase: Build or test phase identifier to record.
+            event_stream: Runner-owned event log; this recorder does not access it.
+            run_id: Run identity supplied for callback compatibility; unused here.
+            revision: Source commit supplied for callback compatibility; unused here.
+            evidence_url: Evidence link supplied for callback compatibility; unused here.
+            environment: Environment label supplied for callback compatibility; unused here.
+            target: Lane label to retain alongside the phase commands.
+        """
         calls.append(("phase", phase, tuple(tuple(command) for command in commands), target))
 
     monkeypatch.setattr(
@@ -222,9 +320,20 @@ def test_affected_lane_executes_forced_full_selection_after_preflight(
 def test_timed_phase_stops_on_failure_and_emits_a_failed_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Emit the failed test event and propagate the error before a third command runs."""
     observed_commands: list[tuple[str, ...]] = []
 
     def fail_second_command(command: list[str], *, root: Path) -> None:
+        """Record each attempted command and fail on the fixture's second command.
+
+        Args:
+            command: Argument vector whose first token selects the simulated failure.
+            root: Execution directory, required to equal the test's temporary path.
+
+        Raises:
+            AssertionError: The runner supplies an unexpected execution directory.
+            CIPolicyError: The command starts with the token ``second``.
+        """
         observed_commands.append(tuple(command))
         assert root == tmp_path
         if command[0] == "second":

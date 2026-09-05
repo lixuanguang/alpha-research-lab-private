@@ -36,12 +36,34 @@ RUNNING_UNDER_BAZEL = bool(os.environ.get("TEST_SRCDIR"))
 
 
 def _copy_remote_execution_policy_fixture(tmp_path: Path) -> Path:
+    """Copy the checked-in remote policy to an isolated file for mutation tests.
+
+    Args:
+        tmp_path: Existing temporary directory in which to write the policy copy.
+
+    Returns:
+        The temporary ``remote-execution.toml`` path, overwritten if already present.
+
+    Raises:
+        OSError: The source policy cannot be read or its temporary copy cannot be written.
+    """
     path = tmp_path / "remote-execution.toml"
     path.write_text(REMOTE_EXECUTION_POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     return path
 
 
 def _replace_policy_text(path: Path, old: str, new: str) -> None:
+    """Replace one expected policy fragment in place without changing later occurrences.
+
+    Args:
+        path: Temporary UTF-8 policy file to read and overwrite.
+        old: Exact fragment required to exist before the mutation.
+        new: Replacement for the first occurrence of ``old``.
+
+    Raises:
+        AssertionError: The expected fragment is absent from the fixture.
+        OSError: The policy file cannot be read or rewritten.
+    """
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
@@ -51,6 +73,7 @@ def _replace_policy_text(path: Path, old: str, new: str) -> None:
     RUNNING_UNDER_BAZEL, reason="repository evidence rejects Bazel runfile symlinks"
 )
 def test_repository_contract_is_partial_bounded_and_remote_disabled_by_default() -> None:
+    """Retain trusted-main-only writes, single test attempts and a remote-disabled fallback."""
     policy = validate_repository(REPOSITORY_ROOT)
 
     assert policy.package_status == "partial"
@@ -87,6 +110,7 @@ def test_repository_contract_is_partial_bounded_and_remote_disabled_by_default()
 def test_poisoning_flake_budget_and_fallback_mutations_fail_closed(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Reject each mutation that weakens cache isolation, execution budgets or local fallback."""
     path = _copy_remote_execution_policy_fixture(tmp_path)
     _replace_policy_text(path, old, new)
 
@@ -95,6 +119,7 @@ def test_poisoning_flake_budget_and_fallback_mutations_fail_closed(
 
 
 def test_unknown_and_malformed_policy_fields_fail_closed(tmp_path: Path) -> None:
+    """Report domain errors for an unknown policy field and malformed TOML."""
     unknown = _copy_remote_execution_policy_fixture(tmp_path)
     unknown.write_text(unknown.read_text(encoding="utf-8") + "\nunknown = true\n", encoding="utf-8")
     with pytest.raises(RemoteExecutionError, match="missing or unknown fields"):
@@ -107,6 +132,7 @@ def test_unknown_and_malformed_policy_fields_fail_closed(tmp_path: Path) -> None
 
 
 def test_quarantine_records_require_owner_reason_label_and_bounded_expiry(tmp_path: Path) -> None:
+    """Load an attributed quarantine and reject extending its expiry beyond the policy bound."""
     path = _copy_remote_execution_policy_fixture(tmp_path)
     _replace_policy_text(
         path,
@@ -126,6 +152,7 @@ expires_on = 2026-09-10""",
 
 
 def test_shards_are_order_independent_complete_disjoint_and_seeded() -> None:
+    """Partition every target exactly once, independent of input order and sensitive to seed."""
     targets = tuple(f"//tests/example:test_{index}" for index in range(80))
     forward = shard_targets(targets, shard_count=2, seed="seed-a", maximum_targets=100)
     reverse = shard_targets(reversed(targets), shard_count=2, seed="seed-a", maximum_targets=100)
@@ -138,6 +165,7 @@ def test_shards_are_order_independent_complete_disjoint_and_seeded() -> None:
 
 
 def test_empty_shards_are_valid_but_bad_target_sets_and_indices_block() -> None:
+    """Allow empty shards and root labels while rejecting invalid partitions and indices."""
     shards = shard_targets(("//tests/example:only",), shard_count=2, seed="seed", maximum_targets=2)
     assert sum(not shard.targets for shard in shards) == 1
     assert shard_targets(("//:root_test",), shard_count=1, seed="seed", maximum_targets=1)[
@@ -157,6 +185,7 @@ def test_empty_shards_are_valid_but_bad_target_sets_and_indices_block() -> None:
 def test_trusted_context_rejects_untrusted_missing_secret_wrong_revision_and_dirty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Require trusted context, a credential, matching HEAD and a clean checkout together."""
     policy = load_policy(REMOTE_EXECUTION_POLICY_PATH)
     clean_environment = {
         "CI": "true",
@@ -193,6 +222,7 @@ def test_trusted_context_rejects_untrusted_missing_secret_wrong_revision_and_dir
 def test_authenticated_runner_hides_secret_from_argv_and_child_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pass the synthetic key through a mode-0600 rc file, keeping it out of argv and env."""
     policy = load_policy(REMOTE_EXECUTION_POLICY_PATH)
     observed_arguments: list[str] = []
     observed_environment: dict[str, str] = {}
@@ -200,6 +230,18 @@ def test_authenticated_runner_hides_secret_from_argv_and_child_environment(
     observed_credential_mode = 0
 
     def fake_run(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Inspect invocation and credential-file state without launching a process.
+
+        Args:
+            arguments: Subprocess argv containing the temporary ``--bazelrc`` path.
+            **kwargs: Subprocess options; ``env`` supplies the child environment to record.
+
+        Returns:
+            A successful completion for the supplied argument vector.
+
+        Raises:
+            OSError: The temporary credential file cannot be read or inspected.
+        """
         nonlocal observed_credential_mode, observed_credential_text
         observed_arguments.extend(arguments)
         observed_environment.update(cast(dict[str, str], kwargs["env"]))
@@ -230,6 +272,7 @@ def test_authenticated_runner_hides_secret_from_argv_and_child_environment(
 def test_remote_entrypoints_validate_select_and_propagate_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Preserve trust/query/execute order, shard selection, quarantine no-op and exit statuses."""
     policy = load_policy(REMOTE_EXECUTION_POLICY_PATH)
     environment = {"BUILDBUDDY_API_KEY": "synthetic-test-key"}
     test_targets = ("//tests:alpha", "//tests:beta", "//tests:gamma")
@@ -257,9 +300,25 @@ def test_remote_entrypoints_validate_select_and_propagate_results(
         active_environment: Mapping[str, str],
         repository_root: Path,
     ) -> None:
+        """Snapshot the trust-check invocation without validating credentials or Git state.
+
+        Args:
+            _policy: Loaded policy supplied for callback compatibility; unused here.
+            context: Requested remote execution context.
+            active_environment: Environment copied into the recorded call.
+            repository_root: Repository path whose trust boundary would be checked.
+        """
         calls.append(("trust", context, dict(active_environment), repository_root))
 
     def record_query(repository_root: Path) -> tuple[str, ...]:
+        """Record the graph query and supply the fixture's complete test-target tuple.
+
+        Args:
+            repository_root: Repository path from which the test graph would be queried.
+
+        Returns:
+            The three fixture test labels without invoking Bazel.
+        """
         calls.append(("query", repository_root))
         return test_targets
 
@@ -272,6 +331,22 @@ def test_remote_entrypoints_validate_select_and_propagate_results(
         targets: Sequence[str],
         extra_arguments: Sequence[str] = (),
     ) -> int:
+        """Snapshot authenticated invocation inputs and simulate command-specific exit codes.
+
+        Args:
+            _policy: Loaded policy supplied for callback compatibility; unused here.
+            repository_root: Execution directory to record.
+            environment: Environment copied into the recorded call.
+            command: Either ``build`` or ``test``; selects the simulated status.
+            targets: Target labels copied to a tuple for later comparison.
+            extra_arguments: Additional Bazel options, empty outside quarantine diagnostics.
+
+        Returns:
+            Status 17 for a build or 23 for a test, without running Bazel.
+
+        Raises:
+            KeyError: The runner supplies an unexpected command.
+        """
         calls.append(
             (
                 "execute",
@@ -361,6 +436,7 @@ def test_remote_entrypoints_validate_select_and_propagate_results(
 def test_empty_remote_shard_validates_context_without_invoking_bazel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Validate trust and query the graph before returning success for an empty shard."""
     policy = load_policy(REMOTE_EXECUTION_POLICY_PATH)
     target = "//tests:only"
     shards = shard_targets(
@@ -379,12 +455,32 @@ def test_empty_remote_shard_validates_context_without_invoking_bazel(
     )
 
     def record_query(_root: Path) -> tuple[str, ...]:
+        """Record the graph query and return the target used to locate an empty shard.
+
+        Args:
+            _root: Repository path supplied by the runner; unused by this fake.
+
+        Returns:
+            A one-element tuple containing the fixture's only test target.
+        """
         calls.append("query")
         return (target,)
 
     monkeypatch.setattr(runner, "query_test_targets", record_query)
 
     def reject_execution(*_args: object, **_kwargs: object) -> int:
+        """Fail the test if an empty shard reaches authenticated execution.
+
+        Args:
+            *_args: Positional invocation inputs; ignored because every call is forbidden.
+            **_kwargs: Keyword invocation inputs; ignored because every call is forbidden.
+
+        Returns:
+            No status is returned; the integer annotation matches the replaced callback.
+
+        Raises:
+            AssertionError: Always, because an empty shard must not execute Bazel.
+        """
         raise AssertionError("an empty shard must not invoke Bazel")
 
     monkeypatch.setattr(runner, "_run_authenticated_bazel", reject_execution)
@@ -405,10 +501,21 @@ def test_empty_remote_shard_validates_context_without_invoking_bazel(
 def test_remote_cli_dispatches_commands_and_preserves_exit_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Forward typed remote commands and retain runner, domain, usage and help exit codes."""
     policy = load_policy(REMOTE_EXECUTION_POLICY_PATH)
     calls: list[tuple[object, ...]] = []
 
     def record_build(_policy: RemoteExecutionPolicy, *, context: str, repository_root: Path) -> int:
+        """Record CLI build dispatch and simulate a nonzero runner status.
+
+        Args:
+            _policy: Validated policy passed by the CLI; unused by this recorder.
+            context: Context parsed from the build command.
+            repository_root: Repository root parsed from the CLI options.
+
+        Returns:
+            Status 17, allowing the test to detect replacement with a generic status.
+        """
         calls.append(("build", context, repository_root))
         return 17
 
@@ -419,12 +526,33 @@ def test_remote_cli_dispatches_commands_and_preserves_exit_status(
         shard_index: int,
         repository_root: Path,
     ) -> int:
+        """Record CLI test dispatch, including the parsed integer shard index.
+
+        Args:
+            _policy: Validated policy passed by the CLI; unused by this recorder.
+            context: Context parsed from the test command.
+            shard_index: Zero-based integer index parsed from the shard option.
+            repository_root: Repository root parsed from the CLI options.
+
+        Returns:
+            Status 23 to verify propagation of the test runner's result.
+        """
         calls.append(("test", context, shard_index, repository_root))
         return 23
 
     def record_quarantine(
         _policy: RemoteExecutionPolicy, *, context: str, repository_root: Path
     ) -> int:
+        """Record CLI quarantine dispatch and supply a distinct diagnostic status.
+
+        Args:
+            _policy: Validated policy passed by the CLI; unused by this recorder.
+            context: Context parsed from the quarantine command.
+            repository_root: Repository root parsed from the CLI options.
+
+        Returns:
+            Status 29 to verify propagation of the diagnostic runner's result.
+        """
         calls.append(("quarantine", context, repository_root))
         return 29
 
@@ -451,6 +579,19 @@ def test_remote_cli_dispatches_commands_and_preserves_exit_status(
     ]
 
     def fail_build(_policy: RemoteExecutionPolicy, *, context: str, repository_root: Path) -> int:
+        """Raise a contextual domain error for the CLI's error-rendering assertion.
+
+        Args:
+            _policy: Validated policy passed by the CLI; unused by this failure fake.
+            context: Requested context included in the diagnostic message.
+            repository_root: Repository path whose basename is included in the diagnostic.
+
+        Returns:
+            No status is returned; the integer annotation matches the replaced callback.
+
+        Raises:
+            RemoteExecutionError: Always, with the supplied context and repository basename.
+        """
         raise RemoteExecutionError([f"blocked {context} at {repository_root.name}"])
 
     monkeypatch.setattr(remote_execution, "run_remote_build", fail_build)
