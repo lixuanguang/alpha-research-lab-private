@@ -1,0 +1,10 @@
+package(default_visibility = ["//visibility:private"])
+
+filegroup(
+    name = "legacy_evidence",
+    srcs = glob([
+        "b01a-r2-partial/**",
+        "b01b-r2-partial/**",
+    ]),
+    visibility = ["//:__pkg__"],
+)

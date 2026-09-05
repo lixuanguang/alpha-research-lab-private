@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from alpha_research_governance.program_governance.models import (
+    FindingDispositionGroup,
     MetricDefinition,
     MetricObservation,
     MetricSummary,
@@ -25,11 +26,16 @@ from alpha_research_governance.program_governance.registry import (
     load_roadmap,
     validate_repository,
 )
+from alpha_research_governance.program_governance.status import (
+    render_status_markdown,
+    validate_status_document,
+)
 
 __all__ = [
     "APPLICABLE_GATE_IDS",
     "METRIC_IDS",
     "ROADMAP_PACKAGE_IDS",
+    "FindingDispositionGroup",
     "MetricDefinition",
     "MetricObservation",
     "MetricSummary",
@@ -41,21 +47,25 @@ __all__ = [
     "load_program",
     "load_roadmap",
     "main",
+    "render_status_markdown",
     "validate_repository",
+    "validate_status_document",
 ]
 
 _USAGE = (
     "usage: python -m alpha_research_governance.program_governance [repository-root] [--json] "
-    "[--observations JSONL] [--wave A-L | --metric KPI_ID | --ready solo|institutional]"
+    "[--observations JSONL] [--wave A-L | --metric KPI_ID | --ready solo|institutional] "
+    "[--write-status]"
 )
 
 
 def _parse_arguments(
     arguments: Sequence[str],
-) -> tuple[Path, Path | None, bool, dict[str, str]]:
+) -> tuple[Path, Path | None, bool, bool, dict[str, str]]:
     repository_root: Path | None = None
     observation_path: Path | None = None
     should_emit_json = False
+    should_write_status = False
     selection_options: dict[str, str] = {}
     index = 0
     while index < len(arguments):
@@ -64,6 +74,12 @@ def _parse_arguments(
             if should_emit_json:
                 raise ProgramGovernanceError([_USAGE])
             should_emit_json = True
+            index += 1
+            continue
+        if argument == "--write-status":
+            if should_write_status:
+                raise ProgramGovernanceError([_USAGE])
+            should_write_status = True
             index += 1
             continue
         if argument == "--observations":
@@ -82,10 +98,13 @@ def _parse_arguments(
             raise ProgramGovernanceError([_USAGE])
         repository_root = Path(argument)
         index += 1
+    if should_write_status and (should_emit_json or observation_path or selection_options):
+        raise ProgramGovernanceError([_USAGE])
     return (
         Path.cwd() if repository_root is None else repository_root,
         observation_path,
         should_emit_json or observation_path is not None or bool(selection_options),
+        should_write_status,
         selection_options,
     )
 
@@ -97,6 +116,7 @@ def _build_package_payload(program: ProgramGovernance, package: PackageNode) -> 
         {
             "implementation_status": "planned",
             "governance_status": None,
+            "contract_path": None,
             "technical_finding_ids": [],
             "evidence_paths": [],
             "open_finding_ids": [],
@@ -166,6 +186,7 @@ def _build_program_dashboard_payload(
         "package_status": program.package_status,
         "implementation_status": program.implementation_status,
         "governance_status": program.governance_status,
+        "finding_dispositions": [group.as_json() for group in program.finding_dispositions],
         "institutional_status": program.package_status,
         "packages": [_build_package_payload(program, package) for package in selected_packages],
         "risk_class": program.risk_class,
@@ -179,9 +200,13 @@ def main(arguments: Sequence[str] | None = None) -> int:
     """Validate program governance or emit a deterministic graph and KPI dashboard."""
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     try:
-        repository_root, observation_path, should_emit_json, selection_options = _parse_arguments(
-            cli_arguments
-        )
+        (
+            repository_root,
+            observation_path,
+            should_emit_json,
+            should_write_status,
+            selection_options,
+        ) = _parse_arguments(cli_arguments)
     except ProgramGovernanceError as error:
         print(error, file=sys.stderr)
         return 2
@@ -198,6 +223,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
         print(f"unsupported readiness mode {ready_mode!r}", file=sys.stderr)
         return 1
     try:
+        if should_write_status:
+            resolved_root = repository_root.resolve(strict=True)
+            program = load_program(
+                resolved_root / "docs" / "governance" / "program-governance.toml",
+                repository_root=resolved_root,
+            )
+            if program.generated_status_path is None:
+                raise ProgramGovernanceError(
+                    ["program schema does not define a generated status path"]
+                )
+            output_path = resolved_root / program.generated_status_path
+            output_path.write_text(render_status_markdown(program), encoding="utf-8")
+            print(f"Wrote generated program status to {program.generated_status_path}.")
+            return 0
         program = validate_repository(repository_root)
         observations = (
             () if observation_path is None else load_observations(observation_path, program=program)

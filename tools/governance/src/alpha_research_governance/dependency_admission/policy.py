@@ -109,6 +109,7 @@ _INSTALL_COMMAND = re.compile(
 _WORKFLOW_USE = re.compile(r"(?m)^\s*-?\s*uses:\s*([^\s@]+)@([^\s#]+)")
 _ACTION_PINS = {
     "actions/checkout": "34e114876b0b11c390a56381ad16ebd13914f8d5",
+    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
     "astral-sh/setup-uv": "c771a70e6277c0a99b617c7a806ffedaca235ff9",
     "bazel-contrib/setup-bazel": "c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86",
     "sigstore/cosign-installer": "6f9f17788090df1f26f669e9d70d6ae9567deba6",

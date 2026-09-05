@@ -89,16 +89,11 @@ push on protected `main`, and exercises representative protected paths. Rollback
 is a reviewed revert that preserves this package record and its findings. A03
 changes no schema, data, state, runtime, deployment, monitoring, or runbook.
 
-## Review split plan
+## Governance references
 
-Because the complete A03 epic exceeds the preferred 400-line review target, it
-should be reviewed as `A03a` for the register, policy, and `CODEOWNERS`, followed
-by `A03b` for the checker, adversarial tests, and automation integration. Both
-slices retain A03 as their package; neither alone satisfies its local evidence.
-
-## Non-goals
-
-A03 does not implement A04 risk classification, A05 evidence bundles, A06
-inventories, B01 target directories, production RBAC, secrets, deployment,
-activation, market access, or trading authority. It remains partial until all
-findings close with commit-bound external evidence.
+Exact A03 finding closure conditions live in
+[domain-ownership.toml](domain-ownership.toml); current implementation, governance,
+handover and retained finding IDs are rendered in the
+[program status](program-status.md). The [development workflow](workflow.md) owns
+daily evidence. Ownership routing grants no production RBAC, deployment,
+activation, market or trading authority.

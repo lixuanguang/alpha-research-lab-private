@@ -144,12 +144,7 @@ implementation. They remain registered and tested because B01c changes consumers
 not the public compatibility window. Removing them before B02 provides reviewed
 replacement and rollback evidence would be an out-of-scope breaking change.
 
-## Risk, gates, and evidence
-
-The A04 facts are: no capital at risk, shared-domain blast radius, shared-library
-materiality, no security privilege, compatibility-window reversal, and no
-computational, economic/risk, model, or trading relevance. The resulting class is
-R2. QG07-QG08 are not conditionally added and QG15 is not an R2 gate.
+## Evidence and governance
 
 The [B01c synthetic local evidence bundle](../governance/evidence/examples/b01c-r2-partial/manifest.toml)
 binds those facts, QG01-QG06 and QG09-QG14, artifact digests, partial status, and
@@ -157,16 +152,10 @@ findings. Deterministic tests cover canonical root/hook/workflow selection,
 topology enforcement, A06 canonical lineage and B01 population, A08 B01-to-B02
 readiness, completed-slice metadata, compatibility parity, invalid input, missing
 roots, uncovered and duplicate sources, dependency drift, upward edges, cycles,
-path escape, malformed TOML, workload bounds, and failure propagation.
-
-Repository-local success is not independent review, protected-forge execution,
-or institutional validation. R2 requires the Platform Code Owner and an
-independent domain reviewer.
-
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| B01-F01 | Domain Architecture | Independent domain review and commit-bound Code Owner approval | Named reviewers approve the exact target registry, tooling migration, enforcement consumers, compatibility facades, and validator commit |
-| B01-F02 | Platform/CI | The hosted workflow is configured locally, but protected merged-result execution and retained exact-commit evidence are unavailable | Protected CI rejects representative graph and compatibility mutations on the exact reviewed merged result and retains the evidence |
+path escape, malformed TOML, workload bounds, and failure propagation. Gate
+definitions live in the [quality-gate catalog](operations.md#quality-gate-catalog);
+current state and finding IDs are rendered in the
+[program status](../governance/program-status.md).
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
@@ -184,17 +173,9 @@ and dashboard failures are the repository-local operational signals. There is no
 production monitor, alert, dashboard service, data migration, or operator runbook
 impact.
 
-## Parent status, non-goals, and successor
+## Governance references
 
-B01 remains `partial`. B01c provisionally completes the parent's repository-local
-slices but cannot independently validate B01 or close independent-review and
-protected-forge findings. It authorizes no release, promotion, deployment,
-activation, credentials, market access, capital, or expanded risk authority.
-
-B01c did not implement B02/Bazel. B02, B03, and B04 are separately governed,
-provisionally implemented packages. It does not implement B05 affected/full
-build policy, supply-chain admission, signed
-artifacts, target-domain behavior, or compatibility-facade removal.
-
-The successor selector is `B02`; its current partial implementation is documented
-in the [hermetic build graph contract](hermetic-build-graph.md).
+The [development workflow](../governance/workflow.md) owns daily evidence and the
+[program status](../governance/program-status.md) owns the current queue. B01
+defines repository structure only and grants no release, deployment, activation,
+credential, market or capital authority.

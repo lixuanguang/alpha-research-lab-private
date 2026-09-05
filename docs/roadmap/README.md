@@ -27,37 +27,15 @@ complete a package.
 
 ## Solo-bootstrap execution overlay
 
-The repository currently has one founder. The
+The [development workflow](../governance/workflow.md) and
 [current operating policy](../governance/domain-ownership.md#current-operating-policy)
-supersedes the blueprint's organizational sequencing for solo implementation.
-
-The version-3 program registry separates three meanings:
-
-- **Implementation:** planned, in_progress, complete or blocked. Complete means
-  the declared repository-local behavior and applicable technical checks pass
-  with no technical findings. Founder acceptance is sufficient.
-- **Governance:** not_required until a relevant hire is active in the package's
-  domain, then pending for scoped handover. An unfilled role is not a defect,
-  overdue task or reason to reverse engineering completion.
-- **Institutional acceptance:** existing partial/validated records, evidence and
-  operation-specific requirements remain available for future acceptance.
-
-Each dependency expression is an implementation dependency unless it uses an
-explicit `implementation:`, `operation/release:`, or `team handover:` prefix.
-Only implementation edges determine the active delivery queue. Operational edges
-become relevant when the named operation is requested, and handover edges apply
-only after the corresponding staffing trigger. Exact ranges and `any of` groups
-remain supported within a purpose. This keeps the 96 stable package IDs without
-making unavailable services or reviewers prerequisites for local engineering.
-
-Organizational completion is the final conditional handover after relevant hires
-join. Review the current baseline and material unresolved issues within each
-hire's scope. Do not require reapproval of every historical commit in wave order.
-If no hires join, this handover remains inactive indefinitely.
-
-Repository implementation does not authorize release, production credentials,
-executable external orders or capital exposure. Those operations retain their
-applicable technical controls and institutional acceptance requirements.
+supersede blueprint organizational sequencing for solo implementation. The
+[generated status](../governance/program-status.md) reports implementation,
+governance, retained findings and the active technical queue without restating them
+here. Dependency expressions without a purpose are implementation edges; explicit
+`operation/release:` and `team handover:` edges activate only for those contexts.
+Repository implementation does not itself authorize release, production access,
+executable orders or capital exposure.
 
 ## Milestones
 

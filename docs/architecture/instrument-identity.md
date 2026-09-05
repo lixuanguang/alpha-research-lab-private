@@ -101,31 +101,12 @@ tests also cover unknown values, invalid checksums and namespaces, bad UTC
 intervals, duplicate and orphaned identities, overlap, missing correction
 predecessors, changed correction keys, forks, and cycles.
 
-## Risk, quality gates, and reviewers
+## Evidence and governance
 
-The authoritative A04 facts are: no capital at risk, shared-domain blast radius,
-shared-library materiality, no security privilege, compatibility-window
-reversibility, and no computational, economic/risk, model, or trading conditional
-trigger. A04 therefore returns R2 with merged-result, compatibility-replay, and
-impact-analysis rollout modes.
-
-| Gate | Repository-local evidence |
-| --- | --- |
-| QG01 | Ruff format/lint, strict mypy, warning-as-error pytest, and Bandit cover the library and tests |
-| QG02 | Exact Pydantic dependency, pinned Python/Bazel graph, deterministic fixtures and properties |
-| QG03 | Success, reverse lookup, boundary, invalid-input, ambiguity, and correction failures are tested |
-| QG04 | UUID, hierarchy, checksum, interval, overlap, lineage, and round-trip invariants have deterministic property tests |
-| QG05 | Valid-time reuse, delist/relist, source revision, append-only correction lineage, and the golden fixture are retained |
-| QG06 | No feature, model, trial, research conclusion, or promotion decision is introduced |
-| QG09 | The installed package, focused pytest, Bazel target, source topology, and full-suite paths share the same contract |
-| QG10 | Ten thousand resolutions of the retained fixture stay within the recorded one-second local diagnostic budget |
-| QG11 | Unknown, ambiguous, overlapping, orphaned, forked, and cyclic states fail closed without partial mutation |
-| QG12 | Pydantic is already admitted and exactly pinned; no credential, entitlement, network, runtime install, or provider SDK is added; security/static checks remain blocking |
-| QG13 | Public API, examples, ownership, scope, limitations, migration, rollback, runbook, findings, and successor are documented |
-| QG14 | Typed failures and returned attribution are the repository-local operational signal; no deployed SLO or alert is claimed |
-
-Institutional review requires the Code Owner plus an independent data or domain
-reviewer. The solo maintainer cannot satisfy the independent role.
+The C01 evidence manifest retains exact classification, gate and artifact state.
+Gate definitions live in the [quality-gate catalog](operations.md#quality-gate-catalog);
+current package state and finding IDs are rendered in the
+[program status](../governance/program-status.md).
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
@@ -152,24 +133,10 @@ golden/property/consumer replay, and only then publish a new catalog snapshot.
 There is no production service, dashboard, page, alert route, or operator control
 introduced by C01.
 
-## Open findings
+## Governance references
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| C01-F01 | Domain Architecture | Commit-bound Code Owner and independent data/domain review are unavailable during solo bootstrap | Named reviewers resolve findings and approve the exact public contract, invariants, fixtures, tests, and evidence commit |
-| C01-F02 | Platform/CI | Protected merged-result Linux execution, retained compatibility replay, and exact-commit evidence are unavailable locally | Protected CI runs the complete affected/reverse-dependency graph and retained fixture replay on the reviewed merged result |
-| C01-F03 | Data Platform | Entitled representative source records and an independent target-environment reconciliation are unavailable in this repository | A data owner reconciles approved representative vendor/venue/global identifiers, reuse, delist/relist, and correction cases and retains non-sensitive evidence |
-
-These findings are not approvals or waivers. C01 remains `partial` until all close.
-
-## Explicit non-goals and successor
-
-C01 does not implement venue identities, MICs, calendars, sessions, market status,
-or timezone policy (C02); units or conventions (C03); bitemporal knowledge-time
-queries (C04); event/lifecycle schemas (C05); a schema registry (C08); or the D04
-master-data service, source priority, persistence, or impact reports. It adds no
-provider connection, entitlement, credential, deployment, activation, market
-access, capital, or expanded risk authority.
-
-The next documented selector is venue, session, calendar, and market-status
-contracts (`C02`).
+Finding detail remains in the retained
+[C01 evidence manifest](../governance/evidence/examples/c01-r2-partial/manifest.toml).
+The [development workflow](../governance/workflow.md) owns daily evidence. C01
+defines identity behavior only and grants no provider, credential, deployment,
+activation, market or capital authority.

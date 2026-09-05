@@ -39,6 +39,8 @@ class CIPolicy(ImmutableModel):
     selection_strategy: str
     full_lane_authoritative: bool
     require_merged_result_on_pull_request: bool
+    event_log_directory: str
+    hosted_artifact_retention_days: int
     secret_scanner_executable: str
     secret_scanner_version: str
     secret_scan_maximum_file_bytes: int

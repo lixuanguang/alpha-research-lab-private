@@ -99,26 +99,13 @@ synthetic: the bundle is repository-local validator evidence, not a commit,
 review, protected-forge result, approval, release, deployment, or activation
 record.
 
-## Quality-gate evidence
+## Evidence policy
 
-| Gate | Repository-local evidence |
-| --- | --- |
-| QG01 | Ruff formatting/lint and strict mypy cover the API, CLI, and tests |
-| QG02 | The locked Python environment and byte-identical repeated TOML/JSON behavior use no network, wall clock, or workstation input |
-| QG03 | Success, boundary, invalid-input, and failure-path tests cover parsing, queries, and automation |
-| QG04 | Stable-ID uniqueness, kind matching, dependency acyclicity, and population invariants are enforced |
-| QG05 | Source, lineage, version, ownership, status, and evidence references fail closed; positive and negative deployed-resource fixtures exercise evidence linkage |
-| QG06 | Dataset/model/strategy absence is explicit; no research or model result is claimed |
-| QG09 | Root, pre-commit, and hosted-CI interfaces execute the same repository validator |
-| QG10 | Catalog size is capped; a deterministic 10,000-query workload must complete within the retained 1,000 ms repository-test budget |
-| QG11 | Missing, malformed, cyclic, stale, or unresolved state blocks validation and is recoverable by reviewed Git rollback |
-| QG12 | Paths cannot escape the repository; external evidence URLs cannot contain credentials; Bandit scans production Python |
-| QG13 | This package record, catalog contract, commands, ownership, and non-goals are documentation-link checked |
-| QG14 | Machine-readable query output exposes query limits, while stale-owner/review findings provide the repository-local monitoring signal |
-
-QG07 and QG08 are not applicable because A06 defines metadata and evidence
-linkage only; it creates no cost model, economic decision, executable limit, risk
-calculation, or risk envelope.
+Applicable control definitions live in the
+[quality-gate catalog](../architecture/operations.md#quality-gate-catalog). Exact
+A06 gate state and finding closure conditions live in
+[resource-inventory.toml](resource-inventory.toml); current state and finding IDs
+are rendered in the [program status](program-status.md).
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
@@ -141,29 +128,9 @@ Git history. CI/pre-commit failure output and JSON findings are the monitoring
 surface. No production dashboard, alert route, operator runbook, stop procedure,
 or kill path changes in A06.
 
-## Review split plan
+## Governance references
 
-Review the A06 epic as `A06a` for the contract, stable identifiers, catalog,
-population claims, and package record, followed by `A06b` for the validator,
-query API, adversarial tests, and automation. Both slices retain A06 and neither
-alone satisfies its repository-local evidence.
-
-## Open findings
-
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| A06-F01 | Platform | Organization-wide and external-control-plane reconciliation while A01-F01 remains open | Named owners reconcile every kind and empty declaration against organization and target-system inventories and resolve omissions or stale records |
-| A06-F02 | Platform/CI | Local stale-owner and missing-lineage mutations block validation; protected merged-result execution and exact-commit retention remain unavailable | Protected CI runs the exact reviewed merged result and retains corresponding pass and blocking-mutation evidence |
-| A06-F03 | Model Validation | Independent data/model/domain/operations review during solo bootstrap | Named independent reviewers resolve findings and approve the exact catalog contract, population, retention, and closure evidence |
-
-These are not waivers or approvals. A06 remains partial until all three close.
-
-## Non-goals
-
-- Creating B08 supply-chain artifacts, later target domain directories, canonical
-  schemas (C), data/model registries (D/E), services, limits, venue adapters, or
-  releases.
-- Connecting an external catalog, forge, deployment registry, identity system,
-  venue, broker, account, credential, or telemetry backend.
-- Treating provisional records as validated, released, promoted, deployed, or
-  activated, or granting market, capital, credential, or risk authority.
+The [development workflow](workflow.md) owns daily evidence and validation. The
+[program status](program-status.md) owns the current finding and handover view.
+A06 creates repository metadata only and grants no deployment, activation,
+credential, market, capital or risk authority.

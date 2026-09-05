@@ -9,6 +9,10 @@ from alpha_research_governance.program_governance.registry import (
     load_roadmap,
     validate_repository,
 )
+from alpha_research_governance.program_governance.status import (
+    render_status_markdown,
+    validate_status_document,
+)
 
 __all__ = [
     "APPLICABLE_GATE_IDS",
@@ -17,5 +21,7 @@ __all__ = [
     "load_observations",
     "load_program",
     "load_roadmap",
+    "render_status_markdown",
     "validate_repository",
+    "validate_status_document",
 ]

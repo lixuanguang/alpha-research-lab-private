@@ -40,6 +40,7 @@ def _dependency_record_errors(root: Path) -> list[str]:
         "b02.rules_buf",
         "b02.rules_python",
         "b02.setup_bazel",
+        "b02.upload_artifact",
     }
     observed_ids: set[str] = set()
     digest_pattern = re.compile(

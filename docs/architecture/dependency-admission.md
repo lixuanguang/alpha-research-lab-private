@@ -296,24 +296,13 @@ vulnerability service after frozen synchronization and before the complete graph
 Network/service failure, partial output, a scanner skip, unknown result, or an
 unresolved finding blocks rather than silently continuing.
 
-## Quality-gate evidence
+## Evidence policy
 
-| Gate | Repository-local evidence |
-| --- | --- |
-| QG01 | Ruff, strict mypy, Bandit, immutable action pins, and runtime-install scanning cover the new code and integrations |
-| QG02 | Complete uv/Bazel/Nix/action lock surfaces require immutable source and artifact digests; Bazel remains sandboxed |
-| QG03 | Success, boundary, malformed, missing, stale, mismatch, scanner-failure, and CLI paths are deterministic tests |
-| QG04 | Exact-set, uniqueness, transitive-closure, license-partition, and supported-wheel invariants are enforced; no numerical behavior changes |
-| QG05-QG06 | No domain schema, dataset, PIT state, research result, feature, model, trial, or promotion behavior is introduced |
-| QG09 | Installed command, Make, pre-commit, Bazel, frozen uv, and hosted merged-result interfaces consume the same policy |
-| QG10 | Registry/lock scans are bounded by the current graph; no runtime-latency or target-host performance claim is made |
-| QG11 | Missing sources, hashes, wheels, platforms, decisions, signals, locks, or tool output fail closed; Git rollback is retained |
-| QG12 | Licenses, direct/transitive dependencies, vulnerabilities, exploitability, sources, native artifacts, runtime installs, and immutable refs are checked |
-| QG13 | Scope, decisions, commands, migration, rollout, rollback, runbook, findings, non-goals, and successor are documented |
-| QG14 | Checker and audit failures are the owned repository/CI signals; no deployed dashboard or alert route is claimed |
-
-QG07-QG08 and QG15 are not applicable: B07 adds no cost/capacity model, risk
-control, deployment, release, promotion, activation, or executable order path.
+Gate definitions live in the [quality-gate catalog](operations.md#quality-gate-catalog).
+Exact B07 classification, gate state, dependency finding and closure conditions
+live in [dependency-admission.toml](dependency-admission.toml); current package
+state and finding IDs are rendered in the
+[program status](../governance/program-status.md).
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
@@ -338,24 +327,8 @@ the lock from approved inputs; rerun offline admission, live audit, and the full
 lane. No production monitor, page, alert route, on-call service, kill path, or
 post-deploy window is created.
 
-## Open findings
+## Governance references
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| B07-F01 | Domain Architecture | Independent Platform Code Owner, domain, SRE, and Security review | Named reviewers resolve findings and approve the exact policy, graph, dispositions, integrations, rollback, and evidence commit |
-| B07-F02 | Platform/CI | Protected exact-commit audit retention, Linux x86_64 wheel installation, approved-registry control, and blocking mutation exercises | Protected CI retains the audit, installs selected wheels without source fallback, and proves unapproved/mutable/unhashed/runtime-install states block |
-| B07-F03 | Security | Qualified license review, upstream Scorecard signals, organization registry reconciliation, and independent exploitability review | Qualified and Security reviewers reconcile every component and current signal, resolve obligations/findings, and approve patch/EOL dispositions |
-
-These findings are not approvals or waivers. B07 remains partial and authorizes no
-release, promotion, deployment, activation, credential, market access, capital,
-venue/account/instrument expansion, or increased risk authority.
-
-## Explicit non-goals and successor
-
-B07 does not emit or verify a whole-artifact SBOM, provenance, signature,
-attestation, immutable publication, or consumer admission. Those belong to B08.
-It does not implement K05's ongoing vulnerability operations, any unowned
-analytical or provider dependency from later packages, C02 domain behavior, a
-production registry, deployment, or activation.
-
-The next documented selector is `B08`.
+The [development workflow](../governance/workflow.md) owns daily evidence. B07
+admits development dependencies but grants no artifact release, deployment,
+activation, credential, market or capital authority.

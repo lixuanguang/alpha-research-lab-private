@@ -52,32 +52,10 @@ separately from institutional acceptance in the program register.
 | --- | --- | --- |
 | A02-F02 | [PR #5 hosted validation record](https://github.com/lixuanguang/alpha-research-lab-private/pull/5) | The PR record binds its exact head commit to the retained successful architecture-governance job |
 
-## Open findings
+## Governance references
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| A02-F01 | Platform Code Owner | Independent commit-bound review and acceptance of the principles, process, and proposed ADRs | A named Code Owner reviews the exact change, resolves findings, records approval, and changes accepted records deliberately |
-
-This finding is not a waiver. A02 remains partial until it closes; later
-provisional packages cannot convert the records to accepted or claim a wave exit.
-
-## Review split plan
-
-Because the complete A02 epic exceeds the preferred 400-line review target, it
-should be reviewed in three dependency-ordered slices if opened as merge requests:
-
-1. `A02a`: principles, dependency rules, ADR lifecycle, deprecation, and exception
-   process;
-2. `A02b`: template, decision log, and ten proposed decisions;
-3. `A02c`: deterministic checker, boundary/failure tests, root command, and hosted
-   CI integration.
-
-Each slice retains A02 as its roadmap epic. No slice alone satisfies A02 exit
-evidence, and acceptance of later slices cannot compensate for a finding in an
-earlier slice.
-
-## Non-goals
-
-A02 does not assign CODEOWNERS (A03), classify changes with policy-as-code (A04),
-define SHA-bound evidence bundles (A05), create the target topology (B01), install
-the target toolchains (B02-B03), or deploy/activate any runtime.
+The A02 acceptance finding is rendered in the
+[program status](../../governance/program-status.md); the ADR validator retains its
+closure contract. The [development workflow](../../governance/workflow.md) owns
+daily evidence. ADR status records decisions only and grants no deployment or
+activation authority.

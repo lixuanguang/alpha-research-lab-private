@@ -30,6 +30,7 @@ CHANGE_POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "change-risk-poli
 EXAMPLE_ROOT = REPOSITORY_ROOT / "docs" / "governance" / "evidence" / "examples" / "a05-valid"
 EXAMPLE_SHA = "1" * 40
 FOUNDER_BODY = EXAMPLE_ROOT.parent / "founder-pr.md"
+LEGACY_FIXTURE_ROOT = REPOSITORY_ROOT / "tests" / "fixtures" / "governance" / "evidence"
 
 
 def _bundle_fixture(tmp_path: Path) -> Path:
@@ -66,6 +67,21 @@ def test_repository_evidence_policy_template_and_example_validate_end_to_end() -
     assert set(policy.mandatory_package_gates) == {"QG01", "QG13", "QG15"}
     assert manifest.commit_sha == EXAMPLE_SHA
     assert manifest.open_finding_ids == ("A05-F01", "A05-F02")
+
+
+@pytest.mark.parametrize(
+    ("bundle", "commit_sha"),
+    (("b01a-r2-partial", "5" * 40), ("b01b-r2-partial", "6" * 40)),
+)
+def test_legacy_slice_bundles_remain_readable_test_fixtures(bundle: str, commit_sha: str) -> None:
+    manifest = validate_manifest(
+        LEGACY_FIXTURE_ROOT / bundle / "manifest.toml",
+        expected_commit_sha=commit_sha,
+        change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
+    )
+
+    assert manifest.schema_version == 1
+    assert manifest.bundle_status == "partial"
 
 
 def test_template_must_match_policy_order_and_markers() -> None:

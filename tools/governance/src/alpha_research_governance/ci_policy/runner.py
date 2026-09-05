@@ -369,9 +369,9 @@ def _run_timed_ci_phase(
         event_stream.flush()
 
 
-def _open_ci_event_log(root: Path, path: Path) -> IO[str]:
+def _open_ci_event_log(root: Path, path: Path, *, event_log_directory: str = "build/ci") -> IO[str]:
     resolved = (root / path).resolve() if not path.is_absolute() else path.resolve()
-    allowed_root = (root / "build" / "ci").resolve()
+    allowed_root = (root / event_log_directory).resolve()
     if resolved != allowed_root and allowed_root not in resolved.parents:
         raise CIPolicyError(["CI event log must remain under build/ci"])
     resolved.parent.mkdir(parents=True, exist_ok=True)
@@ -389,8 +389,10 @@ def run_affected_ci_lane(
     environment: str,
 ) -> AffectedSelection:
     """Run preflight and the Bazel-affected build/test set."""
-    with _open_ci_event_log(root, event_log) as events:
-        policy = validate_continuous_integration_repository(root)
+    policy = validate_continuous_integration_repository(root)
+    with _open_ci_event_log(
+        root, event_log, event_log_directory=policy.event_log_directory
+    ) as events:
         base, head, changes = git_changed_paths_between(root, base_ref, head_ref)
         if resolve_git_commit(root, "HEAD") != head:
             raise CIPolicyError(["fast lane head ref must be the checked-out revision"])
@@ -450,8 +452,10 @@ def run_authoritative_full_ci_lane(
     environment: str,
 ) -> None:
     """Run the authoritative complete graph and frozen-uv compatibility path."""
-    with _open_ci_event_log(root, event_log) as events:
-        policy = validate_continuous_integration_repository(root)
+    policy = validate_continuous_integration_repository(root)
+    with _open_ci_event_log(
+        root, event_log, event_log_directory=policy.event_log_directory
+    ) as events:
         base = resolve_git_commit(root, base_ref)
         revision = resolve_git_commit(root, "HEAD")
         _validate_ci_event_context(

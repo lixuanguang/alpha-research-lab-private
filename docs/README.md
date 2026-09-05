@@ -14,13 +14,12 @@ yet implement the data platform, simulator, independent risk gateway, OMS/EMS, o
 production deployment. The proposed first workload is a digital-asset
 factor-residual strategy under its separate certification package.
 
-The [solo operating policy](governance/domain-ownership.md#current-operating-policy)
-separates engineering completion from institutional acceptance. The 19 registered
-A01-C03 packages show complete repository-local implementation; governance is not
-required until relevant hires join. The technical delivery queue now selects C04.
-Package contracts retain institutional evidence and findings separately.
-QuantLib 1.43 has a development admission expiring 2026-10-04 with
-unverified source-to-wheel binding; B08 artifact release remains blocked. See
+The [generated program status](governance/program-status.md) shows demonstrated
+implementation, the next technical package, retained findings and any active
+handover. The [development workflow](governance/workflow.md) separates engineering
+completion from institutional acceptance and operation authority. QuantLib 1.43
+has a development admission expiring 2026-10-04 with unverified source-to-wheel
+binding; B08 artifact release remains blocked. See
 [financial units](architecture/financial-units.md) for the boundary.
 
 ## Development environment
@@ -55,6 +54,7 @@ Use the focused checks while changing the corresponding contract:
 | Command | Contract |
 | --- | --- |
 | `make architecture-check` | ADR metadata and local documentation links |
+| `make governance-check`, `make program-status` | Validate shared policies; render program status after a state change |
 | `make ownership-check`, `make topology-check` | Owners, source coverage, dependency direction, and visibility |
 | `make change-risk-check`, `make evidence-check` | Change classification and SHA-bound evidence |
 | `make inventory-check` | Resource inventory and lineage |
@@ -77,6 +77,8 @@ in [remote execution](architecture/remote-execution.md). See the
 | Start here | Contents |
 | --- | --- |
 | [Architecture](architecture/README.md) | System overview and links to build and domain contracts |
+| [Development workflow](governance/workflow.md) | The one active implementation, evidence, validation, and handover workflow |
+| [Program status](governance/program-status.md) | Generated implementation, governance, readiness, and finding view |
 | [Implementation roadmap](roadmap/README.md) | 96 packages, dependencies, milestones, and solo-bootstrap rules |
 | [Research program](roadmap/research-program.md) | Empirical stages for the first strategy candidate |
 | [Coding standards](coding_standards/README.md) | Shared rules and language guides |
@@ -94,9 +96,6 @@ with its manifest. Completed migration diaries remain available in Git history.
 
 ## Working agreement
 
-Apply the [change-risk policy](governance/change-risk-classification.md) and
-[MR evidence requirements](governance/merge-evidence.md) to each change. Preserve
-the [architecture principles](architecture/principles.md), target ownership, and
-compatibility. Cross-cutting decisions follow the
-[ADR process](architecture/governance.md); behavior changes update their owning
-contract, tests, migration, rollback, and operator guidance together.
+Follow the [development workflow](governance/workflow.md). Preserve the
+[architecture principles](architecture/principles.md), target ownership, and
+compatibility. Cross-cutting decisions follow the [ADR process](architecture/governance.md).

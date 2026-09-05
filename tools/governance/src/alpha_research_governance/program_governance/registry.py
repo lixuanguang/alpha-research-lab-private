@@ -7,8 +7,8 @@ import re
 import tomllib
 from datetime import UTC, date, datetime, timedelta
 from math import isfinite
-from pathlib import Path
-from typing import cast
+from pathlib import Path, PurePosixPath
+from typing import Literal, cast
 from urllib.parse import urlsplit
 
 from pydantic import ValidationError
@@ -29,6 +29,7 @@ from alpha_research_governance.operating_model import (
     load_operating_model,
 )
 from alpha_research_governance.program_governance.models import (
+    FindingDispositionGroup,
     MetricDefinition,
     MetricObservation,
     PackageNode,
@@ -124,6 +125,7 @@ _ROOT_KEYS = {
     "roadmap_path",
     "schema_version",
 }
+_ROOT_KEYS_V4 = _ROOT_KEYS | {"finding_dispositions", "generated_status_path"}
 _STATE_KEYS = {
     "deferred_evidence_classes",
     "evidence_paths",
@@ -162,6 +164,7 @@ _METRIC_OPTIONAL_KEYS = {
     "target_approval_evidence",
     "target_value",
 }
+_FINDING_DISPOSITIONS = ("technical", "operation_prerequisite", "role_handover")
 _OBSERVATION_COMMON_KEYS = {
     "dimensions",
     "event_id",
@@ -578,6 +581,12 @@ def _parse_package_states(
         evidence_paths = _require_strings(
             entry.get("evidence_paths"), context=f"{context}.evidence_paths"
         )
+        if schema_version >= 4 and (
+            len(evidence_paths) != 1 or not evidence_paths[0].endswith(".md")
+        ):
+            raise ProgramGovernanceError(
+                [f"{context}: current state must name exactly one Markdown capability contract"]
+            )
         finding_ids = _require_strings(
             entry.get("open_finding_ids"),
             context=f"{context}.open_finding_ids",
@@ -602,17 +611,19 @@ def _parse_package_states(
             )
         if any(not finding.startswith(f"{package_id}-F") for finding in finding_ids):
             raise ProgramGovernanceError([f"{context}: finding IDs must belong to {package_id}"])
-        evidence_text = "\n".join(
-            _require_repository_file(
-                path, repository_root=repository_root, context=context
-            ).read_text(encoding="utf-8")
+        evidence_files = tuple(
+            _require_repository_file(path, repository_root=repository_root, context=context)
             for path in evidence_paths
         )
-        missing_findings = [finding for finding in finding_ids if finding not in evidence_text]
-        if missing_findings:
-            raise ProgramGovernanceError(
-                [f"{context}: evidence paths do not retain findings {missing_findings!r}"]
+        if schema_version < 4:
+            evidence_text = "\n".join(
+                evidence_file.read_text(encoding="utf-8") for evidence_file in evidence_files
             )
+            missing_findings = [finding for finding in finding_ids if finding not in evidence_text]
+            if missing_findings:
+                raise ProgramGovernanceError(
+                    [f"{context}: evidence paths do not retain findings {missing_findings!r}"]
+                )
         implementation_status: ImplementationStatus = "complete"
         domain_id = None
         technical_findings: tuple[str, ...] = ()
@@ -826,6 +837,50 @@ def _parse_findings(value: object) -> tuple[str, ...]:
     return tuple(identifiers)
 
 
+def _parse_finding_dispositions(
+    value: object,
+    *,
+    package_states: tuple[PackageState, ...],
+) -> tuple[FindingDispositionGroup, ...]:
+    groups: list[FindingDispositionGroup] = []
+    mapped_ids: list[str] = []
+    for index, entry in enumerate(_require_table_list(value, context="finding_dispositions"), 1):
+        context = f"finding_dispositions[{index}]"
+        if set(entry) != {"disposition", "finding_ids"}:
+            raise ProgramGovernanceError([f"{context} has missing or unknown fields"])
+        disposition = _require_string(entry, "disposition", context=context)
+        if disposition not in _FINDING_DISPOSITIONS:
+            raise ProgramGovernanceError([f"{context}.disposition is unsupported"])
+        finding_ids = _require_strings(
+            entry.get("finding_ids"),
+            context=f"{context}.finding_ids",
+            allow_empty=disposition == "technical",
+        )
+        mapped_ids.extend(finding_ids)
+        groups.append(
+            FindingDispositionGroup(
+                disposition=cast(
+                    Literal["technical", "operation_prerequisite", "role_handover"],
+                    disposition,
+                ),
+                finding_ids=finding_ids,
+            )
+        )
+    if tuple(group.disposition for group in groups) != _FINDING_DISPOSITIONS:
+        raise ProgramGovernanceError(
+            ["finding dispositions must declare technical, operation, and role groups in order"]
+        )
+    if len(mapped_ids) != len(set(mapped_ids)):
+        raise ProgramGovernanceError(["historical finding IDs must have one disposition"])
+    active_ids = {finding_id for state in package_states for finding_id in state.open_finding_ids}
+    missing_ids = sorted(active_ids - set(mapped_ids))
+    if missing_ids:
+        raise ProgramGovernanceError(
+            [f"active historical findings lack a migration disposition: {missing_ids!r}"]
+        )
+    return tuple(groups)
+
+
 def _load_program(
     path: Path,
     *,
@@ -835,8 +890,14 @@ def _load_program(
     """Load program governance and validate its roadmap, owners, and evidence paths."""
     resolved_repository_root = repository_root.resolve()
     program_document = _load_toml(path)
-    if set(program_document) != _ROOT_KEYS:
-        raise ProgramGovernanceError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
+    schema_version = program_document.get("schema_version")
+    if type(schema_version) is not int or schema_version not in {1, 2, 3, 4}:
+        raise ProgramGovernanceError([f"{path}: schema_version must be 1, 2, 3, or 4"])
+    expected_root_keys = _ROOT_KEYS_V4 if schema_version >= 4 else _ROOT_KEYS
+    if set(program_document) != expected_root_keys:
+        raise ProgramGovernanceError(
+            [f"{path}: fields must be exactly {sorted(expected_root_keys)!r}"]
+        )
     expected_scalars: dict[str, object] = {
         "roadmap_package": "A08",
         "operating_track": "solo_bootstrap",
@@ -845,9 +906,6 @@ def _load_program(
         "risk_class": "R2",
         "observation_schema_version": 1,
     }
-    schema_version = program_document.get("schema_version")
-    if type(schema_version) is not int or schema_version not in {1, 2, 3}:
-        raise ProgramGovernanceError([f"{path}: schema_version must be 1, 2, or 3"])
     for key, expected in expected_scalars.items():
         if program_document.get(key) != expected:
             raise ProgramGovernanceError([f"{path}: {key} must be {expected!r}"])
@@ -876,6 +934,14 @@ def _load_program(
         ownership_roles=ownership_roles,
         schema_version=schema_version,
         operating_model=operating_model,
+    )
+    finding_dispositions = (
+        ()
+        if schema_version < 4
+        else _parse_finding_dispositions(
+            program_document.get("finding_dispositions"),
+            package_states=package_states,
+        )
     )
     metrics = tuple(
         _parse_metric(entry, index=index, ownership_roles=ownership_roles)
@@ -906,6 +972,27 @@ def _load_program(
     )
     if _REVISION.fullmatch(local_evidence_commit_sha) is None:
         raise ProgramGovernanceError(["local_evidence_commit_sha must be a full digest"])
+    generated_status_path = (
+        None
+        if schema_version < 4
+        else _require_string(program_document, "generated_status_path", context=str(path))
+    )
+    if generated_status_path is not None:
+        relative_status_path = PurePosixPath(generated_status_path)
+        if (
+            relative_status_path.is_absolute()
+            or ".." in relative_status_path.parts
+            or relative_status_path.as_posix() != generated_status_path
+            or relative_status_path.suffix != ".md"
+        ):
+            raise ProgramGovernanceError(["generated_status_path must be a safe Markdown path"])
+        status_parent = resolved_repository_root.joinpath(*relative_status_path.parts).parent
+        try:
+            status_parent.resolve(strict=True).relative_to(resolved_repository_root)
+        except (FileNotFoundError, ValueError) as error:
+            raise ProgramGovernanceError(
+                ["generated_status_path parent must exist inside the repository"]
+            ) from error
     program = ProgramGovernance(
         schema_version=cast(int, program_document["schema_version"]),
         roadmap_package=cast(str, program_document["roadmap_package"]),
@@ -928,10 +1015,12 @@ def _load_program(
         ),
         local_evidence_manifest_path=local_evidence_manifest_path,
         local_evidence_commit_sha=local_evidence_commit_sha,
+        generated_status_path=generated_status_path,
         packages=packages,
         package_states=package_states,
         metrics=metrics,
         finding_ids=finding_ids,
+        finding_dispositions=finding_dispositions,
     )
     if schema_version >= 2:
         for package in packages:
@@ -1130,4 +1219,13 @@ def validate_repository(repository_root: Path) -> ProgramGovernance:
         repository_root=resolved_repository_root,
     )
     _validate_local_evidence(resolved_repository_root, program)
+    if program.generated_status_path is not None:
+        from alpha_research_governance.program_governance.status import (
+            validate_status_document,
+        )
+
+        validate_status_document(
+            resolved_repository_root / program.generated_status_path,
+            program,
+        )
     return program

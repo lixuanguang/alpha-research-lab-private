@@ -79,6 +79,12 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
     assert "make dependency-audit" in continuous_integration
     assert "make remote-build" in continuous_integration
     assert "make remote-test" in continuous_integration
+    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in (
+        continuous_integration
+    )
+    assert "build/ci/fast-events.jsonl" in continuous_integration
+    assert "build/ci/full-events.jsonl" in continuous_integration
+    assert "retention-days: 30" in continuous_integration
     assert "github.event_name == 'push'" in continuous_integration
 
     assert "tools/governance/src/alpha_research_governance/change_risk/[a-z_]+\\.py" in (pre_commit)
@@ -123,6 +129,8 @@ def test_repository_automation_wires_current_toolchain_and_governance_checks() -
         "security-controls-check",
     ):
         assert f"make {make_target}" in documentation
+    assert "program-status:" in makefile
+    assert "governance-check:" in makefile
 
 
 def test_affected_and_authoritative_full_ci_root_interfaces_are_explicit() -> None:

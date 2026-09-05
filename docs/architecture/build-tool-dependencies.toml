@@ -118,3 +118,17 @@ transitive_native_dependencies = ["Bazelisk"]
 vulnerability_review = "Pinned commit and GitHub advisory surfaces reviewed on 2026-09-01; final admission remains B07-owned."
 maintenance_review = "Workflow references the immutable commit rather than a mutable action tag."
 rollback = "Remove the CI setup and verification steps while the uv workflow remains authoritative."
+
+[[dependencies]]
+dependency_id = "b02.upload_artifact"
+name = "actions/upload-artifact"
+version = "4.6.2"
+purpose = "Retain revision- and run-bound CI event logs outside the source tree."
+source_url = "https://github.com/actions/upload-artifact/commit/ea165f8d65b6e75b540449e92b4886f43607fa02"
+source_digest = "git-commit:ea165f8d65b6e75b540449e92b4886f43607fa02"
+license = "MIT"
+supported_platforms = ["linux_x86_64"]
+transitive_native_dependencies = ["GitHub Actions artifact service"]
+vulnerability_review = "Pinned upstream release and advisory surfaces reviewed on 2026-09-05; final admission remains B07-owned."
+maintenance_review = "The workflow uses the immutable v4.6.2 release commit and a bounded retention period."
+rollback = "Remove artifact upload steps while preserving local ignored event logs and the authoritative CI lane."

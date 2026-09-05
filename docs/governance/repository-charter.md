@@ -135,23 +135,11 @@ activate trading. Rollback is a reviewed revert of this charter and register; it
 cannot be used to erase evidence or silently restore direct-push authority. No
 runtime monitoring or runbook changes are introduced by A01.
 
-## Open findings
+## Governance references
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| A01-F01 | Platform | Organization-wide repository inventory attestation | A named Platform owner attests the complete repository inventory and every repository has exactly one reviewed `migrate`, `bridge`, or `retain` disposition |
-| A01-F02 | Platform/CI | Independently inspectable protected-main enforcement | The external forge proves direct pushes and bypasses are blocked and retains the branch-rule evidence |
-| A01-F03 | Platform | Commit-bound cross-functional approval | Named Platform, Quantitative Research, Trading Engineering, Risk, SRE, Security, and Compliance reviewers resolve findings and approve the exact reviewed commit |
-
-These findings retain institutional evidence obligations. A01's institutional
-acceptance remains partial until they close; its implementation status is separate.
-
-## Non-goals
-
-- Creating the target repository skeleton or moving historical source (B01).
-- Defining the ADR/exception framework (A02), CODEOWNERS (A03), change classifier
-  (A04), evidence bundles (A05), inventories (A06), or threat model (A07).
-- Selecting build, schema, storage, transport, deployment, observability, or
-  production-access technology.
-- Configuring forge branch rules, contacting external systems, deploying
-  artifacts, adding credentials, or authorizing trading.
+Exact A01 finding closure conditions live in
+[system-boundaries.toml](system-boundaries.toml); current implementation,
+governance and retained finding IDs are rendered in the
+[program status](program-status.md). The [development workflow](workflow.md) owns
+daily evidence. This charter grants no deployment, credential, market, capital or
+trading authority.

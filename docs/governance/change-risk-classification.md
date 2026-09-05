@@ -143,18 +143,7 @@ change's class without new reviewed evidence. No dashboard, alert, production
 monitor, or operator runbook changes are introduced; CI failure output is the
 repository-local operational signal.
 
-## Open findings
-
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| A04-F01 | Platform/CI | PR #5 retains successful exact-commit hosted CI, but the target branch is not protected | The reviewed commit passes the change-risk job in the protected external forge and retains the result |
-| A04-F02 | Platform | Protected-forge consumption and enforcement of classifier output | Representative R0-R4 exercises prove a downgrade, a single-approver R4 change, and an R4 hard-control waiver are blocked |
-| A04-F03 | Security | Independent Security, SRE/promotion-control, and Independent Risk review | Named reviewers resolve findings and record commit-bound approval of the classifier and mappings |
-
-These are not approvals or waivers. A04 remains partial until every finding
-closes against the exact reviewed commit.
-
-## Implementation boundaries and non-goals
+## Implementation structure
 
 The canonical Python implementation is the cohesive
 `alpha_research_governance.change_risk` tool subpackage. B01b preserves the
@@ -172,11 +161,9 @@ reviewable:
 - `change_risk/constraints.py` retains non-negotiable blueprint lower bounds
   separately from the mutable TOML policy.
 
-The A04 epic should still be reviewed as `A04a` for policy and package
-documentation, `A04b` for the classifier and approval validator, and `A04c` for
-adversarial tests and automation integration. Every slice retains A04 and no
-slice alone satisfies its repository-local evidence.
-
-A04 does not implement the A05 MR template or evidence bundle, A06 inventories,
-forge configuration, signed releases, artifact promotion, deployment, activation,
-credentials, external systems, market access, capital, or expanded risk authority.
+Exact A04 finding closure conditions live in
+[change-risk-policy.toml](change-risk-policy.toml); current implementation,
+governance and retained finding IDs are rendered in the
+[program status](program-status.md). The [development workflow](workflow.md) owns
+daily evidence. Classification does not itself authorize a release, promotion,
+deployment, activation, credential, market, capital or risk operation.

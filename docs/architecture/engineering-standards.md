@@ -166,31 +166,14 @@ Unknown fields, missing roots, malformed TOML, invalid dates, stale tool version
 unlocked dependencies, absent warnings-as-errors, generated source, dormant native
 source, unsafe suppressions, evidence drift, and digest mismatch all fail closed.
 
-## A04 classification and quality gates
+## Classification and evidence
 
-B04 is R2 because it changes a shared build and quality contract with a compatibility
-window. It has no capital, production-serving, privileged-control, economic, model,
-or trading effect. It is computationally material because the policy and property
-tests run across shared source/build interfaces. QG07-QG08 and QG15 are not
-applicable: no cost, capacity, risk control, deployment, promotion, or activation
-surface exists.
-
-| Gate | Repository-local evidence |
-| --- | --- |
-| QG01 | Exact format/lint/type/security tools, warnings-as-errors, suppression policy, and generated-source separation |
-| QG02 | Exact uv/Bazel inputs, sandboxed property target, and provisional dependency digest |
-| QG03 | Success, boundary, invalid-input, malformed-policy, CLI, failure, and lifecycle tests |
-| QG04 | Property/state-machine tests, numerical policy, coverage statement, and twelve-of-twelve mutation baseline |
-| QG05-QG06 | Explicit no-schema/data/PIT/research/model impact and preserved governance lineage |
-| QG09 | Existing package, root, hook, hosted, uv, and Bazel interfaces remain compatible |
-| QG10 | Ten thousand suppression checks complete within the one-second local budget; no target-host latency claim |
-| QG11 | Missing, unknown, expired, unowned, unlocked, or unadmitted state stops validation |
-| QG12 | Bandit, bounded suppressions, immutable dependency digest, and B07 admission finding |
-| QG13 | Standards, interfaces, baselines, migration, rollback, signals, findings, and successor are documented |
-| QG14 | A failed checker is the repository-local signal; no deployed monitor or SLO is claimed |
-
-Institutional acceptance requires a Platform Code Owner and an independent domain,
-data, or model reviewer. Those roles are unavailable on the solo-bootstrap track.
+B04 is R2 because it changes a shared build and quality contract with a
+compatibility-window reversal. Gate definitions live in the
+[quality-gate catalog](operations.md#quality-gate-catalog); exact state and finding
+closure conditions live in
+[engineering-standards.toml](engineering-standards.toml). Current state and finding
+IDs are rendered in the [program status](../governance/program-status.md).
 
 ## Dependency, migration, rollout, rollback, monitoring, and runbook
 
@@ -215,30 +198,8 @@ production runbook, kill path, post-deploy window, or operator migration. The
 runbook is: inspect the named finding, restore the last passing policy/lock/source
 combination, rerun the complete check, and do not weaken or extend a suppression.
 
-## Open findings
+## Governance references
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| B04-F01 | Domain Architecture | Independent domain review and commit-bound Platform Code Owner approval | Named reviewers resolve findings and approve the exact standards, checker, dependency record, baselines, and evidence at the reviewed commit |
-| B04-F02 | Platform/CI | Protected merged-result Linux execution and retained representative-defect, property/state-machine, coverage, and mutation evidence | Protected CI runs the exact reviewed merged result on x86_64 Linux and retains the passing checks plus all twelve blocking mutations |
-| B04-F03 | Security | Qualified Hypothesis/sortedcontainers source, license, vulnerability, exploitability, maintenance, and transitive admission | B07 admits or replaces both dependencies without weakening determinism, property/state-machine coverage, Bazel execution, or rollback |
-
-These findings are neither waivers nor approvals. B04 remains `partial` until all
-three close.
-
-## Explicit non-goals and successor
-
-B04 does not:
-
-- admit a C, C++, or Rust target or install its formatter, compiler, analyzer,
-  sanitizer, Miri, or fuzzer;
-- implement a domain numeric type, tolerance, state machine, model, schema, or
-  generated client;
-- implement B05 affected/reverse-dependency selection, merged-result authority,
-  flake policy, secret scanning, schema compatibility, or evidence events;
-- implement B06 remote cache/execution, B07 final dependency admission, or B08
-  SBOM, provenance, signing, publication, or consumer verification; or
-- deploy, activate, access an external market, create credentials, expose capital,
-  or expand a venue, account, instrument, limit, or risk envelope.
-
-The next selector is `B05`.
+The [development workflow](../governance/workflow.md) owns daily evidence. B04
+defines engineering standards only and grants no deployment, activation,
+credential, market or capital authority.

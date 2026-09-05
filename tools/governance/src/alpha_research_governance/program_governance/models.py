@@ -12,6 +12,7 @@ from alpha_research_governance._models import ImmutableModel
 from alpha_research_governance.operating_model import GovernanceStatus, ImplementationStatus
 
 DependencyPurpose = Literal["implementation", "operation_release", "team_handover"]
+FindingDisposition = Literal["technical", "operation_prerequisite", "role_handover"]
 _DEPENDENCY_PURPOSES: tuple[DependencyPurpose, ...] = (
     "implementation",
     "operation_release",
@@ -97,6 +98,11 @@ class PackageState(ImmutableModel):
     technical_finding_ids: tuple[str, ...] = ()
     assigned_reviewers: tuple[str, ...] = ()
 
+    @property
+    def contract_path(self) -> str:
+        """Return the single active capability contract for current records."""
+        return self.evidence_paths[0]
+
     @model_validator(mode="after")
     def completion_requires_technical_evidence(self) -> Self:
         """Keep technical failure distinct from unstaffed governance requirements."""
@@ -120,12 +126,27 @@ class PackageState(ImmutableModel):
             "assigned_reviewers": list(self.assigned_reviewers),
             "institutional_status": self.status,
             "deferred_evidence_classes": list(self.deferred_evidence_classes),
+            "contract_path": self.contract_path,
             "evidence_paths": list(self.evidence_paths),
             "open_finding_ids": list(self.open_finding_ids),
             "owner_role": self.owner_role,
             "package_id": self.package_id,
             "repository_local_status": self.repository_local_status,
             "status": self.status,
+        }
+
+
+class FindingDispositionGroup(ImmutableModel):
+    """One migration disposition shared by one or more historical finding IDs."""
+
+    disposition: FindingDisposition
+    finding_ids: tuple[str, ...]
+
+    def as_json(self) -> dict[str, object]:
+        """Return the stable program-record representation."""
+        return {
+            "disposition": self.disposition,
+            "finding_ids": list(self.finding_ids),
         }
 
 
@@ -288,6 +309,8 @@ class ProgramGovernance(ImmutableModel):
     package_states: tuple[PackageState, ...]
     metrics: tuple[MetricDefinition, ...]
     finding_ids: tuple[str, ...]
+    generated_status_path: str | None = None
+    finding_dispositions: tuple[FindingDispositionGroup, ...] = ()
 
     @property
     def implementation_status(self) -> ImplementationStatus:
@@ -312,6 +335,17 @@ class ProgramGovernance(ImmutableModel):
         """Return explicit status or the planned default."""
         state = self.state_for(package_id)
         return "planned" if state is None else state.status
+
+    def finding_disposition_for(self, finding_id: str) -> FindingDisposition | None:
+        """Return the one-time migration disposition for a historical finding."""
+        return next(
+            (
+                group.disposition
+                for group in self.finding_dispositions
+                if finding_id in group.finding_ids
+            ),
+            None,
+        )
 
     def ready_packages(self, *, institutional: bool) -> tuple[PackageNode, ...]:
         """Return planned packages whose dependencies satisfy the selected track."""

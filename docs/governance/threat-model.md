@@ -160,27 +160,13 @@ PYTHONPATH=src uv run --frozen python -m alpha_research.security_controls --cont
 PYTHONPATH=src uv run --frozen python -m alpha_research.security_controls --jurisdiction SG
 ```
 
-## Quality-gate evidence
+## Evidence policy
 
-| Gate | Repository-local evidence |
-| --- | --- |
-| QG01 | Ruff, strict mypy, source-hygiene controls, and deterministic tests cover the package |
-| QG02 | TOML parsing and sorted compact JSON use no network, workstation state, or nondeterministic input |
-| QG03 | Valid, boundary, invalid-input, mutation, CLI, and integration paths are exercised |
-| QG04 | IDs, categories, references, ownership, independence, and coverage invariants fail closed |
-| QG05 | Assets, boundaries, threats, controls, packages, owners, tests, evidence, and findings are linked |
-| QG06 | Model-risk and selection threats are explicit; no research or model outcome is claimed |
-| QG09 | Root, pre-commit, and hosted CI invoke the same validator |
-| QG10 | The map is bounded, static, and queryable without runtime performance or latency claims |
-| QG11 | Malformed, stale, incomplete, or inconsistent maps block validation and support reviewed Git revert |
-| QG12 | Path containment, credential-free HTTPS sources, secret hygiene, supply-chain threats, and Bandit are exercised |
-| QG13 | Contract, assumptions, non-goals, sources, evidence states, operations, and findings are retained here |
-| QG14 | Validation findings, due dates, partial status, and JSON filters are the repository-local monitoring surface |
-
-QG07 and QG08 are not applicable: A07 defines governance controls and threat
-requirements but creates no cost model, economic decision, executable limit,
-risk calculation, order path, or activation envelope. QG15 remains unavailable
-until commit-bound independent review and protected merged-result evidence exist.
+Applicable control definitions live in the
+[quality-gate catalog](../architecture/operations.md#quality-gate-catalog). Exact
+A07 gate state and finding closure conditions live in
+[security-control-map.toml](security-control-map.toml); current state and finding
+IDs are rendered in the [program status](program-status.md).
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
@@ -196,36 +182,10 @@ check does not close risk. No production dashboard, alert route, incident
 runbook, kill path, credential, market session, or recovery authority is created
 by A07.
 
-## Review split plan
+## Governance references
 
-Review `A07a` for assets, trust boundaries, abuse cases, privileged actions,
-control ownership, fail-safe behavior, and evidence closure. Review `A07b` for
-official sources, jurisdiction profiles, applicability limitations, the strict
-validator, adversarial tests, and automation. Both slices remain A07 and neither
-alone satisfies its repository-local evidence.
-
-## Required reviewers and open findings
-
-The eventual exit review requires the Code Owner, a non-author Security reviewer,
-Trading Risk/Independent Risk, and qualified Legal/Compliance. Target-control
-owners join for the evidence they operate.
-
-| Finding | Owner | Unavailable evidence and closure |
-| --- | --- | --- |
-| A07-F01 | Security | Reconcile all systems, identities, data entitlements, privileged actions, external control planes, and market-access paths against complete organization and target inventories |
-| A07-F02 | Independent Risk | Named non-author Security and Trading Risk reviewers resolve threat, independence, fail-safe, test, and evidence findings and approve the exact commit |
-| A07-F03 | Compliance | Qualified Legal/Compliance establishes operating facts, tailors jurisdictions and obligations, resolves gaps, and approves the exact mapping |
-| A07-F04 | Platform/CI | Protected CI validates the exact reviewed merged result and retains pass and blocking-mutation evidence |
-
-These findings are not waivers or approvals. A07 remains partial until all close.
-
-## Non-goals
-
-- Implementing later build, data, model, risk, trading, identity, surveillance,
-  recovery, or audit control planes.
-- Connecting an organization inventory, forge, cloud, identity provider, secret
-  manager, vendor, venue, broker, account, or regulator.
-- Determining legal applicability, providing legal advice, or claiming that the
-  source list is complete or current beyond its recorded verification date.
-- Granting release, promotion, deployment, activation, market-access, credential,
-  capital, venue, account, limit, or risk authority.
+The [development workflow](workflow.md) owns daily evidence and validation. The
+[program status](program-status.md) owns the current finding and handover view.
+Qualified legal applicability and operation-specific controls remain external to
+this repository contract; A07 grants no release, activation, market, credential,
+capital or risk authority.
