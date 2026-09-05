@@ -2,7 +2,7 @@
 
 Audit date: 2026-09-05. Baseline revision:
 `d3a40ca98d71208426c8501d8d4a1aaaa049768d`.
-Status: steps 1–2 implemented on 2026-09-05; steps 3–7 remain planned. The findings
+Status: steps 1–3 implemented on 2026-09-05; steps 4–7 remain planned. The findings
 below describe the original audited revision, before step-1 enforcement.
 
 The requested target is segregated, commented import groups; stringent typing
@@ -275,7 +275,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | --- | --- | --- |
 | 1. Establish the executable contract — implemented | Updated the Python guide; extended the existing checker, pre-commit hook and Bazel inputs/tests. Froze 3,079 original-revision obligations. | 55 focused tests cover new/moved/multiplied debt, missing Google sections, aliased `Any`, imports and invalid exception metadata. See the step-1 validation record below. |
 | 2. Normalize imports — implemented | Activated the heading settings and applied import-only fixes in runtime, tooling and test batches. Retired all 243 import obligations. | Ruff import/format checks pass; complete AST comparison confirms unchanged import targets, aliases, relative levels and execution order. See the step-2 validation record below. |
-| 3. Remove explicit Any in tests | Replace the two modules' escape hatches with fixture types, callable types and narrowing. Document their helpers at the same time. Depends on step 1. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; deliberately invalid inputs still reach the intended rejection path. |
+| 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries | Pilot Pydantic typing on a small governance model, then audit shared bases, JSON/TOML readers and native adapters. Depends on step 3 for negative-test compatibility. | Enforced mypy scopes pass additional flags; every remaining diagnostic has a concrete cause and retirement task. Stub conformance, validation and existing native goldens pass. |
 | 5. Document existing contracts | Start with exported domain APIs, shared model validation and high-level governance operations; then private helpers, test classes and fixtures. Depends on step 1; combine docs for moved functions with step 6. | Required Google sections are checked; public contracts describe actual units/errors/side effects; residual exceptions are exact and justified. |
 | 6. Refactor workflows into classes | Pilot change-risk classification, then loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | Existing callers and CLI behavior remain compatible; methods have typed dependencies and docs; behavior and repeated-call tests pass. |
@@ -345,6 +345,39 @@ added. The remaining 2,836 obligations across 87 files are unchanged: 14 explici
 typing, 781 definition-summary, 1,235 structured-documentation and 806 function
 disposition obligations. Rule attribution and the original baseline revision
 remain available for the later migration steps.
+
+### Step 3 implementation
+
+The financial-unit golden loader now validates JSON against nested `TypedDict`
+records using the existing pinned Pydantic `TypeAdapter` in strict mode. Decimal
+strings and integer rational components retain their original representation;
+missing required fields and scalar coercion fail before numerical assertions.
+The `dynamic` identity helper was removed. Invalid-value parameters and native
+fake results use `object`; operation callbacks use `Callable[[], object]`.
+
+All negative cases still invoke the original public constructor, method or copy
+operation. Twelve deliberately invalid typed calls use line-scoped
+`arg-type` suppressions, each with the governed `platform` owner, a specific
+runtime-rejection rationale and expiry of 2027-03-01. Strict mypy checks that the
+suppressions remain necessary. Production signatures, validation entry points,
+golden values and dependency pins are unchanged.
+
+The developer-environment validators accept raw `object` inputs and narrow each
+table and consumed scalar before using it. JSON lock structure is checked before
+nested access, so malformed tables produce validation findings instead of an
+incidental `AttributeError`. TOML inputs remain raw until their field checks;
+they are not asserted to have JSON's narrower value domain. Existing duplicate,
+floating-version and unsupported-platform mutations now validate their container
+shapes before mutation. Additional malformed-table cases exercise the guards.
+
+Both test modules now document their definitions, including nested native fakes.
+The debt inventory and checksum retire exactly 67 obligations: all 14 `PYT001`,
+46 `PYD001`, six `PYD002`, and the removed helper's one `PYC001`. No allowance or
+standards exception was added. The remaining 2,769 obligations across 87 files
+are 735 definition summaries, 1,229 structured-documentation obligations and 805
+function dispositions. Inferred library and parsing types remain step-4 work;
+source-level completion does not claim that every expression is free of inferred
+dynamic typing.
 
 ### Class migration queue
 
@@ -497,3 +530,24 @@ Syft 1.51.1 directories. The integration test's nested uv command initially hit
 a sandbox cache restriction; its authorized rerun used an inherited temporary
 uv cache and passed. These are local checks; step 2 did not run `make ci-full`
 or hosted CI. Steps 3–7 remain planned.
+
+## Step 3 validation record — 2026-09-05
+
+Validation compared the working tree with step-3 starting revision `31a8a78`.
+Both local packages were rebuilt offline as non-editable installs in the existing
+pinned environment. No dependency, lockfile, runtime implementation or golden
+fixture changed.
+
+| Check | Observed result |
+| --- | --- |
+| Source standards scan across runtime, governance and tests | Zero `PYT001` findings; all 14 explicit-typing obligations retired. |
+| Financial-unit test compatibility | All 27 existing test-function bodies and parametrizations match after removing annotations, docstrings and the former identity wrapper. All 82 selected existing pytest node IDs remain; five fixture-validation cases were added. |
+| Focused financial-unit pytest | 87 passed; the existing performance test was deselected. The five new cases reject missing metadata, boolean/string rational components and numeric values in decimal-string fields. |
+| Source-scanner, debt-policy and engineering-standards pytest | 75 passed; one integration test was deselected. |
+| `make lint format-check typecheck engineering-standards-check` | Passed; Ruff formatting and strict mypy cover all 129 Python files. Suppression metadata and the revised debt checksum pass the existing policy. |
+| Owning Bazel tests | `//tests/unit:financial_units_test`, `//tests/build:developer_environment_test`, `//tests/engineering:python_standards_test` and `//tests/engineering:engineering_standards_test` all passed under `--config=ci`. |
+| Debt comparison | Exactly 67 existing obligations retired, preserving every remaining entry and original-revision attribution; no new allowances. |
+| Documentation and whitespace | `make architecture-check` passed for 14 ADRs and repository documentation links; `git diff --check` passed. |
+
+These are local checks for step 3; this slice did not run `make ci-full` or hosted
+CI. Steps 4–7 remain planned.

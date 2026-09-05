@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 # standard library imports
-import json
 import operator
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from decimal import Decimal, Inexact, localcontext
@@ -12,14 +12,14 @@ from fractions import Fraction
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import TypedDict
 from uuid import UUID
 
 # third party library imports
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 # project library imports
 from alpha_research.financial_units import (
@@ -64,17 +64,63 @@ CONVENTION = RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compoundi
 FIXTURE = Path(__file__).parents[1] / "golden/financial_units/c03_units.json"
 
 
-def dynamic(value: Any) -> Any:
-    """Expose deliberately malformed runtime input at the validation test boundary."""
-    return value
+class _Tolerance(TypedDict):
+    """Retain decimal-string year tolerances and their numerical justification."""
+
+    absolute_years: str
+    relative: str
+    rationale: str
 
 
-def fixture() -> Any:
-    # JSON is an untyped test-input boundary; each case is checked against the owned API.
-    return json.loads(FIXTURE.read_text())
+class _DayCountCase(TypedDict):
+    """Describe an ISO-date interval and its hand-calculated rational year count."""
+
+    basis: str
+    start: str
+    end: str
+    numerator: int
+    denominator: int
+
+
+class _RoundingCase(TypedDict):
+    """Retain exact decimal strings for a rounding input, grid and expected result."""
+
+    value: str
+    tick: str
+    mode: str
+    expected: str
+
+
+class _FinancialFixture(TypedDict):
+    """Bind synthetic golden cases to their convention, native version and tolerances."""
+
+    fixture_kind: str
+    convention_revision: str
+    quantlib_version: str
+    tolerance: _Tolerance
+    day_counts: list[_DayCountCase]
+    rounding: list[_RoundingCase]
+
+
+def fixture() -> _FinancialFixture:
+    """Read golden inputs and validate every consumed field without coercion.
+
+    Returns:
+        Typed cases preserving decimal strings and integer rational components.
+
+    Raises:
+        OSError: The golden file cannot be read.
+        ValidationError: The JSON or a required field has an invalid shape or type.
+    """
+    return TypeAdapter(_FinancialFixture).validate_json(FIXTURE.read_bytes(), strict=True)
 
 
 def calendar() -> SettlementCalendar:
+    """Build the synthetic holiday gap used by settlement and coverage tests.
+
+    Returns:
+        A UTC calendar covering August 29 through September 5, 2024, inclusively.
+    """
     return SettlementCalendar(
         calendar_id="synthetic",
         calendar_version="v1",
@@ -93,7 +139,34 @@ def calendar() -> SettlementCalendar:
     )
 
 
+class TestFinancialFixtureValidation:
+    """Reject malformed golden inputs before they reach numerical assertions."""
+
+    @pytest.mark.parametrize(
+        ("original", "replacement"),
+        [
+            ('"quantlib_version"', '"missing_version"'),
+            ('"numerator": 2', '"numerator": true'),
+            ('"denominator": 360', '"denominator": "360"'),
+            ('"absolute_years": "1e-12"', '"absolute_years": 1e-12'),
+            ('"value": "1.025"', '"value": 1.025'),
+        ],
+    )
+    def test_rejects_missing_fields_and_scalar_coercion(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, original: str, replacement: str
+    ) -> None:
+        """Reject missing metadata and wrong scalar types inside both nested case groups."""
+        payload = FIXTURE.read_text(encoding="utf-8")
+        assert original in payload
+        malformed = tmp_path / "malformed.json"
+        malformed.write_text(payload.replace(original, replacement), encoding="utf-8")
+        monkeypatch.setitem(globals(), "FIXTURE", malformed)
+        with pytest.raises(ValidationError):
+            fixture()
+
+
 def test_hand_calculated_golden_day_counts() -> None:
+    """Match native year fractions to rational goldens within the declared tolerances."""
     data = fixture()
     assert data["quantlib_version"] == conventions.QUANTLIB_VERSION
     for case in data["day_counts"]:
@@ -114,6 +187,7 @@ def test_hand_calculated_golden_day_counts() -> None:
 
 
 def test_tick_and_lot_goldens_cover_sign_and_half_even_ties() -> None:
+    """Match signed tick and lot rounding to exact decimal goldens."""
     for case in fixture()["rounding"]:
         price = Price(value=D(case["value"]), currency=Currency.USD, per=SHARES)
         quantity = Quantity(value=price.value, dimension=SHARES)
@@ -128,6 +202,7 @@ def test_tick_and_lot_goldens_cover_sign_and_half_even_ties() -> None:
 def test_rounding_is_on_grid_idempotent_and_has_bounded_error(
     raw: int, step: int, mode: Rounding
 ) -> None:
+    """Keep every rounding mode on its grid with bounded directional error."""
     value = D(raw) / 1000
     quantum = D(step) / 100
     price = Price(value=value, currency=Currency.USD, per=SHARES)
@@ -156,6 +231,7 @@ def test_rounding_is_on_grid_idempotent_and_has_bounded_error(
 @settings(max_examples=50, derandomize=True, database=None)
 @given(st.integers(-1_000_000, 1_000_000), st.integers(1, 10000))
 def test_fx_conversion_has_declared_currency_rounding_tolerance(raw: int, rate: int) -> None:
+    """Bound conversion and round-trip error by the currency minor units."""
     money = Money(value=D(raw) / 100, currency=Currency.EUR)
     fx = FXRate(value=D(rate) / 100, base=Currency.EUR, quote=Currency.USD)
     converted = fx.convert(money, target=Currency.USD, mode=Rounding.HALF_EVEN)
@@ -169,6 +245,7 @@ def test_fx_conversion_has_declared_currency_rounding_tolerance(raw: int, rate: 
 
 
 def test_money_fx_quantity_multiplier_and_negative_price_reconcile() -> None:
+    """Reconcile signed quantities, multipliers, prices and currency conversion."""
     quantity = Quantity(value=D("-2"), dimension=CONTRACTS)
     multiplier = Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES)
     shares = multiplier.apply(quantity)
@@ -186,12 +263,14 @@ def test_money_fx_quantity_multiplier_and_negative_price_reconcile() -> None:
 @pytest.mark.parametrize(
     "bad", [1, True, 1.0, "1", D("NaN"), D("sNaN"), D("Infinity"), D("1e18"), D("1e-19")]
 )
-def test_invalid_decimal_values_fail_without_coercion(bad: Any) -> None:
+def test_invalid_decimal_values_fail_without_coercion(bad: object) -> None:
+    """Reject malformed decimals through the public Money constructor."""
     with pytest.raises(UnitError):
-        Money(value=bad, currency=Currency.USD)
+        Money(value=bad, currency=Currency.USD)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor decimal rejection; expires=2027-03-01]
 
 
 def test_magnitude_and_precision_boundaries_fail_closed() -> None:
+    """Reject overflow and unrepresentable exact arithmetic while normalizing zero."""
     valid = Money(value=D("999999999999999999.999999999999999999"), currency=Currency.USD)
     with pytest.raises(UnitError, match="magnitude"):
         valid + Money(value=D("0.000000000000000001"), currency=Currency.USD)
@@ -203,6 +282,7 @@ def test_magnitude_and_precision_boundaries_fail_closed() -> None:
 
 
 def test_all_numeric_types_are_immutable_and_distinct() -> None:
+    """Preserve frozen values and reject arithmetic across distinct quote types."""
     rate = Rate(value=D("-0.02"), convention=CONVENTION)
     yield_quote = Yield(value=D("-0.02"), convention=CONVENTION)
     assert rate != yield_quote
@@ -222,12 +302,12 @@ def test_all_numeric_types_are_immutable_and_distinct() -> None:
 @pytest.mark.parametrize(
     "operation",
     [
-        lambda: dynamic(Money)(value=D("1"), currency="USD"),
-        lambda: dynamic(Dimension)(instrument_id=UUID(int=1), kind=QuantityKind.SHARE),
-        lambda: dynamic(Dimension)(instrument_id=InstrumentId(UUID(int=1)), kind="share"),
-        lambda: dynamic(Quantity)(value=D("1"), dimension={}),
-        lambda: dynamic(Price)(value=D("1"), currency=Currency.USD, per={}),
-        lambda: dynamic(RateConvention)(day_count="actual_360", compounding=Compounding.SIMPLE),
+        lambda: Money(value=D("1"), currency="USD"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor currency rejection; expires=2027-03-01]
+        lambda: Dimension(instrument_id=UUID(int=1), kind=QuantityKind.SHARE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor identifier rejection; expires=2027-03-01]
+        lambda: Dimension(instrument_id=InstrumentId(UUID(int=1)), kind="share"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor kind rejection; expires=2027-03-01]
+        lambda: Quantity(value=D("1"), dimension={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
+        lambda: Price(value=D("1"), currency=Currency.USD, per={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
+        lambda: RateConvention(day_count="actual_360", compounding=Compounding.SIMPLE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor day-count rejection; expires=2027-03-01]
         lambda: RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC),
         lambda: RateConvention(
             day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC, payments_per_year=True
@@ -242,12 +322,14 @@ def test_all_numeric_types_are_immutable_and_distinct() -> None:
         lambda: Multiplier(value=D("0"), input_dimension=SHARES, output_dimension=SHARES),
     ],
 )
-def test_invalid_units_and_conventions(operation: Any) -> None:
+def test_invalid_units_and_conventions(operation: Callable[[], object]) -> None:
+    """Require each malformed constructor or replacement to raise the owned error."""
     with pytest.raises(UnitError):
         operation()
 
 
 def test_mismatched_arithmetic_rounding_fx_and_multiplier_reject() -> None:
+    """Reject mismatched dimensions and unsupported operations at their public entry points."""
     money = Money(value=D("1"), currency=Currency.USD)
     price = Price(value=D("1"), currency=Currency.USD, per=SHARES)
     quantity = Quantity(value=D("1"), dimension=CONTRACTS)
@@ -268,12 +350,13 @@ def test_mismatched_arithmetic_rounding_fx_and_multiplier_reject() -> None:
             money, target=Currency.JPY, mode=Rounding.HALF_EVEN
         )
     with pytest.raises(UnitError):
-        dynamic(money.rounded)(mode="nearest")
+        money.rounded(mode="nearest")  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed rounding rejection; expires=2027-03-01]
     with pytest.raises(TypeError):
         operator.mul(money, price)
 
 
 def test_decimal_context_cannot_change_any_exact_operation() -> None:
+    """Keep exact arithmetic independent of the ambient decimal context."""
     with localcontext() as context:
         context.prec = 2
         context.traps[Inexact] = True
@@ -300,6 +383,7 @@ def test_decimal_context_cannot_change_any_exact_operation() -> None:
 def test_business_day_and_settlement_goldens(
     convention: BDC, candidate: date, expected: date
 ) -> None:
+    """Match business-day adjustments and settlement lags across the holiday gap."""
     assert adjust_business_day(candidate, calendar=calendar(), convention=convention) == expected
     assert (
         settlement_date(candidate, business_day_lag=0, calendar=calendar(), convention=convention)
@@ -311,14 +395,19 @@ def test_business_day_and_settlement_goldens(
 
 
 @pytest.mark.parametrize("lag", [-1, 367, True, 1.0])
-def test_bad_settlement_lag_rejects(lag: Any) -> None:
+def test_bad_settlement_lag_rejects(lag: object) -> None:
+    """Reject out-of-range and non-integer lags through the settlement function."""
     with pytest.raises(ConventionError, match="lag"):
         settlement_date(
-            date(2024, 8, 30), business_day_lag=lag, calendar=calendar(), convention=BDC.FOLLOWING
+            date(2024, 8, 30),
+            business_day_lag=lag,  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed settlement lag rejection; expires=2027-03-01]
+            calendar=calendar(),
+            convention=BDC.FOLLOWING,
         )
 
 
 def test_calendar_coverage_and_unknown_conventions_fail_closed() -> None:
+    """Reject uncovered dates, empty calendars and untyped convention strings."""
     for candidate in (date(2024, 8, 28), date(2024, 9, 6)):
         with pytest.raises(ConventionError, match="coverage"):
             adjust_business_day(candidate, calendar=calendar(), convention=BDC.UNADJUSTED)
@@ -330,13 +419,16 @@ def test_calendar_coverage_and_unknown_conventions_fail_closed() -> None:
     with pytest.raises(ConventionError, match="coverage"):
         adjust_business_day(date(2024, 8, 31), calendar=empty, convention=BDC.FOLLOWING)
     with pytest.raises(UnitError):
-        adjust_business_day(date(2024, 8, 31), calendar=calendar(), convention=dynamic("following"))
+        adjust_business_day(date(2024, 8, 31), calendar=calendar(), convention="following")  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed convention rejection; expires=2027-03-01]
 
 
 def test_native_failure_nonfinite_and_version_mismatch_are_owned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Translate version, nonfinite-result and native-call failures into owned errors."""
+
     def calculate() -> None:
+        """Invoke the owned adapter through its normal native day-count path."""
         QuantLibConventions().time_to(
             context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
         )
@@ -346,6 +438,7 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
         calculate()
 
     def missing(_: str) -> str:
+        """Simulate unavailable native-package version metadata."""
         raise PackageNotFoundError
 
     monkeypatch.setattr(conventions, "version", missing)
@@ -354,7 +447,10 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
     monkeypatch.setattr(conventions, "version", lambda _: "1.43")
 
     class BadCounter:
+        """Simulate a native day counter returning a nonfinite float."""
+
         def yearFraction(self, start: object, end: object) -> float:
+            """Return the deliberately malformed native result without validating it."""
             return float("nan")
 
     monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", BadCounter)
@@ -362,6 +458,7 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
         calculate()
 
     def fail() -> None:
+        """Simulate an exception from native counter construction."""
         raise RuntimeError("synthetic native failure")
 
     monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", fail)
@@ -371,6 +468,7 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
 
 
 def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls() -> None:
+    """Keep concurrent evaluation contexts independent of native global date state."""
     # Settings is touched only in this adversarial test, never by the owned adapter.
     saved = getattr(conventions, "_ql").Settings.instance().evaluationDate
     try:
@@ -382,6 +480,7 @@ def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls(
         ]
 
         def evaluate(context: EvaluationContext) -> Decimal:
+            """Calculate a context-specific year fraction ending on January 4, 2024."""
             return (
                 QuantLibConventions()
                 .time_to(context=context, end=date(2024, 1, 4), day_count=DayCount.ACTUAL_360)
@@ -408,6 +507,7 @@ def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls(
     ],
 )
 def test_day_count_invalid_dates_fail(start: date, end: date) -> None:
+    """Reject reversed intervals and dates outside native coverage."""
     with pytest.raises(ConventionError):
         QuantLibConventions().year_fraction(
             context=CONTEXT, start=start, end=end, day_count=DayCount.ACTUAL_360
@@ -417,12 +517,14 @@ def test_day_count_invalid_dates_fail(start: date, end: date) -> None:
 @settings(max_examples=50, derandomize=True, database=None)
 @given(st.integers(0, 365), st.integers(0, 365))
 def test_actual360_intervals_are_additive(first: int, second: int) -> None:
+    """Bound additive interval error by the three declared year-fraction roundings."""
     adapter = QuantLibConventions()
     start = CONTEXT.evaluation_date
     middle = start + timedelta(days=first)
     end = middle + timedelta(days=second)
 
     def years(left: date, right: date) -> Decimal:
+        """Extract the exact decimal duration for one Actual/360 interval."""
         return adapter.year_fraction(
             context=CONTEXT, start=left, end=right, day_count=DayCount.ACTUAL_360
         ).duration.value
@@ -434,10 +536,15 @@ def test_actual360_intervals_are_additive(first: int, second: int) -> None:
 @pytest.mark.parametrize("bad", [float("inf"), -1.0, 1, True, None])
 def test_native_results_reject_wrong_type_sign_and_infinity(
     monkeypatch: pytest.MonkeyPatch,
-    bad: Any,
+    bad: object,
 ) -> None:
+    """Reject malformed native values before they become an owned duration."""
+
     class Counter:
-        def yearFraction(self, start: object, end: object) -> Any:
+        """Inject a native result with the wrong type, sign or finiteness."""
+
+        def yearFraction(self, start: object, end: object) -> object:
+            """Return the deliberately malformed native result without validating it."""
             return bad
 
     monkeypatch.setattr(getattr(conventions, "_ql"), "Actual360", Counter)
@@ -448,13 +555,15 @@ def test_native_results_reject_wrong_type_sign_and_infinity(
 
 
 @pytest.mark.parametrize("bad", ["actual_360", None, 1])
-def test_unknown_day_count_is_not_coerced(bad: Any) -> None:
+def test_unknown_day_count_is_not_coerced(bad: object) -> None:
+    """Reject raw day-count values through the typed adapter method."""
     with pytest.raises(UnitError, match="day count"):
-        QuantLibConventions().time_to(context=CONTEXT, end=date(2025, 1, 1), day_count=bad)
+        QuantLibConventions().time_to(context=CONTEXT, end=date(2025, 1, 1), day_count=bad)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed day-count rejection; expires=2027-03-01]
 
 
 @pytest.mark.performance
 def test_financial_rounding_local_diagnostic_budget() -> None:
+    """Measure ten thousand exact tick roundings against the local two-second budget."""
     price = Price(value=D("123.456"), currency=Currency.USD, per=SHARES)
     tick = Tick(value=D("0.05"), currency=Currency.USD, per=SHARES)
     start = perf_counter()
@@ -466,6 +575,7 @@ def test_financial_rounding_local_diagnostic_budget() -> None:
 
 
 def test_modified_adjustment_compares_year_as_well_as_month() -> None:
+    """Treat same-month dates in different years as crossing an adjustment boundary."""
     bounded = SettlementCalendar(
         calendar_id="synthetic-sparse",
         calendar_version="v1",
@@ -485,6 +595,7 @@ def test_modified_adjustment_compares_year_as_well_as_month() -> None:
 
 
 def test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation() -> None:
+    """Reject unchecked identity and calendar replacements at financial boundaries."""
     invalid_id = InstrumentId(UUID(int=1)).model_copy(update={"uuid_value": UUID(int=0)})
     with pytest.raises(UnitError, match="non-nil"):
         Dimension(instrument_id=invalid_id, kind=QuantityKind.SHARE)
@@ -523,6 +634,7 @@ def test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation() -> None:
 def test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics(
     model: BaseModel,
 ) -> None:
+    """Preserve strict validation, immutability and hashes across public model copies."""
     assert isinstance(model, BaseModel)
     assert type(model).model_validate(dict(model)) == model
     assert type(model).model_validate(model) == model
@@ -538,7 +650,8 @@ def test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics(
 
 
 @pytest.mark.parametrize("bad", [D("NaN"), D("1e18"), D("1e-19"), 1.0, "1.25"])
-def test_model_copy_revalidates_decimal_updates_without_mutating_original(bad: Any) -> None:
+def test_model_copy_revalidates_decimal_updates_without_mutating_original(bad: object) -> None:
+    """Reject malformed decimal updates and preserve the original Money value."""
     money = Money(value=D("1.25"), currency=Currency.USD)
     with pytest.raises(UnitError):
         money.model_copy(update={"value": bad})
@@ -547,6 +660,7 @@ def test_model_copy_revalidates_decimal_updates_without_mutating_original(bad: A
 
 
 def test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies() -> None:
+    """Revalidate nested dimensions and reject dictionaries, subclasses and hostile copies."""
     with pytest.raises(ValidationError, match="dimension"):
         Quantity.model_validate({"value": D("1"), "dimension": SHARES.model_dump()})
 
@@ -566,9 +680,10 @@ def test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies() ->
 
 
 def test_constructor_errors_preserve_owned_types_and_hide_input_values() -> None:
+    """Keep constructor error categories and causes without exposing rejected inputs."""
     secret = "synthetic-sensitive-input"
     with pytest.raises(UnitError) as caught:
-        Money(value=D("1"), currency=dynamic(secret))
+        Money(value=D("1"), currency=secret)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor error redaction; expires=2027-03-01]
     assert secret not in str(caught.value)
     assert isinstance(caught.value.__cause__, ValidationError)
     assert secret not in str(caught.value.__cause__)
