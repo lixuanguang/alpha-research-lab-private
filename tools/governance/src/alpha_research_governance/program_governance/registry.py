@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 import re
 import tomllib
@@ -11,8 +12,10 @@ from pathlib import Path, PurePosixPath
 from typing import Literal, cast
 from urllib.parse import urlsplit
 
+# third party library imports
 from pydantic import ValidationError
 
+# project library imports
 from alpha_research_governance.change_risk import ChangeRiskInput, RiskClass
 from alpha_research_governance.change_risk import load_policy as load_change_risk_policy
 from alpha_research_governance.evidence import (
@@ -1220,6 +1223,7 @@ def validate_repository(repository_root: Path) -> ProgramGovernance:
     )
     _validate_local_evidence(resolved_repository_root, program)
     if program.generated_status_path is not None:
+        # project library imports
         from alpha_research_governance.program_governance.status import (
             validate_status_document,
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
@@ -10,10 +11,12 @@ from time import perf_counter
 from typing import cast
 from uuid import UUID
 
+# third party library imports
 import pytest
 from hypothesis import given, settings, strategies
 from pydantic import BaseModel, ValidationError
 
+# project library imports
 from alpha_research.instrument_identity import (
     AmbiguousIdentifierError,
     ExternalIdentifier,

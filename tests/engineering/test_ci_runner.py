@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 from io import StringIO
 from pathlib import Path
 from typing import IO
 
+# third party library imports
 import pytest
 
+# project library imports
 from alpha_research_governance.ci_policy import runner as ci_runner
 from alpha_research_governance.ci_policy.models import (
     AffectedSelection,

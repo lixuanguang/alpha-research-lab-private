@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+# standard library imports
 import hashlib
 import subprocess  # nosec B404  # [owner=platform; rationale=required shell-free Git boundary; expires=2027-02-28]
 import tomllib
 from pathlib import Path, PurePosixPath
 from typing import cast
 
+# project library imports
 from alpha_research_governance.change_risk import ChangeRiskInput, RiskClass
 from alpha_research_governance.change_risk import load_policy as load_change_risk_policy
 from alpha_research_governance.ci_policy.models import CILane, CIPolicy, CIPolicyError

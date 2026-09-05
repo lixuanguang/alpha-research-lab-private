@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+# standard library imports
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as installed_version
 from typing import Protocol, cast
 
+# third party library imports
 import exchange_calendars as _exchange_calendars  # type: ignore[import-untyped]  # [owner=domain_architecture; rationale=pinned library has no py.typed marker and is isolated behind an owned adapter; expires=2027-02-28]
 import pandas as _pandas  # type: ignore[import-untyped]  # [owner=domain_architecture; rationale=only the pinned source NaT sentinel is used at the untyped adapter boundary; expires=2027-02-28]
 from exchange_calendars.errors import (  # type: ignore[import-untyped]  # [owner=domain_architecture; rationale=translate untyped dependency errors; expires=2027-02-28]
@@ -17,6 +19,7 @@ from exchange_calendars.errors import (
     NoSessionsError as _NoSessionsError,
 )
 
+# project library imports
 from alpha_research.venue_calendar.models import (
     CalendarClosure,
     CalendarSourceVersion,

@@ -1,5 +1,6 @@
 """Compatibility facade for the canonical evidence-governance tool."""
 
+# project library imports
 from alpha_research_governance.evidence import (
     ApprovalEvidence,
     ArtifactEvidence,

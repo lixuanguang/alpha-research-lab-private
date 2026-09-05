@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+# standard library imports
 from enum import Enum
 
+# third party library imports
 from pydantic import field_serializer
 
+# project library imports
 from alpha_research_governance._models import ImmutableModel
 
 

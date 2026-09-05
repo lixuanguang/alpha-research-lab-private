@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 import os
 import re
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import IO
 from urllib.parse import urlsplit
 
+# project library imports
 from alpha_research_governance.ci_policy.models import (
     AffectedSelection,
     ChangedPath,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import re
 import sys
 from collections.abc import Iterable, Sequence
@@ -9,8 +10,10 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+# third party library imports
 from pydantic import ValidationError
 
+# project library imports
 from alpha_research_governance._models import ImmutableModel
 from alpha_research_governance.operating_model import (
     OperatingModel,

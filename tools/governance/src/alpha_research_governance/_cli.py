@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+# standard library imports
 import sys
 from collections.abc import Sequence
 from typing import Protocol, TextIO, runtime_checkable
 
+# third party library imports
 import typer
 
 

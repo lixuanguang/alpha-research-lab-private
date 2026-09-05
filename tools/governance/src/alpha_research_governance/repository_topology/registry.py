@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import ast
 import importlib.util
 import re
@@ -9,8 +10,10 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import cast
 
+# third party library imports
 from pydantic import ValidationError
 
+# project library imports
 from alpha_research_governance.change_risk import ChangeRiskInput, RiskClass
 from alpha_research_governance.change_risk import load_policy as load_change_risk_policy
 from alpha_research_governance.evidence import (

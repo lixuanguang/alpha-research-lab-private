@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+# project library imports
 from alpha_research_governance.inventory.models import (
     InventoryGovernanceError,
     InventoryItem,

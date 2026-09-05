@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 import operator
 from concurrent.futures import ThreadPoolExecutor
@@ -14,11 +15,13 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID
 
+# third party library imports
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import BaseModel, ValidationError
 
+# project library imports
 from alpha_research.financial_units import (
     BusinessDayConvention as BDC,
 )

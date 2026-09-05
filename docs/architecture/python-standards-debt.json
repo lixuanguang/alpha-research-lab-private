@@ -30,37 +30,7 @@
     }
   },
   "entries": {
-    "src/alpha_research/_models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/architecture_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/change_risk/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/change_risk/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/ci_policy/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/ci_policy/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/evidence/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/evidence/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/financial_units/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "src/alpha_research/financial_units/conventions.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["DayCountResult.model_post_init", "PYD002", "Args"],
       ["DayCountResult.model_post_init", "PYD002", "Raises"],
       ["DayCountResult.model_post_init", "PYD002", "parameter:_context"],
@@ -98,9 +68,6 @@
       ["settlement_date", "PYD002", "parameter:trade_date"]
     ],
     "src/alpha_research/financial_units/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["Currency.minor_unit", "PYD002", "Returns"],
       ["Dimension.model_post_init", "PYD002", "Args"],
       ["Dimension.model_post_init", "PYD002", "Raises"],
@@ -193,13 +160,7 @@
       ["round_fraction", "PYD002", "parameter:quantum"],
       ["round_fraction", "PYD002", "parameter:value"]
     ],
-    "src/alpha_research/instrument_identity/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "src/alpha_research/instrument_identity/catalog.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["SymbologyCatalog.__init__", "PYD001", "summary"],
       ["SymbologyCatalog.__init__", "PYD002", "Args"],
       ["SymbologyCatalog.__init__", "PYD002", "parameter:extra"],
@@ -243,8 +204,6 @@
       ["SymbologyCatalog.valid_mappings", "PYD002", "parameter:value"]
     ],
     "src/alpha_research/instrument_identity/models.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["ExternalIdentifier.__init__", "PYD001", "summary"],
       ["ExternalIdentifier.__init__", "PYD002", "Args"],
       ["ExternalIdentifier.__init__", "PYD002", "parameter:extra"],
@@ -408,49 +367,7 @@
       ["require_utc_datetime", "PYD002", "parameter:candidate_datetime"],
       ["require_utc_datetime", "PYD002", "parameter:field_name"]
     ],
-    "src/alpha_research/inventory/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/inventory/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/inventory/registry.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/ownership_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/program_governance/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/program_governance/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/program_governance/registry.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/repository_topology/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/repository_topology/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/security_controls/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/security_controls/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/security_controls/registry.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
-    "src/alpha_research/venue_calendar/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "src/alpha_research/venue_calendar/adapter.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["ExchangeCalendarsAdapter.build_snapshot", "PYD002", "Args"],
       ["ExchangeCalendarsAdapter.build_snapshot", "PYD002", "Raises"],
       ["ExchangeCalendarsAdapter.build_snapshot", "PYD002", "Returns"],
@@ -484,8 +401,6 @@
       ["_required_utc_datetime", "PYD001", "summary"]
     ],
     "src/alpha_research/venue_calendar/models.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["AuctionWindow.contains", "PYD002", "Args"],
       ["AuctionWindow.contains", "PYD002", "Returns"],
       ["AuctionWindow.contains", "PYD002", "parameter:instant"],
@@ -613,7 +528,6 @@
       ["require_utc_datetime", "PYD002", "parameter:field_name"]
     ],
     "tests/build/build_graph_test.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_dependency_record_errors", "PYC001", "module-level-function"],
       ["_dependency_record_errors", "PYD001", "summary"],
       ["_evidence_errors", "PYC001", "module-level-function"],
@@ -627,7 +541,6 @@
       ["main", "PYD002", "Returns"]
     ],
     "tests/build/developer_environment_test.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["<module>", "PYT001", "import:Any:Any"],
       ["_assert_script_failure", "PYC001", "module-level-function"],
       ["_assert_script_failure", "PYD001", "summary"],
@@ -650,7 +563,6 @@
       ["main", "PYD002", "Returns"]
     ],
     "tests/build/fixtures/proto/buf_compatibility_test.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_run", "PYC001", "module-level-function"],
       ["_run", "PYD001", "summary"],
       ["main", "PYC001", "module-level-function"],
@@ -658,7 +570,6 @@
       ["main", "PYD002", "Returns"]
     ],
     "tests/build/fixtures/proto/buf_toolchain_test.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_run", "PYC001", "module-level-function"],
       ["_run", "PYD001", "summary"],
       ["main", "PYC001", "module-level-function"],
@@ -666,21 +577,16 @@
       ["main", "PYD002", "Returns"]
     ],
     "tests/build/fixtures/sql/generated_sql_test.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["main", "PYC001", "module-level-function"],
       ["main", "PYD001", "summary"],
       ["main", "PYD002", "Returns"]
     ],
     "tests/build/sandbox_test.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["main", "PYC001", "module-level-function"],
       ["main", "PYD001", "summary"],
       ["main", "PYD002", "Returns"]
     ],
     "tests/engineering/test_architecture_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_adr_text", "PYC001", "module-level-function"],
       ["_adr_text", "PYD001", "summary"],
       ["test_accepted_adr_requires_commit_bound_https_approval", "PYC001", "module-level-function"],
@@ -706,9 +612,6 @@
       ["test_repository_architecture_governance_is_valid", "PYD001", "summary"]
     ],
     "tests/engineering/test_artifact_supply_chain.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["DeterministicArtifactToolRunner.__call__", "PYD001", "summary"],
       ["DeterministicArtifactToolRunner.__init__", "PYD001", "summary"],
       ["DeterministicArtifactToolRunner.__init__", "PYD002", "Args"],
@@ -753,9 +656,6 @@
       ["test_unsigned_tampered_and_unknown_manifest_state_is_rejected", "PYD001", "summary"]
     ],
     "tests/engineering/test_change_risk.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_change_for", "PYC001", "module-level-function"],
       ["_change_for", "PYD001", "summary"],
       ["_highest_risk_class_approvals", "PYC001", "module-level-function"],
@@ -813,9 +713,6 @@
       ["test_unknown_dimension_value_fails_closed", "PYD001", "summary"]
     ],
     "tests/engineering/test_ci_policy.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_git", "PYC001", "module-level-function"],
       ["_git", "PYD001", "summary"],
       ["test_bazel_owner_selection_includes_reverse_dependencies_and_safe_broadening", "PYC001", "module-level-function"],
@@ -842,9 +739,6 @@
       ["test_selection_workload_stays_inside_the_repository_local_budget", "PYD001", "summary"]
     ],
     "tests/engineering/test_ci_runner.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["test_affected_lane_executes_forced_full_selection_after_preflight", "PYC001", "module-level-function"],
       ["test_affected_lane_executes_forced_full_selection_after_preflight", "PYD001", "summary"],
       ["test_affected_lane_executes_forced_full_selection_after_preflight.record_changed_paths", "PYD001", "summary"],
@@ -923,9 +817,6 @@
       ["test_timed_phase_stops_on_failure_and_emits_a_failed_event.fail_second_command", "PYD002", "parameter:root"]
     ],
     "tests/engineering/test_dependency_admission.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_bootstrap_fixture", "PYC001", "module-level-function"],
       ["_bootstrap_fixture", "PYD001", "summary"],
       ["_clean_audit_report", "PYC001", "module-level-function"],
@@ -1059,9 +950,6 @@
       ["wheel_cosign", "PYD002", "parameter:tmp_path"]
     ],
     "tests/engineering/test_engineering_standards.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_policy_fixture", "PYC001", "module-level-function"],
       ["_policy_fixture", "PYD001", "summary"],
       ["test_cli_reports_success_usage_error_and_missing_repository", "PYC001", "module-level-function"],
@@ -1086,9 +974,6 @@
       ["test_unknown_field_and_malformed_toml_fail_closed", "PYD001", "summary"]
     ],
     "tests/engineering/test_evidence_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_bundle_fixture", "PYC001", "module-level-function"],
       ["_bundle_fixture", "PYD001", "summary"],
       ["_git", "PYC001", "module-level-function"],
@@ -1163,22 +1048,14 @@
       ["test_version_one_policy_and_institutional_example_keep_their_contract", "PYD001", "summary"]
     ],
     "tests/engineering/test_financial_units_evidence.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["test_financial_units_manifest_matches_partial_r2_profile_and_golden_digest", "PYC001", "module-level-function"],
       ["test_financial_units_manifest_matches_partial_r2_profile_and_golden_digest", "PYD001", "summary"]
     ],
     "tests/engineering/test_instrument_identity_evidence.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["test_instrument_identity_manifest_matches_partial_r2_profile_and_golden_digest", "PYC001", "module-level-function"],
       ["test_instrument_identity_manifest_matches_partial_r2_profile_and_golden_digest", "PYD001", "summary"]
     ],
     "tests/engineering/test_inventory_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_catalog_fixture", "PYC001", "module-level-function"],
       ["_catalog_fixture", "PYD001", "summary"],
       ["_replace_inventory_fixture_text", "PYC001", "module-level-function"],
@@ -1215,9 +1092,6 @@
       ["test_unresolved_dependency_and_cycle_fail_closed", "PYD001", "summary"]
     ],
     "tests/engineering/test_ownership_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_policy_fixture", "PYC001", "module-level-function"],
       ["_policy_fixture", "PYD001", "summary"],
       ["test_codeowners_must_match_the_ordered_register", "PYC001", "module-level-function"],
@@ -1245,7 +1119,6 @@
       ["test_solo_completion_needs_technical_evidence_but_no_external_approval", "PYC001", "module-level-function"]
     ],
     "tests/engineering/test_package_definition.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_load_pyproject", "PYC001", "module-level-function"],
       ["_load_pyproject", "PYD001", "summary"],
       ["_require_table", "PYC001", "module-level-function"],
@@ -1256,9 +1129,6 @@
       ["test_installed_distribution_exposes_expected_metadata", "PYD001", "summary"]
     ],
     "tests/engineering/test_package_evidence.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_additional_gate", "PYC001", "module-level-function"],
       ["_additional_gate", "PYD001", "summary"],
       ["_caller_additional_gate", "PYC001", "module-level-function"],
@@ -1293,9 +1163,6 @@
       ["test_package_profile_rejects_manifest_drift", "PYD001", "summary"]
     ],
     "tests/engineering/test_program_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_downgrade_current_policy", "PYC001", "module-level-function"],
       ["_metric_observation_event", "PYC001", "module-level-function"],
       ["_metric_observation_event", "PYD001", "summary"],
@@ -1358,9 +1225,6 @@
       ["test_technical_findings_cannot_be_hidden_by_complete_status", "PYC001", "module-level-function"]
     ],
     "tests/engineering/test_pydantic_models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_captured_validation_error", "PYC001", "module-level-function"],
       ["_captured_validation_error", "PYD001", "summary"],
       ["_change_values", "PYC001", "module-level-function"],
@@ -1387,9 +1251,6 @@
       ["test_strict_primitives_enums_and_unknown_fields_fail", "PYD001", "summary"]
     ],
     "tests/engineering/test_remote_execution.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_copy_remote_execution_policy_fixture", "PYC001", "module-level-function"],
       ["_copy_remote_execution_policy_fixture", "PYD001", "summary"],
       ["_replace_policy_text", "PYC001", "module-level-function"],
@@ -1478,7 +1339,6 @@
       ["test_unknown_and_malformed_policy_fields_fail_closed", "PYD001", "summary"]
     ],
     "tests/engineering/test_repository_governance.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_load_register", "PYC001", "module-level-function"],
       ["_load_register", "PYD001", "summary"],
       ["_require_nonempty_string", "PYC001", "module-level-function"],
@@ -1497,9 +1357,6 @@
       ["test_policy_requires_protected_main_and_tracks_immutable_authority", "PYD001", "summary"]
     ],
     "tests/engineering/test_repository_topology.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_replace_topology_fixture_text", "PYC001", "module-level-function"],
       ["_replace_topology_fixture_text", "PYD001", "summary"],
       ["_topology_fixture", "PYC001", "module-level-function"],
@@ -1538,7 +1395,6 @@
       ["test_upward_dependency_and_cycle_are_rejected", "PYD001", "summary"]
     ],
     "tests/engineering/test_root_commands.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_run_make", "PYC001", "module-level-function"],
       ["_run_make", "PYD001", "summary"],
       ["test_affected_and_authoritative_full_ci_root_interfaces_are_explicit", "PYC001", "module-level-function"],
@@ -1549,9 +1405,6 @@
       ["test_uv_backend_preserves_the_legacy_rollback_path", "PYD001", "summary"]
     ],
     "tests/engineering/test_security_controls.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_map_fixture", "PYC001", "module-level-function"],
       ["_map_fixture", "PYD001", "summary"],
       ["_replace_security_fixture_text", "PYC001", "module-level-function"],
@@ -1596,15 +1449,10 @@
       ["test_unknown_reference_and_missing_category_fail_closed", "PYD001", "summary"]
     ],
     "tests/engineering/test_venue_calendar_evidence.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["test_venue_calendar_manifest_matches_partial_r2_profile_and_golden_digest", "PYC001", "module-level-function"],
       ["test_venue_calendar_manifest_matches_partial_r2_profile_and_golden_digest", "PYD001", "summary"]
     ],
     "tests/unit/test_financial_units.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["<module>", "PYT001", "import:Any:Any"],
       ["calendar", "PYC001", "module-level-function"],
       ["calendar", "PYD001", "summary"],
@@ -1711,9 +1559,6 @@
       ["test_unknown_day_count_is_not_coerced", "PYT001", "parameter:bad"]
     ],
     "tests/unit/test_instrument_identity.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_build_economic_instrument_and_listing", "PYC001", "module-level-function"],
       ["_build_economic_instrument_and_listing", "PYD001", "summary"],
       ["_build_venue_symbol_mapping", "PYC001", "module-level-function"],
@@ -1756,9 +1601,6 @@
       ["test_vendor_correction_changes_projection_without_erasing_history", "PYD001", "summary"]
     ],
     "tests/unit/test_venue_calendar.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_instant", "PYC001", "module-level-function"],
       ["_instant", "PYD001", "summary"],
       ["_load_fixture", "PYC001", "module-level-function"],
@@ -1845,8 +1687,6 @@
       ["test_versioned_override_add_replace_and_remove_actions_are_exact", "PYD001", "summary"]
     ],
     "tools/governance/src/alpha_research_governance/_cli.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["run_typer", "PYC001", "module-level-function"],
       ["run_typer", "PYD002", "Args"],
       ["run_typer", "PYD002", "Raises"],
@@ -1856,13 +1696,7 @@
       ["run_typer", "PYD002", "parameter:handled_errors"],
       ["run_typer", "PYD002", "parameter:program_name"]
     ],
-    "tools/governance/src/alpha_research_governance/_models.py": [
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/architecture_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["ArchitectureGovernanceError.__init__", "PYD001", "summary"],
       ["ArchitectureGovernanceError.__init__", "PYD002", "Args"],
       ["ArchitectureGovernanceError.__init__", "PYD002", "parameter:findings"],
@@ -1911,8 +1745,6 @@
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/artifact_supply_chain/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_print_usage", "PYC001", "module-level-function"],
       ["_print_usage", "PYD001", "summary"],
       ["main", "PYC001", "module-level-function"],
@@ -1920,12 +1752,7 @@
       ["main", "PYD002", "Returns"],
       ["main", "PYD002", "parameter:arguments"]
     ],
-    "tools/governance/src/alpha_research_governance/artifact_supply_chain/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_build_file_digest_record", "PYC001", "module-level-function"],
       ["_build_file_digest_record", "PYD001", "summary"],
       ["_build_mapping_rejecting_duplicate_json_keys", "PYC001", "module-level-function"],
@@ -2006,15 +1833,11 @@
       ["verify_bundle", "PYD002", "parameter:runner"]
     ],
     "tools/governance/src/alpha_research_governance/artifact_supply_chain/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["ArtifactSupplyChainError.__init__", "PYD001", "summary"],
       ["ArtifactSupplyChainError.__init__", "PYD002", "Args"],
       ["ArtifactSupplyChainError.__init__", "PYD002", "parameter:findings"]
     ],
     "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_parse_artifact_tool", "PYC001", "module-level-function"],
       ["_parse_artifact_tool", "PYD001", "summary"],
       ["_require_nonempty_string_field", "PYC001", "module-level-function"],
@@ -2046,8 +1869,6 @@
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/change_risk/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["main", "PYC001", "module-level-function"],
       ["main", "PYD002", "Args"],
       ["main", "PYD002", "Returns"],
@@ -2057,12 +1878,7 @@
       ["validate_repository", "PYD002", "Returns"],
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
-    "tools/governance/src/alpha_research_governance/change_risk/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/change_risk/approvals.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_canonical_reviewer_id", "PYC001", "module-level-function"],
       ["_reviewer_groups_have_distinct_approvers", "PYC001", "module-level-function"],
       ["_reviewer_groups_have_distinct_approvers", "PYD001", "summary"],
@@ -2085,7 +1901,6 @@
       ["validate_merge_approvals", "PYD002", "parameter:waived_controls"]
     ],
     "tools/governance/src/alpha_research_governance/change_risk/classification.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"],
       ["_required_gates", "PYC001", "module-level-function"],
       ["classify_change", "PYC001", "module-level-function"],
       ["classify_change", "PYD002", "Args"],
@@ -2094,13 +1909,7 @@
       ["classify_change", "PYD002", "parameter:change"],
       ["classify_change", "PYD002", "parameter:policy"]
     ],
-    "tools/governance/src/alpha_research_governance/change_risk/constraints.py": [
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/change_risk/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["ChangeRiskInput.dimension_values", "PYD002", "Returns"],
       ["ChangeRiskInput.trigger_is_active", "PYD002", "Args"],
       ["ChangeRiskInput.trigger_is_active", "PYD002", "Raises"],
@@ -2130,9 +1939,6 @@
       ["RiskClass.rank", "PYD002", "Returns"]
     ],
     "tools/governance/src/alpha_research_governance/change_risk/policy.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_ChangeRiskPolicyInput", "PYD001", "summary"],
       ["_ConditionalGateRuleInput", "PYD001", "summary"],
       ["_DimensionLevelInput", "PYD001", "summary"],
@@ -2177,9 +1983,6 @@
       ["load_policy", "PYD002", "parameter:path"]
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_CICLIState", "PYD001", "summary"],
       ["_fast", "PYC001", "module-level-function"],
       ["_full", "PYC001", "module-level-function"],
@@ -2199,19 +2002,12 @@
       ["main", "PYD002", "Returns"],
       ["main", "PYD002", "parameter:arguments"]
     ],
-    "tools/governance/src/alpha_research_governance/ci_policy/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/ci_policy/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["CIPolicyError.__init__", "PYD001", "summary"],
       ["CIPolicyError.__init__", "PYD002", "Args"],
       ["CIPolicyError.__init__", "PYD002", "parameter:findings"]
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/policy.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_continuous_integration_repository_findings", "PYC001", "module-level-function"],
       ["_continuous_integration_repository_findings", "PYD001", "summary"],
       ["_parse_continuous_integration_lanes", "PYC001", "module-level-function"],
@@ -2240,8 +2036,6 @@
       ["validate_continuous_integration_repository", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/runner.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_build_ci_duration_event", "PYC001", "module-level-function"],
       ["_build_ci_duration_event", "PYD001", "summary"],
       ["_changed_schema_modules", "PYC001", "module-level-function"],
@@ -2321,8 +2115,6 @@
       ["verify_git_merge_parents", "PYD002", "parameter:root"]
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/secrets.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["scan_secret_bytes", "PYC001", "module-level-function"],
       ["scan_secret_bytes", "PYD002", "Args"],
       ["scan_secret_bytes", "PYD002", "Returns"],
@@ -2337,8 +2129,6 @@
       ["secret_pattern_ids", "PYD002", "Returns"]
     ],
     "tools/governance/src/alpha_research_governance/ci_policy/selection.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_repository_path_from_bazel_source_label", "PYC001", "module-level-function"],
       ["_repository_path_from_bazel_source_label", "PYD001", "summary"],
       ["attach_bazel_reverse_dependencies", "PYC001", "module-level-function"],
@@ -2372,8 +2162,6 @@
       ["select_bazel_owners_for_changes", "PYD002", "parameter:policy"]
     ],
     "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["main", "PYC001", "module-level-function"],
       ["main", "PYD002", "Args"],
       ["main", "PYD002", "Returns"],
@@ -2384,21 +2172,12 @@
       ["run_pip_audit", "PYD002", "parameter:policy"],
       ["run_pip_audit", "PYD002", "parameter:repository_root"]
     ],
-    "tools/governance/src/alpha_research_governance/dependency_admission/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/dependency_admission/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["DependencyAdmissionError.__init__", "PYD001", "summary"],
       ["DependencyAdmissionError.__init__", "PYD002", "Args"],
       ["DependencyAdmissionError.__init__", "PYD002", "parameter:findings"]
     ],
     "tools/governance/src/alpha_research_governance/dependency_admission/policy.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_https_url", "PYC001", "module-level-function"],
       ["_https_url", "PYD001", "summary"],
       ["_iso_date", "PYC001", "module-level-function"],
@@ -2460,9 +2239,6 @@
       ["validate_repository", "PYD002", "parameter:validation_date"]
     ],
     "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_bootstrap_reports", "PYC001", "module-level-function"],
       ["_bootstrap_reports", "PYD001", "summary"],
       ["_check_statement", "PYC001", "module-level-function"],
@@ -2519,27 +2295,17 @@
       ["verify_wheel_sources", "PYD002", "parameter:root"]
     ],
     "tools/governance/src/alpha_research_governance/engineering_standards/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["main", "PYC001", "module-level-function"],
       ["main", "PYD002", "Args"],
       ["main", "PYD002", "Returns"],
       ["main", "PYD002", "parameter:arguments"]
     ],
-    "tools/governance/src/alpha_research_governance/engineering_standards/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/engineering_standards/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["EngineeringStandardsError.__init__", "PYD001", "summary"],
       ["EngineeringStandardsError.__init__", "PYD002", "Args"],
       ["EngineeringStandardsError.__init__", "PYD002", "parameter:findings"]
     ],
     "tools/governance/src/alpha_research_governance/engineering_standards/policy.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_iso_date", "PYC001", "module-level-function"],
       ["_iso_date", "PYD001", "summary"],
       ["_locked_packages", "PYC001", "module-level-function"],
@@ -2588,8 +2354,6 @@
       ["validate_suppression_line", "PYD002", "parameter:validation_date"]
     ],
     "tools/governance/src/alpha_research_governance/evidence/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_input_path", "PYC001", "module-level-function"],
       ["_parse_arguments", "PYC001", "module-level-function"],
       ["_parse_arguments", "PYD001", "summary"],
@@ -2605,13 +2369,7 @@
       ["validate_repository", "PYD002", "Returns"],
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
-    "tools/governance/src/alpha_research_governance/evidence/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/evidence/manifest.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_ApprovalInput", "PYD001", "summary"],
       ["_ArtifactInput", "PYD001", "summary"],
       ["_ChangeInput", "PYD001", "summary"],
@@ -2651,9 +2409,6 @@
       ["validate_manifest", "PYD002", "parameter:path"]
     ],
     "tools/governance/src/alpha_research_governance/evidence/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["ApprovalEvidence.as_review_approval", "PYD002", "Returns"],
       ["ApprovalEvidence.sorted_roles", "PYD002", "Args"],
       ["ApprovalEvidence.sorted_roles", "PYD002", "Returns"],
@@ -2681,9 +2436,6 @@
       ["PackageGateRequirement.valid_gate_id", "PYD002", "parameter:value"]
     ],
     "tools/governance/src/alpha_research_governance/evidence/mr.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_context", "PYC001", "module-level-function"],
       ["_context", "PYD001", "summary"],
       ["_parse_sections", "PYC001", "module-level-function"],
@@ -2735,7 +2487,6 @@
       ["validate_template", "PYD002", "parameter:text"]
     ],
     "tools/governance/src/alpha_research_governance/evidence/package.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"],
       ["validate_package_evidence", "PYC001", "module-level-function"],
       ["validate_package_evidence", "PYD002", "Args"],
       ["validate_package_evidence", "PYD002", "Raises"],
@@ -2743,9 +2494,6 @@
       ["validate_package_evidence", "PYD002", "parameter:profile"]
     ],
     "tools/governance/src/alpha_research_governance/evidence/policy.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_ConditionalMrFieldInput", "PYD001", "summary"],
       ["_EvidencePolicyInput", "PYD001", "summary"],
       ["_EvidencePolicyV2Input", "PYD001", "summary"],
@@ -2765,8 +2513,6 @@
       ["load_policy", "PYD002", "parameter:path"]
     ],
     "tools/governance/src/alpha_research_governance/inventory/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_parse_arguments", "PYC001", "module-level-function"],
       ["_parse_arguments", "PYD001", "summary"],
       ["main", "PYC001", "module-level-function"],
@@ -2775,12 +2521,7 @@
       ["main", "PYD002", "Returns"],
       ["main", "PYD002", "parameter:arguments"]
     ],
-    "tools/governance/src/alpha_research_governance/inventory/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/inventory/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["InventoryGovernanceError.__init__", "PYD001", "summary"],
       ["InventoryGovernanceError.__init__", "PYD002", "Args"],
       ["InventoryGovernanceError.__init__", "PYD002", "parameter:findings"],
@@ -2793,9 +2534,6 @@
       ["ResourceInventory.query", "PYD002", "parameter:status"]
     ],
     "tools/governance/src/alpha_research_governance/inventory/registry.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_find_dependency_cycles", "PYC001", "module-level-function"],
       ["_find_dependency_cycles", "PYD001", "summary"],
       ["_load_inventory", "PYC001", "module-level-function"],
@@ -2837,9 +2575,6 @@
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/operating_model.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["OperatingModel.resolve", "PYD002", "Args"],
       ["OperatingModel.resolve", "PYD002", "Raises"],
       ["OperatingModel.resolve", "PYD002", "Returns"],
@@ -2867,8 +2602,6 @@
       ["load_operating_model", "PYD002", "parameter:path"]
     ],
     "tools/governance/src/alpha_research_governance/ownership_governance.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["OwnershipGovernanceError.__init__", "PYD001", "summary"],
       ["OwnershipGovernanceError.__init__", "PYD002", "Args"],
       ["OwnershipGovernanceError.__init__", "PYD002", "parameter:findings"],
@@ -2899,8 +2632,6 @@
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/program_governance/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_build_package_payload", "PYC001", "module-level-function"],
       ["_build_package_payload", "PYD001", "summary"],
       ["_build_program_dashboard_payload", "PYC001", "module-level-function"],
@@ -2913,13 +2644,7 @@
       ["main", "PYD002", "Returns"],
       ["main", "PYD002", "parameter:arguments"]
     ],
-    "tools/governance/src/alpha_research_governance/program_governance/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/program_governance/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["FindingDispositionGroup.as_json", "PYD002", "Returns"],
       ["MetricDefinition.as_json", "PYD002", "Returns"],
       ["MetricDefinition.exact_float", "PYD002", "Args"],
@@ -2972,9 +2697,6 @@
       ["ProgramGovernanceError.__init__", "PYD002", "parameter:findings"]
     ],
     "tools/governance/src/alpha_research_governance/program_governance/registry.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_expand_range", "PYC001", "module-level-function"],
       ["_expand_range", "PYD001", "summary"],
       ["_find_dependency_cycles", "PYC001", "module-level-function"],
@@ -3047,12 +2769,9 @@
       ["validate_repository", "PYC001", "module-level-function"],
       ["validate_repository", "PYD002", "Args"],
       ["validate_repository", "PYD002", "Returns"],
-      ["validate_repository", "PYD002", "parameter:repository_root"],
-      ["validate_repository", "PYI001", "heading:project:block=function:if:Compare(left=Attribute(value=Name(id='program', ctx=Load()), attr='generated_status_path', ctx=Load()), ops=[IsNot()], comparators=[Constant(value=None)]):body:block:1:group=1"]
+      ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/program_governance/status.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_markdown_cell", "PYC001", "module-level-function"],
       ["_markdown_cell", "PYD001", "summary"],
       ["_relative_link", "PYC001", "module-level-function"],
@@ -3069,9 +2788,6 @@
       ["validate_status_document", "PYD002", "parameter:program"]
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_RemoteExecutionCLIState", "PYD001", "summary"],
       ["_build", "PYC001", "module-level-function"],
       ["_initialize_cli", "PYC001", "module-level-function"],
@@ -3087,20 +2803,12 @@
       ["main", "PYD002", "Returns"],
       ["main", "PYD002", "parameter:arguments"]
     ],
-    "tools/governance/src/alpha_research_governance/remote_execution/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/remote_execution/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["RemoteExecutionError.__init__", "PYD001", "summary"],
       ["RemoteExecutionError.__init__", "PYD002", "Args"],
       ["RemoteExecutionError.__init__", "PYD002", "parameter:findings"]
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/policy.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_require_boolean", "PYC001", "module-level-function"],
       ["_require_boolean", "PYD001", "summary"],
       ["_require_iso_date", "PYC001", "module-level-function"],
@@ -3129,8 +2837,6 @@
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/runner.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_resolve_executable", "PYC001", "module-level-function"],
       ["_resolve_executable", "PYD001", "summary"],
       ["_run_authenticated_bazel", "PYC001", "module-level-function"],
@@ -3175,8 +2881,6 @@
       ["validate_trusted_context", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/sharding.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["select_shard", "PYC001", "module-level-function"],
       ["select_shard", "PYD002", "Args"],
       ["select_shard", "PYD002", "Raises"],
@@ -3196,18 +2900,12 @@
       ["shard_targets", "PYD002", "parameter:targets"]
     ],
     "tools/governance/src/alpha_research_governance/repository_topology/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["main", "PYC001", "module-level-function"],
       ["main", "PYD002", "Args"],
       ["main", "PYD002", "Returns"],
       ["main", "PYD002", "parameter:arguments"]
     ],
-    "tools/governance/src/alpha_research_governance/repository_topology/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/repository_topology/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"],
       ["RepositoryTopology.unit", "PYD002", "Args"],
       ["RepositoryTopology.unit", "PYD002", "Raises"],
       ["RepositoryTopology.unit", "PYD002", "Returns"],
@@ -3217,9 +2915,6 @@
       ["RepositoryTopologyError.__init__", "PYD002", "parameter:findings"]
     ],
     "tools/governance/src/alpha_research_governance/repository_topology/registry.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_find_cycles", "PYC001", "module-level-function"],
       ["_find_cycles", "PYD001", "summary"],
       ["_find_cycles.visit_dependency", "PYD001", "summary"],
@@ -3257,8 +2952,6 @@
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
     "tools/governance/src/alpha_research_governance/security_controls/__init__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["_build_security_control_payload", "PYC001", "module-level-function"],
       ["_build_security_control_payload", "PYD001", "summary"],
       ["_parse_arguments", "PYC001", "module-level-function"],
@@ -3268,12 +2961,7 @@
       ["main", "PYD002", "Returns"],
       ["main", "PYD002", "parameter:arguments"]
     ],
-    "tools/governance/src/alpha_research_governance/security_controls/__main__.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=1"]
-    ],
     "tools/governance/src/alpha_research_governance/security_controls/models.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=2"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
       ["AuthoritySource.as_json", "PYD002", "Returns"],
       ["EvidenceSource.as_json", "PYD002", "Returns"],
       ["JurisdictionProfile.as_json", "PYD002", "Returns"],
@@ -3296,9 +2984,6 @@
       ["TrustBoundary.as_json", "PYD002", "Returns"]
     ],
     "tools/governance/src/alpha_research_governance/security_controls/registry.py": [
-      ["<module>", "PYI001", "heading:project:block=module:block:1:group=3"],
-      ["<module>", "PYI001", "heading:standard:block=module:block:1:group=1"],
-      ["<module>", "PYI001", "heading:third-party:block=module:block:1:group=2"],
       ["_load_control_map", "PYC001", "module-level-function"],
       ["_load_toml", "PYC001", "module-level-function"],
       ["_load_toml", "PYD001", "summary"],

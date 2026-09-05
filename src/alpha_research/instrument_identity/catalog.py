@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+# standard library imports
 from datetime import datetime
 from typing import Self
 
+# third party library imports
 from pydantic import field_validator, model_validator
 
+# project library imports
 from alpha_research.instrument_identity.models import (
     ExternalIdentifier,
     IdentifierQuery,

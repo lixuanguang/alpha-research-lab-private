@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import re
 import unicodedata
 from bisect import bisect_right
@@ -10,6 +11,7 @@ from enum import StrEnum
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+# third party library imports
 from pydantic import BaseModel, ConfigDict, ValidationError, ValidationInfo, field_validator
 
 

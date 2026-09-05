@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+# standard library imports
 import re
 import xml.etree.ElementTree as ElementTree  # nosec B405  # [owner=platform; rationale=bounded Bazel XML rejects declarations and entities; expires=2027-02-28]
 from collections.abc import Mapping
 from pathlib import PurePosixPath
 
+# project library imports
 from alpha_research_governance.ci_policy.models import (
     AffectedSelection,
     ChangedPath,

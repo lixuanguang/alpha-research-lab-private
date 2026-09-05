@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 import os
 import platform
@@ -15,6 +16,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import cast
 
+# project library imports
 from alpha_research_governance.artifact_supply_chain.models import (
     ArtifactBundle,
     ArtifactSupplyChainError,

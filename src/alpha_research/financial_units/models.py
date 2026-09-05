@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date
@@ -11,8 +12,10 @@ from fractions import Fraction
 from functools import partial
 from typing import Annotated, ClassVar, Self
 
+# third party library imports
 from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
 
+# project library imports
 from alpha_research.instrument_identity import InstrumentId
 
 

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, NamedTuple
 
+# third party library imports
 import typer
 
+# project library imports
 from alpha_research_governance._cli import run_typer
 from alpha_research_governance.ci_policy.models import (
     AffectedSelection,

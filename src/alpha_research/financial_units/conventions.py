@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import math
 from bisect import bisect_left, bisect_right
 from datetime import date
@@ -12,9 +13,11 @@ from functools import partial
 from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, ClassVar
 
+# third party library imports
 import QuantLib as _ql  # type: ignore[import-untyped]  # [owner=domain_architecture; rationale=exact native dependency lacks stubs and is confined to this adapter; expires=2027-03-01]
 from pydantic import BeforeValidator
 
+# project library imports
 from alpha_research.financial_units.models import (
     DayCount,
     Duration,

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+# standard library imports
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+# project library imports
 from alpha_research_governance.repository_topology.models import (
     RepositoryTopology,
     RepositoryTopologyError,

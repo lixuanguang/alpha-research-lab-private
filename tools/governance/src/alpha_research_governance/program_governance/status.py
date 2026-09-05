@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+# standard library imports
 import posixpath
 from pathlib import Path, PurePosixPath
 
+# project library imports
 from alpha_research_governance.program_governance.models import (
     ProgramGovernance,
     ProgramGovernanceError,

@@ -1,5 +1,6 @@
 """Compatibility facade for security-control registry operations."""
 
+# project library imports
 from alpha_research_governance.security_controls.registry import (
     APPLICABLE_GATE_IDS,
     JURISDICTION_IDS,

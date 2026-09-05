@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 import subprocess
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
 
+# third party library imports
 import pytest
 
+# project library imports
 from alpha_research_governance.artifact_supply_chain import (
     ArtifactSupplyChainError,
     ArtifactSupplyChainPolicy,

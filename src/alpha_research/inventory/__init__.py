@@ -1,5 +1,6 @@
 """Compatibility facade for the canonical inventory-governance tool."""
 
+# project library imports
 from alpha_research_governance.inventory import (
     RESOURCE_KINDS,
     RESOURCE_STATUSES,

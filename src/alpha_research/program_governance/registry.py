@@ -1,5 +1,6 @@
 """Compatibility facade for program-registry operations."""
 
+# project library imports
 from alpha_research_governance.program_governance.registry import (
     APPLICABLE_GATE_IDS,
     METRIC_IDS,

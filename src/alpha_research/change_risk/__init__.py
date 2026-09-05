@@ -1,5 +1,6 @@
 """Compatibility facade for the canonical change-risk tool."""
 
+# project library imports
 from alpha_research_governance.change_risk import (
     ChangeRiskInput,
     ChangeRiskPolicy,
