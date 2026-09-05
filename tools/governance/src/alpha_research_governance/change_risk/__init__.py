@@ -9,10 +9,14 @@ from pathlib import Path
 
 # project library imports
 from alpha_research_governance.change_risk.approvals import (
+    ChangeRiskApprovalEvaluator,
     validate_activation_approvals,
     validate_merge_approvals,
 )
-from alpha_research_governance.change_risk.classification import classify_change
+from alpha_research_governance.change_risk.classification import (
+    ChangeRiskClassifier,
+    classify_change,
+)
 from alpha_research_governance.change_risk.models import (
     ChangeRiskInput,
     ChangeRiskPolicy,
@@ -29,6 +33,8 @@ from alpha_research_governance.change_risk.models import (
 from alpha_research_governance.change_risk.policy import load_policy
 
 __all__ = [
+    "ChangeRiskApprovalEvaluator",
+    "ChangeRiskClassifier",
     "ChangeRiskInput",
     "ChangeRiskPolicy",
     "ChangeRiskPolicyError",

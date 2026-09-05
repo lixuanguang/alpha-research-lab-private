@@ -1624,37 +1624,6 @@
       ["validate_repository", "PYD002", "Returns"],
       ["validate_repository", "PYD002", "parameter:repository_root"]
     ],
-    "tools/governance/src/alpha_research_governance/change_risk/approvals.py": [
-      ["_canonical_reviewer_id", "PYC001", "module-level-function"],
-      ["_reviewer_groups_have_distinct_approvers", "PYC001", "module-level-function"],
-      ["_reviewer_groups_have_distinct_approvers", "PYD001", "summary"],
-      ["_reviewer_groups_have_distinct_approvers.assign_reviewer", "PYD001", "summary"],
-      ["_validate_approval_inputs", "PYC001", "module-level-function"],
-      ["validate_activation_approvals", "PYC001", "module-level-function"],
-      ["validate_activation_approvals", "PYD002", "Args"],
-      ["validate_activation_approvals", "PYD002", "Raises"],
-      ["validate_activation_approvals", "PYD002", "parameter:approvals"],
-      ["validate_activation_approvals", "PYD002", "parameter:change"],
-      ["validate_activation_approvals", "PYD002", "parameter:decision"],
-      ["validate_activation_approvals", "PYD002", "parameter:policy"],
-      ["validate_merge_approvals", "PYC001", "module-level-function"],
-      ["validate_merge_approvals", "PYD002", "Args"],
-      ["validate_merge_approvals", "PYD002", "Raises"],
-      ["validate_merge_approvals", "PYD002", "parameter:approvals"],
-      ["validate_merge_approvals", "PYD002", "parameter:change"],
-      ["validate_merge_approvals", "PYD002", "parameter:decision"],
-      ["validate_merge_approvals", "PYD002", "parameter:policy"],
-      ["validate_merge_approvals", "PYD002", "parameter:waived_controls"]
-    ],
-    "tools/governance/src/alpha_research_governance/change_risk/classification.py": [
-      ["_required_gates", "PYC001", "module-level-function"],
-      ["classify_change", "PYC001", "module-level-function"],
-      ["classify_change", "PYD002", "Args"],
-      ["classify_change", "PYD002", "Raises"],
-      ["classify_change", "PYD002", "Returns"],
-      ["classify_change", "PYD002", "parameter:change"],
-      ["classify_change", "PYD002", "parameter:policy"]
-    ],
     "tools/governance/src/alpha_research_governance/change_risk/models.py": [
       ["ChangeRiskInput.dimension_values", "PYD002", "Returns"],
       ["ChangeRiskInput.trigger_is_active", "PYD002", "Args"],

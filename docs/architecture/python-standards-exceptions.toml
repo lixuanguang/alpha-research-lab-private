@@ -13,3 +13,80 @@ owner_role = "domain_architecture"
 rationale = "Describe the consumed upstream factory under its actual module-level API; an owned class would misrepresent the native binding."
 expires = 2027-03-01
 source_sha256 = "569d3e435771abcec673d7c308bcb8ac1f6d97deb65d42050620ea00d320f87e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/classification.py"
+symbol = "_required_gates"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure set projection of mandatory gates and active trigger gates; no policy loading, orchestration, or retained state."
+expires = 2027-03-01
+source_sha256 = "e047df940125e35b61e95c68e23006328e7d4059f433ea9d1b0d78c52167e87a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/classification.py"
+symbol = "classify_change"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported function signature for both package facades and existing evidence callers while ChangeRiskClassifier owns classification; review caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "a6f22d1b5c8b204a3f517deba9a802be26d6abfe33f866e0a08e2ef710c4d112"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/approvals.py"
+symbol = "_canonical_reviewer_id"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure Unicode normalization, whitespace trimming, and case folding for identity comparison; no workflow state or dependencies."
+expires = 2027-03-01
+source_sha256 = "98e49257a9fe1217a8f48e4af822020420d37c93e1dddfde2cab1c9bc7e55d3a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/approvals.py"
+symbol = "_validate_approval_inputs"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Small identity and role-shape validator shared by merge and activation; appends only to the explicitly supplied invocation-local findings list."
+expires = 2027-03-01
+source_sha256 = "46aad09d7d3bf400710a826307c0215a75b3e77cce422b3206367ad17dfdfa06"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/approvals.py"
+symbol = "_reviewer_groups_have_distinct_approvers"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure finite matching predicate over supplied reviewer slots and canonical identities; backtracking state is local and no policy or I/O is owned."
+expires = 2027-03-01
+source_sha256 = "3c690d63a6b111a3a192a14e5d64be0e0ce94ca3055943d84a65e907788e9447"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/approvals.py"
+symbol = "validate_merge_approvals"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported merge-validation signature and facade imports while ChangeRiskApprovalEvaluator owns evaluation; review caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "5cbc4457f1f09c59da8ec524e83d52959c729448358971bd8584c737b394b19f"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/approvals.py"
+symbol = "validate_activation_approvals"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported activation-validation signature and facade imports while ChangeRiskApprovalEvaluator owns evaluation; review caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "bfab14e78c03a6379a4fcd37e07495e9676206c7c2603136442b6e885a287f24"

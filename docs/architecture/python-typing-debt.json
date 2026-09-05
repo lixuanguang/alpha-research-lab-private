@@ -2181,30 +2181,6 @@
       "task": "reader"
     },
     {
-      "path": "tools/governance/src/alpha_research_governance/change_risk/classification.py",
-      "symbol": "classify_change",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 2,
-      "task": "callbacks"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/change_risk/classification.py",
-      "symbol": "classify_change",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], Any]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/change_risk/classification.py",
-      "symbol": "classify_change",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], int]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
       "path": "tools/governance/src/alpha_research_governance/change_risk/policy.py",
       "symbol": "_policy_input_error",
       "code": "misc",

@@ -2,6 +2,8 @@
 
 # project library imports
 from alpha_research_governance.change_risk import (
+    ChangeRiskApprovalEvaluator,
+    ChangeRiskClassifier,
     ChangeRiskInput,
     ChangeRiskPolicy,
     ChangeRiskPolicyError,
@@ -22,6 +24,8 @@ from alpha_research_governance.change_risk import (
 )
 
 __all__ = [
+    "ChangeRiskApprovalEvaluator",
+    "ChangeRiskClassifier",
     "ChangeRiskInput",
     "ChangeRiskPolicy",
     "ChangeRiskPolicyError",
