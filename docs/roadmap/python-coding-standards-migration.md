@@ -3,9 +3,9 @@
 Audit date: 2026-09-05. Baseline revision:
 `d3a40ca98d71208426c8501d8d4a1aaaa049768d`.
 Status: steps 1–4 implemented on 2026-09-05; steps 5–6 are in progress. Domain
-operations, identity/calendar value-model contracts and the change-risk service
-pilot are implemented; step 7 remains planned. The findings below describe the
-original audited revision, before step-1 enforcement.
+operations, identity/calendar value models, operating/risk/evidence contracts and
+the change-risk service pilot are implemented; step 7 remains planned. The
+findings below describe the original audited revision, before step-1 enforcement.
 
 The requested target is segregated, commented import groups; stringent typing
 without `Any`; useful Google-style docstrings; and a preference for classes over
@@ -279,7 +279,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 2. Normalize imports — implemented | Activated the heading settings and applied import-only fixes in runtime, tooling and test batches. Retired all 243 import obligations. | Ruff import/format checks pass; complete AST comparison confirms unchanged import targets, aliases, relative levels and execution order. See the step-2 validation record below. |
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
-| 5. Document existing contracts — in progress | Documented financial-unit models/conventions, the symbology catalog, calendar adapter, identity/calendar value-model APIs, and shared governance model validation. Remaining: governance operations and helpers/tests/fixtures. Combine docs for moved functions with step 6. | The first slice retires 185 documentation obligations; the value-model slice retires another 268. Both preserve executable ASTs and pass required Google sections and existing domain regressions. See the step-5 records below. |
+| 5. Document existing contracts — in progress | Documented financial-unit models/conventions, the symbology catalog, calendar adapter, identity/calendar value models, shared governance validation, and operating/risk/evidence contracts. Remaining: other governance models/operations and helpers/tests/fixtures. Combine docs for moved functions with step 6. | The three documentation slices retire 185, 268 and 76 obligations respectively, preserving executable ASTs and passing Google-section checks and existing regressions. See the step-5 records below. |
 | 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and separate approval evaluator, retaining the function APIs. Continue with loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | The first queue item preserves serialized decisions, ordered errors and CLI results across 63,404 differential cases; repeated-call regressions pass. See the step-6 records below. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
@@ -513,12 +513,52 @@ exactly the original executable trees; signatures, validation, ordering and
 serialized instance behavior are unchanged. Generated schema descriptions can
 reflect the expanded class prose, while schema field contracts are unchanged.
 
-This slice follows the change-risk service pilot. The current source inventory
-holds **2,289** obligations across 84 files: **1,491** documentation obligations
+This slice follows the change-risk service pilot. After this slice, the source inventory
+held **2,289** obligations across 84 files: **1,491** documentation obligations
 (679 summaries and 812 sections/parameters) and 798 function dispositions.
 The 686 inferred-typing diagnostics and exact exception inventory are unchanged.
 Step 5 remains in progress with governance operations and residual helpers,
 tests and fixtures; document moved workflows with their step-6 service slices.
+
+### Step 5 implementation — operating/risk/evidence contracts
+
+The third documentation slice completes the contracts in
+[operating rules](../../tools/governance/src/alpha_research_governance/operating_model.py),
+[change-risk records](../../tools/governance/src/alpha_research_governance/change_risk/models.py)
+and [evidence records](../../tools/governance/src/alpha_research_governance/evidence/models.py).
+It documents the existing class operations, serializers, validation callbacks,
+model attributes and operating-model loader without moving workflow ownership.
+
+Operating contracts specify canonical individual identities, half-open effective
+date intervals, unique founder/domain assignments and the difference between
+active reviewer presence and complete role coverage. They explain that local
+completion checks neither change handover status nor authorize institutional
+operations. Loader docs cover the single UTF-8 file read, projected ownership
+fields, JSON date-string representation and propagated file/decode errors.
+
+Risk and evidence contracts distinguish strict record construction from the
+policy and manifest checks that establish control requirements, commit binding,
+artifact integrity and approval eligibility. They document exact typed dimension
+lookup, deterministic JSON set ordering, package-profile consistency, lexical
+path checks and the approval projection that copies identity/role claims without
+checking status, commit or evidence URL. Callback docs distinguish direct
+`ValueError` failures from Pydantic's normal `ValidationError` wrapping.
+
+Exactly **76** documentation obligations are retired: one missing summary and
+75 Google-section/parameter findings (24 operating, 27 risk and 25 evidence).
+The compact inventory and its checksum change together, with no new allowance
+or exception. All three modules have zero remaining documentation findings.
+Executable ASTs are unchanged after removing docstrings, and all 23 owned model
+schemas match apart from description metadata. Existing identity/calendar docs,
+serialized field contracts, function dispositions and inferred-typing debt are
+preserved.
+
+The current source inventory holds **2,213** obligations across 82 files:
+**1,415** documentation obligations (678 summaries and 737 sections/parameters)
+and 798 function dispositions. The inferred inventory still contains 686
+diagnostics. Step 5 remains in progress; continue with program, security and
+inventory value-model contracts, and document moved loaders with their step-6
+service slices before addressing residual helpers, tests and fixtures.
 
 ### Step 6 implementation — change-risk service pilot
 
@@ -828,4 +868,27 @@ inferred-typing debt and exception records are unchanged.
 These are local checks for this slice; `make ci-full`, hosted CI and the separate
 integration/performance selections were not run. Step 5 remains in progress with
 1,491 documentation obligations outstanding; the 798 function dispositions and
+686 inferred-typing diagnostics remain later migration work.
+
+## Step 5 validation record — operating/risk/evidence contracts, 2026-09-05
+
+Validation started from revision `6a09b40d6d96a6fa9a43dc794d73ee5be963e532`,
+including the completed identity/calendar value-model slice. The local
+governance package was rebuilt offline, and checks used non-editable packages
+in the pinned environment with the existing Cosign and Syft tools on `PATH`.
+No dependency, lockfile, fixture, test or exception record changed.
+
+| Check | Observed result |
+| --- | --- |
+| Executable AST and schema comparison | All three documented modules match their starting executable ASTs after removing docstrings. All 23 owned Pydantic model schemas match apart from description metadata. The checker changes only its source-debt checksum. |
+| Focused documentation checks | Operating, risk and evidence modules have zero source-scanner documentation findings and pass Ruff `D`/`ANN401` with the Google convention and formatting checks. |
+| Exact debt reconciliation | Retired 76 original obligations: one summary and 75 sections/parameters. All other entries and metadata are preserved. The inventory keeps its compact formatting; inferred typing, function dispositions, exceptions and existing identity/calendar source are unchanged. |
+| `make lint format-check typecheck engineering-standards-check architecture-check` | Passed. Ruff and strict mypy cover 136 Python/stub files; the stronger inventory probe matches 686 diagnostics; native stubtest passes over 1,548 modules; source standards and 14 ADRs validate. |
+| Full default pytest selection | 663 passed, 9 deselected. Includes founder/scoped-team resolution, local versus institutional acceptance, risk classification and approval enforcement, JSON serialization, malformed evidence and policy inputs, artifact/commit binding, source standards and all existing domain goldens. |
+| `bazel test --config=ci //...` | All 20 test targets passed, including governance reverse dependencies, source/typing standards and domain evidence targets. |
+| `pre-commit run --all-files` | Every hook passed, including the shared typecheck command, source standards, secret scanning, documentation links and all governance policies. |
+
+These are local checks for this slice. The full `make ci-full` lane, hosted CI
+and separate integration/performance selections were not run. Step 5 remains
+in progress with 1,415 documentation obligations; 798 function dispositions and
 686 inferred-typing diagnostics remain later migration work.
