@@ -19,6 +19,19 @@ EXPECTED_TOOL_REQUIREMENTS = {"pydantic==2.13.5", "typer==0.27.2"}
 
 
 def _load_pyproject(relative_path: str = "pyproject.toml") -> dict[str, object]:
+    """Load a repository-relative TOML project file for metadata assertions.
+
+    Args:
+        relative_path: Path from the repository root, defaulting to the runtime project file.
+
+    Returns:
+        The parsed top-level TOML table.
+
+    Raises:
+        OSError: The project file cannot be read.
+        tomllib.TOMLDecodeError: The file is not valid TOML.
+        AssertionError: The parsed document is not a top-level table.
+    """
     parsed_document: object = tomllib.loads(
         (REPOSITORY_ROOT / relative_path).read_text(encoding="utf-8")
     )
@@ -27,12 +40,25 @@ def _load_pyproject(relative_path: str = "pyproject.toml") -> dict[str, object]:
 
 
 def _require_table(container: dict[str, object], key: str) -> dict[str, object]:
+    """Return one required TOML table from a parsed mapping.
+
+    Args:
+        container: Parsed TOML mapping containing the requested value.
+        key: Table key that must resolve to a mapping.
+
+    Returns:
+        The nested TOML table associated with ``key``.
+
+    Raises:
+        AssertionError: The key is absent or its value is not a TOML table.
+    """
     value = container.get(key)
     assert isinstance(value, dict), f"{key} must be a TOML table"
     return cast(dict[str, object], value)
 
 
 def test_installed_distribution_exposes_expected_metadata() -> None:
+    """Verify installed runtime and governance distributions expose pinned metadata."""
     distribution = importlib.metadata.distribution("alpha-research-lab")
     tool_distribution = importlib.metadata.distribution("alpha-research-governance")
 
@@ -45,6 +71,7 @@ def test_installed_distribution_exposes_expected_metadata() -> None:
 
 
 def test_governance_path_target_and_owned_commands_are_explicit() -> None:
+    """Verify project TOML declares the non-editable governance path and owned commands."""
     configuration = _load_pyproject()
     tool_configuration = _load_pyproject("tools/governance/pyproject.toml")
     uv = _require_table(_require_table(configuration, "tool"), "uv")

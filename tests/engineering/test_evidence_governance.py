@@ -37,18 +37,50 @@ LEGACY_FIXTURE_ROOT = REPOSITORY_ROOT / "tests" / "fixtures" / "governance" / "e
 
 
 def _bundle_fixture(tmp_path: Path) -> Path:
+    """Copy the valid A05 evidence bundle into a temporary directory.
+
+    Args:
+        tmp_path: Temporary directory in which to create the copied bundle.
+
+    Returns:
+        Path to the copied bundle directory.
+
+    Raises:
+        OSError: If the source fixture cannot be copied.
+    """
     bundle = tmp_path / "bundle"
     shutil.copytree(EXAMPLE_ROOT, bundle)
     return bundle
 
 
 def _replace_evidence_fixture_text(path: Path, old: str, new: str) -> None:
+    """Replace one occurrence in a text fixture and write the mutation back.
+
+    Args:
+        path: Fixture file to read and update.
+        old: Exact text that must occur in the fixture.
+        new: Replacement text written for the first occurrence.
+
+    Raises:
+        AssertionError: If ``old`` does not occur in the fixture.
+        OSError: If the fixture cannot be read or written.
+    """
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
 def _validate_fixture_manifest(bundle: Path) -> None:
+    """Validate a copied A05 manifest against the checked-in change-risk policy.
+
+    Args:
+        bundle: Temporary evidence-bundle directory containing ``manifest.toml``.
+
+    Raises:
+        EvidenceGovernanceError: If the manifest fails its binding, policy, or artifact checks.
+        ChangeRiskPolicyError: If the checked-in change-risk policy cannot be loaded or validated.
+        OSError: If the policy, manifest, or artifact files cannot be read.
+    """
     validate_manifest(
         bundle / "manifest.toml",
         expected_commit_sha=EXAMPLE_SHA,
@@ -57,6 +89,7 @@ def _validate_fixture_manifest(bundle: Path) -> None:
 
 
 def test_repository_evidence_policy_template_and_example_validate_end_to_end() -> None:
+    """Validate the checked-in evidence policy, examples, and A05 manifest together."""
     policy, manifest = validate_repository(REPOSITORY_ROOT)
 
     assert policy.package_status == "partial"
@@ -77,6 +110,7 @@ def test_repository_evidence_policy_template_and_example_validate_end_to_end() -
     (("b01a-r2-partial", "5" * 40), ("b01b-r2-partial", "6" * 40)),
 )
 def test_legacy_slice_bundles_remain_readable_test_fixtures(bundle: str, commit_sha: str) -> None:
+    """Keep version-one partial evidence fixtures readable with their recorded status."""
     manifest = validate_manifest(
         LEGACY_FIXTURE_ROOT / bundle / "manifest.toml",
         expected_commit_sha=commit_sha,
@@ -88,6 +122,7 @@ def test_legacy_slice_bundles_remain_readable_test_fixtures(bundle: str, commit_
 
 
 def test_template_must_match_policy_order_and_markers() -> None:
+    """Reject evidence templates with renamed headings or missing field markers."""
     policy = load_policy(POLICY_PATH)
     template = (REPOSITORY_ROOT / policy.template_path).read_text(encoding="utf-8")
 
@@ -100,6 +135,7 @@ def test_template_must_match_policy_order_and_markers() -> None:
 
 
 def test_mr_linter_rejects_missing_duplicate_and_placeholder_fields() -> None:
+    """Reject missing, duplicate, and placeholder-only founder MR fields."""
     policy = load_policy(POLICY_PATH)
     valid = FOUNDER_BODY.read_text(encoding="utf-8")
     validate_mr_body(valid, policy)
@@ -124,6 +160,7 @@ def test_mr_linter_rejects_missing_duplicate_and_placeholder_fields() -> None:
 
 
 def test_github_event_lints_body_and_requires_full_head_sha(tmp_path: Path) -> None:
+    """Validate a GitHub event body and reject a non-full head SHA."""
     policy = load_policy(POLICY_PATH)
     body = FOUNDER_BODY.read_text(encoding="utf-8")
     event = tmp_path / "event.json"
@@ -143,6 +180,7 @@ def test_github_event_lints_body_and_requires_full_head_sha(tmp_path: Path) -> N
 
 
 def test_manifest_rejects_expected_commit_mismatch(tmp_path: Path) -> None:
+    """Reject a manifest whose commit differs from the expected SHA."""
     bundle = _bundle_fixture(tmp_path)
 
     with pytest.raises(EvidenceGovernanceError, match="does not match expected commit"):
@@ -154,6 +192,7 @@ def test_manifest_rejects_expected_commit_mismatch(tmp_path: Path) -> None:
 
 
 def test_manifest_rejects_artifact_tampering(tmp_path: Path) -> None:
+    """Reject an evidence bundle after an artifact's bytes are tampered with."""
     bundle = _bundle_fixture(tmp_path)
     (bundle / "reports" / "sha-binding.txt").write_text("tampered\n", encoding="utf-8")
 
@@ -163,6 +202,7 @@ def test_manifest_rejects_artifact_tampering(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("unsafe_path", ["../outside.txt", "/tmp/outside.txt"])
 def test_manifest_rejects_artifact_path_escape(tmp_path: Path, unsafe_path: str) -> None:
+    """Reject absolute or parent-traversal artifact paths in a manifest."""
     bundle = _bundle_fixture(tmp_path)
     _replace_evidence_fixture_text(
         bundle / "manifest.toml", 'path = "reports/source-hygiene.txt"', f'path = "{unsafe_path}"'
@@ -222,6 +262,7 @@ def test_manifest_rejects_artifact_path_escape(tmp_path: Path, unsafe_path: str)
 def test_manifest_input_schema_preserves_structural_error_contract(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Preserve structural errors for malformed manifest fields and tables."""
     bundle = _bundle_fixture(tmp_path)
     _replace_evidence_fixture_text(bundle / "manifest.toml", old, new)
 
@@ -249,6 +290,7 @@ def test_manifest_input_schema_preserves_structural_error_contract(
 def test_manifest_recomputes_risk_and_rejects_missing_or_unknown_evidence(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Recompute manifest risk and reject risk drift, missing gates, or unknown evidence."""
     bundle = _bundle_fixture(tmp_path)
     _replace_evidence_fixture_text(bundle / "manifest.toml", old, new)
 
@@ -257,6 +299,7 @@ def test_manifest_recomputes_risk_and_rejects_missing_or_unknown_evidence(
 
 
 def test_required_gate_cannot_be_not_applicable(tmp_path: Path) -> None:
+    """Reject marking a required evidence gate as not applicable."""
     bundle = _bundle_fixture(tmp_path)
     _replace_evidence_fixture_text(
         bundle / "manifest.toml", 'status = "passed"', 'status = "not_applicable"'
@@ -267,6 +310,7 @@ def test_required_gate_cannot_be_not_applicable(tmp_path: Path) -> None:
 
 
 def test_partial_bundle_requires_owned_findings(tmp_path: Path) -> None:
+    """Require partial bundles to retain at least one open finding."""
     bundle = _bundle_fixture(tmp_path)
     manifest = bundle / "manifest.toml"
     text = manifest.read_text(encoding="utf-8").split("\n[[findings]]", maxsplit=1)[0]
@@ -282,6 +326,7 @@ def test_partial_bundle_requires_owned_findings(tmp_path: Path) -> None:
 
 
 def test_accepted_bundle_requires_commit_bound_class_approvals(tmp_path: Path) -> None:
+    """Require accepted bundles to include commit-bound class approvals."""
     bundle = _bundle_fixture(tmp_path)
     manifest = bundle / "manifest.toml"
     text = manifest.read_text(encoding="utf-8").split("\n[[findings]]", maxsplit=1)[0]
@@ -298,6 +343,7 @@ def test_accepted_bundle_requires_commit_bound_class_approvals(tmp_path: Path) -
 
 
 def test_accepted_bundle_passes_with_commit_bound_class_approval(tmp_path: Path) -> None:
+    """Accept the synthetic version-one R0 fixture with one approved, commit-bound approval."""
     bundle = _bundle_fixture(tmp_path)
     manifest = bundle / "manifest.toml"
     text = manifest.read_text(encoding="utf-8").split("\n[[findings]]", maxsplit=1)[0]
@@ -341,6 +387,7 @@ evidence_url = "https://forge.example/reviews/a05-fixture"
 def test_accepted_bundle_rejects_credentialed_or_malformed_approval_urls(
     tmp_path: Path, evidence_url: str
 ) -> None:
+    """Reject credentialed or malformed URLs on accepted approvals."""
     bundle = _bundle_fixture(tmp_path)
     manifest = bundle / "manifest.toml"
     text = manifest.read_text(encoding="utf-8").split("\n[[findings]]", maxsplit=1)[0]
@@ -368,6 +415,7 @@ evidence_url = "{evidence_url}"
 
 
 def test_policy_cannot_weaken_required_evidence_gates_or_hide_findings(tmp_path: Path) -> None:
+    """Reject policy edits that weaken required gates or replace registered findings."""
     policy = tmp_path / "merge-evidence-policy.toml"
     policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     _replace_evidence_fixture_text(policy, '["QG01", "QG13", "QG15"]', '["QG01", "QG13"]')
@@ -412,6 +460,7 @@ def test_policy_cannot_weaken_required_evidence_gates_or_hide_findings(tmp_path:
 def test_policy_input_schema_preserves_structural_error_contract(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Preserve structural errors for malformed policy fields and tables."""
     policy = tmp_path / "merge-evidence-policy.toml"
     policy.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     _replace_evidence_fixture_text(policy, old, new)
@@ -421,6 +470,7 @@ def test_policy_input_schema_preserves_structural_error_contract(
 
 
 def test_command_accepts_repository_relative_mr_and_manifest_paths() -> None:
+    """Accept repository-relative MR and manifest paths through the evidence CLI."""
     assert (
         main(
             [
@@ -438,6 +488,7 @@ def test_command_accepts_repository_relative_mr_and_manifest_paths() -> None:
 
 
 def test_version_one_policy_and_institutional_example_keep_their_contract(tmp_path: Path) -> None:
+    """Preserve version-one policy parsing and its institutional MR profile."""
     text = POLICY_PATH.read_text(encoding="utf-8")
     root = text.split("founder_example_mr_body_path", 1)[0].replace(
         "schema_version = 2", "schema_version = 1"
@@ -463,6 +514,7 @@ def test_version_one_policy_and_institutional_example_keep_their_contract(tmp_pa
 
 @pytest.mark.parametrize("wrapper", ["<!--\n{}\n-->", "```markdown\n{}\n```"])
 def test_commented_or_fenced_headings_cannot_satisfy_the_pr(wrapper: str) -> None:
+    """Reject commented or fenced headings as satisfying required PR fields."""
     body = FOUNDER_BODY.read_text(encoding="utf-8")
     with pytest.raises(EvidenceGovernanceError, match="missing required"):
         validate_mr_body(wrapper.format(body), load_policy(POLICY_PATH))
@@ -482,6 +534,7 @@ def test_commented_or_fenced_headings_cannot_satisfy_the_pr(wrapper: str) -> Non
 def test_conditional_sections_follow_detected_or_declared_impact(
     paths: tuple[str, ...], context: str, heading: str
 ) -> None:
+    """Require conditional MR sections for detected or declared impact."""
     policy = load_policy(POLICY_PATH)
     body = FOUNDER_BODY.read_text(encoding="utf-8")
     if context:
@@ -499,12 +552,14 @@ def test_conditional_sections_follow_detected_or_declared_impact(
     "context", ['{"benchmark":"false"}', '{"unexpected":true}', "{broken", '{"operation":"deploy"}']
 )
 def test_malformed_context_fails_closed(context: str) -> None:
+    """Fail closed when evidence-context metadata is malformed."""
     body = FOUNDER_BODY.read_text(encoding="utf-8") + f"\n<!-- evidence-context: {context} -->\n"
     with pytest.raises(EvidenceGovernanceError, match="invalid evidence-context"):
         validate_mr_body(body, load_policy(POLICY_PATH))
 
 
 def test_metadata_distinguishes_inferred_scope_from_unknown_semantic_risk() -> None:
+    """Distinguish documentation-only scope from unknown semantic risk in MR metadata."""
     body = FOUNDER_BODY.read_text(encoding="utf-8")
     assert classify_mr(body, changed_paths=("docs/guide.md",))["risk_class"] == "R0"
     metadata = classify_mr(body, changed_paths=("src/runtime.py",))
@@ -515,6 +570,7 @@ def test_metadata_distinguishes_inferred_scope_from_unknown_semantic_risk() -> N
 
 
 def test_declared_facts_are_recomputed_and_activate_high_risk_evidence() -> None:
+    """Recompute declared change facts and require high-risk evidence sections."""
     body = FOUNDER_BODY.read_text(encoding="utf-8")
     facts = {
         "capital_at_risk": False,
@@ -546,6 +602,22 @@ def test_declared_facts_are_recomputed_and_activate_high_risk_evidence() -> None
 
 
 def _git(root: Path, *arguments: str) -> str:
+    """Run a Git command in a synthetic repository and return trimmed stdout.
+
+    The command may mutate the temporary repository's working tree, index, or history according
+    to its arguments.
+
+    Args:
+        root: Synthetic repository used as the subprocess working directory.
+        arguments: Git subcommand and arguments to execute without a shell.
+
+    Returns:
+        Standard output with surrounding whitespace removed.
+
+    Raises:
+        subprocess.CalledProcessError: If Git exits with a nonzero status.
+        OSError: If Git cannot be started.
+    """
     result = subprocess.run(
         [
             "git",
@@ -566,6 +638,7 @@ def _git(root: Path, *arguments: str) -> str:
 def test_hosted_cli_uses_real_diff_accepts_four_sections_and_blocks_missing_evidence(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Exercise hosted CLI diff classification and evidence gating across failure cases."""
     root = tmp_path / "repository"
     root.mkdir()
     policy = load_policy(POLICY_PATH)
@@ -593,6 +666,16 @@ def test_hosted_cli_uses_real_diff_accepts_four_sections_and_blocks_missing_evid
     event = tmp_path / "event.json"
 
     def write_event(event_body: str, head_sha: str = head) -> None:
+        """Write a synthetic pull-request event for the hosted CLI check.
+
+        Args:
+            event_body: Pull-request body supplied to the event linter.
+            head_sha: Head commit SHA recorded in the event; the base SHA comes from the
+                synthetic repository closure.
+
+        Raises:
+            OSError: If the event JSON cannot be written.
+        """
         event.write_text(
             json.dumps(
                 {
@@ -638,6 +721,20 @@ def test_hosted_cli_uses_real_diff_accepts_four_sections_and_blocks_missing_evid
 
 
 def _implementation_bundle(tmp_path: Path) -> Path:
+    """Create an unvalidated version-two implementation-acceptance manifest from A06.
+
+    The helper preserves copied artifact bytes while removing findings and writing synthetic
+    operating-domain, founder, and acceptance-date claims; the caller performs validation.
+
+    Args:
+        tmp_path: Temporary directory in which to create the copied bundle.
+
+    Returns:
+        Path to the mutated implementation manifest.
+
+    Raises:
+        OSError: If the source bundle cannot be copied or the manifest cannot be updated.
+    """
     source = EXAMPLE_ROOT.parent / "a06-r2-partial"
     bundle = tmp_path / "implementation"
     shutil.copytree(source, bundle)
@@ -658,6 +755,7 @@ def _implementation_bundle(tmp_path: Path) -> Path:
 def test_founder_r2_implementation_acceptance_needs_no_external_approvals_or_findings(
     tmp_path: Path,
 ) -> None:
+    """Accept founder implementation evidence without institutional approvals or findings."""
     path = _implementation_bundle(tmp_path)
     manifest = validate_manifest(
         path,
@@ -678,6 +776,7 @@ def test_founder_r2_implementation_acceptance_needs_no_external_approvals_or_fin
 def test_implementation_bundle_cannot_authorize_institutional_operations(
     tmp_path: Path, operation: Operation
 ) -> None:
+    """Reject using implementation-acceptance evidence for institutional operations."""
     with pytest.raises(EvidenceGovernanceError, match="cannot authorize institutional operations"):
         validate_manifest(
             _implementation_bundle(tmp_path),
@@ -719,6 +818,7 @@ def test_implementation_bundle_cannot_authorize_institutional_operations(
 def test_implementation_acceptance_rejects_technical_failure_and_false_authority(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Reject implementation acceptance when technical evidence or founder authority fails."""
     path = _implementation_bundle(tmp_path)
     _replace_evidence_fixture_text(path, old, new)
     with pytest.raises(EvidenceGovernanceError, match=message):
@@ -735,6 +835,7 @@ def test_implementation_acceptance_rejects_technical_failure_and_false_authority
 def test_implementation_acceptance_still_checks_source_identity_and_artifact_digest(
     tmp_path: Path,
 ) -> None:
+    """Preserve source-commit and artifact-digest checks for implementation acceptance."""
     path = _implementation_bundle(tmp_path)
     model = load_operating_model(REPOSITORY_ROOT / "docs/governance/domain-ownership.toml")
     policy = load_change_risk_policy(CHANGE_POLICY_PATH)

@@ -429,7 +429,11 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
     """Translate version, nonfinite-result and native-call failures into owned errors."""
 
     def calculate() -> None:
-        """Invoke the owned adapter through its normal native day-count path."""
+        """Invoke the owned adapter through its normal native day-count path.
+
+        Raises:
+            ConventionError: The currently patched metadata or native counter fails.
+        """
         QuantLibConventions().time_to(
             context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
         )
@@ -439,7 +443,17 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
         calculate()
 
     def missing(_: str) -> str:
-        """Simulate unavailable native-package version metadata."""
+        """Simulate unavailable native-package version metadata.
+
+        Args:
+            _: Distribution name, intentionally ignored by the failure double.
+
+        Returns:
+            No version string; every call raises instead.
+
+        Raises:
+            PackageNotFoundError: The synthetic native distribution is unavailable.
+        """
         raise PackageNotFoundError
 
     monkeypatch.setattr(conventions, "version", missing)
@@ -451,7 +465,15 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
         """Simulate a native day counter returning a nonfinite float."""
 
         def yearFraction(self, start: object, end: object) -> float:
-            """Return the deliberately malformed native result without validating it."""
+            """Return a nonfinite native result to exercise adapter rejection.
+
+            Args:
+                start: Native start-date argument, intentionally unused.
+                end: Native end-date argument, intentionally unused.
+
+            Returns:
+                A NaN float, without validating the supplied dates.
+            """
             return float("nan")
 
     monkeypatch.setattr(ql, "Actual360", BadCounter)
@@ -459,7 +481,11 @@ def test_native_failure_nonfinite_and_version_mismatch_are_owned(
         calculate()
 
     def fail() -> None:
-        """Simulate an exception from native counter construction."""
+        """Simulate an exception from native counter construction.
+
+        Raises:
+            RuntimeError: The synthetic native counter cannot be constructed.
+        """
         raise RuntimeError("synthetic native failure")
 
     monkeypatch.setattr(ql, "Actual360", fail)
@@ -479,7 +505,17 @@ def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls(
         ]
 
         def evaluate(context: EvaluationContext) -> Decimal:
-            """Calculate a context-specific year fraction ending on January 4, 2024."""
+            """Calculate a context-specific year fraction ending on January 4, 2024.
+
+            Args:
+                context: Explicit evaluation date and convention revision for the adapter.
+
+            Returns:
+                Actual/360 duration from the evaluation date, rounded to 1e-15 years.
+
+            Raises:
+                ConventionError: Native evaluation or version validation fails.
+            """
             return (
                 QuantLibConventions()
                 .time_to(context=context, end=date(2024, 1, 4), day_count=DayCount.ACTUAL_360)
@@ -521,7 +557,18 @@ def test_actual360_intervals_are_additive(first: int, second: int) -> None:
     end = middle + timedelta(days=second)
 
     def years(left: date, right: date) -> Decimal:
-        """Extract the exact decimal duration for one Actual/360 interval."""
+        """Extract the decimal duration for one Actual/360 interval.
+
+        Args:
+            left: Inclusive interval start within the generated date range.
+            right: Interval end, at or after left.
+
+        Returns:
+            Duration rounded to 1e-15 years under the captured convention revision.
+
+        Raises:
+            ConventionError: Native evaluation or version validation fails.
+        """
         return adapter.year_fraction(
             context=CONTEXT, start=left, end=right, day_count=DayCount.ACTUAL_360
         ).duration.value
@@ -541,7 +588,15 @@ def test_native_results_reject_wrong_type_sign_and_infinity(
         """Inject a native result with the wrong type, sign or finiteness."""
 
         def yearFraction(self, start: object, end: object) -> object:
-            """Return the deliberately malformed native result without validating it."""
+            """Return the captured invalid native value without validating it.
+
+            Args:
+                start: Native start-date argument, intentionally unused.
+                end: Native end-date argument, intentionally unused.
+
+            Returns:
+                The parametrized wrong-type, negative or nonfinite value unchanged.
+            """
             return bad
 
     monkeypatch.setattr(ql, "Actual360", Counter)

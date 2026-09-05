@@ -60,6 +60,7 @@ CHANGE_POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "change-risk-poli
 
 
 def _change_values() -> dict[str, object]:
+    """Build a fresh minimal documentation-only change payload for validation mutations."""
     return {
         "capital_at_risk": False,
         "blast_radius": "documentation_only",
@@ -70,6 +71,7 @@ def _change_values() -> dict[str, object]:
 
 
 def _observation_values() -> dict[str, object]:
+    """Build a fresh five-second UTC build observation with strict scalar and tuple values."""
     return {
         "event_id": "event-validated-model",
         "metric_id": "kpi.build_duration_seconds",
@@ -86,6 +88,7 @@ def _observation_values() -> dict[str, object]:
 
 
 def test_strict_primitives_enums_and_unknown_fields_fail() -> None:
+    """Reject boolean coercion, raw enum strings and unknown change fields."""
     invalid_values = (
         {**_change_values(), "capital_at_risk": 1},
         {**_change_values(), "declared_class": "R2"},
@@ -97,6 +100,7 @@ def test_strict_primitives_enums_and_unknown_fields_fail() -> None:
 
 
 def test_missing_required_and_invalid_nested_models_fail() -> None:
+    """Reject absent dimensions and revalidate a nested change corrupted after construction."""
     values = _change_values()
     del values["reversibility"]
     with pytest.raises(ValidationError):
@@ -114,6 +118,7 @@ def test_missing_required_and_invalid_nested_models_fail() -> None:
 
 
 def test_strict_paths_dates_datetimes_tuples_and_frozensets_fail() -> None:
+    """Reject container and scalar coercion, invalid UTC windows and nonfinite metrics."""
     with pytest.raises(ValidationError):
         EvidencePolicy.model_validate(
             {
@@ -175,6 +180,7 @@ def test_strict_paths_dates_datetimes_tuples_and_frozensets_fail() -> None:
 
 
 def test_json_mode_preserves_boundary_shapes() -> None:
+    """Serialize enums and paths as text and approval roles in deterministic order."""
     change = ChangeRiskInput.model_validate({**_change_values(), "declared_class": RiskClass.R2})
     approval = ReviewApproval(
         reviewer_id="reviewer",
@@ -198,6 +204,14 @@ def test_json_mode_preserves_boundary_shapes() -> None:
 
 
 def _captured_validation_error() -> ValidationError:
+    """Capture a real model error carrying the synthetic rejected boolean input.
+
+    Returns:
+        The caught ValidationError for reuse by loader failure doubles.
+
+    Raises:
+        pytest.fail.Exception: The malformed change unexpectedly passes validation.
+    """
     with pytest.raises(ValidationError) as captured:
         ChangeRiskInput.model_validate({**_change_values(), "capital_at_risk": "not-a-boolean"})
     return captured.value
@@ -206,11 +220,24 @@ def _captured_validation_error() -> ValidationError:
 def test_public_loaders_translate_validation_errors_without_leaking_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Preserve loader-specific errors and causes while hiding rejected values and Pydantic URLs."""
     validation_error = _captured_validation_error()
     change_policy = load_change_policy(CHANGE_POLICY_PATH)
     program = validate_program(REPOSITORY_ROOT)
 
     def fail_validation(*_args: object, **_kwargs: object) -> Never:
+        """Raise the captured model error at any patched private loader boundary.
+
+        Args:
+            *_args: Ignored positional arguments accepted by the patched loader.
+            **_kwargs: Ignored keyword arguments accepted by the patched loader.
+
+        Returns:
+            No value; every call raises the same captured exception.
+
+        Raises:
+            ValidationError: The synthetic invalid boolean failed model validation.
+        """
         raise validation_error
 
     cases: tuple[tuple[ModuleType, str, Callable[[], object], type[ValueError], str], ...] = (
@@ -300,6 +327,7 @@ def test_public_loaders_translate_validation_errors_without_leaking_details(
 
 
 def test_repository_relative_paths_are_model_local_invariants() -> None:
+    """Reject absolute paths and parent traversal within the evidence policy model."""
     base: dict[str, object] = {
         "template_path": Path("docs/template.md"),
         "example_mr_body_path": Path("docs/example.md"),

@@ -41,6 +41,19 @@ INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_PATH = (
 def _fixture_object_rows(
     fixture_document: dict[str, object], field_name: str
 ) -> list[dict[str, object]]:
+    """Read a required fixture array after checking its rows are mappings.
+
+    Args:
+        fixture_document: Parsed golden document containing the requested array.
+        field_name: Required array key.
+
+    Returns:
+        Original list of row dictionaries, without copying or validating row fields.
+
+    Raises:
+        KeyError: The array key is absent.
+        AssertionError: The value is not a list of dictionaries.
+    """
     field_value = fixture_document[field_name]
     assert isinstance(field_value, list)
     assert all(isinstance(fixture_row, dict) for fixture_row in field_value)
@@ -48,22 +61,36 @@ def _fixture_object_rows(
 
 
 def _required_fixture_text(fixture_row: dict[str, object], field_name: str) -> str:
+    """Read a required string field, asserting its type without coercion."""
     field_value = fixture_row[field_name]
     assert isinstance(field_value, str)
     return field_value
 
 
 def _optional_fixture_text(fixture_row: dict[str, object], field_name: str) -> str | None:
+    """Read a string or null field, treating a missing key as null."""
     field_value = fixture_row.get(field_name)
     assert field_value is None or isinstance(field_value, str)
     return field_value
 
 
 def _parse_fixture_utc_datetime(utc_datetime_text: str) -> datetime:
+    """Parse ISO fixture text, translating a trailing Z to an explicit UTC offset."""
     return datetime.fromisoformat(utc_datetime_text.replace("Z", "+00:00"))
 
 
 def _load_instrument_identity_golden_catalog() -> tuple[dict[str, object], SymbologyCatalog]:
+    """Load the synthetic C01 JSON and construct its validated identity graph.
+
+    Returns:
+        Parsed fixture document and catalog retaining the listed correction history.
+
+    Raises:
+        OSError: The checked-in fixture cannot be read.
+        ValueError: JSON, date, enum or owned identity validation fails.
+        KeyError: A consumed required fixture field is absent.
+        AssertionError: A consumed fixture container or text field has the wrong type.
+    """
     parsed_fixture: object = json.loads(
         INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_PATH.read_text(encoding="utf-8")
     )
@@ -127,6 +154,7 @@ def _load_instrument_identity_golden_catalog() -> tuple[dict[str, object], Symbo
 
 
 def _build_economic_instrument_and_listing() -> tuple[InstrumentIdentity, InstrumentIdentity]:
+    """Build a stable economic instrument and the listing that references it."""
     economic_instrument_id = InstrumentId(UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"))
     listing_instrument_id = InstrumentId(UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"))
     return (
@@ -153,6 +181,23 @@ def _build_venue_symbol_mapping(
     source_revision: str = "revision-001",
     identifier_value: str = "SYNTH",
 ) -> SymbologyMapping:
+    """Build an attributed venue-symbol assertion for temporal graph tests.
+
+    Args:
+        mapping_sequence: Nonzero integer encoded as the mapping UUID.
+        instrument_id: Identity referenced by the assertion.
+        valid_from: Inclusive UTC start; invalid inputs exercise model rejection.
+        valid_to: Exclusive UTC end, or None for an open interval.
+        supersedes_mapping_id: Retained predecessor, if this is a correction.
+        source_revision: Revision of the fixed synthetic exchange source.
+        identifier_value: Symbol in the fixed fixture-venue namespace.
+
+    Returns:
+        Validated mapping with a correction reason only when a predecessor is given.
+
+    Raises:
+        ValueError: The UUID integer or owned mapping contract is invalid.
+    """
     return SymbologyMapping(
         mapping_id=MappingId(UUID(int=mapping_sequence)),
         instrument_id=instrument_id,
@@ -173,6 +218,7 @@ def _build_venue_symbol_mapping(
 
 
 def test_golden_fixture_resolves_temporal_mappings_and_round_trips() -> None:
+    """Resolve every golden query and recover the same mapping through both lookup paths."""
     fixture_document, symbology_catalog = _load_instrument_identity_golden_catalog()
 
     assert fixture_document["schema_version"] == 1
@@ -204,6 +250,7 @@ def test_golden_fixture_resolves_temporal_mappings_and_round_trips() -> None:
 
 
 def test_golden_fixture_covers_distinct_concepts_and_all_identifier_schemes() -> None:
+    """Cover every instrument kind and identifier scheme with valid economic references."""
     _, symbology_catalog = _load_instrument_identity_golden_catalog()
 
     assert {identity.instrument_kind for identity in symbology_catalog.identities} == set(
@@ -220,6 +267,7 @@ def test_golden_fixture_covers_distinct_concepts_and_all_identifier_schemes() ->
 
 
 def test_symbol_ambiguity_delisting_gap_and_unknown_instrument_fail_closed() -> None:
+    """Distinguish ambiguous symbols, unmapped delisting intervals and unknown identities."""
     fixture_document, symbology_catalog = _load_instrument_identity_golden_catalog()
     ambiguous_query_fixture = cast(dict[str, object], fixture_document["ambiguous_query"])
     delisting_gap_query_fixture = cast(dict[str, object], fixture_document["delisting_gap_query"])
@@ -257,6 +305,7 @@ def test_symbol_ambiguity_delisting_gap_and_unknown_instrument_fail_closed() -> 
 
 
 def test_vendor_correction_changes_projection_without_erasing_history() -> None:
+    """Retain ordered vendor corrections while excluding superseded assertions from projection."""
     fixture_document, symbology_catalog = _load_instrument_identity_golden_catalog()
     correction_history_fixture = cast(dict[str, object], fixture_document["correction_history"])
     corrected_external_identifier = ExternalIdentifier(
@@ -291,6 +340,7 @@ def test_standard_identifiers_reject_invalid_format_or_checksum(
     identifier_value: str,
     expected_error_message: str,
 ) -> None:
+    """Reject invalid identifier checksums and noncanonical letter casing."""
     with pytest.raises(InstrumentIdentityValidationError, match=expected_error_message):
         ExternalIdentifier(identifier_scheme, identifier_value)
 
@@ -319,11 +369,13 @@ def test_standard_identifiers_reject_invalid_format_or_checksum(
 def test_value_object_boundaries_reject_unsafe_input(
     invalid_value_factory: Callable[[], object], expected_error_message: str
 ) -> None:
+    """Reject noncanonical UUIDs, unsafe namespaces and whitespace at their constructors."""
     with pytest.raises(InstrumentIdentityValidationError, match=expected_error_message):
         invalid_value_factory()
 
 
 def test_instrument_identity_models_are_strict_frozen_pydantic_boundaries() -> None:
+    """Reject coercion, extra fields, assignment and unchecked nested nil identities."""
     model_types = (
         InstrumentId,
         MappingId,
@@ -353,6 +405,7 @@ def test_instrument_identity_models_are_strict_frozen_pydantic_boundaries() -> N
 
 
 def test_temporal_boundaries_require_utc_and_positive_half_open_interval() -> None:
+    """Reject non-UTC or empty validity intervals and unattributed correction reasons."""
     _, listing_identity = _build_economic_instrument_and_listing()
     non_utc_datetime = datetime(2020, 1, 1, tzinfo=timezone(timedelta(hours=8)))
 
@@ -392,6 +445,7 @@ def test_temporal_boundaries_require_utc_and_positive_half_open_interval() -> No
 
 
 def test_catalog_rejects_duplicate_unregistered_and_overlapping_records() -> None:
+    """Reject duplicate identities, unregistered mapping targets and overlapping projections."""
     instrument_identities = _build_economic_instrument_and_listing()
     initial_mapping = _build_venue_symbol_mapping(
         1,
@@ -429,6 +483,7 @@ def test_catalog_rejects_duplicate_unregistered_and_overlapping_records() -> Non
 
 
 def test_catalog_rejects_missing_changed_forked_and_cyclic_correction_history() -> None:
+    """Reject missing predecessors, changed symbols, forks and cycles in correction history."""
     instrument_identities = _build_economic_instrument_and_listing()
     original_mapping = _build_venue_symbol_mapping(1, instrument_identities[1].instrument_id)
     missing_predecessor_correction = _build_venue_symbol_mapping(
@@ -505,6 +560,7 @@ def test_property_exact_identifier_round_trip_is_stable(
     identifier_value: str,
     days_after_valid_from: int,
 ) -> None:
+    """Resolve generated vendor identifiers consistently through exact and instrument lookup."""
     instrument_identities = _build_economic_instrument_and_listing()
     vendor_mapping = SymbologyMapping(
         mapping_id=MappingId(UUID(int=1)),
@@ -540,6 +596,7 @@ def test_property_exact_identifier_round_trip_is_stable(
 def test_property_symbol_reuse_obeys_half_open_boundaries(
     days_until_symbol_reuse: int,
 ) -> None:
+    """Switch symbol ownership exactly at the prior mapping's exclusive validity end."""
     first_economic_instrument, first_listing = _build_economic_instrument_and_listing()
     second_economic_instrument_id = InstrumentId(UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1"))
     second_listing_instrument_id = InstrumentId(UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2"))
@@ -594,6 +651,7 @@ def test_property_symbol_reuse_obeys_half_open_boundaries(
 
 @pytest.mark.performance
 def test_golden_resolution_workload_stays_within_local_budget() -> None:
+    """Keep ten thousand golden symbol resolutions within the local 1,000 ms budget."""
     _, symbology_catalog = _load_instrument_identity_golden_catalog()
     identifier_query = IdentifierQuery(IdentifierScheme.VENUE_SYMBOL, "ABC", "xnas")
     valid_at = datetime(2022, 1, 1, tzinfo=UTC)

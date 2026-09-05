@@ -53,6 +53,7 @@ FINANCIAL_UNITS_APPLICABLE_QUALITY_GATES = (
 def test_financial_units_manifest_matches_partial_r2_profile_and_golden_digest(
     tmp_path: Path,
 ) -> None:
+    """Bind the partial C03 risk profile, findings and golden digest to materialized evidence."""
     # Bazel supplies symlinked runfiles. Materialize fixture bytes; keep the
     # production validator's rejection of symlinked manifests/artifacts intact.
     fixture_root = shutil.copytree(
