@@ -34,24 +34,67 @@ RESEARCH_PROGRAM_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "research-program
 
 
 def _policy_fixture(tmp_path: Path) -> Path:
+    """Copy the repository program policy, overwriting the temporary destination.
+
+    Args:
+        tmp_path: Pytest-provided directory for isolated fixture files.
+
+    Returns:
+        The temporary policy path consumed by mutation tests.
+
+    Raises:
+        OSError: If the source or destination policy cannot be read or written.
+    """
     path = tmp_path / "program-governance.toml"
     path.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     return path
 
 
 def _roadmap_fixture(tmp_path: Path) -> Path:
+    """Copy the repository roadmap, overwriting the temporary destination.
+
+    Args:
+        tmp_path: Pytest-provided directory for isolated fixture files.
+
+    Returns:
+        The temporary roadmap path consumed by parser mutation tests.
+
+    Raises:
+        OSError: If the source or destination roadmap cannot be read or written.
+    """
     path = tmp_path / "README.md"
     path.write_text(ROADMAP_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     return path
 
 
 def _replace_program_fixture_text(path: Path, old: str, new: str) -> None:
+    """Replace the first expected text occurrence in a TOML or Markdown fixture.
+
+    Args:
+        path: Fixture file to read and rewrite as UTF-8 text.
+        old: Existing text that must occur in the fixture.
+        new: Replacement text written in place of the first occurrence.
+
+    Raises:
+        AssertionError: If ``old`` is absent, indicating a stale fixture contract.
+        OSError: If the fixture cannot be read or rewritten.
+    """
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
 def _remove_package_state(path: Path, package_id: str) -> None:
+    """Remove one package-state table while preserving later policy records.
+
+    Args:
+        path: Program-policy TOML fixture to rewrite in place.
+        package_id: Package-state identifier whose table should be removed.
+
+    Raises:
+        ValueError: If the requested table or a following record boundary is absent.
+        OSError: If the policy fixture cannot be read or rewritten.
+    """
     text = path.read_text(encoding="utf-8")
     marker = f'[[package_states]]\npackage_id = "{package_id}"'
     start = text.index(marker)
@@ -63,7 +106,22 @@ def _remove_package_state(path: Path, package_id: str) -> None:
 
 
 def _downgrade_current_policy(path: Path, *, schema_version: int) -> str:
-    """Turn the current record into a representative pre-v4 compatibility fixture."""
+    """Render legacy fixture text by removing v4 finding-disposition and status-path fields.
+
+    Args:
+        path: Policy fixture to read; its contents are not modified.
+        schema_version: Legacy schema version to write into the returned record.
+
+    Returns:
+        TOML text with the first schema-version declaration replaced, finding-
+        disposition tables and ``generated_status_path`` removed, and
+        ``program-status.md`` appended to each ``evidence_paths`` list.
+        Implementation fields remain for the caller to adjust.
+
+    Raises:
+        OSError: If the policy fixture cannot be read.
+        ValueError: If the expected policy record boundaries are absent.
+    """
     text = path.read_text(encoding="utf-8").replace(
         "schema_version = 4", f"schema_version = {schema_version}", 1
     )
@@ -97,6 +155,27 @@ def _metric_observation_event(
     numerator: float = 1,
     denominator: float = 1,
 ) -> dict[str, object]:
+    """Build an unvalidated mutable metric event payload for loader boundary tests.
+
+    Args:
+        program_metric_id: Registered metric identifier to populate.
+        event_id: Stable event identifier used in evidence and source-run fields.
+        start_seconds: Literal seconds component within the fixed
+            ``2026-08-30T00:00Z`` start minute.
+        seconds: Literal seconds component within the fixed
+            ``2026-08-30T00:00Z`` end minute.
+        numerator: Ratio numerator when the metric is ratio-valued; it may be invalid.
+        denominator: Ratio denominator when the metric is ratio-valued; it may be invalid.
+
+    Returns:
+        A mutable JSON-compatible event payload with required dimensions, provenance,
+        and ratio units when applicable. Callers may intentionally make it invalid.
+
+    Raises:
+        OSError: If the repository policy cannot be read.
+        ProgramGovernanceError: If the repository policy is invalid.
+        StopIteration: If ``program_metric_id`` is not registered in the policy.
+    """
     program = load_program(POLICY_PATH, repository_root=REPOSITORY_ROOT)
     metric = next(item for item in program.metrics if item.metric_id == program_metric_id)
     event_payload: dict[str, object] = {
@@ -124,6 +203,20 @@ def _metric_observation_event(
 
 
 def _write_observation_events(tmp_path: Path, events: list[dict[str, object]]) -> Path:
+    """Write sorted-key JSONL events in order, overwriting the destination file.
+
+    Args:
+        tmp_path: Pytest-provided directory for the generated observation file.
+        events: JSON-compatible event payloads to serialize in input order.
+
+    Returns:
+        The path of the UTF-8 JSONL file passed to the observation loader.
+
+    Raises:
+        OSError: If the destination file cannot be written.
+        TypeError: If an event contains a value that JSON cannot serialize.
+        ValueError: If JSON serialization encounters an invalid value such as a cycle.
+    """
     path = tmp_path / "observations.jsonl"
     path.write_text(
         "\n".join(json.dumps(event, sort_keys=True) for event in events) + "\n",
@@ -133,6 +226,7 @@ def _write_observation_events(tmp_path: Path, events: list[dict[str, object]]) -
 
 
 def test_repository_program_is_complete_partial_and_non_vanity() -> None:
+    """Verify the repository program graph, states, findings, and KPI controls."""
     program = validate_repository(REPOSITORY_ROOT)
 
     assert tuple(package.package_id for package in program.packages) == ROADMAP_PACKAGE_IDS
@@ -234,6 +328,7 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
 
 @pytest.mark.performance
 def test_program_aggregation_workload_stays_within_governed_budget() -> None:
+    """Verify maximum metric aggregation stays within the configured millisecond budget."""
     program = validate_repository(REPOSITORY_ROOT)
     metric = next(
         item for item in program.metrics if item.metric_id == "kpi.build_duration_seconds"
@@ -271,6 +366,7 @@ def test_program_aggregation_workload_stays_within_governed_budget() -> None:
 
 
 def test_program_dates_require_extended_calendar_format(tmp_path: Path) -> None:
+    """Reject a program policy whose as-of date is not extended YYYY-MM-DD format."""
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         path,
@@ -283,6 +379,7 @@ def test_program_dates_require_extended_calendar_format(tmp_path: Path) -> None:
 
 
 def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> None:
+    """Verify dependency ranges, purposes, and solo versus institutional readiness."""
     program = validate_repository(REPOSITORY_ROOT)
     packages_by_id = {package.package_id: package for package in program.packages}
 
@@ -310,6 +407,7 @@ def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> No
 
 
 def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: Path) -> None:
+    """Reject roadmap cycles, shorthand dependencies, missing packages, and malformed rows."""
     cyclic = _roadmap_fixture(tmp_path)
     _replace_program_fixture_text(
         cyclic,
@@ -365,6 +463,7 @@ def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: P
 def test_roadmap_parses_team_handover_purpose_without_changing_technical_readiness(
     tmp_path: Path,
 ) -> None:
+    """Preserve technical dependencies while parsing a separate team-handover purpose."""
     path = _roadmap_fixture(tmp_path)
     _replace_program_fixture_text(
         path,
@@ -382,6 +481,7 @@ def test_roadmap_parses_team_handover_purpose_without_changing_technical_readine
 
 
 def test_research_entry_rules_separate_technical_progress_from_operations_and_review() -> None:
+    """Verify research-entry prose separates technical completion from operations and review."""
     text = RESEARCH_PROGRAM_PATH.read_text(encoding="utf-8")
 
     assert "must have complete implementation and no technical finding" in text
@@ -393,6 +493,7 @@ def test_research_entry_rules_separate_technical_progress_from_operations_and_re
 def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
     tmp_path: Path,
 ) -> None:
+    """Reject failed local evidence, validated status, manual KPIs, and gate substitutes."""
     local_gap = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         local_gap, 'repository_local_status = "passed"', 'repository_local_status = "failed"'
@@ -427,6 +528,7 @@ def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
 def test_program_policy_rejects_unapproved_target_claim_and_parallel_contracts(
     tmp_path: Path,
 ) -> None:
+    """Reject missing target evidence, multiple contracts, and invalid deferred-evidence classes."""
     target = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         target, 'target_status = "pending_owner_approval"', 'target_status = "approved"'
@@ -451,6 +553,7 @@ def test_program_policy_rejects_unapproved_target_claim_and_parallel_contracts(
 
 
 def test_program_policy_rejects_an_unmapped_active_historical_finding(tmp_path: Path) -> None:
+    """Reject an active historical finding that lacks a migration disposition."""
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(path, '  "A01-F01",\n', "")
 
@@ -459,6 +562,7 @@ def test_program_policy_rejects_an_unmapped_active_historical_finding(tmp_path: 
 
 
 def test_program_policy_rejects_impossible_approved_target_values(tmp_path: Path) -> None:
+    """Reject approved targets that are negative or outside a bounded ratio scale."""
     negative = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         negative,
@@ -489,6 +593,7 @@ def test_program_policy_rejects_impossible_approved_target_values(tmp_path: Path
 def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
     tmp_path: Path,
 ) -> None:
+    """Aggregate duration and ratio events while marking under-sampled metrics insufficient."""
     program = validate_repository(REPOSITORY_ROOT)
     events = [
         _metric_observation_event(
@@ -525,6 +630,7 @@ def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
 
 
 def test_reporting_window_excludes_stale_duration_observations(tmp_path: Path) -> None:
+    """Exclude duration events outside the reporting window from metric summaries."""
     program = validate_repository(REPOSITORY_ROOT)
     stale = _metric_observation_event(
         "kpi.build_duration_seconds", event_id="build-stale", seconds=59
@@ -548,6 +654,7 @@ def test_reporting_window_excludes_stale_duration_observations(tmp_path: Path) -
 
 
 def test_identical_retry_is_idempotent_and_conflicting_duplicate_fails(tmp_path: Path) -> None:
+    """Accept identical event retries once and reject conflicting duplicate payloads."""
     program = validate_repository(REPOSITORY_ROOT)
     event = _metric_observation_event(
         "kpi.incident_rate_per_1000_runtime_hours", event_id="incident-1"
@@ -568,6 +675,7 @@ def test_identical_retry_is_idempotent_and_conflicting_duplicate_fails(tmp_path:
 def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
     tmp_path: Path,
 ) -> None:
+    """Reject overlapping ratio windows for identical metric dimensions."""
     program = validate_repository(REPOSITORY_ROOT)
     first = _metric_observation_event(
         "kpi.research_reproducibility_percent", event_id="research-first"
@@ -599,6 +707,7 @@ def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
 def test_observation_boundary_failures_are_explicit(
     tmp_path: Path, mutation: dict[str, object], message: str
 ) -> None:
+    """Reject malformed event boundaries, provenance, URLs, dimensions, and windows explicitly."""
     program = validate_repository(REPOSITORY_ROOT)
     event = _metric_observation_event("kpi.build_duration_seconds", event_id="build-invalid")
     event.update(mutation)
@@ -610,6 +719,7 @@ def test_observation_boundary_failures_are_explicit(
 def test_ratio_rejects_zero_denominator_unit_drift_and_impossible_bounded_value(
     tmp_path: Path,
 ) -> None:
+    """Reject nonpositive denominators, wrong units, and impossible ratio numerators."""
     program = validate_repository(REPOSITORY_ROOT)
     zero = _metric_observation_event(
         "kpi.research_reproducibility_percent",
@@ -640,6 +750,7 @@ def test_ratio_rejects_zero_denominator_unit_drift_and_impossible_bounded_value(
 def test_cli_emits_stable_filtered_dashboard(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Verify filtered program dashboards are byte-stable and report readiness accurately."""
     events = [
         _metric_observation_event(
             "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
@@ -670,6 +781,7 @@ def test_cli_emits_stable_filtered_dashboard(
 
 
 def test_generated_status_is_deterministic_and_rejects_hand_edits(tmp_path: Path) -> None:
+    """Verify generated status validates deterministically and rejects appended hand edits."""
     program = validate_repository(REPOSITORY_ROOT)
     rendered = render_status_markdown(program)
     status_path = tmp_path / "program-status.md"
@@ -744,6 +856,7 @@ def test_non_contiguous_state_and_operational_dependency_do_not_block_delivery(
 def test_missing_implementation_dependency_still_blocks_non_contiguous_state(
     tmp_path: Path,
 ) -> None:
+    """Reject a package whose missing implementation dependency prevents completion."""
     path = _policy_fixture(tmp_path)
     _remove_package_state(path, "C02")
 

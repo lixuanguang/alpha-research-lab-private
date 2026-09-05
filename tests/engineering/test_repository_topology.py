@@ -35,6 +35,22 @@ REGISTER_PATH = REPOSITORY_ROOT / "docs" / "architecture" / "repository-topology
 
 
 def _topology_fixture(tmp_path: Path) -> tuple[Path, Path]:
+    """Build a fresh partial repository fixture and copy its topology register for mutation.
+
+    The destination ``repository`` directory must not already exist because the
+    source-tree copies use ``copytree``. The fixture includes selected ``src``,
+    ``tests`` and governance source trees plus the ownership and topology registers;
+    it is not a complete repository checkout.
+
+    Args:
+        tmp_path: Pytest-managed directory that receives the fixture repository.
+
+    Returns:
+        A pair containing the fixture repository root and its copied topology register.
+
+    Raises:
+        OSError: If source trees or fixture files cannot be copied or created.
+    """
     fixture_repository_root = tmp_path / "repository"
     shutil.copytree(REPOSITORY_ROOT / "src", fixture_repository_root / "src")
     shutil.copytree(REPOSITORY_ROOT / "tests", fixture_repository_root / "tests")
@@ -53,12 +69,24 @@ def _topology_fixture(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _replace_topology_fixture_text(register: Path, old: str, new: str) -> None:
+    """Replace the first exact text fragment in a temporary topology register.
+
+    Args:
+        register: Temporary TOML topology register to read and rewrite.
+        old: Exact fragment that must occur in the register.
+        new: Replacement fragment written in place of the first match.
+
+    Raises:
+        AssertionError: If ``old`` does not occur in the register.
+        OSError: If the register cannot be read or written.
+    """
     content = register.read_text(encoding="utf-8")
     assert old in content
     register.write_text(content.replace(old, new, 1), encoding="utf-8")
 
 
 def test_repository_topology_is_complete_and_acyclic() -> None:
+    """Verify the complete B01 topology metadata, owned-unit count and representative kinds."""
     topology = validate_repository(REPOSITORY_ROOT)
 
     assert topology.delivery_slice == "B01c"
@@ -85,6 +113,7 @@ def test_repository_topology_is_complete_and_acyclic() -> None:
 
 @pytest.mark.performance
 def test_topology_validation_workload_stays_within_governed_budget() -> None:
+    """Keep authoritative topology validation within its recorded millisecond budget."""
     started_at = perf_counter()
     topology = validate_repository(REPOSITORY_ROOT)
     elapsed_ms = (perf_counter() - started_at) * 1_000
@@ -96,6 +125,7 @@ def test_topology_validation_workload_stays_within_governed_budget() -> None:
 
 
 def test_compatibility_api_delegates_to_canonical_objects() -> None:
+    """Verify topology facade aliases and canonical ownership validation."""
     assert alpha_research.__doc__
     assert RepositoryTopologyError is CanonicalRepositoryTopologyError
     assert load_topology is canonical_load_topology
@@ -106,6 +136,7 @@ def test_compatibility_api_delegates_to_canonical_objects() -> None:
 def test_canonical_console_command_is_independent_of_source_path_and_working_directory(
     tmp_path: Path,
 ) -> None:
+    """Run the topology console command from a temporary directory without PYTHONPATH coupling."""
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
 
@@ -123,6 +154,7 @@ def test_canonical_console_command_is_independent_of_source_path_and_working_dir
 
 
 def test_unregistered_current_source_is_rejected(tmp_path: Path) -> None:
+    """Reject a current source file that is absent from the declared topology register."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     (fixture_repository_root / "src/alpha_research/unregistered.py").write_text(
         "VALUE = 1\n", encoding="utf-8"
@@ -133,6 +165,7 @@ def test_unregistered_current_source_is_rejected(tmp_path: Path) -> None:
 
 
 def test_duplicate_source_assignment_is_rejected(tmp_path: Path) -> None:
+    """Reject a topology register assigning one source path to two owned units."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
@@ -146,6 +179,7 @@ def test_duplicate_source_assignment_is_rejected(tmp_path: Path) -> None:
 
 
 def test_undeclared_import_dependency_is_rejected(tmp_path: Path) -> None:
+    """Reject a declared unit whose registry dependencies omit an imported unit."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
@@ -161,6 +195,7 @@ def test_undeclared_import_dependency_is_rejected(tmp_path: Path) -> None:
 
 
 def test_stale_dependency_and_visibility_are_rejected(tmp_path: Path) -> None:
+    """Reject a stale change-risk dependency declaration with the expected diagnostic."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
@@ -180,6 +215,7 @@ def test_stale_dependency_and_visibility_are_rejected(tmp_path: Path) -> None:
 
 
 def test_from_package_import_cannot_hide_a_dependency(tmp_path: Path) -> None:
+    """Resolve package-level imports and reject an undeclared cross-unit dependency."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     (fixture_repository_root / "src/alpha_research/architecture_governance.py").write_text(
         "from alpha_research import evidence\n", encoding="utf-8"
@@ -190,6 +226,7 @@ def test_from_package_import_cannot_hide_a_dependency(tmp_path: Path) -> None:
 
 
 def test_upward_dependency_and_cycle_are_rejected(tmp_path: Path) -> None:
+    """Report the source dependency cycle created by a layer and dependency mutation."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
@@ -210,6 +247,7 @@ def test_upward_dependency_and_cycle_are_rejected(tmp_path: Path) -> None:
 
 
 def test_unknown_dependency_is_a_domain_error(tmp_path: Path) -> None:
+    """Translate an unknown dependency identifier into the topology domain error."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
@@ -246,6 +284,7 @@ def test_unknown_dependency_is_a_domain_error(tmp_path: Path) -> None:
 def test_invalid_registry_boundaries_fail_closed(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Reject invalid owner, kind, path and visibility boundary mutations."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(register, old, new)
 
@@ -254,6 +293,7 @@ def test_invalid_registry_boundaries_fail_closed(
 
 
 def test_unknown_registry_field_is_rejected(tmp_path: Path) -> None:
+    """Reject an unknown field appended to the final topology unit record."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     register.write_text(register.read_text(encoding="utf-8") + "\nunknown = true\n")
 
@@ -262,6 +302,7 @@ def test_unknown_registry_field_is_rejected(tmp_path: Path) -> None:
 
 
 def test_source_roots_cannot_hide_a_current_area(tmp_path: Path) -> None:
+    """Reject source-root declarations that omit one of the repository's current source areas."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
@@ -276,6 +317,7 @@ def test_source_roots_cannot_hide_a_current_area(tmp_path: Path) -> None:
 
 
 def test_evidence_manifest_path_cannot_escape_repository(tmp_path: Path) -> None:
+    """Reject a local topology evidence path that escapes the fixture repository root."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     _replace_topology_fixture_text(
         register,
@@ -289,6 +331,7 @@ def test_evidence_manifest_path_cannot_escape_repository(tmp_path: Path) -> None
 
 
 def test_malformed_toml_is_reported_as_domain_error(tmp_path: Path) -> None:
+    """Translate malformed topology TOML into the repository topology domain error."""
     fixture_repository_root, register = _topology_fixture(tmp_path)
     register.write_text("schema_version = [\n", encoding="utf-8")
 

@@ -27,12 +27,34 @@ MAP_PATH = REPOSITORY_ROOT / "docs" / "governance" / "security-control-map.toml"
 
 
 def _map_fixture(tmp_path: Path) -> Path:
+    """Copy the repository security-control map, overwriting the temporary destination.
+
+    Args:
+        tmp_path: Pytest-provided directory for isolated map mutations.
+
+    Returns:
+        The temporary TOML path consumed by the validation tests.
+
+    Raises:
+        OSError: If the source or destination map cannot be read or written.
+    """
     path = tmp_path / "security-control-map.toml"
     path.write_text(MAP_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     return path
 
 
 def _replace_security_fixture_text(path: Path, old: str, new: str) -> None:
+    """Replace the first expected text occurrence in a security-map fixture.
+
+    Args:
+        path: Fixture file to read and rewrite as UTF-8 text.
+        old: Existing text that must occur in the fixture.
+        new: Replacement text written in place of the first occurrence.
+
+    Raises:
+        AssertionError: If ``old`` is absent, indicating a stale fixture contract.
+        OSError: If the fixture cannot be read or rewritten.
+    """
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
@@ -41,6 +63,19 @@ def _replace_security_fixture_text(path: Path, old: str, new: str) -> None:
 def _replace_security_fixture_text_after_marker(
     path: Path, marker: str, old: str, new: str
 ) -> None:
+    """Replace the first text occurrence in the suffix beginning at a marker.
+
+    Args:
+        path: Fixture file to read and rewrite as UTF-8 text.
+        marker: Text whose position starts the unbounded search suffix.
+        old: Existing text in that suffix that must occur.
+        new: Replacement text written in place of the first suffix occurrence.
+
+    Raises:
+        AssertionError: If ``old`` is absent after ``marker``.
+        ValueError: If ``marker`` is absent from the fixture.
+        OSError: If the fixture cannot be read or rewritten.
+    """
     text = path.read_text(encoding="utf-8")
     marker_index = text.index(marker)
     prefix = text[:marker_index]
@@ -50,6 +85,18 @@ def _replace_security_fixture_text_after_marker(
 
 
 def _repository_fixture(tmp_path: Path) -> Path:
+    """Copy local-evidence fixtures, overwriting any existing destination files.
+
+    Args:
+        tmp_path: Temporary root under which the repository-relative fixtures are copied.
+
+    Returns:
+        A temporary repository root containing policy, ownership, map, threat-model,
+        test, and example evidence files.
+
+    Raises:
+        OSError: If a directory cannot be created or a source file cannot be copied.
+    """
     relative_paths = (
         Path("docs/governance/change-risk-policy.toml"),
         Path("docs/governance/domain-ownership.toml"),
@@ -80,10 +127,23 @@ def _repository_fixture(tmp_path: Path) -> Path:
 
 
 def _validate_security_fixture(path: Path) -> None:
+    """Validate a map fixture with repository path and ownership-role checks.
+
+    Args:
+        path: Security-control-map TOML fixture to validate against the repository
+            ownership register. Local evidence manifests are outside this helper's
+            boundary and are checked by ``validate_repository`` instead.
+
+    Raises:
+        OSError: If the map or ownership register cannot be read.
+        SecurityControlError: If the map, its references, or its ownership roles
+            violate a security-control invariant.
+    """
     load_control_map(path, repository_root=REPOSITORY_ROOT)
 
 
 def test_repository_map_is_versioned_partial_and_complete_for_current_scope() -> None:
+    """Verify the repository control map's schema, scope, inventory, and partial status."""
     control_map = validate_repository(REPOSITORY_ROOT)
 
     assert control_map.package_status == "partial"
@@ -110,6 +170,7 @@ def test_repository_map_is_versioned_partial_and_complete_for_current_scope() ->
 
 
 def test_security_control_dates_require_extended_calendar_format(tmp_path: Path) -> None:
+    """Reject a control map whose as-of date is not extended YYYY-MM-DD format."""
     path = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         path,
@@ -122,6 +183,7 @@ def test_security_control_dates_require_extended_calendar_format(tmp_path: Path)
 
 
 def test_machine_metadata_is_strict_and_complete(tmp_path: Path) -> None:
+    """Reject boolean schema versions and incomplete dependency or gate metadata."""
     boolean_schema = _map_fixture(tmp_path)
     _replace_security_fixture_text(boolean_schema, "schema_version = 1", "schema_version = true")
     with pytest.raises(SecurityControlError, match="schema_version must be an integer"):
@@ -143,6 +205,7 @@ def test_machine_metadata_is_strict_and_complete(tmp_path: Path) -> None:
 
 
 def test_unknown_reference_and_missing_category_fail_closed(tmp_path: Path) -> None:
+    """Reject unknown control references and maps missing required threat categories."""
     unknown = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         unknown, 'control_ids = ["A07-C01", "A07-C12"]', 'control_ids = ["A07-C99"]'
@@ -161,6 +224,7 @@ def test_unknown_reference_and_missing_category_fail_closed(tmp_path: Path) -> N
 
 
 def test_control_owner_cannot_self_review_and_roles_must_be_registered(tmp_path: Path) -> None:
+    """Reject self-review assignments and ownership roles absent from the register."""
     self_review = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         self_review,
@@ -203,6 +267,7 @@ def test_control_owner_cannot_self_review_and_roles_must_be_registered(tmp_path:
 def test_available_and_deferred_evidence_have_distinct_fail_closed_states(
     tmp_path: Path,
 ) -> None:
+    """Reject unsafe paths, future requirements on available evidence, and incomplete deferrals."""
     unsafe_path = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         unsafe_path,
@@ -243,6 +308,7 @@ def test_available_and_deferred_evidence_have_distinct_fail_closed_states(
 def test_authority_source_urls_require_credential_free_https(
     tmp_path: Path, unsafe_url: str
 ) -> None:
+    """Reject authority URLs that use insecure transport, credentials, or explicit ports."""
     path = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         path,
@@ -255,6 +321,7 @@ def test_authority_source_urls_require_credential_free_https(
 
 
 def test_authority_source_urls_require_trusted_hosts_and_valid_syntax(tmp_path: Path) -> None:
+    """Reject authority URLs with untrusted hosts or malformed syntax."""
     untrusted = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         untrusted,
@@ -275,6 +342,7 @@ def test_authority_source_urls_require_trusted_hosts_and_valid_syntax(tmp_path: 
 
 
 def test_map_cannot_claim_legal_advice_or_conclusive_applicability(tmp_path: Path) -> None:
+    """Reject legal-advice claims and conclusive applicability statuses in the map."""
     legal_advice = _map_fixture(tmp_path)
     _replace_security_fixture_text(legal_advice, "legal_advice = false", "legal_advice = true")
     with pytest.raises(SecurityControlError, match="legal_advice must be False"):
@@ -291,6 +359,7 @@ def test_map_cannot_claim_legal_advice_or_conclusive_applicability(tmp_path: Pat
 
 
 def test_source_profile_consistency_and_review_dates_fail_closed(tmp_path: Path) -> None:
+    """Reject mismatched source profiles, overdue reviews, long horizons, and stale verification."""
     mismatched_source = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         mismatched_source,
@@ -327,6 +396,7 @@ def test_source_profile_consistency_and_review_dates_fail_closed(tmp_path: Path)
 
 
 def test_legal_mappings_bind_owner_and_review_evidence(tmp_path: Path) -> None:
+    """Reject legal mappings with the wrong owner or without the required review evidence."""
     wrong_owner = _map_fixture(tmp_path)
     _replace_security_fixture_text_after_marker(
         wrong_owner,
@@ -349,6 +419,7 @@ def test_legal_mappings_bind_owner_and_review_evidence(tmp_path: Path) -> None:
 
 
 def test_control_status_and_map_coverage_are_evidence_backed(tmp_path: Path) -> None:
+    """Reject control/evidence-state mismatches and orphaned boundaries, assets, or evidence."""
     planned_without_deferred = _map_fixture(tmp_path)
     _replace_security_fixture_text_after_marker(
         planned_without_deferred,
@@ -424,6 +495,7 @@ def test_control_status_and_map_coverage_are_evidence_backed(tmp_path: Path) -> 
 
 
 def test_trust_boundary_must_change_zones(tmp_path: Path) -> None:
+    """Reject a trust boundary whose source and destination zones are identical."""
     path = _map_fixture(tmp_path)
     _replace_security_fixture_text_after_marker(
         path,
@@ -436,6 +508,7 @@ def test_trust_boundary_must_change_zones(tmp_path: Path) -> None:
 
 
 def test_local_evidence_binds_owner_risk_drivers_and_waivers(tmp_path: Path) -> None:
+    """Reject local evidence whose owner, security privilege, or waiver claims drift."""
     wrong_owner_root = _repository_fixture(tmp_path / "owner")
     owner_manifest = (
         wrong_owner_root / "docs/governance/evidence/examples/a07-r2-partial/manifest.toml"
@@ -468,6 +541,7 @@ def test_local_evidence_binds_owner_risk_drivers_and_waivers(tmp_path: Path) -> 
 
 
 def test_solo_bootstrap_requires_exact_partial_findings(tmp_path: Path) -> None:
+    """Require the solo-bootstrap control map to retain partial status and exact findings."""
     validated = _map_fixture(tmp_path)
     _replace_security_fixture_text(
         validated, 'package_status = "partial"', 'package_status = "validated"'
@@ -484,6 +558,7 @@ def test_solo_bootstrap_requires_exact_partial_findings(tmp_path: Path) -> None:
 
 
 def test_cli_emits_byte_stable_filtered_json(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify filtered control-map JSON is byte-stable and preserves selected records."""
     arguments = [str(REPOSITORY_ROOT), "--threat-category", "market_integrity"]
     assert main(arguments) == 0
     first_output = capsys.readouterr().out

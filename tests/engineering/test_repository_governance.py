@@ -25,18 +25,52 @@ REPOSITORY_CHARTER_OPEN_FINDING_IDS = ["A01-F01", "A01-F02", "A01-F03"]
 
 
 def _load_register() -> dict[str, object]:
+    """Read the repository boundary register and require a TOML-table root.
+
+    Returns:
+        Parsed root mapping used by the contract assertions.
+
+    Raises:
+        AssertionError: If the TOML root is not a mapping.
+        OSError: If the register cannot be read.
+        tomllib.TOMLDecodeError: If the register is malformed TOML.
+    """
     parsed_register: object = tomllib.loads(REGISTER_PATH.read_text(encoding="utf-8"))
     assert isinstance(parsed_register, dict)
     return cast(dict[str, object], parsed_register)
 
 
 def _require_table(container: dict[str, object], key: str) -> dict[str, object]:
+    """Extract a required TOML table from a parsed register mapping.
+
+    Args:
+        container: Parsed TOML mapping containing the requested key.
+        key: Table key to retrieve.
+
+    Returns:
+        The original mapping object, shallowly narrowed for subsequent assertions.
+
+    Raises:
+        AssertionError: If the key is absent or does not contain a mapping.
+    """
     value = container.get(key)
     assert isinstance(value, dict), f"{key} must be a TOML table"
     return cast(dict[str, object], value)
 
 
 def _require_table_list(container: dict[str, object], key: str) -> list[dict[str, object]]:
+    """Extract a required array of TOML tables from a parsed register mapping.
+
+    Args:
+        container: Parsed TOML mapping containing the requested key.
+        key: Array key to retrieve.
+
+    Returns:
+        The original list, shallowly narrowed to mapping elements for subsequent assertions.
+
+    Raises:
+        AssertionError: If the key is absent, is not a list, or contains a non-mapping item.
+    """
     value = container.get(key)
     assert isinstance(value, list), f"{key} must be an array of TOML tables"
     assert all(isinstance(item, dict) for item in value)
@@ -44,18 +78,43 @@ def _require_table_list(container: dict[str, object], key: str) -> list[dict[str
 
 
 def _require_string(container: dict[str, object], key: str) -> str:
+    """Extract a present string field from a parsed register mapping; empty text is allowed.
+
+    Args:
+        container: Parsed TOML mapping containing the requested key.
+        key: String field name to retrieve.
+
+    Returns:
+        The original string value, narrowed to ``str`` without trimming or other normalization.
+
+    Raises:
+        AssertionError: If the key is absent or its value is not a string.
+    """
     value = container.get(key)
     assert isinstance(value, str), f"{key} must be a string"
     return value
 
 
 def _require_nonempty_string(container: dict[str, object], key: str) -> str:
+    """Extract a string field whose stripped value is nonblank from a parsed register mapping.
+
+    Args:
+        container: Parsed TOML mapping containing the requested key.
+        key: String field name to retrieve.
+
+    Returns:
+        The original string value, preserving surrounding whitespace after validation.
+
+    Raises:
+        AssertionError: If the field is missing, non-string or blank after stripping.
+    """
     value = _require_string(container, key)
     assert value.strip(), f"{key} must not be empty"
     return value
 
 
 def test_every_known_repository_and_external_system_has_one_disposition() -> None:
+    """Verify unique repository and external-system identities with allowed classifications."""
     register = _load_register()
     repositories = _require_table_list(register, "repositories")
     external_systems = _require_table_list(register, "external_systems")
@@ -77,6 +136,7 @@ def test_every_known_repository_and_external_system_has_one_disposition() -> Non
 
 
 def test_policy_requires_protected_main_and_tracks_immutable_authority() -> None:
+    """Verify protected-main policy and the tracked blueprint's current SHA-256 digest."""
     register = _load_register()
     protected_branch = _require_table(register, "protected_branch")
     source_authority = _require_table(register, "source_authority")
@@ -106,6 +166,7 @@ def test_policy_requires_protected_main_and_tracks_immutable_authority() -> None
 
 
 def test_acceptance_cannot_close_without_inventory_controls_and_approvals() -> None:
+    """Verify current partial acceptance, governed approval records and exact open findings."""
     register = _load_register()
     approvals = _require_table_list(register, "approvals")
     acceptance = _require_table(register, "acceptance")
