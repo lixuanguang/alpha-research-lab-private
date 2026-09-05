@@ -183,18 +183,65 @@ _OBSERVATION_COMMON_KEYS = {
 
 
 def _require_table(value: object, *, context: str) -> dict[str, object]:
+    """Require a parsed value to be a table or object.
+
+    Check only the dictionary shape. The TOML or JSON parser supplies string-key typing;
+    return the original mapping without copying it.
+
+    Args:
+        value: Parsed TOML or JSON value to inspect.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The original dictionary, cast to the parser-boundary mapping type.
+
+    Raises:
+        ProgramGovernanceError: If ``value`` is not a dictionary.
+    """
     if not isinstance(value, dict):
         raise ProgramGovernanceError([f"{context} must be a table or object"])
     return cast(dict[str, object], value)
 
 
 def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
+    """Require a parsed value to be a list of tables or objects.
+
+    Check only the list and element dictionary shapes. The parser supplies string-key typing;
+    preserve the original list and element mappings without copying them. Empty lists are
+    accepted.
+
+    Args:
+        value: Parsed TOML or JSON value to inspect.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The original list, cast to the parser-boundary mapping type.
+
+    Raises:
+        ProgramGovernanceError: If ``value`` is not a list or any element is not a dictionary.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise ProgramGovernanceError([f"{context} must be an array of tables"])
     return cast(list[dict[str, object]], value)
 
 
 def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
+    """Require a named table field to contain a non-blank string.
+
+    Reject missing, non-string, and whitespace-only values. Preserve surrounding whitespace in
+    an accepted value and do not normalize the table or field name.
+
+    Args:
+        table: Mapping containing the field to inspect.
+        key: Field name to retrieve with ``dict.get``.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The original string value, including any surrounding whitespace.
+
+    Raises:
+        ProgramGovernanceError: If the field is missing, is not a string, or is blank.
+    """
     value = table.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ProgramGovernanceError([f"{context}.{key} must be a non-empty string"])
@@ -202,6 +249,23 @@ def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
 
 
 def _require_strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+    """Require an ordered list of unique non-empty strings.
+
+    Preserve item text and order without stripping it. Reject exact empty strings while accepting
+    whitespace-only strings. Control whether an empty list is valid with ``allow_empty``.
+
+    Args:
+        value: Parsed value expected to be a list of strings.
+        context: Diagnostic location to include in a validation error.
+        allow_empty: Permit an empty list when ``True``; reject it otherwise.
+
+    Returns:
+        A tuple containing the original strings in their original order.
+
+    Raises:
+        ProgramGovernanceError: If ``value`` is not a list of strings, contains an exact empty
+            string, is empty when disallowed, or contains duplicate strings.
+    """
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise ProgramGovernanceError([f"{context} must be an array of non-empty strings"])
     string_values = tuple(cast(list[str], value))
@@ -213,6 +277,22 @@ def _require_strings(value: object, *, context: str, allow_empty: bool = False) 
 
 
 def _require_positive_integer(table: dict[str, object], key: str, *, context: str) -> int:
+    """Require a table field to contain a positive integer.
+
+    Reject booleans even though Python treats them as integers.
+
+    Args:
+        table: Mapping containing the field to inspect.
+        key: Field name to retrieve with ``dict.get``.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The stored integer value.
+
+    Raises:
+        ProgramGovernanceError: If the field is missing, is not an integer, is a boolean, or is
+            less than one.
+    """
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise ProgramGovernanceError([f"{context}.{key} must be a positive integer"])
@@ -220,6 +300,24 @@ def _require_positive_integer(table: dict[str, object], key: str, *, context: st
 
 
 def _require_number(table: dict[str, object], key: str, *, context: str) -> float:
+    """Require a table field to contain a finite number.
+
+    Accept integers and floats but reject booleans. Convert accepted values to ``float`` before
+    checking finiteness; converting an integer too large for ``float`` can raise ``OverflowError``.
+
+    Args:
+        table: Mapping containing the field to inspect.
+        key: Field name to retrieve with ``dict.get``.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The finite floating-point representation of the stored number.
+
+    Raises:
+        ProgramGovernanceError: If the field is missing, has another type, is a boolean, or is
+            non-finite after conversion.
+        OverflowError: If converting an excessively large integer to ``float`` overflows.
+    """
     value = table.get(key)
     if not isinstance(value, int | float) or isinstance(value, bool):
         raise ProgramGovernanceError([f"{context}.{key} must be a finite number"])
@@ -230,10 +328,43 @@ def _require_number(table: dict[str, object], key: str, *, context: str) -> floa
 
 
 def _parse_optional_number(table: dict[str, object], key: str, *, context: str) -> float | None:
+    """Parse an optional finite numeric field.
+
+    Treat an absent key as ``None``. Validate a present key through ``_require_number``, so an
+    explicit ``None`` is invalid and large-integer conversion may propagate ``OverflowError``.
+
+    Args:
+        table: Mapping containing the optional field.
+        key: Field name whose presence controls optionality.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        ``None`` when ``key`` is absent; otherwise the validated finite float.
+
+    Raises:
+        ProgramGovernanceError: If a present field is not a finite number or is a boolean.
+        OverflowError: If a present integer is too large to convert to ``float``.
+    """
     return None if key not in table else _require_number(table, key, context=context)
 
 
 def _parse_iso_date(value: str, *, context: str) -> date:
+    """Parse a date that round-trips exactly as ``YYYY-MM-DD``.
+
+    Require the extended calendar spelling after parsing, even when ``date.fromisoformat`` accepts
+    another ISO spelling.
+
+    Args:
+        value: Date text to parse and compare with the parsed date's ISO text.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The parsed ``date`` value.
+
+    Raises:
+        ProgramGovernanceError: If parsing fails or the parsed date does not round-trip exactly as
+            ``value``; parsing ``ValueError`` instances are preserved as causes.
+    """
     try:
         parsed_date = date.fromisoformat(value)
     except ValueError as error:
@@ -244,6 +375,23 @@ def _parse_iso_date(value: str, *, context: str) -> date:
 
 
 def _parse_utc_datetime(value: str, *, context: str) -> datetime:
+    """Parse a UTC timestamp whose final character is ``Z``.
+
+    Replace the required final ``Z`` with ``+00:00`` and accept spellings that
+    ``datetime.fromisoformat`` parses with UTC timezone information. Do not require a canonical
+    timestamp spelling.
+
+    Args:
+        value: ISO timestamp text ending in ``Z``.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The parsed timezone-aware ``datetime`` with the UTC timezone.
+
+    Raises:
+        ProgramGovernanceError: If ``value`` lacks the final ``Z``, cannot be parsed, or is not
+            UTC; parsing ``ValueError`` instances are preserved as causes.
+    """
     if not value.endswith("Z"):
         raise ProgramGovernanceError([f"{context} must be an ISO-8601 UTC timestamp ending Z"])
     try:
@@ -256,6 +404,22 @@ def _parse_utc_datetime(value: str, *, context: str) -> datetime:
 
 
 def _load_toml(path: Path) -> dict[str, object]:
+    """Load a UTF-8 TOML file and require a table at its root.
+
+    Preserve the parser's values without copying or normalizing them.
+
+    Args:
+        path: TOML file to read.
+
+    Returns:
+        The parser's top-level mapping.
+
+    Raises:
+        ProgramGovernanceError: If TOML decoding fails or the parsed root is not a dictionary;
+            decoding errors are preserved as causes.
+        OSError: If reading the file fails.
+        UnicodeDecodeError: If the file is not valid UTF-8.
+    """
     try:
         parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
@@ -264,9 +428,43 @@ def _load_toml(path: Path) -> dict[str, object]:
 
 
 def _load_json_line(line: str, *, context: str) -> dict[str, object]:
+    """Parse JSON text and require an object at its root.
+
+    Reject duplicate object keys at every nesting depth through the parser hook. Preserve the
+    standard parser's handling of non-finite constants, and perform no I/O or physical line-count
+    check on the supplied text.
+
+    Args:
+        line: JSON text supplied by the caller, normally one observation line.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The parser-built top-level object mapping.
+
+    Raises:
+        ProgramGovernanceError: If JSON syntax is invalid, any object has a duplicate key, or the
+            parsed root is not a dictionary; syntax errors are preserved as causes.
+        ValueError: If an integer token exceeds the interpreter's enabled conversion limit.
+        RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+    """
+
     def build_json_object_rejecting_duplicate_keys(
         pairs: list[tuple[str, object]],
     ) -> dict[str, object]:
+        """Build one JSON object while rejecting duplicate keys.
+
+        Apply this hook to every object produced by ``json.loads`` and preserve the decoder's
+        key order in the new dictionary.
+
+        Args:
+            pairs: Object key-value pairs in decoder encounter order.
+
+        Returns:
+            A new dictionary containing the supplied pairs.
+
+        Raises:
+            ProgramGovernanceError: If ``pairs`` contains a repeated key.
+        """
         json_object: dict[str, object] = {}
         for key, value in pairs:
             if key in json_object:
@@ -285,6 +483,25 @@ def _load_json_line(line: str, *, context: str) -> dict[str, object]:
 
 
 def _ownership_roles(path: Path) -> frozenset[str]:
+    """Collect roles from the ownership register's domain fields.
+
+    Collect accountable, required-review, independent-review, and escalation roles. Allow an
+    empty result when the domains list is empty, collapse repeats across fields and domains, and
+    do not validate role-token format.
+
+    Args:
+        path: UTF-8 ownership-register TOML file to read.
+
+    Returns:
+        A frozenset of collected roles, with no role order retained.
+
+    Raises:
+        ProgramGovernanceError: If TOML or any domain field has the wrong shape, or an individual
+            role list contains a non-string, exact empty, or duplicate item; malformed TOML is
+            translated with its cause.
+        OSError: If reading the ownership register fails.
+        UnicodeDecodeError: If the ownership register is not valid UTF-8.
+    """
     ownership_document = _load_toml(path)
     roles: set[str] = set()
     for index, domain in enumerate(
@@ -300,6 +517,28 @@ def _ownership_roles(path: Path) -> frozenset[str]:
 
 
 def _require_repository_file(value: str, *, repository_root: Path, context: str) -> Path:
+    """Require a repository-relative path to resolve to an in-root file.
+
+    Require the caller to supply a resolved absolute ``repository_root``. Reject absolute paths
+    and lexical ``..`` components, then follow symlinks and perform separate, non-atomic existence
+    and file-type checks. Return the joined candidate without resolving it.
+
+    Args:
+        value: Repository-relative path to validate.
+        repository_root: Caller-resolved absolute repository root.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The unresolved candidate path after strict resolution confirms in-root existence and the
+        candidate identifies a file.
+
+    Raises:
+        ProgramGovernanceError: If the path is absolute, contains ``..``, is missing, resolves
+            outside the root, or does not identify a file; missing and containment failures chain
+            ``FileNotFoundError`` or ``ValueError``.
+        OSError: If an uncaught filesystem operation fails.
+        RuntimeError: If strict resolution encounters a symlink loop.
+    """
     relative = Path(value)
     if relative.is_absolute() or ".." in relative.parts:
         raise ProgramGovernanceError([f"{context}: repository path escapes the root: {value}"])
@@ -316,6 +555,23 @@ def _require_repository_file(value: str, *, repository_root: Path, context: str)
 
 
 def _require_https_url(value: str, *, context: str) -> str:
+    """Require an HTTPS URL with a non-empty host and no credentials.
+
+    Reject non-empty query and fragment components while allowing empty ``?`` and ``#``
+    delimiters. Parse only; do not access or validate the port and do not perform network I/O.
+
+    Args:
+        value: URL text to parse and validate.
+        context: Diagnostic location to include in a validation error.
+
+    Returns:
+        The original URL text, without normalization.
+
+    Raises:
+        ProgramGovernanceError: If the scheme is not ``https``, the host is empty, credentials
+            are present, or the query or fragment is non-empty; ``urlsplit`` ``ValueError``
+            instances are preserved as causes.
+    """
     try:
         parsed_url = urlsplit(value)
     except ValueError as error:
@@ -333,6 +589,22 @@ def _require_https_url(value: str, *, context: str) -> str:
 
 
 def _expand_range(token: str) -> tuple[str, ...]:
+    """Expand one roadmap package ID or an inclusive package range.
+
+    Accept waves ``A`` through ``L`` and numbers ``01`` through ``08``. Expand same-wave ranges
+    directly; cross-wave ranges must cover complete waves from ``01`` through ``08``. Do not
+    validate package existence in another document.
+
+    Args:
+        token: Exact package ID or hyphenated package range to expand.
+
+    Returns:
+        Package IDs in inclusive roadmap order.
+
+    Raises:
+        ProgramGovernanceError: If the token is malformed, its range is reversed, or a cross-wave
+            range does not span complete waves from ``01`` through ``08``.
+    """
     if _PACKAGE_ID.fullmatch(token):
         return (token,)
     parts = token.split("-")
@@ -361,6 +633,22 @@ def _expand_range(token: str) -> tuple[str, ...]:
 
 
 def _parse_dependency_list(expression: str) -> tuple[str, ...]:
+    """Parse comma-separated roadmap dependency IDs and ranges.
+
+    Treat exactly ``"-"`` as the no-dependencies sentinel. Otherwise strip each comma-separated
+    token before expansion, preserve expanded order, and reject duplicates after expansion.
+
+    Args:
+        expression: Dependency expression containing the exact sentinel or comma-separated
+            package IDs and ranges.
+
+    Returns:
+        Expanded package IDs in expression order, or an empty tuple for the sentinel.
+
+    Raises:
+        ProgramGovernanceError: If a stripped token is empty, a token or range is unsupported, a
+            range is reversed or incomplete, or expansion repeats a package ID.
+    """
     values: list[str] = []
     if expression == "-":
         return ()

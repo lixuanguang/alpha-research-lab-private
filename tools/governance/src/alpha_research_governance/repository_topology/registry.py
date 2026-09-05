@@ -124,18 +124,58 @@ _SOURCE_SUFFIXES = {".py", ".pyi"}
 
 
 def _require_table(value: object, *, context: str) -> dict[str, object]:
+    """Require an object to be a TOML table.
+
+    Args:
+        value: Parsed TOML value to validate as a mapping.
+        context: Diagnostic path or label used in a failure message.
+
+    Returns:
+        The original dictionary object, without copying it or checking its keys.
+
+    Raises:
+        RepositoryTopologyError: If ``value`` is not a dictionary.
+    """
     if not isinstance(value, dict):
         raise RepositoryTopologyError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
 def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
+    """Require an object to be a list whose items are TOML tables.
+
+    Args:
+        value: Parsed TOML value to validate as a list of mappings.
+        context: Diagnostic path or label used in a failure message.
+
+    Returns:
+        The original list with its item order and dictionary identities retained;
+        the list may be empty and its table keys are not checked.
+
+    Raises:
+        RepositoryTopologyError: If ``value`` is not a list or contains a
+            non-dictionary item.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise RepositoryTopologyError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
 def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
+    """Require a named table field to contain a non-empty string.
+
+    Args:
+        table: Mapping in which to look up the field.
+        key: Field name to retrieve exactly, without normalization.
+        context: Diagnostic path or label used in a failure message.
+
+    Returns:
+        The stored string unchanged; the table is not modified.
+
+    Raises:
+        RepositoryTopologyError: If the field is absent, is not a string, or is
+            the empty string. Whitespace-only strings are accepted as non-empty.
+    """
     value = table.get(key)
     if not isinstance(value, str) or not value:
         raise RepositoryTopologyError([f"{context}.{key} must be a non-empty string"])
@@ -145,6 +185,22 @@ def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
 def _require_strings(
     value: object, *, context: str, allow_empty: bool = False, require_sorted: bool = False
 ) -> tuple[str, ...]:
+    """Require a list of unique, non-empty strings.
+
+    Args:
+        value: Parsed TOML value to validate as a string list.
+        context: Diagnostic path or label used in a failure message.
+        allow_empty: Permit an empty list when true; item strings remain required.
+        require_sorted: Require Python lexical ordering when true.
+
+    Returns:
+        A new tuple preserving the input order and string values.
+
+    Raises:
+        RepositoryTopologyError: If the value is not a list of non-empty
+            strings, is empty when disallowed, contains duplicates, or is not
+            sorted when ordering is required.
+    """
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise RepositoryTopologyError([f"{context} must be an array of non-empty strings"])
     string_values = tuple(cast(list[str], value))
@@ -158,6 +214,34 @@ def _require_strings(
 
 
 def _require_repository_path(value: str, *, repository_root: Path, context: str) -> Path:
+    """Require a strictly existing, repository-contained POSIX path.
+
+    Args:
+        value: Repository-relative path in its exact POSIX spelling.
+        repository_root: Caller-resolved absolute root against which the joined
+            candidate's strict resolution is checked.
+        context: Diagnostic path or label used in a failure message.
+
+    Returns:
+        The joined, unresolved ``Path`` candidate after strict resolution has
+        confirmed existence and relative containment. The candidate may be a
+        directory or another existing path type; it is not required to be a file.
+
+        The symlink component checks and strict resolution are separate,
+        non-atomic filesystem operations that describe their observations at
+        check time; they do not establish a containment guarantee if the
+        filesystem changes concurrently.
+
+    Raises:
+        RepositoryTopologyError: If the path is absolute, contains ``..``,
+            uses a non-canonical POSIX spelling, contains a component reported
+            as a symlink, is missing, or resolves outside the supplied root.
+            Missing and containment failures preserve their ``FileNotFoundError``
+            or ``ValueError`` cause.
+        OSError: If an uncaught filesystem operation fails while inspecting the
+            path.
+        RuntimeError: If strict path resolution encounters a symlink loop.
+    """
     relative = PurePosixPath(value)
     if relative.is_absolute() or ".." in relative.parts or relative.as_posix() != value:
         raise RepositoryTopologyError([f"{context}: invalid repository path {value!r}"])
@@ -177,6 +261,26 @@ def _require_repository_path(value: str, *, repository_root: Path, context: str)
 
 
 def _ownership_roles(path: Path) -> frozenset[str]:
+    """Read an ownership TOML file and collect roles from its governed fields.
+
+    Args:
+        path: UTF-8 ownership register to read and parse.
+
+    Returns:
+        A set-like immutable collection of unique roles from each domain's
+        ``accountable_role``, ``required_review_roles``, ``independent_review_roles``
+        and ``escalation_roles`` fields and each finding's ``owner_role``; role
+        order is not retained, and the result may be empty.
+
+    Raises:
+        RepositoryTopologyError: If TOML is malformed, the document is not a
+            table, ``domains`` or ``findings`` is not a table list, or a required
+            role field/list is invalid. Individual role lists may be empty but
+            reject duplicates and non-string or empty items. Malformed TOML is
+            translated with its cause; role token format is not checked here.
+        OSError: If reading the register fails.
+        UnicodeDecodeError: If the register is not valid UTF-8.
+    """
     try:
         ownership_document = _require_table(
             tomllib.loads(path.read_text(encoding="utf-8")), context=str(path)
@@ -203,6 +307,29 @@ def _ownership_roles(path: Path) -> frozenset[str]:
 def _source_files(
     repository_root: Path, source_roots: tuple[str, ...], maximum_source_files: int
 ) -> frozenset[str]:
+    """Collect qualifying source files below each declared repository root.
+
+    Args:
+        repository_root: Caller-resolved absolute root used to resolve roots and
+            render repository-relative paths.
+        source_roots: Repository-relative directories scanned in tuple order.
+        maximum_source_files: Inclusive limit on the number of distinct matches.
+
+    Returns:
+        An immutable set of repository-relative POSIX paths for files found by
+        recursive ``rglob("*")`` whose suffix is ``.py`` or ``.pyi`` or whose
+        name is ``py.typed``. On Python 3.12, the glob does not recurse through
+        directory symlinks. Overlapping roots and repeated matches are
+        deduplicated; result order is not retained.
+
+    Raises:
+        RepositoryTopologyError: If a root is invalid or missing, is not a
+            directory, the glob yields a qualifying file symlink, or the
+            distinct match count exceeds ``maximum_source_files``.
+        OSError: If an uncaught filesystem operation fails while scanning.
+        RuntimeError: If validating a source root encounters a symlink loop;
+            this error propagates from ``_require_repository_path``.
+    """
     source_files: set[str] = set()
     for source_root in source_roots:
         directory = _require_repository_path(
@@ -223,6 +350,18 @@ def _source_files(
 
 
 def _module_name(source: str) -> tuple[str, bool] | None:
+    """Map a supported repository source path to its dotted module name.
+
+    Args:
+        source: POSIX source path whose final suffix is inspected.
+
+    Returns:
+        ``None`` for paths other than ``.py`` and ``.pyi``. Otherwise return a
+        dotted name and a package flag. If present, strip everything through the
+        first component named ``src``; set the package flag to true exactly
+        when a trailing ``__init__`` component is removed. The returned name is
+        not checked against the filesystem or identifier rules.
+    """
     path = PurePosixPath(source)
     if path.suffix not in _SOURCE_SUFFIXES:
         return None
@@ -238,6 +377,31 @@ def _module_name(source: str) -> tuple[str, bool] | None:
 def _internal_imports(
     path: Path, module_name: str, is_package: bool, known_modules: frozenset[str]
 ) -> frozenset[str]:
+    """Collect unique internal module names from every import AST node.
+
+    Args:
+        path: UTF-8 Python source file to parse.
+        module_name: Dotted name assigned to the source file.
+        is_package: Whether ``module_name`` names a package ``__init__`` file.
+        known_modules: Module names used to classify roots and refine imported
+            members into known module names.
+
+    Returns:
+        An immutable, unordered set of internal names. Traverse all AST nodes,
+        including imports nested in functions and classes. Resolve relative
+        imports against the package named by ``module_name`` and ``is_package``.
+        Include matching ``import`` names and ``from`` bases; for a ``from``
+        import, retain a known ``base.member`` when present and otherwise retain
+        ``base``. External roots are omitted; names under a known root may remain
+        even when their complete name is not in ``known_modules``.
+
+    Raises:
+        RepositoryTopologyError: If parsing raises ``SyntaxError`` or a
+            relative import cannot be resolved; translated failures preserve
+            their original cause.
+        OSError: If reading the source fails.
+        UnicodeDecodeError: If the source is not valid UTF-8.
+    """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except SyntaxError as error:
@@ -246,6 +410,15 @@ def _internal_imports(
     internal_roots = frozenset(module.partition(".")[0] for module in known_modules)
 
     def is_internal(name: str) -> bool:
+        """Check whether a module belongs to a known internal root.
+
+        Args:
+            name: Dotted module name to classify by its first component.
+
+        Returns:
+            True when the name's root occurs among the roots derived from
+            ``known_modules``; otherwise false.
+        """
         return name.partition(".")[0] in internal_roots
 
     package = module_name if is_package else module_name.rpartition(".")[0]
@@ -274,12 +447,34 @@ def _internal_imports(
 
 
 def _find_cycles(units: tuple[SourceUnit, ...]) -> tuple[str, ...]:
+    """Find directed dependency cycles among source units.
+
+    Args:
+        units: Source units whose dependency tuples define directed edges.
+
+    Returns:
+        Lexicographically sorted cycle strings. A depth-first active-path
+        back-edge is rendered from its first active occurrence through the
+        repeated unit, exact duplicate renderings are collapsed, and unknown
+        dependency identifiers are treated as leaf nodes. Duplicate unit IDs
+        use the last unit's dependencies in the temporary graph. The input is
+        not modified.
+
+    Raises:
+        RecursionError: If the dependency nesting exceeds Python's recursion
+            limit during the recursive traversal.
+    """
     graph = {unit.unit_id: unit.dependencies for unit in units}
     visited: set[str] = set()
     active: list[str] = []
     cycles: set[str] = set()
 
     def visit_dependency(unit_id: str) -> None:
+        """Visit one dependency path and record any active-path back edge.
+
+        Args:
+            unit_id: Unit identifier to visit from the current dependency path.
+        """
         if unit_id in active:
             start = active.index(unit_id)
             cycles.add(" -> ".join((*active[start:], unit_id)))

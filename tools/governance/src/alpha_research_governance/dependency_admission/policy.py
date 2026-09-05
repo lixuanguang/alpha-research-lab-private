@@ -159,18 +159,59 @@ _LOCAL_EVIDENCE_PROFILE = PackageEvidenceProfile(
 
 
 def _table(value: object, *, context: str) -> dict[str, object]:
+    """Require a parsed value to be a TOML table without deep validation.
+
+    Args:
+        value: Parsed TOML value expected to be a dictionary; its keys and nested values are not
+            inspected here.
+        context: Policy location used in a validation finding.
+
+    Returns:
+        The same dictionary object, narrowed for subsequent field access without copying it.
+
+    Raises:
+        DependencyAdmissionError: If ``value`` is not a dictionary.
+    """
     if not isinstance(value, dict):
         raise DependencyAdmissionError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
 def _tables(value: object, *, context: str) -> list[dict[str, object]]:
+    """Require an ordered list of parsed TOML tables.
+
+    Args:
+        value: Parsed TOML value expected to be a list containing only dictionaries; an empty
+            list is accepted and nested fields are not inspected here.
+        context: Policy location used in a validation finding.
+
+    Returns:
+        The same list object, narrowed for ordered field access without copying its dictionaries.
+
+    Raises:
+        DependencyAdmissionError: If ``value`` is not a list or any element is not a dictionary.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise DependencyAdmissionError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
 def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+    """Require an ordered list of unique, non-empty strings.
+
+    Args:
+        value: Parsed value expected to be a list of strings; string text is retained without
+            stripping, so whitespace-only values are accepted.
+        context: Policy location used in a validation finding.
+        allow_empty: Whether to accept an empty list; individual empty strings remain invalid.
+
+    Returns:
+        A new tuple containing the supplied strings in their original order and text.
+
+    Raises:
+        DependencyAdmissionError: If the value is not a list of strings, contains an empty
+            string or duplicate, or is empty when ``allow_empty`` is false.
+    """
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise DependencyAdmissionError([f"{context} must be an array of strings"])
     values = tuple(cast(list[str], value))
@@ -182,6 +223,20 @@ def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple
 
 
 def _iso_date(value: object, *, context: str) -> date:
+    """Parse a canonical ISO extended calendar date.
+
+    Args:
+        value: Parsed TOML value expected to be a string written exactly as ``YYYY-MM-DD``.
+        context: Policy location used in a validation finding.
+
+    Returns:
+        The parsed ``date`` value.
+
+    Raises:
+        DependencyAdmissionError: If ``value`` is not a string, is not a valid calendar date,
+            or is not written in canonical ISO form; parser ``ValueError`` instances are
+            translated and chained.
+    """
     if not isinstance(value, str):
         raise DependencyAdmissionError([f"{context} must use YYYY-MM-DD"])
     try:
@@ -194,6 +249,22 @@ def _iso_date(value: object, *, context: str) -> date:
 
 
 def _https_url(value: object, *, context: str) -> str:
+    """Require a credential-free HTTPS URL with a non-empty hostname.
+
+    Args:
+        value: Parsed value expected to be a non-empty URL string; query and fragment text must
+            be absent, while empty query or fragment delimiters are accepted.
+        context: Policy location used in a validation finding.
+
+    Returns:
+        The original URL string after syntactic checks; no network request is made and the port
+        is not inspected.
+
+    Raises:
+        DependencyAdmissionError: If the value is not a non-empty credential-free HTTPS URL with
+            a hostname, or has a non-empty query or fragment.
+        ValueError: If ``urlsplit`` rejects the URL syntax; this parser error propagates.
+    """
     if not isinstance(value, str) or not value:
         raise DependencyAdmissionError([f"{context} must be a populated HTTPS URL"])
     parsed = urlsplit(value)
@@ -212,6 +283,26 @@ def _https_url(value: object, *, context: str) -> str:
 def _parse_package(
     value: str, *, license_expression: str, native_names: set[str]
 ) -> PythonPackageAdmission:
+    """Parse an exact package identity and attach its license and native-artifact facts.
+
+    The parser checks package-name syntax and a non-empty version only; it does not normalize
+    names or validate full PEP 440 version semantics.
+
+    Args:
+        value: Package identity split at its first ``==`` into a validated name and non-empty
+            version; name and version text are otherwise preserved for model validation.
+        license_expression: Reviewed license expression to store on the package record.
+        native_names: Package names designated as having native artifacts.
+
+    Returns:
+        A validated package admission whose native flag is true when the parsed name is in
+        ``native_names``.
+
+    Raises:
+        DependencyAdmissionError: If ``value`` lacks the first exact separator, has an empty
+            version, or has a name outside the accepted package-name syntax.
+        ValidationError: If ``PythonPackageAdmission`` rejects the constructed record.
+    """
     name, separator, version = value.partition("==")
     if separator != "==" or not version or _PACKAGE_NAME.fullmatch(name) is None:
         raise DependencyAdmissionError([f"invalid exact Python package identity: {value!r}"])
@@ -538,6 +629,27 @@ def load_policy(path: Path) -> DependencyAdmission:
 
 
 def _locked_python_packages(path: Path) -> dict[str, dict[str, object]]:
+    """Load named package entries from a uv lock at the admitted schema boundary.
+
+    The package list may be empty. Schema markers use ordinary equality, so their values are not
+    independently type-checked.
+
+    Args:
+        path: UTF-8 ``uv.lock`` file to read and parse; its root must be a dictionary and its
+            package collection must be a list of dictionaries.
+
+    Returns:
+        A new mapping from each string package name to its original parsed package dictionary;
+        entries with non-string names are skipped, while an empty string name is retained.
+
+    Raises:
+        DependencyAdmissionError: If the root or package collection has the wrong shape, the
+            schema markers (``version == 1``, ``revision == 3`` and
+            ``requires-python == '==3.12.*'``) do not compare equal, or a usable name repeats.
+        OSError: If reading the lock file fails.
+        UnicodeDecodeError: If the lock file is not valid UTF-8.
+        tomllib.TOMLDecodeError: If the lock file contains invalid TOML.
+    """
     document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     if (
         document.get("version") != 1
@@ -558,6 +670,22 @@ def _locked_python_packages(path: Path) -> dict[str, dict[str, object]]:
 def _wheel_platform_findings(
     package: PythonPackageAdmission, locked: dict[str, object]
 ) -> list[str]:
+    """Check locked wheel URLs for the required platform coverage heuristically.
+
+    A missing, non-list, or empty ``wheels`` value yields the no-locked-artifacts finding. A
+    non-empty list with no usable URL strings proceeds to the applicable coverage finding.
+
+    Args:
+        package: Admitted package whose native-artifact flag selects the coverage rule.
+        locked: Parsed lock entry containing the candidate ``wheels`` value.
+
+    Returns:
+        An empty list when coverage is found, otherwise a list containing the first missing-wheel
+        finding. Native checks first seek ``macosx`` with ``arm64`` or ``universal2``, then
+        ``manylinux`` or ``musllinux`` with ``x86_64`` in URL text. Non-native checks require a
+        ``-none-any.whl`` or ``-any.whl`` suffix. Malformed wheel items or URL fields are skipped;
+        no wheel-tag parser, URL parser, or network request is used.
+    """
     wheels = locked.get("wheels")
     if not isinstance(wheels, list) or not wheels:
         return [f"{package.name} has no locked wheel artifacts"]
@@ -769,6 +897,25 @@ def _lock_surface_findings(root: Path) -> list[str]:
 
 
 def _runtime_install_findings(root: Path, policy: DependencyAdmission) -> list[str]:
+    """Scan configured source roots for textual runtime-install command matches.
+
+    Search raw file text with the module's ``_INSTALL_COMMAND`` regular expression, so this
+    helper reports only the command forms that pattern recognizes rather than every possible
+    package installation.
+
+    Args:
+        root: Repository root against which policy scan roots and finding paths are resolved.
+        policy: Validated admission policy supplying ordered repository-relative scan roots.
+
+    Returns:
+        Findings for matching ``.py``, ``.sh``, ``.bash`` and ``.zsh`` files, ordered by scan root
+        and lexical path. Missing roots can yield no findings; source text is matched directly,
+        including comments and docstrings, without parsing or executing Python or shell code.
+
+    Raises:
+        OSError: If an uncaught filesystem traversal or source-read error occurs.
+        UnicodeDecodeError: If a scanned source file is not valid UTF-8.
+    """
     findings: list[str] = []
     for relative_root in policy.runtime_scan_roots:
         scan_root = root / relative_root
@@ -784,6 +931,27 @@ def _runtime_install_findings(root: Path, policy: DependencyAdmission) -> list[s
 
 
 def _load_json_signal(report_path: Path, *, signal: str) -> object:
+    """Load a JSON signal after checking its reported byte size.
+
+    Check ``_MAX_SIGNAL_BYTES`` (5,000,000 bytes) from a pre-read ``stat`` result before reading
+    the complete file. The check does not bound streaming, prevent a later file growth, or
+    provide an atomic size guarantee.
+
+    Args:
+        report_path: UTF-8 JSON report path to inspect and read.
+        signal: Signal label included in size and decoding diagnostics.
+
+    Returns:
+        The JSON decoder result without shape validation, duplicate-key rejection, or finite
+        number enforcement; the default decoder therefore permits non-finite constants.
+
+    Raises:
+        DependencyAdmissionError: If the pre-read ``stat`` size exceeds ``_MAX_SIGNAL_BYTES``,
+            or JSON syntax or UTF-8 decoding fails; translated errors retain their causes.
+        OSError: Propagates from ``stat`` or the full text read.
+        ValueError: Propagates from other decoder conversions such as an oversized integer.
+        RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+    """
     try:
         if report_path.stat().st_size > _MAX_SIGNAL_BYTES:
             raise DependencyAdmissionError([f"{signal} report exceeds the size limit"])

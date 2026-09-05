@@ -214,12 +214,38 @@ _COMMIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 
 def _require_table(value: object, *, context: str) -> dict[str, object]:
+    """Require a parsed value to be a TOML table.
+
+    Args:
+        value: Parsed TOML value to narrow to a dictionary.
+        context: Path-like label used in the validation diagnostic.
+
+    Returns:
+        The original dictionary object, without copying or changing its contents. The runtime check
+        only validates dictionary shape; the cast assumes TOML parser input with string keys.
+
+    Raises:
+        SecurityControlError: If ``value`` is not a dictionary.
+    """
     if not isinstance(value, dict):
         raise SecurityControlError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
 def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
+    """Require a value to be a list whose items are TOML tables.
+
+    Args:
+        value: Parsed TOML value expected to contain table entries.
+        context: Path-like label used in the validation diagnostic.
+
+    Returns:
+        The original list and dictionary objects in order; an empty list is accepted. The runtime
+        check only validates list/dictionary shape; the cast assumes TOML string-keyed input.
+
+    Raises:
+        SecurityControlError: If ``value`` is not a list of dictionaries.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise SecurityControlError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
@@ -228,6 +254,22 @@ def _require_table_list(value: object, *, context: str) -> list[dict[str, object
 def _require_string(
     table: dict[str, object], key: str, *, context: str, allow_empty: bool = False
 ) -> str:
+    """Require a table field to contain a string with the selected emptiness rule.
+
+    Args:
+        table: Table whose value is inspected without mutation.
+        key: Field name to retrieve with ``table.get``.
+        context: Path-like label used in the validation diagnostic.
+        allow_empty: Whether an empty or whitespace-only string is accepted. Defaults to
+            ``False``; otherwise only the string type is required.
+
+    Returns:
+        The original string, including any surrounding whitespace.
+
+    Raises:
+        SecurityControlError: If the field is missing, is not a string, or is blank when
+            ``allow_empty`` is false.
+    """
     value = table.get(key)
     if not isinstance(value, str) or (not allow_empty and not value.strip()):
         qualifier = "a string" if allow_empty else "a non-empty string"
@@ -236,6 +278,19 @@ def _require_string(
 
 
 def _require_integer(table: dict[str, object], key: str, *, context: str) -> int:
+    """Require a table field to contain an integer other than a Boolean.
+
+    Args:
+        table: Table whose value is inspected without mutation.
+        key: Field name to retrieve with ``table.get``.
+        context: Path-like label used in the validation diagnostic.
+
+    Returns:
+        The integer value unchanged.
+
+    Raises:
+        SecurityControlError: If the field is missing, non-integer, or Boolean.
+    """
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool):
         raise SecurityControlError([f"{context}.{key} must be an integer"])
@@ -243,6 +298,21 @@ def _require_integer(table: dict[str, object], key: str, *, context: str) -> int
 
 
 def _require_strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+    """Require a unique list of non-empty strings and preserve its order.
+
+    Args:
+        value: Parsed TOML value expected to be a list of string values.
+        context: Path-like label used in the validation diagnostic.
+        allow_empty: Whether an empty list is accepted. Defaults to ``False``; individual
+            empty strings remain invalid when this is true.
+
+    Returns:
+        A new tuple preserves values and list order; whitespace-only items pass.
+
+    Raises:
+        SecurityControlError: If the value is not a string list, contains an empty string, is
+            empty when disallowed, or contains duplicate values.
+    """
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise SecurityControlError([f"{context} must be an array of non-empty strings"])
     values = tuple(cast(list[str], value))
@@ -254,6 +324,20 @@ def _require_strings(value: object, *, context: str, allow_empty: bool = False) 
 
 
 def _require_entries(value: object, *, context: str, keys: set[str]) -> list[dict[str, object]]:
+    """Require table entries to expose exactly a specified set of fields.
+
+    Args:
+        value: Parsed TOML value expected to be an array of tables.
+        context: Path-like label used in the validation diagnostic.
+        keys: Exact field names required on every table entry.
+
+    Returns:
+        The list returned by ``_require_table_list``, preserving entry order and dictionary
+        identity without validating or copying field values. An empty list is accepted.
+
+    Raises:
+        SecurityControlError: If the value is not a table list or fields differ from ``keys``.
+    """
     entries = _require_table_list(value, context=context)
     for index, entry in enumerate(entries, 1):
         if set(entry) != keys:
@@ -262,6 +346,19 @@ def _require_entries(value: object, *, context: str, keys: set[str]) -> list[dic
 
 
 def _parse_iso_date(value: str, *, context: str) -> date:
+    """Parse a date string only when its spelling is exactly ``YYYY-MM-DD``.
+
+    Args:
+        value: Date text supplied to ``date.fromisoformat``.
+        context: Path-like label used in the validation diagnostic.
+
+    Returns:
+        The parsed calendar date.
+
+    Raises:
+        SecurityControlError: If parsing raises ``ValueError`` or text is not canonical
+            extended-format.
+    """
     try:
         parsed_date = date.fromisoformat(value)
     except ValueError as error:
@@ -272,6 +369,19 @@ def _parse_iso_date(value: str, *, context: str) -> date:
 
 
 def _load_toml(path: Path) -> dict[str, object]:
+    """Read a UTF-8 TOML file and require a table at its top level.
+
+    Args:
+        path: File to read as UTF-8 text.
+
+    Returns:
+        The newly parsed top-level TOML dictionary, retaining the parser's values and order.
+
+    Raises:
+        SecurityControlError: If TOML decoding fails or the parsed value is not a table.
+        OSError: If reading ``path`` fails.
+        UnicodeDecodeError: If the file is not valid UTF-8.
+    """
     try:
         parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
@@ -280,6 +390,22 @@ def _load_toml(path: Path) -> dict[str, object]:
 
 
 def _ownership_roles(path: Path) -> frozenset[str]:
+    """Load accountable, review, and escalation roles from an ownership register.
+
+    Args:
+        path: Ownership-register TOML file to read.
+
+    Returns:
+        A frozenset of role strings from every domain, deduplicated across domains and role
+        fields; source order is not retained. Empty ``domains`` yields an empty frozenset; roles use
+        ``[a-z][a-z0-9_]*``.
+
+    Raises:
+        SecurityControlError: If the TOML, domain tables, role fields, role-list uniqueness, or
+            ``[a-z][a-z0-9_]*`` role pattern is invalid.
+        OSError: If reading ``path`` fails.
+        UnicodeDecodeError: If the file is not valid UTF-8.
+    """
     ownership_document = _load_toml(path)
     roles: set[str] = set()
     for index, domain in enumerate(
@@ -299,6 +425,24 @@ def _ownership_roles(path: Path) -> frozenset[str]:
 def _validate_repository_path(
     value: str, *, repository_root: Path, context: str, findings: list[str]
 ) -> None:
+    """Append a finding when a repository-relative value is not an in-root file.
+
+    Compare the strictly resolved candidate with the caller-resolved absolute repository root;
+    allow symlinks resolving to in-root files. Resolution and ``is_file`` are separate, non-atomic
+    filesystem checks. A successful check leaves ``findings`` unchanged; failures append one
+    diagnostic and return.
+
+    Args:
+        value: Path text checked lexically for absoluteness and ``..`` components.
+        repository_root: Caller-resolved absolute root against which the candidate is compared.
+        context: Label identifying the path field in a finding.
+        findings: Mutable diagnostic list to extend on the first failed check.
+
+    Raises:
+        OSError: If filesystem access fails, except for a missing candidate path handled as a
+            finding.
+        RuntimeError: If strict resolution encounters a symlink loop.
+    """
     relative = Path(value)
     if relative.is_absolute() or ".." in relative.parts:
         findings.append(f"{context}: repository path escapes the root: {value}")
@@ -314,6 +458,21 @@ def _validate_repository_path(
 
 
 def _validate_id_order(values: tuple[str, ...], *, kind: str, findings: list[str]) -> None:
+    """Append findings for duplicate, unsorted, or malformed identifiers.
+
+    Check uniqueness, ordinary lexicographic tuple order, and the configured full-match pattern in
+    order. Empty sequences produce no finding; input stays unchanged, and only diagnostics are
+    sorted or collected.
+
+    Args:
+        values: Identifier sequence to inspect; it is neither changed nor normalized.
+        kind: Identifier category whose regular expression is used.
+        findings: Mutable diagnostic list receiving findings in uniqueness, order, and format
+            check order.
+
+    Raises:
+        KeyError: If ``kind`` is not a configured identifier category.
+    """
     if len(values) != len(set(values)):
         findings.append(f"{kind} IDs must be unique")
     if values != tuple(sorted(values)):
@@ -327,12 +486,34 @@ def _validate_id_order(values: tuple[str, ...], *, kind: str, findings: list[str
 def _validate_references(
     values: tuple[str, ...], *, allowed: frozenset[str], context: str, findings: list[str]
 ) -> None:
+    """Append one finding for references absent from an allowed identifier set.
+
+    Deduplicate and sort unknown identifiers only for diagnostics. An empty tuple or duplicate
+    known values produces no finding; input values and order remain unchanged.
+
+    Args:
+        values: References to compare without changing their order or contents.
+        allowed: Identifiers that may be referenced.
+        context: Label identifying the reference field in a finding.
+        findings: Mutable diagnostic list to extend when unknown identifiers exist.
+    """
     unknown = sorted(set(values) - allowed)
     if unknown:
         findings.append(f"{context}: unknown references {unknown!r}")
 
 
 def _validate_authority_url(source: AuthoritySource, *, findings: list[str]) -> None:
+    """Append findings for an authority URL's shape and trusted host.
+
+    Require the ``urlsplit``-parsed scheme to be ``https`` and the hostname to be non-empty and
+    trusted for the source identifier. Reject credentials and numeric explicit ports, but accept
+    an empty suffix such as ``https://host:`` because ``parsed_url.port`` is ``None``. Perform no
+    network I/O. A parsing ``ValueError`` adds a malformed-URL finding and stops this check.
+
+    Args:
+        source: Authority record whose URL and source identifier are checked.
+        findings: Mutable diagnostic list receiving URL validation findings.
+    """
     try:
         parsed_url = urlsplit(source.url)
         explicit_port = parsed_url.port
