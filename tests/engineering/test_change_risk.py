@@ -10,6 +10,8 @@ import pytest
 
 # project library imports
 from alpha_research.change_risk import (
+    ChangeRiskApprovalEvaluator,
+    ChangeRiskClassifier,
     ChangeRiskInput,
     ChangeRiskPolicy,
     ChangeRiskPolicyError,
@@ -24,6 +26,94 @@ from alpha_research.change_risk import (
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "change-risk-policy.toml"
+
+
+class TestChangeRiskServices:
+    """Exercise service reuse without leaking classification or approval state."""
+
+    def test_classifier_recovers_after_escalation_and_downgrade(
+        self, policy: ChangeRiskPolicy
+    ) -> None:
+        """Keep gates, drivers, and policy data independent across one classifier's calls."""
+        classifier = ChangeRiskClassifier(policy)
+        base = _change_for(RiskClass.R2)
+        snapshot = policy.model_dump_json()
+        expected = classifier.classify(base)
+        escalated = classifier.classify(
+            _validated_change_update(
+                base, declared_class=RiskClass.R3, economically_or_risk_relevant=True
+            )
+        )
+        assert escalated.drivers == ("declared_class",)
+        assert {"QG06", "QG07", "QG08"} <= set(escalated.mandatory_gates)
+        with pytest.raises(ChangeRiskPolicyError, match="below required R4"):
+            classifier.classify(_change_for(RiskClass.R4, declared=RiskClass.R3))
+
+        repeated = classifier.classify(base)
+        assert repeated == expected
+        assert repeated is not expected
+        assert repeated.risk_class is RiskClass.R2
+        assert "QG07" not in repeated.mandatory_gates
+        assert policy.model_dump_json() == snapshot
+
+    @pytest.mark.parametrize("risk_class", list(RiskClass))
+    def test_service_and_facade_preserve_serialized_decisions(
+        self, policy: ChangeRiskPolicy, risk_class: RiskClass
+    ) -> None:
+        """Preserve the supported facade output across every class and repeated calls."""
+        classifier = ChangeRiskClassifier(policy)
+        change = _change_for(risk_class)
+        expected = classify_change(change, policy).model_dump_json()
+        for _ in range(2):
+            decision = classifier.classify(change)
+            assert decision.model_dump_json() == expected
+            gate_numbers = tuple(int(gate[2:]) for gate in decision.mandatory_gates)
+            assert gate_numbers == tuple(sorted(set(gate_numbers)))
+
+    def test_merge_findings_do_not_leak_into_later_requests(self, policy: ChangeRiskPolicy) -> None:
+        """Recover after failed merge review and preserve deterministic failure order."""
+        evaluator = ChangeRiskApprovalEvaluator(policy)
+        change = _change_for(RiskClass.R4)
+        decision = classify_change(change, policy)
+        approvals = _highest_risk_class_approvals()
+        messages: list[str] = []
+        for _ in range(2):
+            with pytest.raises(
+                ChangeRiskPolicyError, match="at least 4 distinct approvers"
+            ) as error:
+                evaluator.validate_merge(
+                    decision, (), change=change, waived_controls=("kill_capability",)
+                )
+            messages.append(str(error.value))
+            evaluator.validate_merge(decision, approvals, change=change, waived_controls=())
+            evaluator.validate_activation(decision, approvals[:2], change=change)
+        assert messages[0] == messages[1]
+        assert messages[0].splitlines()[0] == "R4 requires at least 4 distinct approvers"
+        assert messages[0].splitlines()[-1] == "R4 cannot waive hard controls: ['kill_capability']"
+
+    def test_activation_rebinds_decisions_and_recovers_after_invalid_identities(
+        self, policy: ChangeRiskPolicy
+    ) -> None:
+        """Reject each request's mismatched evidence without retaining earlier failures."""
+        evaluator = ChangeRiskApprovalEvaluator(policy)
+        change = _change_for(RiskClass.R4)
+        decision = classify_change(change, policy)
+        unbound = classify_change(_change_for(RiskClass.R0), policy)
+        valid = _highest_risk_class_approvals()[:2]
+        duplicates = (
+            # Fullwidth "Alice" must normalize to the same ASCII identity.
+            ReviewApproval(reviewer_id="\uff21\uff4c\uff49\uff43\uff45", roles=frozenset({"sre"})),
+            ReviewApproval(reviewer_id=" alice ", roles=frozenset({"independent_risk"})),
+        )
+        for _ in range(2):
+            with pytest.raises(ChangeRiskPolicyError, match="does not match the deterministic"):
+                evaluator.validate_activation(unbound, valid, change=change)
+            with pytest.raises(ChangeRiskPolicyError, match="after canonicalization"):
+                evaluator.validate_activation(decision, duplicates, change=change)
+            evaluator.validate_activation(decision, valid, change=change)
+            evaluator.validate_merge(
+                decision, _highest_risk_class_approvals(), change=change, waived_controls=()
+            )
 
 
 @pytest.fixture

@@ -11,7 +11,7 @@ from pydantic import ConfigDict, TypeAdapter, ValidationError
 
 # project library imports
 from alpha_research_governance._models import ImmutableModel
-from alpha_research_governance.change_risk.classification import classify_change
+from alpha_research_governance.change_risk.classification import ChangeRiskClassifier
 from alpha_research_governance.change_risk.constraints import (
     APPLICABILITY_TRIGGERS,
     BLUEPRINT_CONDITIONAL_GATES,
@@ -584,8 +584,9 @@ def _load_policy(path: Path) -> ChangeRiskPolicy:
         samples=samples,
         findings=tuple(findings),
     )
+    classifier = ChangeRiskClassifier(policy)
     for sample in samples:
-        actual = classify_change(sample.change, policy).risk_class
+        actual = classifier.classify(sample.change).risk_class
         if actual is not sample.expected_class:
             raise ChangeRiskPolicyError(
                 f"{path}: sample {sample.change_id!r} expected {sample.expected_class.value}, "

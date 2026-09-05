@@ -2,8 +2,9 @@
 
 Audit date: 2026-09-05. Baseline revision:
 `d3a40ca98d71208426c8501d8d4a1aaaa049768d`.
-Status: steps 1–4 implemented on 2026-09-05; step 5 is in progress, with the first
-domain-contract slice implemented; steps 6–7 remain planned. The findings below
+Status: steps 1–4 implemented on 2026-09-05; steps 5–6 are in progress, with the
+first domain-contract slice and change-risk service pilot implemented; step 7
+remains planned. The findings below
 describe the original audited revision, before step-1 enforcement.
 
 The requested target is segregated, commented import groups; stringent typing
@@ -279,7 +280,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
 | 5. Document existing contracts — in progress | Documented financial-unit models/conventions, the symbology catalog, the calendar adapter, and shared governance model validation. Remaining: identity/calendar value-model APIs, governance operations, and helpers/tests/fixtures. Combine docs for moved functions with step 6. | First slice retires 185 documentation obligations with unchanged executable ASTs; required Google sections and existing domain regressions pass. See the step-5 records below. |
-| 6. Refactor workflows into classes | Pilot change-risk classification, then loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | Existing callers and CLI behavior remain compatible; methods have typed dependencies and docs; behavior and repeated-call tests pass. |
+| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and separate approval evaluator, retaining the function APIs. Continue with loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | The first queue item preserves serialized decisions, ordered errors and CLI results across 63,404 differential cases; repeated-call regressions pass. See the step-6 records below. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
 For gradual enforcement, use exact rule plus module/qualified-symbol identities,
@@ -479,6 +480,41 @@ with identity/calendar value-model APIs and high-level governance operations,
 then residual helpers, test classes and fixtures. Global Ruff documentation-rule
 activation and complete debt removal remain later adoption work.
 
+### Step 6 implementation — change-risk service pilot
+
+[ChangeRiskClassifier](../../tools/governance/src/alpha_research_governance/change_risk/classification.py)
+owns the validated policy used for classification.
+[ChangeRiskApprovalEvaluator](../../tools/governance/src/alpha_research_governance/change_risk/approvals.py)
+owns approval requirements and a classifier bound to the same policy. Constructors
+perform no I/O. Every operation creates its own gates, findings and reviewer
+assignment state; failed requests cannot contaminate later merge or activation
+checks. Shared decision binding still recomputes trusted requirements before
+checking supplied evidence.
+
+Both services are exported from the governance package and the existing
+`alpha_research.change_risk` facade. The policy loader reuses one classifier for
+its samples. The three existing public function signatures delegate to services,
+preserving callers, console scripts and `python -m` behavior. Founder/team
+operating rules, policy schemas, review thresholds, decision serialization and
+error ordering are unchanged. New public methods and wrappers have Google-style
+argument, result and error contracts.
+
+The exact source inventory retires **27** obligations: 20 documentation findings
+and seven function dispositions. The three compatibility wrappers and four small
+gate/identity/role/matching helpers have individually attributed, expiring,
+AST-bound exceptions with explicit design rationales. No documentation exception
+or new migration allowance was added. Typed sorting callbacks retire the
+classifier's four inferred-typing diagnostics instead of relocating them into
+the new method; both inventories and their checksum pins change together.
+
+Step 6 remains in progress. The next queue item is program loading/status,
+followed by the remaining loaders, evidence/bundle services and CI runners.
+The source inventory now holds **2,557** obligations across 84 files: 712 missing
+summaries, 1,047 structured-documentation findings and 798 function dispositions.
+The inferred inventory holds **686** diagnostics, 356 identities across 49 files.
+Step 7 must also reassess compatibility wrappers and the retained helpers before
+their exceptions expire.
+
 ### Class migration queue
 
 Paths below are relative to `tools/governance/src/alpha_research_governance` unless
@@ -486,7 +522,7 @@ prefixed with `src/`. Names are proposed responsibilities, not mandatory new fil
 
 | Order / current area | Proposed responsibility | Compatibility and behavior to preserve |
 | --- | --- | --- |
-| 1. `change_risk/classification.py`, then `approvals.py` | `ChangeRiskClassifier(policy)` and a separate approval evaluator; small classification pilot first. | Highest-dimension rule, downgrade rejection, gate ordering, founder/team rules; `classify_change` delegates temporarily. |
+| 1. `change_risk/classification.py`, then `approvals.py` — implemented | `ChangeRiskClassifier(policy)` and `ChangeRiskApprovalEvaluator(policy)`, with invocation-local state. | Highest-dimension rule, downgrade rejection, gate ordering, founder/team rules and exact errors preserved; existing classification/approval functions delegate temporarily. |
 | 2. `program_governance/registry.py`, `status.py` | `ProgramRepository` for loading with explicit root/ownership context; distinct roadmap parsing, observation reading and status rendering responsibilities. | Schema versions 1–4, dependency purposes/cycles, finding mapping, deterministic status text and existing exported loaders. |
 | 3. `security_controls/registry.py`, `inventory/registry.py` | Separate `SecurityControlMapLoader` and `InventoryLoader`; pure field/ID parsing stays small. | Error categories, complete references, source identity, ownership and deterministic findings. |
 | 4. `repository_topology/registry.py`, `engineering_standards/policy.py`, `dependency_admission/policy.py`, `ownership_governance.py`, `architecture_governance.py` | Domain-specific loaders/validators with explicit repository context. Share only proven identical parsing primitives. | Exact accepted schema and policy values, expiry/version checks, local link safety, exception translation and root commands. |
@@ -707,3 +743,26 @@ These are local checks for this slice; `make ci-full`, hosted CI, and the separa
 integration/performance selections were not run. Step 5 remains in progress with
 1,779 documentation obligations outstanding; steps 6–7 and inferred-typing debt
 retirement remain unfinished.
+
+## Step 6 validation record — change-risk service pilot, 2026-09-05
+
+Validation used starting revision `171595d230f4a752a2df42d79df2c74e69674786`.
+Both local packages were rebuilt offline as non-editable installs in the pinned
+environment. Dependencies, lockfiles, evidence schemas and golden fixtures are
+unchanged. Existing pinned Cosign and Syft executables were supplied on `PATH`.
+
+| Check | Observed result |
+| --- | --- |
+| Differential behavior | All 63,404 cases matched the original implementation: 60,000 classifications spanning every policy dimension combination, three trigger flags and declarations; 3,400 approval outcomes including mismatched decisions, invalid roles, authorship, Unicode identities and waivers; four CLI argument/result cases. Compared complete JSON decisions, exact ordered errors, exit codes, stdout and stderr. |
+| Compatibility and collection | All three exported function signatures are unchanged. All 60 existing change-risk/ownership pytest node IDs remain; eight service cases were added. Existing function callers continue through both facades. |
+| Repeated-call regressions | One classifier recovers after escalation and downgrade rejection without retaining gates. One evaluator recovers after merge/activation failures, rejects unbound decisions and canonical duplicates on every call, and preserves error ordering across interleaved operations. |
+| Full default pytest selection | 663 passed, 9 deselected, including existing policy, founder/team, evidence, immutable-model and domain golden regressions. |
+| `bazel test --config=ci //...` | All 20 targets passed, including governance reverse dependencies, source/typing standards and native-domain tests. |
+| `make lint format-check typecheck engineering-standards-check` | Passed. Ruff and strict mypy cover 136 Python/stub files; the stronger probe matches 686 remaining diagnostics; native stubtest passes over 1,548 modules. |
+| Focused documentation checks | Both service modules pass Ruff `D`/`ANN401` with the Google convention and have zero source-scanner documentation findings. |
+| Debt and exception reconciliation | Exactly 27 source obligations and four inferred diagnostics retired. Every remaining entry and original metadata is preserved. Seven individually fingerprinted function dispositions replace their migration entries without adding allowances. |
+| `pre-commit run --all-files` | Every hook passed, including the shared typecheck command, source standards, secret scanning, documentation links and all governance policies. |
+
+These are local checks for the first step-6 slice. The full `make ci-full` lane,
+hosted CI and separate integration/performance selections were not run. Step 6
+remains in progress with program loading/status next in the queue.
