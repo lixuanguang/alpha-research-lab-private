@@ -118,10 +118,32 @@ class TestChangeRiskServices:
 
 @pytest.fixture
 def policy() -> ChangeRiskPolicy:
+    """Load the checked-in change-risk policy for service and facade tests.
+
+    Returns:
+        The validated policy loaded from the repository policy file.
+
+    Raises:
+        ChangeRiskPolicyError: The checked-in policy violates its validation contract.
+        OSError: The checked-in policy file cannot be read.
+    """
     return load_policy(POLICY_PATH)
 
 
 def _change_for(risk_class: RiskClass, *, declared: RiskClass | None = None) -> ChangeRiskInput:
+    """Build and validate a representative change input for one risk class.
+
+    Args:
+        risk_class: Risk class whose canonical dimension values should be populated.
+        declared: Optional declared class, which may disagree until classification.
+
+    Returns:
+        A validated input with class dimensions, default-false conditional flags, and
+        the optional declared class.
+
+    Raises:
+        ValidationError: The assembled change input violates its model contract.
+    """
     levels = {
         RiskClass.R0: (False, "documentation_only", "none", "none", "immediate"),
         RiskClass.R1: (
@@ -165,6 +187,11 @@ def _change_for(risk_class: RiskClass, *, declared: RiskClass | None = None) -> 
 
 
 def _highest_risk_class_approvals() -> tuple[ReviewApproval, ...]:
+    """Build the four approvals required by the representative R4 merge decision.
+
+    Returns:
+        Approvals covering domain ownership, independent risk, SRE, and security.
+    """
     return (
         ReviewApproval(reviewer_id="owner", roles=frozenset({"domain_owner"})),
         ReviewApproval(
@@ -184,12 +211,38 @@ def _highest_risk_class_approvals() -> tuple[ReviewApproval, ...]:
 def _validated_change_update(
     change: ChangeRiskInput, **updates: bool | RiskClass | None
 ) -> ChangeRiskInput:
+    """Copy a change input with field updates and validate the resulting model.
+
+    Args:
+        change: Existing change input to copy.
+        updates: Field values to replace before model validation.
+
+    Returns:
+        A new validated change input containing ``updates``.
+
+    Raises:
+        ValidationError: An updated value violates the change-input model contract.
+    """
     values = change.model_dump()
     values.update(updates)
     return ChangeRiskInput.model_validate(values)
 
 
 def _mutated_policy(tmp_path: Path, old: str, new: str) -> Path:
+    """Write one expected policy replacement to an isolated mutation fixture.
+
+    Args:
+        tmp_path: Temporary directory receiving the mutated policy file.
+        old: Exact policy fragment required before the replacement.
+        new: Replacement text for the first occurrence of ``old``.
+
+    Returns:
+        Path to the UTF-8 policy fixture containing the requested mutation.
+
+    Raises:
+        AssertionError: ``old`` is absent from the checked-in policy.
+        OSError: The source policy cannot be read or the fixture cannot be written.
+    """
     path = tmp_path / "change-risk-policy.toml"
     text = POLICY_PATH.read_text(encoding="utf-8")
     assert old in text
@@ -198,6 +251,7 @@ def _mutated_policy(tmp_path: Path, old: str, new: str) -> Path:
 
 
 def test_repository_policy_is_valid_partial_and_covers_every_class() -> None:
+    """Validate partial status, three findings, and one sample for every risk class."""
     loaded = validate_repository(REPOSITORY_ROOT)
 
     assert loaded.package_status == "partial"
@@ -209,6 +263,7 @@ def test_repository_policy_is_valid_partial_and_covers_every_class() -> None:
 def test_classifier_maps_representative_changes_to_each_class(
     policy: ChangeRiskPolicy, risk_class: RiskClass
 ) -> None:
+    """Map representative inputs to their classes and populate decision requirements."""
     decision = classify_change(_change_for(risk_class), policy)
 
     assert decision.risk_class is risk_class
@@ -219,6 +274,7 @@ def test_classifier_maps_representative_changes_to_each_class(
 
 
 def test_highest_dimension_wins_at_the_r3_boundary(policy: ChangeRiskPolicy) -> None:
+    """Select R3 when nonproduction privilege is the highest dimension at the boundary."""
     change = ChangeRiskInput(
         capital_at_risk=False,
         blast_radius="documentation_only",
@@ -234,6 +290,7 @@ def test_highest_dimension_wins_at_the_r3_boundary(policy: ChangeRiskPolicy) -> 
 
 
 def test_capital_at_risk_always_classifies_as_r4(policy: ChangeRiskPolicy) -> None:
+    """Classify a capital-at-risk change as R4 despite otherwise minimal dimensions."""
     change = ChangeRiskInput(
         capital_at_risk=True,
         blast_radius="documentation_only",
@@ -248,6 +305,7 @@ def test_capital_at_risk_always_classifies_as_r4(policy: ChangeRiskPolicy) -> No
 def test_declared_downgrade_is_rejected_and_conservative_escalation_is_allowed(
     policy: ChangeRiskPolicy,
 ) -> None:
+    """Reject declared downgrades while allowing conservative declared escalations."""
     with pytest.raises(ChangeRiskPolicyError, match="below required R4"):
         classify_change(_change_for(RiskClass.R4, declared=RiskClass.R3), policy)
 
@@ -259,6 +317,7 @@ def test_declared_downgrade_is_rejected_and_conservative_escalation_is_allowed(
 def test_conservative_escalation_preserves_computed_conditional_gates(
     policy: ChangeRiskPolicy,
 ) -> None:
+    """Retain computed conditional gates when a declaration conservatively escalates risk."""
     base = _change_for(RiskClass.R2)
     computed_change = _validated_change_update(base, economically_or_risk_relevant=True)
     escalated_change = _validated_change_update(
@@ -275,6 +334,7 @@ def test_conservative_escalation_preserves_computed_conditional_gates(
 
 
 def test_unknown_dimension_value_fails_closed(policy: ChangeRiskPolicy) -> None:
+    """Reject an unsupported dimension value instead of producing a decision."""
     change = ChangeRiskInput(
         capital_at_risk=False,
         blast_radius="unknown",
@@ -301,6 +361,7 @@ def test_conditional_gate_facts_become_mandatory(
     flag: str,
     expected_gates: set[str],
 ) -> None:
+    """Require the gates associated with each enabled conditional fact."""
     base = _change_for(risk_class)
     values = {
         "computationally_material": base.computationally_material,
@@ -325,6 +386,7 @@ def test_conditional_gate_facts_become_mandatory(
 def test_r4_requires_distinct_review_groups_and_independent_approvers(
     policy: ChangeRiskPolicy,
 ) -> None:
+    """Accept four qualifying approvers and reject an incomplete R4 approval set."""
     change = _change_for(RiskClass.R4)
     decision = classify_change(change, policy)
 
@@ -349,6 +411,7 @@ def test_r4_requires_distinct_review_groups_and_independent_approvers(
 def test_r4_activation_requires_two_distinct_canonical_identities(
     policy: ChangeRiskPolicy,
 ) -> None:
+    """Require two distinct canonical reviewer identities for R4 activation."""
     change = _change_for(RiskClass.R4)
     decision = classify_change(change, policy)
 
@@ -388,6 +451,7 @@ def test_r4_activation_requires_two_distinct_canonical_identities(
 def test_approval_validation_rejects_a_decision_for_another_change(
     policy: ChangeRiskPolicy,
 ) -> None:
+    """Reject approval evidence whose decision belongs to a different change."""
     capital_change = _change_for(RiskClass.R4)
     untrusted_decision = classify_change(_change_for(RiskClass.R0), policy)
 
@@ -404,6 +468,7 @@ def test_approval_validation_rejects_a_decision_for_another_change(
 def test_approval_validation_rejects_same_class_decision_tampering(
     policy: ChangeRiskPolicy,
 ) -> None:
+    """Reject tampered decision evidence even when its risk class remains R4."""
     change = _change_for(RiskClass.R4)
     trusted_decision = classify_change(change, policy)
     # Deliberately bypass validation to represent untrusted, tampered evidence.
@@ -420,6 +485,7 @@ def test_approval_validation_rejects_same_class_decision_tampering(
 
 
 def test_author_cannot_satisfy_an_independent_r4_group(policy: ChangeRiskPolicy) -> None:
+    """Reject an author approval from satisfying an independent R4 reviewer group."""
     change = _change_for(RiskClass.R4)
     decision = classify_change(change, policy)
     approvals = list(_highest_risk_class_approvals())
@@ -441,6 +507,7 @@ def test_author_cannot_satisfy_an_independent_r4_group(policy: ChangeRiskPolicy)
 
 
 def test_r4_rejects_a_waived_hard_control(policy: ChangeRiskPolicy) -> None:
+    """Reject R4 merge validation when a hard control is waived."""
     change = _change_for(RiskClass.R4)
     decision = classify_change(change, policy)
 
@@ -457,6 +524,7 @@ def test_r4_rejects_a_waived_hard_control(policy: ChangeRiskPolicy) -> None:
 def test_one_multi_role_reviewer_cannot_satisfy_multiple_r4_groups(
     policy: ChangeRiskPolicy,
 ) -> None:
+    """Prevent one multi-role reviewer from satisfying multiple R4 groups."""
     change = _change_for(RiskClass.R4)
     decision = classify_change(change, policy)
     approvals = (
@@ -481,6 +549,7 @@ def test_one_multi_role_reviewer_cannot_satisfy_multiple_r4_groups(
 
 
 def test_duplicate_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy) -> None:
+    """Reject duplicate reviewer IDs from counting as distinct approvals."""
     change = _change_for(RiskClass.R2)
     decision = classify_change(change, policy)
     approvals = (
@@ -503,6 +572,7 @@ def test_duplicate_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy
 
 
 def test_canonical_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy) -> None:
+    """Reject reviewer IDs that collide after canonicalization."""
     change = _change_for(RiskClass.R2)
     decision = classify_change(change, policy)
     approvals = (
@@ -580,6 +650,7 @@ def test_canonical_reviewer_identity_cannot_count_twice(policy: ChangeRiskPolicy
 def test_policy_input_schema_preserves_structural_error_contract(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Preserve structural schema errors for malformed policy fields."""
     path = _mutated_policy(tmp_path, old, new)
 
     with pytest.raises(ChangeRiskPolicyError, match=message):
@@ -589,6 +660,7 @@ def test_policy_input_schema_preserves_structural_error_contract(
 def test_policy_input_schema_preserves_existing_extensible_root_contract(
     tmp_path: Path,
 ) -> None:
+    """Accept an otherwise valid policy extension at the document root."""
     path = _mutated_policy(
         tmp_path,
         "schema_version = 1",
@@ -629,6 +701,7 @@ def test_policy_input_schema_preserves_existing_extensible_root_contract(
 def test_policy_mutations_cannot_weaken_hard_boundaries(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Reject mutations that weaken hard boundaries or break policy identity."""
     path = _mutated_policy(tmp_path, old, new)
 
     with pytest.raises(ChangeRiskPolicyError, match=message):
@@ -636,6 +709,7 @@ def test_policy_mutations_cannot_weaken_hard_boundaries(
 
 
 def test_partial_policy_cannot_hide_open_findings(tmp_path: Path) -> None:
+    """Reject partial policy text that hides required open findings."""
     path = tmp_path / "change-risk-policy.toml"
     text = POLICY_PATH.read_text(encoding="utf-8").split("[[findings]]", maxsplit=1)[0]
     path.write_text(text, encoding="utf-8")
@@ -645,6 +719,7 @@ def test_partial_policy_cannot_hide_open_findings(tmp_path: Path) -> None:
 
 
 def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> None:
+    """Reject solo-bootstrap policy text that falsely claims validated status."""
     path = tmp_path / "change-risk-policy.toml"
     text = POLICY_PATH.read_text(encoding="utf-8").split("[[findings]]", maxsplit=1)[0]
     text = text.replace(

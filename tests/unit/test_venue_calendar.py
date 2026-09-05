@@ -59,6 +59,7 @@ FIXTURE_PATH = REPOSITORY_ROOT / "tests" / "golden" / "venue_calendar" / "c02_ca
 
 
 def _instant(value: str) -> datetime:
+    """Parse ISO fixture text, translating a trailing Z to an explicit UTC offset."""
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
@@ -68,6 +69,19 @@ def _venue(
     mic: str = "XNYS",
     timezone_name: str = "America/New_York",
 ) -> Venue:
+    """Build a synthetic venue with explicit identity and timezone inputs.
+
+    Args:
+        identifier: Canonical venue UUID text.
+        mic: Code used for both market and operating MICs.
+        timezone_name: IANA timezone name; never inferred from the host.
+
+    Returns:
+        Validated venue with a name derived from the MIC.
+
+    Raises:
+        VenueCalendarValidationError: Identity, MIC or timezone validation fails.
+    """
     return Venue(
         venue_id=VenueId.from_canonical_text(identifier),
         mic=MarketIdentifierCode(value=mic),
@@ -78,6 +92,14 @@ def _venue(
 
 
 def _version(*, overridden: bool = False) -> CalendarSourceVersion:
+    """Build pinned synthetic calendar provenance with optional override attribution.
+
+    Args:
+        overridden: Whether to include the fixture override source and revision.
+
+    Returns:
+        Source version bound to the pinned exchange-calendars adapter version.
+    """
     return CalendarSourceVersion(
         calendar_version="c02-fixture-v1",
         base_source="exchange_calendars",
@@ -99,6 +121,22 @@ def _session(
     break_ends_at: datetime | None = datetime(2024, 3, 11, 5, 0, tzinfo=UTC),
     auctions: tuple[AuctionWindow, ...] = (),
 ) -> TradingSession:
+    """Build a synthetic session for interval and market-state tests.
+
+    Args:
+        label: Calendar date identifying the session.
+        opens_at: Inclusive UTC opening instant.
+        closes_at: Exclusive UTC closing instant.
+        break_starts_at: Inclusive UTC break start, or None with no break end.
+        break_ends_at: Exclusive UTC break end, or None with no break start.
+        auctions: Ordered, nonoverlapping auction windows attached to the session.
+
+    Returns:
+        Validated session; the defaults describe a Hong Kong session with a lunch break.
+
+    Raises:
+        VenueCalendarValidationError: Times, intervals or auction relationships are invalid.
+    """
     return TradingSession(
         session_label=label,
         opens_at=opens_at,
@@ -110,12 +148,23 @@ def _session(
 
 
 def _load_fixture() -> dict[str, object]:
+    """Read the checked-in C02 golden JSON and assert its root is an object.
+
+    Returns:
+        Parsed root dictionary; callers validate the nested fields they consume.
+
+    Raises:
+        OSError: The fixture cannot be read.
+        ValueError: The fixture is not valid JSON.
+        AssertionError: The parsed root is not a dictionary.
+    """
     fixture: object = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
     assert isinstance(fixture, dict)
     return fixture
 
 
 def test_adapter_matches_pinned_cross_timezone_dst_half_day_and_break_fixture() -> None:
+    """Match pinned venue sessions, DST shifts, half days and breaks to golden UTC instants."""
     fixture = _load_fixture()
     assert fixture["adapter_version"] == EXCHANGE_CALENDARS_VERSION
     adapter = ExchangeCalendarsAdapter()
@@ -153,6 +202,7 @@ def test_adapter_matches_pinned_cross_timezone_dst_half_day_and_break_fixture() 
 
 
 def test_named_holiday_closure_is_attributed_and_cannot_be_a_session() -> None:
+    """Retain holiday attribution and reject a date that is both a closure and a session."""
     fixture = _load_fixture()
     raw_venues = fixture["venues"]
     assert isinstance(raw_venues, list)
@@ -199,6 +249,7 @@ def test_named_holiday_closure_is_attributed_and_cannot_be_a_session() -> None:
 
 
 def test_versioned_override_add_replace_and_remove_actions_are_exact() -> None:
+    """Apply each versioned override action and retain its ordered provenance record."""
     adapter = ExchangeCalendarsAdapter()
     saturday = _session(
         label=date(2024, 3, 9),
@@ -272,6 +323,7 @@ def test_versioned_override_add_replace_and_remove_actions_are_exact() -> None:
 def test_invalid_override_target_fails_closed(
     action: SessionOverrideAction, label: date, message: str
 ) -> None:
+    """Reject additions to existing sessions and replacements or removals of absent sessions."""
     replacement = None
     if action is not SessionOverrideAction.REMOVE:
         replacement = _session(
@@ -305,6 +357,7 @@ def test_invalid_override_target_fails_closed(
 def test_direct_snapshot_rejects_override_records_that_disagree_with_sessions(
     action: SessionOverrideAction,
 ) -> None:
+    """Reject retained override actions whose claimed result disagrees with snapshot sessions."""
     session = _session()
     override = SessionOverride(
         override_id="inconsistent-result",
@@ -327,6 +380,7 @@ def test_direct_snapshot_rejects_override_records_that_disagree_with_sessions(
 
 
 def test_market_state_precedence_and_half_open_boundaries() -> None:
+    """Project auction, halt, limit and break transitions with exact boundaries and coverage."""
     raw_state = _load_fixture()["synthetic_market_state"]
     assert isinstance(raw_state, dict)
     raw_auction = raw_state["opening_auction"]
@@ -399,6 +453,7 @@ def test_market_state_precedence_and_half_open_boundaries() -> None:
 
 @pytest.mark.parametrize("halt_start", ["2024-03-11T01:32:00Z", "2024-03-11T04:10:00Z"])
 def test_halt_takes_precedence_over_auction_and_break(halt_start: str) -> None:
+    """Project a halt during either an auction or a scheduled break as HALTED."""
     session = _session(
         auctions=(
             AuctionWindow(
@@ -437,6 +492,7 @@ def test_halt_takes_precedence_over_auction_and_break(halt_start: str) -> None:
 def test_non_normal_limit_state_is_independent_of_continuous_phase(
     limit_state: PriceLimitState,
 ) -> None:
+    """Retain the continuous phase while separately reporting each active price-limit state."""
     starts_at = datetime(2024, 3, 11, 2, 0, tzinfo=UTC)
     snapshot = VenueCalendarSnapshot(
         venue=_venue(),
@@ -462,6 +518,7 @@ def test_non_normal_limit_state_is_independent_of_continuous_phase(
 
 
 def test_settlement_calendar_is_bounded_and_does_not_infer_conventions() -> None:
+    """Search explicit settlement dates and reject uncovered or exhausted date requests."""
     raw_calendar = _load_fixture()["settlement_calendar"]
     assert isinstance(raw_calendar, dict)
     raw_range = raw_calendar["range"]
@@ -494,11 +551,13 @@ def test_settlement_calendar_is_bounded_and_does_not_infer_conventions() -> None
     ["xnys", "NYS", "XNYS ", "XNYS1", "X-YZ"],
 )
 def test_invalid_mic_fails_without_normalization(bad_mic: str) -> None:
+    """Reject noncanonical market identifier codes without trimming or changing case."""
     with pytest.raises(VenueCalendarValidationError, match="four uppercase ASCII"):
         MarketIdentifierCode(value=bad_mic)
 
 
 def test_invalid_time_and_interval_state_fails_closed() -> None:
+    """Reject naive or non-UTC times, invalid breaks and NONE price-limit windows."""
     with pytest.raises(VenueCalendarValidationError, match="timezone-aware UTC"):
         _session(opens_at=datetime(2024, 3, 11, 1, 30))
     with pytest.raises(VenueCalendarValidationError, match="must use UTC"):
@@ -526,6 +585,7 @@ def test_invalid_time_and_interval_state_fails_closed() -> None:
     ],
 )
 def test_snapshot_session_graph_rejects_invalid_state(mutation: str, message: str) -> None:
+    """Reject overlapping, duplicate, unordered and uncovered sessions."""
     first = _session()
     second_label = date(2024, 3, 13) if mutation == "outside" else date(2024, 3, 12)
     if mutation == "duplicate":
@@ -555,6 +615,7 @@ def test_snapshot_session_graph_rejects_invalid_state(mutation: str, message: st
 
 
 def test_auction_windows_allow_repeated_kinds_but_reject_overlap() -> None:
+    """Allow adjacent auctions of one kind while rejecting overlapping auction intervals."""
     first = AuctionWindow(
         kind=AuctionKind.OPENING,
         starts_at=datetime(2024, 3, 11, 1, 30, tzinfo=UTC),
@@ -579,6 +640,7 @@ def test_auction_windows_allow_repeated_kinds_but_reject_overlap() -> None:
 @pytest.mark.parametrize("window_kind", ["halt", "limit"])
 @pytest.mark.parametrize("mutation", ["outside", "overlap", "duplicate"])
 def test_market_windows_reject_unsafe_graphs(window_kind: str, mutation: str) -> None:
+    """Reject uncovered, overlapping or duplicate halt and price-limit windows."""
     first_start = datetime(2024, 3, 11, 1 if mutation == "outside" else 2, 0, tzinfo=UTC)
     starts = (
         (first_start,)
@@ -633,6 +695,7 @@ def test_market_windows_reject_unsafe_graphs(window_kind: str, mutation: str) ->
 
 
 def test_market_state_rejects_incoherent_phase_metadata() -> None:
+    """Require phase metadata consistent with closed, auction and halted states."""
     with pytest.raises(VenueCalendarValidationError, match="closed market state"):
         MarketState(
             status=MarketStatus.CLOSED,
@@ -653,6 +716,7 @@ def test_market_state_rejects_incoherent_phase_metadata() -> None:
 
 
 def test_explicit_timezone_conversion_preserves_dst_gap_and_fold() -> None:
+    """Preserve the spring DST gap and distinct UTC instants in the autumn repeated hour."""
     venue = _venue()
     before_gap = venue.local_time(datetime(2024, 3, 10, 6, 59, tzinfo=UTC))
     after_gap = venue.local_time(datetime(2024, 3, 10, 7, 0, tzinfo=UTC))
@@ -667,6 +731,7 @@ def test_explicit_timezone_conversion_preserves_dst_gap_and_fold() -> None:
 
 
 def test_unknown_calendar_timezone_mismatch_and_unversioned_override_reject() -> None:
+    """Reject unknown calendars, mismatched timezones and missing or inconsistent attribution."""
     adapter = ExchangeCalendarsAdapter()
     with pytest.raises(CalendarAdapterError, match="cannot load calendar"):
         adapter.build_snapshot(
@@ -725,6 +790,7 @@ def test_unknown_calendar_timezone_mismatch_and_unversioned_override_reject() ->
 def test_incompatible_calendar_library_version_fails_before_source_use(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Reject a calendar dependency version that differs from the exact adapter pin."""
     monkeypatch.setattr(calendar_adapter_module, "installed_version", lambda _: "4.13.1")
 
     with pytest.raises(IncompatibleCalendarLibraryError, match=r"must be exactly 4\.13\.2"):
@@ -746,6 +812,7 @@ def test_incompatible_calendar_library_version_fails_before_source_use(
     ],
 )
 def test_closure_only_adapter_ranges_preserve_exact_empty_coverage(start: date, end: date) -> None:
+    """Retain exact requested coverage and closed state when the range contains no sessions."""
     snapshot = ExchangeCalendarsAdapter().build_snapshot(
         venue=_venue(),
         calendar_name="XNYS",
@@ -766,6 +833,7 @@ def test_closure_only_adapter_ranges_preserve_exact_empty_coverage(start: date, 
 
 
 def test_adapter_rejects_mislabeled_source_revision_and_duplicate_source_sessions() -> None:
+    """Reject incorrect source revision claims and duplicate source session labels."""
     wrong_revision = _version().model_copy(update={"base_source_revision": "4.13.1"})
     with pytest.raises(VenueCalendarValidationError, match="base_source_revision"):
         ExchangeCalendarsAdapter().build_snapshot(
@@ -780,22 +848,61 @@ def test_adapter_rejects_mislabeled_source_revision_and_duplicate_source_session
 
 
 def test_source_session_query_failure_is_translated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Translate a source opening-time query failure into the owned calendar adapter error."""
+
     class FailingCalendar:
+        """Provide one synthetic session whose opening query always fails."""
+
         name = "XNYS"
         tz = "America/New_York"
         sessions = (date(2024, 3, 11),)
         early_closes: tuple[date, ...] = ()
 
         def session_open(self, session: date) -> object:
+            """Fail the source query to exercise adapter exception translation.
+
+            Args:
+                session: Requested session label, intentionally unused.
+
+            Returns:
+                No value; this source query always raises.
+
+            Raises:
+                ValueError: The synthetic source query fails on every call.
+            """
             raise ValueError("Synthetic source query failure")
 
         def session_close(self, session: date) -> object:
+            """Supply the fixed UTC close required by the calendar source protocol.
+
+            Args:
+                session: Requested session label, intentionally unused.
+
+            Returns:
+                The synthetic session's close at 20:00 UTC on March 11, 2024.
+            """
             return datetime(2024, 3, 11, 20, 0, tzinfo=UTC)
 
         def session_break_start(self, session: date) -> object:
+            """Report that the synthetic source session has no break start.
+
+            Args:
+                session: Requested session label, intentionally unused.
+
+            Returns:
+                None, the fake source's absent-break sentinel.
+            """
             return None
 
         def session_break_end(self, session: date) -> object:
+            """Report that the synthetic source session has no break end.
+
+            Args:
+                session: Requested session label, intentionally unused.
+
+            Returns:
+                None, the fake source's absent-break sentinel.
+            """
             return None
 
     monkeypatch.setattr(
@@ -812,6 +919,11 @@ def test_source_session_query_failure_is_translated(monkeypatch: pytest.MonkeyPa
 
 
 def test_adapter_does_not_depend_on_host_local_timezone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the same UTC session under Honolulu and Singapore host timezones.
+
+    The test changes TZ and calls tzset, restoring both environment and process
+    state afterward; it skips hosts without tzset.
+    """
     if not hasattr(time, "tzset"):
         pytest.skip("host does not expose tzset")
     adapter = ExchangeCalendarsAdapter()
@@ -843,6 +955,7 @@ def test_adapter_does_not_depend_on_host_local_timezone(monkeypatch: pytest.Monk
 
 @pytest.mark.performance
 def test_market_state_projection_stays_within_local_diagnostic_budget() -> None:
+    """Keep ten thousand state projections over 185 sessions below one local second."""
     snapshot = ExchangeCalendarsAdapter().build_snapshot(
         venue=_venue(),
         calendar_name="XNYS",
@@ -868,6 +981,7 @@ def test_market_state_projection_stays_within_local_diagnostic_budget() -> None:
 def test_market_state_projection_is_deterministic_for_every_boundary_offset(
     offset_seconds: int,
 ) -> None:
+    """Repeat generated boundary queries and enforce the inclusive-open, exclusive-close rule."""
     session = TradingSession(
         session_label=date(2024, 1, 2),
         opens_at=datetime(2024, 1, 2, 14, 30, tzinfo=UTC),
@@ -900,12 +1014,14 @@ def test_market_state_projection_is_deterministic_for_every_boundary_offset(
     )
 )
 def test_explicit_venue_timezone_round_trip_preserves_instant(instant: datetime) -> None:
+    """Recover each generated UTC instant after conversion through the venue timezone."""
     venue = _venue()
 
     assert venue.local_time(instant).astimezone(UTC) == instant
 
 
 def test_venue_identity_and_calendar_version_reject_invalid_state() -> None:
+    """Reject nil or noncanonical IDs, incomplete override provenance and unknown timezones."""
     with pytest.raises(VenueCalendarValidationError, match="non-nil UUID"):
         VenueId(uuid_value=UUID(int=0))
     with pytest.raises(VenueCalendarValidationError, match="canonical UUID"):
@@ -925,6 +1041,7 @@ def test_venue_identity_and_calendar_version_reject_invalid_state() -> None:
 
 
 def test_venue_calendar_models_are_strict_frozen_pydantic_boundaries() -> None:
+    """Reject coercion, mutable collections, frozen assignment and invalid nested copies."""
     model_types = (
         VenueId,
         MarketIdentifierCode,
@@ -984,6 +1101,7 @@ def test_venue_calendar_models_are_strict_frozen_pydantic_boundaries() -> None:
 
 
 def test_invalid_optional_source_instant_is_not_treated_as_an_absent_break() -> None:
+    """Reject a naive optional break timestamp instead of treating it as a missing break."""
     with pytest.raises(CalendarAdapterError, match="invalid session break"):
         calendar_adapter_module._as_utc_datetime(
             datetime(2024, 3, 11, 4, 0),

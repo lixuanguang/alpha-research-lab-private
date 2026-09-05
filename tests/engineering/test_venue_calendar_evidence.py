@@ -45,6 +45,7 @@ VENUE_CALENDAR_APPLICABLE_QUALITY_GATES = (
 
 
 def test_venue_calendar_manifest_matches_partial_r2_profile_and_golden_digest() -> None:
+    """Bind the partial C02 risk profile, findings and golden digest to retained evidence."""
     venue_calendar_evidence_manifest = validate_manifest(
         VENUE_CALENDAR_EVIDENCE_MANIFEST_PATH,
         expected_commit_sha="f" * 40,

@@ -32,9 +32,24 @@ MISMATCHED_SOURCE_COMMIT_SHA = "b" * 40
 
 
 class DeterministicArtifactToolRunner:
-    """Produce deterministic Syft and Cosign boundary results."""
+    """Simulate Syft and Cosign calls with recorded commands and local fixture files.
+
+    Calls never launch a tool or authenticate a signature. Signature files contain
+    only synthetic metadata; verification success is a canned process result.
+    Recorded commands accumulate across calls on the same runner.
+
+    Attributes:
+        sbom_file_names: File names emitted in reverse order by simulated Syft scans.
+        executed_commands: Mutable history of command vectors, captured as tuples.
+        failing_command: Executable name forced to return status 7, or None for normal dispatch.
+    """
 
     def __init__(self, *, sbom_file_names: tuple[str, ...] = ("lib/libnative.so",)) -> None:
+        """Set the synthetic SBOM inventory and initialize empty invocation state.
+
+        Args:
+            sbom_file_names: Archive member names to report; empty simulates omitted native files.
+        """
         self.sbom_file_names = sbom_file_names
         self.executed_commands: list[tuple[str, ...]] = []
         self.failing_command: str | None = None
@@ -42,6 +57,21 @@ class DeterministicArtifactToolRunner:
     def __call__(
         self, command: list[str], working_directory: Path, environment: Mapping[str, str]
     ) -> subprocess.CompletedProcess[str]:
+        """Record a command, then simulate its result and any requested output file.
+
+        Args:
+            command: Syft/Cosign argv with output paths for scan or signing operations.
+            working_directory: Required runner argument; this fake does not change directory.
+            environment: Scan settings; Syft requires file metadata selection to equal ``all``.
+
+        Returns:
+            The simulated status and text output. A matching ``failing_command`` takes
+            precedence over version, scan, signing and verification handling.
+
+        Raises:
+            AssertionError: A command is unsupported or the scan metadata setting is wrong.
+            OSError: A requested SBOM or signature fixture cannot be written.
+        """
         del working_directory
         self.executed_commands.append(tuple(command))
         if self.failing_command == command[0]:
@@ -91,12 +121,25 @@ class DeterministicArtifactToolRunner:
 
 @pytest.fixture
 def artifact_supply_chain_policy() -> ArtifactSupplyChainPolicy:
+    """Load the checked-in artifact policy for synthetic bundle operations.
+
+    Returns:
+        The admitted policy with repository tool and lock identities.
+
+    Raises:
+        ArtifactSupplyChainError: The policy file cannot be loaded or violates its contract.
+    """
     return load_policy(REPOSITORY_ROOT / "docs/architecture/artifact-supply-chain.toml")
 
 
 @pytest.fixture(autouse=True)
 def synthetic_dependency_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Use an eligible graph for synthetic artifacts; B07 tests validate actual admission."""
+    """Use an eligible graph for synthetic artifacts; B07 tests validate actual admission.
+
+    Args:
+        monkeypatch: Fixture replacing release admission with a no-op for each test;
+            the denial regression explicitly overrides it to test blocking behavior.
+    """
     monkeypatch.setattr(
         "alpha_research_governance.artifact_supply_chain.bundle.require_release_admission",
         lambda _root: None,
@@ -104,6 +147,17 @@ def synthetic_dependency_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _create_test_artifact_and_evidence(tmp_path: Path) -> tuple[Path, Path]:
+    """Write a synthetic ZIP with a native member and a passed-test JSON report.
+
+    Args:
+        tmp_path: Existing temporary directory containing the two overwritten fixture files.
+
+    Returns:
+        Paths to ``service.zip`` and ``tests.json`` in that order.
+
+    Raises:
+        OSError: Either fixture cannot be written.
+    """
     test_artifact_path = tmp_path / "service.zip"
     with zipfile.ZipFile(test_artifact_path, "w") as archive:
         archive.writestr("bin/service", "executable")
@@ -120,6 +174,21 @@ def _create_test_bundle(
     *,
     name: str = "candidate",
 ) -> tuple[Path, str]:
+    """Create an unsigned fixture bundle using the supplied simulated artifact tools.
+
+    Args:
+        tmp_path: Existing directory for the archive, test report and candidate bundle.
+        artifact_supply_chain_policy: Policy used by the real bundle-creation workflow.
+        artifact_tool_runner: Stateful fake receiving version and SBOM-generation calls.
+        name: Candidate output directory name beneath ``tmp_path``; it must not exist.
+
+    Returns:
+        Candidate directory and its complete artifact reference with a ``sha256:`` prefix.
+
+    Raises:
+        ArtifactSupplyChainError: Bundle validation, tool execution or output admission fails.
+        OSError: Fixture inputs or bundle output cannot be written.
+    """
     test_artifact_path, test_evidence_path = _create_test_artifact_and_evidence(tmp_path)
     bundle_path = tmp_path / name
     created_bundle = create_bundle(
@@ -142,6 +211,17 @@ def _sign_test_bundle_in_protected_main_context(
     artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
     artifact_tool_runner: DeterministicArtifactToolRunner,
 ) -> None:
+    """Exercise signing with protected-main facts and synthetic signature output.
+
+    Args:
+        bundle_path: Existing candidate to sign in place.
+        artifact_supply_chain_policy: Policy used to validate the signing boundary.
+        artifact_tool_runner: Fake writing signature metadata without authenticating it.
+
+    Raises:
+        ArtifactSupplyChainError: Candidate or signing-context validation rejects the operation.
+        OSError: A signing fixture cannot be read or written.
+    """
     sign_bundle(
         bundle_path,
         signing_context="github_protected_main",
@@ -160,6 +240,7 @@ def _sign_test_bundle_in_protected_main_context(
 def test_policy_is_closed_and_binds_tools_locks_and_blueprint_gate(
     artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
 ) -> None:
+    """Retain exact tool/lock identities, the artifact gate and explicit partial package status."""
     assert validate_repository(REPOSITORY_ROOT) == artifact_supply_chain_policy
     assert artifact_supply_chain_policy.package_status == "partial"
     assert artifact_supply_chain_policy.successor_package == "C01"
@@ -180,6 +261,7 @@ def test_policy_is_closed_and_binds_tools_locks_and_blueprint_gate(
 
 
 def test_policy_unknown_fields_and_floating_tool_versions_fail_closed(tmp_path: Path) -> None:
+    """Reject unknown artifact-policy fields and floating external-tool versions."""
     policy_source = (REPOSITORY_ROOT / "docs/architecture/artifact-supply-chain.toml").read_text(
         encoding="utf-8"
     )
@@ -203,6 +285,7 @@ def test_policy_unknown_fields_and_floating_tool_versions_fail_closed(tmp_path: 
 def test_creation_is_deterministic_and_binds_whole_artifact_inputs(
     tmp_path: Path, artifact_supply_chain_policy: ArtifactSupplyChainPolicy
 ) -> None:
+    """Match repeated bundle metadata and retain whole-artifact, toolchain and evidence bindings."""
     first_bundle_path, first_artifact_digest = _create_test_bundle(
         tmp_path,
         artifact_supply_chain_policy,
@@ -241,6 +324,7 @@ def test_creation_is_deterministic_and_binds_whole_artifact_inputs(
 def test_signed_bundle_verifies_and_publishes_only_once_by_digest(
     tmp_path: Path, artifact_supply_chain_policy: ArtifactSupplyChainPolicy
 ) -> None:
+    """Use simulated signatures to exercise verification and single publication by digest."""
     artifact_tool_runner = DeterministicArtifactToolRunner()
     bundle_path, artifact_digest_reference = _create_test_bundle(
         tmp_path, artifact_supply_chain_policy, artifact_tool_runner
@@ -288,6 +372,7 @@ def test_consumer_rejects_mutable_or_malformed_references(
     artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
     consumer_reference: str,
 ) -> None:
+    """Reject mutable tags and malformed digests before accepting a consumer reference."""
     bundle_path, _ = _create_test_bundle(
         tmp_path, artifact_supply_chain_policy, DeterministicArtifactToolRunner()
     )
@@ -304,6 +389,7 @@ def test_consumer_rejects_mutable_or_malformed_references(
 def test_unsigned_tampered_and_unknown_manifest_state_is_rejected(
     tmp_path: Path, artifact_supply_chain_policy: ArtifactSupplyChainPolicy
 ) -> None:
+    """Reject absent signatures, changed artifact bytes and unrecognized manifest fields."""
     artifact_tool_runner = DeterministicArtifactToolRunner()
     bundle_path, artifact_digest_reference = _create_test_bundle(
         tmp_path, artifact_supply_chain_policy, artifact_tool_runner
@@ -355,6 +441,7 @@ def test_unsigned_tampered_and_unknown_manifest_state_is_rejected(
 def test_native_library_omission_and_tool_failure_fail_closed(
     tmp_path: Path, artifact_supply_chain_policy: ArtifactSupplyChainPolicy
 ) -> None:
+    """Clean failed candidates after native omissions or tool failure and reject version drift."""
     with pytest.raises(ArtifactSupplyChainError, match="native/shared-library"):
         _create_test_bundle(
             tmp_path,
@@ -390,6 +477,7 @@ def test_native_library_omission_and_tool_failure_fail_closed(
 def test_signing_context_sha_and_revoked_identity_fail_closed(
     tmp_path: Path, artifact_supply_chain_policy: ArtifactSupplyChainPolicy
 ) -> None:
+    """Reject untrusted signing, mismatched source commits, extra files and revoked signers."""
     artifact_tool_runner = DeterministicArtifactToolRunner()
     bundle_path, artifact_digest_reference = _create_test_bundle(
         tmp_path, artifact_supply_chain_policy, artifact_tool_runner
@@ -447,6 +535,7 @@ def test_invalid_creation_inputs_and_cli_usage_are_rejected(
     artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Reject an unsupported artifact kind and retain the CLI usage-error status and output."""
     test_artifact_path, test_evidence_path = _create_test_artifact_and_evidence(tmp_path)
     with pytest.raises(ArtifactSupplyChainError, match="unsupported artifact kind"):
         create_bundle(
@@ -467,6 +556,7 @@ def test_invalid_creation_inputs_and_cli_usage_are_rejected(
 def test_root_package_bazel_label_is_accepted(
     tmp_path: Path, artifact_supply_chain_policy: ArtifactSupplyChainPolicy
 ) -> None:
+    """Preserve an explicit root-package Bazel label in the created bundle identity."""
     test_artifact_path, test_evidence_path = _create_test_artifact_and_evidence(tmp_path)
     created_bundle = create_bundle(
         test_artifact_path,
@@ -490,11 +580,21 @@ def test_bootstrap_dependency_denial_blocks_every_artifact_boundary_before_tools
     monkeypatch: pytest.MonkeyPatch,
     operation: str,
 ) -> None:
+    """Block create, sign, verify and publish before tool calls when release admission fails."""
     runner = DeterministicArtifactToolRunner()
     bundle, digest = _create_test_bundle(tmp_path, artifact_supply_chain_policy, runner)
     runner.executed_commands.clear()
 
     def deny(root: Path) -> None:
+        """Check the repository binding and simulate bootstrap-only release rejection.
+
+        Args:
+            root: Repository root, required to be the checked-in fixture repository.
+
+        Raises:
+            AssertionError: The artifact operation supplies a different repository root.
+            DependencyAdmissionError: Always after the root check, simulating blocked release.
+        """
         assert root == REPOSITORY_ROOT
         raise DependencyAdmissionError(
             ["bootstrap-only dependencies block artifact release: numpy"]

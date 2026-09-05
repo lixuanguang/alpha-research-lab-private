@@ -54,20 +54,39 @@ RUNNING_UNDER_BAZEL = bool(os.environ.get("TEST_SRCDIR"))
 
 
 def _policy_fixture(tmp_path: Path) -> Path:
+    """Copy the checked-in dependency policy to an isolated mutation fixture.
+
+    Args:
+        tmp_path: Existing directory in which to write or overwrite the policy copy.
+
+    Returns:
+        The temporary ``dependency-admission.toml`` path.
+
+    Raises:
+        OSError: The source policy cannot be read or the fixture cannot be written.
+    """
     path = tmp_path / "dependency-admission.toml"
     path.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
     return path
 
 
 def _without_bootstrap(text: str) -> str:
-    """Isolate legacy and synthetic profile fixtures from current consumer records."""
+    """Keep the prefix before the first bootstrap table and insert one empty profile array."""
     return "bootstrap_wheel_admissions = []\n" + text.split("[[bootstrap_wheel_admissions]]")[
         0
     ].replace("bootstrap_wheel_admissions = []\n", "")
 
 
 def _copy_current_wheel_evidence(root: Path) -> None:
-    """Materialize structural-test inputs; process doubles do not authenticate signatures."""
+    """Materialize structural-test inputs; process doubles do not authenticate signatures.
+
+    Args:
+        root: Temporary repository root receiving copies of current bootstrap reports,
+            trust roots and attestation bundles; parent directories are created as needed.
+
+    Raises:
+        OSError: A declared evidence file cannot be read or its fixture copy cannot be written.
+    """
     data = tomllib.loads(POLICY_PATH.read_text())
     for record in data.get("bootstrap_wheel_admissions", []):
         reports = [
@@ -88,12 +107,31 @@ def _copy_current_wheel_evidence(root: Path) -> None:
 
 
 def _replace(path: Path, old: str, new: str) -> None:
+    """Replace the first required policy fragment in place for a mutation test.
+
+    Args:
+        path: Temporary UTF-8 policy file to read and overwrite.
+        old: Exact text required to be present before the mutation.
+        new: Replacement text for the first occurrence only.
+
+    Raises:
+        AssertionError: The expected original fragment is absent.
+        OSError: The fixture cannot be read or rewritten.
+    """
     text = path.read_text(encoding="utf-8")
     assert old in text
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
 def _clean_audit_report() -> dict[str, object]:
+    """Build a synthetic report covering every admitted version with no vulnerabilities.
+
+    Returns:
+        A fresh dependency list in policy order and an empty fixes list; no scanner is run.
+
+    Raises:
+        DependencyAdmissionError: The checked-in admission policy cannot be loaded.
+    """
     policy = load_policy(POLICY_PATH)
     return {
         "dependencies": [
@@ -105,6 +143,20 @@ def _clean_audit_report() -> dict[str, object]:
 
 
 def _write_json(tmp_path: Path, name: str, value: object) -> Path:
+    """Write a JSON fixture with sorted object keys, overwriting an existing file.
+
+    Args:
+        tmp_path: Existing directory containing the fixture.
+        name: Fixture filename beneath the temporary directory.
+        value: JSON-serializable test payload.
+
+    Returns:
+        The path containing the UTF-8 JSON text.
+
+    Raises:
+        TypeError: The payload contains a value unsupported by the JSON encoder.
+        OSError: The fixture cannot be written.
+    """
     path = tmp_path / name
     path.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
     return path
@@ -114,6 +166,7 @@ def _write_json(tmp_path: Path, name: str, value: object) -> Path:
     RUNNING_UNDER_BAZEL, reason="repository evidence rejects Bazel runfile symlinks"
 )
 def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() -> None:
+    """Validate current admissions and retain exact package counts, tool pins and open findings."""
     policy = validate_repository(REPOSITORY_ROOT)
 
     assert policy.package_status == "partial"
@@ -148,6 +201,7 @@ def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor() ->
     ],
 )
 def test_policy_mutations_fail_closed(tmp_path: Path, old: str, new: str, message: str) -> None:
+    """Reject mutations to admission status, install/index rules, licenses, tools and lock pins."""
     path = _policy_fixture(tmp_path)
     _replace(path, old, new)
 
@@ -156,6 +210,7 @@ def test_policy_mutations_fail_closed(tmp_path: Path, old: str, new: str, messag
 
 
 def test_unknown_and_malformed_policy_fields_fail_closed(tmp_path: Path) -> None:
+    """Translate unknown policy fields and malformed TOML into admission errors."""
     unknown = _policy_fixture(tmp_path)
     _replace(unknown, "[lock_digests]", "unknown = true\n\n[lock_digests]")
     with pytest.raises(DependencyAdmissionError, match="missing or unknown fields"):
@@ -168,6 +223,7 @@ def test_unknown_and_malformed_policy_fields_fail_closed(tmp_path: Path) -> None
 
 
 def test_emergency_override_requires_specific_bounded_audited_record(tmp_path: Path) -> None:
+    """Accept an attributed exact-component override and reject vague identity or long expiry."""
     path = _policy_fixture(tmp_path)
     _replace(
         path,
@@ -200,6 +256,7 @@ def test_emergency_override_requires_specific_bounded_audited_record(tmp_path: P
 
 
 def test_complete_clean_pip_audit_report_passes(tmp_path: Path) -> None:
+    """Accept a synthetic clean report that covers the complete admitted package graph."""
     report = _write_json(tmp_path, "audit.json", _clean_audit_report())
     assess_pip_audit_report(report, load_policy(POLICY_PATH))
 
@@ -207,10 +264,24 @@ def test_complete_clean_pip_audit_report_passes(tmp_path: Path) -> None:
 def test_live_audit_uses_the_complete_exact_lock_graph(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Pass every admitted version to the scanner with strict, non-resolving audit options."""
     policy = load_policy(POLICY_PATH)
     monkeypatch.setattr("importlib.metadata.version", lambda _name: "2.10.1")
 
     def run_audit(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Inspect the generated requirements and write a clean report without running pip-audit.
+
+        Args:
+            command: Scanner argv identifying the requirements and report paths.
+            **kwargs: Subprocess options; ``cwd`` must identify the fixture repository.
+
+        Returns:
+            A successful process result after writing the synthetic report.
+
+        Raises:
+            AssertionError: Command options, working directory or exact requirements drift.
+            OSError: Requirements cannot be read or the report cannot be written.
+        """
         assert kwargs["cwd"] == REPOSITORY_ROOT
         assert "--local" not in command
         assert {"--no-deps", "--disable-pip", "--strict"} <= set(command)
@@ -231,6 +302,7 @@ def test_live_audit_uses_the_complete_exact_lock_graph(
     "mutation", ["missing", "wrong_version", "skip", "skip_unknown", "duplicate"]
 )
 def test_pip_audit_coverage_gaps_fail_closed(tmp_path: Path, mutation: str) -> None:
+    """Reject omitted, misversioned, skipped or duplicated dependencies in scanner reports."""
     payload = _clean_audit_report()
     dependencies = payload["dependencies"]
     assert isinstance(dependencies, list)
@@ -251,6 +323,7 @@ def test_pip_audit_coverage_gaps_fail_closed(tmp_path: Path, mutation: str) -> N
 
 
 def test_vulnerability_requires_exact_owned_exploitability_decision(tmp_path: Path) -> None:
+    """Require an unexpired decision for the exact vulnerable package/version and reject drift."""
     payload = _clean_audit_report()
     dependencies = payload["dependencies"]
     assert isinstance(dependencies, list)
@@ -299,6 +372,14 @@ def test_vulnerability_requires_exact_owned_exploitability_decision(tmp_path: Pa
 
 
 def _scorecard_report(*, commit: str = "a" * 40) -> dict[str, object]:
+    """Build a synthetic Scorecard report with fixed time, tool identity and required checks.
+
+    Args:
+        commit: Target repository revision placed in the report without validation.
+
+    Returns:
+        A fresh report dated 2026-09-03 UTC for the fixture repository and supplied commit.
+    """
     return {
         "date": "2026-09-03T00:00:00Z",
         "repo": {"name": "github.com/example/project", "commit": commit},
@@ -312,6 +393,7 @@ def _scorecard_report(*, commit: str = "a" * 40) -> dict[str, object]:
 
 
 def test_scorecard_signal_is_fresh_commit_bound_and_advisory(tmp_path: Path) -> None:
+    """Accept a fresh synthetic Scorecard signal bound to the expected repository and commit."""
     report = _write_json(tmp_path, "scorecard.json", _scorecard_report())
     assess_scorecard_report(
         report,
@@ -328,6 +410,7 @@ def test_scorecard_signal_is_fresh_commit_bound_and_advisory(tmp_path: Path) -> 
 def test_scorecard_invalid_or_inconclusive_signal_fails_closed(
     tmp_path: Path, failure: str
 ) -> None:
+    """Reject mismatched, stale, inconclusive or duplicated Scorecard signal identities."""
     payload = _scorecard_report()
     repository = "github.com/example/project"
     validation_time = datetime(2026, 9, 3, 12, tzinfo=UTC)
@@ -371,6 +454,7 @@ def test_exact_lock_wheels_and_transitives_match_registry(
     monkeypatch: pytest.MonkeyPatch,
     wheel_cosign: None,
 ) -> None:
+    """Check current lock coverage with copied evidence and a simulated signature verifier."""
     # Real authentication remains blocking in validate_repository above and the full lane.
     _copy_current_wheel_evidence(tmp_path)
     (tmp_path / "uv.lock").write_bytes((REPOSITORY_ROOT / "uv.lock").read_bytes())
@@ -382,11 +466,13 @@ def test_exact_lock_wheels_and_transitives_match_registry(
     RUNNING_UNDER_BAZEL, reason="repository evidence rejects Bazel runfile symlinks"
 )
 def test_repository_review_expiry_fails_closed() -> None:
+    """Reject repository admission after the recorded policy review window expires."""
     with pytest.raises(DependencyAdmissionError, match="review is stale"):
         validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 12, 4))
 
 
 def test_mutable_action_reference_and_runtime_install_are_rejected(tmp_path: Path) -> None:
+    """Detect a mutable workflow action and a runtime package-install call in temporary inputs."""
     for relative in ("MODULE.bazel.lock", "flake.lock", "requirements.bazel.txt", "uv.lock"):
         (tmp_path / relative).write_text(
             (REPOSITORY_ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8"
@@ -415,12 +501,24 @@ def test_mutable_action_reference_and_runtime_install_are_rejected(tmp_path: Pat
 def test_live_audit_missing_tool_version_and_cli_usage_are_explicit(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """Report unadmitted or missing audit tools and retain usage errors for unknown commands."""
     policy = load_policy(POLICY_PATH)
     monkeypatch.setattr("importlib.metadata.version", lambda _name: "0.0.0")
     with pytest.raises(DependencyAdmissionError, match="not admitted"):
         run_pip_audit(REPOSITORY_ROOT, policy)
 
     def missing_version(_name: str) -> str:
+        """Simulate absent distribution metadata for the audit-tool lookup.
+
+        Args:
+            _name: Requested distribution name; ignored because every lookup fails.
+
+        Returns:
+            No version is returned; the annotation preserves the replaced lookup signature.
+
+        Raises:
+            PackageNotFoundError: Always, to exercise the missing-tool error translation.
+        """
         raise PackageNotFoundError
 
     monkeypatch.setattr("importlib.metadata.version", missing_version)
@@ -432,12 +530,37 @@ def test_live_audit_missing_tool_version_and_cli_usage_are_explicit(
 
 
 def _evidence_file(root: Path, filename: str, content: bytes) -> EvidenceFile:
+    """Write fixture bytes and return their relative path and calculated SHA-256 identity.
+
+    Args:
+        root: Existing temporary evidence directory.
+        filename: Relative fixture filename; parent directories must already exist.
+        content: Exact bytes to write, replacing any existing file.
+
+    Returns:
+        Evidence identity describing the written bytes, without authenticating their claims.
+
+    Raises:
+        OSError: The fixture file cannot be written.
+    """
     (root / filename).write_bytes(content)
     return EvidenceFile(path=filename, sha256=hashlib.sha256(content).hexdigest())
 
 
 def _wheel_source_fixture(root: Path) -> tuple[WheelSourceAdmission, dict[str, object]]:
-    """Make synthetic source claims; the fake runner does not authenticate these signatures."""
+    """Make synthetic source claims; the fake runner does not authenticate these signatures.
+
+    Args:
+        root: Existing directory receiving two unsigned attestation bundles and an empty
+            trust-root fixture, overwriting previous files with the same names.
+
+    Returns:
+        The NumPy 2.4.6 build-provenance admission and its matching lock fragment for
+        macOS arm64 and Linux x86-64 wheels; no wheel or upstream archive is downloaded.
+
+    Raises:
+        OSError: A synthetic evidence file cannot be written.
+    """
     sources = (
         SourceArchive(
             uri="https://example.invalid/source/archive/" + "a" * 40,
@@ -510,6 +633,17 @@ def _wheel_source_fixture(root: Path) -> tuple[WheelSourceAdmission, dict[str, o
 
 
 def _parse_source_record(value: object) -> tuple[WheelSourceAdmission, ...]:
+    """Validate fixture records against the exact native NumPy admission and BSD license.
+
+    Args:
+        value: Raw wheel-source record array, including intentionally invalid test payloads.
+
+    Returns:
+        Parsed source admissions without performing file or signature verification.
+
+    Raises:
+        DependencyAdmissionError: A record fails field, identity or admission-policy checks.
+    """
     package = PythonPackageAdmission(
         name="numpy",
         version="2.4.6",
@@ -520,6 +654,15 @@ def _parse_source_record(value: object) -> tuple[WheelSourceAdmission, ...]:
 
 
 def _fake_cosign(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    """Write canned version or verification text without authenticating any signature.
+
+    Args:
+        command: Simulated argv; an exact ``version`` suffix selects version output.
+        **kwargs: Subprocess options containing the writable text stream ``stdout``.
+
+    Returns:
+        Status zero for the supplied command after writing to its output stream.
+    """
     output = cast(IO[str], kwargs["stdout"])
     output.write("GitVersion:    v3.1.3\n" if command[1:] == ["version"] else "Verified OK\n")
     return subprocess.CompletedProcess(command, 0)
@@ -527,6 +670,15 @@ def _fake_cosign(command: list[str], **kwargs: object) -> subprocess.CompletedPr
 
 @pytest.fixture
 def wheel_cosign(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve Cosign to a placeholder file while individual tests replace subprocess execution.
+
+    Args:
+        tmp_path: Directory receiving the placeholder ``cosign`` file.
+        monkeypatch: Fixture redirecting executable discovery to that file for the test.
+
+    Raises:
+        OSError: The placeholder file cannot be written.
+    """
     executable = tmp_path / "cosign"
     executable.write_text("synthetic path; subprocess execution is mocked")
     monkeypatch.setattr(
@@ -540,11 +692,25 @@ def test_wheel_only_source_verification_pins_inputs_and_verifier_options(
     monkeypatch: pytest.MonkeyPatch,
     wheel_cosign: None,
 ) -> None:
+    """Bind both wheel digests to exact verifier claims, sanitized environment and staged inputs."""
     record, locked = _wheel_source_fixture(tmp_path)
     assert _parse_source_record([record.model_dump(mode="json")]) == (record,)
     calls: list[list[str]] = []
 
     def inspect(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Record and check the source-verification invocation before simulating success.
+
+        Args:
+            command: Version or verification argv, retained in the call history.
+            **kwargs: Subprocess options including timeout, sanitized environment and stdout.
+
+        Returns:
+            A canned successful Cosign result; no signature is authenticated.
+
+        Raises:
+            AssertionError: Verifier paths, options, identities or staging expectations drift.
+            OSError: The staged trust-root fixture cannot be read.
+        """
         calls.append(command)
         assert command[0] == str(tmp_path / "cosign")
         assert kwargs["timeout"] == 60
@@ -591,6 +757,7 @@ def test_wheel_source_policy_rejects_invalid_records(
     value: object,
     message: str,
 ) -> None:
+    """Reject malformed or unadmitted source-profile fields before evidence verification."""
     record, _ = _wheel_source_fixture(tmp_path)
     data = record.model_dump(mode="json")
     data[field] = value
@@ -615,6 +782,7 @@ def test_nested_wheel_source_identity_is_strict(
     value: object,
     message: str,
 ) -> None:
+    """Reject nested source and wheel mutations that break revision, digest or license identity."""
     record, _ = _wheel_source_fixture(tmp_path)
     data = record.model_dump(mode="json")
     data[part][0][field] = value
@@ -624,6 +792,7 @@ def test_nested_wheel_source_identity_is_strict(
 
 @pytest.mark.parametrize("part", ["records", "sources", "wheels"])
 def test_duplicate_wheel_source_evidence_is_rejected(tmp_path: Path, part: str) -> None:
+    """Reject repeated admission records, source archives and wheel-evidence identities."""
     record, _ = _wheel_source_fixture(tmp_path)
     data = record.model_dump(mode="json")
     records = [data]
@@ -639,6 +808,7 @@ def test_duplicate_wheel_source_evidence_is_rejected(tmp_path: Path, part: str) 
     "path", ["../escape.json", "/tmp/escape.json", "./trust.json", "a//b", "a/../b"]
 )
 def test_wheel_source_paths_cannot_escape(tmp_path: Path, path: str) -> None:
+    """Require canonical relative evidence paths without absolute or traversal components."""
     record, _ = _wheel_source_fixture(tmp_path)
     data = record.model_dump(mode="json")
     data["trusted_root"]["path"] = path
@@ -655,6 +825,7 @@ def test_wheel_source_files_fail_closed(
     case: str,
     wheel_cosign: None,
 ) -> None:
+    """Reject missing, altered, linked or oversized trust roots despite fake verifier success."""
     record, locked = _wheel_source_fixture(tmp_path)
     trust = tmp_path / record.trusted_root.path
     if case == "missing":
@@ -680,6 +851,7 @@ def test_wheel_source_files_fail_closed(
 
 @pytest.mark.parametrize("case", ["omitted", "added", "duplicate", "digest", "source", "sdist"])
 def test_wheel_provenance_must_cover_the_complete_lock(tmp_path: Path, case: str) -> None:
+    """Reject wheel-set or registry drift and source alternatives when an sdist already exists."""
     record, locked = _wheel_source_fixture(tmp_path)
     wheels = cast(list[dict[str, str]], locked["wheels"])
     if case == "omitted":
@@ -721,6 +893,7 @@ def test_provenance_claims_are_checked_before_signature_acceptance(
     case: str,
     wheel_cosign: None,
 ) -> None:
+    """Reject mismatched build claims and malformed payloads despite a successful verifier fake."""
     record, locked = _wheel_source_fixture(tmp_path)
     path = tmp_path / record.wheels[0].bundle.path
     bundle = json.loads(path.read_bytes())
@@ -760,9 +933,23 @@ def test_wheel_sources_require_successful_exact_verifier(
     case: str,
     wheel_cosign: None,
 ) -> None:
+    """Block source admission on signature failure, missing Cosign, timeout or version drift."""
     record, locked = _wheel_source_fixture(tmp_path)
 
     def failing(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Simulate the selected Cosign failure while preserving normal version negotiation.
+
+        Args:
+            command: Version or verification argv whose result is controlled by ``case``.
+            **kwargs: Subprocess options; stdout receives normal or deliberately wrong versions.
+
+        Returns:
+            Status zero for version output, or status one for a simulated signature failure.
+
+        Raises:
+            FileNotFoundError: The selected case simulates an unavailable executable.
+            subprocess.TimeoutExpired: The selected case simulates a 60-second timeout.
+        """
         if case == "missing_tool":
             raise FileNotFoundError("cosign")
         if case == "timeout":
@@ -780,6 +967,17 @@ def test_wheel_sources_require_successful_exact_verifier(
 
 
 def _inline_toml(value: object) -> str:
+    """Render fixture dictionaries, lists and JSON string/number/boolean scalars as inline TOML.
+
+    Args:
+        value: Fixture value restricted by callers to these TOML-compatible JSON shapes.
+
+    Returns:
+        Inline table, array or scalar text; this helper does not validate arbitrary TOML values.
+
+    Raises:
+        TypeError: A scalar or table key cannot be encoded by the JSON serializer.
+    """
     if isinstance(value, dict):
         return (
             "{"
@@ -796,6 +994,7 @@ def test_alternative_flows_through_existing_policy_and_lock_validator(
     monkeypatch: pytest.MonkeyPatch,
     wheel_cosign: None,
 ) -> None:
+    """Require explicit source admission and intact evidence through the policy/lock path."""
     record, replacement = _wheel_source_fixture(tmp_path)
     _copy_current_wheel_evidence(tmp_path)
     policy_path = _policy_fixture(tmp_path)
@@ -831,6 +1030,19 @@ def test_alternative_flows_through_existing_policy_and_lock_validator(
 
 
 def _bootstrap_fixture(root: Path) -> tuple[BootstrapWheelAdmission, dict[str, object]]:
+    """Rewrite synthetic build evidence as publication-only claims with bounded review records.
+
+    Args:
+        root: Existing directory receiving the wheel bundles, trust root and four review files.
+
+    Returns:
+        A bootstrap admission valid from 2026-09-04 through 2026-10-04 and its matching
+        lock fragment. Claims remain unsigned and review text conveys no real approval.
+
+    Raises:
+        OSError: A fixture cannot be read or written.
+        DependencyAdmissionError: The generated bootstrap record fails parser validation.
+    """
     record, locked = _wheel_source_fixture(root)
     data = record.model_dump(
         mode="json", exclude={"builder_id", "build_type", "build_parameters_sha256"}
@@ -862,6 +1074,18 @@ def _bootstrap_fixture(root: Path) -> tuple[BootstrapWheelAdmission, dict[str, o
 
 
 def _parse_bootstrap_record(value: object) -> tuple[BootstrapWheelAdmission, ...]:
+    """Validate bootstrap records against fixed NumPy, license and policy-date fixtures.
+
+    Args:
+        value: Raw bootstrap record array, including deliberately malformed test payloads.
+
+    Returns:
+        Records admitted with assessment date 2026-09-03 and review deadline 2026-12-02;
+        no evidence files or signatures are checked here.
+
+    Raises:
+        DependencyAdmissionError: Field, identity, ownership or date-window validation fails.
+    """
     return parse_bootstrap_wheels(
         value,
         (
@@ -887,6 +1111,7 @@ def test_bootstrap_publication_verification_is_explicit_and_date_bounded(
     when: date,
     empty_object: bool,
 ) -> None:
+    """Accept both publication predicate forms at inclusive review boundaries with exact claims."""
     record, locked = _bootstrap_fixture(tmp_path)
     if empty_object:
         data = record.model_dump(mode="json")
@@ -905,6 +1130,18 @@ def test_bootstrap_publication_verification_is_explicit_and_date_bounded(
     calls: list[list[str]] = []
 
     def inspect(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Record publication-verifier claims and return simulated authentication success.
+
+        Args:
+            command: Version or publication-verification argv to retain and inspect.
+            **kwargs: Subprocess options forwarded to the fake, including writable stdout.
+
+        Returns:
+            A canned successful Cosign result without authenticating the synthetic bundle.
+
+        Raises:
+            AssertionError: Predicate type, digest, signer, issuer or claim-check options drift.
+        """
         calls.append(command)
         if command[1] != "version":
             assert (
@@ -949,6 +1186,7 @@ def test_bootstrap_policy_rejects_missing_unsafe_or_unbounded_decisions(
     field: str,
     value: object,
 ) -> None:
+    """Reject bootstrap scope, identity, attribution and review-window mutations."""
     record, _ = _bootstrap_fixture(tmp_path)
     data = record.model_dump(mode="json")
     data[field] = value
@@ -962,6 +1200,7 @@ def test_bootstrap_review_failures_stop_before_verifier_execution(
     monkeypatch: pytest.MonkeyPatch,
     case: str,
 ) -> None:
+    """Reject invalid review files or dates before any verifier subprocess can be invoked."""
     record, locked = _bootstrap_fixture(tmp_path)
     path = tmp_path / record.security_review.path
     when = date(2026, 9, 4)
@@ -982,6 +1221,15 @@ def test_bootstrap_review_failures_stop_before_verifier_execution(
         when = date(2026, 9, 3)
 
     def unexpected(*args: object, **kwargs: object) -> None:
+        """Fail the test if invalid review evidence reaches the verifier subprocess boundary.
+
+        Args:
+            *args: Positional subprocess inputs; ignored because every invocation is forbidden.
+            **kwargs: Keyword subprocess options; ignored because every invocation is forbidden.
+
+        Raises:
+            pytest.fail.Exception: Always, identifying an unexpected verifier invocation.
+        """
         pytest.fail("review failure must precede verifier execution")
 
     monkeypatch.setattr(subprocess, "run", unexpected)
@@ -998,6 +1246,7 @@ def test_bootstrap_does_not_bypass_publication_signature_or_lock_checks(
     wheel_cosign: None,
     case: str,
 ) -> None:
+    """Keep publication claims, evidence integrity, signature success and complete-lock checks."""
     record, locked = _bootstrap_fixture(tmp_path)
     path = tmp_path / record.wheels[0].bundle.path
     if case in {"body", "type", "subject"}:
@@ -1025,6 +1274,15 @@ def test_bootstrap_does_not_bypass_publication_signature_or_lock_checks(
         cast(list[object], locked["wheels"]).pop()
 
     def verify(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Return fake Cosign success except for the selected publication-signature failure.
+
+        Args:
+            command: Version or verification argv; version calls remain successful.
+            **kwargs: Subprocess options forwarded to the fake when it writes normal output.
+
+        Returns:
+            Status one for the signature case's verification call, otherwise a canned success.
+        """
         if case == "signature" and command[1] != "version":
             return subprocess.CompletedProcess(command, 1)
         return _fake_cosign(command, **kwargs)
@@ -1039,6 +1297,7 @@ def test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release(
     monkeypatch: pytest.MonkeyPatch,
     wheel_cosign: None,
 ) -> None:
+    """Enforce bootstrap expiry and block release both with and after deleting the exception."""
     record, locked = _bootstrap_fixture(tmp_path)
     record = record.model_copy(update={"finding_id": "B07-DEP-002"})
     policy_path = tmp_path / "docs/architecture/dependency-admission.toml"
@@ -1083,6 +1342,7 @@ def test_bootstrap_policy_lock_integration_and_removal_cannot_enable_release(
 
 
 def test_bootstrap_and_build_profiles_cannot_overlap(tmp_path: Path) -> None:
+    """Reject assigning both bootstrap and build-provenance profiles to one package."""
     bootstrap, _ = _bootstrap_fixture(tmp_path)
     build, _ = _wheel_source_fixture(tmp_path)
     policy_path = _policy_fixture(tmp_path)
@@ -1100,6 +1360,7 @@ def test_bootstrap_and_build_profiles_cannot_overlap(tmp_path: Path) -> None:
 
 
 def test_bootstrap_report_paths_and_duplicate_records_are_rejected(tmp_path: Path) -> None:
+    """Reject repeated bootstrap records and review-report paths that escape the repository."""
     record, _ = _bootstrap_fixture(tmp_path)
     data = record.model_dump(mode="json")
     with pytest.raises(DependencyAdmissionError, match="duplicate"):
@@ -1114,6 +1375,7 @@ def test_cli_reports_bootstrap_limit_and_legacy_policy_remains_supported(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    """Load legacy empty profiles and disclose bootstrap scope and release denial in CLI output."""
     record, _ = _bootstrap_fixture(tmp_path)
     policy_path = _policy_fixture(tmp_path)
     legacy = _without_bootstrap(policy_path.read_text()).replace(
@@ -1139,6 +1401,7 @@ def test_cli_reports_bootstrap_limit_and_legacy_policy_remains_supported(
 
 
 def test_release_admission_evaluates_the_current_graph_without_bootstrap_bypass() -> None:
+    """Apply release admission to the current graph, requiring rejection while bootstrap is used."""
     policy = load_policy(POLICY_PATH)
     if policy.bootstrap_wheel_admissions:
         with pytest.raises(DependencyAdmissionError, match="bootstrap-only"):

@@ -109,6 +109,17 @@ effective_from = "2026-09-04"
 
 
 def _policy_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """Copy ownership policy inputs into an isolated temporary repository fixture.
+
+    Args:
+        tmp_path: Temporary directory receiving the governance files and CODEOWNERS copy.
+
+    Returns:
+        The temporary repository root, ownership register path, and CODEOWNERS path.
+
+    Raises:
+        OSError: The fixture directories or copied policy files cannot be created or read.
+    """
     governance = tmp_path / "docs" / "governance"
     governance.mkdir(parents=True)
     register = governance / "domain-ownership.toml"
@@ -119,6 +130,7 @@ def _policy_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 
 def test_repository_ownership_policy_is_valid_and_complete() -> None:
+    """Validate that the repository register and CODEOWNERS cover all declared domains."""
     domains = validate_repository(REPOSITORY_ROOT)
 
     assert set(domains) == {
@@ -138,6 +150,7 @@ def test_repository_ownership_policy_is_valid_and_complete() -> None:
 
 
 def test_policy_rejects_author_as_independent_reviewer(tmp_path: Path) -> None:
+    """Reject a policy that lets the author role serve as an independent reviewer."""
     fixture_repository_root, register, _ = _policy_fixture(tmp_path)
     policy = register.read_text(encoding="utf-8").replace(
         'independent_review_roles = ["data_quality"]',
@@ -164,6 +177,7 @@ def test_policy_rejects_author_as_independent_reviewer(tmp_path: Path) -> None:
 def test_policy_rejects_invalid_control_boundaries(
     tmp_path: Path, old: str, new: str, message: str
 ) -> None:
+    """Reject policy changes that permit author independence or claim forge validation."""
     fixture_repository_root, register, _ = _policy_fixture(tmp_path)
     register.write_text(register.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
 
@@ -172,6 +186,7 @@ def test_policy_rejects_invalid_control_boundaries(
 
 
 def test_codeowners_must_match_the_ordered_register(tmp_path: Path) -> None:
+    """Reject CODEOWNERS content that diverges from the ordered ownership register."""
     fixture_repository_root, _, codeowners = _policy_fixture(tmp_path)
     codeowners.write_text(
         codeowners.read_text(encoding="utf-8").replace(
@@ -185,6 +200,7 @@ def test_codeowners_must_match_the_ordered_register(tmp_path: Path) -> None:
 
 
 def test_policy_rejects_an_orphaned_repository_path(tmp_path: Path) -> None:
+    """Reject a repository path without a matching CODEOWNER pattern."""
     fixture_repository_root, _, _ = _policy_fixture(tmp_path)
 
     with pytest.raises(OwnershipGovernanceError, match=r"orphan.txt.*no CODEOWNER"):
@@ -193,6 +209,11 @@ def test_policy_rejects_an_orphaned_repository_path(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 def test_pre_commit_rejects_a_staged_unowned_root_path(tmp_path: Path) -> None:
+    """Ensure the actual pre-commit ownership hook rejects a staged unowned path.
+
+    The test commits the copied baseline in a temporary Git repository, then stages
+    a new unowned root path before invoking the hook.
+    """
     fixture_repository_root = tmp_path / "repository"
     fixture_repository_root.mkdir()
     tracked_paths = subprocess.run(
@@ -249,6 +270,7 @@ def test_pre_commit_rejects_a_staged_unowned_root_path(tmp_path: Path) -> None:
 
 
 def test_policy_rejects_catch_all_path_ownership(tmp_path: Path) -> None:
+    """Reject catch-all ownership patterns in the register and CODEOWNERS file."""
     fixture_repository_root, register, codeowners = _policy_fixture(tmp_path)
     register.write_text(
         register.read_text(encoding="utf-8").replace(
@@ -275,6 +297,7 @@ def test_policy_rejects_catch_all_path_ownership(tmp_path: Path) -> None:
 def test_policy_rejects_broader_pattern_after_narrow_security_pattern(
     tmp_path: Path,
 ) -> None:
+    """Reject a broader ownership pattern that follows a narrow security pattern."""
     fixture_repository_root, register, codeowners = _policy_fixture(tmp_path)
     policy = register.read_text(encoding="utf-8")
     policy = policy.replace(
@@ -299,6 +322,7 @@ def test_policy_rejects_broader_pattern_after_narrow_security_pattern(
 
 
 def test_partial_ownership_policy_requires_registered_findings(tmp_path: Path) -> None:
+    """Reject a partial ownership policy that registers an unknown finding."""
     fixture_repository_root, register, _ = _policy_fixture(tmp_path)
     policy = register.read_text(encoding="utf-8").replace(
         'finding_id = "A03-F02"',
@@ -311,6 +335,7 @@ def test_partial_ownership_policy_requires_registered_findings(tmp_path: Path) -
 
 
 def test_solo_bootstrap_policy_cannot_claim_validated_status(tmp_path: Path) -> None:
+    """Reject solo-bootstrap ownership policy text that claims validated status."""
     fixture_repository_root, register, _ = _policy_fixture(tmp_path)
     policy = register.read_text(encoding="utf-8").split("[[findings]]", maxsplit=1)[0]
     policy = policy.replace(
