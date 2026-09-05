@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 import re
 import shutil
@@ -9,8 +10,10 @@ import subprocess  # nosec B404  # [owner=platform; rationale=read-only Git diff
 from pathlib import Path
 from typing import Literal, cast
 
+# third party library imports
 from pydantic import ValidationError
 
+# project library imports
 from alpha_research_governance.change_risk import ChangeRiskPolicy, RiskClass, classify_change
 from alpha_research_governance.evidence.models import (
     EvidenceGovernanceError,

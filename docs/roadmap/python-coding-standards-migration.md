@@ -2,7 +2,7 @@
 
 Audit date: 2026-09-05. Baseline revision:
 `d3a40ca98d71208426c8501d8d4a1aaaa049768d`.
-Status: step 1 implemented on 2026-09-05; steps 2–7 remain planned. The findings
+Status: steps 1–2 implemented on 2026-09-05; steps 3–7 remain planned. The findings
 below describe the original audited revision, before step-1 enforcement.
 
 The requested target is segregated, commented import groups; stringent typing
@@ -181,7 +181,7 @@ Keep `__future__` imports immediately after the module docstring in their own
 group. Treat both owned Python packages as project imports. Specify the same
 behavior for relative and `TYPE_CHECKING` blocks; do not add empty categories.
 
-Proposed addition to `pyproject.toml`, verified with the installed Ruff 0.16.5:
+Active settings in `pyproject.toml` after step 2, using the pinned Ruff 0.16.5:
 
 ```toml
 [tool.ruff.lint.isort]
@@ -274,7 +274,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | Step | Work and dependencies | Completion evidence |
 | --- | --- | --- |
 | 1. Establish the executable contract — implemented | Updated the Python guide; extended the existing checker, pre-commit hook and Bazel inputs/tests. Froze 3,079 original-revision obligations. | 55 focused tests cover new/moved/multiplied debt, missing Google sections, aliased `Any`, imports and invalid exception metadata. See the step-1 validation record below. |
-| 2. Normalize imports | Apply the verified heading settings and import-only fixes in runtime, tooling and test batches. Depends on step 1. | Ruff import/format checks pass; AST import targets, aliases, relative levels and execution order are reviewed for unintended changes. No behavioral refactoring shares these diffs. |
+| 2. Normalize imports — implemented | Activated the heading settings and applied import-only fixes in runtime, tooling and test batches. Retired all 243 import obligations. | Ruff import/format checks pass; complete AST comparison confirms unchanged import targets, aliases, relative levels and execution order. See the step-2 validation record below. |
 | 3. Remove explicit Any in tests | Replace the two modules' escape hatches with fixture types, callable types and narrowing. Document their helpers at the same time. Depends on step 1. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; deliberately invalid inputs still reach the intended rejection path. |
 | 4. Strengthen library and parsing boundaries | Pilot Pydantic typing on a small governance model, then audit shared bases, JSON/TOML readers and native adapters. Depends on step 3 for negative-test compatibility. | Enforced mypy scopes pass additional flags; every remaining diagnostic has a concrete cause and retirement task. Stub conformance, validation and existing native goldens pass. |
 | 5. Document existing contracts | Start with exported domain APIs, shared model validation and high-level governance operations; then private helpers, test classes and fixtures. Depends on step 1; combine docs for moved functions with step 6. | Required Google sections are checked; public contracts describe actual units/errors/side effects; residual exceptions are exact and justified. |
@@ -298,8 +298,8 @@ satisfy the new rules without migration allowances.
 
 The [debt inventory](../architecture/python-standards-debt.json) was generated
 only from the baseline revision recorded above, using the completed scanner.
-It contains 3,079 obligations across 123 files, attributed to the `platform`
-owner role and the relevant migration step:
+At step-1 completion it contained 3,079 obligations across 123 files, attributed
+to the `platform` owner role and the relevant migration step:
 
 | Rule | Obligation | Count | Retirement step |
 | --- | --- | ---: | ---: |
@@ -328,6 +328,23 @@ is warranted. It does not infer propagated exceptions from arbitrary callees or
 replace mypy's analysis of library boundaries. Existing strict mypy and Ruff
 import sorting remain active; mass import, typing and docstring edits belong to
 the later migration steps.
+
+### Step 2 implementation
+
+The root Ruff configuration now supplies the agreed headings for standard-library,
+third-party, absolute project and relative project imports, with both owned
+packages explicitly classified as first-party. Ruff inserted 243 heading comments
+in 123 files: 29 runtime modules, 63 governance modules and 31 test modules. The
+four checker/test modules introduced in step 1 already met the import standard.
+The fixes changed no import targets, aliases, relative levels or execution order;
+complete Python ASTs were identical before and after normalization.
+
+All 243 `PYI001` entries were removed from the existing debt inventory, and its
+checksum pin was updated in the same change. No allowances were regenerated or
+added. The remaining 2,836 obligations across 87 files are unchanged: 14 explicit
+typing, 781 definition-summary, 1,235 structured-documentation and 806 function
+disposition obligations. Rule attribution and the original baseline revision
+remain available for the later migration steps.
 
 ### Class migration queue
 
@@ -453,5 +470,30 @@ not write Bazel's existing cache; the authorized run with cache access passed.
 This is local full-lane evidence, not a hosted merged-result run. The scanner,
 its source tests, and policy documentation were delegated to the review skill's
 default Luna-max implementation agents; the main agent reviewed, integrated,
-extended edge-case coverage, and validated the combined result. Steps 2–7 remain
-unfinished, including retirement of the measured implicit-library typing debt.
+extended edge-case coverage, and validated the combined result. At step-1
+completion, steps 2–7 remained unfinished, including retirement of the measured
+implicit-library typing debt.
+
+## Step 2 validation record — 2026-09-05
+
+Validation compared the working tree with step-2 starting revision `3c22042`.
+Both local packages were rebuilt offline as non-editable installs using the
+existing pinned environment, without changing dependencies or lockfiles.
+
+| Check | Observed result |
+| --- | --- |
+| Import-only fixes, applied separately to runtime, tooling and tests | Exactly 243 heading comments added in 123 files. |
+| Complete AST comparison across all 129 tracked Python files | Identical after import normalization; the final checker change only updates the debt checksum constant. Import targets, aliases, relative levels and execution order are unchanged. |
+| Debt inventory comparison | Exactly 243 `PYI001` obligations retired; all other entries and metadata preserved. |
+| `make lint format-check typecheck engineering-standards-check` | Passed; Ruff formatting and strict mypy cover 129 Python files. |
+| `bazel test --config=ci //...` | All 19 test targets passed, including developer-environment and Python-standards tests. |
+| Pytest with performance tests excluded | 628 non-integration tests passed; the separate integration rerun passed its one test. |
+| `pre-commit run --all-files` | Every hook passed, including documentation links and dependency admission. |
+| `git diff --check` | Passed. |
+
+The first pytest/pre-commit attempts lacked the pinned Cosign executable on
+`PATH`; dependency admission passed after adding the existing Cosign 3.1.3 and
+Syft 1.51.1 directories. The integration test's nested uv command initially hit
+a sandbox cache restriction; its authorized rerun used an inherited temporary
+uv cache and passed. These are local checks; step 2 did not run `make ci-full`
+or hosted CI. Steps 3–7 remain planned.

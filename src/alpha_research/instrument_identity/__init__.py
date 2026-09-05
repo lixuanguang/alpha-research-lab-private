@@ -1,5 +1,6 @@
 """Expose the owned C01 canonical instrument-identity contract."""
 
+# project library imports
 from alpha_research.instrument_identity.catalog import (
     AmbiguousIdentifierError,
     SymbologyCatalog,

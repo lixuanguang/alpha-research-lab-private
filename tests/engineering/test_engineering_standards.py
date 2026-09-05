@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+# standard library imports
 import os
 from datetime import date
 from pathlib import Path
 from time import perf_counter
 
+# third party library imports
 import pytest
 from hypothesis import given, settings, strategies
 
+# project library imports
 from alpha_research_governance.engineering_standards import (
     EngineeringStandardsError,
     load_standards,

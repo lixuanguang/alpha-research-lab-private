@@ -1,5 +1,6 @@
 """Compatibility facade for the canonical security-governance tool."""
 
+# project library imports
 from alpha_research_governance.security_controls import (
     APPLICABLE_GATE_IDS,
     JURISDICTION_IDS,

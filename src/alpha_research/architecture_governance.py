@@ -1,5 +1,6 @@
 """Compatibility facade for the canonical architecture-governance tool."""
 
+# project library imports
 from alpha_research_governance.architecture_governance import (
     ArchitectureGovernanceError,
     main,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import hashlib
 import re
 import tomllib
@@ -9,6 +10,7 @@ from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import cast
 
+# project library imports
 from alpha_research_governance.artifact_supply_chain.models import (
     ArtifactSupplyChainError,
     ArtifactSupplyChainPolicy,

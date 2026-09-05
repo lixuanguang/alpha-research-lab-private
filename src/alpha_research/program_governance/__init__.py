@@ -1,5 +1,6 @@
 """Compatibility facade for the canonical program-governance tool."""
 
+# project library imports
 from alpha_research_governance.program_governance import (
     APPLICABLE_GATE_IDS,
     METRIC_IDS,

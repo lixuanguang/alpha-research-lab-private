@@ -1,5 +1,6 @@
 """Compatibility facade for the canonical topology-governance tool."""
 
+# project library imports
 from alpha_research_governance.repository_topology import (
     RepositoryTopology,
     RepositoryTopologyError,

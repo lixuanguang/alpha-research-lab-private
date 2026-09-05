@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+# standard library imports
 import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
+# project library imports
 from alpha_research_governance.change_risk import classify_change
 from alpha_research_governance.change_risk import load_policy as load_change_risk_policy
 from alpha_research_governance.evidence.manifest import validate_manifest

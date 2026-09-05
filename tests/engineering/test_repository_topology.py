@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+# standard library imports
 import os
 import shutil
 import subprocess
 from pathlib import Path
 from time import perf_counter
 
+# third party library imports
 import pytest
 
+# project library imports
 import alpha_research
 from alpha_research.repository_topology import (
     RepositoryTopologyError,

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+# standard library imports
 import re
 from pathlib import Path
 
+# project library imports
 from alpha_research_governance.ci_policy.models import CIPolicyError
 from alpha_research_governance.ci_policy.selection import normalize_changed_paths
 

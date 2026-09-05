@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# project library imports
 from alpha_research_governance._models import ImmutableModel
 
 

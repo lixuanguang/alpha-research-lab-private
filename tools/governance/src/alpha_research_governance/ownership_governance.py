@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import re
 import shutil
 
@@ -13,6 +14,7 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import cast
 
+# project library imports
 from alpha_research_governance.operating_model import OperatingModelError, load_operating_model
 
 _REQUIRED_DOMAINS = {

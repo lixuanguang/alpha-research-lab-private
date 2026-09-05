@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import importlib.metadata
 import json
 import subprocess  # nosec B404  # [owner=platform; rationale=exact pip-audit argv execution; expires=2027-03-01]
@@ -10,6 +11,7 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+# project library imports
 from alpha_research_governance.dependency_admission.models import (
     DependencyAdmission,
     DependencyAdmissionError,

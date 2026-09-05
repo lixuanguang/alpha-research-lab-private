@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+# standard library imports
 from collections.abc import Sequence
 from unicodedata import normalize
 
+# project library imports
 from alpha_research_governance.change_risk.classification import classify_change
 from alpha_research_governance.change_risk.constraints import ROLE_PATTERN
 from alpha_research_governance.change_risk.models import (

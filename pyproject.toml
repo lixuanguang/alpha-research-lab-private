@@ -52,6 +52,15 @@ src = ["src", "tests", "tools/governance/src"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "RUF"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["alpha_research", "alpha_research_governance"]
+
+[tool.ruff.lint.isort.import-heading]
+standard-library = "standard library imports"
+third-party = "third party library imports"
+first-party = "project library imports"
+local-folder = "project library imports"
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

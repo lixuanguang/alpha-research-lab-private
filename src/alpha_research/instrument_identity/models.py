@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import re
 import unicodedata
 from collections.abc import Mapping
@@ -10,6 +11,7 @@ from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
+# third party library imports
 from pydantic import (
     BaseModel,
     ConfigDict,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# standard library imports
 import base64
 import hashlib
 import json
@@ -13,8 +14,10 @@ from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from typing import IO, cast
 
+# third party library imports
 import pytest
 
+# project library imports
 from alpha_research_governance.dependency_admission import (
     DependencyAdmissionError,
     assess_pip_audit_report,
