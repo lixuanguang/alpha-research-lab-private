@@ -54,18 +54,68 @@ _TOOLCHAIN_IDENTITY_KEYS = {"cosign", "path", "sha256", "syft"}
 
 
 def _serialize_canonical_json(value: object) -> bytes:
+    """Serialize a value with the bundle's local deterministic JSON settings.
+
+    Use ASCII escaping, compact separators, sorted keys, and the standard
+    encoder's default acceptance of nonfinite float constants, then append one
+    newline and encode the result as UTF-8. This local format does not implement
+    RFC 8785.
+
+    Args:
+        value: Object accepted by the standard-library JSON encoder.
+
+    Returns:
+        UTF-8 bytes containing the serialized value and trailing newline.
+
+    Raises:
+        TypeError: If the value or its keys cannot be serialized or sorted.
+        ValueError: If serialization detects a circular reference or an integer
+            exceeds the interpreter's enabled conversion limit.
+        RecursionError: If recursive input exceeds Python's recursion limit.
+    """
     return (
         json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
     ).encode()
 
 
 def _write_canonical_json(path: Path, value: object) -> None:
+    """Write the bundle's local deterministic JSON representation to a file.
+
+    Serialize ``value`` before opening ``path``, then overwrite and truncate the
+    target with ``Path.write_bytes``. The parent directory must already exist;
+    this operation makes no atomicity guarantee.
+
+    Args:
+        path: Existing or new file path receiving the serialized JSON bytes.
+        value: Object accepted by the standard-library JSON encoder.
+
+    Raises:
+        TypeError: If ``value`` or its keys cannot be serialized or sorted.
+        ValueError: If serialization detects a circular reference or an integer
+            exceeds the interpreter's enabled conversion limit.
+        RecursionError: If recursive input exceeds Python's recursion limit.
+        OSError: If the target cannot be written or its parent is unavailable.
+    """
     path.write_bytes(_serialize_canonical_json(value))
 
 
 def _build_mapping_rejecting_duplicate_json_keys(
     key_value_pairs: list[tuple[str, object]],
 ) -> dict[str, object]:
+    """Build an insertion-ordered mapping while rejecting duplicate JSON keys.
+
+    Store each supplied value directly and preserve pair order; nested values are
+    not copied or recursively inspected.
+
+    Args:
+        key_value_pairs: Object-pairs callback input from ``json.loads``.
+
+    Returns:
+        A mapping containing the supplied keys and shallow, ordered values.
+
+    Raises:
+        ArtifactSupplyChainError: If a key occurs more than once in the pairs.
+    """
     parsed_mapping: dict[str, object] = {}
     for key, value in key_value_pairs:
         if key in parsed_mapping:
@@ -75,6 +125,30 @@ def _build_mapping_rejecting_duplicate_json_keys(
 
 
 def _read_bounded_json_object(path: Path) -> dict[str, object]:
+    """Read a JSON object after a pre-read size check and reject duplicate keys.
+
+    Check the final path component for a symlink and regular-file status, then
+    compare its pre-read size with 100 MiB. Parent-directory symlinks remain
+    followed; the whole text is read into memory with no bounded stream or
+    atomicity guarantee. Parse with the duplicate-key hook, accept standard
+    nonfinite constants, and require a dictionary at the top level. Of parser
+    exceptions, only UTF-8 and JSON decode errors are translated into the domain
+    error.
+
+    Args:
+        path: JSON file whose final component must be a regular non-symlink file.
+
+    Returns:
+        The parsed top-level JSON object with nested duplicate keys rejected.
+
+    Raises:
+        ArtifactSupplyChainError: If the file is unsafe, too large, malformed,
+            contains duplicate keys, or does not contain a JSON object.
+        OSError: If filesystem inspection or reading fails.
+        ValueError: If another parser value error occurs, such as a huge integer
+            literal exceeding Python's digit limit; this error is propagated.
+        RecursionError: If JSON nesting exceeds Python's recursion limit.
+    """
     if path.is_symlink() or not path.is_file():
         raise ArtifactSupplyChainError([f"required bundle file is missing or unsafe: {path.name}"])
     if path.stat().st_size > _MAXIMUM_JSON_DOCUMENT_BYTES:
@@ -94,6 +168,26 @@ def _read_bounded_json_object(path: Path) -> dict[str, object]:
 def _run_subprocess(
     command: list[str], working_directory: Path, environment: Mapping[str, str]
 ) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess with the supplied context and capture decoded text.
+
+    Pass ``command`` as argv, copy ``environment`` for the child environment,
+    use ``working_directory`` as its current directory, and capture both output
+    streams without a size bound using Python's default subprocess text encoding.
+    Do not impose a timeout; return nonzero statuses for the caller to inspect.
+
+    Args:
+        command: Executable and arguments passed to ``subprocess.run``.
+        working_directory: Child process current working directory.
+        environment: Complete environment mapping supplied to the child.
+
+    Returns:
+        The completed process, including its return code and captured text.
+
+    Raises:
+        ArtifactSupplyChainError: If the process cannot start because of an
+            operating-system error.
+        UnicodeDecodeError: If captured output cannot be decoded with that encoding.
+    """
     try:
         return subprocess.run(  # nosec B603  # [owner=platform; rationale=validated tool and constant option argv; expires=2027-03-01]
             command,
@@ -114,6 +208,25 @@ def _run_artifact_tool(
     environment: Mapping[str, str],
     runner: ProcessRunner,
 ) -> str:
+    """Run an artifact tool and combine its captured output.
+
+    Call ``runner`` once, fail on any nonzero return code, and combine stdout
+    followed by stderr before stripping whitespace. The combination is not
+    chronological; exceptions from ``runner`` propagate unchanged.
+
+    Args:
+        command: Executable and arguments for the artifact-tool invocation.
+        working_directory: Directory supplied to ``runner``.
+        environment: Environment mapping supplied to ``runner``.
+        runner: Process callback that executes or simulates ``command``.
+
+    Returns:
+        Stdout concatenated with stderr, with whitespace stripped from the ends
+        of the combined string.
+
+    Raises:
+        ArtifactSupplyChainError: If the process returns a nonzero status.
+    """
     completed_process = runner(command, working_directory, environment)
     if completed_process.returncode != 0:
         failure_detail = (completed_process.stdout + completed_process.stderr).strip()
@@ -130,6 +243,24 @@ def _verify_artifact_tool_version(
     environment: Mapping[str, str],
     runner: ProcessRunner,
 ) -> None:
+    """Require the admitted artifact-tool version fragment in command output.
+
+    Run ``[tool.command, "version"]`` through ``runner`` and search for the
+    exact spacing-sensitive ``Version:       <version>`` fragment for Syft or
+    ``GitVersion:    v<version>`` for every other tool. This substring check
+    does not parse or compare a complete structured version, so extra output may
+    surround the admitted fragment. Exceptions from ``runner`` propagate unchanged.
+
+    Args:
+        tool: Admitted executable command and version identity.
+        working_directory: Directory supplied to the version command.
+        environment: Environment mapping supplied to the version command.
+        runner: Process callback used to invoke the tool.
+
+    Raises:
+        ArtifactSupplyChainError: If the command fails or lacks the exact
+            admitted version fragment.
+    """
     version_output = _run_artifact_tool(
         [tool.command, "version"],
         working_directory=working_directory,
@@ -151,6 +282,25 @@ def _verify_artifact_tool_version(
 
 
 def _parse_safe_bundle_relative_path(value: object, *, context: str) -> PurePosixPath:
+    """Parse a path as a safe lexical POSIX bundle-relative path.
+
+    Accept only strings whose ``PurePosixPath`` spelling is already canonical,
+    with at least one component and no absolute root, ``..`` component,
+    backslash, or whitespace. Perform
+    no filesystem I/O, existence check, resolution, ancestor-symlink protection,
+    or filename-regex validation.
+
+    Args:
+        value: Candidate repository-style path value.
+        context: Field context included in any validation error.
+
+    Returns:
+        The validated lexical path as a ``PurePosixPath``.
+
+    Raises:
+        ArtifactSupplyChainError: If ``value`` is not a string or violates the
+            admitted lexical path rules.
+    """
     if not isinstance(value, str):
         raise ArtifactSupplyChainError([f"{context} must be a repository-style relative path"])
     path = PurePosixPath(value)
@@ -167,6 +317,25 @@ def _parse_safe_bundle_relative_path(value: object, *, context: str) -> PurePosi
 
 
 def _build_file_digest_record(path: Path, relative_path: str) -> dict[str, object]:
+    """Build a digest and size record for a regular file.
+
+    Hash ``path`` with ``compute_regular_file_sha256`` and then perform a separate
+    ``stat`` for its size; this sequence is non-atomic. Preserve ``relative_path``
+    exactly as supplied without validating or normalizing it.
+
+    Args:
+        path: Regular file whose bytes and size are recorded.
+        relative_path: Bundle-relative label stored unchanged in the record.
+
+    Returns:
+        A mapping containing the supplied path label, lowercase SHA-256 digest,
+        and separately observed byte size.
+
+    Raises:
+        ArtifactSupplyChainError: If the digest helper rejects the final path
+            component as missing, non-regular, or a symlink.
+        OSError: If hashing or the separate size inspection fails.
+    """
     return {
         "path": relative_path,
         "sha256": compute_regular_file_sha256(path),
@@ -175,6 +344,18 @@ def _build_file_digest_record(path: Path, relative_path: str) -> dict[str, objec
 
 
 def _is_native_library_path(name: str) -> bool:
+    """Recognize native-library names by their POSIX basename.
+
+    Lowercase the basename and accept ``.dll``, ``.dylib``, or ``.so`` suffixes,
+    or ``.so.`` anywhere in that basename. Inspect only the spelling; do not
+    access the path or inspect file contents.
+
+    Args:
+        name: POSIX-style path or filename to classify by basename.
+
+    Returns:
+        ``True`` when the basename matches a native-library marker.
+    """
     lowercase_filename = PurePosixPath(name).name.lower()
     return lowercase_filename.endswith((".dll", ".dylib", ".so")) or ".so." in (lowercase_filename)
 
@@ -182,6 +363,26 @@ def _is_native_library_path(name: str) -> bool:
 def _discover_native_library_paths(
     path: Path, policy: ArtifactSupplyChainPolicy
 ) -> tuple[str, ...]:
+    """Inventory native-library names from an artifact and its archive members.
+
+    Include a native outer basename, prefer ZIP inventory over TAR inventory, and
+    materialize all member names before enforcing
+    ``policy.maximum_archive_members`` and filtering native names. ZIP
+    ``namelist`` includes directory entries; TAR inventory keeps regular members
+    only. Count the outer name in the bound, sort the result, and retain
+    duplicates. Do not extract members or promise archive path security.
+
+    Args:
+        path: Artifact file whose outer name and archive members are inspected.
+        policy: Policy providing the inclusive archive-member limit.
+
+    Returns:
+        Sorted native-library names, including any retained duplicate entries.
+
+    Raises:
+        ArtifactSupplyChainError: If archive inventory raises an operating-system,
+            TAR, or bad-ZIP error, or the materialized member count exceeds policy.
+    """
     artifact_member_paths: list[str] = []
     if _is_native_library_path(path.name):
         artifact_member_paths.append(path.name)
@@ -210,6 +411,34 @@ def _discover_native_library_paths(
 def _normalize_spdx_document(
     raw_spdx_document: dict[str, object], *, artifact_name: str, artifact_digest: str
 ) -> dict[str, object]:
+    """Normalize selected SPDX metadata and lists for deterministic bundle output.
+
+    Require ``spdxVersion == "SPDX-2.3"``, ``SPDXID == "SPDXRef-DOCUMENT"``,
+    ``dataLicense == "CC0-1.0"``, and a ``creationInfo`` dictionary whose
+    creators list contains ``Tool: syft-1.51.1``; perform no full SPDX validation. Shallow
+    copy the root and ``creationInfo``, use ``artifact_name`` and
+    ``artifact_digest`` verbatim for the normalized identity, set creation time
+    to ``1970-01-01T00:00:01Z``, and sort only top-level ``files``, ``packages``,
+    and ``relationships`` lists by serialized bytes. Retain nested entry values
+    and their aliases unchanged apart from reordering the selected lists.
+
+    Args:
+        raw_spdx_document: Parsed Syft document to normalize.
+        artifact_name: Artifact filename written into the document name field.
+        artifact_digest: Artifact SHA-256 digest used in the namespace.
+
+    Returns:
+        A shallow-normalized SPDX document mapping.
+
+    Raises:
+        ArtifactSupplyChainError: If required SPDX metadata or the fixed Syft
+            creator entry is absent or malformed.
+        TypeError: If a sortable list entry cannot be JSON serialized.
+        ValueError: If serialization detects a circular list entry or an integer
+            exceeds the interpreter's enabled conversion limit.
+        RecursionError: If list-entry serialization exceeds Python's recursion
+            limit.
+    """
     creation_information = raw_spdx_document.get("creationInfo")
     if (
         raw_spdx_document.get("spdxVersion") != "SPDX-2.3"
@@ -238,6 +467,23 @@ def _normalize_spdx_document(
 
 
 def _extract_spdx_file_names(sbom: Mapping[str, object]) -> frozenset[str]:
+    """Extract normalized, deduplicated file names from an SPDX mapping.
+
+    Treat a missing ``files`` field as empty, require a list of dictionary
+    entries whose ``fileName`` is a string (including an empty string), strip
+    one leading ``./`` and then one leading ``/``, and deduplicate with a
+    ``frozenset``. Perform no canonical path or safety check.
+
+    Args:
+        sbom: Parsed SPDX mapping containing an optional ``files`` array.
+
+    Returns:
+        A frozenset of the normalized file-name strings.
+
+    Raises:
+        ArtifactSupplyChainError: If ``files`` is not a list or an entry is not
+            a dictionary containing a string ``fileName``.
+    """
     spdx_file_entries = sbom.get("files", [])
     if not isinstance(spdx_file_entries, list):
         raise ArtifactSupplyChainError(["SPDX files must be an array"])

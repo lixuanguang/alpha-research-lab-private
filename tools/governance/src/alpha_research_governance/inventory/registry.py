@@ -138,18 +138,59 @@ _POPULATION_STATUSES = {"empty", "populated"}
 
 
 def _require_table(value: object, *, context: str) -> dict[str, object]:
+    """Require a parsed value to be a TOML table.
+
+    Args:
+        value: Parsed TOML value to inspect.
+        context: Location label to include in a validation error.
+
+    Returns:
+        The original mapping, cast for TOML-parser input as having string keys and object values;
+        only its dictionary shape is checked, and it is not copied.
+
+    Raises:
+        InventoryGovernanceError: If ``value`` is not a dictionary.
+    """
     if not isinstance(value, dict):
         raise InventoryGovernanceError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
 def _require_table_list(value: object, *, context: str) -> list[dict[str, object]]:
+    """Require a parsed value to be an array of TOML tables.
+
+    Args:
+        value: Parsed TOML value to inspect; an empty list is accepted.
+        context: Location label to include in a validation error.
+
+    Returns:
+        The original list with each element cast for TOML-parser input as a mapping; only the
+        list and element dictionary shapes are checked, and no list or element mappings are
+        copied.
+
+    Raises:
+        InventoryGovernanceError: If ``value`` is not a list or any element is not a dictionary.
+    """
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise InventoryGovernanceError([f"{context} must be an array of TOML tables"])
     return cast(list[dict[str, object]], value)
 
 
 def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
+    """Require a non-blank string field.
+
+    Args:
+        table: Mapping containing the field to inspect.
+        key: Field name to retrieve with ``dict.get``.
+        context: Location label to include in a validation error.
+
+    Returns:
+        The original string, preserving any surrounding whitespace.
+
+    Raises:
+        InventoryGovernanceError: If the field is missing, is not a string, or contains only
+            whitespace.
+    """
     value = table.get(key)
     if not isinstance(value, str) or not value.strip():
         raise InventoryGovernanceError([f"{context}.{key} must be a non-empty string"])
@@ -157,6 +198,23 @@ def _require_string(table: dict[str, object], key: str, *, context: str) -> str:
 
 
 def _require_strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+    """Require an ordered sequence of unique non-empty strings.
+
+    Args:
+        value: Parsed value expected to be a list of strings.
+        context: Location label to include in a validation error.
+        allow_empty: Permit an empty list when ``True``; default to rejecting it.
+
+    String values are not stripped; whitespace-only strings are accepted, while an exact empty
+    string is rejected.
+
+    Returns:
+        A new tuple containing the input strings in their original order and text.
+
+    Raises:
+        InventoryGovernanceError: If the value is not a list of strings, contains an empty string,
+            is empty when ``allow_empty`` is false, or contains duplicate values.
+    """
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise InventoryGovernanceError([f"{context} must be an array of non-empty strings"])
     values = tuple(cast(list[str], value))
@@ -168,6 +226,20 @@ def _require_strings(value: object, *, context: str, allow_empty: bool = False) 
 
 
 def _require_positive_integer(table: dict[str, object], key: str, *, context: str) -> int:
+    """Require a positive integer field.
+
+    Args:
+        table: Mapping containing the field to inspect.
+        key: Field name to retrieve with ``dict.get``.
+        context: Location label to include in a validation error.
+
+    Returns:
+        The integer value stored in ``table``.
+
+    Raises:
+        InventoryGovernanceError: If the field is missing, is not an integer, is a boolean, or is
+            less than one.
+    """
     value = table.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
         raise InventoryGovernanceError([f"{context}.{key} must be a positive integer"])
@@ -175,6 +247,19 @@ def _require_positive_integer(table: dict[str, object], key: str, *, context: st
 
 
 def _parse_iso_date(value: str, *, context: str) -> date:
+    """Parse a date in the canonical ISO extended calendar form.
+
+    Args:
+        value: Date text that must round-trip as ``YYYY-MM-DD``.
+        context: Location label to include in a validation error.
+
+    Returns:
+        The parsed ``date`` value.
+
+    Raises:
+        InventoryGovernanceError: If parsing fails or the parsed date's ISO text does not exactly
+            match ``value``; parsing ``ValueError`` instances are preserved as causes.
+    """
     try:
         parsed_date = date.fromisoformat(value)
     except ValueError as error:
@@ -185,6 +270,20 @@ def _parse_iso_date(value: str, *, context: str) -> date:
 
 
 def _load_toml(path: Path) -> dict[str, object]:
+    """Load a UTF-8 TOML file and require a table at its root.
+
+    Args:
+        path: TOML file to read.
+
+    Returns:
+        The parser's top-level mapping, without copying it or normalizing its values.
+
+    Raises:
+        InventoryGovernanceError: If TOML decoding fails or the parsed root is not a dictionary;
+            decoding errors are preserved as causes.
+        OSError: If the file cannot be read.
+        UnicodeDecodeError: If the file is not valid UTF-8.
+    """
     try:
         parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
@@ -193,6 +292,22 @@ def _load_toml(path: Path) -> dict[str, object]:
 
 
 def _ownership_roles(path: Path) -> frozenset[str]:
+    """Collect and validate roles declared by the ownership register's domains.
+
+    Args:
+        path: Ownership-register TOML file to read.
+
+    Returns:
+        A frozenset containing each domain's accountable, required-review, independent-review,
+        and escalation roles; repeated roles across fields or domains are collapsed.
+
+    Raises:
+        InventoryGovernanceError: If the TOML or domain fields have the wrong shape, a role list
+            contains duplicate text, no role is declared, or a role is outside the lowercase
+            identifier pattern.
+        OSError: If the ownership register cannot be read.
+        UnicodeDecodeError: If the ownership register is not valid UTF-8.
+    """
     ownership_document = _load_toml(path)
     roles: set[str] = set()
     for index, domain in enumerate(
@@ -217,6 +332,24 @@ def _ownership_roles(path: Path) -> frozenset[str]:
 def _validate_repository_path(
     value: str, *, repository_root: Path, context: str, findings: list[str]
 ) -> None:
+    """Record a finding when a repository path escapes, is missing, or is not a file.
+
+    Reject absolute paths and paths containing a ``..`` component lexically, then resolve the
+    candidate strictly against the caller-resolved absolute ``repository_root``. Append one
+    finding for each handled failure and leave valid paths unchanged. Symlinks resolving to
+    in-root files are permitted, and resolution and file checks are not atomic.
+
+    Args:
+        value: Path text interpreted with the platform's ``Path`` rules.
+        repository_root: Caller-resolved absolute root against which the candidate is joined and
+            its resolved path is compared.
+        context: Location label to prefix any appended finding.
+        findings: Mutable finding list to extend for a handled path failure.
+
+    Raises:
+        OSError: If an underlying path operation raises an uncaught filesystem error.
+        RuntimeError: If strict resolution encounters a symlink loop on Python 3.12.
+    """
     relative = Path(value)
     if relative.is_absolute() or ".." in relative.parts:
         findings.append(f"{context}: repository path escapes the root: {value}")
@@ -239,6 +372,28 @@ def _validate_reference(
     context: str,
     findings: list[str],
 ) -> None:
+    """Record a finding for an unresolved or invalid inventory reference.
+
+    Treat values beginning with ``inv.`` as exact inventory-ID lookups, values with a URL scheme
+    as external references, and values without a scheme as repository paths. A ``urlsplit``
+    ``ValueError`` appends a malformed-URL finding. A parsed external reference is accepted only
+    when its scheme is ``https``, its hostname is nonempty, and its username and password are
+    absent. These checks do not make network or existence requests and do not validate ports.
+    Delegate handled path failures to ``_validate_repository_path``.
+
+    Args:
+        value: Reference text; values beginning with ``inv.`` are treated as inventory IDs.
+        inventory_ids: Known inventory IDs used to resolve ``inv.`` references exactly.
+        repository_root: Caller-resolved absolute root used when a reference is treated as a
+            repository path.
+        context: Location label to prefix any appended finding.
+        findings: Mutable finding list to extend for a handled reference failure.
+
+    Raises:
+        OSError: If delegated repository-path validation encounters an uncaught filesystem error.
+        RuntimeError: If delegated strict path resolution encounters a symlink loop on Python
+            3.12.
+    """
     if value.startswith("inv."):
         if value not in inventory_ids:
             findings.append(f"{context}: unresolved inventory reference {value!r}")
