@@ -2,8 +2,9 @@
 
 Audit date: 2026-09-05. Baseline revision:
 `d3a40ca98d71208426c8501d8d4a1aaaa049768d`.
-Status: steps 1–4 implemented on 2026-09-05; steps 5–7 remain planned. The findings
-below describe the original audited revision, before step-1 enforcement.
+Status: steps 1–4 implemented on 2026-09-05; step 5 is in progress, with the first
+domain-contract slice implemented; steps 6–7 remain planned. The findings below
+describe the original audited revision, before step-1 enforcement.
 
 The requested target is segregated, commented import groups; stringent typing
 without `Any`; useful Google-style docstrings; and a preference for classes over
@@ -277,7 +278,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 2. Normalize imports — implemented | Activated the heading settings and applied import-only fixes in runtime, tooling and test batches. Retired all 243 import obligations. | Ruff import/format checks pass; complete AST comparison confirms unchanged import targets, aliases, relative levels and execution order. See the step-2 validation record below. |
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
-| 5. Document existing contracts | Start with exported domain APIs, shared model validation and high-level governance operations; then private helpers, test classes and fixtures. Depends on step 1; combine docs for moved functions with step 6. | Required Google sections are checked; public contracts describe actual units/errors/side effects; residual exceptions are exact and justified. |
+| 5. Document existing contracts — in progress | Documented financial-unit models/conventions, the symbology catalog, the calendar adapter, and shared governance model validation. Remaining: identity/calendar value-model APIs, governance operations, and helpers/tests/fixtures. Combine docs for moved functions with step 6. | First slice retires 185 documentation obligations with unchanged executable ASTs; required Google sections and existing domain regressions pass. See the step-5 records below. |
 | 6. Refactor workflows into classes | Pilot change-risk classification, then loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | Existing callers and CLI behavior remain compatible; methods have typed dependencies and docs; behavior and repeated-call tests pass. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
@@ -435,6 +436,48 @@ bytes are checksum-pinned. All 2,769 pre-existing source-standard obligations
 remain unchanged; no source debt was regenerated or added. One exact expiring
 framework exception retains the upstream `get_calendar` factory as a module-level
 stub declaration, with its owner, rationale and AST fingerprint recorded.
+
+### Step 5 implementation — first domain-contract slice
+
+The first slice documents the exported operations in
+[financial values](../../src/alpha_research/financial_units/models.py),
+[financial conventions](../../src/alpha_research/financial_units/conventions.py),
+[the symbology catalog](../../src/alpha_research/instrument_identity/catalog.py),
+and [the calendar adapter](../../src/alpha_research/venue_calendar/adapter.py),
+including their validators and private helpers. Existing numerical tolerance and
+temporal-model explanations are retained. Google sections now specify arguments,
+return values, direct and propagated domain errors, and relevant side effects.
+
+The contracts distinguish exact arithmetic from explicit rounding, accounting
+minor units from settlement rules, valid-time intervals from historical
+knowledge-time selection, and requested snapshot bounds from the source library's
+extended loading range. They also describe modified-convention coverage failures,
+namespace ambiguity, native-version checks, and explicit overlay attribution.
+Financial-unit validation callbacks now explain their specific invariants rather
+than repeating a generic validation summary.
+
+The [shared governance model](../../tools/governance/src/alpha_research_governance/_models.py)
+documents strict validation, framework error behavior, shallow freezing, and the
+inherited trusted-data construction/copy APIs. Financial-unit replacement docs
+describe its existing reconstruction and revalidation behavior. No constructors,
+copy implementation, validator, public signature, export, or numerical algorithm
+changed. Model schema descriptions may reflect the expanded shared class prose;
+field definitions and serialized instance values are unchanged.
+
+The source-debt inventory retires exactly **185** existing obligations: 21 missing
+summaries and 164 Google-section/parameter obligations. Its checksum pin changes
+with those deletions. No allowance was regenerated or added, and the exact
+exception policy is unchanged. The five edited source modules have no remaining
+documentation findings; their resolved contracts are enforced by the existing
+checker without documentation exceptions.
+
+Step 5 remains in progress: **1,779** documentation obligations remain (714
+summaries and 1,065 sections/parameter descriptions), alongside the unchanged 805
+step-6 function dispositions. The source inventory contains 2,584 obligations
+across 86 files. The 690 inferred-typing diagnostics remain unchanged. Continue
+with identity/calendar value-model APIs and high-level governance operations,
+then residual helpers, test classes and fixtures. Global Ruff documentation-rule
+activation and complete debt removal remain later adoption work.
 
 ### Class migration queue
 
@@ -642,3 +685,25 @@ These are local checks for step 4. This slice did not run `make ci-full`, the
 separate integration/performance selections or hosted CI. Steps 5–7 remain
 planned, including retirement of the remaining inferred-typing tasks before
 unconditional adoption closes.
+
+## Step 5 validation record — first domain-contract slice, 2026-09-05
+
+Validation used starting revision `4fa3c1eab9290858c7af94eacfc87ea3fba2b66e`.
+Both local packages were rebuilt offline as non-editable installs in the existing
+pinned environment. No dependency, lockfile, golden fixture, or test changed.
+
+| Check | Observed result |
+| --- | --- |
+| Executable AST comparison | All five documented source files are identical to the starting revision after removing docstrings. The checker change only updates the source-debt checksum. Signatures, imports, validation, arithmetic, and execution order are unchanged. |
+| Focused documentation checks | Zero source-scanner documentation findings in all five edited modules. Ruff with `D`, `ANN401`, and the Google convention passes for the financial-unit package, catalog, adapter, and shared governance model. |
+| Debt comparison | Exactly 185 original documentation obligations retired (21 summaries, 164 sections/parameters). All other entries and original metadata are preserved; no new allowance or exception. |
+| `make lint format-check typecheck engineering-standards-check architecture-check` | Passed. Strict mypy checks 136 Python/stub files; the inferred inventory still matches 690 diagnostics; native stubtest passes over 1,548 modules; source standards and 14 ADRs validate. |
+| Focused pytest | 259 passed, 4 deselected across all three domain unit modules, shared Pydantic validation, source/debt/typing/engineering standards, and the three domain evidence modules. Existing goldens, invalid inputs, immutable replacement, temporal boundaries, native conformance, and rounding regressions pass. |
+| Owning Bazel targets | All nine selected targets passed under `--config=ci`: instrument identity, venue calendar, and financial units; their three evidence targets; Python source standards, Python typing, and engineering standards. |
+| `pre-commit run --all-files` | Every hook passed with the existing pinned Cosign and Syft executables on `PATH`. |
+| Final documentation and whitespace | Documentation links validate and `git diff --check` passes. |
+
+These are local checks for this slice; `make ci-full`, hosted CI, and the separate
+integration/performance selections were not run. Step 5 remains in progress with
+1,779 documentation obligations outstanding; steps 6–7 and inferred-typing debt
+retirement remain unfinished.

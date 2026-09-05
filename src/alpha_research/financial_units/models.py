@@ -37,6 +37,16 @@ class _FinancialUnitModel(BaseModel):
     _validation_error_type: ClassVar[type[UnitError]] = UnitError
 
     def __init__(self, **data: object) -> None:
+        """Validate fields and translate construction failures to the owned error type.
+
+        Args:
+            **data: Declared model fields in their strict Python types; unknown fields
+                and invalid nested instances are rejected.
+
+        Raises:
+            UnitError: Field or model validation fails. Subclasses may specialize this
+                error through ``_validation_error_type``. Messages omit raw inputs.
+        """
         try:
             super().__init__(**data)
         except ValidationError as error:
@@ -48,7 +58,21 @@ class _FinancialUnitModel(BaseModel):
             raise self._validation_error_type("\n".join(messages)) from error
 
     def model_copy(self, *, update: Mapping[str, object] | None = None, deep: bool = False) -> Self:
-        """Reconstruct and validate every field, including updates and nested values."""
+        """Reconstruct and validate every field, including updates and nested values.
+
+        Args:
+            update: Field replacements to merge into the current values, or None to
+                retain all values. Unknown fields and invalid replacements fail.
+            deep: Whether to deep-copy the merged values before reconstruction.
+
+        Returns:
+            A newly validated instance of the same concrete type; this instance and
+            the update mapping are not mutated.
+
+        Raises:
+            UnitError: Reconstruction violates the concrete model's contract, using
+                its specialized validation error type where applicable.
+        """
         values = {name: getattr(self, name) for name in type(self).model_fields}
         if update is not None:
             values.update(update)
@@ -73,7 +97,11 @@ class Currency(StrEnum):
 
     @property
     def minor_unit(self) -> Decimal:
-        """Return the supported currency's accounting quantum, not a cash-payment rule."""
+        """Return the supported currency's accounting quantum, not a cash-payment rule.
+
+        Returns:
+            One yen for JPY; 0.01 currency units for every other supported currency.
+        """
         return Decimal("1") if self is Currency.JPY else Decimal("0.01")
 
 
@@ -114,14 +142,39 @@ class Compounding(StrEnum):
 
 
 def require_type[T](value: object, expected: type[T], name: str) -> T:
-    """Reject coercion and unsupported subclasses at the owned construction boundary."""
+    """Reject coercion and unsupported subclasses at the owned construction boundary.
+
+    Args:
+        value: Raw value to check without conversion.
+        expected: Required exact concrete type; subclasses are also rejected.
+        name: Field label used in a failure message.
+
+    Returns:
+        The original value narrowed to the required type.
+
+    Raises:
+        UnitError: The value's concrete type differs from ``expected``.
+    """
     if not isinstance(value, expected) or type(value) is not expected:
         raise UnitError(f"{name} must be {expected.__name__}")
     return value
 
 
 def require_decimal(value: object) -> Decimal:
-    """Require finite Decimal values on the 10^-18 grid with magnitude below 10^18."""
+    """Require finite Decimal values on the 10^-18 grid with magnitude below 10^18.
+
+    The stored Decimal exponent must lie between -18 and 18 inclusive. Equivalent
+    values with finer stored exponents are rejected rather than normalized.
+
+    Args:
+        value: Raw value; must be an exact Decimal, not a float or decimal string.
+
+    Returns:
+        The original finite Decimal, without rounding or context-dependent arithmetic.
+
+    Raises:
+        UnitError: The type, finiteness, stored exponent, or magnitude is unsupported.
+    """
     require_type(value, Decimal, "value")
     if not isinstance(value, Decimal) or not value.is_finite():
         raise UnitError("value must be finite")
@@ -134,7 +187,18 @@ def require_decimal(value: object) -> Decimal:
 
 
 def exact_decimal(value: Fraction) -> Decimal:
-    """Convert a rational exactly to the bounded grid, independently of Decimal context."""
+    """Convert a rational exactly to the bounded grid, independently of Decimal context.
+
+    Args:
+        value: Exact rational result to represent on the 1e-18 grid.
+
+    Returns:
+        An equal Decimal with stored exponent -18 and magnitude below 1e18.
+
+    Raises:
+        UnitError: The rational is not exactly representable on the grid or its
+            magnitude reaches the bound. No implicit rounding is performed.
+    """
     scaled = value * 10**18
     if scaled.denominator != 1:
         raise UnitError("result is not exactly representable on the 1e-18 grid")
@@ -143,7 +207,20 @@ def exact_decimal(value: Fraction) -> Decimal:
 
 
 def round_fraction(value: Fraction, quantum: Decimal, mode: Rounding) -> Decimal:
-    """Round an exact rational once to an arbitrary positive grid, including 0.05 ticks."""
+    """Round an exact rational once to an arbitrary positive grid, including 0.05 ticks.
+
+    Args:
+        value: Exact rational to round; negative values are supported.
+        quantum: Positive bounded Decimal grid step in the same units as ``value``.
+        mode: Mathematical floor, ceiling, toward-zero, or nearest ties-to-even.
+
+    Returns:
+        A bounded Decimal multiple of the quantum, independent of Decimal context.
+
+    Raises:
+        UnitError: The quantum or mode is invalid, or the rounded result exceeds
+            the bounded Decimal representation.
+    """
     step = require_decimal(quantum)
     require_type(mode, Rounding, "rounding")
     if step <= 0:
@@ -175,7 +252,14 @@ class Dimension(_FinancialUnitModel):
     kind: QuantityKind
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Validate the instrument identity and native quantity kind.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The identity is invalid or either field has an unexpected concrete type.
+        """
         require_type(self.instrument_id, InstrumentId, "instrument_id")
         try:
             InstrumentId(self.instrument_id.uuid_value)
@@ -192,7 +276,15 @@ class RateConvention(_FinancialUnitModel):
     payments_per_year: int | None = None
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Validate the day count and the compounding frequency relationship.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: An enum has the wrong concrete type, periodic frequency is not 1, 2,
+                4, or 12, or a nonperiodic convention supplies a frequency.
+        """
         require_type(self.day_count, DayCount, "day count")
         require_type(self.compounding, Compounding, "compounding")
         if self.compounding is Compounding.PERIODIC:
@@ -213,10 +305,19 @@ class _Value(_FinancialUnitModel):
     value: Annotated[Decimal, BeforeValidator(require_decimal)]
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Validate the finite bounded Decimal value.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The value is not an exact finite Decimal within the exponent
+                and magnitude bounds.
+        """
         require_decimal(self.value)
 
     def _combine(self, other: Self, sign: int) -> Self:
+        """Combine signed values exactly after checking concrete type and every dimension."""
         if type(other) is not type(self) or any(
             getattr(self, name) != getattr(other, name)
             for name in type(self).model_fields
@@ -228,9 +329,11 @@ class _Value(_FinancialUnitModel):
         )
 
     def __add__(self, other: Self) -> Self:
+        """Return an exact same-type, same-dimension sum or raise UnitError."""
         return self._combine(other, 1)
 
     def __sub__(self, other: Self) -> Self:
+        """Return an exact same-type, same-dimension difference or raise UnitError."""
         return self._combine(other, -1)
 
 
@@ -240,12 +343,29 @@ class Money(_Value):
     currency: Currency
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Validate the bounded amount and exact currency enum.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The amount violates the Decimal bounds or the currency has the wrong type.
+        """
         _Value.model_post_init(self, _context)
         require_type(self.currency, Currency, "currency")
 
     def rounded(self, *, mode: Rounding) -> Money:
-        """Round once to this currency's accounting minor unit."""
+        """Round once to this currency's accounting minor unit.
+
+        Args:
+            mode: Explicit rounding direction or ties-to-even rule.
+
+        Returns:
+            New money in the same currency, rounded to its accounting quantum.
+
+        Raises:
+            UnitError: The mode is invalid or the rounded amount exceeds the Decimal bounds.
+        """
         return self.model_copy(
             update={"value": round_fraction(Fraction(self.value), self.currency.minor_unit, mode)}
         )
@@ -259,12 +379,32 @@ class Quantity(_Value):
     ]
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Validate the bounded quantity and explicit native dimension.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The value violates the Decimal bounds or the dimension has the wrong type.
+        """
         _Value.model_post_init(self, _context)
         require_type(self.dimension, Dimension, "dimension")
 
     def rounded(self, lot: Lot, *, mode: Rounding) -> Quantity:
-        """Round to an explicitly matching lot, without order-side inference."""
+        """Round to an explicitly matching lot, without order-side inference.
+
+        Args:
+            lot: Positive lot with exactly the same instrument and quantity kind.
+            mode: Explicit rounding rule, also applied to negative quantities.
+
+        Returns:
+            A new quantity in this dimension, rounded to a multiple of the lot size.
+
+        Raises:
+            UnitError: The lot type, dimension, or mode is invalid, or the result
+                exceeds the bounded Decimal representation. A Lot receiver also
+                rejects rounding its positive value to zero.
+        """
         require_type(lot, Lot, "lot")
         if lot.dimension != self.dimension:
             raise UnitError("lot dimension mismatch")
@@ -282,13 +422,34 @@ class Price(_Value):
     ]
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Validate the bounded price, currency, and native-unit denominator.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The value violates the Decimal bounds or currency or denominator
+                has the wrong type.
+        """
         _Value.model_post_init(self, _context)
         require_type(self.currency, Currency, "currency")
         require_type(self.per, Dimension, "price denominator")
 
     def rounded(self, tick: Tick, *, mode: Rounding) -> Price:
-        """Round to an explicitly matching price tick."""
+        """Round to an explicitly matching price tick.
+
+        Args:
+            tick: Positive increment with the same currency and native-unit denominator.
+            mode: Explicit rounding rule, also applied to negative prices.
+
+        Returns:
+            A new price with the same dimensions and a value on the tick grid.
+
+        Raises:
+            UnitError: The tick type, dimensions, or mode is invalid, or the result
+                exceeds the bounded Decimal representation. A Tick receiver also
+                rejects rounding its positive value to zero.
+        """
         require_type(tick, Tick, "tick")
         if tick.currency != self.currency or tick.per != self.per:
             raise UnitError("tick dimension mismatch")
@@ -297,7 +458,18 @@ class Price(_Value):
         )
 
     def amount(self, quantity: Quantity) -> Money:
-        """Multiply matching dimensions exactly, without creating accounting state."""
+        """Multiply matching dimensions exactly, without creating accounting state.
+
+        Args:
+            quantity: Signed quantity whose dimension exactly matches this price's denominator.
+
+        Returns:
+            New money in this price's currency; the product is not rounded to minor units.
+
+        Raises:
+            UnitError: Quantity type or dimension mismatches, or the exact product
+                cannot be represented within the bounded Decimal grid.
+        """
         require_type(quantity, Quantity, "quantity")
         if quantity.dimension != self.per:
             raise UnitError("price and quantity dimension mismatch")
@@ -311,7 +483,14 @@ class Tick(Price):
     """Declare a strictly positive price increment for a matching currency and dimension."""
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Require a positive price increment with valid currency and dimension.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: Price validation fails or the increment is zero or negative.
+        """
         Price.model_post_init(self, _context)
         if self.value <= 0:
             raise UnitError("tick must be positive")
@@ -321,7 +500,14 @@ class Lot(Quantity):
     """Declare a strictly positive native quantity increment."""
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Require a positive quantity increment in an explicit native dimension.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: Quantity validation fails or the increment is zero or negative.
+        """
         Quantity.model_post_init(self, _context)
         if self.value <= 0:
             raise UnitError("lot must be positive")
@@ -340,7 +526,14 @@ class Multiplier(_Value):
     ]
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Require a positive bounded factor and exact input and output dimensions.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The factor is invalid or nonpositive, or a dimension has the wrong type.
+        """
         _Value.model_post_init(self, _context)
         require_type(self.input_dimension, Dimension, "input dimension")
         require_type(self.output_dimension, Dimension, "output dimension")
@@ -348,7 +541,19 @@ class Multiplier(_Value):
             raise UnitError("multiplier must be positive")
 
     def apply(self, quantity: Quantity) -> Quantity:
-        """Apply the declared factor once to the exact input dimension."""
+        """Apply the declared factor once to the exact input dimension.
+
+        Args:
+            quantity: Signed quantity in the multiplier's input dimension.
+
+        Returns:
+            New quantity in the output dimension with the exact scaled value; no
+            lot-size rounding is inferred.
+
+        Raises:
+            UnitError: Quantity type or dimension mismatches, or the exact product
+                cannot be represented within the bounded Decimal grid.
+        """
         require_type(quantity, Quantity, "quantity")
         if quantity.dimension != self.input_dimension:
             raise UnitError("multiplier input dimension mismatch")
@@ -365,7 +570,15 @@ class FXRate(_Value):
     quote: Currency
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Require a positive bounded quote for two distinct currencies.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The value is invalid or nonpositive, currencies have the wrong type,
+                or base and quote are equal.
+        """
         _Value.model_post_init(self, _context)
         require_type(self.base, Currency, "base currency")
         require_type(self.quote, Currency, "quote currency")
@@ -373,7 +586,21 @@ class FXRate(_Value):
             raise UnitError("FX requires distinct currencies and a positive rate")
 
     def convert(self, money: Money, *, target: Currency, mode: Rounding) -> Money:
-        """Convert either direction at this explicit rate and round once to target minor units."""
+        """Convert either direction at this explicit rate and round once to target minor units.
+
+        Args:
+            money: Signed amount in either currency of this rate's pair.
+            target: The other currency in the pair; same-currency conversion is rejected.
+            mode: Explicit rounding rule for the target currency's accounting quantum.
+
+        Returns:
+            New money in the target currency. Base-to-quote conversion multiplies;
+            quote-to-base conversion divides using exact rational arithmetic before rounding.
+
+        Raises:
+            UnitError: An argument type or pair direction is invalid, or the rounded
+                result exceeds the bounded Decimal representation.
+        """
         require_type(money, Money, "money")
         require_type(target, Currency, "target currency")
         if money.currency == self.base and target == self.quote:
@@ -394,7 +621,14 @@ class Rate(_Value):
     ]
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Validate the bounded annual rate and its explicit quotation convention.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The value violates the Decimal bounds or the convention has the wrong type.
+        """
         _Value.model_post_init(self, _context)
         require_type(self.convention, RateConvention, "rate convention")
 
@@ -409,7 +643,14 @@ class Volatility(_Value):
     day_count: DayCount
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Require a nonnegative bounded annualized volatility and explicit year basis.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The value is invalid or negative, or the day-count enum has the wrong type.
+        """
         _Value.model_post_init(self, _context)
         require_type(self.day_count, DayCount, "volatility year basis")
         if self.value < 0:
@@ -422,7 +663,14 @@ class Duration(_Value):
     day_count: DayCount
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Require a nonnegative bounded year fraction and explicit day count.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The value is invalid or negative, or the day-count enum has the wrong type.
+        """
         _Value.model_post_init(self, _context)
         require_type(self.day_count, DayCount, "duration year basis")
         if self.value < 0:
@@ -436,7 +684,16 @@ class EvaluationContext(_FinancialUnitModel):
     convention_revision: str
 
     def model_post_init(self, _context: object, /) -> None:
-        """Enforce owned financial invariants after strict field validation."""
+        """Validate the exact evaluation date and bounded convention revision.
+
+        Args:
+            _context: Pydantic validation context; unused by this invariant check.
+
+        Raises:
+            UnitError: The date has the wrong concrete type, or the revision is not a
+                1-128 character ASCII token containing only letters, digits, dots,
+                underscores, or hyphens.
+        """
         require_type(self.evaluation_date, date, "evaluation date")
         revision = self.convention_revision
         if (
