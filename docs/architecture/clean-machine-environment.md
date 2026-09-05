@@ -137,40 +137,21 @@ missing lock is invalid. Unknown bootstrap modes, unsupported systems, floating
 versions, duplicate tool IDs, mutable source records, missing Nix-store commands,
 or mismatched exact versions fail closed.
 
-## Risk, gates, and evidence
-
-The A04 facts are: no capital at risk, shared-domain blast radius,
-shared-or-candidate materiality for a repository-wide toolchain, no security
-privilege, compatibility-window reversal, computational materiality, and no
-economic/risk, model, or trading relevance. The resulting class is R2.
-QG01-QG06 and QG09-QG14 apply; QG07-QG08 are not triggered and QG15 is not an R2
-gate.
+## Evidence and governance
 
 The [B03 synthetic local evidence bundle](../governance/evidence/examples/b03-r2-partial/manifest.toml)
 binds that classification, exact gates, artifact digests, partial status, and
-findings. R2 eventually requires the Platform Code Owner and an independent
-domain reviewer.
+findings. Gate definitions live in the
+[quality-gate catalog](operations.md#quality-gate-catalog); current state and
+finding IDs are rendered in the [program status](../governance/program-status.md).
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| B03-F01 | Domain Architecture | Independent domain review and commit-bound Platform Code Owner approval are unavailable during solo bootstrap | Named reviewers approve the exact flake, lock, host-tool record, supported-platform claim, bootstrap, and rollback at the reviewed commit |
-| B03-F02 | Platform/CI | Protected merged-result `x86_64-linux` clean realization and retained exact-commit comparison to the verified Darwin/B02 graph are unavailable from this checkout | Protected CI realizes the lock on `x86_64-linux`, runs `verify`, `check`, and `rollback`, and retains matching graph/toolchain evidence for the reviewed merged result |
-| B03-F03 | Platform/Security | Final source, license, vulnerability, exploitability, maintenance, and transitive/native dependency admission is B07-owned | B07 admits or replaces every provisional B03 environment input without weakening the lock, supported platforms, bootstrap, or rollback |
-
-These findings are neither waivers nor approvals. B03 remains `partial` until all
-three close.
-
-## Operational signals and non-goals
+## Operational signals and boundary
 
 Repository-local signals are flake evaluation/realization failure, lock rewrite,
 unsupported platform, host-command fallback, version mismatch, uv interpreter
 download, Bazel graph failure, or rollback failure. There is no deployed service,
 production monitor, alert, SLO, migration, or operator runbook.
 
-B03 does not implement B04 language/numerical/property standards, B05 affected or
-merged-result CI policy, B06 remote cache/execution, B07 final admission, B08
-SBOM/provenance/signing, a production environment, deployment, activation,
-credentials, market access, venue/account/instrument expansion, limits, or capital
-authority.
-
-The next selector is `B04`.
+The [development workflow](../governance/workflow.md) owns daily evidence. B03
+creates a development environment only and grants no production, deployment,
+activation, credential, market or capital authority.

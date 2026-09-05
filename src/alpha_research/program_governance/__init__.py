@@ -4,6 +4,7 @@ from alpha_research_governance.program_governance import (
     APPLICABLE_GATE_IDS,
     METRIC_IDS,
     ROADMAP_PACKAGE_IDS,
+    FindingDispositionGroup,
     MetricDefinition,
     MetricObservation,
     MetricSummary,
@@ -15,13 +16,16 @@ from alpha_research_governance.program_governance import (
     load_program,
     load_roadmap,
     main,
+    render_status_markdown,
     validate_repository,
+    validate_status_document,
 )
 
 __all__ = [
     "APPLICABLE_GATE_IDS",
     "METRIC_IDS",
     "ROADMAP_PACKAGE_IDS",
+    "FindingDispositionGroup",
     "MetricDefinition",
     "MetricObservation",
     "MetricSummary",
@@ -33,5 +37,7 @@ __all__ = [
     "load_program",
     "load_roadmap",
     "main",
+    "render_status_markdown",
     "validate_repository",
+    "validate_status_document",
 ]

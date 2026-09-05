@@ -62,7 +62,7 @@ emergency_overrides = []
 "requirements.bazel.txt" = "8a7343e01d500cd5ab23de1a13ace07a2630f3c2724f6ae233529b0eb17a79e4"
 "MODULE.bazel.lock" = "d071e04040e390f9353b240cc26c5d3c0fdfb6a432d3d60f147e781110efce4b"
 "flake.lock" = "59dcd10f73b4392d83afb7ad11ce635f7c23ab529e21065fc073fbd2a30661e5"
-".github/workflows/ci.yml" = "276521697a3a01c47aa09d0d2f8d217a8635b2878d307293b673f50be472d7d2"
+".github/workflows/ci.yml" = "ade5a20cfcd580769de0acd3c3f9f3d537e89919a78ca18a1e2a979785a56524"
 
 [pip_audit]
 version = "2.10.1"

@@ -144,14 +144,11 @@ computational/economic relevance. Classification is R2 with QG01-QG14. Code Owne
 and independent domain review are mandatory; Platform/SRE and Security assess the
 native dependency and inherited B07 obligations. No independent approval exists.
 
-| Gates | Repository-local evidence |
-| --- | --- |
-| QG01-QG04 | Strict typing, formatting/lint, warnings-as-errors, exact locks, Bazel target, hand-calculated and property/invalid-input tests |
-| QG05-QG06 | Retained convention/fixture version and context; no PIT query, model, trial, research conclusion or promotion logic |
-| QG07-QG08 | Signed dimensional cancellation and FX/rounding error bounds; no costs/capacity model, portfolio, limits or independent risk gateway is implemented |
-| QG09-QG11 | Installed/Bazel/full-lane replay, local diagnostic budget, wrong-version/native failures and explicit context isolation |
-| QG12 | Exact wheel/source/license/native review, real publication verification, full locked vulnerability scan and unchanged release denial |
-| QG13-QG14 | Contract, ADR, scope, migration, runbook, retained failure and version diagnostics; no deployed monitor or alert is claimed |
+Applicable gate definitions live in the
+[quality-gate catalog](operations.md#quality-gate-catalog). Exact dependency,
+classification, artifact and finding state remains in the machine-readable
+admission and evidence records; current package state and finding IDs are rendered
+in the [program status](../governance/program-status.md).
 
 The [evidence example](../governance/evidence/examples/c03-r2-partial/manifest.toml)
 is a hash-bound partial A05 fixture with an explicitly synthetic SHA, not approval
@@ -188,20 +185,11 @@ Settings or round implicitly to recover. Admission expiry or evidence mismatch
 stops validation; Platform must renew with actual review or replace/remove the
 dependency. It does not renew automatically or permit artifact release.
 
-## Open findings and successor
+## Governance references
 
-| Finding | Owner | Closure condition |
-| --- | --- | --- |
-| C03-F01 | Domain Architecture | Named Code Owner and independent domain/Platform/SRE/Security reviewers resolve findings and approve the exact API, numeric tolerances, native boundary and commit |
-| C03-F02 | Platform/CI | Protected merged-result Linux and Darwin checks retain exact-wheel installation, full/golden replay, native comparison and target budget evidence |
-| C03-F03 | Domain Architecture | Independent target-domain convention and currency/precision reconciliation, including entitled calendars and representative instrument specifications, is retained |
-| B07-DEP-001 | Platform | Authenticate complete source-to-wheel build materials for every locked wheel, with Security review, or remove/replace the dependency and its declarations/locks/admission |
-
-B07-F01/F02/F03 also remain open for independent, protected-platform and qualified
-source/license/security evidence. These are not waivers or approvals. C03
-implementation is complete while institutional status remains `partial`; it does
-not validate Wave C and authorizes no release, promotion,
-deployment, activation, credentials, market access, capital or expanded risk
-authority. The reconciled active delivery queue selects `C04`.
-C04 time/bitemporal models, C05/C08 wire/schema machinery, C07 accounting schemas,
-D04 master data, F03 accounting/valuation and asset certification remain non-goals.
+Finding detail remains in the retained
+[C03 evidence manifest](../governance/evidence/examples/c03-r2-partial/manifest.toml)
+and [dependency admission](dependency-admission.toml), including `B07-DEP-001`.
+The [development workflow](../governance/workflow.md) owns daily evidence and the
+[program status](../governance/program-status.md) owns readiness. C03 grants no
+release, deployment, activation, credential, market or capital authority.

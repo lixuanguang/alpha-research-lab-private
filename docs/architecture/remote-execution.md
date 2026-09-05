@@ -62,21 +62,12 @@ The existing B05 full merged-result lane remains authoritative. The optional B06
 enabled only on a main push when repository variable `REMOTE_EXECUTION_ENABLED` is
 exactly `true`; protected CI must supply the key. It cannot run for pull-request code.
 
-## Risk and quality gates
+## Evidence and governance
 
-The A04 facts are: no capital at risk; shared-domain blast radius; shared/candidate
-data-model materiality; shared-sensitive credential privilege; compatibility-window
-reversal; computational materiality; and no economic/risk, model, or trading relevance.
-They classify B06 as R2. The applicable set is QG01-QG06 and QG09-QG14; the blueprint's
-explicit QG02, QG03, and QG11 requirements are contained in that stricter R2 set. QG07,
-QG08, and QG15 are not added because B06 changes no economic/risk model and does not
-deploy or activate a service.
-
-Required review is one Platform Code Owner and one independent affected-domain reviewer.
-Because the boundary handles a shared credential and external execution, SRE and Security
-must also review the exact trust, namespace, retention, resource, poisoning, rotation,
-revocation, outage, and rollback controls before acceptance. Solo-bootstrap work records
-these roles as unavailable findings rather than approvals.
+Exact classification, gate state and finding closure conditions live in
+[remote-execution.toml](remote-execution.toml). Gate definitions live in the
+[quality-gate catalog](operations.md#quality-gate-catalog); current state and
+finding IDs are rendered in the [program status](../governance/program-status.md).
 
 ## Migration, rollback, monitoring, and evidence
 
@@ -94,9 +85,6 @@ quarantine expiry, resource-budget breach, or local/remote mismatch. On any such
 disable the remote lane, run the local fallback, preserve logs without secrets, rotate
 or revoke credentials if applicable, and escalate to Platform CI and Security.
 
-Open findings are B06-F01 (independent approval), B06-F02 (protected provisioning and
-equivalence), and B06-F03 (security drills and B07 admission).
-
-This package creates no release, deployment, activation, runtime service, credentials,
-market access, capital allocation, or expanded risk authority. The documented successor
-is B07.
+The [development workflow](../governance/workflow.md) owns daily evidence. This
+package creates no release, deployment, activation, runtime-service, credential,
+market or capital authority.

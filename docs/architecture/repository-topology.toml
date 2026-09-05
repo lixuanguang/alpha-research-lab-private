@@ -566,6 +566,7 @@ sources = [
   "tools/governance/src/alpha_research_governance/program_governance/__main__.py",
   "tools/governance/src/alpha_research_governance/program_governance/models.py",
   "tools/governance/src/alpha_research_governance/program_governance/registry.py",
+  "tools/governance/src/alpha_research_governance/program_governance/status.py",
 ]
 
 [[units]]

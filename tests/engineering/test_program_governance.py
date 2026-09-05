@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
@@ -18,7 +19,9 @@ from alpha_research.program_governance import (
     load_program,
     load_roadmap,
     main,
+    render_status_markdown,
     validate_repository,
+    validate_status_document,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -54,6 +57,32 @@ def _remove_package_state(path: Path, package_id: str) -> None:
     candidates = [index for index in (following_state, following_metric) if index >= 0]
     end = min(candidates)
     path.write_text(text[:start] + text[end:], encoding="utf-8")
+
+
+def _downgrade_current_policy(path: Path, *, schema_version: int) -> str:
+    """Turn the current record into a representative pre-v4 compatibility fixture."""
+    text = path.read_text(encoding="utf-8").replace(
+        "schema_version = 4", f"schema_version = {schema_version}", 1
+    )
+    dispositions_start = text.index("[[finding_dispositions]]")
+    package_states_start = text.index("[[package_states]]", dispositions_start)
+    text = text[:dispositions_start] + text[package_states_start:]
+    text = "\n".join(
+        line for line in text.splitlines() if not line.startswith("generated_status_path =")
+    )
+    return (
+        re.sub(
+            r"evidence_paths = \[(.*?)\]",
+            lambda match: (
+                "evidence_paths = ["
+                f"{match.group(1).rstrip().removesuffix(',')}, "
+                '"docs/governance/program-status.md"]'
+            ),
+            text,
+            flags=re.DOTALL,
+        )
+        + "\n"
+    )
 
 
 def _metric_observation_event(
@@ -114,11 +143,24 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
     assert program.finding_ids == ("A08-F01", "A08-F02", "A08-F03")
     assert all(state.status == "partial" for state in program.package_states)
     assert all(state.repository_local_status == "passed" for state in program.package_states)
-    assert program.schema_version == 3
+    assert program.schema_version == 4
+    assert program.generated_status_path == "docs/governance/program-status.md"
+    assert tuple(group.disposition for group in program.finding_dispositions) == (
+        "technical",
+        "operation_prerequisite",
+        "role_handover",
+    )
+    assert program.finding_disposition_for("A01-F01") == "operation_prerequisite"
+    assert program.finding_disposition_for("A01-F03") == "role_handover"
+    assert sum(len(group.finding_ids) for group in program.finding_dispositions) == 54
     assert program.implementation_status == "complete"
     assert program.governance_status == "not_required"
     assert all(state.implementation_status == "complete" for state in program.package_states)
     assert all(state.governance_status == "not_required" for state in program.package_states)
+    assert all(
+        len(state.evidence_paths) == 1 and state.contract_path.endswith(".md")
+        for state in program.package_states
+    )
     assert all(metric.collection_mode == "automatic_event" for metric in program.metrics)
     assert all(not metric.manual_entry_allowed for metric in program.metrics)
     assert all(not metric.hard_gate_substitute for metric in program.metrics)
@@ -379,7 +421,7 @@ def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
         load_program(vanity, repository_root=REPOSITORY_ROOT)
 
 
-def test_program_policy_rejects_unapproved_target_claim_and_unretained_finding(
+def test_program_policy_rejects_unapproved_target_claim_and_parallel_contracts(
     tmp_path: Path,
 ) -> None:
     target = _policy_fixture(tmp_path)
@@ -389,15 +431,28 @@ def test_program_policy_rejects_unapproved_target_claim_and_unretained_finding(
     with pytest.raises(ProgramGovernanceError, match="approved target requires value and evidence"):
         load_program(target, repository_root=REPOSITORY_ROOT)
 
-    finding = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(finding, '"A01-F03"', '"A01-F99"')
-    with pytest.raises(ProgramGovernanceError, match="do not retain findings"):
-        load_program(finding, repository_root=REPOSITORY_ROOT)
+    contracts = _policy_fixture(tmp_path)
+    _replace_program_fixture_text(
+        contracts,
+        'evidence_paths = ["docs/governance/repository-charter.md"]',
+        'evidence_paths = ["docs/governance/repository-charter.md", '
+        '"docs/governance/domain-ownership.md"]',
+    )
+    with pytest.raises(ProgramGovernanceError, match="exactly one Markdown capability contract"):
+        load_program(contracts, repository_root=REPOSITORY_ROOT)
 
     deferred = _policy_fixture(tmp_path)
     _replace_program_fixture_text(deferred, '"organization",', '"later_technical_package",')
     with pytest.raises(ProgramGovernanceError, match="deferred evidence classes"):
         load_program(deferred, repository_root=REPOSITORY_ROOT)
+
+
+def test_program_policy_rejects_an_unmapped_active_historical_finding(tmp_path: Path) -> None:
+    path = _policy_fixture(tmp_path)
+    _replace_program_fixture_text(path, '  "A01-F01",\n', "")
+
+    with pytest.raises(ProgramGovernanceError, match="lack a migration disposition"):
+        load_program(path, repository_root=REPOSITORY_ROOT)
 
 
 def test_program_policy_rejects_impossible_approved_target_values(tmp_path: Path) -> None:
@@ -611,6 +666,24 @@ def test_cli_emits_stable_filtered_dashboard(
     assert [item["package_id"] for item in ready["packages"]] == ["C04"]
 
 
+def test_generated_status_is_deterministic_and_rejects_hand_edits(tmp_path: Path) -> None:
+    program = validate_repository(REPOSITORY_ROOT)
+    rendered = render_status_markdown(program)
+    status_path = tmp_path / "program-status.md"
+    status_path.write_text(rendered, encoding="utf-8")
+
+    validate_status_document(status_path, program)
+    assert "Registered implementation records: 19 of 96 packages" in rendered
+    assert "Next implementation-ready package: `C04`" in rendered
+    assert "`A01-F01`, `A01-F02`" in rendered
+    assert "`A01-F03`" in rendered
+    assert "No scoped handover is active" in rendered
+
+    status_path.write_text(rendered + "hand edit\n", encoding="utf-8")
+    with pytest.raises(ProgramGovernanceError, match="generated program status is stale"):
+        validate_status_document(status_path, program)
+
+
 def test_solo_package_completes_without_invented_findings(tmp_path: Path) -> None:
     """Legacy external gaps are optional for new implementation completion records."""
     path = _policy_fixture(tmp_path)
@@ -690,13 +763,17 @@ def test_technical_findings_cannot_be_hidden_by_complete_status(tmp_path: Path) 
 def test_program_reader_retains_version_one_semantics(tmp_path: Path) -> None:
     """Old records remain readable with their original institutional acceptance meaning."""
     path = _policy_fixture(tmp_path)
-    lines = path.read_text().replace("schema_version = 3", "schema_version = 1", 1).splitlines()
+    lines = _downgrade_current_policy(path, schema_version=1).splitlines()
     path.write_text(
         "\n".join(
             line
             for line in lines
             if not line.startswith(
-                ("implementation_status =", "domain_id =", "technical_finding_ids =")
+                (
+                    "implementation_status =",
+                    "domain_id =",
+                    "technical_finding_ids =",
+                )
             )
         )
         + "\n"
@@ -711,7 +788,7 @@ def test_program_reader_retains_version_one_semantics(tmp_path: Path) -> None:
 def test_program_reader_retains_version_two_dependency_semantics(tmp_path: Path) -> None:
     """Version 2 keeps its original rule that every roadmap edge blocks completion."""
     path = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(path, "schema_version = 3", "schema_version = 2")
+    path.write_text(_downgrade_current_policy(path, schema_version=2), encoding="utf-8")
     text = path.read_text(encoding="utf-8")
     prefix, suffix = text.split('package_id = "B06"', 1)
     suffix = suffix.replace(

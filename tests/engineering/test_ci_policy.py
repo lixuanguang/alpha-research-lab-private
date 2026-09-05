@@ -48,6 +48,8 @@ def test_repository_ci_policy_is_complete_partial_and_fail_closed() -> None:
     assert policy.successor_package == "B06"
     assert policy.full_lane_authoritative
     assert policy.require_merged_result_on_pull_request
+    assert policy.event_log_directory == "build/ci"
+    assert policy.hosted_artifact_retention_days == 30
     assert policy.unknown_path_behavior == "full_lane"
     assert policy.fast_lane_target_status == "pending_owner_approval"
     assert tuple(lane.lane_id for lane in policy.lanes) == ("fast", "full")
@@ -187,7 +189,11 @@ def test_ci_duration_event_matches_program_observation_contract_and_local_log_sc
     assert observations[0].duration_seconds == 2
 
     with pytest.raises(CIPolicyError, match="under build/ci"):
-        _open_ci_event_log(REPOSITORY_ROOT, Path("outside-events.jsonl"))
+        _open_ci_event_log(
+            REPOSITORY_ROOT,
+            Path("outside-events.jsonl"),
+            event_log_directory=load_continuous_integration_policy(POLICY_PATH).event_log_directory,
+        )
 
     with pytest.raises(CIPolicyError, match="retained HTTPS"):
         _build_ci_duration_event(

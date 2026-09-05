@@ -43,6 +43,7 @@ filegroup(
         "pyproject.toml",
         "requirements.bazel.txt",
         "uv.lock",
+        "//tests/fixtures/governance/evidence:legacy_evidence",
         "//tools/governance:pyproject.toml",
     ],
     visibility = ["//tests/build:__pkg__"],

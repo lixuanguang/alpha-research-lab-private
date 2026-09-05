@@ -110,13 +110,12 @@ rollback.
 
 Build and test phases write newline-delimited JSON events under ignored
 `build/ci/`. Each event records the full source revision, run identity, UTC start
-and end, environment, outcome, and fast/full target. Hosted events with a real
-credential-free HTTPS run URL conform to A08's `ci_build_completed` and
-`ci_test_completed` observation contract; a non-local lane rejects a dirty checkout
-so that revision identity remains exact. A local event deliberately has an empty
-evidence URL and is therefore execution output, not retained forge evidence or an
-A08 baseline observation. The log is truncated before preflight so a failed rerun
-cannot leave a stale passing event behind.
+and end, environment, outcome, and fast/full target. Hosted fast and full jobs
+retain separate event streams for 30 days through the pinned artifact action; each
+stream carries the run URL needed by A08's observation contract. A non-local lane
+rejects a dirty checkout so revision identity remains exact. Local events keep an
+empty evidence URL and remain unretained execution output. A new log is truncated
+before preflight so a failed rerun cannot leave a stale passing event behind.
 
 The supported interfaces are:
 
@@ -134,33 +133,14 @@ full-lane authority. The `alpha_research.ci_policy` API and module command are
 compatibility facades; the canonical implementation is
 `alpha_research_governance.ci_policy`.
 
-## A04 classification and quality gates
+## Classification and evidence
 
-B05 is R2 because it changes the shared build, compatibility, and source-security
-contract with a compatibility-window rollback. It has no capital, production
-privilege, economic, model, or trading effect. It is computationally material.
-QG07-QG08 and QG15 are not applicable because B05 introduces no cost/capacity,
-risk, deployment, promotion, activation, or executable-order surface.
-
-| Gate | Repository-local evidence |
-| --- | --- |
-| QG01 | Fast-range and full-file pre-commit, strict B04 checks, and generated/source separation |
-| QG02 | Pinned Bazel, Buf, Python, uv, pre-commit, scanner, sandbox, and lock inputs |
-| QG03 | Success, empty, boundary, invalid-input, merge-parent, event, CLI, and tool-failure tests |
-| QG04 | Set/ordering invariants and the bounded 1,000-path selector workload; no numerical change |
-| QG05 | Registered-module lint and exact-base Buf compatibility with additive and breaking fixtures |
-| QG06 | Explicit absence of research, data, feature, model, trial, or promotion behavior |
-| QG09 | Root, Bazel, pre-commit, compatibility, and hosted fast/full interfaces agree |
-| QG10 | Selector computation meets its local budget; target median remains an external finding |
-| QG11 | Unknown, unowned, deleted, malformed, incompatible, oversized, or failed state blocks or broadens |
-| QG12 | Full tracked-source and affected-source secret scans plus retained B07 admission finding |
-| QG13 | Scope, controls, interfaces, evidence, migration, rollback, findings, non-goals, and successor are documented |
-| QG14 | Revision-bound build/test events expose outcomes; no retained protected-forge observation is claimed |
-
-Institutional acceptance requires the Platform Code Owner and an independent
-domain reviewer. The platform-runtime and secret-scanning paths also require the
-recorded SRE and Security review. Those independent roles are unavailable during
-solo bootstrap.
+B05 is R2 because it changes shared build, compatibility and source-security
+behavior with a compatibility-window reversal. Applicable gate definitions live in
+the [quality-gate catalog](operations.md#quality-gate-catalog); exact gate state and
+finding closure conditions live in [ci-policy.toml](ci-policy.toml). The
+[generated program status](../governance/program-status.md) reports current
+implementation, governance and retained findings.
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
@@ -183,25 +163,9 @@ full lane when ownership is uncertain, restore the last passing policy/lock/sche
 combination or revert B05 as a unit, and rerun the full lane. There is no deployed
 monitor, alert route, on-call service, kill path, or post-deploy window.
 
-## Open findings
+## Governance references
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| B05-F01 | Domain Architecture | Independent domain review and commit-bound Platform Code Owner, SRE, and Security approval | Named reviewers resolve findings and approve the exact selector, full lane, scanner, schema, event, rollback, and hosted configuration commit |
-| B05-F02 | Platform/CI | Protected merged-result execution, retained exact-commit events, representative affected-versus-full comparisons, and an owner-approved median target | Protected CI makes the full lane required, retains events, proves representative selection equivalence, and approves then meets the median fast-lane budget |
-| B05-F03 | Security | Qualified final source, license, vulnerability, exploitability, maintenance, and transitive scanner admission | B07 admits or replaces the scanner without weakening full tracked-source scanning, token rules, failure behavior, or rollback |
-
-These findings are neither waivers nor approvals. B05 remains `partial` until all
-three close.
-
-## Explicit non-goals and successor
-
-B05 does not implement remote cache/execution, deterministic sharding, retry,
-quarantine, resource budgets, or flake ownership; those remain B06. It does not
-perform B07 final dependency admission or B08 SBOM, provenance, signing,
-publication, or consumer verification. It does not create canonical schemas,
-schema-registry authority, production services, releases, deployments,
-activation, credentials, market access, capital, venues, accounts, instruments,
-limits, or expanded risk authority.
-
-The next selector is `B06`.
+The [development workflow](../governance/workflow.md) owns daily validation and
+evidence shape. Current status, findings and the active queue are generated in the
+[program status](../governance/program-status.md). B05 creates no deployment,
+activation, credential, executable-order or capital authority.

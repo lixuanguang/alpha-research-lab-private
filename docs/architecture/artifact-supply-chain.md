@@ -87,13 +87,13 @@ digests. It never resolves a tag or chooses a favorable fallback. Signature,
 provenance, native-library, immutable-reference, and tamper failures stop
 publication and consumption.
 
-## Quality gates and evidence
+## Evidence
 
-The A04 facts classify B08 as R2: shared-domain blast radius, shared/candidate
-materiality, shared-sensitive security effect, compatibility-window reversal,
-and computational materiality, with no capital, economic, model, or trading
-effect. A04 therefore requires QG01-QG06 and QG09-QG14. The blueprint adds QG15
-for promotion and consumer admission. The synthetic partial evidence bundle at
+The A04 facts classify B08 as R2. Applicable control definitions live in the
+[quality-gate catalog](operations.md#quality-gate-catalog), while exact gate state
+and finding closure conditions live in
+[artifact-supply-chain.toml](artifact-supply-chain.toml). The retained synthetic
+bundle at
 [`b08-r2-partial`](../governance/evidence/examples/b08-r2-partial/manifest.toml)
 records those exact gates and no approvals or waivers.
 
@@ -126,21 +126,10 @@ rotate it externally; rebuild from reviewed source; and verify a new digest. Do
 not overwrite or reactivate the rejected digest. There is no deployed alert,
 registry, signing service, SLO, or on-call route in this package.
 
-## Deferred findings
+## Governance references
 
-| Finding | Owner | Closure condition |
-| --- | --- | --- |
-| B08-F01 | Domain Architecture | Named Platform, Security, SRE, and independent domain reviewers resolve findings and approve the exact commit |
-| B08-F02 | Platform CI | Protected builds prove supported-platform reproducibility, keyless identity and transparency inclusion, immutable registry retention, and real consumer rejection on the exact commit |
-| B08-F03 | Security | Independent tamper, signer compromise/revocation/rotation/recovery, and target native/container completeness drills pass and are retained |
-
-These findings are not waivers. B08 remains partial under solo bootstrap.
-
-## Non-goals and successor
-
-B08 does not implement I01's production registry or release manifest, K03's
-organization-wide release enforcement, domain artifact builders, deployment,
-activation, credentials, data infrastructure, models, accounts, venues, capital,
-or risk authority. It does not implement C01. Once repository-local B08 evidence
-passes. Its documented `C01` successor is now provisionally implemented without
-changing B08's partial status or closing its findings.
+Current implementation, governance and retained finding IDs are rendered in the
+[program status](../governance/program-status.md); detailed closure conditions stay
+in the adjacent TOML policy. The [development workflow](../governance/workflow.md)
+owns daily evidence. B08 does not itself create a production registry, release,
+deployment, activation, credential or capital authority.

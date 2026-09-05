@@ -99,44 +99,24 @@ coverage, and continued maintenance before final admission. Build tools may run
 during build and CI; package installation inside a production runtime remains
 prohibited.
 
-## Risk, gates, and evidence
-
-The A04 facts are: no capital at risk, shared-domain blast radius,
-shared-or-candidate data-model materiality, no security privilege,
-compatibility-window reversal, computational materiality, and no economic/risk,
-model, or trading relevance. The resulting class is R2. QG07-QG08 are not
-triggered and QG15 is not an R2 gate.
+## Evidence and governance
 
 The [B02 synthetic local evidence bundle](../governance/evidence/examples/b02-r2-partial/manifest.toml)
 binds the exact facts, QG01-QG06 and QG09-QG14, artifact digests, partial status,
 and open findings. Repository-local checks cover pins, lock enforcement, targets,
 sandbox exclusion, deterministic SQL/Protobuf generation, dependency-record
 shape, Make delegation and rollback, topology/inventory/program integration,
-documentation, security scan, and failure propagation.
+documentation, security scan, and failure propagation. Gate definitions live in
+the [quality-gate catalog](operations.md#quality-gate-catalog); current state and
+finding IDs are rendered in the [program status](../governance/program-status.md).
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| B02-F01 | Domain Architecture | Independent domain review and commit-bound Platform Code Owner approval are unavailable during solo bootstrap | Named reviewers approve the exact graph, toolchain pins, dependency records, compatibility window, and rollback at the reviewed commit |
-| B02-F02 | Platform/CI | Protected merged-result Linux execution and retained exact-commit local/CI digest comparison are unavailable from this checkout | Protected CI runs the representative graph at the reviewed merged result and retains target/toolchain digests matching a supported local run |
-| B02-F03 | Platform | B03 clean-machine execution passes repository-locally on Darwin; B07 final dependency admission has not occurred | B07 admits or replaces every provisional B02 dependency without weakening the graph or B03 equivalence |
-
-These findings are neither waivers nor approvals. B02 remains `partial` until all
-three close. R2 requires the Platform Code Owner and an independent domain
-reviewer.
-
-## Operational signals and non-goals
+## Operational signals and boundary
 
 The repository-local signals are a lockfile-resolution failure, Bazel action or
 test failure, sandbox leakage, nondeterministic generated digest, missing target,
 dependency-record drift, CI setup failure, or rollback-path failure. There is no
 deployed service, production alert, or operator runbook in B02.
 
-B02 does not itself implement B03 clean-machine provisioning or B04 engineering
-standards; both are separately governed and provisionally implemented. It does not
-implement B05 affected/full or schema-compatibility CI policy, B06 remote
-cache/execution, B07 final dependency admission, B08 SBOM/provenance/signing, C05
-domain schemas, production data or model behavior, deployment, activation,
-credentials, venue or market access, limits, or capital authority.
-
-The successor B03 environment is provisionally implemented separately; B02
-remains partial on its own evidence and findings.
+The [development workflow](../governance/workflow.md) owns daily evidence. B02
+creates build behavior only and grants no deployment, activation, credential,
+market or capital authority.

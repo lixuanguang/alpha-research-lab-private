@@ -144,32 +144,13 @@ and explicit timezone round trips. Explicit gap/fold tests retain distinct UTC
 instants across repeated local times. Strict Pydantic tests reject raw nested
 mappings, extra fields, coercion, mutation, and invalid nested instances.
 
-## Risk, quality gates, and reviewers
+## Evidence and governance
 
-The authoritative A04 facts are: no capital at risk, shared-domain blast radius,
-shared-library materiality, no security privilege, compatibility-window
-reversibility, and no computational, economic/risk, model, or trading conditional
-trigger. A04 therefore returns R2 with merged-result, compatibility-replay, and
-impact-analysis rollout modes.
-
-| Gate | Repository-local evidence |
-| --- | --- |
-| QG01 | Strict frozen Pydantic validation, Ruff format/lint, strict mypy, warnings-as-errors pytest, suppression expiry, and Bandit cover the library and tests |
-| QG02 | Exact exchange-calendars/NumPy constraints, uv/Bazel locks, bounded source ranges, deterministic fixtures, and derandomized properties |
-| QG03 | Success, boundary, adapter, override, timezone, closure, settlement, invalid-input, and error paths are tested |
-| QG04 | UTC, half-open interval, ordering, overlap, identity, timezone, and deterministic projection invariants are tested |
-| QG05 | Version/revision attribution, holiday/half-day/DST/break fixtures, closures, and correction-by-new-snapshot semantics are retained |
-| QG06 | No feature, model, research conclusion, trial, or promotion decision is introduced |
-| QG09 | Installed package, focused pytest/Bazel, source topology, evidence profile, and full graph consume the same owned API and fixture |
-| QG10 | Ten thousand market-state lookups remain within the recorded one-second local diagnostic budget |
-| QG11 | Unknown, incompatible, naive, non-UTC, overlapping, unattributed, or out-of-range state fails closed without partial mutation |
-| QG12 | The exact dependency graph, sources, hashes, licenses, wheels/native artifacts, no-runtime-install rule, static analysis, and secrets checks remain blocking |
-| QG13 | Contract, ADR, API, fixture, ownership, limitations, migration, rollback, runbook, findings, and successor are documented |
-| QG14 | Typed failures and returned version/state attribution are repository-local signals; no deployed SLO, alert, or dashboard is claimed |
-
-Institutional review requires the Code Owner plus an independent data or domain
-reviewer. Platform review is also required for the new dependency and native-wheel
-surface. The solo maintainer cannot satisfy those roles independently.
+The C02 evidence manifest retains exact classification, gate, dependency and
+artifact state. Gate definitions live in the
+[quality-gate catalog](operations.md#quality-gate-catalog); current package state
+and finding IDs are rendered in the
+[program status](../governance/program-status.md).
 
 The diagnostic workload uses the retained 185-session XNYS range, with lookups at
 session opens and closes. Session selection uses binary search over the validated
@@ -199,36 +180,11 @@ timezone, select a nearby session, suppress an unknown halt/limit, or treat the
 library as live authority. C02 adds no production monitor, page, alert route, or
 operator control.
 
-## Open findings
+## Governance references
 
-| Finding | Owner | Unavailable evidence | Closure condition |
-| --- | --- | --- | --- |
-| C02-F01 | Domain Architecture | Commit-bound Code Owner, independent data/domain review, and independent Platform dependency review are unavailable during solo bootstrap | Named reviewers resolve findings and approve the exact API, time/state semantics, dependency boundary, fixtures, rollback, and evidence commit |
-| C02-F02 | Platform/CI | Protected merged-result Linux execution, retained exact-commit fixture replay, and Darwin/Linux native-wheel comparison are unavailable locally | Protected CI installs the exact admitted graph, runs affected/full tests and the retained fixture on the reviewed merged result, and retains pass and blocking-mutation evidence |
-| C02-F03 | Data Platform | Approved MIC registry reconciliation, authoritative venue calendars, settlement calendars, halt/limit feeds, and independent target-environment comparison are unavailable in this repository | Accountable data/venue owners reconcile representative target venues across DST, holidays, half-days, breaks, exceptional closures, auctions, halts, limits, and settlement dates and retain non-sensitive evidence |
-
-These findings are not approvals or waivers. C02 implementation is complete;
-institutional status remains `partial` until all close.
-The admitted dependency graph also retains B07-F03's Security-owned qualified
-license-obligation and independent vulnerability/Scorecard review; local license
-dispositions and scanner results do not close that inherited finding.
-
-## Explicit non-goals and successor
-
-C02 does not implement C03 typed units, currencies, prices, quantities, day-count
-or settlement conventions; C04 knowledge-time/bitemporal selection; C05 market or
-lifecycle event schemas; D04 persistent master data, source priority, correction
-history, impact reporting, or online serving; F04 market simulation; H04 live
-venue adapters; or L01-L05 asset certification.
-
-It adds no provider connection, live calendar authority, entitlement, credential,
-deployment, activation, executable order permission, venue/account/instrument
-expansion, capital, or expanded risk authority. The next documented selector is
-typed units, currencies, prices, quantities, and conventions (`C03`).
-
-C02 does not own A08 readiness reporting. Governance migration step 3 reconciles
-this demonstrated implementation in the program registry; the A08 validator still
-derives the queue. C03 is also reconciled, so the current technical successor is
-C04. C02 adds no separate root command, CI lane, or resource-inventory entry.
-Existing build and source-ownership registrations cover only the C02 library,
-tests, and evidence inputs.
+Finding detail remains in the retained
+[C02 evidence manifest](../governance/evidence/examples/c02-r2-partial/manifest.toml).
+The [development workflow](../governance/workflow.md) owns daily evidence and the
+[program status](../governance/program-status.md) owns readiness. C02 grants no
+provider, credential, deployment, activation, executable-order or capital
+authority.

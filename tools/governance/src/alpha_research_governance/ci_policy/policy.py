@@ -42,11 +42,13 @@ _PRIVATE_KEY_SCANNER_DISTRIBUTION = "pre-commit-hooks==6.0.0"
 _POLICY_KEYS = {
     "accountable_owner_role",
     "applicable_gate_ids",
+    "event_log_directory",
     "fast_lane_target_status",
     "findings",
     "foundational_paths",
     "full_lane_authoritative",
     "generated_artifact_prefixes",
+    "hosted_artifact_retention_days",
     "lanes",
     "local_evidence_commit_sha",
     "local_evidence_manifest_path",
@@ -184,11 +186,13 @@ def load_continuous_integration_policy(path: Path) -> CIPolicy:
         "accountable_owner_role": "platform",
         "fast_lane_target_status": "pending_owner_approval",
         "full_lane_authoritative": True,
+        "event_log_directory": "build/ci",
         "local_evidence_commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "local_evidence_manifest_path": (
             "docs/governance/evidence/examples/b05-r2-partial/manifest.toml"
         ),
         "operating_track": "solo_bootstrap",
+        "hosted_artifact_retention_days": 30,
         "package_status": "partial",
         "parent_package": _CONTINUOUS_INTEGRATION_PACKAGE_ID,
         "require_merged_result_on_pull_request": True,
@@ -248,6 +252,10 @@ def load_continuous_integration_policy(path: Path) -> CIPolicy:
         selection_strategy="bazel_owner_reverse_dependencies",
         full_lane_authoritative=True,
         require_merged_result_on_pull_request=True,
+        event_log_directory="build/ci",
+        hosted_artifact_retention_days=_require_positive_integer(
+            document, "hosted_artifact_retention_days"
+        ),
         secret_scanner_executable=_PRIVATE_KEY_SCANNER_EXECUTABLE,
         secret_scanner_version=_PRIVATE_KEY_SCANNER_DISTRIBUTION,
         secret_scan_maximum_file_bytes=_require_positive_integer(
@@ -376,14 +384,25 @@ def _continuous_integration_repository_findings(root: Path, policy: CIPolicy) ->
             ):
                 findings.append(f"generated artifact is tracked as source: {path}")
     expected_fragments = {
-        "Makefile": ("ci-policy-check:", "ci-fast:", "ci-full:", "alpha-governance-ci"),
-        ".pre-commit-config.yaml": ("id: ci-policy", "alpha-governance-ci", "always_run: true"),
+        "Makefile": (
+            "governance-check:",
+            "program-status:",
+            "ci-policy-check:",
+            "ci-fast:",
+            "ci-full:",
+            "alpha-governance-ci",
+        ),
+        ".pre-commit-config.yaml": ("id: ci-policy", "alpha-governance-ci", "files:"),
         ".github/workflows/ci.yml": (
             "fast:",
             "merged-result:",
             "make ci-fast",
             "make ci-full",
             "verify-merged-result",
+            "actions/upload-artifact@",
+            "build/ci/fast-events.jsonl",
+            "build/ci/full-events.jsonl",
+            "retention-days: 30",
         ),
         "tools/governance/pyproject.toml": ("alpha-governance-ci",),
     }

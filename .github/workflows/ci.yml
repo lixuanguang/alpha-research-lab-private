@@ -51,6 +51,16 @@ jobs:
           CI_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-fast"
           CI_ENVIRONMENT="github_pr_head"
           CI_EVIDENCE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          CI_EVENT_LOG="build/ci/fast-events.jsonl"
+
+      - name: Retain revision-bound fast-lane events
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-events-fast-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/ci/fast-events.jsonl
+          if-no-files-found: warn
+          retention-days: 30
 
   merged-result:
     name: Authoritative merged-result full lane
@@ -107,6 +117,16 @@ jobs:
           CI_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-full"
           CI_ENVIRONMENT="github_merged_result"
           CI_EVIDENCE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          CI_EVENT_LOG="build/ci/full-events.jsonl"
+
+      - name: Retain revision-bound full-lane events
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-events-full-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/ci/full-events.jsonl
+          if-no-files-found: warn
+          retention-days: 30
 
   remote-execution:
     name: Remote execution shard ${{ matrix.shard }}
