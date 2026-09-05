@@ -6,7 +6,8 @@
 | --- | --- |
 | Roadmap package | C03 |
 | Operating track | Solo bootstrap |
-| Package status | Partial |
+| Implementation status | Complete |
+| Institutional status | Partial |
 | Accountable owner role | Domain Architecture |
 | Dependencies | C01-C02, provisionally satisfied with open institutional findings |
 | Change risk | R2, shared financial library and native dependency boundary |
@@ -197,9 +198,10 @@ dependency. It does not renew automatically or permit artifact release.
 | B07-DEP-001 | Platform | Authenticate complete source-to-wheel build materials for every locked wheel, with Security review, or remove/replace the dependency and its declarations/locks/admission |
 
 B07-F01/F02/F03 also remain open for independent, protected-platform and qualified
-source/license/security evidence. These are not waivers or approvals. C03 remains
-`partial`, does not validate Wave C and authorizes no release, promotion,
+source/license/security evidence. These are not waivers or approvals. C03
+implementation is complete while institutional status remains `partial`; it does
+not validate Wave C and authorizes no release, promotion,
 deployment, activation, credentials, market access, capital or expanded risk
-authority. The next documented selector is `C04`, after local evidence passes.
+authority. The reconciled active delivery queue selects `C04`.
 C04 time/bitemporal models, C05/C08 wire/schema machinery, C07 accounting schemas,
 D04 master data, F03 accounting/valuation and asset certification remain non-goals.

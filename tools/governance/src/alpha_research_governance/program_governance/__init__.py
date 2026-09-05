@@ -153,6 +153,9 @@ def _build_program_dashboard_payload(
         "next_institutionally_ready_package": (
             None if not institutional_ready_packages else institutional_ready_packages[0].package_id
         ),
+        "next_implementation_ready_package": (
+            None if not solo_ready_packages else solo_ready_packages[0].package_id
+        ),
         "next_solo_ready_package": (
             None if not solo_ready_packages else solo_ready_packages[0].package_id
         ),

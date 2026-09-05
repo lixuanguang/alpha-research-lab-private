@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from math import ceil
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import field_validator, model_validator
 
 from alpha_research_governance._models import ImmutableModel
 from alpha_research_governance.operating_model import GovernanceStatus, ImplementationStatus
+
+DependencyPurpose = Literal["implementation", "operation_release", "team_handover"]
+_DEPENDENCY_PURPOSES: tuple[DependencyPurpose, ...] = (
+    "implementation",
+    "operation_release",
+    "team_handover",
+)
 
 
 class ProgramGovernanceError(ValueError):
@@ -28,11 +35,45 @@ class PackageNode(ImmutableModel):
     objective: str
     dependencies: tuple[str, ...]
     any_of_dependency_groups: tuple[tuple[str, ...], ...]
+    operation_release_dependencies: tuple[str, ...] = ()
+    operation_release_any_of_dependency_groups: tuple[tuple[str, ...], ...] = ()
+    team_handover_dependencies: tuple[str, ...] = ()
+    team_handover_any_of_dependency_groups: tuple[tuple[str, ...], ...] = ()
+
+    def dependency_requirements(
+        self,
+        purpose: DependencyPurpose,
+    ) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+        """Return all-of and any-of requirements for one dependency purpose."""
+        if purpose == "implementation":
+            return self.dependencies, self.any_of_dependency_groups
+        if purpose == "operation_release":
+            return (
+                self.operation_release_dependencies,
+                self.operation_release_any_of_dependency_groups,
+            )
+        return self.team_handover_dependencies, self.team_handover_any_of_dependency_groups
+
+    def all_dependency_ids(self) -> tuple[str, ...]:
+        """Return every referenced package once, independent of edge purpose."""
+        values: list[str] = []
+        for purpose in _DEPENDENCY_PURPOSES:
+            dependencies, groups = self.dependency_requirements(purpose)
+            values.extend(dependencies)
+            values.extend(item for group in groups for item in group)
+        return tuple(dict.fromkeys(values))
 
     def as_json(self) -> dict[str, object]:
         """Return the stable dashboard representation."""
         return {
             "any_of_dependency_groups": [list(group) for group in self.any_of_dependency_groups],
+            "dependency_purposes": {
+                purpose: {
+                    "all_of": list(self.dependency_requirements(purpose)[0]),
+                    "any_of": [list(group) for group in self.dependency_requirements(purpose)[1]],
+                }
+                for purpose in _DEPENDENCY_PURPOSES
+            },
             "dependencies": list(self.dependencies),
             "objective": self.objective,
             "package_id": self.package_id,
@@ -290,11 +331,20 @@ class ProgramGovernance(ImmutableModel):
                 return package_state.status == "validated"
             return package_state.is_solo_provisionally_satisfied()
 
+        purposes: tuple[DependencyPurpose, ...] = (
+            _DEPENDENCY_PURPOSES
+            if institutional or self.schema_version < 3
+            else ("implementation",)
+        )
         return all(
-            package_is_ready(dependency_id) for dependency_id in package.dependencies
-        ) and all(
-            any(package_is_ready(dependency_id) for dependency_id in dependency_group)
-            for dependency_group in package.any_of_dependency_groups
+            all(package_is_ready(dependency_id) for dependency_id in dependencies)
+            and all(
+                any(package_is_ready(dependency_id) for dependency_id in dependency_group)
+                for dependency_group in groups
+            )
+            for dependencies, groups in (
+                package.dependency_requirements(purpose) for purpose in purposes
+            )
         )
 
     def summarize_metrics(

@@ -1,4 +1,4 @@
-schema_version = 2
+schema_version = 3
 roadmap_package = "A08"
 operating_track = "solo_bootstrap"
 package_status = "partial"
@@ -18,7 +18,7 @@ applicable_gate_ids = [
   "QG13",
   "QG14",
 ]
-as_of_date = "2026-09-04"
+as_of_date = "2026-09-05"
 roadmap_path = "docs/roadmap/README.md"
 observation_schema_version = 1
 maximum_observations = 10000
@@ -291,6 +291,46 @@ evidence_paths = [
   "docs/governance/evidence/examples/c01-r2-partial/manifest.toml",
 ]
 open_finding_ids = ["C01-F01", "C01-F02", "C01-F03"]
+
+[[package_states]]
+package_id = "C02"
+status = "partial"
+implementation_status = "complete"
+domain_id = "schemas"
+technical_finding_ids = []
+owner_role = "domain_architecture"
+repository_local_status = "passed"
+deferred_evidence_classes = [
+  "external_control_plane",
+  "independent_review",
+  "qualified_review",
+  "target_environment",
+]
+evidence_paths = [
+  "docs/architecture/venue-calendar.md",
+  "docs/governance/evidence/examples/c02-r2-partial/manifest.toml",
+]
+open_finding_ids = ["C02-F01", "C02-F02", "C02-F03"]
+
+[[package_states]]
+package_id = "C03"
+status = "partial"
+implementation_status = "complete"
+domain_id = "schemas"
+technical_finding_ids = []
+owner_role = "domain_architecture"
+repository_local_status = "passed"
+deferred_evidence_classes = [
+  "external_control_plane",
+  "independent_review",
+  "qualified_review",
+  "target_environment",
+]
+evidence_paths = [
+  "docs/architecture/financial-units.md",
+  "docs/governance/evidence/examples/c03-r2-partial/manifest.toml",
+]
+open_finding_ids = ["C03-F01", "C03-F02", "C03-F03"]
 
 [[metrics]]
 metric_id = "kpi.build_duration_seconds"

@@ -26,9 +26,9 @@ as a hired reviewer. No hire in one domain activates another domain's reviews.
 The resolver evaluates staffing on the current date, independently of the KPI
 snapshot date. Release, activation and institutional acceptance always resolve
 to the existing institutional profile. The R0-R4 policy and retained evidence
-bundles keep that meaning. The [PR evidence interface](merge-evidence.md) uses four default sections and
-distinct founder implementation acceptance. The delivery dependency graph is
-migrated in step 3.
+bundles keep that meaning. The [PR evidence interface](merge-evidence.md) uses four
+default sections and distinct founder implementation acceptance. The delivery
+graph now separates technical, operation/release, and team-handover dependencies.
 
 ## Control metadata
 

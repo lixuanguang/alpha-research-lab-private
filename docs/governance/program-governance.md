@@ -20,18 +20,25 @@
 A08 turns the implementation roadmap into a deterministic delivery graph and
 defines the seven non-vanity program KPIs required by the blueprint. The roadmap
 tables remain the single source of package identifiers, objectives, and dependency
-expressions. The checker expands exact ranges, represents conditional asset
-dependencies as explicit `any of` groups, rejects unknown or duplicate packages,
-and fails on self-dependencies or cycles.
+expressions. Schema version 3 assigns every edge an `implementation`,
+`operation/release`, or `team handover` purpose. Untyped historical expressions
+remain implementation edges. The checker expands exact ranges, represents
+conditional dependencies as explicit `any of` groups per purpose, rejects unknown
+or duplicate packages, and fails on self-dependencies or cycles across the full
+graph.
 
-The version-2 program policy records implementation state only for A01-C01. Packages without
-an explicit state remain `planned`; no empty package is treated as implemented.
+The version-3 program policy records demonstrated implementation state for
+A01-C03. Packages without an explicit state remain `planned`; no empty package is
+treated as implemented. States must be unique and in roadmap order, but they need
+not form a contiguous prefix. This allows an independently implementable package
+to be recorded without inventing completion for an unrelated service.
 Each state separates `implementation_status`, `technical_finding_ids` and
 `domain_id` from its retained institutional `status`, findings and deferred
 evidence. Governance status and assigned reviewers are derived from the
 [current operating policy](domain-ownership.md#current-operating-policy).
 Completed implementation requires passing local evidence, no technical findings
-and complete technical dependencies. It does not require an external approval or
+and complete implementation dependencies. Operational/release and team-handover
+edges do not enter the active delivery queue. Completion does not require an external approval or
 an invented finding. A failed local result requires blocked implementation.
 
 Version-1 records remain readable with their original partial/validated meaning.
@@ -48,8 +55,10 @@ current status, evidence paths, open findings, KPI definitions, observed baselin
 state, and the next package ready under institutional or solo-provisional rules.
 Readiness is derived from the graph:
 
-- Institutional readiness requires every dependency to be `validated`.
-- Solo readiness requires complete implementation of its dependencies. Pending
+- Institutional readiness retains the compatibility rule that every dependency,
+  independent of purpose, is `validated`.
+- Solo/implementation readiness requires complete implementation of only its
+  implementation dependencies. Pending
   organizational handover does not change technical readiness.
 - A later package cannot make an earlier partial package validated and cannot
   hide a missing dependency behind a score.
@@ -64,11 +73,12 @@ uv run --frozen alpha-governance-program \
   --metric kpi.research_reproducibility_percent
 ```
 
-The 17 registered A01-C01 states show complete local implementation and no active
-governance requirement under the current founder assignment. Their institutional
-acceptance remains partial. The existing graph still returns C02: reconciling
-C02/C03 and separating dependency purposes is migration step 3, not a new claim
-that those packages lack implementation. Institutional readiness remains empty.
+The 19 registered A01-C03 states show complete local implementation and no active
+governance requirement under the current founder assignment. C02 and C03 were
+reconciled only after their code, goldens, focused checks, architecture contracts,
+and retained evidence bundles were confirmed. Their institutional acceptance
+remains partial. The active delivery graph now returns C04. Institutional
+readiness remains empty.
 
 ## KPI and observation contract
 
@@ -136,11 +146,19 @@ merged-result evidence is unavailable.
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
-Schema version 2 adds implementation state while retaining version-1 program
-reading and observation schema version 1. The ownership roster is evaluated at
-the current date; it is independent of the observation snapshot's `as_of_date`.
-Migration step 1 changes no dependency edges or KPI semantics. A later handover
-implementation will record governance completion against reviewed evidence.
+Schema version 3 adds dependency purposes and non-contiguous state records while
+retaining version-1 and version-2 program reading and observation schema version
+1. Version 2 keeps its original contiguous-prefix and all-edge completion rules.
+The ownership roster is evaluated at the current date; it is independent of the
+observation snapshot's `as_of_date`. A later handover implementation will record
+governance completion against reviewed evidence.
+
+B06 remote-service acceptance is an operation/release dependency of B07, not a
+prerequisite for implementing local dependency admission. B08 signed-artifact
+acceptance is likewise an operation/release dependency of D01; isolated raw-data
+contract implementation depends technically on C04. The operation-specific edges
+preserve reproducible-build, checksum, entitlement, and release restrictions when
+those operations are actually requested.
 
 Rollout adds one repository validator to the root, pre-commit, and hosted-CI
 interfaces. It does not connect a target telemetry backend or deploy/activate a

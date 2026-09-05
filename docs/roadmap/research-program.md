@@ -10,9 +10,11 @@ foundations (`C` through `K`). This program is subordinate to the 96 platform
 [implementation packages](README.md) and the
 [promotion controls](../architecture/operations.md#deployment-activation-and-promotion).
 
-The stages are ordered research gates, not calendar promises. A stage pauses when
-its platform dependency, data quality, or required evidence is incomplete. Later
-results cannot waive earlier leakage, accounting, or governance failures.
+The stages are ordered research gates, not calendar promises. Technical work
+pauses when an implementation dependency, data-quality check, or required
+technical artifact is incomplete. Pending organizational handover does not block
+implementation or reproducible research validation. Later results cannot waive
+earlier leakage, accounting, entitlement, release, or activation failures.
 
 Stage headings and prose lead with the research objective and place the stable
 stage selector in parentheses. Tables retain selectors because dependency and
@@ -39,24 +41,33 @@ human-readable stage or work-package name.
 
 ## Platform enablement map
 
-| Research stage | Minimum implementation packages | Blocking evidence |
-| --- | --- | --- |
-| R01 registered baseline | E01-E04 plus applicable F03/F06 accounting and cost contracts | Reproducible PIT raw-to-report baseline |
-| R02 data audit | C01-C08 and D01-D08 | Snapshot, lineage, correction, entitlement, and leakage evidence |
-| R03-R09 factors/signals/models | E03-E08 | Trial-complete independent research report |
-| R10-R12 risk and portfolio | F06 and G01-G04 | Accounting, cost, risk, constraints, fallback, and stress evidence |
-| R13-R14 execution/financing | F03-F08 and applicable G controls | Replay parity, calibrated cost/capacity, lifecycle and financing evidence |
-| R15 governance/freeze | E02, E06, E08, and K07 | Complete trial family, independent validation, immutable freeze |
-| R16 final OOS/certification | R15 plus applicable E08/F08/G08/H01/K07 gates | One-time final OOS and certification decision package |
+The package column below is a technical-work entry rule: each applicable package
+must have complete implementation and no technical finding. It does not require
+institutional `validated` status. Operation/release edges, entitlements and the
+rightmost conditions apply when a result is promoted, released, or given access
+to a controlled final-OOS or target environment. Team-handover review activates
+only for staffed scope.
 
-Work may prototype earlier on synthetic fixtures, but its result is not eligible
-for a later-stage claim until the required platform gate passes.
+| Research stage | Technical-work package entry | Additional operation, claim, or promotion condition |
+| --- | --- | --- |
+| R01 registered baseline | E01-E04 plus applicable F03/F06 accounting and cost contracts | Reproducible PIT raw-to-report baseline before a stage-complete claim |
+| R02 data audit | C01-C08 and D01-D08 | Entitlement and target-source evidence before using controlled data or making an institutional claim |
+| R03-R09 factors/signals/models | E03-E08 | Independent research review before institutional acceptance or promotion |
+| R10-R12 risk and portfolio | F06 and G01-G04 | Independent risk review before a risk limit or promotion decision |
+| R13-R14 execution/financing | F03-F08 and applicable G controls | Calibrated target evidence before operational use or a capacity claim |
+| R15 governance/freeze | E02, E06, E08, and K07 | Staffed independent validation before institutional freeze acceptance |
+| R16 final OOS/certification | R15 technical freeze plus applicable E08/F08/G08/H01/K07 implementation | Active access control and applicable independent acceptance before final-OOS access and certification |
+
+Synthetic-fixture work may begin earlier, but a technical stage result cannot be
+used by a later technical stage until its implementation entry and evidence pass.
+Institutional claims, controlled-data access, release, promotion, and activation
+remain subject to their separately listed conditions.
 
 ## Strategy definition and transparent baseline (research stage `R01`)
 
 **Entry:** the research contract, trial ledger, PIT dataset API, accounting, and
-cost conventions required for a reproducible raw-to-report baseline pass their
-applicable research-platform and simulation gates (`E` and `F`).
+cost conventions required for a reproducible raw-to-report baseline have complete
+implementation and passing applicable technical checks (`E` and `F`).
 
 Work packages:
 
@@ -79,7 +90,7 @@ timing and plausible costs. Otherwise stop or reformulate before adding models.
 ## Point-in-time data and instrument audit (research stage `R02`)
 
 **Entry:** the applicable canonical-contract and point-in-time data packages
-(`C01` through `D08`) pass.
+(`C01` through `D08`) have complete implementation and passing technical checks.
 
 Work packages:
 
@@ -94,13 +105,15 @@ Work packages:
 Required evidence: data-lineage map, quality report, historical universe artifact,
 timestamp audit, policy sensitivity, and source limitations.
 
-Advance only if an independent reviewer can rebuild the dataset and no unresolved
-look-ahead or survivorship path can change the result materially.
+Advance technical work only if a clean independent process can rebuild the
+dataset and no unresolved look-ahead or survivorship path can change the result
+materially. A second person is required for an institutional independent-review
+claim, not for the founder to execute and retain that reproducibility check.
 
 ## Observable-factor and PCA residual baselines (research stage `R03`)
 
 **Entry:** the feature, split, transform, and evaluation contracts (`E03` through
-`E06`) pass.
+`E06`) have complete implementation and passing technical checks.
 
 Work packages:
 
@@ -180,7 +193,7 @@ reason and does not gain from future distribution information.
 ## Predictive-model benchmark matrix (research stage `R07`)
 
 **Entry:** the common model adapters and evaluation controls (`E05` through `E06`)
-pass.
+have complete implementation and passing technical checks.
 
 Work packages:
 
@@ -244,7 +257,8 @@ time and every response is operationally implementable.
 
 ## Covariance and risk-model validation (research stage `R10`)
 
-**Entry:** the risk-model and covariance contracts (`G03`) pass.
+**Entry:** the risk-model and covariance contracts (`G03`) have complete
+implementation and passing technical checks.
 
 Work packages:
 
@@ -264,7 +278,8 @@ selected estimator improves a declared operational decision.
 ## Static portfolio construction (research stage `R11`)
 
 **Entry:** the portfolio contracts, optimizer diagnostics, constraints, and
-fallback behavior (`G01` through `G04`) pass.
+fallback behavior (`G01` through `G04`) have complete implementation and passing
+technical checks.
 
 Work packages:
 
@@ -305,8 +320,8 @@ dynamic policy survives reasonable cost/forecast error.
 
 ## Execution, impact, and capacity (research stage `R13`)
 
-**Entry:** the replay, state-machine, cost, scenario, TCA, and parity tests (`F05`
-through `F08`) pass.
+**Entry:** the replay, state-machine, cost, scenario, TCA, and parity packages
+(`F05` through `F08`) have complete implementation and passing technical checks.
 
 Work packages:
 
@@ -327,7 +342,8 @@ not dependent on an unobservable fill assumption.
 ## Financing, margin, and short-side stress (research stage `R14`)
 
 **Entry:** the applicable accounting, funding, margin, and lifecycle contracts
-(`F03` and `F06`) plus the selected asset-certification fixtures pass. Equity
+(`F03` and `F06`) plus isolated asset fixtures have complete implementation and
+passing technical checks. Equity
 borrow is not applicable to a digital-asset candidate, but exchange/custody credit,
 liquidation, stablecoin FX, and venue/chain outage evidence are mandatory under the
 digital-asset certification package (`L05`).
@@ -351,8 +367,8 @@ conservatively and the candidate survives predeclared operational limits.
 ## Multiple testing, selection freeze, and independent review (research stage `R15`)
 
 **Entry:** the candidate family is closed and the experiment-ledger, robustness,
-model-report, and independent-validation controls (`E02`, `E06`, `E08`, and `K07`)
-are ready.
+model-report, and independent-validation controls (`E02`, `E06`, `E08`, and
+`K07`) have complete implementation and passing technical checks.
 
 Work packages:
 
@@ -367,8 +383,10 @@ Work packages:
 Required evidence: trial-family manifest, selection rule, corrected uncertainty,
 freeze manifest, access policy, model card draft, dissenting findings, and owners.
 
-Advance only if selection would have chosen the same candidate using only evidence
-available before final OOS and every blocking review condition is closed.
+Advance to a technical freeze only if selection would have chosen the same
+candidate using evidence available before final OOS. Institutional freeze
+acceptance and final-OOS access additionally require every applicable staffed
+review and operation-specific condition to be closed.
 
 ## Final OOS and certification package (research stage `R16`)
 
