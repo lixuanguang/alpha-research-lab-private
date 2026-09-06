@@ -27,7 +27,40 @@ def validate_trusted_context(
     environment: Mapping[str, str],
     repository_root: Path,
 ) -> None:
-    """Reject remote credentials outside the exact clean main-push boundary."""
+    """Validate the CI and checkout boundary for authenticated remote execution.
+
+    The supplied environment is read as-is; this function neither merges it with
+    the current process environment nor changes it. Validation requires an
+    admitted trusted context, ``CI`` equal to ``"true"``,
+    ``GITHUB_EVENT_NAME`` equal to ``"push"``, ``GITHUB_REF`` equal to
+    ``"refs/heads/main"``, a credential of between 16 and 512 ASCII letters, digits, or
+    ``. _ ~ -`` characters, a ``GITHUB_SHA`` matching ``git rev-parse HEAD``,
+    and an empty ``git status --porcelain``. It starts those two Git commands
+    through the host ``PATH`` with ``repository_root`` as their working
+    directory; Git inherits the host process environment, while the validation
+    comparisons inspect only the supplied mapping. The checks do not authenticate
+    the credential, verify a commit signature, inspect remote configuration, or
+    validate the policy beyond the fields they read. Environment findings are
+    accumulated and reported after both Git commands; a Git failure propagates
+    immediately and can supersede earlier environment findings.
+
+    Args:
+        policy: Loaded policy supplying the trusted contexts and credential
+            environment-variable name to check.
+        context: CI execution-context identifier to compare with the policy's
+            trusted-context list.
+        environment: Environment values to inspect. Missing expected values fail
+            validation; the mapping is not modified or supplemented.
+        repository_root: Git working-tree directory used for the local ``HEAD``
+            and clean-checkout checks.
+
+    Raises:
+        RemoteExecutionError: If a trust or checkout condition fails, if the
+            credential fails its character-set or length check, or if Git cannot
+            be resolved or exits unsuccessfully.
+        OSError: If Git cannot be started or ``repository_root`` is invalid.
+        UnicodeDecodeError: If captured Git output cannot be decoded as text.
+    """
     findings: list[str] = []
     if context not in policy.trust.trusted_contexts:
         findings.append(f"remote execution is not permitted in context {context!r}")
@@ -53,7 +86,32 @@ def validate_trusted_context(
 
 
 def query_test_targets(repository_root: Path) -> tuple[str, ...]:
-    """Query the complete Bazel test graph with no remote credentials."""
+    """Return non-empty output lines from a shell-free complete-test-graph query.
+
+    The function resolves ``bazel`` through the host process's ``PATH`` and
+    starts ``bazel query tests(//...) --output=label`` with ``repository_root`` as
+    its working directory. Standard output and standard error are captured, and
+    the Bazel process inherits the current process environment because no
+    replacement environment is supplied. Consequently, this function does not
+    strip credentials, validate trust, or authenticate a remote provider; it also
+    does not add a remote-execution configuration. Only the query exit status and
+    the presence of non-blank output are validated. Target-label validation and
+    partition checks belong to the downstream sharding boundary.
+
+    Args:
+        repository_root: Directory supplied as Bazel's current working directory.
+
+    Returns:
+        Non-blank output lines from Bazel standard output, stripped of surrounding
+        whitespace and kept in query order, including duplicates. The lines are
+        not validated as Bazel labels here.
+
+    Raises:
+        RemoteExecutionError: If Bazel cannot be resolved, exits unsuccessfully,
+            or returns no non-blank output lines.
+        OSError: If Bazel cannot be started or ``repository_root`` is invalid.
+        UnicodeDecodeError: If captured Bazel output cannot be decoded as text.
+    """
     completed = _run_process(
         (_resolve_executable("bazel"), "query", "tests(//...)", "--output=label"),
         repository_root=repository_root,

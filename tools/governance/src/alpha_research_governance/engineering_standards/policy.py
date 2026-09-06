@@ -421,7 +421,31 @@ def _parse_languages(value: object) -> tuple[LanguageStandard, ...]:
 
 
 def load_standards(path: Path) -> EngineeringStandards:
-    """Load the engineering policy and reject missing, unknown, or weakened controls."""
+    """Load and validate one repository engineering-standards TOML policy.
+
+    The file is read as UTF-8 and parsed as a TOML table. Validation requires the
+    exact root schema and the admitted B04/R2 values, ordered gate and source-root
+    sequences, evidence identity and findings, suppression and generated-code
+    controls, numerical and property-testing policies, API surfaces, recorded baselines,
+    and tool/language records. The resulting ``EngineeringStandards`` model is
+    constructed only after those policy checks; this function does not scan the
+    repository, run quality tools, or execute the recorded workload.
+
+    Args:
+        path: UTF-8 TOML policy file to read. The file is not modified.
+
+    Returns:
+        The validated immutable engineering-standards record represented by the file.
+
+    Raises:
+        EngineeringStandardsError: If the root shape, required values, nested
+            controls, parsed tool/language records, or model fields are invalid.
+            TOML syntax errors and the final Pydantic model-validation error are
+            translated to this error with their original cause; errors raised by
+            the structural and field helpers propagate as this error.
+        OSError: If the policy file cannot be opened or read.
+        UnicodeDecodeError: If the policy file is not valid UTF-8.
+    """
     try:
         document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     except tomllib.TOMLDecodeError as error:
@@ -884,7 +908,50 @@ def source_tree_findings(
     owner_roles: frozenset[str],
     validation_date: date,
 ) -> tuple[str, ...]:
-    """Return deterministic source findings for suppressions and dormant languages."""
+    """Scan declared source roots for dormant-language and suppression findings.
+
+    Roots are formed as ``repository_root / source_root`` in the model's order;
+    a missing or non-directory root adds one finding and scanning continues.
+    Existing entries are traversed recursively in sorted order. A file whose own
+    name starts with ``.`` is skipped, while visible files below hidden
+    directories are scanned. Native suffixes ``.c``, ``.cc``, ``.cpp``, ``.h``,
+    ``.hpp`` and ``.rs`` add a dormant-language finding; only exact lowercase
+    ``.py`` and ``.pyi`` suffixes are tokenized. File symlinks encountered during
+    traversal are followed by ``is_file``/``read_text``; symlink directories
+    encountered during traversal are not recursively followed by Python 3.12's
+    ``rglob``, while a declared source-root symlink is scanned. This helper uses
+    lexical paths and does not enforce root containment or reject symlink escapes.
+    It does not consult ``standards.generated_source_roots``.
+
+    Python text is read as UTF-8. Tokenization catches ``IndentationError`` and
+    ``tokenize.TokenError`` as findings and skips the rest of that file, so an
+    earlier generated marker or suppression is discarded when tokenization fails.
+    Successful tokenization only identifies comments; it does not establish full
+    Python syntax validity. A comment containing ``@generated`` on lines 1-5 adds a finding;
+    marker text in strings, comments on line 6 or later, and uppercase suffixes
+    do not. Each comment is then passed to ``validate_suppression_line`` with the
+    supplied roles, date, and limits. Findings preserve root and path order. Each
+    file's generated-source finding precedes its suppression findings, which follow
+    token and helper-check order. The function performs no writes or network access.
+
+    Args:
+        repository_root: Path used to form declared roots and render findings as
+            lexical paths relative to the same root; it is not resolved here.
+        standards: Validated engineering policy supplying source roots and
+            suppression lifetime and rationale limits.
+        owner_roles: Governed roles accepted by suppression-line validation.
+        validation_date: Date against which suppression expiry is checked.
+
+    Returns:
+        A tuple of findings in scan order. An empty tuple means no source-tree
+        finding was produced.
+
+    Raises:
+        EngineeringStandardsError: If a recognized suppression has an invalid
+            expiry date; this propagated helper error stops the scan.
+        OSError: If an uncaught filesystem operation or file read fails.
+        UnicodeDecodeError: If a scanned Python file is not valid UTF-8.
+    """
     findings: list[str] = []
     for source_root in standards.source_roots:
         root = repository_root / source_root
@@ -936,7 +1003,48 @@ def source_tree_findings(
 def validate_repository(
     repository_root: Path, *, validation_date: date | None = None
 ) -> EngineeringStandards:
-    """Validate the engineering policy, tools, source tree, dependency, and evidence."""
+    """Validate the resolved repository against standards and local evidence.
+
+    The repository root is resolved before paths are formed. The function loads
+    the engineering policy, checks locked tool versions and the exact Python,
+    Ruff, pytest, dependency-pin, Bazel-requirement, and interpreter-baseline
+    settings, then runs the ownership-aware Python and source-tree checks and
+    validates the engineering-tool dependency record. A missing
+    ``validation_date`` defaults to ``date.today()``; the selected date is passed
+    to the source and Python standards checks for suppression and exception
+    expiry decisions. The final evidence block validates the manifest and the
+    fixed local package profile. Collected findings are raised together after
+    that block; a successful call returns the loaded engineering policy. It
+    reads local files and runs repository scanners, but does not invoke the
+    configured quality tools.
+
+    Errors from the final evidence block are deliberately handled at this
+    boundary: ``EvidenceGovernanceError``, ``OSError``, and ``ValueError`` are
+    converted to one finding. Earlier policy, lock, configuration, ownership,
+    source, and dependency reads and helper failures are not caught here.
+
+    Args:
+        repository_root: Repository path containing the standards policy and all
+            files inspected by the validator. It may be relative or symlinked;
+            its resolved path is used for all checks.
+        validation_date: Date used for time-bounded source checks. If omitted,
+            the current calendar date is selected when validation starts.
+
+    Returns:
+        The validated ``EngineeringStandards`` policy when no findings remain.
+
+    Raises:
+        EngineeringStandardsError: If any standards, configuration, source,
+            dependency, or accumulated evidence finding is present. Evidence
+            failures caught by the final block are included in this error.
+        OSError: If root resolution or a repository file read fails before the
+            final evidence block; evidence-block filesystem failures are
+            translated into ``EngineeringStandardsError``.
+        UnicodeDecodeError: If an uncaught pre-evidence repository text file is
+            not UTF-8; evidence-block decoding failures are aggregated instead.
+        tomllib.TOMLDecodeError: If an uncaught pre-evidence TOML file is malformed;
+            TOML errors raised inside the final evidence block are aggregated.
+    """
     root = repository_root.resolve()
     standards = load_standards(root / "docs/architecture/engineering-standards.toml")
     today = date.today() if validation_date is None else validation_date

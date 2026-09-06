@@ -12,7 +12,36 @@ from alpha_research_governance.evidence.models import (
 
 
 def validate_package_evidence(manifest: EvidenceManifest, profile: PackageEvidenceProfile) -> None:
-    """Require a manifest to match every immutable package-profile binding."""
+    """Require a manifest to match an exact package-evidence profile.
+
+    Compare the roadmap ID, owner role, serialized risk class, every classification
+    fact in model declaration order, exact gate-ID coverage, expected gate statuses,
+    mapped bundle status, and the exact ordered open-finding tuple. The profile
+    status mapping is ``validated`` to ``accepted``, ``partial`` to ``partial``,
+    and ``implementation_complete`` to ``implementation_accepted``. When any of
+    ``approvals_permitted``, ``waivers_permitted``, or
+    ``additional_required_gates_permitted`` is false, a non-empty corresponding
+    manifest collection is rejected. Missing and additional gate IDs are sorted;
+    status mismatches follow profile gate order, and all findings retain check order.
+
+    The profile model rejects duplicate expected gate IDs, while ``validate_manifest``
+    rejects duplicate manifest gate IDs before normal use. This function itself
+    compares dictionaries, so a manually constructed manifest with duplicate gate
+    IDs would use the last status for that ID. It performs no I/O, risk
+    recomputation, artifact inspection, commit binding, approval or waiver
+    inspection, or input mutation; true permission flags allow corresponding
+    non-empty collections without inspecting or authenticating their contents.
+    Callers should supply prevalidated manifest and profile models.
+
+    Args:
+        manifest: Prevalidated evidence manifest whose package bindings are compared.
+        profile: Immutable package profile defining the expected bindings, gates, statuses,
+            findings, and collection permissions.
+
+    Raises:
+        EvidenceGovernanceError: If any binding differs or a disallowed manifest collection is
+            non-empty. All detected findings are aggregated in deterministic check order.
+    """
     package_id = profile.roadmap_package_id
     context = f"{package_id} local evidence bundle"
     findings: list[str] = []
