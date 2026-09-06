@@ -1311,7 +1311,56 @@ def _load_control_map(
 def load_control_map(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> SecurityControlMap:
-    """Load the security map while preserving its public domain-error contract."""
+    """Load and cross-validate a security control map from UTF-8 TOML.
+
+    The ownership register is loaded first from ``ownership_register_path`` or
+    from ``docs/governance/domain-ownership.toml`` below the resolved
+    ``repository_root``. The map is then checked for its exact root schema and
+    fixed package metadata, followed by record parsing, canonical dates, ordered
+    and unique IDs, cross-record references, control/evidence relationships,
+    authority URL and freshness rules, jurisdiction and regulatory mapping
+    consistency, ownership roles, coverage, package findings, and local evidence
+    metadata. Authority freshness and legal-review horizons use the map's
+    recorded ``as_of_date``, not the wall-clock date. Available-evidence
+    locations and the local evidence manifest are checked as repository-relative
+    in-root files; their contents are not loaded here.
+
+    The function reads the ownership register and map as UTF-8 and performs
+    local filesystem checks for referenced paths. It does not write files,
+    make network requests, or validate the local evidence manifest contents.
+    TOML decoding and Pydantic model failures are translated to
+    ``SecurityControlError`` with their causes preserved.
+
+    Args:
+        path: UTF-8 TOML security-control map to load. A relative path is
+            interpreted from the current working directory and is not rebased to
+            ``repository_root``.
+        repository_root: Repository root used to resolve and bound repository-relative
+            evidence and manifest paths. Relative and symlinked roots are resolved
+            before validation.
+        ownership_register_path: Optional ownership-register TOML path. If omitted,
+            it defaults to ``docs/governance/domain-ownership.toml`` below the
+            resolved repository root. A supplied path is used as given; if relative,
+            it is interpreted from the current working directory and is not rebased
+            to ``repository_root``.
+
+    Returns:
+        The validated immutable ``SecurityControlMap`` after all validation checks
+        pass. Record collections retain their source order, and the map's recorded
+        open finding IDs remain in ``finding_ids``.
+
+    Raises:
+        SecurityControlError: If the ownership register or map has invalid TOML,
+            schema, values, references, ordering, ownership, evidence, authority,
+            or package findings. TOML decoding and Pydantic validation failures are
+            translated here, while domain findings retain their ordered messages.
+        OSError: If root or input-file resolution or reading fails, or an uncaught
+            filesystem failure occurs while inspecting referenced evidence or
+            manifest paths. Missing or out-of-root referenced paths are reported
+            as ``SecurityControlError`` findings instead.
+        UnicodeDecodeError: If the ownership register or map is not valid UTF-8.
+        RuntimeError: If path resolution encounters a symbolic-link loop.
+    """
     try:
         return _load_control_map(
             path,
@@ -1342,7 +1391,49 @@ def _validate_local_evidence(repository_root: Path, control_map: SecurityControl
 
 
 def validate_repository(repository_root: Path) -> SecurityControlMap:
-    """Validate the authoritative security map, ownership, and local evidence."""
+    """Validate the repository security map and its bound local evidence.
+
+    The function resolves ``repository_root`` first, validates the authoritative
+    map at ``docs/governance/security-control-map.toml`` through
+    :func:`load_control_map`, and then loads the change-risk policy at
+    ``docs/governance/change-risk-policy.toml``. It validates the map's
+    SHA-bound local evidence manifest and its declared artifacts, then compares
+    the result with the fixed A07 R2 partial package-evidence profile. Authority
+    freshness and legal-review horizons use the map's recorded ``as_of_date``,
+    not the wall-clock date. All operations are read-only and use local files; no
+    files are written and no network requests or subprocesses are made.
+
+    Map parsing and cross-record validation complete before local evidence
+    validation starts. Map findings from ``load_control_map`` propagate as-is.
+    Failures from the final evidence block are translated to one
+    ``SecurityControlError`` with the original cause, including change-risk,
+    manifest, package-profile, filesystem, decoding, and value failures.
+
+    Args:
+        repository_root: Repository root containing the authoritative security
+            map, ownership register, change-risk policy, local evidence manifest,
+            and its artifacts. Relative and symlinked roots are resolved before
+            fixed paths are formed.
+
+    Returns:
+        The validated immutable ``SecurityControlMap`` after map and local evidence
+        checks pass. Its records retain map order, and recorded open finding IDs
+        remain retained in ``finding_ids``.
+
+    Raises:
+        SecurityControlError: If map validation reports findings, or if change-risk
+            policy, local manifest, artifact, or A07 package-profile validation
+            fails. Final evidence-block failures are translated with their causes;
+            map findings from ``load_control_map`` retain their original messages.
+        OSError: If root, map, or ownership resolution or reading fails, or an
+            uncaught filesystem failure occurs while inspecting referenced evidence
+            or manifest paths before the final evidence block. Filesystem failures
+            in that block are translated to ``SecurityControlError``.
+        UnicodeDecodeError: If a map or ownership file read before the final
+            evidence block is not valid UTF-8. Final evidence decoding failures are
+            translated to ``SecurityControlError``.
+        RuntimeError: If path resolution encounters a symbolic-link loop.
+    """
     resolved_repository_root = repository_root.resolve()
     control_map = load_control_map(
         resolved_repository_root / "docs" / "governance" / "security-control-map.toml",

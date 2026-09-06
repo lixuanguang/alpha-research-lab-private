@@ -186,7 +186,47 @@ def classify_mr(
     changed_paths: tuple[str, ...] = (),
     change_policy: ChangeRiskPolicy | None = None,
 ) -> dict[str, object]:
-    """Generate scope and applicability; leave unobservable semantic risk unclassified."""
+    """Classify merge-request context and changed paths into evidence metadata.
+
+    The optional ``evidence-context`` comment is parsed first; other Markdown
+    content is ignored. Only a non-empty path tuple whose every ``Path.suffix``
+    is ``.md`` or ``.rst`` (case-insensitive) is documentation-only and
+    infers risk class ``R0``; an empty path tuple makes no such inference.
+    Declared change facts, when present, replace inferred risk classification
+    with their recomputed ``R0``-``R4`` result, including for empty or
+    documentation-only path sets. Migration, benchmark, and operational extras
+    are then selected from context flags, declared
+    compatibility/computational facts, lowercased path components, case-sensitive
+    ``.proto``/``.avsc``/``.sql`` suffixes, operating mode, and the resulting risk
+    class. This function only inspects its arguments, does not resolve paths or
+    perform I/O, and does not mutate them.
+
+    Args:
+        text: Merge-request Markdown scanned only for the optional evidence-context
+            comment and its JSON classification facts.
+        changed_paths: Ordered repository-relative paths used for documentation-only
+            classification and impact-trigger inference. The default is an empty
+            tuple; values are preserved in the returned list and are not read from
+            the filesystem.
+        change_policy: Optional validated change-risk policy used when the context
+            declares change facts. It is otherwise unused and is required for that
+            declared-facts path.
+
+    Returns:
+        A fresh mapping with ``changed_paths`` as a list, ``documentation_only`` as
+        a Boolean, ``risk_class`` as an ``R0``-``R4`` value or ``None``,
+        ``classification_source`` as ``documentation_paths``, ``declared_facts``
+        or ``requires_change_facts``, ``operation`` from the context (defaulting
+        to ``implementation``), and sorted ``required_extras`` trigger names.
+
+    Raises:
+        EvidenceGovernanceError: If the context comment is malformed, duplicated,
+            or invalid; declared facts lack ``change_policy``; recomputed facts
+            violate the policy; or an ``R0`` declaration conflicts with changed
+            non-documentation paths. Pydantic context failures and classifier
+            ``ValueError`` failures are translated here with their causes
+            preserved.
+    """
     context = _context(text)
     documentation_only = bool(changed_paths) and all(
         Path(path).suffix.lower() in {".md", ".rst"} for path in changed_paths
@@ -444,7 +484,54 @@ def lint_github_event(
     repository_root: Path | None = None,
     change_policy: ChangeRiskPolicy | None = None,
 ) -> dict[str, object]:
-    """Lint the event with actual Git scope and produce commit-bound metadata."""
+    """Lint a GitHub pull-request event and return commit-bound metadata.
+
+    The event file is read as UTF-8 JSON and its pull-request body, head SHA, and
+    optional base SHA are validated first. With no ``repository_root`` (the
+    default), no Git command runs and classification uses an empty changed-path
+    tuple. When a root is supplied, a base SHA is required and a read-only
+    ``git diff --name-only -z --no-renames <base>...<head> --`` runs there; it
+    does not fetch commits, and unique changed paths are sorted before body
+    validation. The body is then validated with ``policy`` and ``classify_mr`` is
+    always called afterward to produce final metadata, including when schema-one
+    institutional validation skipped classification internally. No files are
+    written and no network request is made.
+
+    A missing or non-object event ``base``, or a missing or null ``base.sha``, is
+    represented as ``None`` when no repository root is supplied; any non-null
+    ``base.sha`` must be a full lowercase SHA, and hosted classification rejects
+    an absent base SHA. Extra event keys are ignored. Relative ``path`` values are
+    interpreted from the current working directory, and ``repository_root`` is
+    passed as the Git working directory without path rebasing.
+
+    Args:
+        path: UTF-8 GitHub pull-request event JSON file to read.
+        policy: Validated evidence policy used for merge-request body validation.
+        repository_root: Optional repository working directory for actual Git
+            changed-path classification. The default is ``None``, which disables
+            the Git diff and leaves ``changed_paths`` empty.
+        change_policy: Optional validated change-risk policy forwarded to body and
+            metadata classification when the event body declares change facts.
+
+    Returns:
+        A fresh mapping containing ``head_commit_sha`` and ``base_commit_sha``
+        followed by ``classify_mr`` metadata: ``changed_paths`` in sorted unique
+        Git order (or empty), documentation-only status, risk class or ``None``,
+        classification source, operation, and sorted required extras.
+
+    Raises:
+        EvidenceGovernanceError: If the event structure or SHA format is invalid,
+            hosted classification lacks a base SHA, Git is unavailable or returns
+            a failure, body validation fails, or context classification fails.
+            JSON syntax errors are translated from ``JSONDecodeError``; classifier
+            and body-domain errors propagate after their own translations.
+        OSError: If the event cannot be read or the Git subprocess cannot be
+            started.
+        UnicodeDecodeError: If the event text or Git path output is not valid UTF-8.
+        ValueError: If JSON decoding raises a value error other than the syntax
+            error translated above.
+        RecursionError: If event JSON nesting exceeds the decoder's limit.
+    """
     body, head_sha, base_sha = _read_github_event(path)
     changed_paths: tuple[str, ...] = ()
     if repository_root is not None:

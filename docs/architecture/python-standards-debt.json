@@ -851,21 +851,8 @@
       ["_read_github_event", "PYC001", "module-level-function"],
       ["_without_fenced_code", "PYC001", "module-level-function"],
       ["classify_mr", "PYC001", "module-level-function"],
-      ["classify_mr", "PYD002", "Args"],
-      ["classify_mr", "PYD002", "Raises"],
-      ["classify_mr", "PYD002", "Returns"],
-      ["classify_mr", "PYD002", "parameter:change_policy"],
-      ["classify_mr", "PYD002", "parameter:changed_paths"],
-      ["classify_mr", "PYD002", "parameter:text"],
       ["github_changed_paths", "PYC001", "module-level-function"],
       ["lint_github_event", "PYC001", "module-level-function"],
-      ["lint_github_event", "PYD002", "Args"],
-      ["lint_github_event", "PYD002", "Raises"],
-      ["lint_github_event", "PYD002", "Returns"],
-      ["lint_github_event", "PYD002", "parameter:change_policy"],
-      ["lint_github_event", "PYD002", "parameter:path"],
-      ["lint_github_event", "PYD002", "parameter:policy"],
-      ["lint_github_event", "PYD002", "parameter:repository_root"],
       ["validate_github_event", "PYC001", "module-level-function"],
       ["validate_mr_body", "PYC001", "module-level-function"],
       ["validate_template", "PYC001", "module-level-function"]
@@ -901,16 +888,7 @@
       ["_validate_reference", "PYC001", "module-level-function"],
       ["_validate_repository_path", "PYC001", "module-level-function"],
       ["load_inventory", "PYC001", "module-level-function"],
-      ["load_inventory", "PYD002", "Args"],
-      ["load_inventory", "PYD002", "Raises"],
-      ["load_inventory", "PYD002", "Returns"],
-      ["load_inventory", "PYD002", "parameter:ownership_register_path"],
-      ["load_inventory", "PYD002", "parameter:path"],
-      ["load_inventory", "PYD002", "parameter:repository_root"],
-      ["validate_repository", "PYC001", "module-level-function"],
-      ["validate_repository", "PYD002", "Args"],
-      ["validate_repository", "PYD002", "Returns"],
-      ["validate_repository", "PYD002", "parameter:repository_root"]
+      ["validate_repository", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/operating_model.py": [
       ["load_operating_model", "PYC001", "module-level-function"]
@@ -961,27 +939,9 @@
       ["_require_table_list", "PYC001", "module-level-function"],
       ["_validate_local_evidence", "PYC001", "module-level-function"],
       ["load_observations", "PYC001", "module-level-function"],
-      ["load_observations", "PYD002", "Args"],
-      ["load_observations", "PYD002", "Raises"],
-      ["load_observations", "PYD002", "Returns"],
-      ["load_observations", "PYD002", "parameter:path"],
-      ["load_observations", "PYD002", "parameter:program"],
       ["load_program", "PYC001", "module-level-function"],
-      ["load_program", "PYD002", "Args"],
-      ["load_program", "PYD002", "Raises"],
-      ["load_program", "PYD002", "Returns"],
-      ["load_program", "PYD002", "parameter:ownership_register_path"],
-      ["load_program", "PYD002", "parameter:path"],
-      ["load_program", "PYD002", "parameter:repository_root"],
       ["load_roadmap", "PYC001", "module-level-function"],
-      ["load_roadmap", "PYD002", "Args"],
-      ["load_roadmap", "PYD002", "Raises"],
-      ["load_roadmap", "PYD002", "Returns"],
-      ["load_roadmap", "PYD002", "parameter:path"],
-      ["validate_repository", "PYC001", "module-level-function"],
-      ["validate_repository", "PYD002", "Args"],
-      ["validate_repository", "PYD002", "Returns"],
-      ["validate_repository", "PYD002", "parameter:repository_root"]
+      ["validate_repository", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/program_governance/status.py": [
       ["_markdown_cell", "PYC001", "module-level-function"],
@@ -1061,16 +1021,7 @@
       ["_source_files", "PYC001", "module-level-function"],
       ["_validate_graph", "PYC001", "module-level-function"],
       ["load_topology", "PYC001", "module-level-function"],
-      ["load_topology", "PYD002", "Args"],
-      ["load_topology", "PYD002", "Raises"],
-      ["load_topology", "PYD002", "Returns"],
-      ["load_topology", "PYD002", "parameter:path"],
-      ["load_topology", "PYD002", "parameter:repository_root"],
-      ["validate_repository", "PYC001", "module-level-function"],
-      ["validate_repository", "PYD002", "Args"],
-      ["validate_repository", "PYD002", "Raises"],
-      ["validate_repository", "PYD002", "Returns"],
-      ["validate_repository", "PYD002", "parameter:repository_root"]
+      ["validate_repository", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/security_controls/__init__.py": [
       ["_build_security_control_payload", "PYC001", "module-level-function"],
@@ -1102,16 +1053,7 @@
       ["_validate_references", "PYC001", "module-level-function"],
       ["_validate_repository_path", "PYC001", "module-level-function"],
       ["load_control_map", "PYC001", "module-level-function"],
-      ["load_control_map", "PYD002", "Args"],
-      ["load_control_map", "PYD002", "Raises"],
-      ["load_control_map", "PYD002", "Returns"],
-      ["load_control_map", "PYD002", "parameter:ownership_register_path"],
-      ["load_control_map", "PYD002", "parameter:path"],
-      ["load_control_map", "PYD002", "parameter:repository_root"],
-      ["validate_repository", "PYC001", "module-level-function"],
-      ["validate_repository", "PYD002", "Args"],
-      ["validate_repository", "PYD002", "Returns"],
-      ["validate_repository", "PYD002", "parameter:repository_root"]
+      ["validate_repository", "PYC001", "module-level-function"]
     ]
   }
 }

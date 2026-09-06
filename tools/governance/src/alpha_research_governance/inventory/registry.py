@@ -791,7 +791,50 @@ def _load_inventory(
 def load_inventory(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> ResourceInventory:
-    """Load the resource inventory while preserving its public domain-error contract."""
+    """Load and validate a resource inventory TOML document.
+
+    The loader resolves ``repository_root`` before checking repository-relative
+    source paths and references. It reads and validates the ownership register
+    first, using ``docs/governance/domain-ownership.toml`` below the resolved
+    root when ``ownership_register_path`` is omitted. It then loads the
+    inventory, checks its exact schema and scalar values, parses kind and item
+    records, evaluates each ``review_due_on`` against the catalog's
+    ``as_of_date`` rather than today's date, and accumulates catalog-wide
+    ownership, lifecycle, lineage, dependency, population and package
+    findings in validation order. When no earlier findings remain, it checks
+    the recorded local evidence manifest path and commit SHA before
+    constructing the immutable result. It does not read or validate manifest
+    contents; ``validate_repository`` performs that separate evidence check.
+    Filesystem checks are read-only.
+
+    Args:
+        path: UTF-8 TOML inventory file to read; a relative path is interpreted
+            from the process current working directory.
+        repository_root: Repository root used to resolve the default ownership
+            register and validate repository-relative source and reference
+            paths; a relative path is resolved from the process current working
+            directory.
+        ownership_register_path: Optional ownership-register TOML file. ``None``
+            uses ``docs/governance/domain-ownership.toml`` below the resolved
+            root; a supplied relative path is interpreted from the process
+            current working directory and is not rebased to ``repository_root``.
+
+    Returns:
+        A validated ``ResourceInventory`` containing parsed metadata, kind
+        declarations, items and retained open finding IDs.
+
+    Raises:
+        InventoryGovernanceError: If TOML syntax, root or schema shape, field
+            values, ownership roles, repository references, lifecycle,
+            dependency, lineage, population or package consistency, local
+            evidence path, or commit-SHA validation fails. TOML decoding and
+            Pydantic model failures are translated with their causes chained.
+        OSError: If an inventory or ownership file cannot be read, or an
+            uncaught filesystem error occurs during repository-path checks.
+        UnicodeDecodeError: If the inventory or ownership TOML is not valid
+            UTF-8.
+        RuntimeError: If path resolution encounters a symlink loop.
+    """
     try:
         return _load_inventory(
             path,
@@ -822,7 +865,40 @@ def _validate_local_evidence(repository_root: Path, inventory: ResourceInventory
 
 
 def validate_repository(repository_root: Path) -> ResourceInventory:
-    """Validate the authoritative inventory, registered owners, and local R2 evidence."""
+    """Validate the authoritative inventory and its synthetic local R2 evidence.
+
+    The function resolves ``repository_root``, loads
+    ``docs/governance/resource-inventory.toml`` with the default ownership
+    register, then loads the change-risk policy and validates the inventory's
+    recorded local evidence manifest against its commit SHA and the fixed A06
+    R2 package profile. It returns only after both inventory and evidence
+    checks pass; all operations are read-only.
+
+    Args:
+        repository_root: Repository root containing the authoritative
+            governance TOML files and recorded local evidence bundle; a
+            relative path is resolved from the process current working
+            directory.
+
+    Returns:
+        The immutable ``ResourceInventory`` loaded from the authoritative
+        catalog.
+
+    Raises:
+        InventoryGovernanceError: If inventory parsing or validation fails, or
+            if change-risk policy, manifest or package-profile failures are
+            translated at the local-evidence boundary. Translated causes are
+            chained.
+        OSError: If root resolution or authoritative inventory/ownership reads
+            and path checks fail. Filesystem failures while loading the
+            change-risk policy or evidence manifest are translated to
+            ``InventoryGovernanceError``.
+        UnicodeDecodeError: If authoritative inventory or ownership TOML is not
+            valid UTF-8. Invalid UTF-8 in local-evidence inputs is translated
+            to ``InventoryGovernanceError``.
+        RuntimeError: If root, repository or local-evidence path resolution
+            encounters a symlink loop.
+    """
     resolved_repository_root = repository_root.resolve()
     inventory = load_inventory(
         resolved_repository_root / "docs" / "governance" / "resource-inventory.toml",
