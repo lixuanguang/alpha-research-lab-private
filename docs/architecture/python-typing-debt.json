@@ -101,46 +101,6 @@
   },
   "obligations": [
     {
-      "path": "src/alpha_research/financial_units/models.py",
-      "symbol": "_FinancialUnitModel.__init__",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
-      "count": 3,
-      "task": "error_details"
-    },
-    {
-      "path": "src/alpha_research/financial_units/models.py",
-      "symbol": "_FinancialUnitModel.__init__",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
-      "count": 1,
-      "task": "error_details"
-    },
-    {
-      "path": "src/alpha_research/financial_units/models.py",
-      "symbol": "_FinancialUnitModel.model_copy",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 1,
-      "task": "reflection"
-    },
-    {
-      "path": "src/alpha_research/financial_units/models.py",
-      "symbol": "_FinancialUnitModel.model_copy",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
-      "count": 4,
-      "task": "reflection"
-    },
-    {
-      "path": "src/alpha_research/financial_units/models.py",
-      "symbol": "_Value._combine",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 1,
-      "task": "reflection"
-    },
-    {
       "path": "src/alpha_research/instrument_identity/catalog.py",
       "symbol": "SymbologyCatalog._validate_mapping_graph",
       "code": "misc",
@@ -1614,14 +1574,6 @@
     },
     {
       "path": "tests/unit/test_financial_units.py",
-      "symbol": "TestFinancialFixtureValidation.test_rejects_missing_fields_and_scalar_coercion",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
-      "count": 1,
-      "task": "reflection"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
       "symbol": "test_actual360_intervals_are_additive",
       "code": "misc",
       "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
@@ -1643,54 +1595,6 @@
       "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
       "count": 1,
       "task": "hypothesis"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 1,
-      "task": "payload+reflection"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
-      "count": 1,
-      "task": "payload+reflection"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
-      "count": 1,
-      "task": "payload+reflection"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"type[BaseModel]\")",
-      "count": 1,
-      "task": "payload+reflection"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
-      "count": 2,
-      "task": "payload"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_constructor_errors_preserve_owned_types_and_hide_input_values",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
-      "count": 1,
-      "task": "collections"
     },
     {
       "path": "tests/unit/test_financial_units.py",
@@ -1718,38 +1622,6 @@
     },
     {
       "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
-      "count": 1,
-      "task": "payload"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
-      "count": 2,
-      "task": "payload"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[str, Any]]\")",
-      "count": 1,
-      "task": "payload"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"type[BaseModel]\")",
-      "count": 1,
-      "task": "payload"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
       "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
       "code": "misc",
       "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
@@ -1761,22 +1633,6 @@
       "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
       "code": "misc",
       "message": "Expression type contains \"Any\" (has type \"Callable[[Callable[..., Coroutine[Any, Any, None] | None]], Callable[..., None]]\")",
-      "count": 1,
-      "task": "hypothesis"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"SearchStrategy[Any]\")",
-      "count": 1,
-      "task": "hypothesis"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_rounding_is_on_grid_idempotent_and_has_bounded_error",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
       "count": 1,
       "task": "hypothesis"
     },

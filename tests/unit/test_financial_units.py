@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from decimal import Decimal, Inexact, localcontext
@@ -20,7 +20,7 @@ import pytest
 import QuantLib as ql
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 # project library imports
 from alpha_research.financial_units import (
@@ -55,6 +55,7 @@ from alpha_research.financial_units import (
     conventions,
     settlement_date,
 )
+from alpha_research.financial_units.models import _FinancialUnitModel
 from alpha_research.instrument_identity import InstrumentId
 from alpha_research.venue_calendar import SettlementCalendar
 
@@ -64,6 +65,7 @@ CONTRACTS = Dimension(instrument_id=InstrumentId(UUID(int=2)), kind=QuantityKind
 CONTEXT = EvaluationContext(evaluation_date=date(2024, 1, 1), convention_revision="c03-v1")
 CONVENTION = RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.SIMPLE)
 FIXTURE = Path(__file__).parents[1] / "golden/financial_units/c03_units.json"
+_ROUNDING_MODES: st.SearchStrategy[Rounding] = st.sampled_from(tuple(Rounding))
 
 
 class _Tolerance(TypedDict):
@@ -162,7 +164,7 @@ class TestFinancialFixtureValidation:
         assert original in payload
         malformed = tmp_path / "malformed.json"
         malformed.write_text(payload.replace(original, replacement), encoding="utf-8")
-        monkeypatch.setitem(globals(), "FIXTURE", malformed)
+        monkeypatch.setattr(f"{__name__}.FIXTURE", malformed)
         with pytest.raises(ValidationError):
             fixture()
 
@@ -191,19 +193,126 @@ class TestQuantLibConventions:
             assert result.duration.day_count == DayCount(case["basis"])
 
 
-def test_tick_and_lot_goldens_cover_sign_and_half_even_ties() -> None:
-    """Match signed tick and lot rounding to exact decimal goldens."""
-    for case in fixture()["rounding"]:
-        price = Price(value=D(case["value"]), currency=Currency.USD, per=SHARES)
-        quantity = Quantity(value=price.value, dimension=SHARES)
-        tick = Tick(value=D(case["tick"]), currency=Currency.USD, per=SHARES)
-        lot = Lot(value=tick.value, dimension=SHARES)
-        assert price.rounded(tick, mode=Rounding(case["mode"])).value == D(case["expected"])
-        assert quantity.rounded(lot, mode=Rounding(case["mode"])).value == D(case["expected"])
+class TestFinancialArithmeticContracts:
+    """Exercise exact rounding, conversion and same-dimension arithmetic contracts."""
+
+    def test_tick_and_lot_goldens_cover_sign_and_half_even_ties(self) -> None:
+        """Match signed tick and lot rounding to exact decimal goldens."""
+        for case in fixture()["rounding"]:
+            price = Price(value=D(case["value"]), currency=Currency.USD, per=SHARES)
+            quantity = Quantity(value=price.value, dimension=SHARES)
+            tick = Tick(value=D(case["tick"]), currency=Currency.USD, per=SHARES)
+            lot = Lot(value=tick.value, dimension=SHARES)
+            assert price.rounded(tick, mode=Rounding(case["mode"])).value == D(case["expected"])
+            assert quantity.rounded(lot, mode=Rounding(case["mode"])).value == D(case["expected"])
+
+    def test_money_fx_quantity_multiplier_and_negative_price_reconcile(self) -> None:
+        """Reconcile signed quantities, multipliers, prices and currency conversion."""
+        quantity = Quantity(value=D("-2"), dimension=CONTRACTS)
+        multiplier = Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES)
+        shares = multiplier.apply(quantity)
+        assert shares == Quantity(value=D("-200"), dimension=SHARES)
+        amount = Price(value=D("-5.25"), currency=Currency.USD, per=SHARES).amount(shares)
+        assert amount == Money(value=D("1050"), currency=Currency.USD)
+        fx = FXRate(value=D("150"), base=Currency.USD, quote=Currency.JPY)
+        assert fx.convert(amount, target=Currency.JPY, mode=Rounding.HALF_EVEN).value == D("157500")
+        assert (amount + amount - amount) == amount
+        assert Money(value=D("-1.005"), currency=Currency.USD).rounded(
+            mode=Rounding.FLOOR
+        ).value == D("-1.01")
+
+    def test_magnitude_and_precision_boundaries_fail_closed(self) -> None:
+        """Reject overflow and unrepresentable exact arithmetic while normalizing zero."""
+        valid = Money(value=D("999999999999999999.999999999999999999"), currency=Currency.USD)
+        with pytest.raises(UnitError, match="magnitude"):
+            valid + Money(value=D("0.000000000000000001"), currency=Currency.USD)
+        with pytest.raises(UnitError, match="representable"):
+            Price(value=D("1e-18"), currency=Currency.USD, per=SHARES).amount(
+                Quantity(value=D("0.1"), dimension=SHARES)
+            )
+        assert Money(value=D("-0"), currency=Currency.USD).value == 0
+
+    def test_mismatched_arithmetic_rounding_fx_and_multiplier_reject(self) -> None:
+        """Reject mismatched dimensions and unsupported operations at their public entry points."""
+        money = Money(value=D("1"), currency=Currency.USD)
+        price = Price(value=D("1"), currency=Currency.USD, per=SHARES)
+        quantity = Quantity(value=D("1"), dimension=CONTRACTS)
+        with pytest.raises(UnitError):
+            money + money.model_copy(update={"currency": Currency.EUR})
+        with pytest.raises(UnitError):
+            price.amount(quantity)
+        with pytest.raises(UnitError):
+            price.rounded(
+                Tick(value=D("0.1"), currency=Currency.EUR, per=SHARES), mode=Rounding.FLOOR
+            )
+        with pytest.raises(UnitError):
+            quantity.rounded(Lot(value=D("1"), dimension=SHARES), mode=Rounding.FLOOR)
+        with pytest.raises(UnitError):
+            Multiplier(value=D("100"), input_dimension=SHARES, output_dimension=CONTRACTS).apply(
+                quantity
+            )
+        with pytest.raises(UnitError):
+            FXRate(value=D("1.1"), base=Currency.EUR, quote=Currency.USD).convert(
+                money, target=Currency.JPY, mode=Rounding.HALF_EVEN
+            )
+        with pytest.raises(UnitError):
+            money.rounded(mode="nearest")  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed rounding rejection; expires=2027-03-01]
+        with pytest.raises(TypeError):
+            operator.mul(money, price)
+
+    def test_decimal_context_cannot_change_any_exact_operation(self) -> None:
+        """Keep exact arithmetic independent of the ambient decimal context."""
+        with localcontext() as context:
+            context.prec = 2
+            context.traps[Inexact] = True
+            money = Money(value=D("123.456"), currency=Currency.USD)
+            assert (money + money).value == D("246.912")
+            assert money.rounded(mode=Rounding.HALF_EVEN).value == D("123.46")
+            fx = FXRate(value=D("3"), base=Currency.EUR, quote=Currency.USD)
+            assert fx.convert(money, target=Currency.EUR, mode=Rounding.HALF_EVEN).value == D(
+                "41.15"
+            )
+            assert Price(value=D("123.45"), currency=Currency.USD, per=SHARES).amount(
+                Quantity(value=D("3"), dimension=SHARES)
+            ).value == D("370.35")
+
+    def test_subclass_fields_participate_in_arithmetic_and_validated_copies(self) -> None:
+        """Preserve subclass fields during reflection and leave update mappings untouched."""
+
+        class TaggedMoney(Money):
+            """Add a nonfinancial field to exercise the inherited model contract."""
+
+            tag: str
+
+        left = TaggedMoney(value=D("1"), currency=Currency.USD, tag="spot")
+        right = TaggedMoney(value=D("2"), currency=Currency.USD, tag="spot")
+        update: dict[str, object] = {"value": D("3")}
+        copied = left.model_copy(update=update)
+        assert copied == TaggedMoney(value=D("3"), currency=Currency.USD, tag="spot")
+        assert update == {"value": D("3")}
+        assert left + right == TaggedMoney(value=D("3"), currency=Currency.USD, tag="spot")
+        with pytest.raises(UnitError, match="types and dimensions"):
+            left + TaggedMoney(value=D("2"), currency=Currency.USD, tag="close")
+
+    @pytest.mark.performance
+    def test_financial_rounding_local_diagnostic_budget(self) -> None:
+        """Measure ten thousand exact tick roundings against the local two-second budget."""
+        price = Price(value=D("123.456"), currency=Currency.USD, per=SHARES)
+        tick = Tick(value=D("0.05"), currency=Currency.USD, per=SHARES)
+        start = perf_counter()
+        for _ in range(10_000):
+            assert price.rounded(tick, mode=Rounding.HALF_EVEN).value == D("123.45")
+        elapsed = perf_counter() - start
+        print(f"C03 10000 tick-rounding operations: {elapsed:.6f}s; local budget 2s")
+        assert elapsed < 2
 
 
 @settings(max_examples=50, derandomize=True, database=None)
-@given(st.integers(-100_000, 100_000), st.integers(1, 100), st.sampled_from(list(Rounding)))
+@given(
+    st.integers(-100_000, 100_000),
+    st.integers(1, 100),
+    _ROUNDING_MODES,
+)
 def test_rounding_is_on_grid_idempotent_and_has_bounded_error(
     raw: int, step: int, mode: Rounding
 ) -> None:
@@ -247,132 +356,6 @@ def test_fx_conversion_has_declared_currency_rounding_tolerance(raw: int, rate: 
     assert abs(Fraction(restored.value) - Fraction(money.value)) <= (
         Fraction(1, 200) / Fraction(fx.value) + Fraction(1, 200)
     )
-
-
-def test_money_fx_quantity_multiplier_and_negative_price_reconcile() -> None:
-    """Reconcile signed quantities, multipliers, prices and currency conversion."""
-    quantity = Quantity(value=D("-2"), dimension=CONTRACTS)
-    multiplier = Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES)
-    shares = multiplier.apply(quantity)
-    assert shares == Quantity(value=D("-200"), dimension=SHARES)
-    amount = Price(value=D("-5.25"), currency=Currency.USD, per=SHARES).amount(shares)
-    assert amount == Money(value=D("1050"), currency=Currency.USD)
-    fx = FXRate(value=D("150"), base=Currency.USD, quote=Currency.JPY)
-    assert fx.convert(amount, target=Currency.JPY, mode=Rounding.HALF_EVEN).value == D("157500")
-    assert (amount + amount - amount) == amount
-    assert Money(value=D("-1.005"), currency=Currency.USD).rounded(mode=Rounding.FLOOR).value == D(
-        "-1.01"
-    )
-
-
-@pytest.mark.parametrize(
-    "bad", [1, True, 1.0, "1", D("NaN"), D("sNaN"), D("Infinity"), D("1e18"), D("1e-19")]
-)
-def test_invalid_decimal_values_fail_without_coercion(bad: object) -> None:
-    """Reject malformed decimals through the public Money constructor."""
-    with pytest.raises(UnitError):
-        Money(value=bad, currency=Currency.USD)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor decimal rejection; expires=2027-03-01]
-
-
-def test_magnitude_and_precision_boundaries_fail_closed() -> None:
-    """Reject overflow and unrepresentable exact arithmetic while normalizing zero."""
-    valid = Money(value=D("999999999999999999.999999999999999999"), currency=Currency.USD)
-    with pytest.raises(UnitError, match="magnitude"):
-        valid + Money(value=D("0.000000000000000001"), currency=Currency.USD)
-    with pytest.raises(UnitError, match="representable"):
-        Price(value=D("1e-18"), currency=Currency.USD, per=SHARES).amount(
-            Quantity(value=D("0.1"), dimension=SHARES)
-        )
-    assert Money(value=D("-0"), currency=Currency.USD).value == 0
-
-
-def test_all_numeric_types_are_immutable_and_distinct() -> None:
-    """Preserve frozen values and reject arithmetic across distinct quote types."""
-    rate = Rate(value=D("-0.02"), convention=CONVENTION)
-    yield_quote = Yield(value=D("-0.02"), convention=CONVENTION)
-    assert rate != yield_quote
-    with pytest.raises(UnitError, match="types and dimensions"):
-        rate + yield_quote
-    with pytest.raises(ValidationError, match="frozen"):
-        setattr(rate, "value", D("3"))
-    with pytest.raises(UnitError):
-        Volatility(value=D("-0.01"), day_count=DayCount.ACTUAL_365_FIXED)
-    with pytest.raises(UnitError):
-        Duration(value=D("-1"), day_count=DayCount.ACTUAL_360)
-    assert (rate + rate).value == D("-0.04")
-    vol = Volatility(value=D("0.2"), day_count=DayCount.ACTUAL_365_FIXED)
-    assert (vol + vol).value == D("0.4")
-
-
-@pytest.mark.parametrize(
-    "operation",
-    [
-        lambda: Money(value=D("1"), currency="USD"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor currency rejection; expires=2027-03-01]
-        lambda: Dimension(instrument_id=UUID(int=1), kind=QuantityKind.SHARE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor identifier rejection; expires=2027-03-01]
-        lambda: Dimension(instrument_id=InstrumentId(UUID(int=1)), kind="share"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor kind rejection; expires=2027-03-01]
-        lambda: Quantity(value=D("1"), dimension={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
-        lambda: Price(value=D("1"), currency=Currency.USD, per={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
-        lambda: RateConvention(day_count="actual_360", compounding=Compounding.SIMPLE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor day-count rejection; expires=2027-03-01]
-        lambda: RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC),
-        lambda: RateConvention(
-            day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC, payments_per_year=True
-        ),
-        lambda: CONVENTION.model_copy(update={"payments_per_year": 1}),
-        lambda: EvaluationContext(evaluation_date=datetime(2024, 1, 1), convention_revision="v1"),
-        lambda: CONTEXT.model_copy(update={"convention_revision": " "}),
-        lambda: FXRate(value=D("1"), base=Currency.USD, quote=Currency.USD),
-        lambda: FXRate(value=D("0"), base=Currency.USD, quote=Currency.EUR),
-        lambda: Tick(value=D("0"), currency=Currency.USD, per=SHARES),
-        lambda: Lot(value=D("-1"), dimension=SHARES),
-        lambda: Multiplier(value=D("0"), input_dimension=SHARES, output_dimension=SHARES),
-    ],
-)
-def test_invalid_units_and_conventions(operation: Callable[[], object]) -> None:
-    """Require each malformed constructor or replacement to raise the owned error."""
-    with pytest.raises(UnitError):
-        operation()
-
-
-def test_mismatched_arithmetic_rounding_fx_and_multiplier_reject() -> None:
-    """Reject mismatched dimensions and unsupported operations at their public entry points."""
-    money = Money(value=D("1"), currency=Currency.USD)
-    price = Price(value=D("1"), currency=Currency.USD, per=SHARES)
-    quantity = Quantity(value=D("1"), dimension=CONTRACTS)
-    with pytest.raises(UnitError):
-        money + money.model_copy(update={"currency": Currency.EUR})
-    with pytest.raises(UnitError):
-        price.amount(quantity)
-    with pytest.raises(UnitError):
-        price.rounded(Tick(value=D("0.1"), currency=Currency.EUR, per=SHARES), mode=Rounding.FLOOR)
-    with pytest.raises(UnitError):
-        quantity.rounded(Lot(value=D("1"), dimension=SHARES), mode=Rounding.FLOOR)
-    with pytest.raises(UnitError):
-        Multiplier(value=D("100"), input_dimension=SHARES, output_dimension=CONTRACTS).apply(
-            quantity
-        )
-    with pytest.raises(UnitError):
-        FXRate(value=D("1.1"), base=Currency.EUR, quote=Currency.USD).convert(
-            money, target=Currency.JPY, mode=Rounding.HALF_EVEN
-        )
-    with pytest.raises(UnitError):
-        money.rounded(mode="nearest")  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed rounding rejection; expires=2027-03-01]
-    with pytest.raises(TypeError):
-        operator.mul(money, price)
-
-
-def test_decimal_context_cannot_change_any_exact_operation() -> None:
-    """Keep exact arithmetic independent of the ambient decimal context."""
-    with localcontext() as context:
-        context.prec = 2
-        context.traps[Inexact] = True
-        money = Money(value=D("123.456"), currency=Currency.USD)
-        assert (money + money).value == D("246.912")
-        assert money.rounded(mode=Rounding.HALF_EVEN).value == D("123.46")
-        fx = FXRate(value=D("3"), base=Currency.EUR, quote=Currency.USD)
-        assert fx.convert(money, target=Currency.EUR, mode=Rounding.HALF_EVEN).value == D("41.15")
-        assert Price(value=D("123.45"), currency=Currency.USD, per=SHARES).amount(
-            Quantity(value=D("3"), dimension=SHARES)
-        ).value == D("370.35")
 
 
 class TestSettlementConventions:
@@ -868,124 +851,195 @@ def test_actual360_intervals_are_additive(first: int, second: int) -> None:
     assert abs(years(start, middle) + years(middle, end) - years(start, end)) <= D("1.5e-15")
 
 
-@pytest.mark.performance
-def test_financial_rounding_local_diagnostic_budget() -> None:
-    """Measure ten thousand exact tick roundings against the local two-second budget."""
-    price = Price(value=D("123.456"), currency=Currency.USD, per=SHARES)
-    tick = Tick(value=D("0.05"), currency=Currency.USD, per=SHARES)
-    start = perf_counter()
-    for _ in range(10_000):
-        assert price.rounded(tick, mode=Rounding.HALF_EVEN).value == D("123.45")
-    elapsed = perf_counter() - start
-    print(f"C03 10000 tick-rounding operations: {elapsed:.6f}s; local budget 2s")
-    assert elapsed < 2
+class TestFinancialModelContracts:
+    """Exercise strict model construction, immutable copies and boundary rejection."""
 
+    @staticmethod
+    def _unchecked_dimension_copy(model: Dimension, update: Mapping[str, object]) -> Dimension:
+        """Apply the inherited unchecked copy primitive to a deliberately invalid dimension.
 
-def test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation() -> None:
-    """Reject unchecked identity and calendar replacements at financial boundaries."""
-    invalid_id = InstrumentId(UUID(int=1)).model_copy(update={"uuid_value": UUID(int=0)})
-    with pytest.raises(UnitError, match="non-nil"):
-        Dimension(instrument_id=invalid_id, kind=QuantityKind.SHARE)
-    invalid_calendar = calendar().model_copy(
-        update={"settlement_dates": (date(2024, 9, 3), date(2024, 8, 30))}
+        Args:
+            model: Valid dimension whose identity is retained in the raw copy.
+            update: Deliberately invalid field replacement passed to Pydantic.
+
+        Returns:
+            A dimension carrying the unchecked replacement for boundary testing.
+        """
+        return super(_FinancialUnitModel, model).model_copy(update=update)
+
+    def test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation(self) -> None:
+        """Reject unchecked identity and calendar replacements at financial boundaries."""
+        identity_update: Mapping[str, object] = {"uuid_value": UUID(int=0)}
+        invalid_id = InstrumentId(UUID(int=1)).model_copy(update=identity_update)
+        with pytest.raises(UnitError, match="non-nil"):
+            Dimension(instrument_id=invalid_id, kind=QuantityKind.SHARE)
+        calendar_update: Mapping[str, object] = {
+            "settlement_dates": (date(2024, 9, 3), date(2024, 8, 30))
+        }
+        invalid_calendar = calendar().model_copy(update=calendar_update)
+        with pytest.raises(ConventionError, match="invalid settlement"):
+            adjust_business_day(
+                date(2024, 8, 31), calendar=invalid_calendar, convention=BDC.FOLLOWING
+            )
+
+    def test_all_numeric_types_are_immutable_and_distinct(self) -> None:
+        """Preserve frozen values and reject arithmetic across distinct quote types."""
+        rate = Rate(value=D("-0.02"), convention=CONVENTION)
+        yield_quote = Yield(value=D("-0.02"), convention=CONVENTION)
+        assert rate != yield_quote
+        with pytest.raises(UnitError, match="types and dimensions"):
+            rate + yield_quote
+        with pytest.raises(ValidationError, match="frozen"):
+            setattr(rate, "value", D("3"))
+        with pytest.raises(UnitError):
+            Volatility(value=D("-0.01"), day_count=DayCount.ACTUAL_365_FIXED)
+        with pytest.raises(UnitError):
+            Duration(value=D("-1"), day_count=DayCount.ACTUAL_360)
+        assert (rate + rate).value == D("-0.04")
+        vol = Volatility(value=D("0.2"), day_count=DayCount.ACTUAL_365_FIXED)
+        assert (vol + vol).value == D("0.4")
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            SHARES,
+            CONVENTION,
+            CONTEXT,
+            Money(value=D("1.25"), currency=Currency.USD),
+            Quantity(value=D("2"), dimension=SHARES),
+            Price(value=D("1.25"), currency=Currency.USD, per=SHARES),
+            Tick(value=D("0.05"), currency=Currency.USD, per=SHARES),
+            Lot(value=D("1"), dimension=SHARES),
+            Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES),
+            FXRate(value=D("1.1"), base=Currency.EUR, quote=Currency.USD),
+            Rate(value=D("0.05"), convention=CONVENTION),
+            Yield(value=D("0.05"), convention=CONVENTION),
+            Volatility(value=D("0.2"), day_count=DayCount.ACTUAL_365_FIXED),
+            Duration(value=D("1"), day_count=DayCount.ACTUAL_360),
+            DayCountResult(
+                context=CONTEXT,
+                start=date(2024, 1, 1),
+                end=date(2024, 1, 2),
+                duration=Duration(value=D("0.002777777777778"), day_count=DayCount.ACTUAL_360),
+            ),
+        ],
     )
-    with pytest.raises(ConventionError, match="invalid settlement"):
-        adjust_business_day(date(2024, 8, 31), calendar=invalid_calendar, convention=BDC.FOLLOWING)
+    def test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics(
+        self, model: _FinancialUnitModel
+    ) -> None:
+        """Preserve strict validation, immutability and hashes across public model copies."""
+        assert isinstance(model, _FinancialUnitModel)
+        payload: dict[str, object] = dict(model)
+        assert model.model_validate(payload) == model
+        assert model.model_validate(model) == model
+        for deep in (False, True):
+            copied = model.model_copy(deep=deep)
+            assert copied == model and copied is not model
+            assert hash(copied) == hash(model)
+        field = next(iter(payload))
+        field_value: object = getattr(model, field)
+        with pytest.raises(ValidationError, match="frozen"):
+            setattr(model, field, field_value)
+        with pytest.raises(UnitError, match="Extra inputs"):
+            unknown_update: Mapping[str, object] = {"unknown_field": "synthetic-sensitive-input"}
+            model.model_copy(update=unknown_update)
 
+    @pytest.mark.parametrize(
+        "bad", [1, True, 1.0, "1", D("NaN"), D("sNaN"), D("Infinity"), D("1e18"), D("1e-19")]
+    )
+    def test_invalid_decimal_values_fail_without_coercion(self, bad: object) -> None:
+        """Reject malformed decimals through the public Money constructor."""
+        with pytest.raises(UnitError):
+            Money(value=bad, currency=Currency.USD)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor decimal rejection; expires=2027-03-01]
 
-@pytest.mark.parametrize(
-    "model",
-    [
-        SHARES,
-        CONVENTION,
-        CONTEXT,
-        Money(value=D("1.25"), currency=Currency.USD),
-        Quantity(value=D("2"), dimension=SHARES),
-        Price(value=D("1.25"), currency=Currency.USD, per=SHARES),
-        Tick(value=D("0.05"), currency=Currency.USD, per=SHARES),
-        Lot(value=D("1"), dimension=SHARES),
-        Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES),
-        FXRate(value=D("1.1"), base=Currency.EUR, quote=Currency.USD),
-        Rate(value=D("0.05"), convention=CONVENTION),
-        Yield(value=D("0.05"), convention=CONVENTION),
-        Volatility(value=D("0.2"), day_count=DayCount.ACTUAL_365_FIXED),
-        Duration(value=D("1"), day_count=DayCount.ACTUAL_360),
-        DayCountResult(
-            context=CONTEXT,
-            start=date(2024, 1, 1),
-            end=date(2024, 1, 2),
-            duration=Duration(value=D("0.002777777777778"), day_count=DayCount.ACTUAL_360),
-        ),
-    ],
-)
-def test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics(
-    model: BaseModel,
-) -> None:
-    """Preserve strict validation, immutability and hashes across public model copies."""
-    assert isinstance(model, BaseModel)
-    assert type(model).model_validate(dict(model)) == model
-    assert type(model).model_validate(model) == model
-    for deep in (False, True):
-        copied = model.model_copy(deep=deep)
-        assert copied == model and copied is not model
-        assert hash(copied) == hash(model)
-    field = next(iter(type(model).model_fields))
-    with pytest.raises(ValidationError, match="frozen"):
-        setattr(model, field, getattr(model, field))
-    with pytest.raises(UnitError, match="Extra inputs"):
-        model.model_copy(update={"unknown_field": "synthetic-sensitive-input"})
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda: Money(value=D("1"), currency="USD"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor currency rejection; expires=2027-03-01]
+            lambda: Dimension(instrument_id=UUID(int=1), kind=QuantityKind.SHARE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor identifier rejection; expires=2027-03-01]
+            lambda: Dimension(instrument_id=InstrumentId(UUID(int=1)), kind="share"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor kind rejection; expires=2027-03-01]
+            lambda: Quantity(value=D("1"), dimension={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
+            lambda: Price(value=D("1"), currency=Currency.USD, per={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
+            lambda: RateConvention(day_count="actual_360", compounding=Compounding.SIMPLE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor day-count rejection; expires=2027-03-01]
+            lambda: RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC),
+            lambda: RateConvention(
+                day_count=DayCount.ACTUAL_360,
+                compounding=Compounding.PERIODIC,
+                payments_per_year=True,
+            ),
+            lambda: CONVENTION.model_copy(update={"payments_per_year": 1}),
+            lambda: EvaluationContext(
+                evaluation_date=datetime(2024, 1, 1), convention_revision="v1"
+            ),
+            lambda: CONTEXT.model_copy(update={"convention_revision": " "}),
+            lambda: FXRate(value=D("1"), base=Currency.USD, quote=Currency.USD),
+            lambda: FXRate(value=D("0"), base=Currency.USD, quote=Currency.EUR),
+            lambda: Tick(value=D("0"), currency=Currency.USD, per=SHARES),
+            lambda: Lot(value=D("-1"), dimension=SHARES),
+            lambda: Multiplier(value=D("0"), input_dimension=SHARES, output_dimension=SHARES),
+        ],
+    )
+    def test_invalid_units_and_conventions(self, operation: Callable[[], object]) -> None:
+        """Require each malformed constructor or replacement to raise the owned error."""
+        with pytest.raises(UnitError):
+            operation()
 
+    @pytest.mark.parametrize("bad", [D("NaN"), D("1e18"), D("1e-19"), 1.0, "1.25"])
+    def test_model_copy_revalidates_decimal_updates_without_mutating_original(
+        self, bad: object
+    ) -> None:
+        """Reject malformed decimal updates and preserve the original Money value."""
+        money = Money(value=D("1.25"), currency=Currency.USD)
+        with pytest.raises(UnitError):
+            money.model_copy(update={"value": bad})
+        assert money.value == D("1.25")
+        assert money.model_copy(update={"value": D("2.50")}).value == D("2.50")
 
-@pytest.mark.parametrize("bad", [D("NaN"), D("1e18"), D("1e-19"), 1.0, "1.25"])
-def test_model_copy_revalidates_decimal_updates_without_mutating_original(bad: object) -> None:
-    """Reject malformed decimal updates and preserve the original Money value."""
-    money = Money(value=D("1.25"), currency=Currency.USD)
-    with pytest.raises(UnitError):
-        money.model_copy(update={"value": bad})
-    assert money.value == D("1.25")
-    assert money.model_copy(update={"value": D("2.50")}).value == D("2.50")
+    def test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies(self) -> None:
+        """Revalidate nested dimensions and reject dictionaries, subclasses and hostile copies."""
+        dimension_payload: Mapping[str, object] = {
+            "value": D("1"),
+            "dimension": {"instrument_id": SHARES.instrument_id, "kind": SHARES.kind},
+        }
+        with pytest.raises(ValidationError, match="dimension"):
+            Quantity.model_validate(dimension_payload)
 
+        class DerivedDimension(Dimension):
+            """Exercise the unsupported nested-subclass boundary."""
 
-def test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies() -> None:
-    """Revalidate nested dimensions and reject dictionaries, subclasses and hostile copies."""
-    with pytest.raises(ValidationError, match="dimension"):
-        Quantity.model_validate({"value": D("1"), "dimension": SHARES.model_dump()})
+        derived = DerivedDimension(instrument_id=SHARES.instrument_id, kind=SHARES.kind)
+        with pytest.raises(UnitError, match="dimension"):
+            Quantity(value=D("1"), dimension=derived)
+        # Deliberately call the framework's unchecked primitive to represent hostile input.
+        nested_update: Mapping[str, object] = {"kind": "share"}
+        invalid = self._unchecked_dimension_copy(SHARES, update=nested_update)
+        with pytest.raises(UnitError, match="kind"):
+            Quantity(value=D("1"), dimension=invalid)
+        original = Quantity(value=D("1"), dimension=SHARES)
+        with pytest.raises(UnitError, match="kind"):
+            original.model_copy(update={"dimension": invalid})
 
-    class DerivedDimension(Dimension):
-        """Exercise the unsupported nested-subclass boundary."""
-
-    derived = DerivedDimension(instrument_id=SHARES.instrument_id, kind=SHARES.kind)
-    with pytest.raises(UnitError, match="dimension"):
-        Quantity(value=D("1"), dimension=derived)
-    # Deliberately call the framework's unchecked primitive to represent hostile input.
-    invalid = BaseModel.model_copy(SHARES, update={"kind": "share"})
-    with pytest.raises(UnitError, match="kind"):
-        Quantity(value=D("1"), dimension=invalid)
-    original = Quantity(value=D("1"), dimension=SHARES)
-    with pytest.raises(UnitError, match="kind"):
-        original.model_copy(update={"dimension": invalid})
-
-
-def test_constructor_errors_preserve_owned_types_and_hide_input_values() -> None:
-    """Keep constructor error categories and causes without exposing rejected inputs."""
-    secret = "synthetic-sensitive-input"
-    with pytest.raises(UnitError) as caught:
-        Money(value=D("1"), currency=secret)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor error redaction; expires=2027-03-01]
-    assert secret not in str(caught.value)
-    assert isinstance(caught.value.__cause__, ValidationError)
-    assert secret not in str(caught.value.__cause__)
-    assert "errors.pydantic.dev" not in str(caught.value)
-    with pytest.raises(ValidationError) as structured:
-        Money.model_validate({"value": D("1"), "currency": secret})
-    assert secret not in str(structured.value)
-    with pytest.raises(ConventionError, match="adapter version"):
-        DayCountResult(
-            context=CONTEXT,
-            start=date(2024, 1, 1),
-            end=date(2024, 1, 2),
-            duration=Duration(value=D("0"), day_count=DayCount.ACTUAL_360),
-            adapter_version="1.40",
-        )
+    def test_constructor_errors_preserve_owned_types_and_hide_input_values(self) -> None:
+        """Keep constructor error categories and causes without exposing rejected inputs."""
+        secret = "synthetic-sensitive-input"
+        with pytest.raises(UnitError) as caught:
+            Money(value=D("1"), currency=secret)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor error redaction; expires=2027-03-01]
+        assert secret not in str(caught.value)
+        assert isinstance(caught.value.__cause__, ValidationError)
+        assert secret not in str(caught.value.__cause__)
+        assert "errors.pydantic.dev" not in str(caught.value)
+        structured_payload: Mapping[str, object] = {"value": D("1"), "currency": secret}
+        with pytest.raises(ValidationError) as structured:
+            Money.model_validate(structured_payload)
+        assert secret not in str(structured.value)
+        with pytest.raises(ConventionError, match="adapter version"):
+            DayCountResult(
+                context=CONTEXT,
+                start=date(2024, 1, 1),
+                end=date(2024, 1, 2),
+                duration=Duration(value=D("0"), day_count=DayCount.ACTUAL_360),
+                adapter_version="1.40",
+            )
 
 
 class TestQuantLibStubConformance:

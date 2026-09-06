@@ -299,3 +299,69 @@ owner_role = "platform"
 rationale = "Retain the existing Hypothesis callback and pytest node identity while its upstream decorator typing remains tracked separately; the test checks additive day-count behavior and has no service state."
 expires = 2027-03-01
 source_sha256 = "5bec629d0adf5c6d45cef654245f4f54c24244ca061f6ed34231171b99a0cddc"
+
+[[exceptions]]
+path = "src/alpha_research/financial_units/models.py"
+symbol = "exact_decimal"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Convert one exact rational result to the bounded Decimal grid without rounding or state; this arithmetic kernel is shared by owned value-model methods."
+expires = 2027-03-01
+source_sha256 = "4ab9da8ceed12c041ffa422b35464d351f22e90efa9f20a59c90f198ca592929"
+
+[[exceptions]]
+path = "src/alpha_research/financial_units/models.py"
+symbol = "require_decimal"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Validate one raw Decimal value for exact type, finiteness, exponent and magnitude without coercion; this low-level boundary predicate is shared by the model validators and arithmetic kernels."
+expires = 2027-03-01
+source_sha256 = "f3eac69b72c3220c0746546c4aeddd7a5626d37b0c1b59888f31abdf9d06102e"
+
+[[exceptions]]
+path = "src/alpha_research/financial_units/models.py"
+symbol = "require_type"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow one raw value to its required exact concrete type without coercion; this generic low-level validation primitive supports the owned model and convention boundaries."
+expires = 2027-03-01
+source_sha256 = "6903c20b9a1b1c513df9f1362c576d864fb4d9627fd6bef22983cd451ff9e9cc"
+
+[[exceptions]]
+path = "src/alpha_research/financial_units/models.py"
+symbol = "round_fraction"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Round one exact rational value to an explicit positive grid using an explicit mode without retained state; this arithmetic kernel serves the owned money, price, quantity and FX methods."
+expires = 2027-03-01
+source_sha256 = "34008224430bb5e006f29d2050b90bcdd694a1eabf3e7f1a8f92851d87aec3d2"
+
+[[exceptions]]
+path = "tests/unit/test_financial_units.py"
+symbol = "test_fx_conversion_has_declared_currency_rounding_tolerance"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Retain the Hypothesis callback and existing pytest node identity while its upstream decorator typing remains tracked separately; the property checks explicit currency-rounding error without service state."
+expires = 2027-03-01
+source_sha256 = "8526cbb1a7a075cd11acc6be1e43b92756fb7d49e2bf32f4dc94d3eea65b1d51"
+
+[[exceptions]]
+path = "tests/unit/test_financial_units.py"
+symbol = "test_rounding_is_on_grid_idempotent_and_has_bounded_error"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Retain the Hypothesis callback and existing pytest node identity while its upstream decorator typing remains tracked separately; the property checks exact grid, idempotence and directional error invariants."
+expires = 2027-03-01
+source_sha256 = "1c4203e6e28e4cb38d26c3baedf7baea3a758d623f6e39564f3d2fc809efc974"

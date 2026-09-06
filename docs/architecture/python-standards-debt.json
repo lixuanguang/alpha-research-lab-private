@@ -30,12 +30,6 @@
     }
   },
   "entries": {
-    "src/alpha_research/financial_units/models.py": [
-      ["exact_decimal", "PYC001", "module-level-function"],
-      ["require_decimal", "PYC001", "module-level-function"],
-      ["require_type", "PYC001", "module-level-function"],
-      ["round_fraction", "PYC001", "module-level-function"]
-    ],
     "src/alpha_research/instrument_identity/models.py": [
       ["_cusip_character_numeric_value", "PYC001", "module-level-function"],
       ["_has_valid_cusip_checksum", "PYC001", "module-level-function"],
@@ -466,24 +460,6 @@
     ],
     "tests/engineering/test_venue_calendar_evidence.py": [
       ["test_venue_calendar_manifest_matches_partial_r2_profile_and_golden_digest", "PYC001", "module-level-function"]
-    ],
-    "tests/unit/test_financial_units.py": [
-      ["test_all_numeric_types_are_immutable_and_distinct", "PYC001", "module-level-function"],
-      ["test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics", "PYC001", "module-level-function"],
-      ["test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation", "PYC001", "module-level-function"],
-      ["test_constructor_errors_preserve_owned_types_and_hide_input_values", "PYC001", "module-level-function"],
-      ["test_decimal_context_cannot_change_any_exact_operation", "PYC001", "module-level-function"],
-      ["test_financial_rounding_local_diagnostic_budget", "PYC001", "module-level-function"],
-      ["test_fx_conversion_has_declared_currency_rounding_tolerance", "PYC001", "module-level-function"],
-      ["test_invalid_decimal_values_fail_without_coercion", "PYC001", "module-level-function"],
-      ["test_invalid_units_and_conventions", "PYC001", "module-level-function"],
-      ["test_magnitude_and_precision_boundaries_fail_closed", "PYC001", "module-level-function"],
-      ["test_mismatched_arithmetic_rounding_fx_and_multiplier_reject", "PYC001", "module-level-function"],
-      ["test_model_copy_revalidates_decimal_updates_without_mutating_original", "PYC001", "module-level-function"],
-      ["test_money_fx_quantity_multiplier_and_negative_price_reconcile", "PYC001", "module-level-function"],
-      ["test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies", "PYC001", "module-level-function"],
-      ["test_rounding_is_on_grid_idempotent_and_has_bounded_error", "PYC001", "module-level-function"],
-      ["test_tick_and_lot_goldens_cover_sign_and_half_even_ties", "PYC001", "module-level-function"]
     ],
     "tests/unit/test_instrument_identity.py": [
       ["_build_economic_instrument_and_listing", "PYC001", "module-level-function"],
