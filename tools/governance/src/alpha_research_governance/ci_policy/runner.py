@@ -404,7 +404,52 @@ def _query_bazel_labels(root: Path, expression: str) -> tuple[str, ...]:
 
 
 def select_affected_targets(root: Path, *, base_ref: str, head_ref: str) -> AffectedSelection:
-    """Select Bazel owners, reverse dependencies, and affected tests."""
+    """Select Bazel owners and reverse dependencies for changed paths.
+
+    The repository CI policy is validated before the Git comparison. The
+    comparison resolves ``base_ref`` and ``head_ref`` to commits and returns
+    normalized changed paths. The function then always queries ``//...`` as
+    Bazel XML, decodes that output as UTF-8, and derives the direct source
+    owners. A foundational or unresolved path produces the policy's full-graph
+    selection. Whenever selection is marked full or has no owner targets, the
+    function returns without reverse-dependency queries; a non-full ownerless
+    selection therefore retains its empty target tuples. Otherwise, the
+    function queries reverse dependencies for build and test targets, validates
+    the returned labels, and attaches sorted unique results. Git and Bazel
+    commands run without a shell and their output is captured. The function
+    performs no direct repository-file writes; invoked tools may have incidental
+    cache effects.
+
+    Args:
+        root: Repository directory used for policy validation and Git/Bazel
+            working directories.
+        base_ref: Non-empty Git revision expression for the comparison base;
+            it must not begin with ``-`` and must resolve to a commit.
+        head_ref: Non-empty Git revision expression for the comparison head;
+            it must not begin with ``-`` and must resolve to a commit.
+
+    Returns:
+        An ``AffectedSelection`` containing sorted changed paths, direct owner
+        labels, and either attached reverse-dependency targets or the full
+        ``//...`` fallback. Empty changes produce no targets and
+        ``reason="no_changed_paths"``.
+
+    Raises:
+        CIPolicyError: If repository policy, Git comparison, Bazel XML/query
+            output, owner selection, or reverse-dependency labels are invalid.
+            Git and Bazel startup or nonzero-exit failures are translated by
+            the command boundary.
+        ChangeRiskPolicyError: If the referenced change-risk policy is invalid.
+        EvidenceGovernanceError: If retained repository evidence is invalid.
+        ValidationError: If policy model construction rejects a value not
+            covered by explicit policy checks.
+        OSError: If policy validation or an unhandled filesystem/process
+            operation fails.
+        UnicodeError: If policy validation or a delegated strict text boundary,
+            including Git or Bazel output decoding, encounters invalid text.
+        ValueError: If a revision contains an embedded NUL or Git emits a
+            bare copy status that reaches the existing score conversion.
+    """
     policy = validate_continuous_integration_repository(root)
     _, _, changes = git_changed_paths_between(root, base_ref, head_ref)
     xml = _run_command_and_capture_output(
@@ -923,7 +968,71 @@ def run_affected_ci_lane(
     evidence_url: str,
     environment: str,
 ) -> AffectedSelection:
-    """Run preflight and the Bazel-affected build/test set."""
+    """Run fast-lane preflight and the selected Bazel build/test commands.
+
+    The repository policy is validated first, then ``event_log`` is resolved
+    under the policy's event-log directory. Relative paths are rooted at
+    ``root``; parent directories are created and the UTF-8 log is opened in
+    ``"w"`` mode, so an existing log is truncated before revision or event
+    validation. The log is closed when the lane exits its context.
+
+    The lane resolves the base and head refs and requires the resolved head to
+    equal the checked-out ``HEAD``. It validates the fast-lane event context,
+    requires a clean Git status for every environment other than the exact
+    ``"local"`` value, and runs preflight in this order: generated-artifact
+    rejection, secret scanning, changed-schema compatibility, and conditional
+    pre-commit (only when paths changed). Pre-commit status is compared before
+    and after execution; a detected mutation is rejected and left in place.
+    Target selection is then performed with the resolved commits. Build and
+    test phases run only when their target tuples are non-empty. A force-full
+    selection still runs the ``fast`` lane's ``//...`` build and test phases
+    and does not add the full lane's rollback check. Each executed phase uses
+    the ``fast`` event target and attempts one JSONL duration event, flushing
+    the stream in its ``finally`` path. A command failure stops later commands
+    and phases; finalization or log I/O errors can leave a partial or empty log
+    and can mask the command failure.
+
+    Args:
+        root: Repository directory used for policy validation, path resolution,
+            Git/Bazel/pre-commit commands, and the event log.
+        base_ref: Non-empty Git revision expression for the comparison base;
+            it must not begin with ``-`` and must resolve to a commit.
+        head_ref: Non-empty Git revision expression for the comparison head;
+            it must not begin with ``-`` and must resolve to the checked-out
+            commit.
+        event_log: Event-log path, relative to ``root`` unless absolute. Its
+            resolved path must equal or descend from the policy event-log
+            directory.
+        run_id: Lowercase event identifier used for phase duration records.
+        evidence_url: Credential-free HTTPS evidence URL, or empty only when
+            ``environment`` is exactly ``"local"``.
+        environment: Bounded CI environment token. ``"local"`` permits a
+            dirty checkout and an empty evidence URL; other values require
+            both a clean checkout and an evidence URL.
+
+    Returns:
+        The affected selection used for the lane, including its changed paths,
+        owner labels, build/test targets, full-fallback flag, and reason.
+
+    Raises:
+        CIPolicyError: If policy, revision identity, event context, path
+            preflight, schema checks, pre-commit, target selection, phase
+            commands, event emission, or event-log containment fails. A phase
+            finalization failure can mask a command failure.
+        ChangeRiskPolicyError: If the referenced change-risk policy is invalid.
+        EvidenceGovernanceError: If retained repository evidence is invalid.
+        ValidationError: If policy model construction rejects an uncovered value.
+        OSError: If policy validation, event-log I/O, or an unhandled delegated
+            filesystem/process operation fails.
+        UnicodeError: If policy or delegated strict text boundaries, including
+            Git or Bazel output decoding, encounter invalid text.
+        RuntimeError: If event-log path resolution encounters a symlink loop.
+        TypeError: If delegated event serialization or stream writing rejects
+            a value.
+        ValueError: If a revision contains an embedded NUL, Git emits a bare
+            copy status that reaches score conversion, or delegated event/log
+            serialization rejects a value.
+    """
     policy = validate_continuous_integration_repository(root)
     with _open_ci_event_log(
         root, event_log, event_log_directory=policy.event_log_directory
@@ -986,7 +1095,61 @@ def run_authoritative_full_ci_lane(
     evidence_url: str,
     environment: str,
 ) -> None:
-    """Run the authoritative complete graph and frozen-uv compatibility path."""
+    """Run the authoritative full graph, rollback check, and CI preflight.
+
+    The repository policy is validated first, then ``event_log`` is resolved
+    under the policy's event-log directory. Relative paths are rooted at
+    ``root``; parent directories are created and the UTF-8 log is opened in
+    ``"w"`` mode, truncating an existing file before revision or event
+    validation. The log is closed when the lane exits its context.
+
+    The lane resolves ``base_ref`` and the checked-out ``HEAD``, validates a
+    ``full`` event context, and requires a clean Git status outside the exact
+    ``"local"`` environment. It rejects generated artifact prefixes among all
+    tracked paths, scans those paths, checks every configured schema module,
+    and runs pre-commit with ``--all-files``. It then runs a build phase for
+    ``bazel build --config=ci //...`` and a test phase containing the ordered
+    commands ``bazel test --config=ci //...`` followed by
+    ``make --no-print-directory rollback-check``. Each command uses visible
+    output. Each entered phase attempts one JSONL duration event, flushing the
+    stream in its ``finally`` path. A failure stops subsequent commands or
+    phases; the log may be empty or partial, and event finalization can mask a
+    command failure.
+
+    Args:
+        root: Repository directory used for policy validation, path resolution,
+            Git/Bazel/pre-commit/make commands, and the event log.
+        base_ref: Non-empty Git revision expression used as the schema
+            comparison baseline; it must not begin with ``-`` and must resolve
+            to a commit.
+        event_log: Event-log path, relative to ``root`` unless absolute. Its
+            resolved path must equal or descend from the policy event-log
+            directory.
+        run_id: Lowercase event identifier used for phase duration records.
+        evidence_url: Credential-free HTTPS evidence URL, or empty only when
+            ``environment`` is exactly ``"local"``.
+        environment: Bounded CI environment token. ``"local"`` permits a
+            dirty checkout and an empty evidence URL; other values require
+            both a clean checkout and an evidence URL.
+
+    Raises:
+        CIPolicyError: If policy, revision or event context, path preflight,
+            schema checks, pre-commit, phase commands, event emission, or
+            event-log containment fails. A phase finalization failure can mask
+            a command failure.
+        ChangeRiskPolicyError: If the referenced change-risk policy is invalid.
+        EvidenceGovernanceError: If retained repository evidence is invalid.
+        ValidationError: If policy model construction rejects an uncovered value.
+        OSError: If policy validation, event-log I/O, or an unhandled delegated
+            filesystem/process operation fails.
+        UnicodeError: If policy or delegated strict text boundaries, including
+            Git output decoding, encounter invalid text.
+        RuntimeError: If event-log path resolution encounters a symlink loop.
+        TypeError: If delegated event serialization or stream writing rejects
+            a value.
+        ValueError: If ``base_ref`` contains an embedded NUL or delegated
+            event/log serialization rejects a value.
+    """
     policy = validate_continuous_integration_repository(root)
     with _open_ci_event_log(
         root, event_log, event_log_directory=policy.event_log_directory
