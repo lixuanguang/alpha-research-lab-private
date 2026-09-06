@@ -838,7 +838,30 @@ def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
 
 
 def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
-    """Load the roadmap while preserving its public domain-error contract."""
+    """Load and validate the repository roadmap as an immutable package tuple.
+
+    Read the UTF-8 Markdown file once, scan wave headings and package rows in
+    source order, parse purpose-specific dependency expressions, require all 96
+    package IDs exactly once in roadmap order, then reject unknown or self
+    dependencies and graph cycles. The file and parsed input are not modified.
+
+    Args:
+        path: UTF-8 Markdown roadmap file; a relative path is interpreted from
+            the process current working directory.
+
+    Returns:
+        A tuple of 96 immutable ``PackageNode`` records in roadmap order, with
+        all-of and any-of dependencies retaining their parsed source order for
+        each supported purpose.
+
+    Raises:
+        ProgramGovernanceError: If row shape, wave placement, dependency
+            syntax, package coverage, references, or graph consistency is
+            invalid. Pydantic model failures are translated with their causes
+            chained.
+        OSError: If the roadmap file cannot be read.
+        UnicodeDecodeError: If the roadmap file is not valid UTF-8.
+    """
     try:
         return _load_roadmap(path)
     except ValidationError as error:
@@ -1465,7 +1488,53 @@ def load_program(
     repository_root: Path,
     ownership_register_path: Path | None = None,
 ) -> ProgramGovernance:
-    """Load program governance while preserving its public domain-error contract."""
+    """Load and validate a program-governance TOML record.
+
+    Resolve ``repository_root`` first, load the policy schema and fixed A08
+    scalars, validate its roadmap path and package graph, then read the
+    ownership register and (for schema versions 2 through 4) derive operating
+    rules. Parse package states, then schema-4 finding dispositions, then
+    metrics and finding IDs in source order; validate the recorded evidence
+    path and commit digest; validate a schema-4 generated-status parent;
+    construct the immutable program; and finally require complete
+    implementation states to have ready technical dependencies. Versioned
+    package-state rules use ``date.today()`` for their effective date; the
+    policy's recorded ``as_of_date`` is retained as metadata and does not
+    select those rules. Schemas 1 through 3 read package-state evidence files
+    as UTF-8 and check their finding IDs; schema 4 checks one existing Markdown
+    path per package state without reading it. The recorded local evidence manifest and
+    generated-status contents are validated only by ``validate_repository``.
+    All reads and path checks are read-only.
+
+    Args:
+        path: UTF-8 TOML program-governance file; a relative path is interpreted
+            from the process current working directory.
+        repository_root: Repository root used for repository-relative paths and
+            the default ownership register; a relative path is resolved from
+            the process current working directory.
+        ownership_register_path: Optional ownership-register TOML file. ``None``
+            uses ``docs/governance/domain-ownership.toml`` below the resolved
+            root; a supplied relative path is interpreted from the process
+            current working directory and is not rebased to the root.
+
+    Returns:
+        The immutable ``ProgramGovernance`` record with roadmap packages,
+        ordered package states, KPI definitions, returned finding IDs and any schema-4
+        finding dispositions.
+
+    Raises:
+        ProgramGovernanceError: If TOML syntax or policy structure, roadmap,
+            ownership, package-state, operating-rule, metric, finding,
+            evidence-path, digest, generated-status-path, dependency, or model
+            validation fails. ``OperatingModelError`` and Pydantic
+            ``ValidationError`` failures are translated with causes chained.
+        OSError: If an uncaught repository, policy, roadmap, ownership or
+            legacy-evidence file operation fails.
+        UnicodeDecodeError: If an uncaught UTF-8 read fails.
+        RuntimeError: If strict repository-path resolution encounters a symlink
+            loop.
+        OverflowError: If a metric integer is too large to convert to ``float``.
+    """
     try:
         return _load_program(
             path,
@@ -1607,7 +1676,44 @@ def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metri
 
 
 def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
-    """Load KPI events while preserving their public domain-error contract."""
+    """Load, validate and deduplicate bounded JSONL KPI observations.
+
+    Check the file size before reading, ignore blank lines, parse each JSON
+    object with duplicate-key rejection, validate metric-specific fields and
+    UTC ``Z`` timestamps, require positive windows, and deduplicate retries by
+    parsed event-dictionary equality. Identical retries are retained once; a
+    conflicting duplicate ID fails. Ratio windows may last at most the
+    configured metric window, and overlap checks apply only to the same metric
+    and dimensions; touching endpoints are allowed. The checks sort a
+    separate sequence, while the returned tuple preserves first-seen order of
+    unique input events. The file and ``program`` are not modified.
+
+    Args:
+        path: UTF-8 JSONL observation file; relative paths are interpreted from
+            the process current working directory. Its size must not exceed the
+            governed 10,000,000-byte limit before reading.
+        program: Immutable, validated program record supplying metric contracts,
+            observation schema version and maximum-observation limit. That limit
+            counts unique parsed events after identical retries are discarded.
+
+    Returns:
+        A tuple of immutable ``MetricObservation`` records in first-seen input
+        order, excluding blank lines and repeated identical event IDs.
+
+    Raises:
+        ProgramGovernanceError: If file size, JSON structure, duplicate IDs,
+            metric identity, schema, provenance, timestamps, dimensions, units,
+            ratio bounds, evidence URL, observation count, overlap, or model
+            validation fails. Pydantic model failures are translated with their
+            causes chained.
+        OSError: If stat or UTF-8 file reading fails.
+        UnicodeDecodeError: If the JSONL file is not valid UTF-8.
+        ValueError: If a JSON integer exceeds the interpreter's conversion
+            limit; ordinary JSON syntax errors are translated above.
+        RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+        OverflowError: If a numeric observation value is too large to convert to
+            ``float``.
+    """
     try:
         return _load_observations(path, program=program)
     except ValidationError as error:
@@ -1648,7 +1754,41 @@ def _validate_local_evidence(repository_root: Path, program: ProgramGovernance) 
 
 
 def validate_repository(repository_root: Path) -> ProgramGovernance:
-    """Validate the authoritative program contract, graph, and synthetic evidence."""
+    """Validate the authoritative program record, local evidence and status file.
+
+    Resolve ``repository_root``, load the authoritative
+    ``docs/governance/program-governance.toml`` with its default ownership
+    register, load the change-risk policy, then validate the recorded local
+    evidence manifest and its artifacts against the commit SHA and A08
+    package-evidence profile. Finally validate the configured generated status
+    document when schema 4 supplies one. The checks run in that order, perform
+    only reads and path inspection, and return the immutable program record
+    after every check passes.
+
+    Args:
+        repository_root: Repository root containing the authoritative program,
+            ownership, roadmap, evidence and generated-status files; a relative
+            path is resolved from the process current working directory.
+
+    Returns:
+        The immutable ``ProgramGovernance`` record loaded from the authoritative
+        policy and checked against local evidence and generated status.
+
+    Raises:
+        ProgramGovernanceError: If program loading, local evidence, package
+            profile, generated-status content, or a translated filesystem
+            failure occurs. Local evidence ``OSError``/``ValueError`` failures
+            and generated-status ``OSError`` failures are translated with their
+            causes chained.
+        OSError: If root or authoritative program, roadmap, ownership or
+            legacy-evidence operations fail before a translation boundary.
+        UnicodeDecodeError: If an authoritative or generated-status UTF-8 read
+            fails; local-evidence decoding failures are translated.
+        RuntimeError: If root or strict repository/evidence path resolution
+            encounters a symlink loop.
+        OverflowError: If a metric integer is too large to convert to ``float``
+            while loading the program.
+    """
     resolved_repository_root = repository_root.resolve()
     program = load_program(
         resolved_repository_root / "docs" / "governance" / "program-governance.toml",

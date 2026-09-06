@@ -641,7 +641,42 @@ def _validate_graph(topology: RepositoryTopology, repository_root: Path) -> None
 
 
 def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
-    """Load and validate the exact repository-topology registry contract."""
+    """Load the topology TOML and validate its metadata, graph, and source set.
+
+    The loader reads ``path`` as UTF-8, requires the exact root, unit and finding
+    fields, validates the fixed B01c metadata and ownership references, constructs
+    the immutable topology model, and then checks source registration, ownership,
+    visibility, layer direction, cycles, and parsed internal imports below the
+    declared source roots. It also reads the repository ownership register and
+    qualifying source files; it does not read the local evidence manifest or write
+    files. ``path`` and ``repository_root`` are caller-supplied and have no implicit
+    defaults; the latter is resolved before repository-relative checks.
+
+    Args:
+        path: UTF-8 TOML topology registry to read and validate. A relative path
+            follows normal process working-directory semantics and is not rebased
+            to ``repository_root``. The file is not modified.
+        repository_root: Repository root used to resolve the ownership register,
+            source roots, registered files, and Python imports. It need not be the
+            process working directory.
+
+    Returns:
+        The immutable ``RepositoryTopology`` after all metadata and graph checks
+        pass. The returned model retains declaration order for units and finding IDs.
+
+    Raises:
+        RepositoryTopologyError: If TOML syntax, table shapes, required values,
+            ownership references, model construction, source registration, graph
+            edges, visibility, cycles, or parsed internal imports violate the
+            topology contract. TOML decoding and final Pydantic model failures are
+            translated with their original causes; other domain findings are raised
+            directly, including accumulated graph findings.
+        OSError: If resolving or reading the registry, ownership register, source
+            roots, or source files fails outside a translated validation finding.
+        UnicodeDecodeError: If the registry, ownership register, or parsed source
+            file is not valid UTF-8; decoding failures propagate.
+        RuntimeError: If strict repository-path resolution encounters a symlink loop.
+    """
     try:
         topology_document = _require_table(
             tomllib.loads(path.read_text(encoding="utf-8")), context=str(path)
@@ -783,7 +818,41 @@ def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
 
 
 def validate_repository(repository_root: Path) -> RepositoryTopology:
-    """Validate the enforced tooling graph and synthetic local evidence."""
+    """Validate the authoritative topology and its synthetic B01c evidence.
+
+    The supplied root is resolved first, then the fixed
+    ``docs/architecture/repository-topology.toml`` registry is loaded and its
+    complete source graph is checked. Validation next requires the topology's
+    repository-contained evidence-manifest path, loads the root's
+    ``docs/governance/change-risk-policy.toml`` policy, validates the manifest
+    against the recorded commit, and applies the exact local B01c evidence
+    profile. The function performs read-only filesystem I/O and has no default
+    root; callers that want the current directory must pass ``Path.cwd()``.
+
+    Args:
+        repository_root: Repository directory containing the topology registry,
+            ownership register, source roots, change-risk policy, and B01c local
+            evidence bundle. Its resolved path anchors all repository-relative
+            lookups.
+
+    Returns:
+        The fully validated immutable ``RepositoryTopology`` loaded from the
+        authoritative registry.
+
+    Raises:
+        RepositoryTopologyError: If topology loading fails, the evidence manifest
+            path is invalid, or the B01c evidence bundle fails its path, policy,
+            commit, manifest, or exact-profile checks. Failures from the evidence
+            stage that are ``EvidenceGovernanceError``, ``OSError``, or any
+            ``ValueError`` (including ``ChangeRiskPolicyError`` and decoding
+            failures) are wrapped with the B01c context and chained; topology-stage
+            domain errors propagate unchanged.
+        OSError: If root resolution or topology-stage filesystem operations fail;
+            evidence-stage filesystem errors are translated as described above.
+        UnicodeDecodeError: If topology-stage UTF-8 input is invalid; evidence-stage
+            decoding failures are translated as ``RepositoryTopologyError``.
+        RuntimeError: If repository-path resolution encounters a symlink loop.
+    """
     resolved_repository_root = repository_root.resolve()
     topology = load_topology(
         resolved_repository_root / "docs" / "architecture" / "repository-topology.toml",
