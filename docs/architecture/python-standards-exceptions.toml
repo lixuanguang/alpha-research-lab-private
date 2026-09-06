@@ -365,3 +365,146 @@ owner_role = "platform"
 rationale = "Retain the Hypothesis callback and existing pytest node identity while its upstream decorator typing remains tracked separately; the property checks exact grid, idempotence and directional error invariants."
 expires = 2027-03-01
 source_sha256 = "1c4203e6e28e4cb38d26c3baedf7baea3a758d623f6e39564f3d2fc809efc974"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_cusip_character_numeric_value"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Map one already-admitted CUSIP or SEDOL character to its checksum weight; this stateless arithmetic primitive is shared by the checksum predicates."
+expires = 2027-03-01
+source_sha256 = "0cb5a91d09636faf425f4c79c5e9d76ca2e38a5402aeca828e986154dc9d7b87"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_has_valid_cusip_checksum"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check one exact CUSIP shape and alternating-weight check digit without normalization or state; this low-level predicate serves the owned identifier validators."
+expires = 2027-03-01
+source_sha256 = "1490d881aa43dd01b21948ec5f44e566cd3277b1a3eb5a9896af0f652559a98c"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_has_valid_isin_checksum"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check one exact uppercase ISIN shape and expanded Luhn sum without normalization or state; this low-level predicate serves the owned identifier validators."
+expires = 2027-03-01
+source_sha256 = "46f1438fad2b051846961bf31bd60175bf578ad88e9db97073bfe181f709f65e"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_has_valid_luhn_checksum"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Compute the Luhn divisibility predicate for one admitted decimal digit string; this pure arithmetic kernel is used by the ISIN checksum validator."
+expires = 2027-03-01
+source_sha256 = "c82597a79d66041bf86fa1ff7db5ecbcaf0f21a10c4da12726f6fba37439c864"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_has_valid_sedol_checksum"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check one exact SEDOL shape and weighted check digit without normalization or state; this low-level predicate serves the owned identifier validators."
+expires = 2027-03-01
+source_sha256 = "05c932d5d78138d3699d4c22c77bb6e5e340b89be08b11470d4ac8a6e07fe6f6"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_parse_canonical_uuid"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Parse one non-nil lowercase hyphenated UUID without normalizing malformed representations; this small parser is shared by the two owned identifier factories."
+expires = 2027-03-01
+source_sha256 = "ff0cda7259cf65e591f481b9237b6c80ee246f33070b82f89f1fe02b17c9f707"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_require_bounded_text"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow one raw value to unpadded bounded text and reject Unicode control characters; this low-level validation primitive is shared by identifier and correction validators."
+expires = 2027-03-01
+source_sha256 = "385afbcd169382049c85131e94af130b1ff4fa1971a1c56edb763fa4746797e6"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_require_non_nil_uuid"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow one raw value to a typed non-nil UUID without coercion; this low-level predicate is shared by instrument and mapping identifier boundaries."
+expires = 2027-03-01
+source_sha256 = "4f465cd064ccd06fe8a54ac4b9f2314ceb9b9acdacbe5324ff497a6ecc9f061a"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_validate_identifier_namespace"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Validate one optional lowercase namespace token with an explicit presence requirement; this stateless parser supports the exact-identifier and broad-query boundaries."
+expires = 2027-03-01
+source_sha256 = "3aa7729199d14c10c6ed2dc9f00a05daeabac685d0eee7fddc15dc3726ffcedd"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "_validate_identifier_value"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Dispatch one exact bounded identifier value to its scheme-specific checksum predicate; this small stateless validation kernel is shared by identifier and query model methods."
+expires = 2027-03-01
+source_sha256 = "e3bc36d9253b20b9d630886c5c177ab33a3e856b2e8edc9338b240f4f07fe3b5"
+
+[[exceptions]]
+path = "src/alpha_research/instrument_identity/models.py"
+symbol = "require_utc_datetime"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow one raw value to an aware zero-offset datetime without conversion or host timezone state; this public low-level validator is shared by mapping and catalog temporal checks."
+expires = 2027-03-01
+source_sha256 = "0ffe952c2d1d9d3cf50c7f52b706a31e2d883dc551382135e7719a67573fb65c"
+
+[[exceptions]]
+path = "tests/unit/test_instrument_identity.py"
+symbol = "test_property_exact_identifier_round_trip_is_stable"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Retain the existing Hypothesis callback and pytest node identity while upstream decorator typing remains tracked separately; the property checks exact identifier round trips without service state."
+expires = 2027-03-01
+source_sha256 = "154d4ef85774ce87ea18e0d26636d5b12d042d881896844253fd0b3bb4a3eb40"
+
+[[exceptions]]
+path = "tests/unit/test_instrument_identity.py"
+symbol = "test_property_symbol_reuse_obeys_half_open_boundaries"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Retain the existing Hypothesis callback and pytest node identity while upstream decorator typing remains tracked separately; the property checks symbol reuse at the exclusive validity boundary."
+expires = 2027-03-01
+source_sha256 = "bd5fefd551a90f07518f7fb271569c06a59eb000d3b5756457097fc0198e0ab8"

@@ -30,20 +30,6 @@
     }
   },
   "entries": {
-    "src/alpha_research/instrument_identity/models.py": [
-      ["_cusip_character_numeric_value", "PYC001", "module-level-function"],
-      ["_has_valid_cusip_checksum", "PYC001", "module-level-function"],
-      ["_has_valid_isin_checksum", "PYC001", "module-level-function"],
-      ["_has_valid_luhn_checksum", "PYC001", "module-level-function"],
-      ["_has_valid_sedol_checksum", "PYC001", "module-level-function"],
-      ["_parse_canonical_uuid", "PYC001", "module-level-function"],
-      ["_require_bounded_text", "PYC001", "module-level-function"],
-      ["_require_non_nil_uuid", "PYC001", "module-level-function"],
-      ["_validate_identifier_namespace", "PYC001", "module-level-function"],
-      ["_validate_identifier_value", "PYC001", "module-level-function"],
-      ["_validation_error_message", "PYC001", "module-level-function"],
-      ["require_utc_datetime", "PYC001", "module-level-function"]
-    ],
     "src/alpha_research/venue_calendar/adapter.py": [
       ["_adapt_session", "PYC001", "module-level-function"],
       ["_apply_overrides", "PYC001", "module-level-function"],
@@ -460,28 +446,6 @@
     ],
     "tests/engineering/test_venue_calendar_evidence.py": [
       ["test_venue_calendar_manifest_matches_partial_r2_profile_and_golden_digest", "PYC001", "module-level-function"]
-    ],
-    "tests/unit/test_instrument_identity.py": [
-      ["_build_economic_instrument_and_listing", "PYC001", "module-level-function"],
-      ["_build_venue_symbol_mapping", "PYC001", "module-level-function"],
-      ["_fixture_object_rows", "PYC001", "module-level-function"],
-      ["_load_instrument_identity_golden_catalog", "PYC001", "module-level-function"],
-      ["_optional_fixture_text", "PYC001", "module-level-function"],
-      ["_parse_fixture_utc_datetime", "PYC001", "module-level-function"],
-      ["_required_fixture_text", "PYC001", "module-level-function"],
-      ["test_catalog_rejects_duplicate_unregistered_and_overlapping_records", "PYC001", "module-level-function"],
-      ["test_catalog_rejects_missing_changed_forked_and_cyclic_correction_history", "PYC001", "module-level-function"],
-      ["test_golden_fixture_covers_distinct_concepts_and_all_identifier_schemes", "PYC001", "module-level-function"],
-      ["test_golden_fixture_resolves_temporal_mappings_and_round_trips", "PYC001", "module-level-function"],
-      ["test_golden_resolution_workload_stays_within_local_budget", "PYC001", "module-level-function"],
-      ["test_instrument_identity_models_are_strict_frozen_pydantic_boundaries", "PYC001", "module-level-function"],
-      ["test_property_exact_identifier_round_trip_is_stable", "PYC001", "module-level-function"],
-      ["test_property_symbol_reuse_obeys_half_open_boundaries", "PYC001", "module-level-function"],
-      ["test_standard_identifiers_reject_invalid_format_or_checksum", "PYC001", "module-level-function"],
-      ["test_symbol_ambiguity_delisting_gap_and_unknown_instrument_fail_closed", "PYC001", "module-level-function"],
-      ["test_temporal_boundaries_require_utc_and_positive_half_open_interval", "PYC001", "module-level-function"],
-      ["test_value_object_boundaries_reject_unsafe_input", "PYC001", "module-level-function"],
-      ["test_vendor_correction_changes_projection_without_erasing_history", "PYC001", "module-level-function"]
     ],
     "tests/unit/test_venue_calendar.py": [
       ["_instant", "PYC001", "module-level-function"],
