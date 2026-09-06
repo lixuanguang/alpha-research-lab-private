@@ -763,78 +763,153 @@ def _parse_dependency_expression(
     return dependencies, groups, (), (), (), ()
 
 
+class RoadmapParser:
+    """Parse and validate the repository's ordered roadmap package graph.
+
+    The parser has no repository state and performs no work during construction. Each
+    ``parse`` call reads one Markdown roadmap and keeps all graph-validation findings in
+    local variables, so a failed parse cannot affect a later call.
+    """
+
+    def parse(self, path: Path) -> tuple[PackageNode, ...]:
+        """Read and validate one UTF-8 roadmap document.
+
+        Args:
+            path: Markdown roadmap file to read. Relative paths are interpreted from
+                the process current working directory.
+
+        Returns:
+            The 96 immutable package nodes in roadmap order.
+
+        Raises:
+            ProgramGovernanceError: If the roadmap rows, dependency expressions, package
+                coverage, dependency references, or dependency graph are invalid. Package
+                model failures are translated with their causes chained.
+            OSError: If the roadmap cannot be read.
+            UnicodeDecodeError: If the roadmap is not valid UTF-8.
+        """
+        try:
+            packages = self._parse_rows(path.read_text(encoding="utf-8").splitlines())
+        except ValidationError as error:
+            raise ProgramGovernanceError([f"{path}: roadmap model validation failed"]) from error
+        self._validate_graph(tuple(packages))
+        return tuple(packages)
+
+    def _parse_rows(self, lines: list[str]) -> list[PackageNode]:
+        """Parse roadmap rows while preserving source order and diagnostics.
+
+        Args:
+            lines: Markdown lines read by ``parse``.
+
+        Returns:
+            Package nodes in the order declared by the roadmap.
+
+        Raises:
+            ProgramGovernanceError: If a row is malformed, outside its wave, or
+                the document does not contain every expected package exactly once.
+            ValidationError: If a package model rejects parsed fields.
+        """
+        current_wave: str | None = None
+        packages: list[PackageNode] = []
+        for line in lines:
+            wave_match = re.fullmatch(r"## Wave ([A-L]) - .+", line)
+            if wave_match is not None:
+                current_wave = wave_match.groups(default="")[0]
+                continue
+            if re.match(r"\| [A-L]0[1-8] \|", line) is None:
+                continue
+            row_match = re.fullmatch(
+                r"\| ([A-L]0[1-8]) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|",
+                line,
+            )
+            if row_match is None:
+                raise ProgramGovernanceError(
+                    [
+                        "roadmap package rows must declare objective, library/tool, "
+                        "incorporation boundary, and dependencies"
+                    ]
+                )
+            package_id, objective, library, boundary, expression = row_match.groups(default="")
+            package_id = package_id.strip()
+            objective = objective.strip()
+            library = library.strip()
+            boundary = boundary.strip()
+            expression = expression.strip()
+            if not library or not boundary:
+                raise ProgramGovernanceError(
+                    [f"{package_id}: library/tool and incorporation boundary cannot be empty"]
+                )
+            if current_wave != package_id[0]:
+                raise ProgramGovernanceError(
+                    [f"{package_id}: roadmap row is outside its Wave {package_id[0]} section"]
+                )
+            (
+                dependencies,
+                groups,
+                operation_release_dependencies,
+                operation_release_groups,
+                team_handover_dependencies,
+                team_handover_groups,
+            ) = _parse_dependency_expression(expression)
+            packages.append(
+                PackageNode(
+                    package_id=package_id,
+                    wave=package_id[0],
+                    objective=objective,
+                    dependencies=dependencies,
+                    any_of_dependency_groups=groups,
+                    operation_release_dependencies=operation_release_dependencies,
+                    operation_release_any_of_dependency_groups=operation_release_groups,
+                    team_handover_dependencies=team_handover_dependencies,
+                    team_handover_any_of_dependency_groups=team_handover_groups,
+                )
+            )
+        if tuple(package.package_id for package in packages) != ROADMAP_PACKAGE_IDS:
+            raise ProgramGovernanceError(
+                ["roadmap must declare A01-L08 exactly once in dependency order"]
+            )
+        return packages
+
+    def _validate_graph(self, packages: tuple[PackageNode, ...]) -> None:
+        """Validate roadmap dependency references and cycles.
+
+        Args:
+            packages: Parsed package nodes whose dependency IDs form the graph.
+
+        Raises:
+            ProgramGovernanceError: If a package references an unknown package,
+                depends on itself, or participates in a dependency cycle.
+        """
+        package_ids = frozenset(ROADMAP_PACKAGE_IDS)
+        findings: list[str] = []
+        for package in packages:
+            referenced = package.all_dependency_ids()
+            unknown = sorted(set(referenced) - package_ids)
+            if unknown:
+                findings.append(f"{package.package_id}: unknown dependencies {unknown!r}")
+            if package.package_id in referenced:
+                findings.append(f"{package.package_id}: package cannot depend on itself")
+        findings.extend(_find_dependency_cycles(packages))
+        if findings:
+            raise ProgramGovernanceError(findings)
+
+
 def _load_roadmap(path: Path) -> tuple[PackageNode, ...]:
-    """Parse the 96-package roadmap tables into an exact DAG."""
-    lines = path.read_text(encoding="utf-8").splitlines()
-    current_wave: str | None = None
-    packages: list[PackageNode] = []
-    for line in lines:
-        wave_match = re.fullmatch(r"## Wave ([A-L]) - .+", line)
-        if wave_match is not None:
-            current_wave = wave_match.group(1)
-            continue
-        if re.match(r"\| [A-L]0[1-8] \|", line) is None:
-            continue
-        row_match = re.fullmatch(
-            r"\| ([A-L]0[1-8]) \| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|",
-            line,
-        )
-        if row_match is None:
-            raise ProgramGovernanceError(
-                [
-                    "roadmap package rows must declare objective, library/tool, "
-                    "incorporation boundary, and dependencies"
-                ]
-            )
-        package_id, objective, library, boundary, expression = (
-            value.strip() for value in row_match.groups()
-        )
-        if not library or not boundary:
-            raise ProgramGovernanceError(
-                [f"{package_id}: library/tool and incorporation boundary cannot be empty"]
-            )
-        if current_wave != package_id[0]:
-            raise ProgramGovernanceError(
-                [f"{package_id}: roadmap row is outside its Wave {package_id[0]} section"]
-            )
-        (
-            dependencies,
-            groups,
-            operation_release_dependencies,
-            operation_release_groups,
-            team_handover_dependencies,
-            team_handover_groups,
-        ) = _parse_dependency_expression(expression)
-        packages.append(
-            PackageNode(
-                package_id=package_id,
-                wave=package_id[0],
-                objective=objective,
-                dependencies=dependencies,
-                any_of_dependency_groups=groups,
-                operation_release_dependencies=operation_release_dependencies,
-                operation_release_any_of_dependency_groups=operation_release_groups,
-                team_handover_dependencies=team_handover_dependencies,
-                team_handover_any_of_dependency_groups=team_handover_groups,
-            )
-        )
-    if tuple(package.package_id for package in packages) != ROADMAP_PACKAGE_IDS:
-        raise ProgramGovernanceError(
-            ["roadmap must declare A01-L08 exactly once in dependency order"]
-        )
-    package_ids = frozenset(ROADMAP_PACKAGE_IDS)
-    findings: list[str] = []
-    for package in packages:
-        referenced = package.all_dependency_ids()
-        unknown = sorted(set(referenced) - package_ids)
-        if unknown:
-            findings.append(f"{package.package_id}: unknown dependencies {unknown!r}")
-        if package.package_id in referenced:
-            findings.append(f"{package.package_id}: package cannot depend on itself")
-    findings.extend(_find_dependency_cycles(tuple(packages)))
-    if findings:
-        raise ProgramGovernanceError(findings)
-    return tuple(packages)
+    """Delegate roadmap loading through the compatibility parser seam.
+
+    Args:
+        path: Markdown roadmap file to read.
+
+    Returns:
+        The validated package nodes in roadmap order.
+
+    Raises:
+        ProgramGovernanceError: If roadmap validation fails; package model failures
+            retain their causes through ``RoadmapParser.parse``.
+        OSError: If the file cannot be read.
+        UnicodeDecodeError: If the file is not valid UTF-8.
+    """
+    return RoadmapParser().parse(path)
 
 
 def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
@@ -915,7 +990,14 @@ def _find_dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...
 
     for package_id in graph:
         visit_dependency(package_id, ())
-    return tuple(f"roadmap dependency cycle: {cycle}" for cycle in dict.fromkeys(cycles))
+    unique_cycles: list[str] = []
+    seen_cycles: set[str] = set()
+    for cycle in cycles:
+        if cycle in seen_cycles:
+            continue
+        seen_cycles.add(cycle)
+        unique_cycles.append(cycle)
+    return tuple(f"roadmap dependency cycle: {cycle}" for cycle in unique_cycles)
 
 
 def _parse_package_states(
@@ -1327,159 +1409,518 @@ def _parse_finding_dispositions(
     return tuple(groups)
 
 
+class ProgramRepository:
+    """Load program governance with an explicit repository and ownership context.
+
+    Construction stores path context and creates no files, reads no policy, and performs no
+    validation. Each operation allocates its own parsed documents, findings, and dependency
+    state. A failed load or validation therefore cannot contaminate a later call on the same
+    repository instance.
+    """
+
+    def __init__(
+        self,
+        repository_root: Path,
+        ownership_register_path: Path | None = None,
+    ) -> None:
+        """Bind repository-relative and ownership-register path context.
+
+        Args:
+            repository_root: Repository root used for relative roadmap, evidence, and
+                generated-status paths. It is resolved when an operation starts.
+            ownership_register_path: Optional ownership TOML path. ``None`` selects
+                ``docs/governance/domain-ownership.toml`` below the resolved root;
+                a supplied relative path remains process-relative.
+        """
+        self._repository_root = repository_root
+        self._ownership_register_path = ownership_register_path
+        self._roadmap_parser = RoadmapParser()
+
+    def load_program(self, path: Path) -> ProgramGovernance:
+        """Load one validated program-governance TOML document.
+
+        Resolve the bound repository root, validate fixed A08 scalars and the selected schema
+        version, parse the ordered roadmap, load ownership roles and versioned operating rules,
+        validate package states and schema-4 finding dispositions, then parse metrics and finding
+        IDs in source order. Validate evidence paths, the full commit digest, and a schema-4
+        generated-status parent before constructing the immutable model and checking complete
+        implementation states against technical dependencies. Versioned package-state rules use
+        ``date.today()``; the recorded ``as_of_date`` remains metadata. Schemas 1 through 3 read
+        package-state evidence as UTF-8 and check finding IDs; schema 4 checks one existing
+        Markdown path per state without reading it. Local evidence and generated-status contents
+        are checked only by ``validate_repository``. All reads and path checks are read-only.
+
+        Args:
+            path: UTF-8 TOML program record. Relative paths are interpreted from the
+                process current working directory.
+
+        Returns:
+            The immutable program record with schema-specific package states, metrics,
+            findings, and dependency readiness validated.
+
+        Raises:
+            ProgramGovernanceError: If policy structure, schema 1-4 content, ownership,
+                roadmap, evidence path, operating model, metrics, findings, or model
+                validation fails. Model and operating-model failures are translated with
+                their causes chained.
+            OSError: If an uncaught input file operation fails.
+            UnicodeDecodeError: If an uncaught UTF-8 read fails.
+            RuntimeError: If strict path resolution encounters a symlink loop.
+            OverflowError: If a metric integer is too large for ``float`` conversion.
+        """
+        try:
+            return self._load_program(path)
+        except OperatingModelError as error:
+            raise ProgramGovernanceError([str(error)]) from error
+        except ValidationError as error:
+            raise ProgramGovernanceError([f"{path}: program model validation failed"]) from error
+
+    def _load_program(self, path: Path) -> ProgramGovernance:
+        """Run the ordered program-loading workflow for one TOML document.
+
+        Args:
+            path: Program-governance TOML path to parse.
+
+        Returns:
+            The assembled immutable program record after all schema and dependency checks.
+
+        Raises:
+            ProgramGovernanceError: If any owned policy, path, state, metric, finding, or
+                dependency invariant fails.
+            OSError: If an uncaught input file operation fails.
+            UnicodeDecodeError: If an uncaught UTF-8 read fails.
+            ValidationError: If the assembled Pydantic model rejects the record; the public
+                method translates this error with the program path as context.
+            OperatingModelError: If an operating rule cannot be resolved; the public method
+                translates this error to a governance finding.
+        """
+        resolved_repository_root = self._repository_root.resolve()
+        (
+            program_document,
+            schema_version,
+            gate_ids,
+            roadmap_path,
+            packages,
+        ) = self._read_program_header(path, resolved_repository_root)
+        ownership_roles, package_states, finding_dispositions = self._load_states(
+            program_document,
+            resolved_repository_root=resolved_repository_root,
+            schema_version=schema_version,
+        )
+        metrics, finding_ids = self._load_metrics_and_findings(
+            program_document, ownership_roles=ownership_roles
+        )
+        (
+            local_evidence_manifest_path,
+            local_evidence_commit_sha,
+            generated_status_path,
+        ) = self._load_evidence_paths(
+            program_document,
+            path=path,
+            repository_root=resolved_repository_root,
+            schema_version=schema_version,
+        )
+        return self._build_program(
+            program_document,
+            path=path,
+            schema_version=schema_version,
+            gate_ids=gate_ids,
+            roadmap_path=roadmap_path,
+            packages=packages,
+            package_states=package_states,
+            metrics=metrics,
+            finding_ids=finding_ids,
+            finding_dispositions=finding_dispositions,
+            local_evidence_manifest_path=local_evidence_manifest_path,
+            local_evidence_commit_sha=local_evidence_commit_sha,
+            generated_status_path=generated_status_path,
+        )
+
+    def _read_program_header(
+        self,
+        path: Path,
+        repository_root: Path,
+    ) -> tuple[
+        dict[str, object],
+        int,
+        tuple[str, ...],
+        str,
+        tuple[PackageNode, ...],
+    ]:
+        """Read fixed program scalars and parse the repository roadmap.
+
+        Args:
+            path: Program-governance TOML path.
+            repository_root: Resolved root used for the repository-relative roadmap path.
+
+        Returns:
+            Parsed document, schema version, gate IDs, roadmap path, and package nodes.
+
+        Raises:
+            ProgramGovernanceError: If fixed policy values or roadmap validation fails.
+            OSError: If the program or roadmap cannot be read.
+            UnicodeDecodeError: If an input is not valid UTF-8.
+        """
+        program_document = _load_toml(path)
+        schema_version = program_document.get("schema_version")
+        if type(schema_version) is not int or schema_version not in {1, 2, 3, 4}:
+            raise ProgramGovernanceError([f"{path}: schema_version must be 1, 2, 3, or 4"])
+        expected_root_keys = _ROOT_KEYS_V4 if schema_version >= 4 else _ROOT_KEYS
+        if set(program_document) != expected_root_keys:
+            raise ProgramGovernanceError(
+                [f"{path}: fields must be exactly {sorted(expected_root_keys)!r}"]
+            )
+        expected_scalars: dict[str, object] = {
+            "roadmap_package": "A08",
+            "operating_track": "solo_bootstrap",
+            "package_status": "partial",
+            "accountable_owner_role": "platform",
+            "risk_class": "R2",
+            "observation_schema_version": 1,
+        }
+        for key, expected in expected_scalars.items():
+            if program_document.get(key) != expected:
+                raise ProgramGovernanceError([f"{path}: {key} must be {expected!r}"])
+        gate_ids = _require_strings(
+            program_document.get("applicable_gate_ids"), context="applicable_gate_ids"
+        )
+        if gate_ids != APPLICABLE_GATE_IDS:
+            raise ProgramGovernanceError(
+                [f"{path}: applicable gates must be {APPLICABLE_GATE_IDS!r}"]
+            )
+        roadmap_path = _require_string(program_document, "roadmap_path", context=str(path))
+        roadmap_file = _require_repository_file(
+            roadmap_path,
+            repository_root=repository_root,
+            context="roadmap_path",
+        )
+        packages = self._roadmap_parser.parse(roadmap_file)
+        return program_document, schema_version, gate_ids, roadmap_path, packages
+
+    def _load_states(
+        self,
+        program_document: dict[str, object],
+        *,
+        resolved_repository_root: Path,
+        schema_version: int,
+    ) -> tuple[frozenset[str], tuple[PackageState, ...], tuple[FindingDispositionGroup, ...]]:
+        """Load ownership roles, operating rules, package states, and finding mappings.
+
+        Args:
+            program_document: Parsed program-governance document.
+            resolved_repository_root: Repository root for evidence paths and default ownership.
+            schema_version: Schema version selecting legacy or versioned state rules.
+
+        Returns:
+            Ownership roles, validated package states, and schema-4 finding dispositions.
+
+        Raises:
+            ProgramGovernanceError: If ownership, state, or finding mapping rules fail.
+            OperatingModelError: If loading or resolving operating rules fails; the calling
+                ``load_program`` method translates the error with its cause chained.
+            ValidationError: If a package-state or finding-disposition model rejects its input.
+            OSError: If ownership or legacy evidence files cannot be read.
+            UnicodeDecodeError: If a legacy evidence file is not UTF-8.
+        """
+        ownership_path = (
+            resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
+            if self._ownership_register_path is None
+            else self._ownership_register_path
+        )
+        ownership_roles = _ownership_roles(ownership_path)
+        operating_model = load_operating_model(ownership_path) if schema_version >= 2 else None
+        package_states = _parse_package_states(
+            program_document.get("package_states"),
+            repository_root=resolved_repository_root,
+            ownership_roles=ownership_roles,
+            schema_version=schema_version,
+            operating_model=operating_model,
+        )
+        finding_dispositions = (
+            ()
+            if schema_version < 4
+            else _parse_finding_dispositions(
+                program_document.get("finding_dispositions"),
+                package_states=package_states,
+            )
+        )
+        return ownership_roles, package_states, finding_dispositions
+
+    def _load_metrics_and_findings(
+        self,
+        program_document: dict[str, object],
+        *,
+        ownership_roles: frozenset[str],
+    ) -> tuple[tuple[MetricDefinition, ...], tuple[str, ...]]:
+        """Parse the ordered KPI definitions and fixed open finding identifiers.
+
+        Args:
+            program_document: Parsed program-governance document.
+            ownership_roles: Roles accepted by metric definitions.
+
+        Returns:
+            Validated metric definitions and the declared finding IDs.
+
+        Raises:
+            ProgramGovernanceError: If metric ordering, source-event uniqueness, finding
+                content, or declared-finding agreement fails.
+            OverflowError: If a metric integer cannot be converted to ``float``.
+            ValidationError: If a metric model rejects validated fields.
+        """
+        metrics = tuple(
+            _parse_metric(entry, index=index, ownership_roles=ownership_roles)
+            for index, entry in enumerate(
+                _require_table_list(program_document.get("metrics"), context="metrics"), 1
+            )
+        )
+        if tuple(metric.metric_id for metric in metrics) != METRIC_IDS:
+            raise ProgramGovernanceError(["metrics must declare the seven blueprint KPIs in order"])
+        if len({metric.source_event_type for metric in metrics}) != len(metrics):
+            raise ProgramGovernanceError(["each KPI must use a distinct source event type"])
+        finding_ids = _parse_findings(program_document.get("findings"))
+        declared_findings = _require_strings(
+            program_document.get("open_finding_ids"), context="open_finding_ids"
+        )
+        if finding_ids != _PROGRAM_GOVERNANCE_OPEN_FINDING_IDS or declared_findings != finding_ids:
+            raise ProgramGovernanceError(["A08 partial status requires the exact open findings"])
+        return metrics, finding_ids
+
+    def _load_evidence_paths(
+        self,
+        program_document: dict[str, object],
+        *,
+        path: Path,
+        repository_root: Path,
+        schema_version: int,
+    ) -> tuple[str, str, str | None]:
+        """Validate recorded evidence and schema-4 generated-status paths.
+
+        Args:
+            program_document: Parsed program-governance document.
+            path: Program path used for field diagnostics.
+            repository_root: Resolved root for repository-relative files.
+            schema_version: Schema version selecting the optional status path.
+
+        Returns:
+            Local evidence manifest path, full commit digest, and optional status path.
+
+        Raises:
+            ProgramGovernanceError: If evidence paths, digest, or generated-status parent
+                safety checks fail; filesystem containment failures preserve their causes.
+            OSError: If an uncaught path operation fails.
+            RuntimeError: If strict path resolution encounters a symlink loop.
+        """
+        local_evidence_manifest_path = _require_string(
+            program_document, "local_evidence_manifest_path", context=str(path)
+        )
+        _require_repository_file(
+            local_evidence_manifest_path,
+            repository_root=repository_root,
+            context="local_evidence_manifest_path",
+        )
+        local_evidence_commit_sha = _require_string(
+            program_document, "local_evidence_commit_sha", context=str(path)
+        )
+        if _REVISION.fullmatch(local_evidence_commit_sha) is None:
+            raise ProgramGovernanceError(["local_evidence_commit_sha must be a full digest"])
+        generated_status_path = (
+            None
+            if schema_version < 4
+            else _require_string(program_document, "generated_status_path", context=str(path))
+        )
+        if generated_status_path is not None:
+            relative_status_path = PurePosixPath(generated_status_path)
+            if (
+                relative_status_path.is_absolute()
+                or ".." in relative_status_path.parts
+                or relative_status_path.as_posix() != generated_status_path
+                or relative_status_path.suffix != ".md"
+            ):
+                raise ProgramGovernanceError(["generated_status_path must be a safe Markdown path"])
+            status_parent = repository_root.joinpath(*relative_status_path.parts).parent
+            try:
+                status_parent.resolve(strict=True).relative_to(repository_root)
+            except (FileNotFoundError, ValueError) as error:
+                raise ProgramGovernanceError(
+                    ["generated_status_path parent must exist inside the repository"]
+                ) from error
+        return local_evidence_manifest_path, local_evidence_commit_sha, generated_status_path
+
+    def _build_program(
+        self,
+        program_document: dict[str, object],
+        *,
+        path: Path,
+        schema_version: int,
+        gate_ids: tuple[str, ...],
+        roadmap_path: str,
+        packages: tuple[PackageNode, ...],
+        package_states: tuple[PackageState, ...],
+        metrics: tuple[MetricDefinition, ...],
+        finding_ids: tuple[str, ...],
+        finding_dispositions: tuple[FindingDispositionGroup, ...],
+        local_evidence_manifest_path: str,
+        local_evidence_commit_sha: str,
+        generated_status_path: str | None,
+    ) -> ProgramGovernance:
+        """Construct the immutable program and enforce completion dependencies.
+
+        Args:
+            program_document: Parsed scalar fields from the TOML document.
+            path: Program path used for date diagnostics.
+            schema_version: Validated schema version.
+            gate_ids: Validated ordered gate IDs.
+            roadmap_path: Repository-relative roadmap path.
+            packages: Validated roadmap package graph.
+            package_states: Validated package states.
+            metrics: Validated KPI definitions.
+            finding_ids: Validated open finding IDs.
+            finding_dispositions: Ordered schema-4 finding mappings.
+            local_evidence_manifest_path: Validated manifest path.
+            local_evidence_commit_sha: Validated evidence commit digest.
+            generated_status_path: Optional validated schema-4 status path.
+
+        Returns:
+            An immutable ``ProgramGovernance`` record.
+
+        Raises:
+            ProgramGovernanceError: If model construction or technical dependency readiness
+                fails. The caller translates Pydantic model failures with their cause chained.
+            ValidationError: If the Pydantic boundary model rejects the assembled record.
+        """
+        program = ProgramGovernance(
+            schema_version=cast(int, program_document["schema_version"]),
+            roadmap_package=cast(str, program_document["roadmap_package"]),
+            operating_track=cast(str, program_document["operating_track"]),
+            package_status=cast(str, program_document["package_status"]),
+            accountable_owner_role=cast(str, program_document["accountable_owner_role"]),
+            risk_class=cast(str, program_document["risk_class"]),
+            applicable_gate_ids=gate_ids,
+            as_of_date=_parse_iso_date(
+                _require_string(program_document, "as_of_date", context=str(path)),
+                context="as_of_date",
+            ),
+            roadmap_path=roadmap_path,
+            observation_schema_version=cast(int, program_document["observation_schema_version"]),
+            maximum_observations=_require_positive_integer(
+                program_document, "maximum_observations", context=str(path)
+            ),
+            aggregation_workload_budget_ms=_require_positive_integer(
+                program_document, "aggregation_workload_budget_ms", context=str(path)
+            ),
+            local_evidence_manifest_path=local_evidence_manifest_path,
+            local_evidence_commit_sha=local_evidence_commit_sha,
+            generated_status_path=generated_status_path,
+            packages=packages,
+            package_states=package_states,
+            metrics=metrics,
+            finding_ids=finding_ids,
+            finding_dispositions=finding_dispositions,
+        )
+        if schema_version >= 2:
+            for package in packages:
+                state = program.state_for(package.package_id)
+                if state is not None and state.implementation_status == "complete":
+                    if not program._dependencies_ready(package, institutional=False):
+                        raise ProgramGovernanceError(
+                            [
+                                f"{package.package_id}: completion requires "
+                                "complete technical dependencies"
+                            ]
+                        )
+        return program
+
+    def load_observations(
+        self,
+        path: Path,
+        *,
+        program: ProgramGovernance,
+    ) -> tuple[MetricObservation, ...]:
+        """Read observations through a dedicated reader bound to the supplied program.
+
+        Apply the retry, window, and first-seen ordering contracts of ``ObservationReader.read``.
+        This operation uses the supplied program and file path; it does not resolve either
+        against the repository context or reload the program policy.
+
+        Args:
+            path: UTF-8 JSONL observation file; relative paths are process-relative.
+            program: Immutable program contract used for metric validation.
+
+        Returns:
+            Unique observations in first-seen order.
+
+        Raises:
+            ProgramGovernanceError: If the 10,000,000-byte limit, JSON structure, duplicate
+                event identity, metric contract, provenance, UTC ``Z`` windows, dimensions,
+                ratio bounds, evidence URL, unique-event limit, or overlap checks fail.
+            OSError: If file inspection or reading fails.
+            UnicodeDecodeError: If the JSONL file is not UTF-8.
+            ValueError: If a JSON integer exceeds the interpreter's conversion limit.
+            RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+            OverflowError: If a numeric observation is too large for ``float`` conversion.
+            ValidationError: If a model rejects parsed input; the public wrapper translates
+                this error with its cause chained.
+        """
+        return ObservationReader(program).read(path)
+
+    def validate_repository(self) -> ProgramGovernance:
+        """Validate the authoritative program, local evidence, and generated status.
+
+        Resolve the bound root, load the authoritative program, validate its A08 local
+        evidence bundle, and validate the configured generated status document when schema
+        4 supplies one. Each invocation resolves and checks all state independently.
+
+        Returns:
+            The immutable program record after every repository check passes.
+
+        Raises:
+            ProgramGovernanceError: If program loading, local evidence, or generated-status
+                validation fails. Local evidence and translated status I/O failures preserve
+                their causes according to their existing boundary contracts.
+            OSError: If root, program, roadmap, ownership, or legacy-evidence reads fail
+                before an existing translation boundary.
+            UnicodeDecodeError: If an authoritative or generated-status read is not UTF-8.
+            RuntimeError: If strict path resolution encounters a symlink loop.
+            OverflowError: If a metric integer is too large for ``float`` conversion.
+        """
+        resolved_repository_root = self._repository_root.resolve()
+        program = self.load_program(
+            resolved_repository_root / "docs" / "governance" / "program-governance.toml"
+        )
+        _validate_local_evidence(resolved_repository_root, program)
+        if program.generated_status_path is not None:
+            # project library imports
+            from alpha_research_governance.program_governance.status import (
+                validate_status_document,
+            )
+
+            validate_status_document(
+                resolved_repository_root / program.generated_status_path,
+                program,
+            )
+        return program
+
+
 def _load_program(
     path: Path,
     *,
     repository_root: Path,
     ownership_register_path: Path | None = None,
 ) -> ProgramGovernance:
-    """Load program governance and validate its roadmap, owners, and evidence paths."""
-    resolved_repository_root = repository_root.resolve()
-    program_document = _load_toml(path)
-    schema_version = program_document.get("schema_version")
-    if type(schema_version) is not int or schema_version not in {1, 2, 3, 4}:
-        raise ProgramGovernanceError([f"{path}: schema_version must be 1, 2, 3, or 4"])
-    expected_root_keys = _ROOT_KEYS_V4 if schema_version >= 4 else _ROOT_KEYS
-    if set(program_document) != expected_root_keys:
-        raise ProgramGovernanceError(
-            [f"{path}: fields must be exactly {sorted(expected_root_keys)!r}"]
-        )
-    expected_scalars: dict[str, object] = {
-        "roadmap_package": "A08",
-        "operating_track": "solo_bootstrap",
-        "package_status": "partial",
-        "accountable_owner_role": "platform",
-        "risk_class": "R2",
-        "observation_schema_version": 1,
-    }
-    for key, expected in expected_scalars.items():
-        if program_document.get(key) != expected:
-            raise ProgramGovernanceError([f"{path}: {key} must be {expected!r}"])
-    gate_ids = _require_strings(
-        program_document.get("applicable_gate_ids"), context="applicable_gate_ids"
-    )
-    if gate_ids != APPLICABLE_GATE_IDS:
-        raise ProgramGovernanceError([f"{path}: applicable gates must be {APPLICABLE_GATE_IDS!r}"])
-    roadmap_path = _require_string(program_document, "roadmap_path", context=str(path))
-    roadmap_file = _require_repository_file(
-        roadmap_path,
-        repository_root=resolved_repository_root,
-        context="roadmap_path",
-    )
-    packages = load_roadmap(roadmap_file)
-    ownership_path = (
-        resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
-        if ownership_register_path is None
-        else ownership_register_path
-    )
-    ownership_roles = _ownership_roles(ownership_path)
-    operating_model = load_operating_model(ownership_path) if schema_version >= 2 else None
-    package_states = _parse_package_states(
-        program_document.get("package_states"),
-        repository_root=resolved_repository_root,
-        ownership_roles=ownership_roles,
-        schema_version=schema_version,
-        operating_model=operating_model,
-    )
-    finding_dispositions = (
-        ()
-        if schema_version < 4
-        else _parse_finding_dispositions(
-            program_document.get("finding_dispositions"),
-            package_states=package_states,
-        )
-    )
-    metrics = tuple(
-        _parse_metric(entry, index=index, ownership_roles=ownership_roles)
-        for index, entry in enumerate(
-            _require_table_list(program_document.get("metrics"), context="metrics"), 1
-        )
-    )
-    if tuple(metric.metric_id for metric in metrics) != METRIC_IDS:
-        raise ProgramGovernanceError(["metrics must declare the seven blueprint KPIs in order"])
-    if len({metric.source_event_type for metric in metrics}) != len(metrics):
-        raise ProgramGovernanceError(["each KPI must use a distinct source event type"])
-    finding_ids = _parse_findings(program_document.get("findings"))
-    declared_findings = _require_strings(
-        program_document.get("open_finding_ids"), context="open_finding_ids"
-    )
-    if finding_ids != _PROGRAM_GOVERNANCE_OPEN_FINDING_IDS or declared_findings != finding_ids:
-        raise ProgramGovernanceError(["A08 partial status requires the exact open findings"])
-    local_evidence_manifest_path = _require_string(
-        program_document, "local_evidence_manifest_path", context=str(path)
-    )
-    _require_repository_file(
-        local_evidence_manifest_path,
-        repository_root=resolved_repository_root,
-        context="local_evidence_manifest_path",
-    )
-    local_evidence_commit_sha = _require_string(
-        program_document, "local_evidence_commit_sha", context=str(path)
-    )
-    if _REVISION.fullmatch(local_evidence_commit_sha) is None:
-        raise ProgramGovernanceError(["local_evidence_commit_sha must be a full digest"])
-    generated_status_path = (
-        None
-        if schema_version < 4
-        else _require_string(program_document, "generated_status_path", context=str(path))
-    )
-    if generated_status_path is not None:
-        relative_status_path = PurePosixPath(generated_status_path)
-        if (
-            relative_status_path.is_absolute()
-            or ".." in relative_status_path.parts
-            or relative_status_path.as_posix() != generated_status_path
-            or relative_status_path.suffix != ".md"
-        ):
-            raise ProgramGovernanceError(["generated_status_path must be a safe Markdown path"])
-        status_parent = resolved_repository_root.joinpath(*relative_status_path.parts).parent
-        try:
-            status_parent.resolve(strict=True).relative_to(resolved_repository_root)
-        except (FileNotFoundError, ValueError) as error:
-            raise ProgramGovernanceError(
-                ["generated_status_path parent must exist inside the repository"]
-            ) from error
-    program = ProgramGovernance(
-        schema_version=cast(int, program_document["schema_version"]),
-        roadmap_package=cast(str, program_document["roadmap_package"]),
-        operating_track=cast(str, program_document["operating_track"]),
-        package_status=cast(str, program_document["package_status"]),
-        accountable_owner_role=cast(str, program_document["accountable_owner_role"]),
-        risk_class=cast(str, program_document["risk_class"]),
-        applicable_gate_ids=gate_ids,
-        as_of_date=_parse_iso_date(
-            _require_string(program_document, "as_of_date", context=str(path)),
-            context="as_of_date",
-        ),
-        roadmap_path=roadmap_path,
-        observation_schema_version=cast(int, program_document["observation_schema_version"]),
-        maximum_observations=_require_positive_integer(
-            program_document, "maximum_observations", context=str(path)
-        ),
-        aggregation_workload_budget_ms=_require_positive_integer(
-            program_document, "aggregation_workload_budget_ms", context=str(path)
-        ),
-        local_evidence_manifest_path=local_evidence_manifest_path,
-        local_evidence_commit_sha=local_evidence_commit_sha,
-        generated_status_path=generated_status_path,
-        packages=packages,
-        package_states=package_states,
-        metrics=metrics,
-        finding_ids=finding_ids,
-        finding_dispositions=finding_dispositions,
-    )
-    if schema_version >= 2:
-        for package in packages:
-            state = program.state_for(package.package_id)
-            if state is not None and state.implementation_status == "complete":
-                if not program._dependencies_ready(package, institutional=False):
-                    raise ProgramGovernanceError(
-                        [
-                            f"{package.package_id}: completion requires "
-                            "complete technical dependencies"
-                        ]
-                    )
-    return program
+    """Delegate program loading through the compatibility failure-injection seam.
+
+    Args:
+        path: UTF-8 program-governance TOML file.
+        repository_root: Repository root for relative paths.
+        ownership_register_path: Optional ownership-register override.
+
+    Returns:
+        The validated immutable program record.
+
+    Raises:
+        ProgramGovernanceError: If loading or validation fails.
+    """
+    return ProgramRepository(repository_root, ownership_register_path).load_program(path)
 
 
 def load_program(
@@ -1547,38 +1988,116 @@ def load_program(
         raise ProgramGovernanceError([f"{path}: program model validation failed"]) from error
 
 
-def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
-    """Load strict JSONL events and deduplicate identical retries by event ID."""
-    if path.stat().st_size > _MAX_OBSERVATION_FILE_BYTES:
-        raise ProgramGovernanceError(["observation input exceeds the governed byte limit"])
-    metrics_by_id = {metric.metric_id: metric for metric in program.metrics}
-    event_documents_by_id: dict[str, dict[str, object]] = {}
-    observations: list[MetricObservation] = []
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        context = f"{path}:{line_number}"
-        event_document = _load_json_line(line, context=context)
-        metric_id = _require_string(event_document, "metric_id", context=context)
-        if metric_id not in metrics_by_id:
-            raise ProgramGovernanceError([f"{context}: unsupported metric {metric_id!r}"])
-        metric = metrics_by_id[metric_id]
-        expected_keys = set(_OBSERVATION_COMMON_KEYS)
-        if metric.value_kind == "ratio":
-            expected_keys.update({"denominator", "denominator_unit", "numerator", "numerator_unit"})
-        if set(event_document) != expected_keys:
-            raise ProgramGovernanceError([f"{context}: observation has missing or unknown fields"])
-        if event_document.get("schema_version") != program.observation_schema_version:
-            raise ProgramGovernanceError([f"{context}: unsupported observation schema version"])
-        event_id = _require_string(event_document, "event_id", context=context)
-        if _EVENT_ID.fullmatch(event_id) is None:
-            raise ProgramGovernanceError([f"{context}.event_id is malformed"])
-        previous_event_document = event_documents_by_id.get(event_id)
-        if previous_event_document is not None:
-            if previous_event_document != event_document:
-                raise ProgramGovernanceError([f"{context}: conflicting duplicate event {event_id}"])
-            continue
-        event_documents_by_id[event_id] = event_document
+class ObservationReader:
+    """Read and validate bounded JSONL metric observations for one program contract.
+
+    Construction performs no I/O and retains only the immutable program contract. Each
+    ``read`` operation parses one file into local collections, deduplicates identical
+    retries, and returns observations in first-seen order.
+    """
+
+    def __init__(self, program: ProgramGovernance) -> None:
+        """Bind the immutable program contract used for observation validation.
+
+        Args:
+            program: Validated metric definitions, observation schema version, and
+                maximum-observation limit.
+        """
+        self._program = program
+
+    def read(self, path: Path) -> tuple[MetricObservation, ...]:
+        """Read one bounded JSONL file using the bound immutable program contract.
+
+        Check the file size before reading, ignore blank lines, reject duplicate JSON keys,
+        validate metric-specific fields and UTC ``Z`` timestamps, require positive windows, and
+        deduplicate retries only when their parsed event dictionaries are equal. Ratio windows
+        may last at most the configured metric window; overlap checks apply only to the same
+        metric and dimensions, and touching endpoints are allowed. The overlap check sorts a
+        separate sequence, while the returned tuple preserves first-seen order of unique events.
+        The file and bound program are never modified.
+
+        Args:
+            path: UTF-8 JSONL observation file. Its size is checked before reading.
+
+        Returns:
+            Unique observations in first-seen input order.
+
+        Raises:
+            ProgramGovernanceError: If JSON structure, metric fields, provenance,
+                timestamps, dimensions, limits, overlap, or evidence rules fail.
+            ValidationError: If an observation model rejects parsed values; the public
+                ``load_observations`` wrapper translates this error.
+            OSError: If the file cannot be inspected or read.
+            UnicodeDecodeError: If the file is not valid UTF-8.
+            ValueError: If JSON integer conversion exceeds the interpreter limit.
+            RecursionError: If JSON nesting exceeds the decoder limit.
+            OverflowError: If a numeric value cannot be converted to ``float``.
+        """
+        if path.stat().st_size > _MAX_OBSERVATION_FILE_BYTES:
+            raise ProgramGovernanceError(["observation input exceeds the governed byte limit"])
+        metrics_by_id = {metric.metric_id: metric for metric in self._program.metrics}
+        event_documents_by_id: dict[str, dict[str, object]] = {}
+        observations: list[MetricObservation] = []
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            context = f"{path}:{line_number}"
+            event_document = _load_json_line(line, context=context)
+            metric_id = _require_string(event_document, "metric_id", context=context)
+            if metric_id not in metrics_by_id:
+                raise ProgramGovernanceError([f"{context}: unsupported metric {metric_id!r}"])
+            metric = metrics_by_id[metric_id]
+            expected_keys = set(_OBSERVATION_COMMON_KEYS)
+            if metric.value_kind == "ratio":
+                expected_keys.update(
+                    {"denominator", "denominator_unit", "numerator", "numerator_unit"}
+                )
+            if set(event_document) != expected_keys:
+                raise ProgramGovernanceError(
+                    [f"{context}: observation has missing or unknown fields"]
+                )
+            if event_document.get("schema_version") != self._program.observation_schema_version:
+                raise ProgramGovernanceError([f"{context}: unsupported observation schema version"])
+            event_id = _require_string(event_document, "event_id", context=context)
+            if _EVENT_ID.fullmatch(event_id) is None:
+                raise ProgramGovernanceError([f"{context}.event_id is malformed"])
+            previous_event_document = event_documents_by_id.get(event_id)
+            if previous_event_document is not None:
+                if previous_event_document != event_document:
+                    raise ProgramGovernanceError(
+                        [f"{context}: conflicting duplicate event {event_id}"]
+                    )
+                continue
+            event_documents_by_id[event_id] = event_document
+            observations.append(self._parse_event(event_document, context=context, metric=metric))
+            if len(observations) > self._program.maximum_observations:
+                raise ProgramGovernanceError(["observation input exceeds the governed maximum"])
+        self._validate_non_overlapping(path, observations, metrics_by_id)
+        return tuple(observations)
+
+    def _parse_event(
+        self,
+        event_document: dict[str, object],
+        *,
+        context: str,
+        metric: MetricDefinition,
+    ) -> MetricObservation:
+        """Validate one event against its metric and build an immutable observation.
+
+        Args:
+            event_document: Parsed JSON object with duplicate keys already rejected.
+            context: File and line location used in findings.
+            metric: Metric definition selected by the event's metric ID.
+
+        Returns:
+            The validated immutable observation.
+
+        Raises:
+            ProgramGovernanceError: If provenance, timestamps, dimensions, units,
+                ratio bounds, or evidence URL validation fails.
+            ValidationError: If the observation model rejects the validated values.
+            OverflowError: If a numeric value is too large to convert to ``float``.
+        """
         source_event_type = _require_string(event_document, "source_event_type", context=context)
         if source_event_type != metric.source_event_type:
             raise ProgramGovernanceError([f"{context}: source event type does not match KPI"])
@@ -1637,42 +2156,93 @@ def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metri
         source_run_id = _require_string(event_document, "source_run_id", context=context)
         if _EVENT_ID.fullmatch(source_run_id) is None:
             raise ProgramGovernanceError([f"{context}.source_run_id is malformed"])
-        observations.append(
-            MetricObservation(
-                event_id=event_id,
-                metric_id=metric_id,
-                source_event_type=source_event_type,
-                source_run_id=source_run_id,
-                source_revision=source_revision,
-                evidence_url=_require_https_url(
-                    _require_string(event_document, "evidence_url", context=context),
-                    context=f"{context}.evidence_url",
-                ),
-                window_start=window_start,
-                window_end=window_end,
-                dimensions=tuple(sorted(cast(dict[str, str], dimensions_table).items())),
-                numerator=numerator,
-                denominator=denominator,
-            )
+        event_id = _require_string(event_document, "event_id", context=context)
+        return MetricObservation(
+            event_id=event_id,
+            metric_id=metric.metric_id,
+            source_event_type=source_event_type,
+            source_run_id=source_run_id,
+            source_revision=source_revision,
+            evidence_url=_require_https_url(
+                _require_string(event_document, "evidence_url", context=context),
+                context=f"{context}.evidence_url",
+            ),
+            window_start=window_start,
+            window_end=window_end,
+            dimensions=tuple(sorted(cast(dict[str, str], dimensions_table).items())),
+            numerator=numerator,
+            denominator=denominator,
         )
-        if len(observations) > program.maximum_observations:
-            raise ProgramGovernanceError(["observation input exceeds the governed maximum"])
-    previous_end: dict[tuple[str, tuple[tuple[str, str], ...]], datetime] = {}
-    for observation in sorted(
-        observations,
-        key=lambda item: (item.metric_id, item.dimensions, item.window_start, item.event_id),
-    ):
-        metric = metrics_by_id[observation.metric_id]
-        if metric.value_kind != "ratio":
-            continue
-        observation_key = (observation.metric_id, observation.dimensions)
-        previous_window_end = previous_end.get(observation_key)
-        if previous_window_end is not None and observation.window_start < previous_window_end:
-            raise ProgramGovernanceError(
-                [f"{path}: overlapping ratio observations would double count evidence"]
-            )
-        previous_end[observation_key] = observation.window_end
-    return tuple(observations)
+
+    def _validate_non_overlapping(
+        self,
+        path: Path,
+        observations: list[MetricObservation],
+        metrics_by_id: dict[str, MetricDefinition],
+    ) -> None:
+        """Reject overlapping ratio windows while retaining input order.
+
+        Args:
+            path: Observation file used in the overlap finding.
+            observations: Unique observations in first-seen order.
+            metrics_by_id: Metric definitions keyed by metric ID.
+
+        Raises:
+            ProgramGovernanceError: If ratio observations with matching metric and
+                dimensions overlap.
+        """
+        previous_end: dict[tuple[str, tuple[tuple[str, str], ...]], datetime] = {}
+        for observation in sorted(observations, key=self._observation_sort_key):
+            metric = metrics_by_id[observation.metric_id]
+            if metric.value_kind != "ratio":
+                continue
+            observation_key = (observation.metric_id, observation.dimensions)
+            previous_window_end = previous_end.get(observation_key)
+            if previous_window_end is not None and observation.window_start < previous_window_end:
+                raise ProgramGovernanceError(
+                    [f"{path}: overlapping ratio observations would double count evidence"]
+                )
+            previous_end[observation_key] = observation.window_end
+
+    def _observation_sort_key(
+        self,
+        observation: MetricObservation,
+    ) -> tuple[str, tuple[tuple[str, str], ...], datetime, str]:
+        """Return the deterministic key used for overlap checks.
+
+        Args:
+            observation: Immutable observation whose metric, dimensions, window start,
+                and event identity determine validation order.
+
+        Returns:
+            A stable ordering key that leaves the caller's observation sequence unchanged.
+        """
+        return (
+            observation.metric_id,
+            observation.dimensions,
+            observation.window_start,
+            observation.event_id,
+        )
+
+
+def _load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
+    """Delegate observation loading through the compatibility reader seam.
+
+    Args:
+        path: UTF-8 JSONL observation file to read.
+        program: Immutable program record supplying observation contracts.
+
+    Returns:
+        Unique observations in first-seen input order.
+
+    Raises:
+        ProgramGovernanceError: If observation validation fails.
+        ValidationError: If an observation model rejects parsed input; the public
+            wrapper translates this error.
+        OSError: If the file cannot be inspected or read.
+        UnicodeDecodeError: If the file is not valid UTF-8.
+    """
+    return ObservationReader(program).read(path)
 
 
 def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[MetricObservation, ...]:
@@ -1789,20 +2359,4 @@ def validate_repository(repository_root: Path) -> ProgramGovernance:
         OverflowError: If a metric integer is too large to convert to ``float``
             while loading the program.
     """
-    resolved_repository_root = repository_root.resolve()
-    program = load_program(
-        resolved_repository_root / "docs" / "governance" / "program-governance.toml",
-        repository_root=resolved_repository_root,
-    )
-    _validate_local_evidence(resolved_repository_root, program)
-    if program.generated_status_path is not None:
-        # project library imports
-        from alpha_research_governance.program_governance.status import (
-            validate_status_document,
-        )
-
-        validate_status_document(
-            resolved_repository_root / program.generated_status_path,
-            program,
-        )
-    return program
+    return ProgramRepository(repository_root).validate_repository()

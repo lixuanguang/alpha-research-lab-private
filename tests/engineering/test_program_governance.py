@@ -1,4 +1,8 @@
-"""Deterministic and adversarial tests for program governance."""
+"""Exercise program-governance loaders, validators, renderers, and CLI behavior.
+
+Arrange valid and mutated repository artifacts, then assert deterministic results
+together with explicit rejection messages.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +21,11 @@ from alpha_research.program_governance import (
     METRIC_IDS,
     ROADMAP_PACKAGE_IDS,
     MetricObservation,
+    ObservationReader,
     ProgramGovernanceError,
+    ProgramRepository,
+    ProgramStatusRenderer,
+    RoadmapParser,
     load_observations,
     load_program,
     load_roadmap,
@@ -31,6 +39,167 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "program-governance.toml"
 ROADMAP_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "README.md"
 RESEARCH_PROGRAM_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "research-program.md"
+
+
+class TestProgramServices:
+    """Exercise service recovery after failed policy, roadmap, and observation reads.
+
+    Assert that corrected inputs can be read again and produce the same valid
+    results after each service has rejected an invalid input.
+    """
+
+    def test_repository_reloads_policy_and_explicit_ownership(self, tmp_path: Path) -> None:
+        """Reload policy and a newly created ownership register after service failures.
+
+        Arrange a temporary policy and initially missing ownership register, then
+        create the register from the committed ownership document and mutate the
+        policy between repository calls. Assert that the missing register raises
+        ``FileNotFoundError``, the invalid risk class raises
+        ``ProgramGovernanceError``, and the restored policy returns the same
+        program through loading and validation.
+
+        Args:
+            tmp_path: Pytest directory where the temporary policy and ownership
+                register are created.
+        """
+        path = _policy_fixture(tmp_path)
+        ownership = tmp_path / "ownership.toml"
+        repository = ProgramRepository(REPOSITORY_ROOT, ownership_register_path=ownership)
+        with pytest.raises(FileNotFoundError):
+            repository.load_program(path)
+        ownership.write_text(
+            (REPOSITORY_ROOT / "docs/governance/domain-ownership.toml").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        expected = repository.load_program(path)
+        original = path.read_text(encoding="utf-8")
+        path.write_text(original.replace('risk_class = "R2"', 'risk_class = "R0"', 1))
+        with pytest.raises(ProgramGovernanceError, match="risk_class must be"):
+            repository.load_program(path)
+        path.write_text(original, encoding="utf-8")
+        assert repository.load_program(path) == expected
+        assert repository.validate_repository() == expected
+
+    def test_roadmap_parser_recovers_after_cycle_and_rereads_input(self, tmp_path: Path) -> None:
+        """Reread a valid roadmap after rejecting a self-dependent mutation.
+
+        Arrange a copied roadmap, mutate one dependency row into a self-cycle,
+        and restore the original text after the rejection. Assert that repeated
+        parses return the original parsed roadmap.
+
+        Args:
+            tmp_path: Pytest directory where the temporary roadmap is created.
+        """
+        path = _roadmap_fixture(tmp_path)
+        parser = RoadmapParser()
+        expected = parser.parse(path)
+        original = path.read_text(encoding="utf-8")
+        lines = original.splitlines()
+        row = next(line for line in lines if line.startswith("| A01 |"))
+        parts = row.split("|")
+        parts[-2] = " A01 "
+        path.write_text(original.replace(row, "|".join(parts), 1), encoding="utf-8")
+        with pytest.raises(ProgramGovernanceError, match="cannot depend on itself"):
+            parser.parse(path)
+        path.write_text(original, encoding="utf-8")
+        assert parser.parse(path) == expected
+        assert parser.parse(path) == expected
+
+    def test_observation_reader_discards_retry_and_overlap_state(self, tmp_path: Path) -> None:
+        """Read corrected observation files after duplicate and overlap failures.
+
+        Arrange duplicate, conflicting, and overlapping ratio events in one
+        temporary JSONL file. Assert that identical retries collapse to one
+        observation, conflicting duplicates and overlapping ratios raise
+        ``ProgramGovernanceError``, and later valid or blank-only files return the
+        expected results.
+
+        Args:
+            tmp_path: Pytest directory where observation JSONL files are written.
+        """
+        program = load_program(POLICY_PATH, repository_root=REPOSITORY_ROOT)
+        metric = next(item for item in program.metrics if item.value_kind == "ratio")
+        reader = ObservationReader(program)
+        event = _metric_observation_event(metric.metric_id, event_id="retry-event")
+        path = _write_observation_events(tmp_path, [event, event])
+        expected = reader.read(path)
+        assert len(expected) == 1
+        conflicting = dict(event)
+        conflicting["evidence_url"] = "https://forge.example/another-run"
+        _write_observation_events(tmp_path, [event, conflicting])
+        with pytest.raises(ProgramGovernanceError, match="conflicting duplicate"):
+            reader.read(path)
+        overlapping = dict(event)
+        overlapping["event_id"] = "overlapping-event"
+        _write_observation_events(tmp_path, [event, overlapping])
+        with pytest.raises(ProgramGovernanceError, match="overlapping ratio"):
+            reader.read(path)
+        _write_observation_events(tmp_path, [event])
+        assert reader.read(path) == expected
+        assert (
+            ProgramRepository(REPOSITORY_ROOT).load_observations(path, program=program) == expected
+        )
+        path.write_text("\n", encoding="utf-8")
+        assert reader.read(path) == ()
+
+
+class TestProgramStatusRenderer:
+    """Exercise status rendering and validation across invalid and valid files.
+
+    Assert that failures remain explicit and later valid validations still accept
+    the expected generated status text.
+    """
+
+    def test_validation_recovers_after_missing_stale_and_invalid_utf8(self, tmp_path: Path) -> None:
+        """Validate a corrected status file after missing, stale, and decoding failures.
+
+        Exercise a missing path, an extra trailing newline, invalid UTF-8, and
+        CRLF line endings for one status document. Assert that a missing-file
+        ``ProgramGovernanceError`` preserves ``FileNotFoundError`` as its cause,
+        stale text raises ``ProgramGovernanceError``, invalid UTF-8 propagates
+        ``UnicodeDecodeError``, and normalized CRLF text validates repeatedly.
+
+        Args:
+            tmp_path: Pytest directory where temporary status files are written.
+        """
+        program = load_program(POLICY_PATH, repository_root=REPOSITORY_ROOT)
+        renderer = ProgramStatusRenderer(program)
+        expected = (REPOSITORY_ROOT / "docs/governance/program-status.md").read_text(
+            encoding="utf-8"
+        )
+        status_path = tmp_path / "status.md"
+        assert renderer.render() == expected
+        with pytest.raises(ProgramGovernanceError, match="cannot read generated") as captured:
+            renderer.validate(status_path)
+        assert isinstance(captured.value.__cause__, FileNotFoundError)
+        status_path.write_text(expected + "\n", encoding="utf-8")
+        with pytest.raises(ProgramGovernanceError, match="status is stale"):
+            renderer.validate(status_path)
+        status_path.write_bytes(b"\xff")
+        with pytest.raises(UnicodeDecodeError):
+            renderer.validate(status_path)
+        status_path.write_bytes(expected.replace("\n", "\r\n").encode("utf-8"))
+        renderer.validate(status_path)
+        renderer.validate(status_path)
+        assert renderer.render() == expected
+
+    def test_construction_defers_missing_status_contract_until_render(self) -> None:
+        """Defer rejection of a missing status path until rendering.
+
+        Arrange a program with its generated status path removed, construct the
+        renderer, and render it twice. Assert that each render reports the same
+        missing-path finding.
+        """
+        program = load_program(POLICY_PATH, repository_root=REPOSITORY_ROOT)
+        updates: dict[str, None] = {"generated_status_path": None}
+        legacy = program.model_copy(update=updates)
+        renderer = ProgramStatusRenderer(legacy)
+        for _ in range(2):
+            with pytest.raises(ProgramGovernanceError) as captured:
+                renderer.render()
+            assert captured.value.findings == (
+                "program schema does not define a generated status path",
+            )
 
 
 def _policy_fixture(tmp_path: Path) -> Path:
@@ -226,7 +395,12 @@ def _write_observation_events(tmp_path: Path, events: list[dict[str, object]]) -
 
 
 def test_repository_program_is_complete_partial_and_non_vanity() -> None:
-    """Verify the repository program graph, states, findings, and KPI controls."""
+    """Validate the committed program graph, package states, findings, and KPI controls.
+
+    Arrange the repository configuration, then assert its package and metric
+    registries, partial status, finding dispositions, implementation and governance
+    states, and non-vanity collection controls match the governed program.
+    """
     program = validate_repository(REPOSITORY_ROOT)
 
     assert tuple(package.package_id for package in program.packages) == ROADMAP_PACKAGE_IDS
@@ -328,7 +502,14 @@ def test_repository_program_is_complete_partial_and_non_vanity() -> None:
 
 @pytest.mark.performance
 def test_program_aggregation_workload_stays_within_governed_budget() -> None:
-    """Verify maximum metric aggregation stays within the configured millisecond budget."""
+    """Measure maximum-observation aggregation against its configured time budget.
+
+    Arrange the maximum number of duration observations and start timing only
+    immediately before ``summarize_metrics``. Assert the summary count equals
+    the configured maximum and elapsed aggregation milliseconds stay within the
+    policy budget; the performance marker keeps this workload out of default
+    test runs.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     metric = next(
         item for item in program.metrics if item.metric_id == "kpi.build_duration_seconds"
@@ -366,7 +547,14 @@ def test_program_aggregation_workload_stays_within_governed_budget() -> None:
 
 
 def test_program_dates_require_extended_calendar_format(tmp_path: Path) -> None:
-    """Reject a program policy whose as-of date is not extended YYYY-MM-DD format."""
+    """Reject a policy whose as-of date omits the extended calendar separators.
+
+    Arrange a copied policy with a compact date, then assert that loading it
+    raises a governance error identifying the required ``YYYY-MM-DD`` format.
+
+    Args:
+        tmp_path: Pytest directory where the mutated policy is created.
+    """
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         path,
@@ -379,7 +567,12 @@ def test_program_dates_require_extended_calendar_format(tmp_path: Path) -> None:
 
 
 def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> None:
-    """Verify dependency ranges, purposes, and solo versus institutional readiness."""
+    """Derive dependency ranges, purposes, and solo versus institutional readiness.
+
+    Arrange the committed repository program and assert representative wave
+    ranges, conditional dependencies, dependency purposes, and readiness queues
+    expose the configured technical and operational relationships.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     packages_by_id = {package.package_id: package for package in program.packages}
 
@@ -407,7 +600,15 @@ def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> No
 
 
 def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: Path) -> None:
-    """Reject roadmap cycles, shorthand dependencies, missing packages, and malformed rows."""
+    """Reject roadmap cycles, shorthand dependencies, missing packages, and malformed rows.
+
+    Arrange separate roadmap copies for each mutation, then assert that each
+    invalid row raises a governance error containing the corresponding failure
+    description.
+
+    Args:
+        tmp_path: Pytest directory where mutated roadmap copies are created.
+    """
     cyclic = _roadmap_fixture(tmp_path)
     _replace_program_fixture_text(
         cyclic,
@@ -463,7 +664,15 @@ def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: P
 def test_roadmap_parses_team_handover_purpose_without_changing_technical_readiness(
     tmp_path: Path,
 ) -> None:
-    """Preserve technical dependencies while parsing a separate team-handover purpose."""
+    """Parse a team-handover dependency beside the technical dependency.
+
+    Arrange a C02 roadmap row with an added A03 handover purpose, then assert the
+    parsed package keeps C01 as its technical dependency and records A03 only in
+    the team-handover dependency field.
+
+    Args:
+        tmp_path: Pytest directory where the mutated roadmap is created.
+    """
     path = _roadmap_fixture(tmp_path)
     _replace_program_fixture_text(
         path,
@@ -481,7 +690,12 @@ def test_roadmap_parses_team_handover_purpose_without_changing_technical_readine
 
 
 def test_research_entry_rules_separate_technical_progress_from_operations_and_review() -> None:
-    """Verify research-entry prose separates technical completion from operations and review."""
+    """Check that research-entry prose names technical, operational, and review boundaries.
+
+    Arrange the committed research-program document and assert it contains the
+    required phrases for technical completion, institutional validation, pending
+    handover, and final out-of-sample access.
+    """
     text = RESEARCH_PROGRAM_PATH.read_text(encoding="utf-8")
 
     assert "must have complete implementation and no technical finding" in text
@@ -493,7 +707,15 @@ def test_research_entry_rules_separate_technical_progress_from_operations_and_re
 def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
     tmp_path: Path,
 ) -> None:
-    """Reject failed local evidence, validated status, manual KPIs, and gate substitutes."""
+    """Reject policies with failed evidence, overclaimed status, manual KPIs, or gate substitutes.
+
+    Arrange four independent policy mutations and assert that loading each one
+    raises the matching governance error for local evidence, package status,
+    manual entry, or hard-gate substitution.
+
+    Args:
+        tmp_path: Pytest directory where mutated policy copies are created.
+    """
     local_gap = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         local_gap, 'repository_local_status = "passed"', 'repository_local_status = "failed"'
@@ -528,7 +750,15 @@ def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
 def test_program_policy_rejects_unapproved_target_claim_and_parallel_contracts(
     tmp_path: Path,
 ) -> None:
-    """Reject missing target evidence, multiple contracts, and invalid deferred-evidence classes."""
+    """Reject unsupported target claims, parallel contracts, and deferred-evidence classes.
+
+    Arrange independent mutations for an unsupported approved target, multiple
+    capability contracts, and an invalid deferred-evidence class. Assert that
+    each policy load raises the corresponding governance error.
+
+    Args:
+        tmp_path: Pytest directory where mutated policy copies are created.
+    """
     target = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         target, 'target_status = "pending_owner_approval"', 'target_status = "approved"'
@@ -553,7 +783,14 @@ def test_program_policy_rejects_unapproved_target_claim_and_parallel_contracts(
 
 
 def test_program_policy_rejects_an_unmapped_active_historical_finding(tmp_path: Path) -> None:
-    """Reject an active historical finding that lacks a migration disposition."""
+    """Reject an active historical finding without a migration disposition.
+
+    Arrange a policy with one historical finding removed from its disposition
+    group, then assert that loading the policy reports the unmapped finding.
+
+    Args:
+        tmp_path: Pytest directory where the mutated policy is created.
+    """
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(path, '  "A01-F01",\n', "")
 
@@ -562,7 +799,14 @@ def test_program_policy_rejects_an_unmapped_active_historical_finding(tmp_path: 
 
 
 def test_program_policy_rejects_impossible_approved_target_values(tmp_path: Path) -> None:
-    """Reject approved targets that are negative or outside a bounded ratio scale."""
+    """Reject approved targets that are negative or outside the bounded ratio scale.
+
+    Arrange separate policies with a negative target and a ratio target above
+    100, then assert that each load identifies the violated target constraint.
+
+    Args:
+        tmp_path: Pytest directory where mutated policy copies are created.
+    """
     negative = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         negative,
@@ -593,7 +837,16 @@ def test_program_policy_rejects_impossible_approved_target_values(tmp_path: Path
 def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
     tmp_path: Path,
 ) -> None:
-    """Aggregate duration and ratio events while marking under-sampled metrics insufficient."""
+    """Aggregate duration and ratio events while marking under-sampled metrics insufficient.
+
+    Arrange five duration events and two ratio events totaling 9/12 in a JSONL
+    fixture, with no deployment observations. Assert the duration p95 is
+    5 seconds, the pooled ratio is 75 percent, and deployment remains
+    insufficient without a value.
+
+    Args:
+        tmp_path: Pytest directory where the observation JSONL file is written.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     events = [
         _metric_observation_event(
@@ -630,7 +883,14 @@ def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
 
 
 def test_reporting_window_excludes_stale_duration_observations(tmp_path: Path) -> None:
-    """Exclude duration events outside the reporting window from metric summaries."""
+    """Exclude stale duration events from the reporting-window summary.
+
+    Arrange one January event and five August events, then assert the build-duration
+    summary includes only the five August observations and returns 5 seconds.
+
+    Args:
+        tmp_path: Pytest directory where the observation JSONL file is written.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     stale = _metric_observation_event(
         "kpi.build_duration_seconds", event_id="build-stale", seconds=59
@@ -654,7 +914,15 @@ def test_reporting_window_excludes_stale_duration_observations(tmp_path: Path) -
 
 
 def test_identical_retry_is_idempotent_and_conflicting_duplicate_fails(tmp_path: Path) -> None:
-    """Accept identical event retries once and reject conflicting duplicate payloads."""
+    """Collapse identical retries and reject conflicting duplicate payloads.
+
+    Arrange two identical incident events, then replace one with a conflicting
+    numerator. Assert that the retry yields one observation and the conflicting
+    input raises the duplicate-payload error.
+
+    Args:
+        tmp_path: Pytest directory where observation JSONL files are written.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     event = _metric_observation_event(
         "kpi.incident_rate_per_1000_runtime_hours", event_id="incident-1"
@@ -675,7 +943,14 @@ def test_identical_retry_is_idempotent_and_conflicting_duplicate_fails(tmp_path:
 def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
     tmp_path: Path,
 ) -> None:
-    """Reject overlapping ratio windows for identical metric dimensions."""
+    """Reject overlapping ratio windows for identical metric dimensions.
+
+    Arrange two research-ratio events whose windows overlap, then assert that
+    loading them raises the overlap validation error.
+
+    Args:
+        tmp_path: Pytest directory where the observation JSONL file is written.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     first = _metric_observation_event(
         "kpi.research_reproducibility_percent", event_id="research-first"
@@ -707,7 +982,18 @@ def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
 def test_observation_boundary_failures_are_explicit(
     tmp_path: Path, mutation: dict[str, object], message: str
 ) -> None:
-    """Reject malformed event boundaries, provenance, URLs, dimensions, and windows explicitly."""
+    """Reject each malformed observation boundary with its specific message.
+
+    Arrange the parametrized event mutation, load the resulting one-event JSONL
+    fixture, and assert that the governance error includes the expected message
+    fragment for its timestamp, provenance, URL, dimensions, or window failure.
+
+    Args:
+        tmp_path: Pytest directory where the mutated observation JSONL file is
+            written.
+        mutation: Event field change that introduces one boundary failure.
+        message: Expected fragment in the resulting governance error.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     event = _metric_observation_event("kpi.build_duration_seconds", event_id="build-invalid")
     event.update(mutation)
@@ -719,7 +1005,15 @@ def test_observation_boundary_failures_are_explicit(
 def test_ratio_rejects_zero_denominator_unit_drift_and_impossible_bounded_value(
     tmp_path: Path,
 ) -> None:
-    """Reject nonpositive denominators, wrong units, and impossible ratio numerators."""
+    """Reject invalid ratio denominators, units, and bounded numerators.
+
+    Arrange events with a zero denominator, mismatched denominator units, and a
+    numerator greater than its denominator. Assert each observation load reports
+    the corresponding ratio violation.
+
+    Args:
+        tmp_path: Pytest directory where mutated observation JSONL files are written.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     zero = _metric_observation_event(
         "kpi.research_reproducibility_percent",
@@ -750,7 +1044,16 @@ def test_ratio_rejects_zero_denominator_unit_drift_and_impossible_bounded_value(
 def test_cli_emits_stable_filtered_dashboard(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Verify filtered program dashboards are byte-stable and report readiness accurately."""
+    """Emit the same filtered dashboard text and report the expected readiness values.
+
+    Arrange five build observations, invoke the CLI twice for wave A, and compare
+    the decoded stdout strings. Assert the dashboard counts, readiness fields,
+    metric controls, and solo-ready package match the repository program.
+
+    Args:
+        tmp_path: Pytest directory where the observation JSONL file is written.
+        capsys: Pytest capture fixture used to read each decoded CLI stdout value.
+    """
     events = [
         _metric_observation_event(
             "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
@@ -781,7 +1084,15 @@ def test_cli_emits_stable_filtered_dashboard(
 
 
 def test_generated_status_is_deterministic_and_rejects_hand_edits(tmp_path: Path) -> None:
-    """Verify generated status validates deterministically and rejects appended hand edits."""
+    """Validate rendered status content and reject an appended hand edit.
+
+    Arrange a rendered status document in a temporary file, assert its required
+    generated content validates, then append text and assert validation reports
+    stale generated status.
+
+    Args:
+        tmp_path: Pytest directory where the generated status file is written.
+    """
     program = validate_repository(REPOSITORY_ROOT)
     rendered = render_status_markdown(program)
     status_path = tmp_path / "program-status.md"
@@ -800,7 +1111,15 @@ def test_generated_status_is_deterministic_and_rejects_hand_edits(tmp_path: Path
 
 
 def test_solo_package_completes_without_invented_findings(tmp_path: Path) -> None:
-    """Legacy external gaps are optional for new implementation completion records."""
+    """Allow a cleared existing finding list to produce a complete solo package record.
+
+    Arrange the existing A01 policy with its open findings removed, then assert
+    the loaded record is technically complete without inventing findings and the
+    institutional-ready package queue remains empty.
+
+    Args:
+        tmp_path: Pytest directory where the mutated policy is created.
+    """
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         path,
@@ -819,7 +1138,15 @@ def test_solo_package_completes_without_invented_findings(tmp_path: Path) -> Non
 
 
 def test_blocked_technical_dependency_stops_solo_readiness(tmp_path: Path) -> None:
-    """Failed C01 evidence remains visible and prevents the next dependent package."""
+    """Reject a completed C02 record when its C01 technical dependency is blocked.
+
+    Arrange a policy whose C01 implementation is blocked and local evidence is
+    failed, then assert loading it raises the dependency-completion governance
+    error for C02.
+
+    Args:
+        tmp_path: Pytest directory where the mutated policy is created.
+    """
     path = _policy_fixture(tmp_path)
     text = path.read_text()
     prefix, suffix = text.split('package_id = "C01"', 1)
@@ -839,7 +1166,14 @@ def test_blocked_technical_dependency_stops_solo_readiness(tmp_path: Path) -> No
 def test_non_contiguous_state_and_operational_dependency_do_not_block_delivery(
     tmp_path: Path,
 ) -> None:
-    """B06 service acceptance is not an implementation prerequisite for B07."""
+    """Retain B07's loaded state when the separate B06 state record is absent.
+
+    Arrange a policy with B06 removed, then assert B06 has no state, B07 retains
+    a state, and the solo-ready queue contains B06 and C04.
+
+    Args:
+        tmp_path: Pytest directory where the mutated policy is created.
+    """
     path = _policy_fixture(tmp_path)
     _remove_package_state(path, "B06")
 
@@ -856,7 +1190,14 @@ def test_non_contiguous_state_and_operational_dependency_do_not_block_delivery(
 def test_missing_implementation_dependency_still_blocks_non_contiguous_state(
     tmp_path: Path,
 ) -> None:
-    """Reject a package whose missing implementation dependency prevents completion."""
+    """Reject C03 when its missing C02 implementation dependency prevents completion.
+
+    Arrange a policy with the C02 state record removed, then assert loading it
+    raises the dependency-completion governance error for C03.
+
+    Args:
+        tmp_path: Pytest directory where the mutated policy is created.
+    """
     path = _policy_fixture(tmp_path)
     _remove_package_state(path, "C02")
 
@@ -867,7 +1208,15 @@ def test_missing_implementation_dependency_still_blocks_non_contiguous_state(
 
 
 def test_technical_findings_cannot_be_hidden_by_complete_status(tmp_path: Path) -> None:
-    """A finding about technical behavior blocks completion even with passing tests."""
+    """Reject a completed-status record that contains a technical finding.
+
+    Arrange the existing policy with one technical finding added to its otherwise
+    complete implementation record, then assert loading it raises the
+    no-technical-findings governance error.
+
+    Args:
+        tmp_path: Pytest directory where the mutated policy is created.
+    """
     path = _policy_fixture(tmp_path)
     _replace_program_fixture_text(
         path, "technical_finding_ids = []", 'technical_finding_ids = ["broken-schema"]'
@@ -877,7 +1226,15 @@ def test_technical_findings_cannot_be_hidden_by_complete_status(tmp_path: Path) 
 
 
 def test_program_reader_retains_version_one_semantics(tmp_path: Path) -> None:
-    """Old records remain readable with their original institutional acceptance meaning."""
+    """Read a version-one policy with its original institutional acceptance semantics.
+
+    Arrange a downgraded legacy policy without newer implementation fields, then
+    assert version one remains partial, has no institutional-ready packages, and
+    still exposes C04 as the first solo-ready package.
+
+    Args:
+        tmp_path: Pytest directory where the downgraded policy is created.
+    """
     path = _policy_fixture(tmp_path)
     lines = _downgrade_current_policy(path, schema_version=1).splitlines()
     path.write_text(
@@ -902,7 +1259,15 @@ def test_program_reader_retains_version_one_semantics(tmp_path: Path) -> None:
 
 
 def test_program_reader_retains_version_two_dependency_semantics(tmp_path: Path) -> None:
-    """Version 2 keeps its original rule that every roadmap edge blocks completion."""
+    """Apply version-two dependency semantics to the B06 operation-release edge.
+
+    Arrange a version-two policy with B06 blocked and its local evidence failed,
+    then assert loading it rejects B07 because that dependency is incomplete.
+
+    Args:
+        tmp_path: Pytest directory where the downgraded and mutated policy is
+            created.
+    """
     path = _policy_fixture(tmp_path)
     path.write_text(_downgrade_current_policy(path, schema_version=2), encoding="utf-8")
     text = path.read_text(encoding="utf-8")
@@ -922,7 +1287,16 @@ def test_program_reader_retains_version_two_dependency_semantics(tmp_path: Path)
 
 
 def test_hiring_derives_scoped_governance_without_rewriting_package_states(tmp_path: Path) -> None:
-    """Only Security's handover becomes pending, and all completed engineering stays complete."""
+    """Derive a scoped security handover while preserving implementation status.
+
+    Arrange an active security hire in a copied ownership register, then assert
+    only A07 becomes governance-pending, every package remains implementation
+    complete, and solo readiness still begins with C04.
+
+    Args:
+        tmp_path: Pytest directory where the temporary ownership register is
+            created.
+    """
     register = tmp_path / "ownership.toml"
     register.write_text(
         (REPOSITORY_ROOT / "docs/governance/domain-ownership.toml").read_text()

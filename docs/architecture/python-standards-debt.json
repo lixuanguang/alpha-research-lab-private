@@ -853,9 +853,6 @@
       ["_expand_range", "PYC001", "module-level-function"],
       ["_find_dependency_cycles", "PYC001", "module-level-function"],
       ["_load_json_line", "PYC001", "module-level-function"],
-      ["_load_observations", "PYC001", "module-level-function"],
-      ["_load_program", "PYC001", "module-level-function"],
-      ["_load_roadmap", "PYC001", "module-level-function"],
       ["_load_toml", "PYC001", "module-level-function"],
       ["_ownership_roles", "PYC001", "module-level-function"],
       ["_parse_dependency_expression", "PYC001", "module-level-function"],
@@ -875,17 +872,7 @@
       ["_require_strings", "PYC001", "module-level-function"],
       ["_require_table", "PYC001", "module-level-function"],
       ["_require_table_list", "PYC001", "module-level-function"],
-      ["_validate_local_evidence", "PYC001", "module-level-function"],
-      ["load_observations", "PYC001", "module-level-function"],
-      ["load_program", "PYC001", "module-level-function"],
-      ["load_roadmap", "PYC001", "module-level-function"],
-      ["validate_repository", "PYC001", "module-level-function"]
-    ],
-    "tools/governance/src/alpha_research_governance/program_governance/status.py": [
-      ["_markdown_cell", "PYC001", "module-level-function"],
-      ["_relative_link", "PYC001", "module-level-function"],
-      ["render_status_markdown", "PYC001", "module-level-function"],
-      ["validate_status_document", "PYC001", "module-level-function"]
+      ["_validate_local_evidence", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/__init__.py": [
       ["_build", "PYC001", "module-level-function"],

@@ -325,6 +325,14 @@ def test_public_loaders_translate_validation_errors_without_leaking_details(
         assert "errors.pydantic.dev" not in rendered
         assert "not-a-boolean" not in rendered
 
+    monkeypatch.setattr(program_module.RoadmapParser, "_parse_rows", fail_validation)
+    with pytest.raises(ProgramGovernanceError, match="roadmap model validation failed") as captured:
+        program_module.ProgramRepository(REPOSITORY_ROOT).load_program(
+            REPOSITORY_ROOT / "docs/governance/program-governance.toml"
+        )
+    assert captured.value.__cause__ is validation_error
+    assert "not-a-boolean" not in str(captured.value)
+
 
 def test_repository_relative_paths_are_model_local_invariants() -> None:
     """Reject absolute paths and parent traversal within the evidence policy model."""
