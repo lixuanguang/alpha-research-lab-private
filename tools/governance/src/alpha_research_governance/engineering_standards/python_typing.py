@@ -18,7 +18,7 @@ from pydantic import Field
 from alpha_research_governance._models import ImmutableModel
 
 TYPING_DEBT_PATH = "docs/architecture/python-typing-debt.json"
-TYPING_DEBT_SHA256 = "acb22ec6d63e4a2e7cbd6559670e1dcf03700959b9d2b6e72e190219006948d1"
+TYPING_DEBT_SHA256 = "d9e36ea9cd35b1f2eea50cfe9a4aa098e0f9b4730a9a057a37f4bde5553a5b9f"
 TYPING_PATHS = ("src", "tests", "tools/governance/src", "tools/typing/stubs")
 type DiagnosticKey = tuple[str, str, str, str]
 

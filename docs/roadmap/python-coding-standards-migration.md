@@ -7,7 +7,7 @@ Status: steps 1–5 are implemented; step 6 remains in progress and step 7 remai
 planned. Step 5 closed the existing-source documentation queue in 31 slices on
 2026-09-06; its completion snapshot recorded 798 `PYC001` dispositions across
 73 files, no `PYD001` or `PYD002`, and 686 inferred-typing diagnostics. The
-current Step-6 slice leaves 766 `PYC001` dispositions across 71 files and 667
+current Step-6 slice leaves 746 `PYC001` dispositions across 69 files and 642
 inferred-typing diagnostics.
 Step 6 has completed the change-risk pilot and the program loading/status service
 extraction, including the residual package-state and local-evidence workflows.
@@ -18,6 +18,8 @@ is also implemented, with the remaining CLI and policy work still open.
 The earlier CLI slice preserves 12
 Typer callback docstrings as help contracts, and documentation for moved workflows
 remains combined with their step-6 service slices.
+The financial-model boundary and associated unit-test slice in queue item 8 is
+also implemented; its remaining Hypothesis decorator typing is explicitly tracked.
 
 See the [consolidated step-5 validation record](#step-5-validation-record-consolidated-completion-2026-09-06)
 for evidence recorded at completion.
@@ -298,7 +300,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
 | 5. Document existing contracts — implemented | Closed the existing-source documentation queue in 31 doc-only slices across domain, governance, test, policy, helper, loader, runner and artifact contracts. Moved workflows remain step 6; global rule activation remains deferred. | Final scan: zero `PYD001`/`PYD002`; 798 `PYC001` dispositions across 73 files; inferred typing remains at 686 diagnostics. See the consolidated Step-5 validation record below. |
-| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and approval evaluator, program loading/status services, residual program workflows, security-control map loader and financial settlement conventions while retaining the public function APIs. Queue items 1 and 2 are complete; inventory loading is next in queue item 3. The settlement responsibility in queue item 7 is complete. Depends on steps 2–4 for the owning package. | The completed slices preserve schemas, serialized results, ordered findings, exception boundaries, evidence and CLI contracts. See the step-6 records below. |
+| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and approval evaluator, program loading/status services, residual program workflows, security-control map loader and financial settlement conventions while retaining the public function APIs. Queue items 1 and 2 are complete; inventory loading is next in queue item 3. The settlement responsibility in queue item 7 and financial-model/test portion of queue item 8 are complete. Depends on steps 2–4 for the owning package. | The completed slices preserve schemas, serialized results, ordered findings, exception boundaries, evidence and CLI contracts. See the step-6 records below. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
 For gradual enforcement, use exact rule plus module/qualified-symbol identities,
@@ -637,6 +639,23 @@ wrappers, these five fingerprinted exceptions retire 15 migration entries
 without adding allowances. Typed native-version callbacks and a typed calendar
 update retire three inferred diagnostics. Unrelated arithmetic/model tests and
 the mixed C01/C02 boundary test remain unchanged for later migration slices.
+
+### Step 6 implementation — financial model boundaries and test contracts
+
+The financial value models already own construction, validated replacement and
+dimension-aware arithmetic. This slice strengthens those existing boundaries:
+constructor error details pass through a strict record containing only locations
+and messages, and reflected field reads have an explicit raw-value contract before
+reconstruction validates them. Error inputs, URLs and unused exception context
+are excluded from the error-detail conversion; the original validation exception
+remains the cause of the owned error.
+
+`require_type`, `require_decimal`, `exact_decimal` and `round_fraction` remain
+small low-level validation and arithmetic kernels. Their source-bound dispositions
+record why they remain functions. The financial arithmetic and model tests are
+grouped by contract, with the existing Hypothesis callback identities retained.
+This is the financial-model and associated unit-test portion of queue item 8;
+the broader migration remains in progress.
 
 ### Class migration queue
 
@@ -1023,3 +1042,30 @@ execution used the pinned `.venv` tools and current source through
 modules. No full pytest/Bazel suite, full-repository stronger typing probe,
 all-file pre-commit, hosted CI or separate integration/performance lane was run.
 Step 6 remains in progress outside this bounded settlement slice.
+
+## Step 6 validation record — financial models and tests, 2026-09-06
+
+The baseline was the clean checkout at
+`7e1b60a29a36e96014e8fb73eada1d72a8215c30`. `gpt-5.6-luna` subagents at
+`xhigh` reasoning implemented the source and tests in separate file scopes.
+The parent reconciled the inventories and audited the integrated changes with the
+model-risk profile, risk tier 2, because these shared financial
+values enforce exact monetary arithmetic and explicit dimensions. This was a
+technical code audit, not independent organizational model approval.
+
+| Check | Observed result |
+| --- | --- |
+| Differential behavior | **2,331 comparisons** matched the saved baseline, including strict construction and replacement failures, error text and chained causes, public model schemas, all reflected fields, subclass dimensions, signed rounding, FX directions, magnitude/precision boundaries and Decimal-context independence. All four kernel signatures are unchanged. |
+| Focused pytest | `PYTHONPATH=src:tools/governance/src .venv/bin/python -m pytest -q tests/unit/test_financial_units.py`: **105 passed**, one existing performance case deselected. The new regression checks subclass fields in arithmetic and copies, mismatched subclass dimensions and an unchanged caller update mapping. |
+| Collection and test audit | All **104** previously selected cases and **36** original test definitions remain. Fourteen standalone tests moved into two contract classes; the three Hypothesis callbacks retain their node identities. Six existing test definitions have reviewed strategy, raw-payload or reflection changes; the remaining original test ASTs are unchanged after accounting for `self`. No external references to the moved node IDs were found. The audit restored omitted invalid-input and immutability cases, retained both concrete `model_validate` entry points, and removed temporary suppressions and constructor-dispatch helpers. |
+| Scoped lint, documentation, format, typing and security | Ruff lint/format and strict mypy pass for the source, unit-test and two checksum modules. Google-docstring/`ANN401` checks pass for the source and unit-test files. Scoped Bandit passes for `models.py`. |
+| Stronger typing | The probe uses both `--disallow-any-expr` and `--disallow-any-decorated`. `models.py` has **zero** diagnostics; the unit-test file retains **nine** existing Hypothesis decorator diagnostics. The checksum modules retain two existing `PythonStandardsChecker.findings` diagnostics. No new, moved or multiplied diagnostic is accepted. |
+| Inventory reconciliation | Exactly **20** `PYC001` migration entries retired, leaving **746** entries across **69** files. Six fingerprinted dispositions cover the four low-level kernels and two retained property callbacks. Exactly **25** inferred diagnostics retired, leaving **642** across **329** identities. Both checksum pins match their inventories; unrelated obligations and exceptions are unchanged. |
+| Source standards and policy | Source-standard reconciliation and all exception fingerprints pass. The selected `TestPythonDebt::test_reviewed_inventory_is_exact_and_attributed` and `test_repository_standards_bind_exact_tools_languages_and_baselines` cases pass (**2 passed**). |
+| Owning Bazel target | `bazel test --config=ci //tests/unit:financial_units_test` passed its single target. |
+
+All Python execution used the pinned `.venv` tools and current checkout sources.
+No full pytest/Bazel suite, full-repository stronger typing probe, all-file
+pre-commit, hosted CI or separate integration/performance lane was run. The
+remaining Hypothesis decorator typing is explicitly unresolved framework debt.
+Step 6 remains in progress outside this financial-model and unit-test slice.

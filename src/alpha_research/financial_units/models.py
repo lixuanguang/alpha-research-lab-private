@@ -10,10 +10,10 @@ from decimal import Decimal
 from enum import StrEnum
 from fractions import Fraction
 from functools import partial
-from typing import Annotated, ClassVar, Self
+from typing import Annotated, ClassVar, Protocol, Self, TypedDict
 
 # third party library imports
-from pydantic import BaseModel, BeforeValidator, ConfigDict, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, TypeAdapter, ValidationError
 
 # project library imports
 from alpha_research.instrument_identity import InstrumentId
@@ -21,6 +21,24 @@ from alpha_research.instrument_identity import InstrumentId
 
 class UnitError(ValueError):
     """Reject invalid values, dimensions, conventions, or unsupported precision."""
+
+
+class _ValidationErrorDetail(TypedDict):
+    """Capture the redacted, stable fields consumed from Pydantic error JSON."""
+
+    loc: list[int | str]
+    msg: str
+
+
+class _AttributeReader(Protocol):
+    """Expose reflective model attributes as raw values at a validation boundary."""
+
+    def __getattribute__(self, name: str) -> object:
+        """Read one named attribute without assuming its concrete runtime type."""
+        ...
+
+
+_VALIDATION_ERROR_DETAILS = TypeAdapter(list[_ValidationErrorDetail])
 
 
 class _FinancialUnitModel(BaseModel):
@@ -35,6 +53,11 @@ class _FinancialUnitModel(BaseModel):
         validate_default=True,
     )
     _validation_error_type: ClassVar[type[UnitError]] = UnitError
+
+    @staticmethod
+    def _read_attribute(model: _AttributeReader, name: str) -> object:
+        """Read one model field as an unchecked value before reconstruction validation."""
+        return model.__getattribute__(name)
 
     def __init__(self, **data: object) -> None:
         """Validate fields and translate construction failures to the owned error type.
@@ -51,7 +74,11 @@ class _FinancialUnitModel(BaseModel):
             super().__init__(**data)
         except ValidationError as error:
             messages: list[str] = []
-            for detail in error.errors(include_input=False, include_url=False):
+            details = _VALIDATION_ERROR_DETAILS.validate_json(
+                error.json(include_context=False, include_input=False, include_url=False),
+                strict=True,
+            )
+            for detail in details:
                 location = ".".join(str(component) for component in detail["loc"])
                 message = str(detail["msg"]).removeprefix("Value error, ")
                 messages.append(f"{location}: {message}" if location else message)
@@ -73,7 +100,7 @@ class _FinancialUnitModel(BaseModel):
             UnitError: Reconstruction violates the concrete model's contract, using
                 its specialized validation error type where applicable.
         """
-        values = {name: getattr(self, name) for name in type(self).model_fields}
+        values = {name: self._read_attribute(self, name) for name in type(self).model_fields}
         if update is not None:
             values.update(update)
         if deep:
@@ -319,7 +346,7 @@ class _Value(_FinancialUnitModel):
     def _combine(self, other: Self, sign: int) -> Self:
         """Combine signed values exactly after checking concrete type and every dimension."""
         if type(other) is not type(self) or any(
-            getattr(self, name) != getattr(other, name)
+            self._read_attribute(self, name) != self._read_attribute(other, name)
             for name in type(self).model_fields
             if name != "value"
         ):
