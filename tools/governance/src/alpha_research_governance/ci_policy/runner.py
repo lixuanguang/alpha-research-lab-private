@@ -39,6 +39,29 @@ _REVISION = re.compile(r"^[0-9a-f]{40}$")
 def _run_command_and_capture_output(
     command: list[str], *, root: Path, environment: dict[str, str] | None = None
 ) -> bytes:
+    """Run an argv command in ``root`` and return its captured standard output.
+
+    The command is executed without a shell. Standard output and standard error
+    are captured as bytes. A successful invocation returns only standard output;
+    standard error is discarded in that case. On failure, both streams are
+    decoded as UTF-8 with replacement characters for the diagnostic message.
+
+    Args:
+        command: Non-shell argument vector passed to ``subprocess.run``. The
+            first token identifies the executable in startup diagnostics.
+        root: Working directory supplied to the child process.
+        environment: Optional complete child environment. ``None`` inherits the
+            current process environment; a mapping replaces it for the child.
+
+    Returns:
+        The command's unmodified standard-output bytes on a zero exit status.
+
+    Raises:
+        CIPolicyError: If the executable cannot start or exits with a nonzero
+            status. Startup errors retain the operating-system exception as the
+            cause; exit diagnostics include the first three command tokens and
+            the stripped combined output.
+    """
     try:
         completed = subprocess.run(  # nosec B603  # [owner=platform; rationale=validated argv executes without a command shell; expires=2027-02-28]
             command,
@@ -56,6 +79,24 @@ def _run_command_and_capture_output(
 
 
 def _run_command_with_visible_output(command: list[str], *, root: Path) -> None:
+    """Run an argv command in ``root`` while leaving its output visible.
+
+    The command is passed directly to ``subprocess.run`` without a shell or
+    output capture, so the child's standard output and standard error use the
+    process's normal visible streams. The child inherits the current process
+    environment, and the helper waits without imposing a timeout or returning
+    the command's output.
+
+    Args:
+        command: Non-shell argument vector to execute. The complete vector is
+            included in a nonzero-exit diagnostic.
+        root: Working directory supplied to the child process.
+
+    Raises:
+        CIPolicyError: If the executable cannot start or exits with a nonzero
+            status. Startup errors retain the operating-system exception as the
+            cause.
+    """
     try:
         completed = subprocess.run(  # nosec B603  # [owner=platform; rationale=validated argv executes without a command shell; expires=2027-02-28]
             command, cwd=root, check=False
@@ -110,17 +151,89 @@ def git_changed_paths_between(
 
 
 def _git_tracked_paths(root: Path) -> tuple[str, ...]:
+    """List tracked repository-relative paths using Git's NUL-delimited output.
+
+    The query runs ``git ls-files -z`` with ``root`` as its working directory.
+    Callers are expected to provide the repository root, but this helper does
+    not validate that expectation or check path containment. NUL delimiting
+    keeps embedded newlines in a path unambiguous. Empty fields produced by
+    splitting the payload are removed, while Git's order is retained; this
+    helper does not sort or deduplicate the paths.
+
+    Args:
+        root: Repository directory in which Git resolves the index and worktree.
+
+    Returns:
+        A tuple of decoded paths in Git output order. With ``root`` set to the
+        repository root these are repository-relative; a subdirectory working
+        directory can cause Git to report paths relative to that directory.
+
+    Raises:
+        CIPolicyError: If Git cannot start or exits unsuccessfully; the command
+            boundary supplies the translated diagnostic.
+        UnicodeDecodeError: If Git emits a tracked path that is not valid UTF-8.
+    """
     payload = _run_command_and_capture_output(["git", "ls-files", "-z"], root=root)
     return tuple(path for path in payload.decode("utf-8", errors="strict").split("\0") if path)
 
 
 def _reject_generated_artifact_paths(paths: tuple[str, ...], *, prefixes: tuple[str, ...]) -> None:
+    """Reject paths whose raw names begin with a generated-artifact prefix.
+
+    Matching is a lexical ``str.startswith`` check for each supplied prefix.
+    The function does not normalize paths, require them to exist, enforce a
+    path-component boundary, or remove duplicate inputs. Rejected paths remain
+    in their input order in the diagnostic, including repeated occurrences.
+
+    Args:
+        paths: Repository-relative paths to inspect in the supplied order.
+        prefixes: Raw prefixes that identify forbidden generated-artifact paths.
+            A trailing slash is needed when a directory-component boundary is
+            intended, such as ``"build/"``.
+
+    Raises:
+        CIPolicyError: If at least one path starts with any supplied prefix. The
+            finding lists every matching input path in its original order.
+    """
     generated = [path for path in paths if any(path.startswith(prefix) for prefix in prefixes)]
     if generated:
         raise CIPolicyError([f"generated artifacts cannot enter the source diff: {generated}"])
 
 
 def _scan_paths_for_secrets(root: Path, paths: tuple[str, ...]) -> None:
+    """Scan normalized existing paths with the policy's local and external checks.
+
+    The repository policy is validated first. Each supplied path is wrapped in
+    a synthetic ``M`` record and passed through ``normalize_changed_paths``;
+    that step performs lexical path validation, removes duplicate ``(status,
+    path)`` records, and returns paths in lexical order. Only normalized paths
+    that are regular files according to ``Path.is_file`` are sent to the
+    scanners. A missing path is silently omitted at this stage, while the
+    delegated path scanner performs its own containment, symlink, type, size,
+    and content checks.
+
+    The local ``scan_secret_paths`` check runs before the configured executable.
+    When at least one existing path remains, the executable receives the
+    argument vector ``[executable, "--", *existing]`` with a copy of the
+    process environment whose ``LC_ALL`` is ``C.UTF-8`` and ``TZ`` is ``UTC``.
+    Its output is captured and discarded on success. An empty existing set
+    means that no external process is started. Neither scanner promises to
+    detect secrets outside the configured high-confidence patterns.
+
+    Args:
+        root: Repository directory used for policy validation and path joining.
+        paths: Candidate repository-relative paths to normalize and inspect.
+
+    Raises:
+        CIPolicyError: If the policy, normalized paths, local scan, or external
+            scanner command fails. Command-start and nonzero-exit failures are
+            translated by the command helper; path and scanner findings retain
+            the delegated diagnostics.
+        OSError: If delegated filesystem operations fail without translation.
+        UnicodeError: If repository-policy or another delegated strict text
+            boundary encounters invalid encoding; local byte scanning and the
+            captured-output command helper do not strictly decode their payloads.
+    """
     policy = validate_continuous_integration_repository(root)
     normalized = normalize_changed_paths(tuple(("M", path) for path in paths))
     existing = tuple(item.path for item in normalized if (root / item.path).is_file())
@@ -156,6 +269,27 @@ def verify_git_merge_parents(root: Path, *, base_ref: str, head_ref: str, revisi
 
 
 def _query_bazel_labels(root: Path, expression: str) -> tuple[str, ...]:
+    """Query Bazel for labels and return unique labels in lexical order.
+
+    The expression is passed as one argument to ``bazel query`` with
+    ``--output=label`` and ``root`` as the working directory. The command is
+    executed without a shell. Bazel's UTF-8 output is split into lines; only
+    empty lines are ignored, surrounding whitespace is retained, duplicate
+    output lines are removed, and the remaining lines are sorted with Python's
+    ordinary string ordering. This helper does not validate label syntax.
+
+    Args:
+        root: Repository directory in which Bazel evaluates the query.
+        expression: Bazel query expression passed unchanged as one argv item.
+
+    Returns:
+        A tuple of unique, non-empty output lines sorted in ascending order.
+
+    Raises:
+        CIPolicyError: If Bazel cannot start or exits unsuccessfully; the
+            command boundary supplies the translated diagnostic.
+        UnicodeDecodeError: If successful Bazel output is not valid UTF-8.
+    """
     payload = _run_command_and_capture_output(
         ["bazel", "query", expression, "--output=label"], root=root
     )
@@ -186,6 +320,22 @@ def select_affected_targets(root: Path, *, base_ref: str, head_ref: str) -> Affe
 
 
 def _changed_schema_modules(paths: tuple[str, ...], modules: tuple[str, ...]) -> tuple[str, ...]:
+    """Select schema roots touched by a path or one of its descendants.
+
+    A module matches when a path equals the module root or starts with the root
+    followed by ``/``. The slash check prevents similarly named sibling roots
+    from matching. Input path order and duplicate paths do not affect the
+    result. Duplicate module names are collapsed by set construction, and the
+    selected roots are returned in lexical order.
+
+    Args:
+        paths: Repository-relative paths changed by the governed comparison.
+        modules: Repository-relative schema module roots eligible for checking.
+
+    Returns:
+        A tuple of selected module roots, unique and sorted lexically. It is
+        empty when no supplied path belongs to a supplied module.
+    """
     selected = {
         module
         for module in modules
@@ -195,6 +345,34 @@ def _changed_schema_modules(paths: tuple[str, ...], modules: tuple[str, ...]) ->
 
 
 def _check_schema_compatibility(root: Path, *, modules: tuple[str, ...], base: str) -> None:
+    """Run ordered Buf lint and conditional breaking checks for schema modules.
+
+    For every module in the supplied tuple, the function first runs visible
+    ``bazel run --config=ci @rules_buf_toolchains//:buf -- lint <module>``.
+    After lint succeeds, it queries ``git ls-tree -z <base> -- <module>/buf.yaml``
+    and runs the visible Buf ``breaking`` command only when that query returns
+    non-empty bytes. The query's bytes only decide whether to invoke breaking;
+    they do not establish that the baseline path is a regular file. The
+    breaking command compares against the exact
+    ``.git#ref=<base>,subdir=<module>`` locator. Modules are processed in input
+    order, are not deduplicated, and are not validated here; the caller and the
+    invoked tools supply any path or revision policy.
+
+    A failure stops the loop immediately, so a failed lint has no corresponding
+    baseline query and a failed baseline query has no breaking check. The Buf
+    commands leave their output visible; the Git query captures raw bytes only
+    to decide whether the baseline file exists.
+
+    Args:
+        root: Repository working directory for each Bazel and Git command.
+        modules: Schema module identifiers to check, in execution order.
+        base: Git revision inserted into the baseline query and Buf comparison
+            locator without resolution or normalization by this function.
+
+    Raises:
+        CIPolicyError: If any command cannot start or exits unsuccessfully; the
+            command helpers translate those failures and preserve startup causes.
+    """
     for module in modules:
         _run_command_with_visible_output(
             [
@@ -230,6 +408,27 @@ def _check_schema_compatibility(root: Path, *, modules: tuple[str, ...], base: s
 
 
 def _git_worktree_state(root: Path) -> bytes:
+    """Capture Git's raw porcelain worktree status for comparison.
+
+    The command uses ``--porcelain=v1`` for a stable machine-readable format,
+    ``-z`` for NUL-delimited records, and ``--untracked-files=all`` to ask Git
+    to list untracked files individually, subject to Git's ignore rules. The
+    payload is returned without decoding, parsing, sorting, or normalization,
+    so callers can compare exact status snapshots before and after a command or
+    test whether any status bytes are present. It is a status snapshot, not a
+    file-content fingerprint.
+
+    Args:
+        root: Repository directory whose index and worktree status is inspected.
+
+    Returns:
+        Raw bytes from ``git status``; a clean worktree normally produces an
+        empty byte string.
+
+    Raises:
+        CIPolicyError: If Git cannot start or exits unsuccessfully; the command
+            boundary supplies the translated diagnostic.
+    """
     return _run_command_and_capture_output(
         ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
         root=root,
@@ -237,6 +436,33 @@ def _git_worktree_state(root: Path) -> bytes:
 
 
 def _run_pre_commit_without_mutation(root: Path, arguments: list[str]) -> None:
+    """Run pre-commit and reject a changed Git status snapshot afterward.
+
+    The command sequence is a raw ``git status`` snapshot, the visible command
+    ``pre-commit run`` followed by the supplied argument tokens, and a second
+    raw ``git status`` snapshot. The two snapshots use Git's porcelain-v1,
+    NUL-delimited, all-untracked-files output and are compared as exact bytes.
+    This detects an observed Git status change; it is not a file-content hash,
+    does not inspect ignored files, and does not restore a mutation. A changed
+    status therefore remains in the worktree when the final
+    ``CIPolicyError`` is raised.
+
+    If the first status query or pre-commit command fails, the later steps are
+    not attempted. If pre-commit succeeds but the second status query fails,
+    that query's error propagates. An unchanged byte snapshot is accepted even
+    though the helper does not prove that every file-content or metadata state
+    is unchanged.
+
+    Args:
+        root: Repository working directory for Git and pre-commit.
+        arguments: Additional argument tokens appended after ``pre-commit run``;
+            they are passed unchanged and are not shell-parsed.
+
+    Raises:
+        CIPolicyError: If a command fails or the before/after status bytes differ.
+            A command-start failure retains its operating-system cause through
+            the command helper.
+    """
     before = _git_worktree_state(root)
     _run_command_with_visible_output(["pre-commit", "run", *arguments], root=root)
     if _git_worktree_state(root) != before:
@@ -246,6 +472,26 @@ def _run_pre_commit_without_mutation(root: Path, arguments: list[str]) -> None:
 
 
 def _require_clean_hosted_checkout(root: Path, *, environment: str) -> None:
+    """Require an empty raw Git status for every environment except ``local``.
+
+    The literal environment value ``local`` bypasses Git entirely, so this
+    helper accepts a dirty local worktree and has no filesystem side effects.
+    Every other environment invokes ``_git_worktree_state`` and rejects any
+    non-empty porcelain status bytes. The check observes Git's tracked and
+    untracked status representation, including its ignore-rule behavior; it
+    does not hash file contents, inspect ignored files, validate the environment
+    token, or establish that a hosted checkout is at a particular revision.
+
+    Args:
+        root: Repository directory whose worktree status is inspected for a
+            hosted environment.
+        environment: Execution environment label. Only an exact ``"local"``
+            value selects the bypass; all other values select the clean check.
+
+    Raises:
+        CIPolicyError: If a non-local status snapshot contains any bytes, or if
+            the Git status command cannot start or exits unsuccessfully.
+    """
     if environment != "local" and _git_worktree_state(root):
         raise CIPolicyError(["hosted CI requires a clean checkout for revision-bound events"])
 
@@ -258,6 +504,36 @@ def _validate_ci_event_context(
     environment: str,
     target: str,
 ) -> None:
+    """Validate event identity, token dimensions, revision and evidence URL.
+
+    ``environment`` and ``target`` must each match the bounded token expression
+    (an ASCII alphanumeric first character followed by at most 127 ASCII
+    alphanumerics, dots, underscores, or hyphens). ``run_id`` must match the
+    lowercase event-identifier expression, whose components are separated by a
+    single dot, underscore, colon, or hyphen. ``revision`` must be exactly 40
+    lowercase hexadecimal characters. Validation stops at the first failure in
+    environment/target order, then run ID, revision, and evidence URL order.
+
+    A non-empty ``evidence_url`` is parsed as a credential-free HTTPS URL: its
+    parsed scheme must be ``https``, it must expose a hostname, it may not have
+    a username or password, and it may not contain a query or fragment. An
+    empty URL is accepted only for the exact ``local`` environment. URL parsing
+    errors become ``CIPolicyError`` with the parsing exception as their cause.
+    The function does not resolve the host, check certificates or reachability,
+    verify retention, normalize the URL, or validate path and port semantics
+    beyond the stated checks.
+
+    Args:
+        run_id: Program-observation event identifier to validate as a safe token.
+        revision: Full lowercase Git commit digest bound to the event.
+        evidence_url: Retained HTTPS evidence location, or empty for local use.
+        environment: Bounded environment dimension and local/hosted discriminator.
+        target: Bounded lane target dimension.
+
+    Raises:
+        CIPolicyError: If any token, revision, or evidence requirement fails.
+            URL syntax failures preserve the underlying ``ValueError`` cause.
+    """
     for field_name, value in (("environment", environment), ("target", target)):
         if _TOKEN.fullmatch(value) is None:
             raise CIPolicyError([f"{field_name} is not a safe CI event token"])
@@ -297,6 +573,45 @@ def _build_ci_duration_event(
     started_at: datetime,
     ended_at: datetime,
 ) -> CIEvent:
+    """Construct a validated build or test duration event for one CI phase.
+
+    The phase must be exactly ``build`` or ``test`` and the outcome exactly
+    ``failed`` or ``passed``. Context validation then enforces the run ID,
+    revision, environment, target, and local-versus-hosted evidence rules. The
+    timestamps' ``tzinfo`` values must compare equal to ``datetime.UTC`` and the
+    end must be strictly later than the start. Timestamps are retained as
+    supplied; this function does not convert zones, round or floor fractional
+    seconds, or compute a separate duration number. Downstream observation code
+    derives seconds from the interval between the start boundary and end
+    boundary.
+
+    The resulting frozen model, whose ``dimensions`` dictionary remains mutable,
+    uses schema version 1, an event ID of
+    ``continuous-integration.<run_id>.<phase>``, the matching build/test
+    duration metric, a ``ci_<phase>_completed`` source event type, the supplied
+    revision and evidence URL, and dimensions containing environment, outcome,
+    and target. Direct model construction does not repeat these relationships;
+    the validation in this builder is the boundary that enforces them.
+
+    Args:
+        phase: CI phase name, either ``build`` or ``test``.
+        run_id: Safe event identifier used in the event ID and source metadata.
+        revision: Full lowercase commit digest measured by the phase.
+        evidence_url: Credential-free HTTPS evidence URL, or empty for local use.
+        environment: Safe environment dimension and evidence-policy context.
+        outcome: Phase result, either ``passed`` or ``failed``.
+        target: Safe lane target dimension, such as ``fast`` or ``full``.
+        started_at: UTC start boundary retained in the event window.
+        ended_at: Strictly later UTC end boundary retained in the event window.
+
+    Returns:
+        A schema-version-1 ``CIEvent`` whose fields and dimensions are derived
+        from the supplied phase context and timestamps.
+
+    Raises:
+        CIPolicyError: If phase or outcome is unsupported, event context is
+            invalid, or either timestamp is not UTC or the window is non-positive.
+    """
     if phase not in {"build", "test"} or outcome not in {"failed", "passed"}:
         raise CIPolicyError(["CI event phase or outcome is invalid"])
     _validate_ci_event_context(
@@ -324,6 +639,33 @@ def _build_ci_duration_event(
 
 
 def _serialize_ci_event(event: CIEvent) -> str:
+    """Serialize a CI event as compact, sorted-key JSON without a newline.
+
+    The model is dumped in JSON mode, then the two window values are explicitly
+    rendered with ``datetime.isoformat()`` and a trailing ``+00:00`` replaced by
+    ``Z``. All other model values use the model serializer. JSON keys are sorted
+    lexically and separators contain no insignificant whitespace. Fractional
+    seconds are retained at the precision supplied by ``isoformat``; no rounding
+    or flooring is performed, and this helper does not append the JSONL newline
+    used by the timed-phase caller.
+
+    Serialization copies the model representation and does not mutate ``event``.
+    It does not independently validate the event schema, identity, URL, timezone,
+    or positive interval. Consequently, a directly constructed ``CIEvent`` with
+    inconsistent relationships is serialized as represented, subject only to
+    the model and JSON serializers' own behavior.
+
+    Args:
+        event: CI event model to convert to one JSON object string.
+
+    Returns:
+        A deterministic compact JSON object with sorted keys and no trailing
+        newline.
+
+    Raises:
+        TypeError: If JSON serialization encounters a value it cannot encode.
+        ValueError: If the model's serialization layer rejects a value.
+    """
     payload = event.model_dump(mode="json")
     payload["window_start"] = event.window_start.isoformat().replace("+00:00", "Z")
     payload["window_end"] = event.window_end.isoformat().replace("+00:00", "Z")
@@ -342,6 +684,53 @@ def _run_timed_ci_phase(
     environment: str,
     target: str,
 ) -> None:
+    """Execute phase commands in order and emit a duration event in ``finally``.
+
+    ``started_at`` is captured immediately before command execution. Each argv
+    command is then passed, in tuple order, to the visible-output command helper
+    with ``root`` as its working directory; execution stops at the first error.
+    Only a ``CIPolicyError`` from a command marks the outcome ``failed`` and is
+    re-raised. Other exception types leave the initial ``passed`` outcome in
+    place while still propagating after the final event work succeeds.
+
+    The ``finally`` block captures the end time after command execution and
+    clamps it to at least one microsecond after the start, covering a clock that
+    has equal or regressed readings. It builds and serializes the event, writes
+    one JSON object plus a newline to ``event_stream``, and flushes the stream
+    before the active exception can leave the function. Finalization can fail
+    before a line is written. The event retains its start and end boundaries;
+    downstream observation derives fractional ``total_seconds`` without rounding
+    or flooring here.
+    Event construction, serialization, writing, and flushing can therefore
+    raise or mask the command exception. Invalid event metadata is discovered in
+    this final emission path, after the commands have already run.
+
+    The helper does not open or close ``event_stream`` and does not catch errors
+    from event I/O. An empty command tuple still emits a passed event with an
+    interval of at least one microsecond. Commands after a failure do not run;
+    the event is attempted before the error propagates.
+
+    Args:
+        commands: Ordered non-shell argv vectors for the phase.
+        root: Working directory supplied to every command.
+        phase: Build/test phase passed to duration-event construction.
+        event_stream: Caller-owned writable text stream receiving one JSONL event.
+        run_id: Event identity supplied to duration-event construction.
+        revision: Full commit digest measured by this phase.
+        evidence_url: Retained HTTPS evidence URL, or empty for local execution.
+        environment: Environment dimension and evidence-policy context.
+        target: Lane target dimension included in the event.
+
+    Raises:
+        CIPolicyError: If a command fails, event metadata is invalid, or event
+            serialization/emission surfaces a policy failure. A finalization
+            failure may replace the original command failure.
+        OSError: If a stream operation raises an operating-system error after
+            the command boundary.
+        TypeError: If the event serializer or stream rejects its supplied value.
+        ValueError: If writing or flushing a closed stream fails, or another
+            serializer/stream boundary rejects its value.
+    """
     started_at = datetime.now(UTC)
     outcome = "passed"
     try:
@@ -372,6 +761,43 @@ def _run_timed_ci_phase(
 
 
 def _open_ci_event_log(root: Path, path: Path, *, event_log_directory: str = "build/ci") -> IO[str]:
+    """Open a UTF-8 CI event log after resolving it under the allowed directory.
+
+    Relative ``path`` values are resolved from ``root``; absolute values are
+    resolved as supplied. The resulting path must equal or descend from the
+    resolved ``root / event_log_directory`` boundary. The boundary is
+    configurable and defaults to ``build/ci``; this check follows resolved
+    paths, so existing symlinks that resolve outside the boundary are rejected.
+    Resolution, containment checking, and opening are separate operations and
+    are not atomic; a path can change between those steps. Symlink loops can
+    raise ``RuntimeError`` from ``Path.resolve`` on Python 3.12. The function
+    does not validate the directory token or require the final path to be a
+    regular file before opening it.
+
+    After the containment check, parent directories are created recursively with
+    ``exist_ok=True``. The file is opened as UTF-8 text in ``"w"`` mode, which
+    creates a missing file and truncates an existing one; it never appends. The
+    returned stream is left open for the caller's context manager or explicit
+    close. Parent creation can occur before a later open failure, and open or
+    mkdir errors are allowed to propagate.
+
+    Args:
+        root: Repository root used to resolve relative log paths and the allowed
+            event-log directory.
+        path: Requested event-log path, relative to ``root`` unless absolute.
+        event_log_directory: Repository-local containment directory, defaulting
+            to ``"build/ci"``.
+
+    Returns:
+        An open writable UTF-8 text stream positioned at the start of the log.
+
+    Raises:
+        CIPolicyError: If the resolved path is outside the resolved allowed
+            directory. The diagnostic currently names ``build/ci`` even when a
+            caller supplies a different boundary.
+        OSError: If path resolution, parent creation, or file opening fails.
+        RuntimeError: If path resolution encounters a symlink loop.
+    """
     resolved = (root / path).resolve() if not path.is_absolute() else path.resolve()
     allowed_root = (root / event_log_directory).resolve()
     if resolved != allowed_root and allowed_root not in resolved.parents:

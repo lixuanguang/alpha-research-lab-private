@@ -418,6 +418,27 @@ def _validate_reference(
 def _parse_kind_states(
     value: object, *, ownership_roles: frozenset[str], findings: list[str]
 ) -> tuple[KindPopulation, ...]:
+    """Parse kind-population tables and append local consistency findings.
+
+    Args:
+        value: Parsed TOML value expected to be an array of tables with exactly ``kind``,
+            ``owner_role``, ``population_status``, and ``rationale`` fields.
+        ownership_roles: Roles declared by the ownership register; this set is read only.
+        findings: Mutable diagnostics list to which unsupported population statuses, stale owner
+            roles, and a kind sequence differing from ``RESOURCE_KINDS`` are appended in
+            traversal order. Existing entries are preserved.
+
+    Returns:
+        A tuple of ``KindPopulation`` records in input order. Text is not normalized or sorted;
+        an empty input produces an empty tuple and one kind-sequence finding.
+
+    Raises:
+        InventoryGovernanceError: If the value is not a table list, an entry does not have exactly
+            the four required fields, or a required field is missing/blank. Unsupported statuses,
+            stale owners, duplicate kinds, and wrong ordering are recorded in ``findings`` rather
+            than raised; a later structural error can therefore leave earlier findings appended.
+            Population versus actual item counts is checked by the inventory loader.
+    """
     states: list[KindPopulation] = []
     for index, entry in enumerate(_require_table_list(value, context="kind_states"), 1):
         context = f"kind_states[{index}]"
@@ -447,6 +468,28 @@ def _parse_kind_states(
 
 
 def _parse_inventory_item(entry: dict[str, object], *, index: int) -> InventoryItem:
+    """Parse one inventory table into an immutable resource record.
+
+    Args:
+        entry: Parsed inventory table whose keys must be exactly ``_ITEM_KEYS``.
+        index: One-based source position used in validation diagnostics.
+
+    Returns:
+        A newly constructed ``InventoryItem``. Scalar text retains its supplied spelling; list
+        fields become ordered tuples of unique, non-empty strings. Dependencies and deployment
+        evidence may be empty lists, while source paths, lineage references, and status evidence
+        must contain at least one item. The review date is parsed from canonical ``YYYY-MM-DD``
+        text. The inventory ID must match the exact ``inv.<kind>.<suffix>`` expression accepted by
+        ``_INVENTORY_ID``; its final suffix may be one token or multiple lowercase tokens joined
+        by ``.``, ``_``, or ``-``.
+
+    Raises:
+        InventoryGovernanceError: If keys, field types, positive record version, inventory-ID
+            pattern/kind match, list contents, or date spelling are invalid. Repository path and
+            external-reference safety, ownership/status vocabularies, deployment evidence rules,
+            review age, dependency resolution/cycles, and lineage completeness are checked by the
+            complete inventory loader. The input mapping is not modified.
+    """
     context = f"items[{index}]"
     if set(entry) != _ITEM_KEYS:
         raise InventoryGovernanceError([f"{context} has missing or unknown fields"])
@@ -488,6 +531,25 @@ def _parse_inventory_item(entry: dict[str, object], *, index: int) -> InventoryI
 
 
 def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]:
+    """Find directed dependency back edges in an inventory graph.
+
+    Args:
+        items: Inventory records whose ``inventory_id`` values are graph nodes and whose
+            ``dependencies`` tuples are directed outgoing edges. The records and dependency
+            tuples are not modified.
+
+    Returns:
+        A tuple of rendered cycles in depth-first discovery order. Each back edge to an active
+        node is rendered from that node's first active occurrence through the repeated node, such
+        as ``A -> B -> A``. Unknown dependency IDs are ignored as leaf edges. Exact duplicate
+        renderings are removed while retaining their first occurrence. The temporary graph uses
+        the last record's dependency tuple for duplicate inventory IDs, and traversal follows
+        input/dependency order. The traversal is iterative and does not consume Python call
+        stack frames. Lifecycle/deployment states and external/path references do not participate
+        in this graph; unresolved dependency IDs are merely ignored by this cycle-only helper and
+        are reported separately by the complete loader. With no back edges, the result is the
+        empty tuple. No sorting or domain-error translation is performed by this helper.
+    """
     dependencies = {item.inventory_id: item.dependencies for item in items}
     states: dict[str, int] = {}
     cycles: list[str] = []

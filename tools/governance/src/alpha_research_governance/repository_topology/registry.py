@@ -493,6 +493,42 @@ def _find_cycles(units: tuple[SourceUnit, ...]) -> tuple[str, ...]:
 
 
 def _validate_graph(topology: RepositoryTopology, repository_root: Path) -> None:
+    """Validate declared topology, filesystem registration, and import dependencies.
+
+    Args:
+        topology: In-memory topology whose units, layer order, source roots, dependencies, and
+            visibility declarations are checked without mutation.
+        repository_root: Caller-resolved repository root used to read the ownership register,
+            inspect source roots/files, and resolve source imports.
+
+    Returns:
+        ``None`` when every graph, ownership, path, source-set, visibility, cycle, and import
+        dependency check passes. Diagnostics are accumulated as the validation phases visit
+        units, sources, cycles, and imports; source-path ``RepositoryTopologyError`` findings are
+        folded into that list, and duplicate findings are retained. Import-related comparisons
+        include iteration over frozensets, so their relative finding order is not a promised
+        stable sort order. Only imports rooted in the known internal modules become graph edges;
+        external imports are omitted by the import collector.
+        The unit pass also compares visibility with the set of direct consumers and checks layer
+        direction for each known dependency. Source registration is compared with the qualifying
+        files discovered below every declared root, then each registered Python module's parsed
+        internal imports are compared with its declared cross-unit dependencies.
+        Cycle findings are appended before import findings, while set-based source and import
+        operations may determine the relative order of some diagnostics. The method does not
+        rewrite unit dependencies, visibility, source paths, or the topology object.
+
+    Raises:
+        RepositoryTopologyError: If accumulated findings report duplicate/unsorted units, invalid
+            unit metadata, path or ownership mismatches, unknown/self/upward dependencies,
+            visibility or cycle errors, source-set drift, or declared/import dependency drift.
+            Errors from ownership loading, source scanning, and source parsing may also propagate
+            immediately, before previously accumulated findings are raised; only per-unit
+            source-path domain errors are collected for the final report.
+        OSError: If ownership, source scanning, path inspection, or source reading encounters an
+            uncaught filesystem error.
+        UnicodeDecodeError: If an ownership register or source file is not valid UTF-8.
+        RuntimeError: If strict path resolution encounters a symlink loop.
+    """
     findings: list[str] = []
     unit_by_id = {unit.unit_id: unit for unit in topology.units}
     if len(unit_by_id) != len(topology.units):

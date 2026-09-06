@@ -22,7 +22,28 @@ _MAXIMUM_QUERY_XML_BYTES = 16 * 1024 * 1024
 
 
 def normalize_changed_paths(records: tuple[tuple[str, str], ...]) -> tuple[ChangedPath, ...]:
-    """Validate and deterministically normalize Git name-status records."""
+    """Validate Git name-status records and return sorted unique records.
+
+    Args:
+        records: Git status/path pairs. One-letter statuses are ``A``, ``D``,
+            ``M``, ``T``, ``U``, ``X`` and ``B``; rename and copy statuses are
+            ``R`` or ``C`` followed by one to three ASCII digits, with scores
+            at most 100 and zero-padding accepted. A bare ``C`` passes the regex
+            but raises the documented ``ValueError`` during conversion.
+
+    Returns:
+        ``ChangedPath`` records deduplicated by ``(status, path)`` and sorted
+        lexically by that pair. Paths are retained after lexical validation;
+        no filesystem access or path resolution occurs.
+
+    Raises:
+        CIPolicyError: If a status is unsupported, a rename or copy score is
+            greater than 100, or a path is absolute, non-canonical under
+            ``PurePosixPath``, empty, contains a ``..`` component or contains a
+            NUL character.
+        ValueError: If a bare ``C`` status reaches the existing similarity-score
+            conversion and attempts ``int("")``.
+    """
     normalized: list[ChangedPath] = []
     for status, raw_path in records:
         path = PurePosixPath(raw_path)
@@ -44,7 +65,29 @@ def normalize_changed_paths(records: tuple[tuple[str, str], ...]) -> tuple[Chang
 
 
 def parse_git_name_status(payload: bytes, *, maximum_changed_files: int) -> tuple[ChangedPath, ...]:
-    """Parse ``git diff --name-status -z`` output, retaining both rename paths."""
+    """Parse NUL-delimited Git name-status output into changed paths.
+
+    Args:
+        payload: UTF-8 bytes from ``git diff --name-status -z``. A final NUL is
+            optional. A token beginning with ``R`` or ``C`` consumes two paths.
+        maximum_changed_files: Inclusive limit for expanded path records,
+            counted before normalization and deduplication. The value is used
+            as supplied; this function does not validate the bound itself.
+
+    Returns:
+        The sorted, unique ``ChangedPath`` records returned by
+        ``normalize_changed_paths``. Both paths from a rename or copy are
+        retained before that normalization.
+
+    Raises:
+        CIPolicyError: If the payload has a truncated record, exceeds the
+            expanded path-count limit, or contains a status or path rejected by
+            ``normalize_changed_paths``. A bare ``C`` with too few paths is
+            reported as truncated.
+        UnicodeDecodeError: If ``payload`` is not valid UTF-8.
+        ValueError: If a bare ``C`` has two paths and reaches the existing
+            similarity-score conversion, which attempts ``int("")``.
+    """
     fields = payload.decode("utf-8", errors="strict").split("\0")
     if fields and fields[-1] == "":
         fields.pop()
@@ -67,6 +110,14 @@ def parse_git_name_status(payload: bytes, *, maximum_changed_files: int) -> tupl
 
 
 def _repository_path_from_bazel_source_label(label: str) -> str | None:
+    """Derive a repository path from a ``//`` source label when applicable.
+
+    The leading ``//`` is stripped. A colonless remainder is returned unchanged;
+    an empty package returns the name (for example, ``//:name`` becomes
+    ``name``), and other labels become ``package/name``. Labels without a
+    leading ``//`` or ending in ``:BUILD`` return ``None``. No label-syntax or
+    repository-containment validation is performed.
+    """
     if not label.startswith("//") or label.endswith(":BUILD"):
         return None
     package_and_name = label[2:]
@@ -79,7 +130,29 @@ def _repository_path_from_bazel_source_label(label: str) -> str | None:
 
 
 def bazel_source_owners_from_query_xml(payload: str) -> dict[str, tuple[str, ...]]:
-    """Build a source-to-rule owner map from Bazel XML query output."""
+    """Build a deterministic source-to-rule map from Bazel query XML.
+
+    Args:
+        payload: Bazel query XML text. Direct ``rule`` children and their direct
+            ``srcs`` labels are inspected; source labels are converted without
+            additional syntax or repository-path validation. The root tag is not
+            checked.
+
+    Returns:
+        A mapping from derived repository paths to sorted unique owner labels,
+        with both the mapping keys and owner tuples in lexical order. Labels
+        without a leading ``//`` or ending in ``:BUILD`` are skipped by the
+        source-label helper.
+
+    Raises:
+        CIPolicyError: If the UTF-8 encoded payload exceeds 16 MiB, contains
+            ``<!doctype`` or ``<!entity`` anywhere (case-insensitively), is
+            malformed XML, or has a direct rule whose name fails the module's
+            Bazel target-label syntax. Malformed XML is translated with the
+            parser error as its cause.
+        UnicodeEncodeError: If ``payload`` contains a character that cannot be
+            encoded as UTF-8 for the byte-limit check.
+    """
     encoded = payload.encode("utf-8")
     if len(encoded) > _MAXIMUM_QUERY_XML_BYTES:
         raise CIPolicyError(["Bazel query XML exceeds the governed byte limit"])
@@ -107,7 +180,28 @@ def select_bazel_owners_for_changes(
     owner_map: Mapping[str, tuple[str, ...]],
     policy: CIPolicy,
 ) -> AffectedSelection:
-    """Select direct owners or broaden safely when a path cannot be resolved."""
+    """Select direct owners or fall back to the full Bazel graph.
+
+    Args:
+        changes: Normalized changed-path records. Only their paths are used;
+            duplicate paths are collapsed before selection.
+        owner_map: Mapping from repository-relative source paths to direct Bazel
+            owner labels. Owner labels are not validated here.
+        policy: Validated CI policy whose foundational paths determine whether a
+            change requires full selection.
+
+    Returns:
+        An ``AffectedSelection`` with sorted unique changed paths. Empty input
+        returns ``reason="no_changed_paths"`` with no targets and
+        ``force_full=False``. A foundational path equal to a configured path or
+        beneath it at a slash boundary returns the full fallback
+        ``("//...",)`` for both build and test targets, no owners, and
+        ``force_full=True`` before unresolved-path checks. An unresolved path
+        has the same full fallback. A present owner-map key with an empty tuple
+        is resolved and can produce an ownerless, non-full selection; otherwise
+        resolved owners are sorted and build/test targets remain empty for later
+        attachment.
+    """
     paths = tuple(sorted({item.path for item in changes}))
     if not paths:
         return AffectedSelection(
@@ -158,7 +252,27 @@ def attach_bazel_reverse_dependencies(
     build_targets: tuple[str, ...],
     test_targets: tuple[str, ...],
 ) -> AffectedSelection:
-    """Attach validated reverse-dependency query results to an owner selection."""
+    """Validate and attach reverse-dependency query results to an owner selection.
+
+    Args:
+        selection: Owner selection to update. Full selections and selections with
+            no owner targets are returned unchanged, without inspecting the
+            supplied query results.
+        build_targets: Build labels returned by the reverse-dependency query.
+            An eligible selection requires at least one label.
+        test_targets: Test labels returned by the reverse-dependency query; this
+            tuple may be empty for an eligible selection.
+
+    Returns:
+        The unchanged ``selection`` for full or ownerless selections; otherwise,
+        a copy with sorted unique build and test target labels attached.
+
+    Raises:
+        CIPolicyError: If an eligible selection receives a target that fails the
+            module's Bazel label syntax or receives no build targets. The helper
+            checks label shape only and does not verify reverse-dependency
+            membership.
+    """
     if selection.force_full or not selection.owner_targets:
         return selection
     invalid = [

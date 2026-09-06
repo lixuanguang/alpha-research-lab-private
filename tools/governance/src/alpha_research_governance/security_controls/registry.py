@@ -539,6 +539,25 @@ def _validate_authority_url(source: AuthoritySource, *, findings: list[str]) -> 
 
 
 def _parse_assets(value: object) -> tuple[ProtectedAsset, ...]:
+    """Parse asset tables into immutable protected-asset records.
+
+    Args:
+        value: Parsed TOML value expected to be an array of asset tables. Each table must expose
+            exactly the fields in ``_ASSET_KEYS``.
+
+    Returns:
+        A tuple of newly constructed records in input order. Required scalar strings retain their
+        original text; ``security_objectives`` is a tuple of unique, non-empty strings in its
+        declared order. List members reject exact empty strings but accept whitespace-only text.
+        Empty entry arrays are accepted, and exact-key shape validation completes before record
+        construction begins. The parsed value and its entry mappings are not modified.
+
+    Raises:
+        SecurityControlError: If the value is not an array of tables, an entry has missing or
+            unknown fields, or a required field/list item is invalid or duplicated. Record IDs
+            are not required to be unique, ordered, or pattern-matching here; those are checked
+            by the complete map loader.
+    """
     return tuple(
         ProtectedAsset(
             asset_id=_require_string(entry, "asset_id", context=f"assets[{index}]"),
@@ -556,6 +575,25 @@ def _parse_assets(value: object) -> tuple[ProtectedAsset, ...]:
 
 
 def _parse_boundaries(value: object) -> tuple[TrustBoundary, ...]:
+    """Parse trust-boundary tables into immutable boundary records.
+
+    Args:
+        value: Parsed TOML value expected to be an array of boundary tables. Each table must
+            expose exactly the fields in ``_BOUNDARY_KEYS``.
+
+    Returns:
+        A tuple of records in input order. Scalar zone, name, trust-change, owner, and identifier
+        text is retained; ``asset_ids`` and ``control_ids`` become ordered tuples of unique,
+        non-empty strings (exact empty members are rejected, while whitespace-only members pass).
+        An empty array of entries is accepted, and all entry keys are checked before construction.
+        The parsed value and its entry mappings are not modified.
+
+    Raises:
+        SecurityControlError: If the array/table shape, exact fields, required strings, or
+            reference lists are invalid. This parser does not require source and destination
+            zones to differ, resolve referenced assets or controls, or validate boundary ID
+            uniqueness/order; the complete map loader performs those checks.
+    """
     return tuple(
         TrustBoundary(
             boundary_id=_require_string(entry, "boundary_id", context=f"boundaries[{index}]"),
@@ -580,6 +618,24 @@ def _parse_boundaries(value: object) -> tuple[TrustBoundary, ...]:
 
 
 def _parse_threats(value: object) -> tuple[ThreatScenario, ...]:
+    """Parse threat tables into immutable threat-scenario records.
+
+    Args:
+        value: Parsed TOML value expected to be an array of threat tables. Each table must expose
+            exactly the fields in ``_THREAT_KEYS``.
+
+    Returns:
+        A tuple of records in input order. Required text fields retain their supplied spelling;
+        boundary, asset, and control references become ordered tuples of unique, non-empty
+        strings (exact empty members are rejected, while whitespace-only members pass). An empty
+        entry array is accepted, and exact-key validation completes before record construction.
+        The parsed value and its entry mappings are not modified.
+
+    Raises:
+        SecurityControlError: If the array/table shape, exact fields, required strings, or any
+            reference list is invalid. Threat category membership, ID format/order/uniqueness,
+            and cross-record reference resolution are loader-wide checks and are not performed.
+    """
     return tuple(
         ThreatScenario(
             threat_id=_require_string(entry, "threat_id", context=f"threats[{index}]"),
@@ -606,6 +662,25 @@ def _parse_threats(value: object) -> tuple[ThreatScenario, ...]:
 
 
 def _parse_controls(value: object) -> tuple[SecurityControl, ...]:
+    """Parse control tables into immutable security-control records.
+
+    Args:
+        value: Parsed TOML value expected to be an array of control tables. Each table must expose
+            exactly the fields in ``_CONTROL_KEYS``.
+
+    Returns:
+        A tuple of records in input order. Scalar text is retained, while each role, function,
+        implementation-package, and evidence-source list becomes an ordered tuple of unique,
+        non-empty strings (exact empty members are rejected, while whitespace-only members pass).
+        An empty entry array is accepted, and exact-key validation completes before construction.
+        The parsed value and its entry mappings are not modified.
+
+    Raises:
+        SecurityControlError: If the array/table shape, exact fields, required strings, or list
+            contents are invalid or duplicated. Supported function/package tokens, implementation
+            status, evidence references, and owner/reviewer relationships are validated only by
+            the complete map loader.
+    """
     return tuple(
         SecurityControl(
             control_id=_require_string(entry, "control_id", context=f"controls[{index}]"),
@@ -644,6 +719,25 @@ def _parse_controls(value: object) -> tuple[SecurityControl, ...]:
 
 
 def _parse_evidence_sources(value: object) -> tuple[EvidenceSource, ...]:
+    """Parse evidence-source tables into immutable evidence records.
+
+    Args:
+        value: Parsed TOML value expected to be an array of evidence-source tables. Each table
+            must expose exactly the fields in ``_EVIDENCE_KEYS``.
+
+    Returns:
+        A tuple of records in input order. Required text is retained; ``location`` and
+        ``closure_condition`` may be empty strings, and ``required_packages`` may be empty, but
+        any supplied package string must be non-empty and unique. No entry is synthesized for an
+        empty input array. Entry keys are checked for the whole array before records are built.
+        The parsed value and its entry mappings are not modified.
+
+    Raises:
+        SecurityControlError: If the array/table shape, exact fields, required strings, or
+            package-list contents are invalid or duplicated. Status vocabulary, package ID
+            format, location containment, and available/deferred field combinations are checked
+            by the complete map loader.
+    """
     return tuple(
         EvidenceSource(
             evidence_source_id=_require_string(
@@ -675,6 +769,24 @@ def _parse_evidence_sources(value: object) -> tuple[EvidenceSource, ...]:
 
 
 def _parse_authority_sources(value: object) -> tuple[AuthoritySource, ...]:
+    """Parse authority-source tables into immutable citation records.
+
+    Args:
+        value: Parsed TOML value expected to be an array of authority-source tables. Each table
+            must expose exactly the fields in ``_AUTHORITY_KEYS``.
+
+    Returns:
+        A tuple of records in input order. Required text fields retain their supplied spelling;
+        each ``last_verified_on`` value is converted from canonical ``YYYY-MM-DD`` text to a
+        ``date``. An empty entry array is accepted, and exact-key validation completes before
+        record construction. The parsed value and its entry mappings are not modified. URL text
+        is only required to be a non-blank string here; no URL parsing or network access occurs.
+
+    Raises:
+        SecurityControlError: If the array/table shape, exact fields, required text, or canonical
+            date spelling is invalid. URL syntax/trusted-host checks, source-class vocabulary,
+            and verification age relative to the map snapshot are loader-wide checks.
+    """
     return tuple(
         AuthoritySource(
             source_id=_require_string(entry, "source_id", context=f"authority_sources[{index}]"),
@@ -700,6 +812,24 @@ def _parse_authority_sources(value: object) -> tuple[AuthoritySource, ...]:
 
 
 def _parse_jurisdictions(value: object) -> tuple[JurisdictionProfile, ...]:
+    """Parse jurisdiction tables into immutable applicability profiles.
+
+    Args:
+        value: Parsed TOML value expected to be an array of jurisdiction tables. Each table must
+            expose exactly the fields in ``_JURISDICTION_KEYS``.
+
+    Returns:
+        A tuple of profiles in input order. Required text is retained, ``source_ids`` becomes an
+        ordered tuple of unique, non-empty strings, and ``review_due_on`` becomes a
+        ``date`` parsed from canonical ``YYYY-MM-DD`` text. Exact empty list members are rejected
+        while whitespace-only members pass; an empty entry array is accepted after key validation.
+        The parsed value and its entry mappings are not modified; text is not normalized.
+
+    Raises:
+        SecurityControlError: If the array/table shape, exact fields, required strings, source
+            list, or canonical date is invalid. Required jurisdiction order, applicability
+            status, source resolution, and review horizon are checked by the complete loader.
+    """
     return tuple(
         JurisdictionProfile(
             jurisdiction_id=_require_string(
@@ -728,6 +858,25 @@ def _parse_jurisdictions(value: object) -> tuple[JurisdictionProfile, ...]:
 
 
 def _parse_regulatory_mappings(value: object) -> tuple[RegulatoryMapping, ...]:
+    """Parse regulatory-mapping tables into immutable mapping records.
+
+    Args:
+        value: Parsed TOML value expected to be an array of mapping tables. Each table must
+            expose exactly the fields in ``_MAPPING_KEYS``.
+
+    Returns:
+        A tuple of records in input order. Required text is retained; source, control, and
+        evidence references become ordered tuples of unique, non-empty strings (exact empty
+        members are rejected, while whitespace-only members pass). An empty entry array is
+        accepted after exact-key validation for all entries. The parsed value and its entry
+        mappings are not modified.
+
+    Raises:
+        SecurityControlError: If the array/table shape, exact fields, required strings, or any
+            reference list is invalid or duplicated. Mapping ID format/order, jurisdiction and
+            reference resolution, applicability ownership/status, and evidence requirements are
+            enforced by the complete map loader.
+    """
     return tuple(
         RegulatoryMapping(
             mapping_id=_require_string(

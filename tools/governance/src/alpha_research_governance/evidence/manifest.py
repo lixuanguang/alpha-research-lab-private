@@ -44,6 +44,26 @@ _APPROVAL_STATUSES = {"approved", "pending", "rejected"}
 
 
 class _ChangeInput(ImmutableModel):
+    """Capture the strict, closed change-facts table from a manifest.
+
+    This boundary model checks required keys and Python value types only. It does not
+    check that string values are non-empty, belong to the configured policy, or agree
+    with a computed risk class; those semantic checks happen while the manifest is
+    parsed. The inherited frozen model prevents attribute replacement, and this model
+    has no mutable fields to expose through shallow freezing.
+
+    Attributes:
+        capital_at_risk: Whether the change can put capital at risk.
+        blast_radius: Policy dimension describing the affected scope.
+        data_model_materiality: Policy dimension describing data or model impact.
+        security_privilege: Policy dimension describing privilege impact.
+        reversibility: Policy dimension describing rollback or recovery constraints.
+        computationally_material: Whether computational validation is relevant.
+        economically_or_risk_relevant: Whether economic or risk validation is relevant.
+        model_or_trading_relevant: Whether model or trading validation is relevant.
+        declared_class: Requested risk class, recomputed and checked later.
+    """
+
     capital_at_risk: bool
     blast_radius: str
     data_model_materiality: str
@@ -56,6 +76,22 @@ class _ChangeInput(ImmutableModel):
 
 
 class _GateInput(ImmutableModel):
+    """Capture one strict quality-gate table before semantic gate validation.
+
+    All fields are required and unknown fields are rejected by ``ImmutableModel``.
+    The list of evidence IDs is shallow-frozen only: the model cannot have its
+    attribute reassigned, but the contained ``evidence_ids`` list remains mutable.
+    ``_parse_gates`` copies it into an immutable tuple and applies the empty,
+    uniqueness, identifier, status, and passed-gate rules.
+
+    Attributes:
+        gate_id: Quality-gate identifier supplied by the TOML document.
+        status: Candidate gate disposition.
+        rationale: Human-readable reason for the disposition.
+        evidence_ids: Artifact IDs claimed to support the gate; an empty list is
+            structurally valid and is checked against status later.
+    """
+
     gate_id: str
     status: str
     rationale: str
@@ -63,6 +99,20 @@ class _GateInput(ImmutableModel):
 
 
 class _ArtifactInput(ImmutableModel):
+    """Capture one strict artifact reference and its claimed digest.
+
+    Construction enforces the closed four-field input shape and strict string
+    types, but it does not inspect the filesystem or verify the digest. Semantic
+    identifier and SHA-256 syntax checks belong to ``_parse_artifacts``; path
+    containment and resolution belong to the later filesystem helpers.
+
+    Attributes:
+        evidence_id: Artifact key referenced by quality gates.
+        artifact_type: Repository-defined category for the artifact.
+        path: Candidate path relative to the manifest's bundle directory.
+        sha256: Claimed lowercase SHA-256 digest of the artifact bytes.
+    """
+
     evidence_id: str
     artifact_type: str
     path: str
@@ -70,6 +120,25 @@ class _ArtifactInput(ImmutableModel):
 
 
 class _ApprovalInput(ImmutableModel):
+    """Capture one strict approval claim before acceptance checks.
+
+    The model is a closed structural boundary: it requires the listed fields and
+    preserves exact strings, while leaving URL, role, status, and commit semantics
+    to ``_parse_approvals``. Its ``roles`` list is only shallow-frozen; the parser
+    turns it into a validated immutable role set. An empty evidence URL is accepted
+    at this boundary so pending and rejected records can omit external evidence;
+    approved records must later provide a credential-free HTTPS URL.
+
+    Attributes:
+        reviewer_id: Claimed reviewer identity.
+        roles: Claimed reviewer roles in source order.
+        independent: Whether the reviewer claims independent review.
+        is_author: Whether the reviewer is the change author.
+        status: Approval disposition: approved, pending, or rejected after parsing.
+        commit_sha: Commit to which the review claim is bound.
+        evidence_url: Optional-for-non-approved reference retained verbatim.
+    """
+
     reviewer_id: str
     roles: list[str]
     independent: bool
@@ -80,6 +149,21 @@ class _ApprovalInput(ImmutableModel):
 
 
 class _FindingInput(ImmutableModel):
+    """Capture one strict unresolved-finding record from a manifest.
+
+    The model guarantees four required string fields and rejects unknown fields;
+    it does not enforce non-empty content, identifier syntax, role syntax, or the
+    relationship to ``open_finding_ids``. ``_parse_findings`` performs those
+    non-empty and duplicate checks and retains only the ordered finding IDs for
+    the resulting manifest.
+
+    Attributes:
+        finding_id: Identifier of the unresolved finding.
+        owner_role: Role accountable for closing the finding.
+        unavailable_evidence: Evidence unavailable at the current assessment point.
+        closure_condition: Evidence or action required to close the finding.
+    """
+
     finding_id: str
     owner_role: str
     unavailable_evidence: str
@@ -87,6 +171,41 @@ class _FindingInput(ImmutableModel):
 
 
 class _EvidenceManifestInput(ImmutableModel):
+    """Define the closed structural shape for a version-one manifest.
+
+    Every field is required and uses strict Python types; inherited configuration
+    rejects unknown root keys and prevents attribute assignment. Collection fields
+    remain ordinary lists inside the frozen model, so freezing is shallow until
+    the parser copies them to tuples or sets. This model intentionally performs no
+    filesystem I/O, risk recomputation, gate coverage check, approval evaluation,
+    or semantic string validation.
+
+    The loader selects this base shape for version-one documents and for roots whose
+    schema discriminator does not compare equal to ``2``. Dispatch uses equality
+    before strict validation, so a value such as ``2.0`` selects the implementation
+    shape and is then rejected because the model requires an integer. Structural
+    failures are translated before applying the semantic rules that follow model
+    validation.
+
+    Attributes:
+        schema_version: Input schema discriminator; supported semantic versions are 1 and 2.
+        bundle_id: Stable lower-kebab-case evidence-bundle identifier candidate.
+        roadmap_id: Roadmap package identifier candidate.
+        commit_sha: Source revision claimed by the bundle.
+        owner_role: Accountable owner-role candidate.
+        risk_class: Declared change-risk class candidate.
+        evidence_retention_class: Declared retention-policy token candidate.
+        bundle_status: Partial or accepted status candidate for version one.
+        change: Strict change-risk facts table.
+        additional_required_gates: Extra gate IDs requested by the bundle.
+        gates: Raw quality-gate tables.
+        artifacts: Raw artifact-reference tables.
+        approvals: Raw approval-claim tables.
+        findings: Raw unresolved-finding tables.
+        open_finding_ids: IDs the bundle claims remain open.
+        waived_controls: Control IDs the bundle claims to waive.
+    """
+
     schema_version: int
     bundle_id: str
     roadmap_id: str
@@ -106,6 +225,21 @@ class _EvidenceManifestInput(ImmutableModel):
 
 
 class _ImplementationManifestInput(_EvidenceManifestInput):
+    """Extend the version-one shape with local implementation acceptance claims.
+
+    This subclass is selected when a dictionary root's ``schema_version`` compares
+    equal to ``2``; strict model validation then accepts only an integer value. The
+    added fields remain strict required strings at the input boundary. The manifest
+    validator later requires implementation status, checks the founder and operating
+    domain against the operating model, parses the date, and forbids institutional
+    approvals and waivers.
+
+    Attributes:
+        operating_domain: Domain whose local completion rules apply.
+        accepted_by: Principal claimed to have accepted implementation completion.
+        accepted_on: ISO date text used to resolve the effective operating rules.
+    """
+
     operating_domain: str
     accepted_by: str
     accepted_on: str
@@ -140,6 +274,24 @@ _APPROVAL_BOOLEAN_FIELDS = frozenset({"independent", "is_author"})
 
 
 def _manifest_input_error(path: Path, error: ValidationError) -> EvidenceGovernanceError:
+    """Translate structural Pydantic errors into stable manifest diagnostics.
+
+    The translation groups root shape errors, root scalar errors, root string-array
+    errors, the nested change table, and arrays of nested tables into the public
+    evidence error contract. Any top-level missing or unknown field takes precedence
+    over the first detailed failure; otherwise the first detail drives the mapping.
+    Root-key and schema-version wording is based on the base schema even when the
+    selected implementation input produced the ``ValidationError``. This helper
+    translates structural input failures only; later semantic validation errors
+    are produced directly by the parser.
+
+    Args:
+        path: Manifest path used to identify root-level diagnostics.
+        error: Validation failure raised by the selected strict input model.
+
+    Returns:
+        An ``EvidenceGovernanceError`` containing the contract's stable message.
+    """
     details = error.errors(include_url=False, include_input=False)
     if any(
         len(detail["loc"]) == 1 and detail["type"] in {"missing", "extra_forbidden"}
@@ -200,6 +352,27 @@ def _manifest_input_error(path: Path, error: ValidationError) -> EvidenceGoverna
 def _validated_strings(
     value: list[str], *, context: str, allow_empty: bool = False
 ) -> tuple[str, ...]:
+    """Validate and immutably copy a list of manifest strings.
+
+    Validation rejects empty-string members, rejects an empty collection unless
+    ``allow_empty`` is true, and rejects exact duplicate values. It does not strip,
+    case-fold, normalize, or otherwise rewrite strings: surrounding whitespace is
+    therefore preserved and a whitespace-only string is non-empty. The returned
+    tuple is detached from the caller's mutable list.
+
+    Args:
+        value: Already type-checked string list from an input model.
+        context: Field label used in the domain error message.
+        allow_empty: Permit zero members while still rejecting empty-string members
+            and duplicate non-empty values.
+
+    Returns:
+        Values in their original order as a tuple.
+
+    Raises:
+        EvidenceGovernanceError: A member is empty, the collection is disallowedly
+            empty, or exact values repeat.
+    """
     if not all(value):
         raise EvidenceGovernanceError([f"{context} must be an array of non-empty strings"])
     values = tuple(value)
@@ -211,12 +384,47 @@ def _validated_strings(
 
 
 def _validated_string(value: str, *, context: str) -> str:
+    """Require one non-empty manifest string without normalizing it.
+
+    The check distinguishes an empty string from whitespace: ``"   "`` is retained
+    because it is truthy, while ``""`` is rejected. Lexical patterns and policy
+    membership are deliberately left to the caller that owns that field's rules.
+
+    Args:
+        value: Already type-checked candidate string.
+        context: Field label used in the domain error message.
+
+    Returns:
+        The exact input string, including its original whitespace.
+
+    Raises:
+        EvidenceGovernanceError: ``value`` is the empty string.
+    """
     if not value:
         raise EvidenceGovernanceError([f"{context} must be a non-empty string"])
     return value
 
 
 def _parse_change(value: _ChangeInput) -> ChangeRiskInput:
+    """Convert strict change facts into the change-risk domain input.
+
+    Each textual dimension and the declared class must be non-empty, while boolean
+    trigger facts pass through unchanged. The declared class is converted from its
+    string representation to ``RiskClass``; this helper does not classify the
+    dimensions or compare the declaration with a policy. The caller performs that
+    recomputation after conversion.
+
+    Args:
+        value: Structurally validated change table from the manifest boundary model.
+
+    Returns:
+        A ``ChangeRiskInput`` with the same facts and an enum-valued declaration.
+
+    Raises:
+        EvidenceGovernanceError: A textual field is empty or the declaration is
+            outside the supported R0-R4 classes. The enum conversion error is
+            translated and retained as its cause.
+    """
     declared = _validated_string(value.declared_class, context="change.declared_class")
     try:
         declared_class = RiskClass(declared)
@@ -240,6 +448,27 @@ def _parse_change(value: _ChangeInput) -> ChangeRiskInput:
 
 
 def _parse_gates(value: list[_GateInput]) -> tuple[GateEvidence, ...]:
+    """Parse gate tables and enforce their local evidence relationships.
+
+    Items are processed in source order. Each gate requires non-empty ID, status,
+    and rationale strings; evidence IDs may be an empty collection, but passed
+    gates must name at least one. IDs must match QG01-QG15, statuses must be one of
+    deferred, failed, not_applicable, or passed, and gate IDs must be unique across
+    the complete list. Evidence references are only checked for non-empty unique
+    strings here; existence in the artifact set is checked by the manifest loader.
+
+    Args:
+        value: Structurally validated gate tables from the input model.
+
+    Returns:
+        Gate records in manifest order, with evidence IDs detached as tuples.
+
+    Raises:
+        EvidenceGovernanceError: A field is empty, a gate or status is unsupported,
+            a passed gate has no evidence, an evidence ID repeats within a gate, or
+            a gate ID repeats across gates. Field and item errors are reported as
+            encountered before the final duplicate-ID check.
+    """
     gates: list[GateEvidence] = []
     for index, item in enumerate(value, 1):
         context = f"gates[{index}]"
@@ -269,6 +498,26 @@ def _parse_gates(value: list[_GateInput]) -> tuple[GateEvidence, ...]:
 
 
 def _parse_artifacts(value: list[_ArtifactInput]) -> tuple[ArtifactEvidence, ...]:
+    """Parse artifact claims and enforce local identifier and digest rules.
+
+    Each record's four strings must be non-empty. Evidence IDs use lower-kebab-case,
+    artifact types use lower_snake_case, and digests use exactly 64 lowercase
+    hexadecimal characters. Artifact IDs and path strings must be unique across
+    the complete list. This function does not resolve paths, reject traversal or
+    symlinks, read bytes, or compare digests; those checks belong to the filesystem
+    helpers invoked later.
+
+    Args:
+        value: Structurally validated artifact tables from the input model.
+
+    Returns:
+        Artifact records in source order, retaining exact path text and digest text.
+
+    Raises:
+        EvidenceGovernanceError: A field is empty, a lexical identifier or digest is
+            invalid, or an artifact ID or path repeats. Filesystem errors are not
+            raised by this parser because it performs no filesystem access.
+    """
     artifacts: list[ArtifactEvidence] = []
     for index, item in enumerate(value, 1):
         context = f"artifacts[{index}]"
@@ -295,6 +544,36 @@ def _parse_artifacts(value: list[_ArtifactInput]) -> tuple[ArtifactEvidence, ...
 def _parse_approvals(
     value: list[_ApprovalInput], *, commit_sha: str
 ) -> tuple[ApprovalEvidence, ...]:
+    """Parse approval claims and enforce status, role, URL, and commit bindings.
+
+    Records are processed in source order. Status must be approved, pending, or
+    rejected, and every approval's commit must exactly equal the bundle commit.
+    Approved records additionally require a parseable HTTPS URL with a hostname and
+    no username or password; pending and rejected records may retain an empty URL.
+    Roles must be a non-empty, duplicate-free list of lower_snake_case strings.
+    Reviewer IDs must be non-empty but are not required to be unique here because
+    the change-risk approval evaluator owns distinct-reviewer counting.
+
+    This parser does not decide whether approval claims satisfy a risk class, whether
+    a reviewer is independent, or whether an author may approve. It also preserves
+    exact text and does not validate a standalone SHA pattern for ``commit_sha``;
+    the enclosing manifest's expected commit binding supplies that constraint. URL
+    queries, fragments, and ports are accepted when the URL parser accepts them;
+    only the HTTPS, hostname, and credential conditions above are enforced.
+
+    Args:
+        value: Structurally validated approval tables from the input model.
+        commit_sha: Commit identity that every claim must name exactly.
+
+    Returns:
+        Approval records in source order, with roles converted to immutable sets.
+
+    Raises:
+        EvidenceGovernanceError: A status, commit, role, reviewer ID, or approved
+            URL violates the rules. URL parser ``ValueError`` failures are translated
+            to the same domain error with their cause preserved; helper validation
+            errors propagate in their original order.
+    """
     approvals: list[ApprovalEvidence] = []
     for index, item in enumerate(value, 1):
         context = f"approvals[{index}]"
@@ -334,6 +613,23 @@ def _parse_approvals(
 
 
 def _parse_findings(value: list[_FindingInput]) -> tuple[str, ...]:
+    """Validate finding records and retain their ordered identifiers.
+
+    Every record's four strings must be non-empty, but this helper intentionally
+    does not enforce finding-ID syntax, owner-role syntax, or package membership.
+    IDs must be unique across the complete list. Descriptions are validated for
+    presence and then discarded because the returned manifest tracks only IDs;
+    package-specific callers may apply additional checks to the source records.
+
+    Args:
+        value: Structurally validated finding tables from the input model.
+
+    Returns:
+        Finding IDs in their original manifest order.
+
+    Raises:
+        EvidenceGovernanceError: A required string is empty or a finding ID repeats.
+    """
     finding_ids: list[str] = []
     for index, item in enumerate(value, 1):
         context = f"findings[{index}]"
@@ -348,6 +644,38 @@ def _parse_findings(value: list[_FindingInput]) -> tuple[str, ...]:
 
 
 def _resolve_artifact_path(bundle_root: Path, relative_text: str) -> Path:
+    """Resolve one artifact path while enforcing bundle containment.
+
+    The check is lexical before resolution: absolute paths and any ``..`` component
+    are rejected. Every path component, including the final one, is checked for a
+    symlink before strict resolution. Resolution then requires the target to exist
+    and verifies that its resolved path remains relative to ``bundle_root``; the
+    target must be a regular file. The returned path is the resolved path used for
+    reading and hashing.
+
+    These checks protect the intended bundle boundary but do not provide an atomic
+    filesystem snapshot. A path can be replaced between metadata checks and a later
+    read, and callers needing stronger guarantees must supply external coordination.
+    The helper also assumes the supplied root is already the intended resolved
+    bundle root; ``_verify_artifacts`` establishes that root from the manifest path.
+
+    Args:
+        bundle_root: Resolved directory that bounds permissible artifacts.
+        relative_text: Exact manifest path text, expected to be relative to the root.
+
+    Returns:
+        Existing regular file path after strict resolution.
+
+    Raises:
+        EvidenceGovernanceError: The text is absolute or traverses parents, a
+            component is a symlink, the target is missing or resolves outside the
+            root, or the target is not a file. Missing-target and containment
+            ``ValueError``/``FileNotFoundError`` failures retain their causes.
+        OSError: A filesystem operation fails for a reason other than missing path
+            or containment validation, such as permission denial.
+        RuntimeError: Path resolution encounters a symlink loop that is not rejected
+            by the component checks.
+    """
     relative = Path(relative_text)
     if relative.is_absolute() or ".." in relative.parts:
         raise EvidenceGovernanceError([f"artifact path escapes the bundle: {relative_text}"])
@@ -370,6 +698,30 @@ def _resolve_artifact_path(bundle_root: Path, relative_text: str) -> Path:
 
 
 def _verify_artifacts(path: Path, artifacts: tuple[ArtifactEvidence, ...]) -> None:
+    """Read each declared artifact and compare its SHA-256 digest.
+
+    The manifest's parent directory is resolved as the bundle root, then artifacts
+    are resolved and read in tuple order. Path safety is delegated to
+    ``_resolve_artifact_path`` and digest mismatches identify both the evidence ID
+    and source path. An empty file is valid when its claimed digest matches.
+
+    Verification reads ordinary filesystem bytes and therefore is not an atomic
+    snapshot: a file may change after resolution or while it is being read. The
+    function does not retry, lock, or retain bytes, and it does not catch unrelated
+    filesystem I/O failures.
+
+    Args:
+        path: Manifest path whose parent directory contains the bundle.
+        artifacts: Parsed artifact claims with validated lowercase SHA-256 values.
+
+    Raises:
+        EvidenceGovernanceError: An artifact path violates containment/file rules or
+            the bytes' digest differs from the claim.
+        OSError: Resolving the bundle root, inspecting metadata, or reading an
+            artifact fails for an unrelated filesystem reason.
+        RuntimeError: Path resolution encounters a symlink loop that is not rejected
+            by the component checks.
+    """
     bundle_root = path.parent.resolve()
     for artifact in artifacts:
         artifact_path = _resolve_artifact_path(bundle_root, artifact.path)

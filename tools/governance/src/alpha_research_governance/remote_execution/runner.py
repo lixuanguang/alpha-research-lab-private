@@ -147,6 +147,40 @@ def _run_authenticated_bazel(
     targets: Sequence[str],
     extra_arguments: Sequence[str] = (),
 ) -> int:
+    """Run one Bazel lane with a temporary file-backed remote credential.
+
+    Read the configured credential and pass it through a temporary rc file changed
+    to mode ``0o600`` before launch. The invocation includes the explicit
+    ``--config=remote-execution`` option. The context manager attempts to remove
+    the temporary directory on normal and exceptional exit, including process
+    startup failure; cleanup errors can propagate as ``OSError``. The rc path,
+    rather than the credential value, enters the Bazel argument vector, and the
+    configured credential variable is removed from the replacement child
+    environment. This helper does not inspect unrelated environment entries or
+    caller-supplied arguments and assumes its caller has already performed trust
+    and credential validation.
+
+    Args:
+        policy: Loaded policy supplying the credential variable and auth header.
+        repository_root: Directory supplied as Bazel's current working directory.
+        environment: Complete environment to copy for Bazel after removing the
+            configured credential variable.
+        command: Bazel subcommand passed after the temporary ``--bazelrc`` option.
+        targets: Target labels appended to the Bazel argument vector after ``--``.
+        extra_arguments: Additional Bazel options inserted before the target
+            separator, such as the quarantine-diagnostics configuration.
+
+    Returns:
+        Bazel's integer process status, including a nonzero status for a failed
+        lane. A nonzero status is returned for the caller to interpret.
+        No local fallback is attempted here.
+
+    Raises:
+        KeyError: The configured credential variable is absent from ``environment``.
+        RemoteExecutionError: ``bazel`` cannot be resolved through the host PATH.
+        OSError: The temporary directory or credential file cannot be created,
+            changed, removed, or the Bazel process cannot be started.
+    """
     credential_name = policy.provider.credential_environment_variable
     credential = environment[credential_name]
     child_environment = dict(environment)
@@ -175,6 +209,30 @@ def _run_authenticated_bazel(
 
 
 def _run_git_command(repository_root: Path, *arguments: str) -> str:
+    """Run Git with captured text output and return its successful standard output.
+
+    Resolve ``git`` through the host process's PATH, pass the supplied arguments
+    as an argv vector, and use ``repository_root`` as the process working
+    directory. Git output is captured and decoded as text; standard error is
+    captured but is not included in the returned value or nonzero-status error.
+    The arguments are passed through unchanged, so this helper does not perform
+    general Git-argument validation.
+
+    Args:
+        repository_root: Directory supplied as Git's current working directory.
+        *arguments: Git subcommand and options passed after the executable.
+
+    Returns:
+        Git's standard output with leading and trailing whitespace removed when
+        Git exits successfully.
+
+    Raises:
+        RemoteExecutionError: ``git`` cannot be resolved to an absolute executable
+            on host PATH, or Git exits with a nonzero status.
+        OSError: Git cannot be started or its working directory is invalid.
+        UnicodeDecodeError: Captured Git output cannot be decoded as text by the
+            subprocess text-mode decoder.
+    """
     completed = _run_process(
         (_resolve_executable("git"), *arguments),
         repository_root=repository_root,
@@ -186,6 +244,22 @@ def _run_git_command(repository_root: Path, *arguments: str) -> str:
 
 
 def _resolve_executable(name: str) -> str:
+    """Resolve an allowed tool name to an absolute executable path on host PATH.
+
+    The lookup uses the current process's host environment and does not consult
+    a child environment supplied to another helper. Only the literal names
+    ``bazel`` and ``git`` are admitted; no process is started by this function.
+
+    Args:
+        name: Executable basename to resolve; it must be ``bazel`` or ``git``.
+
+    Returns:
+        The absolute path returned by ``shutil.which`` for the allowed tool.
+
+    Raises:
+        RemoteExecutionError: ``name`` is outside the allowlist, no matching
+            executable is found on host PATH, or the match is not absolute.
+    """
     if name not in {"bazel", "git"}:
         raise RemoteExecutionError([f"unsupported executable {name!r}"])
     executable = shutil.which(name)
@@ -201,6 +275,36 @@ def _run_process(
     environment: Mapping[str, str] | None = None,
     capture_output: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    """Run an argv vector without a shell and return its completed text process.
+
+    Convert ``arguments`` to a list and invoke it with ``repository_root`` as
+    ``cwd`` and ``check=False``. With ``environment=None``, ``subprocess``
+    inherits the current process environment; with a mapping, the copied mapping
+    replaces the inherited environment. ``capture_output`` controls both output
+    streams: captured streams are decoded as text, while the default leaves the
+    streams attached to the parent process. No subprocess timeout is supplied.
+    For Bazel invocations, remote-operation timeouts are configured separately
+    through Bazel arguments or configuration; this generic helper also handles
+    Git. This helper does not validate the executable or every argv value, and it
+    returns nonzero statuses instead of raising for them.
+
+    Args:
+        arguments: Executable and arguments passed as one shell-free argv vector.
+        repository_root: Directory supplied as the child process's ``cwd``.
+        environment: Replacement child environment, or ``None`` to inherit the
+            current process environment.
+        capture_output: Whether to capture stdout and stderr as decoded strings.
+
+    Returns:
+        The completed process, including its return code. A nonzero ``returncode``
+        is retained; captured output is available as text, and uncaptured output
+        fields are ``None``.
+
+    Raises:
+        OSError: The process cannot be started or ``repository_root`` is invalid.
+        UnicodeDecodeError: Captured output cannot be decoded by the default
+            subprocess text-mode decoder.
+    """
     return subprocess.run(  # nosec B603  # [owner=platform; rationale=validated argv executes without a command shell; expires=2027-02-28]
         list(arguments),
         cwd=repository_root,

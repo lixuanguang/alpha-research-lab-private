@@ -33,6 +33,27 @@ _SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 
 
 def _without_fenced_code(text: str) -> str:
+    """Remove lines inside the module's supported Markdown fence subset.
+
+    A fence opens on a line whose optional leading whitespace is followed by at
+    least three backticks or tildes. While a fence is open, all lines are omitted;
+    it closes only on a run using the same marker character and at least the
+    opening run's length; trailing text on that line is accepted by the prefix
+    match. The helper does not parse language info strings, nested Markdown
+    constructs, or malformed fence diagnostics. An unterminated fence consequently
+    removes the remainder of the text.
+
+    Retained lines keep their original line endings because the input is split with
+    ``keepends=True``. Marker-like text later on a non-fence line is retained, and
+    marker lines encountered while a fence is open are considered only as possible
+    closures.
+
+    Args:
+        text: Markdown or comment-bearing text to filter.
+
+    Returns:
+        Text with fenced regions removed and all other lines in their original order.
+    """
     fence = ""
     lines: list[str] = []
     for line in text.splitlines(keepends=True):
@@ -47,6 +68,24 @@ def _without_fenced_code(text: str) -> str:
 
 
 def _parse_sections(text: str, *, level: int) -> tuple[tuple[str, str], ...]:
+    """Extract exact-level Markdown sections using the repository subset parser.
+
+    HTML comments are removed first, then fenced code is removed, so commented or
+    fenced examples cannot create headings. A heading must match the module's
+    line-oriented ``#`` pattern. Section boundaries are the next heading at the
+    requested level or any shallower level; deeper headings remain in the current
+    section body. Returned bodies are stripped only at their outer edges, while
+    section order and duplicate headings are preserved. This is intentionally a
+    small profile parser rather than a complete Markdown implementation.
+
+    Args:
+        text: Merge-request Markdown to inspect.
+        level: Heading depth to return; callers use level 2 or 3 for their profile.
+
+    Returns:
+        ``(heading, body)`` pairs for headings whose depth equals ``level``.
+        Headings and bodies retain source order.
+    """
     # Neither commented examples nor code snippets can satisfy a required heading.
     text = _without_fenced_code(_COMMENT.sub("", text))
     matches = tuple(match for match in _HEADING.finditer(text) if len(match["level"]) <= level)
@@ -79,6 +118,29 @@ def validate_template(text: str, policy: EvidencePolicy) -> None:
 
 
 def _context(text: str) -> MrContext:
+    """Parse the optional evidence-context declaration from merge-request text.
+
+    Fenced code is ignored before searching for the repository's HTML-comment
+    marker. With no matching declaration, ordinary text returns the default
+    ``MrContext``; however, a stray ``evidence-context:`` token is treated as a
+    malformed declaration. Exactly one matching declaration is allowed. Its JSON
+    is validated by ``MrContext`` using the strict context model, and model
+    validation failures are translated to the domain error with their cause.
+    Unmatched marker text alongside one valid declaration is not separately
+    rejected because the parser counts matching declarations, not arbitrary marker
+    occurrences.
+
+    Args:
+        text: Merge-request Markdown, possibly containing a context comment.
+
+    Returns:
+        Parsed context, or default implementation/no-impact facts when no marker is
+        present.
+
+    Raises:
+        EvidenceGovernanceError: The marker is malformed, more than one matching
+            comment exists, or the declaration is not valid context JSON/model data.
+    """
     text = _without_fenced_code(text)
     declarations = _CONTEXT.findall(text)
     if not declarations:
@@ -197,6 +259,32 @@ def validate_mr_body(
 
 
 def _read_github_event(path: Path) -> tuple[str, str, str | None]:
+    """Read and validate the body and commit identities from a GitHub event JSON file.
+
+    The accepted boundary requires an object root, a ``pull_request`` object, text
+    ``body``, and a ``head`` object containing a full lowercase 40- or 64-character
+    hexadecimal SHA. The base object is optional: a missing or non-dictionary base,
+    and a missing or explicit-null ``base.sha``, all produce ``None``. A non-null
+    base SHA must use the same full lowercase format. Extra event keys are ignored;
+    duplicate JSON keys and payload size are not guarded here.
+
+    Args:
+        path: JSON event file to read as UTF-8 text.
+
+    Returns:
+        A tuple of pull-request body text, validated head SHA, and optional validated
+        base SHA.
+
+    Raises:
+        EvidenceGovernanceError: JSON syntax is invalid, the required root/request/
+            body/head structure is absent, or a supplied head/base SHA is not full
+            lowercase hexadecimal. JSON syntax errors retain their decoder cause.
+        OSError: The event file cannot be read.
+        UnicodeDecodeError: The event file is not valid UTF-8.
+        ValueError: JSON decoding raises a ``ValueError`` other than ``JSONDecodeError``, such as
+            integer conversion rejecting an excessively long number.
+        RecursionError: The JSON nesting exceeds the decoder's recursion limit.
+    """
     try:
         parsed: object = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
