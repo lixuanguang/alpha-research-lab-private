@@ -30,7 +30,7 @@ from alpha_research.financial_units.models import (
 )
 from alpha_research.venue_calendar import SettlementCalendar
 
-QUANTLIB_VERSION = "1.43"
+QUANTLIB_VERSION: str = "1.43"
 
 
 class ConventionError(UnitError):
@@ -185,14 +185,151 @@ class QuantLibConventions:
         )
 
 
+class SettlementConventions:
+    """Apply bounded business-day conventions against one settlement calendar.
+
+    Construction validates and retains an independent calendar copy without I/O.
+    Each operation derives its result from that immutable copy, so repeated calls
+    cannot share mutable adjustment or lag state.
+
+    Attributes:
+        _calendar: Revalidated, bounded settlement calendar used by every method.
+    """
+
+    _calendar: SettlementCalendar
+
+    def __init__(self, calendar: SettlementCalendar) -> None:
+        """Bind and revalidate the calendar used by settlement operations.
+
+        Args:
+            calendar: Explicit bounded settlement dates and inclusive coverage.
+
+        Raises:
+            UnitError: ``calendar`` is not an exact ``SettlementCalendar`` instance.
+            ConventionError: The supplied calendar instance fails revalidation.
+        """
+        require_type(calendar, SettlementCalendar, "settlement calendar")
+        try:
+            self._calendar = SettlementCalendar.model_validate(calendar)
+        except ValueError as error:
+            raise ConventionError("invalid settlement calendar") from error
+
+    def adjust_business_day(self, candidate: date, *, convention: BusinessDayConvention) -> date:
+        """Adjust a covered date using explicit settlement eligibility.
+
+        Modified conventions reverse direction when the first selected date
+        changes year or month. Coverage is checked before either directional search, so
+        the reverse direction cannot compensate for missing first-direction data.
+
+        Args:
+            candidate: Exact date inside the calendar's inclusive coverage.
+            convention: Direction and month rule for the adjustment. UNADJUSTED
+                retains a covered date even when it is not settlement-eligible.
+
+        Returns:
+            The selected eligible date, or the covered candidate for UNADJUSTED.
+
+        Raises:
+            UnitError: ``candidate`` or ``convention`` has an unexpected concrete type.
+            ConventionError: The candidate is outside coverage, or the required
+                directional search has no eligible date within coverage.
+        """
+        require_type(candidate, date, "candidate")
+        require_type(convention, BusinessDayConvention, "business-day convention")
+        calendar = self._calendar
+        if not calendar.covered_from <= candidate <= calendar.covered_through:
+            raise ConventionError("date is outside settlement calendar coverage")
+        if convention is BusinessDayConvention.UNADJUSTED:
+            return candidate
+        dates = calendar.settlement_dates
+        following = bisect_left(dates, candidate)
+        preceding = bisect_right(dates, candidate) - 1
+
+        def select(index: int) -> date:
+            """Select an eligible date without leaving known calendar coverage.
+
+            Args:
+                index: Position in the calendar's sorted eligible settlement dates.
+
+            Returns:
+                The eligible date at the requested position.
+
+            Raises:
+                ConventionError: The position is outside the retained settlement dates.
+            """
+            if not 0 <= index < len(dates):
+                raise ConventionError(
+                    "settlement calendar cannot determine adjustment within coverage"
+                )
+            return dates[index]
+
+        if convention in (
+            BusinessDayConvention.FOLLOWING,
+            BusinessDayConvention.MODIFIED_FOLLOWING,
+        ):
+            result = select(following)
+            if convention is BusinessDayConvention.MODIFIED_FOLLOWING and (
+                result.year,
+                result.month,
+            ) != (candidate.year, candidate.month):
+                result = select(preceding)
+        else:
+            result = select(preceding)
+            if convention is BusinessDayConvention.MODIFIED_PRECEDING and (
+                result.year,
+                result.month,
+            ) != (candidate.year, candidate.month):
+                result = select(following)
+        return result
+
+    def settlement_date(
+        self,
+        trade_date: date,
+        *,
+        business_day_lag: int,
+        convention: BusinessDayConvention,
+    ) -> date:
+        """Adjust a trade date and count later eligible dates for a T+n lag.
+
+        A zero lag returns the explicitly adjusted date. Positive lags exclude
+        the adjusted anchor even when UNADJUSTED leaves it on a non-settlement
+        date. No additional adjustment or calendar extrapolation occurs.
+
+        Args:
+            trade_date: Exact date inside the calendar's inclusive coverage.
+            business_day_lag: Number of eligible dates after the adjusted anchor;
+                an exact integer from zero through 366, excluding booleans.
+            convention: Business-day adjustment applied to the trade date first.
+
+        Returns:
+            The adjusted anchor for zero lag, otherwise the requested subsequent
+            eligible date within the retained calendar coverage.
+
+        Raises:
+            ConventionError: The lag is invalid, the trade date cannot be adjusted,
+                or too few eligible dates remain within calendar coverage.
+            UnitError: ``trade_date`` or ``convention`` has an unexpected concrete type.
+        """
+        if type(business_day_lag) is not int or not 0 <= business_day_lag <= 366:
+            raise ConventionError("business-day lag must be an integer between 0 and 366")
+        anchor = self.adjust_business_day(trade_date, convention=convention)
+        if business_day_lag == 0:
+            return anchor
+        dates = self._calendar.settlement_dates
+        index = bisect_right(dates, anchor) + business_day_lag - 1
+        if index >= len(dates):
+            raise ConventionError("settlement lag exceeds calendar coverage")
+        return dates[index]
+
+
 def adjust_business_day(
     candidate: date, *, calendar: SettlementCalendar, convention: BusinessDayConvention
 ) -> date:
-    """Adjust within C02's complete explicit coverage; never invent holidays or weekdays.
+    """Delegate business-day adjustment through the supported function API.
 
-    Modified conventions reverse direction if the first selected date changes
-    month. Coverage is checked before either search; missing coverage in the first
-    direction raises even when the reverse direction contains an eligible date.
+    The candidate check remains at the compatibility boundary so its legacy error
+    ordering precedes calendar construction. The service performs the adjustment
+    against a revalidated calendar copy.
 
     Args:
         candidate: Exact date inside the calendar's inclusive coverage.
@@ -211,49 +348,7 @@ def adjust_business_day(
     require_type(candidate, date, "candidate")
     require_type(calendar, SettlementCalendar, "settlement calendar")
     require_type(convention, BusinessDayConvention, "business-day convention")
-    try:
-        calendar = SettlementCalendar.model_validate(calendar)
-    except ValueError as error:
-        raise ConventionError("invalid settlement calendar") from error
-    if not calendar.covered_from <= candidate <= calendar.covered_through:
-        raise ConventionError("date is outside settlement calendar coverage")
-    if convention is BusinessDayConvention.UNADJUSTED:
-        return candidate
-    dates = calendar.settlement_dates
-    following = bisect_left(dates, candidate)
-    preceding = bisect_right(dates, candidate) - 1
-
-    def select(index: int) -> date:
-        """Select an eligible date without allowing indexing beyond known coverage.
-
-        Args:
-            index: Position in the calendar's sorted eligible settlement dates.
-
-        Returns:
-            The eligible date at the requested position.
-
-        Raises:
-            ConventionError: The position is outside the retained dates.
-        """
-        if not 0 <= index < len(dates):
-            raise ConventionError("settlement calendar cannot determine adjustment within coverage")
-        return dates[index]
-
-    if convention in (BusinessDayConvention.FOLLOWING, BusinessDayConvention.MODIFIED_FOLLOWING):
-        result = select(following)
-        if convention is BusinessDayConvention.MODIFIED_FOLLOWING and (
-            result.year,
-            result.month,
-        ) != (candidate.year, candidate.month):
-            result = select(preceding)
-    else:
-        result = select(preceding)
-        if convention is BusinessDayConvention.MODIFIED_PRECEDING and (
-            result.year,
-            result.month,
-        ) != (candidate.year, candidate.month):
-            result = select(following)
-    return result
+    return SettlementConventions(calendar).adjust_business_day(candidate, convention=convention)
 
 
 def settlement_date(
@@ -263,10 +358,11 @@ def settlement_date(
     calendar: SettlementCalendar,
     convention: BusinessDayConvention,
 ) -> date:
-    """Adjust the trade date, then count eligible dates strictly after it for a T+n lag.
+    """Delegate settlement-date calculation through the supported function API.
 
-    A zero lag returns the explicitly adjusted date. Positive lags exclude the
-    adjusted anchor even when UNADJUSTED leaves it on a non-settlement date.
+    Lag and trade-date checks remain at the compatibility boundary so their legacy
+    ordering precedes calendar construction. The service performs adjustment and
+    lag counting against one revalidated calendar copy.
 
     Args:
         trade_date: Exact date inside the calendar's inclusive coverage.
@@ -286,10 +382,9 @@ def settlement_date(
     """
     if type(business_day_lag) is not int or not 0 <= business_day_lag <= 366:
         raise ConventionError("business-day lag must be an integer between 0 and 366")
-    anchor = adjust_business_day(trade_date, calendar=calendar, convention=convention)
-    if business_day_lag == 0:
-        return anchor
-    index = bisect_right(calendar.settlement_dates, anchor) + business_day_lag - 1
-    if index >= len(calendar.settlement_dates):
-        raise ConventionError("settlement lag exceeds calendar coverage")
-    return calendar.settlement_dates[index]
+    require_type(trade_date, date, "candidate")
+    require_type(calendar, SettlementCalendar, "settlement calendar")
+    require_type(convention, BusinessDayConvention, "business-day convention")
+    return SettlementConventions(calendar).settlement_date(
+        trade_date, business_day_lag=business_day_lag, convention=convention
+    )

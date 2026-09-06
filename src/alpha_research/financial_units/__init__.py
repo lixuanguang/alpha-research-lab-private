@@ -6,6 +6,7 @@ from alpha_research.financial_units.conventions import (
     ConventionError,
     DayCountResult,
     QuantLibConventions,
+    SettlementConventions,
     adjust_business_day,
     settlement_date,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "Rate",
     "RateConvention",
     "Rounding",
+    "SettlementConventions",
     "Tick",
     "UnitError",
     "Volatility",

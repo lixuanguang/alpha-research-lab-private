@@ -1686,14 +1686,6 @@
     },
     {
       "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_calendar_coverage_and_unknown_conventions_fail_closed",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
-      "count": 1,
-      "task": "payload"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
       "symbol": "test_constructor_errors_preserve_owned_types_and_hide_input_values",
       "code": "misc",
       "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
@@ -1723,14 +1715,6 @@
       "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
       "count": 1,
       "task": "hypothesis"
-    },
-    {
-      "path": "tests/unit/test_financial_units.py",
-      "symbol": "test_native_failure_nonfinite_and_version_mismatch_are_owned",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
-      "count": 2,
-      "task": "callbacks"
     },
     {
       "path": "tests/unit/test_financial_units.py",

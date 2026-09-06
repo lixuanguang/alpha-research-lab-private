@@ -108,6 +108,13 @@ absolute tolerance 1e-12 years and relative tolerance 2e-15 over the supported
 maximum 299-year scale. These budgets allow native double division and final
 rounding; they never apply to money, quantities or dimensional checks.
 
+`SettlementConventions(calendar)` owns adjustment and lag operations for one
+explicit C02 calendar. Construction revalidates and retains an independent
+calendar copy; operations use that immutable snapshot without retaining
+intermediate results. Invalid calendars fail at construction.
+The exported `adjust_business_day` and `settlement_date` functions preserve their
+existing signatures and delegate to this service.
+
 `adjust_business_day` uses the bounded C02 `SettlementCalendar` eligible-date set
 for unadjusted, following, modified following, preceding and modified preceding.
 Modified adjustments reverse direction when the primary result changes year or month.
