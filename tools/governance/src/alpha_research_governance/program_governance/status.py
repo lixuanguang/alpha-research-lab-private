@@ -14,15 +14,35 @@ from alpha_research_governance.program_governance.models import (
 
 
 def _markdown_cell(value: str) -> str:
+    """Escape Markdown table delimiters and replace LF newline characters."""
     return value.replace("|", "\\|").replace("\n", " ")
 
 
 def _relative_link(*, target: str, status_path: str) -> str:
+    """Return a POSIX relative link from the status file directory to a target."""
     return posixpath.relpath(target, start=PurePosixPath(status_path).parent.as_posix())
 
 
 def render_status_markdown(program: ProgramGovernance) -> str:
-    """Return the deterministic, short human view of program state and findings."""
+    r"""Render a deterministic Markdown status view from an authoritative program record.
+
+    Args:
+        program: Immutable program record whose package order, derived statuses, readiness
+            queries, finding dispositions, snapshot date, generated-status path, objectives,
+            reviewer assignments, and contract paths supply the rendered values.
+
+    Returns:
+        A new Markdown string with the source link, package totals and statuses, first ready
+        package for each readiness track, package rows in stored state order, and the active
+        handover queue in stored state order. Objective cells escape only ``|`` as ``\|`` and
+        LF characters as spaces; relative links use POSIX path semantics from the status-file
+        directory. The result ends with one LF and no file or network I/O occurs.
+
+    Raises:
+        ProgramGovernanceError: If ``program.generated_status_path`` is ``None``.
+        KeyError: If a package state names no package in ``program.packages``.
+        IndexError: If a directly constructed package state has no evidence path for its contract.
+    """
     if program.generated_status_path is None:
         raise ProgramGovernanceError(["program schema does not define a generated status path"])
     implementation_ready = program.ready_packages(institutional=False)
@@ -137,7 +157,29 @@ def render_status_markdown(program: ProgramGovernance) -> str:
 
 
 def validate_status_document(path: Path, program: ProgramGovernance) -> None:
-    """Reject a missing or hand-edited generated status document."""
+    """Validate a generated status document against the rendered program record.
+
+    Args:
+        path: UTF-8 status-document path to read; the file is not created, rewritten, or
+            otherwise modified.
+        program: Immutable program record passed to ``render_status_markdown`` to produce the
+            expected document.
+
+    Returns:
+        ``None`` after the decoded file text matches the rendered string exactly. ``read_text``
+        applies normal universal-newline translation before comparison, and the rendered output
+        itself ends with one LF; extra or missing trailing content therefore fails validation.
+
+    Raises:
+        ProgramGovernanceError: If the generated path is absent, the file cannot be read due to
+            an ``OSError`` (with its cause preserved), or the decoded text differs from the
+            rendered document. The check compares text only and performs no Markdown parsing or
+            full-document sanitization.
+        UnicodeDecodeError: If ``path`` is not valid UTF-8.
+        KeyError: If rendering encounters a package state without a matching package.
+        IndexError: If rendering encounters a directly constructed package state without an
+            evidence path.
+    """
     expected = render_status_markdown(program)
     try:
         observed = path.read_text(encoding="utf-8")

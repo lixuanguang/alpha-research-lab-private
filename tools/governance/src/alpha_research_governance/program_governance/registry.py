@@ -673,6 +673,28 @@ def _parse_dependency_expression(
     tuple[str, ...],
     tuple[tuple[str, ...], ...],
 ]:
+    """Parse legacy or purpose-specific roadmap dependency expressions.
+
+    Dispatch to the purpose-specific grammar only when the expression starts with
+    ``implementation``, ``operation/release`` or ``team handover``, optionally followed by
+    `` any of`` and then the literal ``: ``; otherwise parse a comma-separated all-of list with
+    one optional ``any of`` group. Purpose-specific clauses are semicolon-separated, with one
+    all-of and one any-of clause permitted per purpose. Preserve dependency order, return six
+    tuples in purpose order, and validate duplicates within each list and each purpose. IDs may
+    recur across different purposes, while legacy all-of/any-of overlap is accepted.
+
+    Args:
+        expression: Roadmap table dependency text, including ``-`` for no dependencies.
+
+    Returns:
+        A tuple containing all-of IDs and any-of groups for implementation, operation/release,
+        and team handover, in that order. Legacy expressions populate only implementation.
+
+    Raises:
+        ProgramGovernanceError: If the expression is malformed, contains unsupported dependency
+            tokens, repeats a same-purpose clause kind or package within one list, overlaps
+            same-purpose all-of and any-of IDs, or uses an invalid any-of group.
+    """
     purpose_match = re.match(
         r"^(?:implementation|operation/release|team handover)(?: any of)?: ", expression
     )
@@ -824,11 +846,38 @@ def load_roadmap(path: Path) -> tuple[PackageNode, ...]:
 
 
 def _find_dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...]:
+    """Find directed dependency cycles and render their roadmap diagnostics.
+
+    Args:
+        packages: Package nodes whose IDs form graph vertices and whose combined dependency IDs
+            form directed edges. Duplicate IDs use the last node's edges in the temporary graph;
+            the tuple and its nodes are not modified.
+
+    Returns:
+        Unique cycle messages in depth-first traversal order, with each message prefixed by
+        ``roadmap dependency cycle:``. A cycle is rendered from its first active node through
+        the repeated node. Traversal mutates only its local state and cycle accumulators.
+
+    Raises:
+        KeyError: If a dependency ID is absent from ``packages`` while traversing the graph.
+    """
     graph = {package.package_id: package.all_dependency_ids() for package in packages}
     states: dict[str, int] = {}
     cycles: list[str] = []
 
     def visit_dependency(package_id: str, trail: tuple[str, ...]) -> None:
+        """Visit one dependency and record a back edge to an active ancestor.
+
+        Update the enclosing traversal state and cycle accumulator without mutating package
+        nodes.
+
+        Args:
+            package_id: Current package ID to mark or inspect in the traversal state.
+            trail: Active ancestor IDs preceding ``package_id``.
+
+        Raises:
+            KeyError: If an unvisited ID is absent from the dependency graph.
+        """
         state = states.get(package_id, 0)
         if state == 1:
             start = trail.index(package_id)
@@ -854,6 +903,34 @@ def _parse_package_states(
     schema_version: int,
     operating_model: OperatingModel | None,
 ) -> tuple[PackageState, ...]:
+    """Parse package states and enforce schema, evidence, and operating-model rules.
+
+    Read each referenced evidence file as UTF-8 for schemas before version 4; schema 4 requires
+    exactly one existing ``.md`` path but does not read it here. Resolve implementation governance
+    on the current date for versioned states. Preserve record order while deriving governance
+    status and assigned reviewers; do not modify the input or evidence files. Schemas below 3
+    require a contiguous roadmap prefix including A08; schemas 3 and 4 require an ordered subset
+    including A08.
+
+    Args:
+        value: Parsed ``package_states`` value expected to be a list of tables.
+        repository_root: Resolved repository root used to validate and read evidence paths.
+        ownership_roles: Role names permitted in package-state records.
+        schema_version: Program schema version controlling accepted fields and legacy rules.
+        operating_model: Operating model required for schema versions 2 through 4; ignored for
+            schema version 1.
+
+    Returns:
+        Validated package states in source order, with versioned governance fields resolved.
+
+    Raises:
+        ProgramGovernanceError: If records, paths, findings, statuses, ordering, or required
+            operating-model input violate the selected schema contract.
+        OSError: If an uncaught evidence-file operation fails.
+        UnicodeDecodeError: If a legacy evidence file is not valid UTF-8.
+        OperatingModelError: If the operating model cannot resolve a versioned state.
+        ValidationError: If constructing a package-state model rejects a parsed value.
+    """
     states: list[PackageState] = []
     evaluation_date = date.today()
     for index, entry in enumerate(_require_table_list(value, context="package_states"), 1):
@@ -989,6 +1066,27 @@ def _parse_metric(
     index: int,
     ownership_roles: frozenset[str],
 ) -> MetricDefinition:
+    """Parse one KPI definition and enforce its measurement contract.
+
+    Validate field names, ownership, value-kind and aggregation combinations, units, dimensions,
+    automatic collection, positive scale and window, nonnegative baseline/target coupling, and
+    bounded values. Validate approved-target evidence URL syntax without checking the approval.
+
+    Args:
+        entry: Parsed metric table to validate.
+        index: One-based source index used in diagnostic context.
+        ownership_roles: Role names permitted as metric owners.
+
+    Returns:
+        A validated ``MetricDefinition`` retaining the parsed values and optional target data.
+
+    Raises:
+        ProgramGovernanceError: If fields are missing or unknown, values violate the KPI
+            contract, or an approved target lacks its value or HTTPS evidence. URL parser
+            ``ValueError`` instances are translated to this error.
+        OverflowError: If a numeric input is too large to convert to ``float``.
+        ValidationError: If constructing a ``MetricDefinition`` rejects a parsed value.
+    """
     context = f"metrics[{index}]"
     keys = set(entry)
     if (
@@ -1112,6 +1210,22 @@ def _parse_metric(
 
 
 def _parse_findings(value: object) -> tuple[str, ...]:
+    """Parse finding records and return their identifiers in source order.
+
+    Require each table to contain exactly the four finding fields and each field to be a
+    non-blank string. Preserve duplicate identifiers because this parser does not deduplicate or
+    cross-check them against package state.
+
+    Args:
+        value: Parsed ``findings`` value expected to be a list of tables.
+
+    Returns:
+        Finding IDs in input order, including any duplicates supplied by the input.
+
+    Raises:
+        ProgramGovernanceError: If the value is not a table list or a finding has missing,
+            unknown, or blank fields.
+    """
     identifiers: list[str] = []
     for index, entry in enumerate(_require_table_list(value, context="findings"), 1):
         context = f"findings[{index}]"
@@ -1133,6 +1247,24 @@ def _parse_finding_dispositions(
     *,
     package_states: tuple[PackageState, ...],
 ) -> tuple[FindingDispositionGroup, ...]:
+    """Parse ordered finding-disposition groups and cover active historical findings.
+
+    Require technical, operation-prerequisite, and role-handover groups in that exact order;
+    permit an empty technical group, reject duplicate mappings, and require every active finding
+    in ``package_states`` to appear in a group.
+
+    Args:
+        value: Parsed ``finding_dispositions`` value expected to be a list of tables.
+        package_states: Package states whose active historical findings must be mapped.
+
+    Returns:
+        Disposition groups in their required source order, retaining each group's finding-ID
+        order. Mapped IDs that are not currently active are retained.
+
+    Raises:
+        ProgramGovernanceError: If group fields, dispositions, required ordering, uniqueness, or
+            active-finding coverage is invalid.
+    """
     groups: list[FindingDispositionGroup] = []
     mapped_ids: list[str] = []
     for index, entry in enumerate(_require_table_list(value, context="finding_dispositions"), 1):
@@ -1483,6 +1615,19 @@ def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metric
 
 
 def _validate_local_evidence(repository_root: Path, program: ProgramGovernance) -> None:
+    """Validate the A08 local evidence bundle against its policy and fixed profile.
+
+    Read the repository change-risk policy, manifest, and manifest artifacts through the evidence
+    validators; this helper performs no writes and does not change ``program``.
+
+    Args:
+        repository_root: Repository root containing the change-risk policy and evidence manifest.
+        program: Program record supplying the expected commit SHA and manifest path.
+
+    Raises:
+        ProgramGovernanceError: If the commit SHA is malformed, policy or manifest loading
+            fails, or the manifest does not match the A08 local-evidence profile.
+    """
     if _REVISION.fullmatch(program.local_evidence_commit_sha) is None:
         raise ProgramGovernanceError(["A08 local evidence commit SHA must be full length"])
     try:

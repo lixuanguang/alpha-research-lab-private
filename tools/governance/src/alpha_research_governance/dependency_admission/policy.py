@@ -317,6 +317,29 @@ def _parse_package(
 def _parse_decisions(
     value: object, *, as_of_date: date, maximum_days: int
 ) -> tuple[VulnerabilityDecision, ...]:
+    """Parse vulnerability decisions within the policy assessment window.
+
+    Args:
+        value: Parsed ``vulnerability_decisions`` value expected to be an ordered list of
+            tables. Each table must contain exactly the required decision fields.
+        as_of_date: Inclusive lower bound for every decision expiry date.
+        maximum_days: Inclusive upper-bound window, in days, after ``as_of_date``.
+
+    Returns:
+        Frozen decision models in input order; rationale text is stripped before model
+        construction, while non-empty identity strings retain their original text, including
+        surrounding whitespace. The input tables are not mutated and no network request is made.
+
+    Raises:
+        DependencyAdmissionError: If the value is not a list of tables, a table has unknown or
+            missing fields, a disposition is not ``not_exploitable`` or
+            ``temporary_exception``, rationale has fewer than 24 characters after stripping,
+            expiry is outside the inclusive window, an identity is not a non-empty string, the
+            owner is not ``security``, an evidence URL fails the HTTPS check, or a vulnerability
+            ID is duplicated across the input sequence. Evidence URL violations are reported by
+            the URL helper.
+        ValueError: If URL parsing rejects malformed evidence URL authority syntax.
+    """
     decisions: list[VulnerabilityDecision] = []
     required = {
         "affected_version",
@@ -372,6 +395,28 @@ def _parse_decisions(
 def _parse_overrides(
     value: object, *, as_of_date: date, maximum_days: int
 ) -> tuple[EmergencyOverride, ...]:
+    """Parse emergency overrides within the policy assessment window.
+
+    Args:
+        value: Parsed ``emergency_overrides`` value expected to be an ordered list of tables.
+            Each table must contain exactly the required override fields.
+        as_of_date: Inclusive lower bound for every override expiry date.
+        maximum_days: Inclusive upper-bound window, in days, after ``as_of_date``.
+
+    Returns:
+        Frozen override models in input order; rationale text is stripped before model
+        construction, while non-empty identity strings retain their original text, including
+        surrounding whitespace. The input tables are not mutated and no network request is made.
+
+    Raises:
+        DependencyAdmissionError: If the value is not a list of tables, a table has unknown or
+            missing fields, rationale has fewer than 24 characters after stripping, expiry is
+            outside the inclusive window, an identity is not a non-empty string, the owner is not
+            ``platform`` or ``security``, a component ID fails the exact identity pattern, an
+            evidence URL fails the HTTPS check, or an override ID is duplicated across the input
+            sequence. Evidence URL violations are reported by the URL helper.
+        ValueError: If URL parsing rejects malformed evidence URL authority syntax.
+    """
     overrides: list[EmergencyOverride] = []
     required = {
         "component_id",
@@ -708,6 +753,34 @@ def _wheel_platform_findings(
 def _python_lock_findings(
     root: Path, policy: DependencyAdmission, *, validation_date: date | None = None
 ) -> list[str]:
+    """Collect findings for the admitted Python lock graph.
+
+    Args:
+        root: Repository or fixture root containing ``uv.lock`` and any retained wheel evidence.
+        policy: Validated admission whose package, source-profile, and bootstrap-profile records
+            define the expected external lock graph.
+        validation_date: Date passed to bootstrap-wheel verification; when omitted, the verifier
+            uses the current date, while source-bound profiles do not use this argument.
+
+    Returns:
+        Findings in deterministic order: external-name mismatch first, then each admitted package
+        in policy order, with version, source, evidence, digest, platform, and dependency-edge
+        checks in their execution order. Wheel-verifier domain findings are returned with a
+        package prefix. Source-bound or bootstrap profiles can read retained local evidence and,
+        through their verifier, invoke the pinned local Cosign executable. The policy and lock
+        inputs are not mutated.
+
+    Raises:
+        DependencyAdmissionError: If ``uv.lock`` has an invalid shape, schema, or duplicate
+            usable package name. Domain failures from wheel verifiers are caught and converted
+            into findings; their non-domain filesystem, parsing, or process errors propagate.
+        OSError: If lock or wheel-evidence filesystem operations fail outside translated verifier
+            boundaries.
+        UnicodeDecodeError: If a read lock or evidence file is not valid UTF-8.
+        tomllib.TOMLDecodeError: If ``uv.lock`` is not valid TOML.
+        ValueError: If URL parsing or another verifier operation raises an untranslated value
+            error.
+    """
     locked = _locked_python_packages(root / "uv.lock")
     findings: list[str] = []
     external_names = {
@@ -794,6 +867,29 @@ def require_release_admission(repository_root: Path) -> None:
 
 
 def _migrated_record_findings(root: Path, policy: DependencyAdmission) -> list[str]:
+    """Collect findings for predecessor dependency records retained after migration.
+
+    Args:
+        root: Repository or fixture root containing the five policy-listed migrated TOML records.
+        policy: Validated admission supplying the ordered predecessor record paths.
+
+    Returns:
+        Findings ordered by predecessor package and path, then by each record's ``dependencies``
+        and ``tools`` collections and their field checks. The checks cover expected roadmap
+        ownership, runtime-installation prohibition for B02 through B05, required non-empty
+        strings, HTTPS source URLs, embedded immutable digests, non-empty platform lists, and
+        transitive/native dependency lists. Inputs are read only and never mutated; URL policy
+        failures become findings.
+
+    Raises:
+        DependencyAdmissionError: If a parsed document or collection is not a TOML table or
+            table array, respectively.
+        OSError: If a migrated record cannot be read.
+        UnicodeDecodeError: If a migrated record is not valid UTF-8.
+        tomllib.TOMLDecodeError: If a migrated record is not valid TOML.
+        ValueError: If the ordered path count fails ``zip``'s strict check or URL parsing rejects
+            malformed source URL authority syntax.
+    """
     findings: list[str] = []
     for expected_package, relative in zip(
         _PREDECESSOR_DEPENDENCY_PACKAGE_IDS,
@@ -844,6 +940,33 @@ def _migrated_record_findings(root: Path, policy: DependencyAdmission) -> list[s
 
 
 def _lock_surface_findings(root: Path) -> list[str]:
+    """Collect findings from the repository's non-Python lock surfaces.
+
+    Args:
+        root: Repository or fixture root containing the Bazel, Nix, requirements, uv, and CI
+            workflow lock surfaces inspected by this helper.
+
+    Returns:
+        Findings in surface order: ``MODULE.bazel.lock``, ``flake.lock``, the exact
+        ``requirements.bazel.txt`` subset relation to ``uv.lock``, and regex-matched GitHub
+        Actions in ``ci.yml``. The checks require BCR registry URLs with lowercase 64-character
+        SHA-256 strings, and require each non-root Nix node to expose string ``rev`` and
+        ``narHash`` values without checking their content or immutability. Requirements are
+        compared only by names before the first ``==`` on non-comment, non-empty lines; versions,
+        digests, formatting, and complete uv equality are not checked. The workflow check scans
+        only matching ``uses: action@revision`` lines rather than parsing YAML, then compares the
+        observed action/revision sets with the admitted map and flags non-commit revisions.
+        Malformed values within those surfaces are reported as findings. No input is mutated and
+        no network request is made.
+
+    Raises:
+        DependencyAdmissionError: If a JSON lock root is not a table, or the nested uv lock
+            parser rejects its shape, schema, or duplicate package names.
+        OSError: If a lock, requirements, or workflow file cannot be read.
+        UnicodeDecodeError: If a text input is not valid UTF-8.
+        json.JSONDecodeError: If ``MODULE.bazel.lock`` or ``flake.lock`` is not valid JSON.
+        tomllib.TOMLDecodeError: If the nested ``uv.lock`` is not valid TOML.
+    """
     findings: list[str] = []
     raw_module_lock: object = json.loads((root / "MODULE.bazel.lock").read_text(encoding="utf-8"))
     module_lock = _table(raw_module_lock, context="MODULE.bazel.lock")
@@ -968,7 +1091,54 @@ def assess_pip_audit_report(
     *,
     validation_date: date | None = None,
 ) -> None:
-    """Require complete exact-lock coverage and owned disposition of every finding."""
+    """Assess a bounded pip-audit JSON report against the admitted lock and decisions.
+
+    Consume the already-produced report through the shared JSON loader. Require the exact root
+    fields and array types, then compare each usable dependency name and version with the policy's
+    admitted package mapping. Resolve each vulnerability ID against the policy's owned decisions
+    and require an exact package/version match with an expiry on or after the validation date.
+    This function checks the decision fields it uses; it neither revalidates nor fetches a
+    decision's evidence URL, and it does not establish vulnerability exploitability. It reads the
+    report and policy without mutating either value and performs no scanner, network, or decision
+    evidence I/O.
+
+    Args:
+        report_path: UTF-8 JSON report path. The loader checks the pre-read file size against
+            5,000,000 bytes before reading it; the report must decode to an object whose exact
+            root keys are ``dependencies`` and ``fixes``. Both values must be arrays, and the
+            dependency array may contain at most 1,000 entries. A dependency counts toward
+            coverage only when it is a mapping with a string ``name``, a string ``version``, and
+            a list ``vulns``; a present ``skip_reason`` records a finding instead. Extra fields
+            in dependency or vulnerability mappings are accepted, and the contents of ``fixes``
+            are not inspected.
+        policy: Validated admission policy supplying the exact package-name/version mapping and
+            vulnerability decisions. Package names, versions, vulnerability IDs, decision package
+            names, and decision affected versions are compared as their original strings without
+            normalization. Decision disposition, owner, rationale, and evidence URL are not
+            consulted by this function because the policy loader owns their validation.
+        validation_date: Date used for decision expiry checks; defaults to ``date.today()`` when
+            omitted. A decision is current when ``expires_on`` equals this date or is later.
+
+    Returns:
+        ``None`` after every admitted package is covered exactly once and every reported
+        vulnerability has a matching, current decision.
+
+    Raises:
+        DependencyAdmissionError: If the report exceeds the size limit, fails JSON or UTF-8
+            loading, has the wrong root shape, has non-array ``dependencies`` or ``fixes``, or
+            exceeds 1,000 dependencies. These envelope, shape, and size failures are raised
+            immediately. For a structurally valid report, malformed, unnamed, skipped,
+            incomplete, duplicate, or unresolved dependency entries become findings in traversal
+            order; a missing, unexpected, or misversioned package adds the final coverage
+            finding. Vulnerability findings are unresolved when their ID is absent, their decision
+            does not match the exact package and version, or the decision has expired. If that
+            finding list is non-empty after traversal, raise one ``DependencyAdmissionError``
+            containing those findings.
+        OSError: If report ``stat`` or read operations fail.
+        ValueError: If the JSON decoder raises a non-syntax value error, such as an oversized
+            integer, while loading the report.
+        RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+    """
     report = _load_json_signal(report_path, signal="pip-audit")
     if not isinstance(report, dict) or set(report) != {"dependencies", "fixes"}:
         raise DependencyAdmissionError(["pip-audit report has missing or unknown root fields"])
@@ -1038,7 +1208,63 @@ def assess_scorecard_report(
     policy: DependencyAdmission,
     validation_time: datetime | None = None,
 ) -> None:
-    """Validate a fresh commit-bound Scorecard signal without treating it as admission."""
+    """Assess a bounded Scorecard JSON report for identity, freshness, and required checks.
+
+    Consume the already-produced report through the shared JSON loader and validate its
+    repository binding, admitted tool version, timestamp, and required check records. Parse the
+    report timestamp with ``datetime.fromisoformat`` after replacing every ``Z`` with
+    ``+00:00``; this accepts a broader syntax than strict RFC 3339, but the resulting timestamp
+    must be timezone-aware. Treat a passing result as an advisory signal: do not apply an
+    aggregate score threshold, authenticate the repository or engine commit, or use the signal as
+    dependency admission. Read the report and policy without mutating either value and perform no
+    external network or evidence I/O.
+
+    Args:
+        report_path: UTF-8 JSON report path. The loader checks the pre-read file size against
+            5,000,000 bytes before reading it. The decoded value must be an object containing
+            mapping values for ``repo`` and ``scorecard`` and a list value for ``checks``; the
+            check list may contain at most 100 entries. Extra report, repository, scorecard, and
+            check fields are accepted.
+        expected_repository: Repository name that must equal ``repo["name"]`` exactly. The value
+            is not normalized or otherwise authenticated.
+        expected_commit: Expected repository revision that must equal ``repo["commit"]`` exactly
+            and must be a full lowercase 40-character hexadecimal SHA. The report's
+            ``scorecard["commit"]`` is separately required to have that same shape, but is not
+            compared with this revision or with a policy pin.
+        policy: Validated admission policy supplying the exact Scorecard version and the maximum
+            accepted signal age in days. Treat the policy as already validated; this function
+            reads only those two fields and does not authenticate external evidence.
+        validation_time: Time against which the report timestamp is checked; defaults to the
+            current UTC time. Supply a timezone-aware ``datetime`` so aware report timestamps can
+            be compared; a naive or otherwise incompatible value can cause ``TypeError``.
+
+    Returns:
+        ``None`` after the report is bound to the expected repository commit, uses the admitted
+        Scorecard version, is neither future-dated nor older than the policy's inclusive age
+        window, and contains all required conclusive checks.
+
+    Raises:
+        DependencyAdmissionError: If report loading fails, the decoded report is not an object,
+            ``repo`` or ``scorecard`` is not a mapping, ``checks`` is not a list, or the list has
+            more than 100 entries. The function then rejects a repository name or commit that
+            does not exactly match the supplied values, an invalid expected commit, an
+            unadmitted Scorecard version, an engine commit that is not lowercase 40-hex text, or
+            a missing or unparsable timestamp. It also rejects a naive, future-dated, or stale
+            timestamp; duplicate qualifying check names; and missing or negative required checks.
+            A qualifying check is any mapping with a string ``name`` and an ``int`` ``score``;
+            malformed entries without both fields are ignored. Unknown names still qualify and
+            participate in duplicate-name rejection, while only ``License``, ``Maintained``,
+            ``Pinned-Dependencies``, and ``Vulnerabilities`` are required to have nonnegative
+            scores. ``bool`` scores satisfy the runtime ``int`` check, scores have no upper bound,
+            and the report's aggregate score is unused. The function raises directly in validation
+            order, rejecting duplicate names during traversal and missing or negative required
+            checks afterward; it does not collect findings.
+        OSError: If report ``stat`` or read operations fail.
+        ValueError: If the JSON decoder raises a non-syntax value error while loading the report.
+        RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+        TypeError: If ``validation_time`` is naive or otherwise incompatible with an aware
+            report timestamp during freshness comparison.
+    """
     report = _load_json_signal(report_path, signal="Scorecard")
     if not isinstance(report, dict):
         raise DependencyAdmissionError(["Scorecard report must be a JSON object"])

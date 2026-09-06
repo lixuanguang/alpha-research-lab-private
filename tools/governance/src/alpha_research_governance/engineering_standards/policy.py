@@ -775,6 +775,28 @@ def _locked_packages(path: Path) -> dict[str, tuple[str, str, tuple[str, ...]]]:
 def _validate_dependency_record(
     repository_root: Path, locked: dict[str, tuple[str, str, tuple[str, ...]]]
 ) -> list[str]:
+    """Validate the checked-in Hypothesis dependency record against the lock.
+
+    Read ``docs/architecture/engineering-tool-dependencies.toml`` below
+    ``repository_root`` and report drift in its exact root fields, package record,
+    Hypothesis identity, source, license, supported platforms, native-artifact
+    declarations, and ``sortedcontainers`` transitive binding. Return findings in
+    validation order; this function does not modify the record or lock mapping.
+
+    Args:
+        repository_root: Repository root containing the dependency record.
+        locked: Package projections from the repository lockfile for cross-checks.
+
+    Returns:
+        Finding messages, empty when the dependency record matches the lock contract.
+
+    Raises:
+        EngineeringStandardsError: If the parsed root or dependency array has an
+            invalid TOML table shape.
+        OSError: If the dependency record cannot be read.
+        UnicodeDecodeError: If the dependency record is not valid UTF-8.
+        tomllib.TOMLDecodeError: If the dependency record is malformed TOML.
+    """
     path = repository_root / "docs/architecture/engineering-tool-dependencies.toml"
     document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     findings: list[str] = []

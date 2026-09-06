@@ -331,6 +331,28 @@ def _decision_log_entries(
 def _validate_decision_log(
     log_path: Path, log: str, decisions: Sequence[Path], findings: list[str]
 ) -> None:
+    """Validate decision-log rows against the indexed ADR files.
+
+    Parse rows from the supplied log text. The parser appends malformed-row
+    findings in log order. Validation then appends duplicate findings in one pass
+    and unexpected-row findings in a separate pass, each in log order. It finally
+    processes decisions in supplied order, appending missing-row findings and
+    cross-file metadata mismatches as encountered. For each expected identifier
+    with a first matching row, read its ADR as UTF-8 and compare title, filename,
+    status, owner, and review date; duplicate rows are reported but later
+    duplicates do not replace the first row used for comparison. This function
+    mutates only ``findings`` and does not raise its collected governance error.
+
+    Args:
+        log_path: Decision-log path included in diagnostic messages.
+        log: Markdown decision-log text to parse in memory.
+        decisions: ADR paths whose identifiers and metadata must be represented.
+        findings: Mutable diagnostic list receiving validation findings.
+
+    Raises:
+        OSError: If an ADR file cannot be read.
+        UnicodeDecodeError: If an ADR file is not valid UTF-8.
+    """
     entries = _decision_log_entries(log_path, log, findings)
     entries_by_identifier: dict[str, _DecisionLogEntry] = {}
     for entry in entries:

@@ -502,6 +502,22 @@ def _extract_spdx_file_names(sbom: Mapping[str, object]) -> frozenset[str]:
 def _verify_native_library_sbom_coverage(
     artifact_path: Path, sbom: Mapping[str, object], policy: ArtifactSupplyChainPolicy
 ) -> None:
+    """Require every discovered native-library member in the SPDX file inventory.
+
+    Inventory native-library names from the outer artifact and its archive members,
+    normalize the SPDX ``files`` names, and require each discovered name to match
+    exactly or as a slash-delimited suffix of a documented path. Archive members
+    are inspected but never extracted, and the supplied SPDX mapping is not modified.
+
+    Args:
+        artifact_path: Artifact whose outer name and archive members are inspected.
+        sbom: Parsed SPDX mapping containing the file inventory.
+        policy: Policy providing the archive-member limit.
+
+    Raises:
+        ArtifactSupplyChainError: If archive inventory or SPDX file parsing fails,
+            or a native-library name is absent from the SPDX inventory.
+    """
     native_library_paths = _discover_native_library_paths(artifact_path, policy)
     documented_spdx_file_names = _extract_spdx_file_names(sbom)
     missing_native_library_paths = tuple(
@@ -525,6 +541,24 @@ def _verify_native_library_sbom_coverage(
 def _verify_current_repository_identities(
     repository_root: Path, policy: ArtifactSupplyChainPolicy
 ) -> None:
+    """Verify repository lock, toolchain, and release-dependency identities.
+
+    Read and hash each policy-declared lockfile and toolchain file, compare the
+    observed digests with the admitted values, then require release dependency
+    admission for ``repository_root``. The checks do not modify repository files;
+    delegated admission may stage a temporary private trust root and invoke a
+    local verifier. File-hashing errors follow the hash helper's contract, while
+    dependency-admission failures are translated by the release-admission helper.
+
+    Args:
+        repository_root: Repository root containing the admitted identity files.
+        policy: Policy containing lock and toolchain paths and expected digests.
+
+    Raises:
+        ArtifactSupplyChainError: If an identity differs, a required file is
+            missing or unsafe, or release dependency admission fails.
+        OSError: If hashing a repository file fails before domain translation.
+    """
     for lock_identity in policy.locks:
         if (
             compute_regular_file_sha256(repository_root / lock_identity.path)
@@ -542,6 +576,23 @@ def _verify_current_repository_identities(
 
 
 def _require_release_dependencies(repository_root: Path) -> None:
+    """Require dependency admission before creating or accepting an artifact.
+
+    Delegate release eligibility to the dependency-admission policy for the
+    repository. Repository files remain unchanged, but delegated admission may
+    stage a temporary private trust root and invoke a local verifier. Translate
+    dependency, filesystem, and policy value failures into one
+    artifact-supply-chain error, preserving the original exception as its cause;
+    exceptions outside those translated categories propagate unchanged.
+
+    Args:
+        repository_root: Repository root whose release dependency records are read.
+
+    Raises:
+        ArtifactSupplyChainError: If dependency admission rejects the repository
+            or its inputs cannot be read or interpreted; the original admission,
+            filesystem, or value error is preserved as the cause.
+    """
     try:
         require_release_admission(repository_root)
     except (DependencyAdmissionError, OSError, ValueError) as error:
@@ -837,6 +888,28 @@ def sign_bundle(
 def _verify_file_digest_record(
     bundle_path: Path, value: object, *, context: str
 ) -> tuple[PurePosixPath, str, int]:
+    """Verify one bundle file against its manifest path, digest, and size.
+
+    Require the exact digest-record fields, including a 64-character lowercase
+    hexadecimal SHA-256 digest and a positive non-Boolean integer byte count.
+    Validate the path lexically as a bundle-relative POSIX path, then hash and
+    stat the target file. The digest and size observations are separate and
+    therefore non-atomic; parent-directory symlinks remain subject to normal path
+    resolution, and no files are modified.
+
+    Args:
+        bundle_path: Bundle directory containing the recorded file.
+        value: Candidate manifest record with ``path``, ``sha256``, and ``size``.
+        context: Manifest field context used in validation findings.
+
+    Returns:
+        The validated relative path, expected lowercase SHA-256 digest, and size in bytes.
+
+    Raises:
+        ArtifactSupplyChainError: If the record shape or fields are invalid, the
+            path is unsafe, the file is missing or unsafe, or content mismatches.
+        OSError: If hashing or statting the target file fails.
+    """
     if not isinstance(value, dict) or set(value) != _DIGESTED_FILE_RECORD_KEYS:
         raise ArtifactSupplyChainError([f"{context} has missing or unknown fields"])
     relative_path = _parse_safe_bundle_relative_path(value.get("path"), context=f"{context}.path")

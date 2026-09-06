@@ -1,25 +1,28 @@
 # Python coding standards audit and migration plan
 
-Audit date: 2026-09-05. Baseline revision:
-`d3a40ca98d71208426c8501d8d4a1aaaa049768d`.
+Audit date: 2026-09-05. Original audit baseline revision:
+`d3a40ca98d71208426c8501d8d4a1aaaa049768d`. Current slice baseline (2026-09-06):
+captured working tree at `c710114972071e3d1512609d4de6bafed0a6ddcf`, including
+the uncommitted twenty-second slice.
 Status: steps 1–4 implemented on 2026-09-05; steps 5–6 are in progress. Domain
 operations, identity/calendar value models, all dedicated governance model
 modules, CI/remote-execution contracts, supply-chain, domain, shared model-validation,
 change-risk, ownership, evidence, package-metadata and remaining governance test
 contracts, remaining build tests and fixtures, and the change-risk service pilot
 are implemented; high-level workflow refactoring remains in step 6, and step 7
-remains planned. The latest three step-5 slices document CI event/checkout,
-evidence input/parsing, and security/inventory/topology registry contracts,
-retiring 42 documentation obligations across 42 selected definitions. Three
-`gpt-5.6-luna` source writers at `xhigh` reasoning contributed; semantic audits
-and combined validation for all three slices are complete after corrections. The
-source inventory holds 1,090 obligations across
-73 files: 292 documentation obligations (21 summaries and 271 sections/parameters)
-and 798 function dispositions. The earlier CLI slice preserves 12 Typer callback
-docstrings as help contracts.
-Step 5 still has other governance operations remaining; moved workflow
-documentation is combined with step-6 service slices. The findings below describe
-the original audited revision, before step-1 enforcement.
+remains planned. The twenty-third step-5 slice expands seven public Git,
+audit-signal and status contracts across three files, retiring 37 structured
+documentation obligations. Three `gpt-5.6-luna` writers at `xhigh` reasoning
+prepared the documentation; the parent completed semantic audit and combined
+validation after corrections. The source inventory holds 1,032 obligations
+across 73 files: 234 documentation obligations (all sections/parameters) and
+798 function dispositions. No missing-summary debt remains. The separate
+inferred-typing inventory remains at 686 diagnostics. The earlier CLI slice
+preserves 12 Typer callback docstrings as help contracts.
+Step 5 remains in progress on the 234 structured-documentation obligations;
+documentation for moved workflows is combined with their step-6 service slices.
+The findings below describe the original audited revision, before step-1
+enforcement.
 
 The requested target is segregated, commented import groups; stringent typing
 without `Any`; useful Google-style docstrings; and a preference for classes over
@@ -293,7 +296,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 2. Normalize imports — implemented | Activated the heading settings and applied import-only fixes in runtime, tooling and test batches. Retired all 243 import obligations. | Ruff import/format checks pass; complete AST comparison confirms unchanged import targets, aliases, relative levels and execution order. See the step-2 validation record below. |
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
-| 5. Document existing contracts — in progress | Documented financial-unit models/conventions, the symbology catalog, calendar adapter, identity/calendar value models, shared governance validation, operating/risk/evidence contracts, all dedicated governance model modules, and CI/remote-execution, dependency/artifact, domain, shared model-validation, change-risk, ownership, evidence, package-metadata, remaining governance tests and helpers, remaining build tests and fixtures, and the CLI/shared, secret-scanning, sharding, CI-policy, remote-policy, artifact-policy, change-risk-policy, evidence-policy and wheel-source governance operations, plus selected architecture/ownership/standards helpers, records and CLI entrypoints and inventory, topology and security registry helpers, program, dependency-admission and artifact-supply-chain operation helpers, CI selection and execution helpers, CI event/checkout helpers, evidence input/parsing helpers, and security/inventory/topology registry parser and graph helpers. Remaining: other governance operations. Combine docs for moved functions with step 6. | The twenty-one documentation slices retire 185, 268, 76, 80, 22, 158, 109, 109, 97, 116, 16, 93, 52, 76, 42, 35, 40, 36, 9, 21 and 12 obligations respectively, preserving executable ASTs. The source inventory now holds 1,090 obligations across 73 files: 292 documentation obligations (21 summaries and 271 sections/parameters) and 798 function dispositions. The step-5 implementation and combined validation records track each slice. |
+| 5. Document existing contracts — in progress | Documented financial-unit models/conventions, the symbology catalog, calendar adapter, identity/calendar value models, shared governance validation, operating/risk/evidence contracts, all dedicated governance model modules, and CI/remote-execution, dependency/artifact, domain, shared model-validation, change-risk, ownership, evidence, package-metadata, remaining governance tests and helpers, remaining build tests and fixtures, and the CLI/shared, secret-scanning, sharding, CI-policy, remote-policy, artifact-policy, change-risk-policy, evidence-policy and wheel-source governance operations, plus selected architecture/ownership/standards helpers, records and CLI entrypoints and inventory, topology and security registry helpers, program, dependency-admission and artifact-supply-chain operation helpers, CI selection and execution helpers, CI event/checkout helpers, evidence input/parsing helpers, security/inventory/topology registry parser and graph helpers, remaining private governance helpers, and public Git, audit-signal and status contracts. The missing-summary queue is complete. Step 5 retains structured governance contracts; document moved workflows with step 6. | The twenty-three documentation slices retire 185, 268, 76, 80, 22, 158, 109, 109, 97, 116, 16, 93, 52, 76, 42, 35, 40, 36, 9, 21, 12, 21 and 37 obligations respectively, preserving executable ASTs. Parent reconciliation verified 1,032 obligations across 73 files: 234 documentation obligations (0 summaries and 234 sections/parameters) and 798 function dispositions; the separate inferred-typing inventory remains at 686 diagnostics. The step-5 implementation and validation records track each slice; the current slice passed semantic audit and combined validation. |
 | 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and separate approval evaluator, retaining the function APIs. Continue with loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | The first queue item preserves serialized decisions, ordered errors and CLI results across 63,404 differential cases; repeated-call regressions pass. See the step-6 records below. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
@@ -1243,6 +1246,80 @@ Exactly **12** `PYD001` summaries are retired. The inventory after this slice ho
 summaries and 271 sections/parameters) and 798 function dispositions. The source
 semantic audit and combined validation are complete.
 
+### Step 5 implementation — remaining private governance helper contracts
+
+The twenty-second documentation slice covers 21 private helper definitions across
+six governance modules from clean HEAD `c710114972071e3d1512609d4de6bafed0a6ddcf`:
+eight definitions in the [program-governance registry](../../tools/governance/src/alpha_research_governance/program_governance/registry.py),
+including nested `visit_dependency`, two in [program status](../../tools/governance/src/alpha_research_governance/program_governance/status.py),
+five in the [dependency-admission policy](../../tools/governance/src/alpha_research_governance/dependency_admission/policy.py),
+four in the [artifact-supply-chain bundle](../../tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py),
+one in [architecture governance](../../tools/governance/src/alpha_research_governance/architecture_governance.py),
+and one in the [engineering-standards policy](../../tools/governance/src/alpha_research_governance/engineering_standards/policy.py).
+Three `gpt-5.6-luna` documentation writers at `xhigh` reasoning prepared
+disjoint source slices. The parent audited every new docstring, requested
+corrections and verified the revised contracts against the implementation.
+
+The program helpers document legacy and purpose-specific dependency-expression
+grammar; depth-first cycle traversal including the nested visitor; schema-specific
+package-state and evidence handling; metric, finding-record and finding-disposition validation;
+and the local evidence reads performed during repository validation. Status
+helpers cover Markdown cell escaping and deterministic POSIX relative-link
+rendering without owning file I/O.
+
+The dependency helpers document exact vulnerability-decision and emergency-override
+windows, roles, dispositions, identity handling and error translation; ordered
+Python lock findings including retained local evidence and delegated Cosign
+verification; migrated-record findings; and the limited Bazel, Nix, requirements
+and workflow lock-surface checks. Artifact helpers document lexical bundle-relative
+path checks, file digests and byte counts, archive-member inventory, selected SPDX name
+coverage, repository identity reads and delegated release-admission effects.
+Architecture logging documents ordered finding mutation, first-row duplicate
+handling and propagated ADR reads. The engineering helper
+documents exact Hypothesis dependency-record projection and drift findings.
+These descriptions preserve helper ordering, input mutation boundaries, local I/O,
+subprocess delegation and propagated versus translated errors without claiming
+broader workflow, security or admission guarantees.
+
+This slice retires exactly **21** `PYD001` summaries and no `PYD002` sections. The
+missing-summary queue is therefore complete. The remaining **271** documentation
+obligations are structured sections and parameter contracts across step 5; moved
+workflow documentation is combined with the relevant step-6 service work. The
+798 function dispositions are unchanged, and the separate inferred-typing
+inventory remains at 686 diagnostics. Parent verification of the inventory
+deletion, checksum update, focused checks and semantic audit is recorded below.
+
+### Step 5 implementation — public Git, audit-signal and status contracts
+
+The twenty-third documentation slice covers seven definitions across the [CI
+runner](../../tools/governance/src/alpha_research_governance/ci_policy/runner.py),
+[dependency-admission
+policy](../../tools/governance/src/alpha_research_governance/dependency_admission/policy.py),
+and [program-governance
+status](../../tools/governance/src/alpha_research_governance/program_governance/status.py)
+modules. Three `gpt-5.6-luna` writers at `xhigh` reasoning handled disjoint assignments. The
+parent audit reviewed the source bodies, helpers, models, callers, and captured baseline before
+integration. The captured working-tree baseline at `c710114972071e3d1512609d4de6bafed0a6ddcf`
+already included the uncommitted twenty-second slice; those earlier changes are preserved.
+
+The CI contracts document shell-free Git argument boundaries, exact lowercase commit resolution,
+strict ASCII and embedded-NUL handling, changed-path expansion and ordering, and exact
+two-parent merge verification. The dependency signal contracts document bounded JSON loading,
+exact pip-audit lock coverage, owned expiry checks, unused `fixes` payloads, ordered findings,
+repository and version binding, broader `fromisoformat` timestamp handling, freshness,
+duplicate-name checks, required Scorecard checks, nonnegative score rules, and advisory-only
+limits. The status contracts document deterministic Markdown rendering, limited objective-cell
+escaping, POSIX relative links, one trailing LF, and UTF-8 reads with universal-newline
+translation before exact text comparison for generated files.
+
+This slice retires exactly **37** `PYD002` documentation obligations: 17 from the three Git
+helpers, 12 from the two audit-signal assessors and eight from the two status functions. The
+inventory now contains 1,032 obligations across 73 files: 234 `PYD002` and 798 `PYC001`, with no
+`PYD001` obligations. The separate inventory of 686 inferred-typing diagnostics is unchanged.
+Step 5 remains in progress with 234 documentation sections and parameters; documentation for
+moved workflows is combined with the corresponding step-6 services. Validation is recorded
+below.
+
 ### Step 6 implementation — change-risk service pilot
 
 [ChangeRiskClassifier](../../tools/governance/src/alpha_research_governance/change_risk/classification.py)
@@ -2071,3 +2148,59 @@ Reversal restores the 42 docstrings, matching debt entries and pin, and this pla
 record together. Step 5 remains in progress; high-level workflow refactoring
 remains step 6. Hosted CI, `make ci-full`, and separate integration/performance
 lanes were not run.
+
+## Step 5 validation record — remaining private governance helper contracts, 2026-09-06
+
+This record uses clean HEAD `c710114972071e3d1512609d4de6bafed0a6ddcf` as the
+slice baseline. Three `gpt-5.6-luna` writers at `xhigh` reasoning produced the
+requested documentation. The parent audited all 21 source contracts and the
+plan, corrected the drafts, and verified the final combined tree.
+
+| Check | Observed result |
+| --- | --- |
+| Documentation audit | Passed: general software documentation, R0, against the repository's Python/Google contract. All 21 docstrings were checked against implementations, helpers, models, callers and tests. Corrections cover dependency-overlap scope, limited lock checks, temporary verifier effects, ADR finding order and file-size units. No actionable documentation findings remain. |
+| Semantic probes | Passed: legacy all-of/any-of overlap, cross-purpose reuse and paired clause acceptance match the prose; temporary fixtures confirm that requirements versions and Nix revision/hash contents are not checked by the lock-surface helper. |
+| Executable AST, comments and unselected docs | Passed: all six source modules retain unchanged executable ASTs, comments and unselected docstrings. All selected definitions have zero remaining documentation findings. |
+| Exact debt reconciliation | Passed: exactly 21 `PYD001` summaries were removed with no additions or inventory-metadata edits. The source inventory has 1,069 obligations across 73 files: 271 `PYD002` sections/parameters and 798 `PYC001` dispositions. The debt pin is `c068d63832d2aab7a5666b032d199f265337c6671001109bf75879c918749e26`. |
+| Inferred-typing inventory | Passed: the separate inventory remains unchanged at 686 diagnostics. |
+| Lint and formatting | Passed: scoped Ruff with `D`/`ANN401` and the Google convention for all six modules; `make lint format-check` passed across 136 Python files. |
+| Package and installed-source evidence | Passed: the final governance package was rebuilt offline as non-editable; all six source modules and the checker byte-match installation. Both owned packages remain non-editable, and seven audited source/checker hashes are unchanged after final hooks and tests. |
+| Aggregate pre-commit validation | Passed: `pre-commit run --all-files --verbose` exited 0 on the stable tree. This includes strict mypy across 136 files, native stubtest across 1,548 modules, the typing inventory, source standards, governance, architecture/local links, lock, secrets and whitespace checks. An earlier run detected concurrent plan edits despite its tools passing; the stable-tree rerun resolved that transient failure. |
+| Default pytest | Passed: the final default selection passed 663 tests with 9 deselected in 16.10 seconds. |
+| Test collection | Passed: all 672 ordered pytest node IDs match before and after with `addopts` overridden. |
+| Bazel | Passed: the final `bazel test --config=ci //...` run exited 0 with all 20 targets passing, 12 executed and 8 cached, using the authorized existing external cache and synthetic host sentinel. The first sandboxed attempt could not write the cache. |
+| Final plan and change scope | Passed: only six source modules, the debt JSON, the checker pin and this plan differ from the clean baseline (nine files). The parent audited the completed plan and checked architecture/local links and whitespace after recording the results. Tests, fixtures, configuration, dependencies, locks, exceptions and both function dispositions and inferred-typing debt are unchanged. |
+
+Reversal restores the 21 added docstrings, their matching debt entries and pin,
+and this plan record together. Step 5 remains in progress with 271 structured
+sections/parameter obligations; moved workflow documentation is combined with
+step-6 service slices. Hosted CI, `make ci-full`, and separate integration and
+performance lanes were not run.
+
+## Step 5 validation record — public Git, audit-signal and status contracts, 2026-09-06
+
+The baseline is the captured working tree at
+`c710114972071e3d1512609d4de6bafed0a6ddcf`, including the previously completed,
+uncommitted twenty-second slice. Three `gpt-5.6-luna` writers used `xhigh`
+reasoning. The parent audited all seven revised docstrings and the plan, then
+verified the combined tree without attributing the earlier slice to this work.
+
+| Check | Observed result |
+| --- | --- |
+| Documentation audit | Passed: general software documentation, R0, against the repository's Python/Google contract. All seven public contracts were checked against implementations, helpers, models, callers and tests. Corrections clarify Scorecard duplicate-name scope and timestamp parsing, pip-audit error aggregation, and propagated embedded-NUL Git errors. No actionable documentation findings remain. |
+| Semantic probes | Passed: Scorecard accepts Boolean and unbounded nonnegative required scores, ISO week-date timestamps and negative scores for additional names; duplicate additional names are rejected and a naive validation clock propagates `TypeError`. pip-audit ignores `fixes` contents and extra dependency fields. Generated status accepts CRLF through newline translation and rejects a missing trailing LF. A NUL-bearing Git ref propagates `ValueError`. |
+| Executable AST, comments and unselected docs | Passed: all three modules retain unchanged executable ASTs, comments and unselected docstrings, including prior slice-22 additions. All seven selected definitions have zero remaining documentation findings. |
+| Exact debt reconciliation | Passed: exactly 37 `PYD002` obligations retired, with no additions or inventory-metadata changes. The inventory has 1,032 obligations across 73 files: 234 `PYD002` and 798 `PYC001`, with no `PYD001`. The checksum pin is `cd2f855bbf4dd49d893e2d858fe77ca9525f82e828aef219e7c664797f189a3d`. The separate 686-diagnostic inferred-typing inventory is unchanged. |
+| Lint and formatting | Passed: scoped Ruff with `D`/`ANN401` and the Google convention for all three modules; `make lint format-check` passed across 136 Python files. |
+| Package and installed-source evidence | Passed: the governance package was rebuilt offline as non-editable; all three changed modules and the checker byte-match installation. Both owned packages remain non-editable, and all four audited source/checker hashes remain unchanged after hooks and tests. |
+| Aggregate pre-commit validation | Passed: `pre-commit run --all-files --verbose` exited 0 with every hook passing, including strict mypy across 136 files, native stubtest across 1,548 modules, typing and source inventories, governance, architecture/local links, lock, secrets and whitespace checks. |
+| Default pytest | Passed: 663 tests passed with 9 deselected in 16.35 seconds. |
+| Test collection | Passed: all 672 ordered pytest node IDs match the captured baseline with `addopts` overridden. |
+| Bazel | Passed: `bazel test --config=ci //...` exited 0 with all 20 targets passing, 12 executed and 8 cached, using the authorized existing external cache and synthetic host sentinel. |
+| Final plan and captured-tree scope | Passed: only the three selected source modules, exact debt deletions, checksum pin and this plan differ from the captured tree (six files). All other tracked-file hashes and the pre-existing untracked-file list are unchanged. The parent audited the final plan and checked architecture/local links and whitespace after recording results. Tests, fixtures, configuration, dependencies, locks, exceptions, function dispositions and inferred-typing debt are unchanged. |
+
+Reversal restores the seven prior docstrings, their 37 matching debt entries and
+pin, and this plan record together, preserving the earlier uncommitted slice.
+Step 5 remains in progress with 234 structured sections/parameter obligations;
+documentation for moved workflows is combined with step-6 service slices. Hosted
+CI, `make ci-full`, and separate integration/performance lanes were not run.

@@ -110,7 +110,32 @@ def _run_command_with_visible_output(command: list[str], *, root: Path) -> None:
 
 
 def resolve_git_commit(root: Path, revision: str) -> str:
-    """Resolve an untrusted ref to an exact commit SHA."""
+    """Resolve a Git revision expression to an exact commit SHA.
+
+    Reject an empty expression or one beginning with ``-`` before passing the
+    remaining expression as one argument to ``git rev-parse --verify
+    --end-of-options <revision>^{commit}``. Run that shell-free command with
+    ``root`` as its working directory. Git must emit one 40-character lowercase
+    hexadecimal SHA; successful output is decoded as strict ASCII and stripped
+    of surrounding whitespace. The command has no timeout.
+
+    Args:
+        root: Working directory supplied to Git for resolving the revision.
+        revision: Non-empty Git revision expression that must not begin with
+            ``-``; Git resolves it and requires the result to name a commit.
+
+    Returns:
+        The resolved 40-character lowercase hexadecimal commit SHA.
+
+    Raises:
+        CIPolicyError: If ``revision`` is empty or option-shaped, Git cannot
+            start, Git exits unsuccessfully, or its successful output is not an
+            exact commit SHA. Command failures use the command helper's
+            translated diagnostics and preserve startup causes.
+        ValueError: If ``revision`` contains an embedded NUL character and
+            ``subprocess.run`` rejects the command argument before Git starts.
+        UnicodeDecodeError: If successful Git output is not valid ASCII.
+    """
     if not revision or revision.startswith("-"):
         raise CIPolicyError(["revision must be a non-option Git ref"])
     payload = _run_command_and_capture_output(
@@ -126,7 +151,55 @@ def resolve_git_commit(root: Path, revision: str) -> str:
 def git_changed_paths_between(
     root: Path, base_ref: str, head_ref: str
 ) -> tuple[str, str, tuple[ChangedPath, ...]]:
-    """Return exact refs and normalized paths changed between them."""
+    """Return resolved commits and sorted paths changed between two revisions.
+
+    Validate the repository CI policy, resolve ``base_ref`` and ``head_ref``
+    with ``resolve_git_commit``, then run the shell-free command ``git diff
+    --name-status -z --diff-filter=ACDMRTUXB <base> <head> --`` with ``root``
+    as its working directory. The command has no timeout. Parse Git's
+    NUL-delimited UTF-8 output with the policy's inclusive
+    ``maximum_changed_files`` limit, counting expanded path records before
+    normalization and deduplication; each rename or copy contributes two.
+    Rename and copy records contribute both source and destination paths;
+    deletion records retain their deleted path. Normalization validates
+    repository-relative paths, removes duplicate ``(status, path)`` records,
+    and sorts the remaining records lexically by status and then path.
+
+    Args:
+        root: Repository directory used for policy validation and as Git's
+            working directory.
+        base_ref: Git revision expression for the comparison base. It must be
+            non-empty, must not begin with ``-``, and must resolve to a commit.
+        head_ref: Git revision expression for the comparison head. It must be
+            non-empty, must not begin with ``-``, and must resolve to a commit.
+
+    Returns:
+        A three-tuple containing the resolved base SHA, resolved head SHA, and
+        unique ``ChangedPath`` records sorted by ``(status, path)``. The path
+        tuple is empty when the resolved commits have no selected changes.
+
+    Raises:
+        CIPolicyError: If CI policy findings, revision resolution, the Git diff,
+            the changed-file limit, status parsing, or path normalization rejects
+            the operation. Git startup and nonzero exit failures are translated
+            by the command helper.
+        ChangeRiskPolicyError: If repository policy validation rejects the
+            referenced change-risk policy.
+        EvidenceGovernanceError: If repository policy validation rejects the
+            retained CI evidence.
+        ValidationError: If repository policy validation reaches an uncovered
+            policy-model type failure.
+        OSError: If repository policy validation encounters an unhandled
+            filesystem or process-startup failure.
+        UnicodeError: If repository policy validation encounters an unhandled
+            text-decoding failure.
+        UnicodeDecodeError: If Git's name-status output is not valid UTF-8, or
+            a resolved revision command emits non-ASCII output.
+        ValueError: If either revision contains an embedded NUL and
+            ``subprocess.run`` rejects the command argument, or if Git emits a
+            bare copy status with two paths and the existing status normalizer
+            attempts to parse its missing score.
+    """
     policy = validate_continuous_integration_repository(root)
     base = resolve_git_commit(root, base_ref)
     head = resolve_git_commit(root, head_ref)
@@ -253,7 +326,41 @@ def _scan_paths_for_secrets(root: Path, paths: tuple[str, ...]) -> None:
 
 
 def verify_git_merge_parents(root: Path, *, base_ref: str, head_ref: str, revision: str) -> str:
-    """Require a two-parent merge commit with the declared base and head parents."""
+    """Verify that a revision has exactly the declared base and head parents.
+
+    Resolve ``base_ref``, ``head_ref``, and ``revision`` with
+    ``resolve_git_commit``, then run the shell-free command ``git show -s
+    --format=%P <merged>`` with ``root`` as its working directory. The command
+    has no timeout. Decode successful parent output as strict ASCII, strip
+    surrounding whitespace, split on whitespace, and require the resulting
+    sequence to equal ``(base_sha, head_sha)`` exactly. This enforces exactly
+    two parents in the declared order. The command helper captures output and
+    translates startup and nonzero-exit failures.
+
+    Args:
+        root: Repository directory used as Git's working directory.
+        base_ref: Git revision expression for the expected first parent. It
+            must be non-empty, must not begin with ``-``, and must resolve to a
+            commit.
+        head_ref: Git revision expression for the expected second parent. It
+            must be non-empty, must not begin with ``-``, and must resolve to a
+            commit.
+        revision: Git revision expression for the merge result. It must be
+            non-empty, must not begin with ``-``, and must resolve to a commit.
+
+    Returns:
+        The resolved 40-character lowercase hexadecimal merge-result SHA when
+        its parent sequence is exactly ``(base_sha, head_sha)``.
+
+    Raises:
+        CIPolicyError: If any revision is empty or option-shaped, cannot be
+            resolved, Git cannot start or exits unsuccessfully, or the observed
+            parent sequence is not exactly the declared two-parent sequence.
+        ValueError: If any revision contains an embedded NUL and
+            ``subprocess.run`` rejects the command argument before Git starts.
+        UnicodeDecodeError: If successful revision or parent output is not
+            valid ASCII.
+    """
     base = resolve_git_commit(root, base_ref)
     head = resolve_git_commit(root, head_ref)
     merged = resolve_git_commit(root, revision)
