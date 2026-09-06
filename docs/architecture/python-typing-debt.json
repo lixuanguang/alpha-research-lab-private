@@ -181,30 +181,6 @@
       "task": "callbacks"
     },
     {
-      "path": "src/alpha_research/instrument_identity/models.py",
-      "symbol": "_validation_error_message",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
-      "count": 4,
-      "task": "error_details"
-    },
-    {
-      "path": "src/alpha_research/instrument_identity/models.py",
-      "symbol": "_validation_error_message",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any] | None\")",
-      "count": 2,
-      "task": "error_details"
-    },
-    {
-      "path": "src/alpha_research/instrument_identity/models.py",
-      "symbol": "_validation_error_message",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
-      "count": 1,
-      "task": "error_details"
-    },
-    {
       "path": "src/alpha_research/venue_calendar/adapter.py",
       "symbol": "_apply_overrides",
       "code": "misc",
@@ -1643,22 +1619,6 @@
       "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
       "count": 1,
       "task": "hypothesis"
-    },
-    {
-      "path": "tests/unit/test_instrument_identity.py",
-      "symbol": "test_instrument_identity_models_are_strict_frozen_pydantic_boundaries",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
-      "count": 2,
-      "task": "collections+payload"
-    },
-    {
-      "path": "tests/unit/test_instrument_identity.py",
-      "symbol": "test_instrument_identity_models_are_strict_frozen_pydantic_boundaries",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"type[BaseModel]\")",
-      "count": 1,
-      "task": "collections+payload"
     },
     {
       "path": "tests/unit/test_instrument_identity.py",

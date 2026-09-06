@@ -8,13 +8,14 @@ import unicodedata
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Self
+from typing import NotRequired, Protocol, Self, TypedDict
 from uuid import UUID
 
 # third party library imports
 from pydantic import (
     BaseModel,
     ConfigDict,
+    TypeAdapter,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -30,19 +31,35 @@ class InstrumentIdentityValidationError(InstrumentIdentityError):
     """Report an invalid canonical identity or symbology record."""
 
 
-def _validation_error_message(error: ValidationError) -> str:
-    """Join validation messages in field order, retaining translated domain causes."""
-    messages: list[str] = []
-    for detail in error.errors(include_input=False, include_url=False):
-        context = detail.get("ctx")
-        cause = context.get("error") if isinstance(context, dict) else None
-        if isinstance(cause, InstrumentIdentityValidationError):
-            messages.append(str(cause))
-            continue
-        location = ".".join(str(component) for component in detail["loc"])
-        message = str(detail["msg"]).removeprefix("Value error, ")
-        messages.append(f"{location}: {message}" if location else message)
-    return "\n".join(messages)
+class _ValidationErrorReader(Protocol):
+    """Expose Pydantic error details as an unchecked boundary object."""
+
+    def errors(
+        self,
+        *,
+        include_url: bool = True,
+        include_context: bool = True,
+        include_input: bool = True,
+    ) -> object:
+        """Read error details for immediate validation into the owned record shape."""
+        ...
+
+
+class _ValidationErrorContext(TypedDict, total=False):
+    """Capture optional context while retaining the original exception object."""
+
+    error: object
+
+
+class _ValidationErrorDetail(TypedDict):
+    """Capture the Pydantic fields used in identity error messages."""
+
+    loc: tuple[int | str, ...]
+    msg: str
+    ctx: NotRequired[_ValidationErrorContext]
+
+
+_VALIDATION_ERROR_DETAILS = TypeAdapter(list[_ValidationErrorDetail])
 
 
 class _InstrumentIdentityModel(BaseModel):
@@ -63,6 +80,26 @@ class _InstrumentIdentityModel(BaseModel):
         validate_default=True,
     )
 
+    @staticmethod
+    def _validation_error_message(error: ValidationError) -> str:
+        """Join validation messages in field order, retaining translated domain causes."""
+        messages: list[str] = []
+        error_reader: _ValidationErrorReader = error
+        details = _VALIDATION_ERROR_DETAILS.validate_python(
+            error_reader.errors(include_input=False, include_url=False),
+            strict=True,
+        )
+        for detail in details:
+            context = detail.get("ctx")
+            cause = context.get("error") if context is not None else None
+            if isinstance(cause, InstrumentIdentityValidationError):
+                messages.append(str(cause))
+                continue
+            location = ".".join(str(component) for component in detail["loc"])
+            message = detail["msg"].removeprefix("Value error, ")
+            messages.append(f"{location}: {message}" if location else message)
+        return "\n".join(messages)
+
     def __init__(self, **data: object) -> None:
         """Validate supplied fields and translate framework validation failures.
 
@@ -76,7 +113,9 @@ class _InstrumentIdentityModel(BaseModel):
         try:
             super().__init__(**data)
         except ValidationError as error:
-            raise InstrumentIdentityValidationError(_validation_error_message(error)) from error
+            raise InstrumentIdentityValidationError(
+                self._validation_error_message(error)
+            ) from error
 
 
 class InstrumentKind(StrEnum):
