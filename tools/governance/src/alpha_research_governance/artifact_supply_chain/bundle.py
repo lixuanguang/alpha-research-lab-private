@@ -614,7 +614,98 @@ def create_bundle(
     runner: ProcessRunner = _run_subprocess,
     build_platform: str | None = None,
 ) -> ArtifactBundle:
-    """Create an unsigned, deterministic whole-artifact candidate bundle."""
+    """Create an unsigned candidate bundle with normalized local metadata.
+
+    Resolve ``repository_root`` before checking every policy-declared lock and the
+    toolchain file, then require release dependency admission before invoking Syft.
+    Validate the artifact and evidence inputs and the destination, then run the admitted
+    Syft version check with the resolved repository as its working directory. Create a
+    sibling temporary staging directory and copy the complete artifact into it. Run Syft
+    on that copy with the resolved repository as its working directory, normalize the
+    SPDX output, and require native-library coverage without extracting archive members.
+    Copy the opaque evidence files in basename order and write canonical bundle metadata.
+    The candidate is exposed at ``output_path`` only after the staging directory is
+    renamed there. The source commit
+    and Bazel target are syntax checked and recorded; this function does not build the
+    artifact or inspect Git state.
+
+    The admission, file checks, hashing, and copies are separate filesystem observations
+    and therefore are not atomic. Failures after staging is allocated trigger
+    best-effort removal of that staging directory; parent-directory creation and staging
+    allocation occur before that cleanup scope, and no exclusive-create or rollback
+    guarantee is provided if the final rename has completed.
+
+    Args:
+        artifact_path: Path to the one artifact file to bundle. Its final component must
+            be a non-symlink regular file with a safe basename and a non-empty size
+            within ``policy.maximum_artifact_bytes``. Relative paths follow the process
+            current directory and are not interpreted relative to ``repository_root``.
+            The path is not required to be inside ``repository_root``; the complete
+            file is copied to ``artifact/<basename>``.
+        artifact_kind: Artifact kind that must occur in
+            ``policy.supported_artifact_kinds``. It is recorded in the manifest and
+            provenance.
+        build_target: Explicit Bazel label, such as ``//pkg:target`` or ``//:target``,
+            recorded in the build identity and provenance. No Bazel command or
+            target-output check is performed.
+        source_commit: Lowercase 40-character Git SHA recorded in the build identity,
+            provenance source URI, and returned summary. The spelling is checked, but
+            the repository ``HEAD`` and the commit's existence are not queried.
+        test_evidence_paths: Non-empty tuple of evidence files, limited to 1,000
+            entries. Relative paths follow the process current directory and are not
+            interpreted relative to ``repository_root``. Each final component must be a
+            non-symlink regular file with a safe unique basename, a positive size, and
+            at most 100 MiB. Files are copied in basename order to ``tests/`` and
+            recorded with their copied digest and size; their contents are treated as
+            opaque bytes, with no JSON or test-outcome validation.
+        output_path: Destination directory for the candidate bundle. It must not exist,
+            including as a symlink. Relative paths follow the process current directory
+            and are not interpreted relative to ``repository_root``. Its parent is
+            created as needed; staging uses a temporary sibling beneath that parent and
+            the completed staging directory is renamed to this path.
+        repository_root: Repository root used after resolution for lock and toolchain
+            hashing, release dependency admission, the Syft working directory, and
+            policy file hashing. The path need not be the process current directory.
+            Delegated dependency admission may run its own local verifier and temporary
+            trust-root handling; those operations do not use ``runner``.
+        policy: Loaded artifact-supply-chain policy supplying permitted kinds and
+            limits, expected lock and toolchain identities, provenance and SPDX
+            settings, and admitted Syft and Cosign versions.
+        runner: Process callback for Syft version and scan invocations. The default is
+            ``_run_subprocess``; it receives the argv list, the resolved repository
+            working directory, and a copied environment mapping. That environment starts
+            as ``os.environ`` and overrides ``LC_ALL=C``, ``SOURCE_DATE_EPOCH=1``,
+            ``SYFT_CHECK_FOR_APP_UPDATE=false``, ``SYFT_FILE_METADATA_SELECTION=all``,
+            and ``TZ=UTC``. A nonzero completed status becomes
+            ``ArtifactSupplyChainError``; exceptions raised by a custom callback
+            propagate unchanged.
+        build_platform: Optional platform identity to record in the build metadata. A
+            falsey value, including ``None`` or an empty string, derives lowercase
+            system and machine names joined by a hyphen; the resulting identity must
+            match the governed lowercase platform pattern.
+
+    Returns:
+        An ``ArtifactBundle`` containing the artifact basename, kind, complete-file
+        SHA-256 digest, source commit, build target, derived or supplied platform
+        identity, and manifest SHA-256 digest. The record describes preparation only and
+        does not indicate that the candidate is signed or verified.
+
+    Raises:
+        ArtifactSupplyChainError: If repository identities or release dependency
+            admission fail; an input, output path, platform identity, tool version, Syft
+            result, SPDX document, native-library inventory, or generated bundle record
+            violates the governed contract; or the destination already exists.
+        OSError: If resolving or inspecting paths, hashing, copying, creating
+            directories or staging, writing or removing intermediate files, or renaming
+            the completed candidate fails. The default subprocess runner translates a
+            process-start error into ``ArtifactSupplyChainError``.
+        ValueError: If bounded Syft JSON parsing raises an unhandled parser value error,
+            such as an integer-conversion limit failure.
+        RecursionError: If bounded Syft JSON parsing exceeds Python's recursion limit.
+        UnicodeDecodeError: If the default subprocess runner cannot decode captured Syft
+            output as text.
+        RuntimeError: If repository path resolution encounters a symlink loop.
+    """
     resolved_repository_root = repository_root.resolve()
     _verify_current_repository_identities(resolved_repository_root, policy)
     if artifact_kind not in policy.supported_artifact_kinds:
@@ -818,7 +909,74 @@ def sign_bundle(
     runner: ProcessRunner = _run_subprocess,
     environment: Mapping[str, str] | None = None,
 ) -> None:
-    """Sign a candidate only in the exact protected-main keyless context."""
+    """Sign and verify a candidate with the policy-authorized Cosign context.
+
+    Copy the supplied environment and require the exact trusted context and every
+    policy-required environment value. Read the candidate manifest and require
+    ``GITHUB_SHA`` to equal its build source commit. Reject an existing signature and
+    require release dependency admission before any Cosign invocation. Run the admitted
+    Cosign version check and ``sign-blob`` command with the candidate directory as the
+    tool working directory, require a non-empty regular ``signature.sigstore.json``, and
+    then call ``verify_bundle`` using the manifest artifact digest. Verification
+    rechecks repository identities, dependency admission, bundle contents, provenance,
+    SBOM coverage, signer identity, issuer, and the Cosign signature. This function
+    checks CI facts supplied by the caller; it does not query GitHub or independently
+    prove branch-protection state.
+
+    The final signature path is written directly rather than through an atomic
+    temporary-file replacement. If a failure occurs after the signing try-block begins,
+    the function calls ``unlink(missing_ok=True)`` and re-raises; cleanup is not
+    transactional, and an unlink failure can replace the original exception. Context,
+    environment, manifest, and existing-signature failures occur before that cleanup
+    scope; the initial Cosign-version check is also before it, while the
+    verification-time Cosign check is inside it.
+
+    Args:
+        bundle_path: Candidate bundle directory containing ``manifest.json``. The
+            signature is written in place at ``bundle_path/signature.sigstore.json``;
+            the bundle directory is then passed to full verification. The function relies on the
+            supplied spelling when forming tool argv; because Cosign runs with
+            ``bundle_path`` as its current directory, callers should use an absolute
+            path or otherwise ensure relative argv paths resolve as intended.
+        signing_context: Context identifier that must equal
+            ``policy.trusted_signing_context`` exactly.
+        policy: Loaded artifact-supply-chain policy supplying the trusted context,
+            required environment values, Cosign identity and issuer, and admitted Cosign
+            version.
+        repository_root: Optional repository root used for release dependency admission
+            and passed to full verification. If ``None``, ``Path.cwd()`` is supplied at
+            each of those calls; verification resolves that path internally.
+        runner: Process callback for Cosign version, signing, and verification
+            invocations. The default is ``_run_subprocess``; each call receives its
+            argv, ``bundle_path`` as working directory, and a copied signing
+            environment. Nonzero statuses become ``ArtifactSupplyChainError``;
+            callback exceptions propagate subject to the signature cleanup described above.
+        environment: Environment snapshot to copy for signing and verification. ``None``
+            copies the current process environment. The copy must contain every
+            policy-required name with its exact required value, and its ``GITHUB_SHA``
+            must match the manifest's build ``sourceCommit``.
+
+    Raises:
+        ArtifactSupplyChainError: If the context, required environment, manifest build
+            identity, artifact identity, dependency admission, Cosign version or signing
+            result is invalid; a signature already exists or is not a non-empty regular
+            file; or full bundle verification rejects any repository, manifest,
+            provenance, SBOM, content, signer, issuer, or signature condition.
+        OSError: If the bundle, repository, signature, or verification inputs cannot be
+            inspected, read, hashed, written, or removed. The default subprocess runner
+            translates a process-start error into ``ArtifactSupplyChainError``.
+        ValueError: If manifest or verification JSON parsing raises an unhandled parser
+            value error.
+        RecursionError: If manifest or verification JSON nesting exceeds Python's
+            recursion limit.
+        TypeError: If malformed nested provenance data reaches an unhandled verification
+            operation.
+        AttributeError: If malformed nested provenance data reaches an unhandled
+            verification operation.
+        UnicodeDecodeError: If the default subprocess runner cannot decode captured
+            Cosign output as text.
+        RuntimeError: If delegated repository path resolution encounters a symlink loop.
+    """
     signing_environment = dict(os.environ if environment is None else environment)
     if signing_context != policy.trusted_signing_context:
         raise ArtifactSupplyChainError(["signing context is not trusted"])
@@ -940,7 +1098,96 @@ def verify_bundle(
     runner: ProcessRunner = _run_subprocess,
     environment: Mapping[str, str] | None = None,
 ) -> ArtifactBundle:
-    """Verify a signed bundle against an explicit immutable artifact digest."""
+    """Verify a signed bundle against an exact artifact digest and policy.
+
+    Require ``expected_artifact_digest`` to be ``sha256:<64 lowercase hex>``, reject a
+    symlink or non-directory bundle, and resolve ``repository_root`` before checking its
+    policy-declared lock and toolchain digests and release-dependency admission. Reject
+    symlinks discovered below ``bundle_path``, read the bounded manifest, enforce its
+    selected schemas and identities, hash the artifact and every manifest-recorded file,
+    and require the expected regular-file set. Check selected in-toto provenance
+    identities and dependencies, the SBOM identity and native-library coverage, and a
+    non-revoked configured signer with a non-empty signature bundle. Finally run the
+    admitted Cosign version and ``verify-blob`` with the policy's certificate identity
+    and OIDC issuer.
+
+    The function itself does not write bundle or repository paths. Release-dependency
+    admission may stage temporary private trust-root material and run its local verifier
+    with its own helper environment. The default runner executes the admitted external
+    Cosign commands without a timeout or offline mode, so its normal external-service
+    behavior applies. An injected runner's successful result is accepted as supplied and
+    does not itself establish cryptographic evidence.
+
+    The bounded JSON reader limits the manifest, provenance, and SBOM documents to 100
+    MiB before reading. Archive inventory applies ``policy.maximum_archive_members``
+    after materializing member names; members are inventoried but never extracted.
+    Verification does not reapply ``create_bundle``'s ``maximum_artifact_bytes`` or
+    1,000 test-evidence count caps; test evidence is hashed and stat'ed only, never
+    parsed or checked for an outcome. The checks cover selected manifest, provenance,
+    and SPDX fields rather than providing full in-toto or SPDX schema validation. Digest
+    and size observations are separate, non-atomic operations with no snapshot or lock;
+    parent-directory symlinks remain followed.
+
+    The ``sourceCommit`` field is pattern-checked through ``str(...)`` before
+    ``ArtifactBundle`` is built. A non-string value can pass that check, such as a
+    40-digit JSON integer, but strict model construction then raises
+    ``pydantic.ValidationError``; it is not returned as an arbitrary parsed type.
+
+    Args:
+        bundle_path: Bundle directory to inspect. Python file operations interpret
+            relative paths from the process current directory. Cosign receives the
+            supplied path spelling in argv while running in this directory; use an
+            absolute path or ensure relative argv paths resolve as intended.
+        expected_artifact_digest: Immutable consumer reference that must exactly match
+            ``sha256:`` followed by 64 lowercase hexadecimal characters and the manifest
+            artifact digest.
+        repository_root: Repository root used for current lock, toolchain, policy, and
+            release-dependency checks. It is resolved before those checks; relative
+            input is based on the process current working directory.
+        policy: Loaded artifact-supply-chain policy supplying permitted artifact kinds,
+            exact repository identities, archive-member limit, SBOM and provenance
+            identities, tool versions, signer identity, and OIDC issuer.
+        runner: Process callback for the Cosign version and verification commands.
+            Defaults to ``_run_subprocess``, which uses ``bundle_path`` as the child
+            working directory, passes a copy of ``environment``, captures decoded text
+            without a timeout, and translates process-startup errors;
+            ``_run_artifact_tool`` translates nonzero statuses to
+            ``ArtifactSupplyChainError`` and other callback exceptions propagate.
+        environment: Complete environment mapping for Cosign version and verification
+            calls. ``None`` snapshots ``os.environ``; a supplied mapping is copied and
+            is not mutated. Release-dependency admission uses its own helper
+            environment.
+
+    Returns:
+        An ``ArtifactBundle`` summary containing the verified artifact name, permitted
+        kind, artifact SHA-256 digest, source commit, Bazel target, declared build
+        platform, and the SHA-256 digest of the manifest bytes observed at return.
+
+    Raises:
+        ArtifactSupplyChainError: If the immutable reference, bundle directory, symlink
+            policy, repository identities, release-dependency admission, manifest
+            structure, selected provenance or SBOM claims, native-library coverage, file
+            digest or size, signer status, signature presence, Cosign version, or Cosign
+            verification fails. The default runner translates process-startup failures
+            here, and ``_run_artifact_tool`` translates nonzero tool statuses here.
+        OSError: If an unhandled repository or bundle filesystem operation fails while
+            resolving paths, traversing, reading, hashing, statting, or inventorying
+            files; a custom runner may also propagate its filesystem errors.
+        UnicodeDecodeError: If an uncaught repository text read or runner output cannot
+            be decoded; invalid JSON-file UTF-8 is translated to
+            ``ArtifactSupplyChainError``.
+        ValueError: If JSON contains an integer exceeding the interpreter's conversion
+            limit or another parser value error escapes the bounded JSON helper.
+        RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+        TypeError: If malformed nested provenance reaches an operation that the runtime
+            casts do not narrow.
+        AttributeError: If malformed nested provenance supplies a shape that passes the
+            preceding key-set checks but has no mapping ``get`` method.
+        pydantic.ValidationError: If strict ``ArtifactBundle`` construction rejects a
+            parsed field, including a non-string ``sourceCommit`` that passed its
+            textual pattern check.
+        RuntimeError: If path resolution encounters a symlink loop.
+    """
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_artifact_digest):
         raise ArtifactSupplyChainError(
             ["consumer must supply an immutable sha256:<digest> reference"]
@@ -1193,7 +1440,75 @@ def publish_bundle(
     runner: ProcessRunner = _run_subprocess,
     environment: Mapping[str, str] | None = None,
 ) -> Path:
-    """Publish once to a repository-local content-addressed registry."""
+    """Stage, verify, and publish a bundle under its artifact digest.
+
+    Create ``<registry_root>/sha256`` and a ``.publish.*`` staging directory below it,
+    copy ``bundle_path`` with ``shutil.copytree(..., symlinks=False)``, and run
+    ``verify_bundle`` against the staged copy. Source symlink entries are dereferenced
+    during copying before staged verification, so a source link can become regular
+    published content and may pass where direct verification of the source would reject
+    it. Only the final ``registry_root`` component is rejected when it is a symlink;
+    ancestor directories and an existing ``sha256`` symlink are followed, and the
+    registry is not required to be inside ``repository_root``. After verification, check
+    for an existing ``sha256/<artifact_sha256>`` destination and rename the staged
+    bundle there. The existence check and rename are not an exclusive reservation, so
+    concurrent publishers are not coordinated.
+
+    The destination move is the publication boundary. Failures before it remove the
+    temporary staging tree on a best-effort basis. If the move succeeds but the
+    subsequent staging-directory ``rmdir`` fails, the function raises while the
+    published digest directory remains. No registry transaction, source snapshot, or
+    lock protects concurrent source changes during copying or verification.
+
+    Args:
+        bundle_path: Source bundle directory to copy. A relative path is interpreted
+            from the process current working directory. Its entries are copied before
+            the staged copy is verified; source symlinks are followed by ``copytree``.
+        expected_artifact_digest: Immutable ``sha256:<64 lowercase hex>`` reference
+            forwarded to ``verify_bundle``; it must match the staged manifest's artifact
+            digest.
+        registry_root: Root of the content-addressed registry. A relative path is
+            interpreted from the process current working directory. The function creates
+            or uses ``registry_root/sha256`` and returns
+            ``registry_root/sha256/<artifact_digest>``; no repository containment check
+            is performed.
+        repository_root: Repository root forwarded to ``verify_bundle`` for resolved
+            policy, lock, toolchain, policy-file, and release-dependency checks.
+        policy: Loaded artifact-supply-chain policy forwarded to ``verify_bundle``.
+        runner: Process callback forwarded to ``verify_bundle`` for Cosign version and
+            verification calls. Defaults to ``_run_subprocess``; its working directory
+            for those calls is the staged bundle; the default runner has no timeout or
+            offline mode.
+        environment: Environment mapping forwarded to ``verify_bundle``. ``None`` makes
+            verification snapshot ``os.environ``; supplied mappings are copied by the
+            delegated call and are not mutated.
+
+    Returns:
+        The published bundle directory at ``registry_root/sha256/<artifact_sha256>``,
+        where ``artifact_sha256`` is the verified artifact digest without the
+        ``sha256:`` prefix. The returned path preserves the relative or absolute
+        form of ``registry_root``.
+
+    Raises:
+        ArtifactSupplyChainError: If ``registry_root`` is a symlink, staged verification
+            fails, or the verified digest directory already exists or is a symlink.
+        OSError: If registry directories or temporary staging cannot be created,
+            copying, verification, renaming, cleanup, or other filesystem operations
+            fail. A post-rename staging cleanup failure can leave the published
+            directory in place while raising.
+        shutil.Error: If ``copytree`` accumulates one or more source-copy errors.
+        UnicodeDecodeError: If delegated verification or its runner encounters uncaught
+            text-decoding failure.
+        ValueError: If delegated verification propagates an unhandled parser value
+            error.
+        RecursionError: If delegated verification encounters excessively nested JSON.
+        TypeError: If delegated verification receives malformed nested provenance.
+        AttributeError: If delegated verification reaches an unsupported nested
+            provenance shape.
+        pydantic.ValidationError: If delegated verification rejects the final
+            ``ArtifactBundle`` summary.
+        RuntimeError: If delegated path resolution encounters a symlink loop.
+    """
     if registry_root.is_symlink():
         raise ArtifactSupplyChainError(["registry root must not be a symlink"])
     sha256_registry_root = registry_root / "sha256"
