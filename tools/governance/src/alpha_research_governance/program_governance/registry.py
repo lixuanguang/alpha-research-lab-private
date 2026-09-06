@@ -26,6 +26,7 @@ from alpha_research_governance.evidence import (
     validate_package_evidence,
 )
 from alpha_research_governance.operating_model import (
+    GovernanceStatus,
     ImplementationStatus,
     OperatingModel,
     OperatingModelError,
@@ -1000,47 +1001,93 @@ def _find_dependency_cycles(packages: tuple[PackageNode, ...]) -> tuple[str, ...
     return tuple(f"roadmap dependency cycle: {cycle}" for cycle in unique_cycles)
 
 
-def _parse_package_states(
-    value: object,
-    *,
-    repository_root: Path,
-    ownership_roles: frozenset[str],
-    schema_version: int,
-    operating_model: OperatingModel | None,
-) -> tuple[PackageState, ...]:
-    """Parse package states and enforce schema, evidence, and operating-model rules.
+class _PackageStateParser:
+    """Parse package states with bound repository, ownership, and schema context.
 
-    Read each referenced evidence file as UTF-8 for schemas before version 4; schema 4 requires
-    exactly one existing ``.md`` path but does not read it here. Resolve implementation governance
-    on the current date for versioned states. Preserve record order while deriving governance
-    status and assigned reviewers; do not modify the input or evidence files. Schemas below 3
-    require a contiguous roadmap prefix including A08; schemas 3 and 4 require an ordered subset
-    including A08.
-
-    Args:
-        value: Parsed ``package_states`` value expected to be a list of tables.
-        repository_root: Resolved repository root used to validate and read evidence paths.
-        ownership_roles: Role names permitted in package-state records.
-        schema_version: Program schema version controlling accepted fields and legacy rules.
-        operating_model: Operating model required for schema versions 2 through 4; ignored for
-            schema version 1.
-
-    Returns:
-        Validated package states in source order, with versioned governance fields resolved.
-
-    Raises:
-        ProgramGovernanceError: If records, paths, findings, statuses, ordering, or required
-            operating-model input violate the selected schema contract.
-        OSError: If an uncaught evidence-file operation fails.
-        UnicodeDecodeError: If a legacy evidence file is not valid UTF-8.
-        OperatingModelError: If the operating model cannot resolve a versioned state.
-        ValidationError: If constructing a package-state model rejects a parsed value.
+    Construction stores validation context without reading files or resolving operating-model
+    rules. Each ``parse`` call evaluates versioned states using a fresh current date and local
+    state collection, so a failed parse cannot affect a later call on the same parser.
     """
-    states: list[PackageState] = []
-    evaluation_date = date.today()
-    for index, entry in enumerate(_require_table_list(value, context="package_states"), 1):
+
+    def __init__(
+        self,
+        *,
+        repository_root: Path,
+        ownership_roles: frozenset[str],
+        schema_version: int,
+        operating_model: OperatingModel | None,
+    ) -> None:
+        """Bind context used to validate package-state records.
+
+        Args:
+            repository_root: Resolved repository root used to validate and read evidence paths.
+            ownership_roles: Role names permitted in package-state records.
+            schema_version: Program schema version controlling accepted fields and legacy rules.
+            operating_model: Operating model required for schema versions 2 through 4; ignored
+                for schema version 1.
+        """
+        self._repository_root = repository_root
+        self._ownership_roles = ownership_roles
+        self._schema_version = schema_version
+        self._operating_model = operating_model
+
+    def parse(self, value: object) -> tuple[PackageState, ...]:
+        """Parse and validate package-state records in source order.
+
+        Read each referenced evidence file as UTF-8 for schemas before version 4; schema 4
+        requires exactly one existing ``.md`` path but does not read it here. Resolve
+        implementation governance on the current date for versioned states. Schemas below 3
+        require a contiguous roadmap prefix including A08; schemas 3 and 4 require an ordered
+        subset including A08.
+
+        Args:
+            value: Parsed ``package_states`` value expected to be a list of tables.
+
+        Returns:
+            Validated package states in source order, with versioned governance fields resolved.
+
+        Raises:
+            ProgramGovernanceError: If records, paths, findings, statuses, ordering, or required
+                operating-model input violate the selected schema contract.
+            OSError: If an uncaught evidence-file operation fails.
+            UnicodeDecodeError: If a legacy evidence file is not valid UTF-8.
+            OperatingModelError: If the operating model cannot resolve a versioned state.
+            ValidationError: If constructing a package-state model rejects a parsed value.
+        """
+        evaluation_date = date.today()
+        states = [
+            self._parse_record(entry, index=index, evaluation_date=evaluation_date)
+            for index, entry in enumerate(_require_table_list(value, context="package_states"), 1)
+        ]
+        self._validate_ordering(states)
+        return tuple(states)
+
+    def _parse_record(
+        self,
+        entry: dict[str, object],
+        *,
+        index: int,
+        evaluation_date: date,
+    ) -> PackageState:
+        """Validate one package-state record and construct its immutable model.
+
+        Args:
+            entry: Parsed package-state table.
+            index: One-based source position used in diagnostics.
+            evaluation_date: Date used to resolve versioned operating rules.
+
+        Returns:
+            The validated package-state model for ``entry``.
+
+        Raises:
+            ProgramGovernanceError: If record fields, evidence, or versioned state rules fail.
+            OSError: If an uncaught legacy evidence-file operation fails.
+            UnicodeDecodeError: If a legacy evidence file is not valid UTF-8.
+            OperatingModelError: If the operating model cannot resolve a versioned state.
+            ValidationError: If constructing the package-state model rejects a parsed value.
+        """
         context = f"package_states[{index}]"
-        if set(entry) != (_STATE_KEYS if schema_version == 1 else _STATE_V2_KEYS):
+        if set(entry) != (_STATE_KEYS if self._schema_version == 1 else _STATE_V2_KEYS):
             raise ProgramGovernanceError([f"{context} has missing or unknown fields"])
         package_id = _require_string(entry, "package_id", context=context)
         status = _require_string(entry, "status", context=context)
@@ -1054,7 +1101,7 @@ def _parse_package_states(
         evidence_paths = _require_strings(
             entry.get("evidence_paths"), context=f"{context}.evidence_paths"
         )
-        if schema_version >= 4 and (
+        if self._schema_version >= 4 and (
             len(evidence_paths) != 1 or not evidence_paths[0].endswith(".md")
         ):
             raise ProgramGovernanceError(
@@ -1063,7 +1110,7 @@ def _parse_package_states(
         finding_ids = _require_strings(
             entry.get("open_finding_ids"),
             context=f"{context}.open_finding_ids",
-            allow_empty=schema_version >= 2,
+            allow_empty=self._schema_version >= 2,
         )
         if package_id not in ROADMAP_PACKAGE_IDS:
             raise ProgramGovernanceError([f"{context}.package_id is unsupported"])
@@ -1071,24 +1118,82 @@ def _parse_package_states(
             raise ProgramGovernanceError(
                 [f"{context}: solo-bootstrap implemented packages must remain partial"]
             )
-        if schema_version == 1 and repository_local_status != "passed":
+        if self._schema_version == 1 and repository_local_status != "passed":
             raise ProgramGovernanceError(
                 [f"{context}: implemented dependencies require passing repository-local evidence"]
             )
-        if owner_role not in ownership_roles:
+        if owner_role not in self._ownership_roles:
             raise ProgramGovernanceError([f"{context}: stale owner role {owner_role!r}"])
         invalid_classes = sorted(set(deferred_classes) - _ALLOWED_DEFERRED_CLASSES)
-        if invalid_classes or (schema_version == 1 and not deferred_classes):
+        if invalid_classes or (self._schema_version == 1 and not deferred_classes):
             raise ProgramGovernanceError(
                 [f"{context}: deferred evidence classes must be recognized and non-empty"]
             )
         if any(not finding.startswith(f"{package_id}-F") for finding in finding_ids):
             raise ProgramGovernanceError([f"{context}: finding IDs must belong to {package_id}"])
+        self._validate_evidence(
+            evidence_paths=evidence_paths,
+            finding_ids=finding_ids,
+            context=context,
+        )
+        implementation_status = "complete"
+        domain_id: str | None = None
+        technical_findings: tuple[str, ...] = ()
+        governance_status: GovernanceStatus = "pending"
+        assigned_reviewers: tuple[str, ...] = ()
+        if self._schema_version >= 2:
+            (
+                implementation_status,
+                domain_id,
+                technical_findings,
+                governance_status,
+                assigned_reviewers,
+            ) = self._parse_versioned_state(
+                entry,
+                context=context,
+                repository_local_status=repository_local_status,
+                evaluation_date=evaluation_date,
+            )
+        return PackageState(
+            package_id=package_id,
+            status=status,
+            owner_role=owner_role,
+            repository_local_status=repository_local_status,
+            deferred_evidence_classes=deferred_classes,
+            evidence_paths=evidence_paths,
+            open_finding_ids=finding_ids,
+            implementation_status=cast(ImplementationStatus, implementation_status),
+            domain_id=domain_id,
+            technical_finding_ids=technical_findings,
+            governance_status=governance_status,
+            assigned_reviewers=assigned_reviewers,
+        )
+
+    def _validate_evidence(
+        self,
+        *,
+        evidence_paths: tuple[str, ...],
+        finding_ids: tuple[str, ...],
+        context: str,
+    ) -> None:
+        """Validate evidence paths and retain required findings for legacy schemas.
+
+        Args:
+            evidence_paths: Repository-relative evidence paths from one state.
+            finding_ids: Open finding IDs that legacy evidence must contain.
+            context: Record context used in path and finding diagnostics.
+
+        Raises:
+            ProgramGovernanceError: If an evidence path is unsafe, nonexistent, or not a file,
+                or a legacy file omits a finding.
+            OSError: If an uncaught evidence-file operation fails.
+            UnicodeDecodeError: If a legacy evidence file is not valid UTF-8.
+        """
         evidence_files = tuple(
-            _require_repository_file(path, repository_root=repository_root, context=context)
+            _require_repository_file(path, repository_root=self._repository_root, context=context)
             for path in evidence_paths
         )
-        if schema_version < 4:
+        if self._schema_version < 4:
             evidence_text = "\n".join(
                 evidence_file.read_text(encoding="utf-8") for evidence_file in evidence_files
             )
@@ -1097,72 +1202,93 @@ def _parse_package_states(
                 raise ProgramGovernanceError(
                     [f"{context}: evidence paths do not retain findings {missing_findings!r}"]
                 )
-        implementation_status: ImplementationStatus = "complete"
-        domain_id = None
-        technical_findings: tuple[str, ...] = ()
-        rules = None
-        if schema_version >= 2:
-            domain_id = _require_string(entry, "domain_id", context=context)
-            implementation_status = cast(
-                ImplementationStatus,
-                _require_string(entry, "implementation_status", context=context),
-            )
-            technical_findings = _require_strings(
-                entry.get("technical_finding_ids"),
-                context=f"{context}.technical_finding_ids",
-                allow_empty=True,
-            )
-            if repository_local_status not in {"not_started", "passed", "failed"}:
-                raise ProgramGovernanceError([f"{context}: invalid repository_local_status"])
-            if operating_model is None:
-                raise ProgramGovernanceError(["versioned states require the operating model"])
-            rules = operating_model.resolve(
-                domain_id=domain_id, operation="implementation", on_date=evaluation_date
-            )
-            if implementation_status == "complete":
-                rules.require_local_completion(
-                    repository_local_status=repository_local_status,
-                    technical_finding_ids=technical_findings,
-                )
-            if repository_local_status == "failed" and implementation_status != "blocked":
-                raise ProgramGovernanceError([f"{context}: failed local evidence requires blocked"])
-            if technical_findings and implementation_status != "blocked":
-                raise ProgramGovernanceError([f"{context}: technical findings require blocked"])
-        states.append(
-            PackageState(
-                package_id=package_id,
-                status=status,
-                owner_role=owner_role,
+
+    def _parse_versioned_state(
+        self,
+        entry: dict[str, object],
+        *,
+        context: str,
+        repository_local_status: str,
+        evaluation_date: date,
+    ) -> tuple[str, str, tuple[str, ...], GovernanceStatus, tuple[str, ...]]:
+        """Resolve and validate schema-2-through-4 implementation governance fields.
+
+        Args:
+            entry: Parsed package-state table.
+            context: Record context used in diagnostics.
+            repository_local_status: Repository-local evidence status already parsed from the
+                record.
+            evaluation_date: Date used to resolve the effective operating rules.
+
+        Returns:
+            Parsed implementation status, domain ID, and technical finding IDs, followed by the
+            governance status and assigned reviewers resolved by the operating model. The
+            implementation-status membership is checked during ``PackageState`` construction.
+
+        Raises:
+            ProgramGovernanceError: If versioned fields or completion dependencies are invalid.
+            OperatingModelError: If the operating model cannot resolve the domain and operation
+                or the resolved rules reject local completion.
+        """
+        domain_id = _require_string(entry, "domain_id", context=context)
+        implementation_status = _require_string(entry, "implementation_status", context=context)
+        technical_findings = _require_strings(
+            entry.get("technical_finding_ids"),
+            context=f"{context}.technical_finding_ids",
+            allow_empty=True,
+        )
+        if repository_local_status not in {"not_started", "passed", "failed"}:
+            raise ProgramGovernanceError([f"{context}: invalid repository_local_status"])
+        if self._operating_model is None:
+            raise ProgramGovernanceError(["versioned states require the operating model"])
+        rules = self._operating_model.resolve(
+            domain_id=domain_id, operation="implementation", on_date=evaluation_date
+        )
+        if implementation_status == "complete":
+            rules.require_local_completion(
                 repository_local_status=repository_local_status,
-                deferred_evidence_classes=deferred_classes,
-                evidence_paths=evidence_paths,
-                open_finding_ids=finding_ids,
-                implementation_status=implementation_status,
-                domain_id=domain_id,
                 technical_finding_ids=technical_findings,
-                governance_status="pending" if rules is None else rules.governance_status,
-                assigned_reviewers=() if rules is None else rules.assigned_reviewers,
             )
+        if repository_local_status == "failed" and implementation_status != "blocked":
+            raise ProgramGovernanceError([f"{context}: failed local evidence requires blocked"])
+        if technical_findings and implementation_status != "blocked":
+            raise ProgramGovernanceError([f"{context}: technical findings require blocked"])
+        return (
+            implementation_status,
+            domain_id,
+            technical_findings,
+            rules.governance_status,
+            rules.assigned_reviewers,
         )
-    state_ids = tuple(state.package_id for state in states)
-    if schema_version < 3 and (
-        state_ids != ROADMAP_PACKAGE_IDS[: len(state_ids)] or "A08" not in state_ids
-    ):
-        raise ProgramGovernanceError(
-            ["package_states must be a contiguous implemented prefix including A01-A08"]
+
+    def _validate_ordering(self, states: list[PackageState]) -> None:
+        """Validate schema-specific package-state order and required A08 coverage.
+
+        Args:
+            states: Parsed package states in their source order.
+
+        Raises:
+            ProgramGovernanceError: If states are not the required contiguous prefix or ordered
+                unique subset for the selected schema.
+        """
+        state_ids = tuple(state.package_id for state in states)
+        if self._schema_version < 3 and (
+            state_ids != ROADMAP_PACKAGE_IDS[: len(state_ids)] or "A08" not in state_ids
+        ):
+            raise ProgramGovernanceError(
+                ["package_states must be a contiguous implemented prefix including A01-A08"]
+            )
+        expected_state_order = tuple(
+            package_id for package_id in ROADMAP_PACKAGE_IDS if package_id in set(state_ids)
         )
-    expected_state_order = tuple(
-        package_id for package_id in ROADMAP_PACKAGE_IDS if package_id in set(state_ids)
-    )
-    if schema_version >= 3 and (
-        state_ids != expected_state_order
-        or len(state_ids) != len(set(state_ids))
-        or "A08" not in state_ids
-    ):
-        raise ProgramGovernanceError(
-            ["package_states must be unique, in roadmap order, and include A08"]
-        )
-    return tuple(states)
+        if self._schema_version >= 3 and (
+            state_ids != expected_state_order
+            or len(state_ids) != len(set(state_ids))
+            or "A08" not in state_ids
+        ):
+            raise ProgramGovernanceError(
+                ["package_states must be unique, in roadmap order, and include A08"]
+            )
 
 
 def _parse_metric(
@@ -1629,13 +1755,12 @@ class ProgramRepository:
         )
         ownership_roles = _ownership_roles(ownership_path)
         operating_model = load_operating_model(ownership_path) if schema_version >= 2 else None
-        package_states = _parse_package_states(
-            program_document.get("package_states"),
+        package_states = _PackageStateParser(
             repository_root=resolved_repository_root,
             ownership_roles=ownership_roles,
             schema_version=schema_version,
             operating_model=operating_model,
-        )
+        ).parse(program_document.get("package_states"))
         finding_dispositions = (
             ()
             if schema_version < 4
@@ -1887,7 +2012,7 @@ class ProgramRepository:
         program = self.load_program(
             resolved_repository_root / "docs" / "governance" / "program-governance.toml"
         )
-        _validate_local_evidence(resolved_repository_root, program)
+        self._validate_local_evidence(resolved_repository_root, program)
         if program.generated_status_path is not None:
             # project library imports
             from alpha_research_governance.program_governance.status import (
@@ -1899,6 +2024,43 @@ class ProgramRepository:
                 program,
             )
         return program
+
+    def _validate_local_evidence(
+        self,
+        repository_root: Path,
+        program: ProgramGovernance,
+    ) -> None:
+        """Validate the A08 local evidence bundle against its policy and fixed profile.
+
+        Read the repository change-risk policy, manifest, and manifest artifacts through the
+        evidence validators; this method performs no writes and does not change ``program``.
+
+        Args:
+            repository_root: Operation-resolved repository root containing the change-risk
+                policy and evidence manifest.
+            program: Program record supplying the expected commit SHA and manifest path.
+
+        Raises:
+            ProgramGovernanceError: If the commit SHA is malformed, policy or manifest loading
+                fails, or the manifest does not match the A08 local-evidence profile.
+        """
+        if _REVISION.fullmatch(program.local_evidence_commit_sha) is None:
+            raise ProgramGovernanceError(["A08 local evidence commit SHA must be full length"])
+        try:
+            change_policy = load_change_risk_policy(
+                repository_root / "docs" / "governance" / "change-risk-policy.toml"
+            )
+            manifest = validate_manifest(
+                repository_root / program.local_evidence_manifest_path,
+                expected_commit_sha=program.local_evidence_commit_sha,
+                change_policy=change_policy,
+            )
+        except (OSError, ValueError) as error:
+            raise ProgramGovernanceError([f"A08 local evidence bundle: {error}"]) from error
+        try:
+            validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+        except EvidenceGovernanceError as error:
+            raise ProgramGovernanceError(error.findings) from error
 
 
 def _load_program(
@@ -2288,39 +2450,6 @@ def load_observations(path: Path, *, program: ProgramGovernance) -> tuple[Metric
         return _load_observations(path, program=program)
     except ValidationError as error:
         raise ProgramGovernanceError([f"{path}: observation model validation failed"]) from error
-
-
-def _validate_local_evidence(repository_root: Path, program: ProgramGovernance) -> None:
-    """Validate the A08 local evidence bundle against its policy and fixed profile.
-
-    Read the repository change-risk policy, manifest, and manifest artifacts through the evidence
-    validators; this helper performs no writes and does not change ``program``.
-
-    Args:
-        repository_root: Repository root containing the change-risk policy and evidence manifest.
-        program: Program record supplying the expected commit SHA and manifest path.
-
-    Raises:
-        ProgramGovernanceError: If the commit SHA is malformed, policy or manifest loading
-            fails, or the manifest does not match the A08 local-evidence profile.
-    """
-    if _REVISION.fullmatch(program.local_evidence_commit_sha) is None:
-        raise ProgramGovernanceError(["A08 local evidence commit SHA must be full length"])
-    try:
-        change_policy = load_change_risk_policy(
-            repository_root / "docs" / "governance" / "change-risk-policy.toml"
-        )
-        manifest = validate_manifest(
-            repository_root / program.local_evidence_manifest_path,
-            expected_commit_sha=program.local_evidence_commit_sha,
-            change_policy=change_policy,
-        )
-    except (OSError, ValueError) as error:
-        raise ProgramGovernanceError([f"A08 local evidence bundle: {error}"]) from error
-    try:
-        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
-    except EvidenceGovernanceError as error:
-        raise ProgramGovernanceError(error.findings) from error
 
 
 def validate_repository(repository_root: Path) -> ProgramGovernance:

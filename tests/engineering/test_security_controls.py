@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 # third party library imports
@@ -17,9 +18,14 @@ from alpha_research.security_controls import (
     SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS,
     THREAT_CATEGORIES,
     SecurityControlError,
+    SecurityControlMapLoader,
     load_control_map,
     main,
     validate_repository,
+)
+from alpha_research_governance.evidence import EvidenceGovernanceError
+from alpha_research_governance.security_controls import (
+    SecurityControlMapLoader as CanonicalSecurityControlMapLoader,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -589,3 +595,338 @@ def test_cli_emits_byte_stable_filtered_json(capsys: pytest.CaptureFixture[str])
     assert [item["mapping_id"] for item in jurisdiction_result["regulatory_mappings"]] == [
         "A07-MAP-SG-01"
     ]
+
+
+class TestSecurityControlMapLoaderContract:
+    """Exercise reusable security-map loading and validation lifecycle contracts."""
+
+    @staticmethod
+    def _assert_loader_findings(
+        loader: SecurityControlMapLoader,
+        path: Path,
+        expected: tuple[str, ...],
+    ) -> None:
+        """Assert that one loader call raises the exact ordered findings.
+
+        Args:
+            loader: Reusable security-control map loader under test.
+            path: TOML map path supplied to the loader.
+            expected: Exact ordered diagnostic messages required from the call.
+
+        Raises:
+            AssertionError: If loading succeeds or findings differ in value or order.
+
+        """
+        with pytest.raises(SecurityControlError) as caught:
+            loader.load(path)
+        assert caught.value.findings == expected
+
+    def test_constructor_defers_io_and_both_exports_validate(self, tmp_path: Path) -> None:
+        """Validate a repository after constructing the loader before files exist.
+
+        Args:
+            tmp_path: Pytest-provided directory for a repository created after construction.
+
+        """
+        assert CanonicalSecurityControlMapLoader is SecurityControlMapLoader
+
+        repository_root = tmp_path / "deferred-repository"
+        loader = SecurityControlMapLoader(repository_root)
+        _repository_fixture(repository_root)
+        map_path = repository_root / "docs/governance/security-control-map.toml"
+
+        validated = loader.validate_repository()
+        assert validated.finding_ids == ("A07-F01", "A07-F02", "A07-F03", "A07-F04")
+
+        canonical_loader = CanonicalSecurityControlMapLoader(repository_root)
+        assert canonical_loader.load(map_path).finding_ids == validated.finding_ids
+
+    def test_validate_repository_binds_first_resolved_symlink_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Use one resolved symlink root for the complete validation operation.
+
+        Arrange a valid repository behind a root symlink and an empty replacement directory.
+        Retarget the symlink immediately after the first root resolution. Assert that the first
+        validation still returns the original map and that a later invocation reads the new
+        target and fails while loading its missing ownership register.
+
+        Args:
+            tmp_path: Pytest-provided directory for valid, replacement, and symlink fixtures.
+            monkeypatch: Pytest patcher used to retarget the repository symlink after resolution.
+
+        """
+        valid_repository = _repository_fixture(tmp_path / "valid-repository")
+        replacement_repository = tmp_path / "replacement-repository"
+        replacement_repository.mkdir()
+        repository_link = tmp_path / "repository-link"
+        repository_link.symlink_to(valid_repository, target_is_directory=True)
+        loader = SecurityControlMapLoader(repository_link)
+
+        original_resolve: Callable[[Path, bool], Path] = Path.resolve
+        retargeted = False
+
+        def resolve_with_retarget(path: Path, strict: bool = False) -> Path:
+            """Resolve one path and retarget the repository link after its first resolution.
+
+            Args:
+                path: Path passed to the original ``Path.resolve`` implementation.
+                strict: Whether the original resolver must require an existing target.
+
+            Returns:
+                The path returned by the original ``Path.resolve`` implementation.
+
+            """
+            nonlocal retargeted
+            resolved = original_resolve(path, strict)
+            if path == repository_link and not retargeted:
+                retargeted = True
+                repository_link.unlink()
+                repository_link.symlink_to(replacement_repository, target_is_directory=True)
+            return resolved
+
+        monkeypatch.setattr(Path, "resolve", resolve_with_retarget)
+        first_result = loader.validate_repository()
+
+        assert retargeted
+        assert first_result.finding_ids == ("A07-F01", "A07-F02", "A07-F03", "A07-F04")
+        with pytest.raises(FileNotFoundError, match=r"domain-ownership\.toml"):
+            loader.validate_repository()
+
+    def test_default_and_explicit_ownership_paths_are_read_freshly(self, tmp_path: Path) -> None:
+        """Reload default and explicit ownership registers after each mutation.
+
+        Args:
+            tmp_path: Pytest-provided directory for isolated repository and register fixtures.
+
+        """
+        repository_root = _repository_fixture(tmp_path / "repository")
+        map_path = repository_root / "docs/governance/security-control-map.toml"
+        root_ownership_path = repository_root / "docs/governance/domain-ownership.toml"
+        explicit_ownership_path = tmp_path / "explicit-domain-ownership.toml"
+        shutil.copy2(root_ownership_path, explicit_ownership_path)
+
+        loaders = (
+            (SecurityControlMapLoader(repository_root), root_ownership_path),
+            (
+                CanonicalSecurityControlMapLoader(
+                    repository_root,
+                    ownership_register_path=explicit_ownership_path,
+                ),
+                explicit_ownership_path,
+            ),
+        )
+        expected_findings = ("control map contains stale ownership roles: ['compliance']",)
+
+        for loader, ownership_path in loaders:
+            assert loader.load(map_path).finding_ids == (
+                "A07-F01",
+                "A07-F02",
+                "A07-F03",
+                "A07-F04",
+            )
+            _replace_security_fixture_text_after_marker(
+                ownership_path,
+                'domain_id = "documentation_governance"',
+                'escalation_roles = ["platform", "compliance"]',
+                'escalation_roles = ["platform", "security"]',
+            )
+            _replace_security_fixture_text_after_marker(
+                ownership_path,
+                'domain_id = "security"',
+                'escalation_roles = ["compliance", "sre"]',
+                'escalation_roles = ["security", "sre"]',
+            )
+            self._assert_loader_findings(loader, map_path, expected_findings)
+            _replace_security_fixture_text_after_marker(
+                ownership_path,
+                'domain_id = "documentation_governance"',
+                'escalation_roles = ["platform", "security"]',
+                'escalation_roles = ["platform", "compliance"]',
+            )
+            _replace_security_fixture_text_after_marker(
+                ownership_path,
+                'domain_id = "security"',
+                'escalation_roles = ["security", "sre"]',
+                'escalation_roles = ["compliance", "sre"]',
+            )
+            assert loader.load(map_path).finding_ids == (
+                "A07-F01",
+                "A07-F02",
+                "A07-F03",
+                "A07-F04",
+            )
+
+    def test_repeated_map_failures_preserve_order_and_recover_without_state_leaks(
+        self, tmp_path: Path
+    ) -> None:
+        """Keep cross-domain findings exact across repeated failures and recovery.
+
+        Args:
+            tmp_path: Pytest-provided directory for the mutable map fixture.
+
+        """
+        repository_root = _repository_fixture(tmp_path / "repository")
+        map_path = repository_root / "docs/governance/security-control-map.toml"
+        loader = SecurityControlMapLoader(repository_root)
+
+        _replace_security_fixture_text_after_marker(
+            map_path,
+            'boundary_id = "TB01"',
+            'control_ids = ["A07-C01", "A07-C12"]',
+            'control_ids = ["A07-C99"]',
+        )
+        _replace_security_fixture_text_after_marker(
+            map_path,
+            'threat_id = "A07-T01"',
+            'boundary_ids = ["TB01"]',
+            'boundary_ids = ["TB99"]',
+        )
+        _replace_security_fixture_text(
+            map_path,
+            (
+                'asset_id = "ASSET01"\n'
+                'name = "Governed source and review evidence"\n'
+                'owner_role = "platform"'
+            ),
+            (
+                'asset_id = "ASSET01"\n'
+                'name = "Governed source and review evidence"\n'
+                'owner_role = "former_owner"'
+            ),
+        )
+        expected_findings = (
+            "TB01.control_ids: unknown references ['A07-C99']",
+            "A07-T01.boundary_ids: unknown references ['TB99']",
+            "every control must mitigate a boundary, threat, or regulatory mapping",
+            "every trust boundary must appear in a threat scenario",
+            "control map contains stale ownership roles: ['former_owner']",
+        )
+        self._assert_loader_findings(loader, map_path, expected_findings)
+        self._assert_loader_findings(loader, map_path, expected_findings)
+
+        _replace_security_fixture_text_after_marker(
+            map_path,
+            'boundary_id = "TB01"',
+            'control_ids = ["A07-C99"]',
+            'control_ids = ["A07-C01", "A07-C12"]',
+        )
+        _replace_security_fixture_text_after_marker(
+            map_path,
+            'threat_id = "A07-T01"',
+            'boundary_ids = ["TB99"]',
+            'boundary_ids = ["TB01"]',
+        )
+        _replace_security_fixture_text(
+            map_path,
+            (
+                'asset_id = "ASSET01"\n'
+                'name = "Governed source and review evidence"\n'
+                'owner_role = "former_owner"'
+            ),
+            (
+                'asset_id = "ASSET01"\n'
+                'name = "Governed source and review evidence"\n'
+                'owner_role = "platform"'
+            ),
+        )
+        assert loader.load(map_path).finding_ids == (
+            "A07-F01",
+            "A07-F02",
+            "A07-F03",
+            "A07-F04",
+        )
+
+    def test_evidence_failures_preserve_prefix_cause_order_and_recovery(
+        self, tmp_path: Path
+    ) -> None:
+        """Preserve evidence failure causes and profile finding order across recovery.
+
+        Args:
+            tmp_path: Pytest-provided directory for isolated evidence and manifest mutations.
+
+        """
+        repository_root = _repository_fixture(tmp_path / "repository")
+        loader = SecurityControlMapLoader(repository_root)
+        artifact_path = (
+            repository_root
+            / "docs/governance/evidence/examples/a07-r2-partial/reports/contract-and-tests.txt"
+        )
+        artifact_path.unlink()
+
+        with pytest.raises(SecurityControlError) as missing_artifact:
+            loader.validate_repository()
+        assert missing_artifact.value.findings == (
+            "A07 local evidence bundle: artifact path is missing or outside the bundle: "
+            "reports/contract-and-tests.txt",
+        )
+        assert isinstance(missing_artifact.value.__cause__, EvidenceGovernanceError)
+
+        shutil.copy2(
+            REPOSITORY_ROOT
+            / "docs/governance/evidence/examples/a07-r2-partial/reports/contract-and-tests.txt",
+            artifact_path,
+        )
+        assert loader.validate_repository().finding_ids == (
+            "A07-F01",
+            "A07-F02",
+            "A07-F03",
+            "A07-F04",
+        )
+
+        manifest_path = (
+            repository_root / "docs/governance/evidence/examples/a07-r2-partial/manifest.toml"
+        )
+        _replace_security_fixture_text(
+            manifest_path, 'owner_role = "security"', 'owner_role = "platform"'
+        )
+        _replace_security_fixture_text(
+            manifest_path,
+            'security_privilege = "shared_sensitive"',
+            'security_privilege = "none"',
+        )
+        _replace_security_fixture_text(
+            manifest_path,
+            'open_finding_ids = ["A07-F01", "A07-F02", "A07-F03", "A07-F04"]',
+            'open_finding_ids = ["A07-F99", "A07-F02", "A07-F03", "A07-F04"]',
+        )
+        _replace_security_fixture_text_after_marker(
+            manifest_path,
+            "[[findings]]",
+            'finding_id = "A07-F01"',
+            'finding_id = "A07-F99"',
+        )
+        with pytest.raises(SecurityControlError) as profile_failure:
+            loader.validate_repository()
+        assert profile_failure.value.findings == (
+            "A07 local evidence bundle owner must match accountable owner role 'security'",
+            "A07 local evidence bundle change.security_privilege must be 'shared_sensitive'",
+            "A07 local evidence bundle must retain the expected findings exactly",
+        )
+        assert isinstance(profile_failure.value.__cause__, EvidenceGovernanceError)
+
+        _replace_security_fixture_text(
+            manifest_path, 'owner_role = "platform"', 'owner_role = "security"'
+        )
+        _replace_security_fixture_text(
+            manifest_path,
+            'security_privilege = "none"',
+            'security_privilege = "shared_sensitive"',
+        )
+        _replace_security_fixture_text(
+            manifest_path,
+            'open_finding_ids = ["A07-F99", "A07-F02", "A07-F03", "A07-F04"]',
+            'open_finding_ids = ["A07-F01", "A07-F02", "A07-F03", "A07-F04"]',
+        )
+        _replace_security_fixture_text_after_marker(
+            manifest_path,
+            "[[findings]]",
+            'finding_id = "A07-F99"',
+            'finding_id = "A07-F01"',
+        )
+        assert loader.validate_repository().finding_ids == (
+            "A07-F01",
+            "A07-F02",
+            "A07-F03",
+            "A07-F04",
+        )

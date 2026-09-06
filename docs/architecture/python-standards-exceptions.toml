@@ -211,3 +211,36 @@ owner_role = "platform"
 rationale = "Preserve the exported status validator and repository/CLI callers while ProgramStatusRenderer owns validation; reassess caller adoption in step 7."
 expires = 2027-03-01
 source_sha256 = "84e571e9e0a8f93de37ddee14187da211343f686a194a0d05c1f61406db7e6f0"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_load_control_map"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Retain the existing private model-validation seam for loader regression tests while SecurityControlMapLoader owns parsing and validation; reassess this adapter in step 7."
+expires = 2027-03-01
+source_sha256 = "dacdd8de63839d174a584ad57be4d60541421cf1f3646a770669fd26381da5ac"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "load_control_map"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported control-map loader signature, ownership override and model-error translation while SecurityControlMapLoader owns loading; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "7194cc07ee57eb1b8733d15cabd7150c1b940159902c0b760f0d7534d3c575c8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "validate_repository"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported repository validator and CLI callers while SecurityControlMapLoader owns map and local-evidence validation; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "fe88c93f53651687a13fdf8a13e47890adeba0996cbe3d742995ffe31dfbd6a4"
