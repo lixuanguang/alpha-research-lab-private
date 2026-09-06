@@ -2790,62 +2790,6 @@
     },
     {
       "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
-      "symbol": "_find_dependency_cycles",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any | None]\")",
-      "count": 1,
-      "task": "collections"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
-      "symbol": "_load_observations",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
-      "symbol": "_load_observations",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, Any, Any, Any]]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
-      "symbol": "_load_observations",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"tuple[Any, Any, Any, Any]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
-      "symbol": "_load_roadmap",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Generator[str | Any, None, None]\")",
-      "count": 1,
-      "task": "regex"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
-      "symbol": "_load_roadmap",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"bool | Any\")",
-      "count": 1,
-      "task": "regex"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
-      "symbol": "_load_roadmap",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"str | Any\")",
-      "count": 10,
-      "task": "regex"
-    },
-    {
-      "path": "tools/governance/src/alpha_research_governance/program_governance/registry.py",
       "symbol": "_parse_dependency_expression",
       "code": "misc",
       "message": "Expression type contains \"Any\" (has type \"str | Any\")",

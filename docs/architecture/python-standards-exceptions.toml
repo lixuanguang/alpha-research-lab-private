@@ -90,3 +90,124 @@ owner_role = "platform"
 rationale = "Preserve the exported activation-validation signature and facade imports while ChangeRiskApprovalEvaluator owns evaluation; review caller adoption in step 7."
 expires = 2027-03-01
 source_sha256 = "bfab14e78c03a6379a4fcd37e07495e9676206c7c2603136442b6e885a287f24"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_load_observations"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Retain the existing private model-validation seam for observation regression tests while ObservationReader owns reading; reassess this adapter in step 7."
+expires = 2027-03-01
+source_sha256 = "69e0631abc18c52d0a8fb507f1914fc5972916a18767995c18e685d0739b1ac9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_load_program"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Retain the existing private model-validation seam for loader regression tests while ProgramRepository owns loading; reassess this adapter in step 7."
+expires = 2027-03-01
+source_sha256 = "81cb8920bae5e6a127ea35bb76188f6c58c04196f91602d9c2ee463a90c4a101"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_load_roadmap"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Retain the existing private model-validation seam for the roadmap regression tests while RoadmapParser owns parsing; reassess this adapter in step 7."
+expires = 2027-03-01
+source_sha256 = "5702116d5af204e106ed2d0a2adad0d7bb47c64f472e6c3e948d9df41cd4b9c4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "load_observations"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported observation loader and facade callers while ObservationReader owns reading; reassess supported caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "dfb51bbaf0655ad675202a50dd819719b2ce4376fee8ea0159d4bd63415d3427"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "load_program"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported program loader signature and ownership-path override while ProgramRepository owns loading; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "5066e879eb756dae9d27a5192f41e6971f3df06db27f8584cedfb373a6b89370"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "load_roadmap"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported roadmap loader and facade imports while RoadmapParser owns parsing; reassess supported caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "0aed539b9a01b062f515afc389a66e6e672d6dc98c0bf689856646e8a82706c3"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "validate_repository"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported repository validation entry point and CLI callers while ProgramRepository owns orchestration; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "59d75aa80933f6f81a80c9e14d879737b764cb725fc31a24c4b9ead9569858eb"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/status.py"
+symbol = "_markdown_cell"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure single-cell delimiter escaping and LF replacement with no workflow state, model ownership, or I/O."
+expires = 2027-03-01
+source_sha256 = "e63cecafe3db8cb9965e275356888036c1483f32100117b2f1ed11029a0b05de"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/status.py"
+symbol = "_relative_link"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure POSIX relative-path calculation for one target and status location, shared by status sections without owning rendering or I/O."
+expires = 2027-03-01
+source_sha256 = "349fa9a6a7fea5c9ba9582aee1cdddf298b60dcb3a0e8ef47de4a1f96b492735"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/status.py"
+symbol = "render_status_markdown"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported renderer signature and both package facades while ProgramStatusRenderer owns document rendering; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "e8337d35c3f9f54dda8044a9c703edf255c084de83079a5abc70c9ad3acebf4c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/status.py"
+symbol = "validate_status_document"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported status validator and repository/CLI callers while ProgramStatusRenderer owns validation; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "84e571e9e0a8f93de37ddee14187da211343f686a194a0d05c1f61406db7e6f0"

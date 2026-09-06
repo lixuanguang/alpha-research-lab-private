@@ -5,11 +5,15 @@ Audit date: 2026-09-05. Original audit baseline revision:
 
 Status: steps 1–5 are implemented; step 6 remains in progress and step 7 remains
 planned. Step 5 closed the existing-source documentation queue in 31 slices on
-2026-09-06, leaving 798 `PYC001` dispositions across 73 files and no `PYD001` or
-`PYD002`; the separate inferred-typing inventory remains at 686 diagnostics.
-The earlier CLI slice preserves 12 Typer callback docstrings as help contracts.
-High-level workflow refactoring remains in step 6, and documentation for moved
-workflows remains combined with their step-6 service slices.
+2026-09-06; its completion snapshot recorded 798 `PYC001` dispositions across
+73 files, no `PYD001` or `PYD002`, and 686 inferred-typing diagnostics. The
+current Step-6 slice leaves 787 `PYC001` dispositions across 72 files and 670
+inferred-typing diagnostics.
+Step 6 has completed the change-risk pilot and the program loading/status service
+extraction. Queue item 2 remains in progress while residual contextual validation
+helpers are assigned to an owning service. The earlier CLI slice preserves 12
+Typer callback docstrings as help contracts, and documentation for moved workflows
+remains combined with their step-6 service slices.
 
 See the [consolidated step-5 validation record](#step-5-validation-record-consolidated-completion-2026-09-06)
 for evidence recorded at completion.
@@ -290,7 +294,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
 | 5. Document existing contracts — implemented | Closed the existing-source documentation queue in 31 doc-only slices across domain, governance, test, policy, helper, loader, runner and artifact contracts. Moved workflows remain step 6; global rule activation remains deferred. | Final scan: zero `PYD001`/`PYD002`; 798 `PYC001` dispositions across 73 files; inferred typing remains at 686 diagnostics. See the consolidated Step-5 validation record below. |
-| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and separate approval evaluator, retaining the function APIs. Continue with loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | The first queue item preserves serialized decisions, ordered errors and CLI results across 63,404 differential cases; repeated-call regressions pass. See the step-6 records below. |
+| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and separate approval evaluator, then extracted the program loading/status services while retaining the function APIs. Queue item 2 remains in progress for the residual contextual validation helpers; continue with the remaining loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | The change-risk pilot preserves serialized decisions, ordered errors and CLI results; the program loading/status slice preserves schema, loader, status and CLI contracts. See the step-6 records below. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
 For gradual enforcement, use exact rule plus module/qualified-symbol identities,
@@ -501,13 +505,52 @@ or new migration allowance was added. Typed sorting callbacks retire the
 classifier's four inferred-typing diagnostics instead of relocating them into
 the new method; both inventories and their checksum pins change together.
 
-Step 6 remains in progress. The next queue item is program loading/status,
-followed by the remaining loaders, evidence/bundle services and CI runners.
+At the time of this 2026-09-05 pilot record, Step 6 remained in progress and
+program loading/status was the next queue item. That statement is a historical
+snapshot; the program loading/status service extraction is recorded below. Queue
+item 2 remains in progress while residual contextual validation helpers are moved
+behind an owning service, followed by the remaining loaders, evidence/bundle
+services and CI runners.
 After this pilot, the source inventory held **2,557** obligations across 84 files: 712 missing
 summaries, 1,047 structured-documentation findings and 798 function dispositions.
-The inferred inventory holds **686** diagnostics, 356 identities across 49 files.
+The inferred inventory held **686** diagnostics, 356 identities across 49 files.
 Step 7 must also reassess compatibility wrappers and the retained helpers before
 their exceptions expire.
+
+### Step 6 implementation — program loading/status service slice
+
+`ProgramRepository` now owns explicit repository and optional ownership-register
+context. Its constructor performs no file I/O or validation; `load_program`,
+`load_observations`, and `validate_repository` create operation-local parsing and
+validation state so a failed call cannot contaminate a later call on the same
+instance. The repository service composes `RoadmapParser` for the ordered
+96-package Markdown graph and `ObservationReader` for one immutable program's
+bounded JSONL KPI contract.
+
+`RoadmapParser.parse` retains wave placement, package-order, dependency-purpose,
+unknown-reference, self-reference and cycle checks. `ObservationReader(program).read`
+retains metric-specific fields, duplicate-event handling, UTC windows, bounded
+ratios, dimensions, evidence URLs, observation limits and overlap checks while
+returning unique observations in first-seen order. `ProgramStatusRenderer` owns
+deterministic Markdown rendering and exact decoded UTF-8 document validation after
+universal-newline translation; its
+constructor performs no I/O and its repeated renders and validations derive their
+state from the immutable program model.
+
+The existing `load_roadmap`, `load_program`, `load_observations`,
+`validate_repository`, `render_status_markdown`, and `validate_status_document`
+functions remain compatibility wrappers with their existing signatures and
+failure translation boundaries. `RoadmapParser`, `ProgramRepository`,
+`ObservationReader`, and `ProgramStatusRenderer` are exported through both
+the canonical governance package and the `src/alpha_research` facade. Focused
+regression coverage also exercises repeated renderer failures, loader error
+translation, parser boundaries, and the public class exports.
+
+This slice does not close queue item 2. `_parse_package_states` and
+`_validate_local_evidence` remain context-heavy module-level workflows and need
+an owning service disposition in a later step-6 slice. The current slice therefore
+records service extraction and compatibility preservation while keeping the queue
+item in progress.
 
 ### Class migration queue
 
@@ -517,7 +560,7 @@ prefixed with `src/`. Names are proposed responsibilities, not mandatory new fil
 | Order / current area | Proposed responsibility | Compatibility and behavior to preserve |
 | --- | --- | --- |
 | 1. `change_risk/classification.py`, then `approvals.py` — implemented | `ChangeRiskClassifier(policy)` and `ChangeRiskApprovalEvaluator(policy)`, with invocation-local state. | Highest-dimension rule, downgrade rejection, gate ordering, founder/team rules and exact errors preserved; existing classification/approval functions delegate temporarily. |
-| 2. `program_governance/registry.py`, `status.py` | `ProgramRepository` for loading with explicit root/ownership context; distinct roadmap parsing, observation reading and status rendering responsibilities. | Schema versions 1–4, dependency purposes/cycles, finding mapping, deterministic status text and existing exported loaders. |
+| 2. `program_governance/registry.py`, `status.py` — in progress (service extraction completed) | `ProgramRepository` for loading with explicit root/ownership context; distinct roadmap parsing, observation reading and status rendering responsibilities. Residual package-state and local-evidence validation remains for the owning service. | Schema versions 1–4, dependency purposes/cycles, finding mapping, deterministic status text and existing exported loaders. |
 | 3. `security_controls/registry.py`, `inventory/registry.py` | Separate `SecurityControlMapLoader` and `InventoryLoader`; pure field/ID parsing stays small. | Error categories, complete references, source identity, ownership and deterministic findings. |
 | 4. `repository_topology/registry.py`, `engineering_standards/policy.py`, `dependency_admission/policy.py`, `ownership_governance.py`, `architecture_governance.py` | Domain-specific loaders/validators with explicit repository context. Share only proven identical parsing primitives. | Exact accepted schema and policy values, expiry/version checks, local link safety, exception translation and root commands. |
 | 5. `evidence/manifest.py`, `mr.py`, `package.py`, `artifact_supply_chain/bundle.py` | Separate evidence validation, bundle creation and bundle verification services. | Digest/path validation, operation and revision binding, malformed-input rejection, file write boundaries and signature behavior. |
@@ -741,8 +784,10 @@ does not constitute a new runtime validation run. The final slice baseline was H
 The concise rollback principle remains per slice: restore the affected docstrings,
 matching exact debt deletions and checksum, and this roadmap record together. No
 persisted-data migration or runtime fix is part of Step 5. Step 5 existing-source
-documentation is complete; Step 6 workflow refactoring remains in progress with
-program loading/status next, and Step 7 global adoption remains planned.
+documentation is complete. At Step-5 completion, the recorded 2026-09-06 snapshot
+described program loading/status as next in Step 6; that historical statement
+predates the current service extraction. Step 6 remains in progress and Step 7
+global adoption remains planned.
 
 ## Step 6 validation record — change-risk service pilot, 2026-09-05
 
@@ -764,5 +809,34 @@ unchanged. Existing pinned Cosign and Syft executables were supplied on `PATH`.
 | `pre-commit run --all-files` | Every hook passed, including the shared typecheck command, source standards, secret scanning, documentation links and all governance policies. |
 
 These are local checks for the first step-6 slice. The full `make ci-full` lane,
-hosted CI and separate integration/performance selections were not run. Step 6
-remains in progress with program loading/status next in the queue.
+hosted CI and separate integration/performance selections were not run. At the
+time of this 2026-09-05 pilot record, program loading/status was next in the
+queue; that historical statement predates the current service extraction.
+Queue item 2 remains in progress as recorded below.
+
+## Step 6 validation record — program loading/status service slice, 2026-09-06
+
+Validation compared the completed service code with the captured baseline at
+revision `6f9e7d4287af9c1dedd71203b834813465624bcb`. The comparison covered
+successful and malformed policy records, legacy schemas, roadmap and dependency
+mutations, observation boundary events, repository validation, deterministic
+status rendering, status-file validation, and the recorded CLI cases.
+
+| Check | Observed result |
+| --- | --- |
+| Differential behavior | All 2,843 cases matched the baseline: 1,644 program-load cases, 482 roadmap cases, 698 observation cases, three legacy-schema cases, one repository-validation case, one status-render case, five status-file-validation cases, and nine CLI cases. Comparisons include return values, exception types, exception-cause types, exact exception messages, ordered findings, rendered status text, exit codes, stdout and stderr. |
+| Focused governance and model tests | 42 passed, one deselected across `test_program_governance.py` and `test_pydantic_models.py`, including repeated renderer failures, loader error translation, parser boundaries and public service exports. |
+| Full pytest and collection compatibility | 668 passed, 9 deselected. All 663 existing default-selected pytest node IDs remain in order, and five service tests were added. |
+| Public API compatibility | All six public function signatures remain unchanged. The four service classes are exported through both the canonical governance package and the `src/alpha_research` facade. |
+| Repository lint, format, type and standards checks | `make lint format-check typecheck engineering-standards-check` passed over 136 Python/stub files. Native stubtest passed over 1,548 modules. Scoped Ruff checks passed for the affected governance package, compatibility facades and tests; the Google-docstring/`ANN401` check also passed for `registry.py` and `status.py`. |
+| Source-standard reconciliation | Exactly 11 existing `PYC001` function dispositions were retired into reviewed, fingerprinted exceptions: nine compatibility wrappers and two small status helpers. The current inventory contains 787 `PYC001` dispositions across 72 files and zero `PYD001`/`PYD002` findings. |
+| Inferred-typing reconciliation | Exactly 16 diagnostics were retired, leaving 670 diagnostics across 349 identities in 49 files; the probe reported no new or relocated diagnostics. |
+| Bazel | `bazel test --config=ci //...` passed all 20 targets. |
+| Package rebuild | Both local packages rebuilt and reinstalled offline with the frozen environment and non-editable mode; dependencies and lockfiles were unchanged. |
+| Pre-commit and initial documentation audit | `pre-commit run --all-files` passed every hook, including architecture/local links, program governance, source standards, typing, all governance policies and secret checks. Luna at extra-high reasoning authored the service and roadmap documentation; the parent audit corrected attribute, newline, path and error-translation descriptions. That initial audit missed inadequate summaries and overstated assertions in `test_program_governance.py`; passing automated checks did not establish the semantic completeness of those test docstrings. |
+| Test-docstring correction and audit | Luna at extra-high reasoning revised 35 docstrings in `test_program_governance.py`: the module, two classes and 32 test functions/methods. The parent audited scenario descriptions and fixture/parameter `Args` against the test bodies and corrected claims exceeding the assertions. Executable AST comparison was unchanged, and all 37 ordered collected cases were preserved, including the performance case. The focused default selection passed with 36 tests and one deselected; pinned Ruff lint, Google-docstring/`ANN401`, format, source-documentation and engineering-standards checks passed. |
+
+These are local checks for the program loading/status slice. The full `make ci-full`
+lane, hosted CI, and separate integration/performance selections were not run.
+Queue item 2 remains in progress because package-state parsing and local-evidence
+validation remain for the next bounded service slice.
