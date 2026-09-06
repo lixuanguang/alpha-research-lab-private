@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import re
 import tomllib
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import cast
@@ -912,400 +913,841 @@ def _parse_regulatory_mappings(value: object) -> tuple[RegulatoryMapping, ...]:
     )
 
 
+@dataclass(frozen=True)
+class _MapMetadata:
+    """Retain fixed metadata parsed before the control-map collections."""
+
+    schema_version: int
+    roadmap_package: str
+    operating_track: str
+    accountable_owner_role: str
+    risk_class: str
+    dependency_package_ids: tuple[str, ...]
+    applicable_gate_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _MapCollections:
+    """Retain the ordered records parsed from one control-map document."""
+
+    assets: tuple[ProtectedAsset, ...]
+    boundaries: tuple[TrustBoundary, ...]
+    threats: tuple[ThreatScenario, ...]
+    controls: tuple[SecurityControl, ...]
+    evidence_sources: tuple[EvidenceSource, ...]
+    authority_sources: tuple[AuthoritySource, ...]
+    jurisdictions: tuple[JurisdictionProfile, ...]
+    regulatory_mappings: tuple[RegulatoryMapping, ...]
+
+
+@dataclass
+class _MapValidationContext:
+    """Own per-invocation records, indexes, roles, and ordered findings."""
+
+    path: Path
+    repository_root: Path
+    ownership_roles: frozenset[str]
+    document: dict[str, object]
+    metadata: _MapMetadata
+    collections: _MapCollections
+    as_of_date: date
+    findings: list[str] = field(default_factory=list)
+    used_roles: set[str] = field(default_factory=set)
+    asset_ids: frozenset[str] = frozenset()
+    boundary_ids: frozenset[str] = frozenset()
+    control_ids: frozenset[str] = frozenset()
+    evidence_ids: frozenset[str] = frozenset()
+    source_ids: frozenset[str] = frozenset()
+    jurisdiction_ids: tuple[str, ...] = ()
+    jurisdiction_id_set: frozenset[str] = frozenset()
+    evidence_status_by_id: dict[str, str] = field(default_factory=dict)
+    sources_by_jurisdiction: dict[str, set[str]] = field(default_factory=dict)
+    status_by_jurisdiction: dict[str, str] = field(default_factory=dict)
+    legal_owner_by_jurisdiction: dict[str, str] = field(default_factory=dict)
+    mapped_source_ids: set[str] = field(default_factory=set)
+    mapped_control_ids: set[str] = field(default_factory=set)
+
+
+class SecurityControlMapLoader:
+    """Load and validate security-control maps for one repository context.
+
+    Construction stores path context only. Every load allocates its own parsed records, indexes,
+    ownership roles, and findings so a reusable loader cannot retain state from an earlier call.
+    """
+
+    def __init__(
+        self,
+        repository_root: Path,
+        *,
+        ownership_register_path: Path | None = None,
+    ) -> None:
+        """Bind repository and optional ownership-register paths without reading them.
+
+        Args:
+            repository_root: Repository root used for repository-relative evidence paths. The
+                path is resolved when an operation starts.
+            ownership_register_path: Optional ownership-register TOML path. ``None`` selects
+                ``docs/governance/domain-ownership.toml`` below the resolved root; a supplied
+                relative path remains process-relative.
+        """
+        self._repository_root = repository_root
+        self._ownership_register_path = ownership_register_path
+
+    def load(self, path: Path) -> SecurityControlMap:
+        """Load and validate one UTF-8 security-control map.
+
+        Load the ownership register first, then validate the map's exact root schema and fixed
+        A07 metadata, parse all ordered collections, and apply cross-record findings in their
+        declared evaluation order. Authority freshness and legal-review horizons use the map's
+        recorded ``as_of_date``. This operation validates only the local manifest path and full
+        commit digest; it does not read local evidence manifest contents.
+
+        Args:
+            path: Security-control map TOML file. A relative path is interpreted from the
+                process current working directory.
+
+        Returns:
+            The validated immutable security-control map with records in source order.
+
+        Raises:
+            SecurityControlError: If map parsing, cross-record validation, or model validation
+                fails. Pydantic failures are translated with the original validation error as
+                their cause, and ordered domain findings retain their original order.
+            OSError: If repository or input-file resolution or reading fails.
+            UnicodeDecodeError: If the map or ownership register is not valid UTF-8.
+            RuntimeError: If path resolution encounters a symbolic-link loop.
+        """
+        try:
+            return self._load_untranslated(path)
+        except ValidationError as error:
+            raise SecurityControlError([f"{path}: control-map model validation failed"]) from error
+
+    def validate_repository(self) -> SecurityControlMap:
+        """Validate the authoritative map and its bound local evidence.
+
+        Resolve the bound repository root, load the authoritative map through :meth:`load`, then
+        read and validate its change-risk policy, local evidence manifest, artifacts, and fixed
+        A07 package profile. The map's recorded ``as_of_date`` controls authority freshness and
+        legal-review horizons. Every invocation allocates fresh validation state.
+
+        Returns:
+            The validated immutable security-control map after map and local-evidence checks.
+
+        Raises:
+            SecurityControlError: If map, change-risk, manifest, artifact, or package-profile
+                validation fails. Final local-evidence failures preserve their causes, while map
+                findings retain their original ordered messages.
+            OSError: If an uncaught repository or input-file operation fails before local
+                evidence validation.
+            UnicodeDecodeError: If an uncaught UTF-8 read fails before local evidence validation.
+            RuntimeError: If path resolution encounters a symbolic-link loop.
+        """
+        resolved_repository_root = self._repository_root.resolve()
+        operation_loader = SecurityControlMapLoader(
+            resolved_repository_root,
+            ownership_register_path=self._ownership_register_path,
+        )
+        control_map = operation_loader.load(
+            resolved_repository_root / "docs" / "governance" / "security-control-map.toml"
+        )
+        self._validate_local_evidence(resolved_repository_root, control_map)
+        return control_map
+
+    def _load_untranslated(self, path: Path) -> SecurityControlMap:
+        """Run the ordered parsing and validation phases before public error translation.
+
+        Args:
+            path: Security-control map TOML file.
+
+        Returns:
+            The assembled immutable security-control map.
+
+        Raises:
+            SecurityControlError: If an owned map invariant fails.
+            ValidationError: If an assembled Pydantic model rejects parsed values.
+            OSError: If a required filesystem operation fails.
+            UnicodeDecodeError: If a required input is not valid UTF-8.
+            RuntimeError: If path resolution encounters a symbolic-link loop.
+        """
+        resolved_root = self._repository_root.resolve()
+        ownership_path = self._ownership_register_path or (
+            resolved_root / "docs" / "governance" / "domain-ownership.toml"
+        )
+        ownership_roles = _ownership_roles(ownership_path)
+        control_map_document = _load_toml(path)
+        metadata = self._parse_header(control_map_document, path)
+        collections = self._parse_collections(control_map_document)
+        as_of_date = _parse_iso_date(
+            _require_string(control_map_document, "as_of_date", context=str(path)),
+            context=f"{path}.as_of_date",
+        )
+        context = self._new_validation_context(
+            path=path,
+            repository_root=resolved_root,
+            ownership_roles=ownership_roles,
+            document=control_map_document,
+            metadata=metadata,
+            collections=collections,
+            as_of_date=as_of_date,
+        )
+        self._validate_identifiers(context)
+        self._validate_structural_references(context)
+        self._validate_evidence(context)
+        self._validate_authority_and_mappings(context)
+        self._validate_coverage(context)
+        finding_ids, package_status = self._parse_findings_and_raise_if_invalid(context)
+        manifest_path, commit_sha = self._parse_evidence_metadata(context)
+        return self._build_model(context, finding_ids, package_status, manifest_path, commit_sha)
+
+    def _parse_header(self, document: dict[str, object], path: Path) -> _MapMetadata:
+        """Validate the exact root schema and fixed package metadata.
+
+        Args:
+            document: Parsed top-level TOML document.
+            path: Map path used in diagnostics.
+
+        Returns:
+            Fixed metadata validated before record collections are parsed.
+
+        Raises:
+            SecurityControlError: If root fields, fixed values, or metadata lists are invalid.
+        """
+        if set(document) != _ROOT_KEYS:
+            raise SecurityControlError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
+        schema_version = _require_integer(document, "schema_version", context=str(path))
+        if schema_version != 1:
+            raise SecurityControlError([f"{path}: schema_version must be 1"])
+        roadmap_package = _require_string(document, "roadmap_package", context=str(path))
+        operating_track = _require_string(document, "operating_track", context=str(path))
+        accountable_owner_role = _require_string(
+            document, "accountable_owner_role", context=str(path)
+        )
+        risk_class = _require_string(document, "risk_class", context=str(path))
+        expected_strings = {
+            "accountable_owner_role": (accountable_owner_role, "security"),
+            "jurisdiction_applicability_authority": (
+                _require_string(
+                    document, "jurisdiction_applicability_authority", context=str(path)
+                ),
+                "qualified_legal_compliance",
+            ),
+            "operating_track": (operating_track, "solo_bootstrap"),
+            "risk_class": (risk_class, "R2"),
+            "roadmap_package": (roadmap_package, "A07"),
+        }
+        for key, (actual, expected) in expected_strings.items():
+            if actual != expected:
+                raise SecurityControlError([f"{path}: {key} must be {expected!r}"])
+        if document.get("legal_advice") is not False:
+            raise SecurityControlError([f"{path}: legal_advice must be False"])
+        dependency_package_ids = _require_strings(
+            document.get("dependency_package_ids"), context="dependency_package_ids"
+        )
+        if dependency_package_ids != SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS:
+            raise SecurityControlError(
+                [
+                    "dependency_package_ids must be exactly "
+                    f"{SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS!r}"
+                ]
+            )
+        applicable_gate_ids = _require_strings(
+            document.get("applicable_gate_ids"), context="applicable_gate_ids"
+        )
+        if applicable_gate_ids != APPLICABLE_GATE_IDS:
+            raise SecurityControlError(
+                [f"applicable_gate_ids must be exactly {APPLICABLE_GATE_IDS!r}"]
+            )
+        return _MapMetadata(
+            schema_version=schema_version,
+            roadmap_package=roadmap_package,
+            operating_track=operating_track,
+            accountable_owner_role=accountable_owner_role,
+            risk_class=risk_class,
+            dependency_package_ids=dependency_package_ids,
+            applicable_gate_ids=applicable_gate_ids,
+        )
+
+    def _parse_collections(self, document: dict[str, object]) -> _MapCollections:
+        """Parse all ordered record collections using their standalone field parsers.
+
+        Args:
+            document: Parsed top-level TOML document.
+
+        Returns:
+            Immutable record collections in the same order as the source document.
+
+        Raises:
+            SecurityControlError: If any collection has malformed tables or fields.
+            ValidationError: If a record model rejects parsed values.
+        """
+        return _MapCollections(
+            assets=_parse_assets(document.get("assets")),
+            boundaries=_parse_boundaries(document.get("boundaries")),
+            threats=_parse_threats(document.get("threats")),
+            controls=_parse_controls(document.get("controls")),
+            evidence_sources=_parse_evidence_sources(document.get("evidence_sources")),
+            authority_sources=_parse_authority_sources(document.get("authority_sources")),
+            jurisdictions=_parse_jurisdictions(document.get("jurisdictions")),
+            regulatory_mappings=_parse_regulatory_mappings(document.get("regulatory_mappings")),
+        )
+
+    def _new_validation_context(
+        self,
+        *,
+        path: Path,
+        repository_root: Path,
+        ownership_roles: frozenset[str],
+        document: dict[str, object],
+        metadata: _MapMetadata,
+        collections: _MapCollections,
+        as_of_date: date,
+    ) -> _MapValidationContext:
+        """Create invocation-local indexes for a parsed control map.
+
+        Args:
+            path: Map path used in later diagnostics.
+            repository_root: Resolved root used for repository-relative evidence paths.
+            ownership_roles: Roles loaded from the ownership register.
+            document: Parsed top-level TOML document.
+            metadata: Fixed metadata parsed from the document.
+            collections: Ordered record collections parsed from the document.
+            as_of_date: Canonical map snapshot date.
+
+        Returns:
+            A fresh validation context whose mutable state belongs to this invocation.
+        """
+        jurisdiction_ids = tuple(item.jurisdiction_id for item in collections.jurisdictions)
+        return _MapValidationContext(
+            path=path,
+            repository_root=repository_root,
+            ownership_roles=ownership_roles,
+            document=document,
+            metadata=metadata,
+            collections=collections,
+            as_of_date=as_of_date,
+            asset_ids=frozenset(item.asset_id for item in collections.assets),
+            boundary_ids=frozenset(item.boundary_id for item in collections.boundaries),
+            control_ids=frozenset(item.control_id for item in collections.controls),
+            evidence_ids=frozenset(
+                item.evidence_source_id for item in collections.evidence_sources
+            ),
+            source_ids=frozenset(item.source_id for item in collections.authority_sources),
+            jurisdiction_ids=jurisdiction_ids,
+            jurisdiction_id_set=frozenset(jurisdiction_ids),
+            evidence_status_by_id={
+                item.evidence_source_id: item.status for item in collections.evidence_sources
+            },
+        )
+
+    def _validate_identifiers(self, context: _MapValidationContext) -> None:
+        """Append identifier and fixed jurisdiction-order findings in source order.
+
+        Args:
+            context: Invocation-local map state receiving ordered findings.
+        """
+        collections = context.collections
+        id_groups = (
+            ("asset", tuple(item.asset_id for item in collections.assets)),
+            ("boundary", tuple(item.boundary_id for item in collections.boundaries)),
+            ("threat", tuple(item.threat_id for item in collections.threats)),
+            ("control", tuple(item.control_id for item in collections.controls)),
+            ("evidence", tuple(item.evidence_source_id for item in collections.evidence_sources)),
+            ("source", tuple(item.source_id for item in collections.authority_sources)),
+            ("mapping", tuple(item.mapping_id for item in collections.regulatory_mappings)),
+        )
+        for kind, identifiers in id_groups:
+            _validate_id_order(identifiers, kind=kind, findings=context.findings)
+        if context.jurisdiction_ids != JURISDICTION_IDS:
+            context.findings.append(
+                f"jurisdictions must be ordered and exactly {JURISDICTION_IDS!r}"
+            )
+
+    def _validate_structural_references(self, context: _MapValidationContext) -> None:
+        """Validate trust, threat, control, and evidence relationships.
+
+        Args:
+            context: Invocation-local map state receiving findings and used roles.
+        """
+        collections = context.collections
+        for asset in collections.assets:
+            context.used_roles.add(asset.owner_role)
+        for boundary in collections.boundaries:
+            context.used_roles.add(boundary.owner_role)
+            if boundary.source_zone == boundary.destination_zone:
+                context.findings.append(f"{boundary.boundary_id}: trust boundary zones must differ")
+            _validate_references(
+                boundary.asset_ids,
+                allowed=context.asset_ids,
+                context=f"{boundary.boundary_id}.asset_ids",
+                findings=context.findings,
+            )
+            _validate_references(
+                boundary.control_ids,
+                allowed=context.control_ids,
+                context=f"{boundary.boundary_id}.control_ids",
+                findings=context.findings,
+            )
+        categories = frozenset(threat.category for threat in collections.threats)
+        if categories != frozenset(THREAT_CATEGORIES):
+            context.findings.append(
+                f"threats must cover exactly the required categories {THREAT_CATEGORIES!r}"
+            )
+        for threat in collections.threats:
+            context.used_roles.add(threat.owner_role)
+            _validate_references(
+                threat.boundary_ids,
+                allowed=context.boundary_ids,
+                context=f"{threat.threat_id}.boundary_ids",
+                findings=context.findings,
+            )
+            _validate_references(
+                threat.asset_ids,
+                allowed=context.asset_ids,
+                context=f"{threat.threat_id}.asset_ids",
+                findings=context.findings,
+            )
+            _validate_references(
+                threat.control_ids,
+                allowed=context.control_ids,
+                context=f"{threat.threat_id}.control_ids",
+                findings=context.findings,
+            )
+        for control in collections.controls:
+            context.used_roles.add(control.owner_role)
+            context.used_roles.update(control.independent_review_roles)
+            if control.owner_role in control.independent_review_roles:
+                context.findings.append(
+                    f"{control.control_id}: owner cannot independently review its control"
+                )
+            if any(
+                function not in {"detect", "prevent", "recover", "respond"}
+                for function in control.control_functions
+            ):
+                context.findings.append(f"{control.control_id}: unsupported control function")
+            if control.implementation_status not in {"planned", "repository_local"}:
+                context.findings.append(f"{control.control_id}: unsupported implementation_status")
+            if any(_PACKAGE_ID.fullmatch(item) is None for item in control.implementation_packages):
+                context.findings.append(
+                    f"{control.control_id}: implementation_packages must use A01-L08"
+                )
+            _validate_references(
+                control.evidence_source_ids,
+                allowed=context.evidence_ids,
+                context=f"{control.control_id}.evidence_source_ids",
+                findings=context.findings,
+            )
+            control_evidence_statuses = {
+                context.evidence_status_by_id[evidence_id]
+                for evidence_id in control.evidence_source_ids
+                if evidence_id in context.evidence_status_by_id
+            }
+            if (
+                control.implementation_status == "repository_local"
+                and "available" not in control_evidence_statuses
+            ):
+                context.findings.append(
+                    f"{control.control_id}: repository_local status requires available evidence"
+                )
+            if (
+                control.implementation_status == "planned"
+                and "deferred" not in control_evidence_statuses
+            ):
+                context.findings.append(
+                    f"{control.control_id}: planned status requires deferred evidence"
+                )
+
+    def _validate_evidence(self, context: _MapValidationContext) -> None:
+        """Validate evidence status, package, and repository-path invariants.
+
+        Args:
+            context: Invocation-local map state receiving findings and used roles.
+        """
+        for evidence in context.collections.evidence_sources:
+            context.used_roles.add(evidence.owner_role)
+            if _LOWER_NAME.fullmatch(evidence.source_type) is None:
+                context.findings.append(
+                    f"{evidence.evidence_source_id}: source_type must be lower_snake_case"
+                )
+            if any(_PACKAGE_ID.fullmatch(item) is None for item in evidence.required_packages):
+                context.findings.append(
+                    f"{evidence.evidence_source_id}: required_packages must use A01-L08"
+                )
+            if evidence.status == "available":
+                if not evidence.location or evidence.closure_condition:
+                    context.findings.append(
+                        f"{evidence.evidence_source_id}: available evidence needs location and "
+                        "no closure condition"
+                    )
+                elif evidence.required_packages:
+                    context.findings.append(
+                        f"{evidence.evidence_source_id}: available evidence cannot require "
+                        "future packages"
+                    )
+                else:
+                    _validate_repository_path(
+                        evidence.location,
+                        repository_root=context.repository_root,
+                        context=evidence.evidence_source_id,
+                        findings=context.findings,
+                    )
+            elif evidence.status == "deferred":
+                if (
+                    evidence.location
+                    or not evidence.closure_condition
+                    or not evidence.required_packages
+                ):
+                    context.findings.append(
+                        f"{evidence.evidence_source_id}: deferred evidence needs packages and "
+                        "closure condition, not a location"
+                    )
+            else:
+                context.findings.append(
+                    f"{evidence.evidence_source_id}: status must be available or deferred"
+                )
+
+    def _validate_authority_and_mappings(self, context: _MapValidationContext) -> None:
+        """Validate authority freshness, jurisdiction profiles, and regulatory mappings.
+
+        Args:
+            context: Invocation-local map state receiving findings, roles, and mapping indexes.
+        """
+        context.sources_by_jurisdiction = {
+            jurisdiction_id: set() for jurisdiction_id in context.jurisdiction_ids
+        }
+        for source in context.collections.authority_sources:
+            if source.jurisdiction_id not in context.jurisdiction_id_set:
+                context.findings.append(f"{source.source_id}: unknown jurisdiction")
+            else:
+                context.sources_by_jurisdiction[source.jurisdiction_id].add(source.source_id)
+            _validate_authority_url(source, findings=context.findings)
+            if source.source_class not in {
+                "binding_rule",
+                "statute",
+                "supervisory_guidance",
+                "reference_framework",
+            }:
+                context.findings.append(f"{source.source_id}: unsupported source_class")
+            if source.last_verified_on > context.as_of_date:
+                context.findings.append(
+                    f"{source.source_id}: last_verified_on cannot be after as_of_date"
+                )
+            elif context.as_of_date - source.last_verified_on > _MAX_SOURCE_VERIFICATION_AGE:
+                context.findings.append(
+                    f"{source.source_id}: authority-source verification is older than 31 days"
+                )
+        for jurisdiction in context.collections.jurisdictions:
+            context.used_roles.add(jurisdiction.legal_owner_role)
+            expected_status = (
+                "reference_only"
+                if jurisdiction.jurisdiction_id == "GLOBAL"
+                else "requires_legal_review"
+            )
+            if jurisdiction.applicability_status != expected_status:
+                context.findings.append(
+                    f"{jurisdiction.jurisdiction_id}: applicability_status must be "
+                    f"{expected_status!r}"
+                )
+            if (
+                set(jurisdiction.source_ids)
+                != context.sources_by_jurisdiction[jurisdiction.jurisdiction_id]
+            ):
+                context.findings.append(
+                    f"{jurisdiction.jurisdiction_id}: source_ids must match its authority sources"
+                )
+            review_horizon = jurisdiction.review_due_on - context.as_of_date
+            if review_horizon <= timedelta(0):
+                context.findings.append(f"{jurisdiction.jurisdiction_id}: legal review is overdue")
+            elif review_horizon > _MAX_LEGAL_REVIEW_HORIZON:
+                context.findings.append(
+                    f"{jurisdiction.jurisdiction_id}: legal review horizon exceeds 93 days"
+                )
+            context.status_by_jurisdiction[jurisdiction.jurisdiction_id] = (
+                jurisdiction.applicability_status
+            )
+            context.legal_owner_by_jurisdiction[jurisdiction.jurisdiction_id] = (
+                jurisdiction.legal_owner_role
+            )
+        for mapping in context.collections.regulatory_mappings:
+            context.used_roles.add(mapping.owner_role)
+            if mapping.jurisdiction_id not in context.jurisdiction_id_set:
+                context.findings.append(f"{mapping.mapping_id}: unknown jurisdiction")
+                continue
+            if (
+                mapping.applicability_status
+                != context.status_by_jurisdiction[mapping.jurisdiction_id]
+            ):
+                context.findings.append(
+                    f"{mapping.mapping_id}: applicability status differs from profile"
+                )
+            if mapping.owner_role != context.legal_owner_by_jurisdiction[mapping.jurisdiction_id]:
+                context.findings.append(
+                    f"{mapping.mapping_id}: owner must match the jurisdiction legal owner"
+                )
+            allowed_sources = frozenset(context.sources_by_jurisdiction[mapping.jurisdiction_id])
+            _validate_references(
+                mapping.source_ids,
+                allowed=allowed_sources,
+                context=f"{mapping.mapping_id}.source_ids",
+                findings=context.findings,
+            )
+            _validate_references(
+                mapping.control_ids,
+                allowed=context.control_ids,
+                context=f"{mapping.mapping_id}.control_ids",
+                findings=context.findings,
+            )
+            _validate_references(
+                mapping.evidence_source_ids,
+                allowed=context.evidence_ids,
+                context=f"{mapping.mapping_id}.evidence_source_ids",
+                findings=context.findings,
+            )
+            if (
+                mapping.applicability_status == "requires_legal_review"
+                and "A07-EV15" not in mapping.evidence_source_ids
+            ):
+                context.findings.append(
+                    f"{mapping.mapping_id}: legal-review mapping requires A07-EV15 evidence"
+                )
+            if (
+                mapping.applicability_status == "reference_only"
+                and "A07-EV15" in mapping.evidence_source_ids
+            ):
+                context.findings.append(
+                    f"{mapping.mapping_id}: reference-only mapping cannot claim "
+                    "legal-review evidence"
+                )
+            context.mapped_source_ids.update(mapping.source_ids)
+            context.mapped_control_ids.update(mapping.control_ids)
+
+    def _validate_coverage(self, context: _MapValidationContext) -> None:
+        """Append findings for complete asset, boundary, control, evidence, and source coverage.
+
+        Args:
+            context: Invocation-local map state receiving coverage findings.
+        """
+        if context.mapped_source_ids != context.source_ids:
+            context.findings.append("every authority source must appear in a regulatory mapping")
+        referenced_control_ids = (
+            context.mapped_control_ids
+            | {
+                control_id
+                for boundary in context.collections.boundaries
+                for control_id in boundary.control_ids
+            }
+            | {
+                control_id
+                for threat in context.collections.threats
+                for control_id in threat.control_ids
+            }
+        )
+        if referenced_control_ids != context.control_ids:
+            context.findings.append(
+                "every control must mitigate a boundary, threat, or regulatory mapping"
+            )
+        referenced_asset_ids = {
+            asset_id
+            for boundary in context.collections.boundaries
+            for asset_id in boundary.asset_ids
+        } | {asset_id for threat in context.collections.threats for asset_id in threat.asset_ids}
+        if referenced_asset_ids != context.asset_ids:
+            context.findings.append("every protected asset must appear in a boundary or threat")
+        referenced_boundary_ids = {
+            boundary_id
+            for threat in context.collections.threats
+            for boundary_id in threat.boundary_ids
+        }
+        if referenced_boundary_ids != context.boundary_ids:
+            context.findings.append("every trust boundary must appear in a threat scenario")
+        referenced_evidence_ids = {
+            evidence_id
+            for control in context.collections.controls
+            for evidence_id in control.evidence_source_ids
+        } | {
+            evidence_id
+            for mapping in context.collections.regulatory_mappings
+            for evidence_id in mapping.evidence_source_ids
+        }
+        if referenced_evidence_ids != context.evidence_ids:
+            context.findings.append(
+                "every evidence source must support a control or regulatory mapping"
+            )
+
+    def _parse_findings_and_raise_if_invalid(
+        self, context: _MapValidationContext
+    ) -> tuple[tuple[str, ...], str]:
+        """Parse package findings, check status metadata, and raise ordered findings.
+
+        Args:
+            context: Invocation-local map state receiving finding records and stale-role checks.
+
+        Returns:
+            Declared finding identifiers in source order and the validated package status.
+
+        Raises:
+            SecurityControlError: If declared findings, status, or ownership roles are invalid,
+                or if any prior validation phase produced findings.
+        """
+        finding_values = _require_entries(
+            context.document.get("findings"),
+            context="findings",
+            keys={"closure_condition", "finding_id", "owner_role", "unavailable_evidence"},
+        )
+        finding_ids: list[str] = []
+        for index, finding in enumerate(finding_values, 1):
+            finding_context = f"findings[{index}]"
+            finding_ids.append(_require_string(finding, "finding_id", context=finding_context))
+            context.used_roles.add(_require_string(finding, "owner_role", context=finding_context))
+            _require_string(finding, "unavailable_evidence", context=finding_context)
+            _require_string(finding, "closure_condition", context=finding_context)
+        open_finding_ids = _require_strings(
+            context.document.get("open_finding_ids"), context="open_finding_ids"
+        )
+        if open_finding_ids != tuple(finding_ids):
+            context.findings.append("open_finding_ids must exactly match findings")
+        package_status = _require_string(
+            context.document, "package_status", context=str(context.path)
+        )
+        if package_status != "partial" or tuple(finding_ids) != _SECURITY_CONTROL_OPEN_FINDING_IDS:
+            context.findings.append(
+                "solo-bootstrap A07 must remain partial with "
+                f"{_SECURITY_CONTROL_OPEN_FINDING_IDS!r}"
+            )
+        stale_roles = sorted(context.used_roles - context.ownership_roles)
+        if stale_roles:
+            context.findings.append(f"control map contains stale ownership roles: {stale_roles!r}")
+        if context.findings:
+            raise SecurityControlError(context.findings)
+        return tuple(finding_ids), package_status
+
+    def _parse_evidence_metadata(self, context: _MapValidationContext) -> tuple[str, str]:
+        """Validate the local manifest path and commit digest after map findings pass.
+
+        Args:
+            context: Invocation-local map state containing the parsed document and root.
+
+        Returns:
+            The validated repository-relative manifest path and full lowercase commit SHA.
+
+        Raises:
+            SecurityControlError: If the manifest path is unsafe, missing, or not a full digest.
+        """
+        manifest_path = _require_string(
+            context.document, "local_evidence_manifest_path", context=str(context.path)
+        )
+        path_findings: list[str] = []
+        _validate_repository_path(
+            manifest_path,
+            repository_root=context.repository_root,
+            context="local_evidence_manifest_path",
+            findings=path_findings,
+        )
+        if path_findings:
+            raise SecurityControlError(path_findings)
+        commit_sha = _require_string(
+            context.document, "local_evidence_commit_sha", context=str(context.path)
+        )
+        if _COMMIT_SHA.fullmatch(commit_sha) is None:
+            raise SecurityControlError(["local_evidence_commit_sha must be a full lowercase SHA"])
+        return manifest_path, commit_sha
+
+    def _build_model(
+        self,
+        context: _MapValidationContext,
+        finding_ids: tuple[str, ...],
+        package_status: str,
+        manifest_path: str,
+        commit_sha: str,
+    ) -> SecurityControlMap:
+        """Assemble the immutable Pydantic control-map model.
+
+        Args:
+            context: Fully validated invocation-local map state.
+            finding_ids: Ordered package finding identifiers.
+            package_status: Validated package status.
+            manifest_path: Validated local evidence manifest path.
+            commit_sha: Validated local evidence commit SHA.
+
+        Returns:
+            The immutable security-control map model.
+
+        Raises:
+            ValidationError: If Pydantic rejects the assembled model; the public loader translates
+                this failure with its cause chained.
+        """
+        return SecurityControlMap(
+            schema_version=context.metadata.schema_version,
+            roadmap_package=context.metadata.roadmap_package,
+            operating_track=context.metadata.operating_track,
+            accountable_owner_role=context.metadata.accountable_owner_role,
+            risk_class=context.metadata.risk_class,
+            dependency_package_ids=context.metadata.dependency_package_ids,
+            applicable_gate_ids=context.metadata.applicable_gate_ids,
+            as_of_date=context.as_of_date,
+            package_status=package_status,
+            local_evidence_manifest_path=manifest_path,
+            local_evidence_commit_sha=commit_sha,
+            assets=context.collections.assets,
+            boundaries=context.collections.boundaries,
+            threats=context.collections.threats,
+            controls=context.collections.controls,
+            evidence_sources=context.collections.evidence_sources,
+            authority_sources=context.collections.authority_sources,
+            jurisdictions=context.collections.jurisdictions,
+            regulatory_mappings=context.collections.regulatory_mappings,
+            finding_ids=finding_ids,
+        )
+
+    def _validate_local_evidence(
+        self, repository_root: Path, control_map: SecurityControlMap
+    ) -> None:
+        """Validate the synthetic R2 evidence without treating it as acceptance.
+
+        Args:
+            repository_root: Resolved repository root containing policy and evidence files.
+            control_map: Validated map supplying the expected manifest and commit SHA.
+
+        Raises:
+            SecurityControlError: If policy, manifest, artifact, or package-profile validation
+                fails. Final evidence failures preserve their causes.
+        """
+        try:
+            change_policy = load_change_risk_policy(
+                repository_root / "docs" / "governance" / "change-risk-policy.toml"
+            )
+            manifest = validate_manifest(
+                repository_root / control_map.local_evidence_manifest_path,
+                expected_commit_sha=control_map.local_evidence_commit_sha,
+                change_policy=change_policy,
+            )
+        except (OSError, ValueError) as error:
+            raise SecurityControlError([f"A07 local evidence bundle: {error}"]) from error
+        try:
+            validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+        except EvidenceGovernanceError as error:
+            raise SecurityControlError(error.findings) from error
+
+
 def _load_control_map(
     path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
 ) -> SecurityControlMap:
-    """Load and validate the complete threat and regulatory control map."""
-    resolved_root = repository_root.resolve()
-    ownership_path = ownership_register_path or (
-        resolved_root / "docs" / "governance" / "domain-ownership.toml"
-    )
-    ownership_roles = _ownership_roles(ownership_path)
-    control_map_document = _load_toml(path)
-    if set(control_map_document) != _ROOT_KEYS:
-        raise SecurityControlError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
-    schema_version = _require_integer(control_map_document, "schema_version", context=str(path))
-    if schema_version != 1:
-        raise SecurityControlError([f"{path}: schema_version must be 1"])
-    roadmap_package = _require_string(control_map_document, "roadmap_package", context=str(path))
-    operating_track = _require_string(control_map_document, "operating_track", context=str(path))
-    accountable_owner_role = _require_string(
-        control_map_document, "accountable_owner_role", context=str(path)
-    )
-    risk_class = _require_string(control_map_document, "risk_class", context=str(path))
-    expected_strings = {
-        "accountable_owner_role": (accountable_owner_role, "security"),
-        "jurisdiction_applicability_authority": (
-            _require_string(
-                control_map_document, "jurisdiction_applicability_authority", context=str(path)
-            ),
-            "qualified_legal_compliance",
-        ),
-        "operating_track": (operating_track, "solo_bootstrap"),
-        "risk_class": (risk_class, "R2"),
-        "roadmap_package": (roadmap_package, "A07"),
-    }
-    for key, (actual, expected) in expected_strings.items():
-        if actual != expected:
-            raise SecurityControlError([f"{path}: {key} must be {expected!r}"])
-    if control_map_document.get("legal_advice") is not False:
-        raise SecurityControlError([f"{path}: legal_advice must be False"])
-    dependency_package_ids = _require_strings(
-        control_map_document.get("dependency_package_ids"), context="dependency_package_ids"
-    )
-    if dependency_package_ids != SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS:
-        raise SecurityControlError(
-            [f"dependency_package_ids must be exactly {SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS!r}"]
-        )
-    applicable_gate_ids = _require_strings(
-        control_map_document.get("applicable_gate_ids"), context="applicable_gate_ids"
-    )
-    if applicable_gate_ids != APPLICABLE_GATE_IDS:
-        raise SecurityControlError([f"applicable_gate_ids must be exactly {APPLICABLE_GATE_IDS!r}"])
+    """Delegate map loading through the Pydantic failure-injection compatibility seam.
 
-    assets = _parse_assets(control_map_document.get("assets"))
-    boundaries = _parse_boundaries(control_map_document.get("boundaries"))
-    threats = _parse_threats(control_map_document.get("threats"))
-    controls = _parse_controls(control_map_document.get("controls"))
-    evidence_sources = _parse_evidence_sources(control_map_document.get("evidence_sources"))
-    authority_sources = _parse_authority_sources(control_map_document.get("authority_sources"))
-    jurisdictions = _parse_jurisdictions(control_map_document.get("jurisdictions"))
-    regulatory_mappings = _parse_regulatory_mappings(
-        control_map_document.get("regulatory_mappings")
-    )
-    as_of_date = _parse_iso_date(
-        _require_string(control_map_document, "as_of_date", context=str(path)),
-        context=f"{path}.as_of_date",
-    )
-    findings: list[str] = []
+    Args:
+        path: UTF-8 security-control map TOML file.
+        repository_root: Repository root for relative paths.
+        ownership_register_path: Optional ownership-register override.
 
-    id_groups = (
-        ("asset", tuple(item.asset_id for item in assets)),
-        ("boundary", tuple(item.boundary_id for item in boundaries)),
-        ("threat", tuple(item.threat_id for item in threats)),
-        ("control", tuple(item.control_id for item in controls)),
-        ("evidence", tuple(item.evidence_source_id for item in evidence_sources)),
-        ("source", tuple(item.source_id for item in authority_sources)),
-        ("mapping", tuple(item.mapping_id for item in regulatory_mappings)),
-    )
-    for kind, identifiers in id_groups:
-        _validate_id_order(identifiers, kind=kind, findings=findings)
-    jurisdiction_ids = tuple(item.jurisdiction_id for item in jurisdictions)
-    if jurisdiction_ids != JURISDICTION_IDS:
-        findings.append(f"jurisdictions must be ordered and exactly {JURISDICTION_IDS!r}")
+    Returns:
+        The assembled immutable security-control map.
 
-    asset_ids = frozenset(item.asset_id for item in assets)
-    boundary_ids = frozenset(item.boundary_id for item in boundaries)
-    control_ids = frozenset(item.control_id for item in controls)
-    evidence_ids = frozenset(item.evidence_source_id for item in evidence_sources)
-    source_ids = frozenset(item.source_id for item in authority_sources)
-    jurisdiction_id_set = frozenset(jurisdiction_ids)
-    evidence_status_by_id = {item.evidence_source_id: item.status for item in evidence_sources}
-
-    used_roles: set[str] = set()
-    for asset in assets:
-        used_roles.add(asset.owner_role)
-    for boundary in boundaries:
-        used_roles.add(boundary.owner_role)
-        if boundary.source_zone == boundary.destination_zone:
-            findings.append(f"{boundary.boundary_id}: trust boundary zones must differ")
-        _validate_references(
-            boundary.asset_ids,
-            allowed=asset_ids,
-            context=f"{boundary.boundary_id}.asset_ids",
-            findings=findings,
-        )
-        _validate_references(
-            boundary.control_ids,
-            allowed=control_ids,
-            context=f"{boundary.boundary_id}.control_ids",
-            findings=findings,
-        )
-    categories = frozenset(threat.category for threat in threats)
-    if categories != frozenset(THREAT_CATEGORIES):
-        findings.append(f"threats must cover exactly the required categories {THREAT_CATEGORIES!r}")
-    for threat in threats:
-        used_roles.add(threat.owner_role)
-        _validate_references(
-            threat.boundary_ids,
-            allowed=boundary_ids,
-            context=f"{threat.threat_id}.boundary_ids",
-            findings=findings,
-        )
-        _validate_references(
-            threat.asset_ids,
-            allowed=asset_ids,
-            context=f"{threat.threat_id}.asset_ids",
-            findings=findings,
-        )
-        _validate_references(
-            threat.control_ids,
-            allowed=control_ids,
-            context=f"{threat.threat_id}.control_ids",
-            findings=findings,
-        )
-    for control in controls:
-        used_roles.add(control.owner_role)
-        used_roles.update(control.independent_review_roles)
-        if control.owner_role in control.independent_review_roles:
-            findings.append(f"{control.control_id}: owner cannot independently review its control")
-        if any(
-            function not in {"detect", "prevent", "recover", "respond"}
-            for function in control.control_functions
-        ):
-            findings.append(f"{control.control_id}: unsupported control function")
-        if control.implementation_status not in {"planned", "repository_local"}:
-            findings.append(f"{control.control_id}: unsupported implementation_status")
-        if any(_PACKAGE_ID.fullmatch(item) is None for item in control.implementation_packages):
-            findings.append(f"{control.control_id}: implementation_packages must use A01-L08")
-        _validate_references(
-            control.evidence_source_ids,
-            allowed=evidence_ids,
-            context=f"{control.control_id}.evidence_source_ids",
-            findings=findings,
-        )
-        control_evidence_statuses = {
-            evidence_status_by_id[evidence_id]
-            for evidence_id in control.evidence_source_ids
-            if evidence_id in evidence_status_by_id
-        }
-        if (
-            control.implementation_status == "repository_local"
-            and "available" not in control_evidence_statuses
-        ):
-            findings.append(
-                f"{control.control_id}: repository_local status requires available evidence"
-            )
-        if (
-            control.implementation_status == "planned"
-            and "deferred" not in control_evidence_statuses
-        ):
-            findings.append(f"{control.control_id}: planned status requires deferred evidence")
-    for evidence in evidence_sources:
-        used_roles.add(evidence.owner_role)
-        if _LOWER_NAME.fullmatch(evidence.source_type) is None:
-            findings.append(f"{evidence.evidence_source_id}: source_type must be lower_snake_case")
-        if any(_PACKAGE_ID.fullmatch(item) is None for item in evidence.required_packages):
-            findings.append(f"{evidence.evidence_source_id}: required_packages must use A01-L08")
-        if evidence.status == "available":
-            if not evidence.location or evidence.closure_condition:
-                findings.append(
-                    f"{evidence.evidence_source_id}: available evidence needs location and "
-                    "no closure condition"
-                )
-            elif evidence.required_packages:
-                findings.append(
-                    f"{evidence.evidence_source_id}: available evidence cannot require "
-                    "future packages"
-                )
-            else:
-                _validate_repository_path(
-                    evidence.location,
-                    repository_root=resolved_root,
-                    context=evidence.evidence_source_id,
-                    findings=findings,
-                )
-        elif evidence.status == "deferred":
-            if (
-                evidence.location
-                or not evidence.closure_condition
-                or not evidence.required_packages
-            ):
-                findings.append(
-                    f"{evidence.evidence_source_id}: deferred evidence needs packages and "
-                    "closure condition, not a location"
-                )
-        else:
-            findings.append(f"{evidence.evidence_source_id}: status must be available or deferred")
-
-    sources_by_jurisdiction: dict[str, set[str]] = {
-        jurisdiction_id: set() for jurisdiction_id in jurisdiction_ids
-    }
-    for source in authority_sources:
-        if source.jurisdiction_id not in jurisdiction_id_set:
-            findings.append(f"{source.source_id}: unknown jurisdiction")
-        else:
-            sources_by_jurisdiction[source.jurisdiction_id].add(source.source_id)
-        _validate_authority_url(source, findings=findings)
-        if source.source_class not in {
-            "binding_rule",
-            "statute",
-            "supervisory_guidance",
-            "reference_framework",
-        }:
-            findings.append(f"{source.source_id}: unsupported source_class")
-        if source.last_verified_on > as_of_date:
-            findings.append(f"{source.source_id}: last_verified_on cannot be after as_of_date")
-        elif as_of_date - source.last_verified_on > _MAX_SOURCE_VERIFICATION_AGE:
-            findings.append(
-                f"{source.source_id}: authority-source verification is older than 31 days"
-            )
-    status_by_jurisdiction: dict[str, str] = {}
-    legal_owner_by_jurisdiction: dict[str, str] = {}
-    for jurisdiction in jurisdictions:
-        used_roles.add(jurisdiction.legal_owner_role)
-        expected_status = (
-            "reference_only"
-            if jurisdiction.jurisdiction_id == "GLOBAL"
-            else "requires_legal_review"
-        )
-        if jurisdiction.applicability_status != expected_status:
-            findings.append(
-                f"{jurisdiction.jurisdiction_id}: applicability_status must be {expected_status!r}"
-            )
-        if set(jurisdiction.source_ids) != sources_by_jurisdiction[jurisdiction.jurisdiction_id]:
-            findings.append(
-                f"{jurisdiction.jurisdiction_id}: source_ids must match its authority sources"
-            )
-        review_horizon = jurisdiction.review_due_on - as_of_date
-        if review_horizon <= timedelta(0):
-            findings.append(f"{jurisdiction.jurisdiction_id}: legal review is overdue")
-        elif review_horizon > _MAX_LEGAL_REVIEW_HORIZON:
-            findings.append(f"{jurisdiction.jurisdiction_id}: legal review horizon exceeds 93 days")
-        status_by_jurisdiction[jurisdiction.jurisdiction_id] = jurisdiction.applicability_status
-        legal_owner_by_jurisdiction[jurisdiction.jurisdiction_id] = jurisdiction.legal_owner_role
-    mapped_source_ids: set[str] = set()
-    mapped_control_ids: set[str] = set()
-    for mapping in regulatory_mappings:
-        used_roles.add(mapping.owner_role)
-        if mapping.jurisdiction_id not in jurisdiction_id_set:
-            findings.append(f"{mapping.mapping_id}: unknown jurisdiction")
-            continue
-        if mapping.applicability_status != status_by_jurisdiction[mapping.jurisdiction_id]:
-            findings.append(f"{mapping.mapping_id}: applicability status differs from profile")
-        if mapping.owner_role != legal_owner_by_jurisdiction[mapping.jurisdiction_id]:
-            findings.append(f"{mapping.mapping_id}: owner must match the jurisdiction legal owner")
-        allowed_sources = frozenset(sources_by_jurisdiction[mapping.jurisdiction_id])
-        _validate_references(
-            mapping.source_ids,
-            allowed=allowed_sources,
-            context=f"{mapping.mapping_id}.source_ids",
-            findings=findings,
-        )
-        _validate_references(
-            mapping.control_ids,
-            allowed=control_ids,
-            context=f"{mapping.mapping_id}.control_ids",
-            findings=findings,
-        )
-        _validate_references(
-            mapping.evidence_source_ids,
-            allowed=evidence_ids,
-            context=f"{mapping.mapping_id}.evidence_source_ids",
-            findings=findings,
-        )
-        if (
-            mapping.applicability_status == "requires_legal_review"
-            and "A07-EV15" not in mapping.evidence_source_ids
-        ):
-            findings.append(
-                f"{mapping.mapping_id}: legal-review mapping requires A07-EV15 evidence"
-            )
-        if (
-            mapping.applicability_status == "reference_only"
-            and "A07-EV15" in mapping.evidence_source_ids
-        ):
-            findings.append(
-                f"{mapping.mapping_id}: reference-only mapping cannot claim legal-review evidence"
-            )
-        mapped_source_ids.update(mapping.source_ids)
-        mapped_control_ids.update(mapping.control_ids)
-    if mapped_source_ids != source_ids:
-        findings.append("every authority source must appear in a regulatory mapping")
-    referenced_control_ids = (
-        mapped_control_ids
-        | {control_id for boundary in boundaries for control_id in boundary.control_ids}
-        | {control_id for threat in threats for control_id in threat.control_ids}
-    )
-    if referenced_control_ids != control_ids:
-        findings.append("every control must mitigate a boundary, threat, or regulatory mapping")
-    referenced_asset_ids = {
-        asset_id for boundary in boundaries for asset_id in boundary.asset_ids
-    } | {asset_id for threat in threats for asset_id in threat.asset_ids}
-    if referenced_asset_ids != asset_ids:
-        findings.append("every protected asset must appear in a boundary or threat")
-    referenced_boundary_ids = {
-        boundary_id for threat in threats for boundary_id in threat.boundary_ids
-    }
-    if referenced_boundary_ids != boundary_ids:
-        findings.append("every trust boundary must appear in a threat scenario")
-    referenced_evidence_ids = {
-        evidence_id for control in controls for evidence_id in control.evidence_source_ids
-    } | {
-        evidence_id
-        for mapping in regulatory_mappings
-        for evidence_id in mapping.evidence_source_ids
-    }
-    if referenced_evidence_ids != evidence_ids:
-        findings.append("every evidence source must support a control or regulatory mapping")
-
-    finding_values = _require_entries(
-        control_map_document.get("findings"),
-        context="findings",
-        keys={"closure_condition", "finding_id", "owner_role", "unavailable_evidence"},
-    )
-    finding_ids: list[str] = []
-    for index, finding in enumerate(finding_values, 1):
-        context = f"findings[{index}]"
-        finding_ids.append(_require_string(finding, "finding_id", context=context))
-        used_roles.add(_require_string(finding, "owner_role", context=context))
-        _require_string(finding, "unavailable_evidence", context=context)
-        _require_string(finding, "closure_condition", context=context)
-    open_finding_ids = _require_strings(
-        control_map_document.get("open_finding_ids"), context="open_finding_ids"
-    )
-    if open_finding_ids != tuple(finding_ids):
-        findings.append("open_finding_ids must exactly match findings")
-    package_status = _require_string(control_map_document, "package_status", context=str(path))
-    if package_status != "partial" or tuple(finding_ids) != _SECURITY_CONTROL_OPEN_FINDING_IDS:
-        findings.append(
-            f"solo-bootstrap A07 must remain partial with {_SECURITY_CONTROL_OPEN_FINDING_IDS!r}"
-        )
-    stale_roles = sorted(used_roles - ownership_roles)
-    if stale_roles:
-        findings.append(f"control map contains stale ownership roles: {stale_roles!r}")
-    if findings:
-        raise SecurityControlError(findings)
-
-    manifest_path = _require_string(
-        control_map_document, "local_evidence_manifest_path", context=str(path)
-    )
-    path_findings: list[str] = []
-    _validate_repository_path(
-        manifest_path,
-        repository_root=resolved_root,
-        context="local_evidence_manifest_path",
-        findings=path_findings,
-    )
-    if path_findings:
-        raise SecurityControlError(path_findings)
-    commit_sha = _require_string(
-        control_map_document, "local_evidence_commit_sha", context=str(path)
-    )
-    if _COMMIT_SHA.fullmatch(commit_sha) is None:
-        raise SecurityControlError(["local_evidence_commit_sha must be a full lowercase SHA"])
-    return SecurityControlMap(
-        schema_version=schema_version,
-        roadmap_package=roadmap_package,
-        operating_track=operating_track,
-        accountable_owner_role=accountable_owner_role,
-        risk_class=risk_class,
-        dependency_package_ids=dependency_package_ids,
-        applicable_gate_ids=applicable_gate_ids,
-        as_of_date=as_of_date,
-        package_status=package_status,
-        local_evidence_manifest_path=manifest_path,
-        local_evidence_commit_sha=commit_sha,
-        assets=assets,
-        boundaries=boundaries,
-        threats=threats,
-        controls=controls,
-        evidence_sources=evidence_sources,
-        authority_sources=authority_sources,
-        jurisdictions=jurisdictions,
-        regulatory_mappings=regulatory_mappings,
-        finding_ids=tuple(finding_ids),
-    )
+    Raises:
+        SecurityControlError: If owned map validation fails.
+        ValidationError: If a model rejects parsed values; the public wrapper translates it.
+    """
+    return SecurityControlMapLoader(
+        repository_root, ownership_register_path=ownership_register_path
+    )._load_untranslated(path)
 
 
 def load_control_map(
@@ -1371,31 +1813,12 @@ def load_control_map(
         raise SecurityControlError([f"{path}: control-map model validation failed"]) from error
 
 
-def _validate_local_evidence(repository_root: Path, control_map: SecurityControlMap) -> None:
-    """Validate the synthetic R2 evidence without treating it as acceptance."""
-    try:
-        change_policy = load_change_risk_policy(
-            repository_root / "docs" / "governance" / "change-risk-policy.toml"
-        )
-        manifest = validate_manifest(
-            repository_root / control_map.local_evidence_manifest_path,
-            expected_commit_sha=control_map.local_evidence_commit_sha,
-            change_policy=change_policy,
-        )
-    except (OSError, ValueError) as error:
-        raise SecurityControlError([f"A07 local evidence bundle: {error}"]) from error
-    try:
-        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
-    except EvidenceGovernanceError as error:
-        raise SecurityControlError(error.findings) from error
-
-
 def validate_repository(repository_root: Path) -> SecurityControlMap:
     """Validate the repository security map and its bound local evidence.
 
     The function resolves ``repository_root`` first, validates the authoritative
-    map at ``docs/governance/security-control-map.toml`` through
-    :func:`load_control_map`, and then loads the change-risk policy at
+    map at ``docs/governance/security-control-map.toml`` through a
+    ``SecurityControlMapLoader`` service, and then loads the change-risk policy at
     ``docs/governance/change-risk-policy.toml``. It validates the map's
     SHA-bound local evidence manifest and its declared artifacts, then compares
     the result with the fixed A07 R2 partial package-evidence profile. Authority
@@ -1404,7 +1827,7 @@ def validate_repository(repository_root: Path) -> SecurityControlMap:
     files are written and no network requests or subprocesses are made.
 
     Map parsing and cross-record validation complete before local evidence
-    validation starts. Map findings from ``load_control_map`` propagate as-is.
+    validation starts. Map findings from the loader service propagate as-is.
     Failures from the final evidence block are translated to one
     ``SecurityControlError`` with the original cause, including change-risk,
     manifest, package-profile, filesystem, decoding, and value failures.
@@ -1424,7 +1847,7 @@ def validate_repository(repository_root: Path) -> SecurityControlMap:
         SecurityControlError: If map validation reports findings, or if change-risk
             policy, local manifest, artifact, or A07 package-profile validation
             fails. Final evidence-block failures are translated with their causes;
-            map findings from ``load_control_map`` retain their original messages.
+            map findings from the loader service retain their original messages.
         OSError: If root, map, or ownership resolution or reading fails, or an
             uncaught filesystem failure occurs while inspecting referenced evidence
             or manifest paths before the final evidence block. Filesystem failures
@@ -1434,10 +1857,4 @@ def validate_repository(repository_root: Path) -> SecurityControlMap:
             translated to ``SecurityControlError``.
         RuntimeError: If path resolution encounters a symbolic-link loop.
     """
-    resolved_repository_root = repository_root.resolve()
-    control_map = load_control_map(
-        resolved_repository_root / "docs" / "governance" / "security-control-map.toml",
-        repository_root=resolved_repository_root,
-    )
-    _validate_local_evidence(resolved_repository_root, control_map)
-    return control_map
+    return SecurityControlMapLoader(repository_root).validate_repository()

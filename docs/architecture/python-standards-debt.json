@@ -30,10 +30,6 @@
     }
   },
   "entries": {
-    "src/alpha_research/financial_units/conventions.py": [
-      ["adjust_business_day", "PYC001", "module-level-function"],
-      ["settlement_date", "PYC001", "module-level-function"]
-    ],
     "src/alpha_research/financial_units/models.py": [
       ["exact_decimal", "PYC001", "module-level-function"],
       ["require_decimal", "PYC001", "module-level-function"],
@@ -472,35 +468,22 @@
       ["test_venue_calendar_manifest_matches_partial_r2_profile_and_golden_digest", "PYC001", "module-level-function"]
     ],
     "tests/unit/test_financial_units.py": [
-      ["calendar", "PYC001", "module-level-function"],
-      ["fixture", "PYC001", "module-level-function"],
-      ["test_actual360_intervals_are_additive", "PYC001", "module-level-function"],
       ["test_all_numeric_types_are_immutable_and_distinct", "PYC001", "module-level-function"],
       ["test_all_public_models_keep_frozen_hashable_strict_pydantic_semantics", "PYC001", "module-level-function"],
-      ["test_bad_settlement_lag_rejects", "PYC001", "module-level-function"],
-      ["test_business_day_and_settlement_goldens", "PYC001", "module-level-function"],
       ["test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation", "PYC001", "module-level-function"],
-      ["test_calendar_coverage_and_unknown_conventions_fail_closed", "PYC001", "module-level-function"],
       ["test_constructor_errors_preserve_owned_types_and_hide_input_values", "PYC001", "module-level-function"],
-      ["test_day_count_invalid_dates_fail", "PYC001", "module-level-function"],
       ["test_decimal_context_cannot_change_any_exact_operation", "PYC001", "module-level-function"],
-      ["test_explicit_context_isolated_from_native_global_date_and_concurrent_calls", "PYC001", "module-level-function"],
       ["test_financial_rounding_local_diagnostic_budget", "PYC001", "module-level-function"],
       ["test_fx_conversion_has_declared_currency_rounding_tolerance", "PYC001", "module-level-function"],
-      ["test_hand_calculated_golden_day_counts", "PYC001", "module-level-function"],
       ["test_invalid_decimal_values_fail_without_coercion", "PYC001", "module-level-function"],
       ["test_invalid_units_and_conventions", "PYC001", "module-level-function"],
       ["test_magnitude_and_precision_boundaries_fail_closed", "PYC001", "module-level-function"],
       ["test_mismatched_arithmetic_rounding_fx_and_multiplier_reject", "PYC001", "module-level-function"],
       ["test_model_copy_revalidates_decimal_updates_without_mutating_original", "PYC001", "module-level-function"],
-      ["test_modified_adjustment_compares_year_as_well_as_month", "PYC001", "module-level-function"],
       ["test_money_fx_quantity_multiplier_and_negative_price_reconcile", "PYC001", "module-level-function"],
-      ["test_native_failure_nonfinite_and_version_mismatch_are_owned", "PYC001", "module-level-function"],
-      ["test_native_results_reject_wrong_type_sign_and_infinity", "PYC001", "module-level-function"],
       ["test_nested_models_reject_dict_coercion_subclasses_and_unchecked_copies", "PYC001", "module-level-function"],
       ["test_rounding_is_on_grid_idempotent_and_has_bounded_error", "PYC001", "module-level-function"],
-      ["test_tick_and_lot_goldens_cover_sign_and_half_even_ties", "PYC001", "module-level-function"],
-      ["test_unknown_day_count_is_not_coerced", "PYC001", "module-level-function"]
+      ["test_tick_and_lot_goldens_cover_sign_and_half_even_ties", "PYC001", "module-level-function"]
     ],
     "tests/unit/test_instrument_identity.py": [
       ["_build_economic_instrument_and_listing", "PYC001", "module-level-function"],
@@ -862,7 +845,6 @@
       ["_parse_iso_date", "PYC001", "module-level-function"],
       ["_parse_metric", "PYC001", "module-level-function"],
       ["_parse_optional_number", "PYC001", "module-level-function"],
-      ["_parse_package_states", "PYC001", "module-level-function"],
       ["_parse_utc_datetime", "PYC001", "module-level-function"],
       ["_require_https_url", "PYC001", "module-level-function"],
       ["_require_number", "PYC001", "module-level-function"],
@@ -871,8 +853,7 @@
       ["_require_string", "PYC001", "module-level-function"],
       ["_require_strings", "PYC001", "module-level-function"],
       ["_require_table", "PYC001", "module-level-function"],
-      ["_require_table_list", "PYC001", "module-level-function"],
-      ["_validate_local_evidence", "PYC001", "module-level-function"]
+      ["_require_table_list", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/remote_execution/__init__.py": [
       ["_build", "PYC001", "module-level-function"],
@@ -935,7 +916,6 @@
       ["main", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/security_controls/registry.py": [
-      ["_load_control_map", "PYC001", "module-level-function"],
       ["_load_toml", "PYC001", "module-level-function"],
       ["_ownership_roles", "PYC001", "module-level-function"],
       ["_parse_assets", "PYC001", "module-level-function"],
@@ -955,11 +935,8 @@
       ["_require_table_list", "PYC001", "module-level-function"],
       ["_validate_authority_url", "PYC001", "module-level-function"],
       ["_validate_id_order", "PYC001", "module-level-function"],
-      ["_validate_local_evidence", "PYC001", "module-level-function"],
       ["_validate_references", "PYC001", "module-level-function"],
-      ["_validate_repository_path", "PYC001", "module-level-function"],
-      ["load_control_map", "PYC001", "module-level-function"],
-      ["validate_repository", "PYC001", "module-level-function"]
+      ["_validate_repository_path", "PYC001", "module-level-function"]
     ]
   }
 }

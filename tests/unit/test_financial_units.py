@@ -46,6 +46,7 @@ from alpha_research.financial_units import (
     Rate,
     RateConvention,
     Rounding,
+    SettlementConventions,
     Tick,
     UnitError,
     Volatility,
@@ -166,25 +167,28 @@ class TestFinancialFixtureValidation:
             fixture()
 
 
-def test_hand_calculated_golden_day_counts() -> None:
-    """Match native year fractions to rational goldens within the declared tolerances."""
-    data = fixture()
-    assert data["quantlib_version"] == conventions.QUANTLIB_VERSION
-    for case in data["day_counts"]:
-        result = QuantLibConventions().year_fraction(
-            context=CONTEXT,
-            start=date.fromisoformat(case["start"]),
-            end=date.fromisoformat(case["end"]),
-            day_count=DayCount(case["basis"]),
-        )
-        expected = case["numerator"] / case["denominator"]
-        assert float(result.duration.value) == pytest.approx(
-            expected,
-            abs=float(data["tolerance"]["absolute_years"]),
-            rel=float(data["tolerance"]["relative"]),
-        )
-        assert result.context == CONTEXT
-        assert result.duration.day_count == DayCount(case["basis"])
+class TestQuantLibConventions:
+    """Exercise explicit-date day-count behavior and native failure boundaries."""
+
+    def test_hand_calculated_golden_day_counts(self) -> None:
+        """Match native year fractions to rational goldens within the declared tolerances."""
+        data = fixture()
+        assert data["quantlib_version"] == conventions.QUANTLIB_VERSION
+        for case in data["day_counts"]:
+            result = QuantLibConventions().year_fraction(
+                context=CONTEXT,
+                start=date.fromisoformat(case["start"]),
+                end=date.fromisoformat(case["end"]),
+                day_count=DayCount(case["basis"]),
+            )
+            expected = case["numerator"] / case["denominator"]
+            assert float(result.duration.value) == pytest.approx(
+                expected,
+                abs=float(data["tolerance"]["absolute_years"]),
+                rel=float(data["tolerance"]["relative"]),
+            )
+            assert result.context == CONTEXT
+            assert result.duration.day_count == DayCount(case["basis"])
 
 
 def test_tick_and_lot_goldens_cover_sign_and_half_even_ties() -> None:
@@ -371,180 +375,467 @@ def test_decimal_context_cannot_change_any_exact_operation() -> None:
         ).value == D("370.35")
 
 
-@pytest.mark.parametrize(
-    ("convention", "candidate", "expected"),
-    [
-        (BDC.UNADJUSTED, date(2024, 8, 31), date(2024, 8, 31)),
-        (BDC.FOLLOWING, date(2024, 8, 31), date(2024, 9, 3)),
-        (BDC.MODIFIED_FOLLOWING, date(2024, 8, 31), date(2024, 8, 30)),
-        (BDC.PRECEDING, date(2024, 9, 1), date(2024, 8, 30)),
-        (BDC.MODIFIED_PRECEDING, date(2024, 9, 1), date(2024, 9, 3)),
-    ],
-)
-def test_business_day_and_settlement_goldens(
-    convention: BDC, candidate: date, expected: date
-) -> None:
-    """Match business-day adjustments and settlement lags across the holiday gap."""
-    assert adjust_business_day(candidate, calendar=calendar(), convention=convention) == expected
-    assert (
-        settlement_date(candidate, business_day_lag=0, calendar=calendar(), convention=convention)
-        == expected
+class TestSettlementConventions:
+    """Exercise bounded settlement adjustment, lag and compatibility contracts."""
+
+    @pytest.mark.parametrize(
+        ("convention", "candidate", "expected"),
+        [
+            (BDC.UNADJUSTED, date(2024, 8, 31), date(2024, 8, 31)),
+            (BDC.FOLLOWING, date(2024, 8, 31), date(2024, 9, 3)),
+            (BDC.MODIFIED_FOLLOWING, date(2024, 8, 31), date(2024, 8, 30)),
+            (BDC.PRECEDING, date(2024, 9, 1), date(2024, 8, 30)),
+            (BDC.MODIFIED_PRECEDING, date(2024, 9, 1), date(2024, 9, 3)),
+        ],
     )
-    assert settlement_date(
-        date(2024, 8, 30), business_day_lag=2, calendar=calendar(), convention=BDC.FOLLOWING
-    ) == date(2024, 9, 4)
-
-
-@pytest.mark.parametrize("lag", [-1, 367, True, 1.0])
-def test_bad_settlement_lag_rejects(lag: object) -> None:
-    """Reject out-of-range and non-integer lags through the settlement function."""
-    with pytest.raises(ConventionError, match="lag"):
-        settlement_date(
-            date(2024, 8, 30),
-            business_day_lag=lag,  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed settlement lag rejection; expires=2027-03-01]
-            calendar=calendar(),
-            convention=BDC.FOLLOWING,
+    def test_business_day_and_settlement_goldens(
+        self, convention: BDC, candidate: date, expected: date
+    ) -> None:
+        """Match business-day adjustments and settlement lags across the holiday gap."""
+        service = SettlementConventions(calendar())
+        assert service.adjust_business_day(candidate, convention=convention) == expected
+        assert (
+            adjust_business_day(candidate, calendar=calendar(), convention=convention) == expected
+        )
+        assert (
+            service.settlement_date(candidate, business_day_lag=0, convention=convention)
+            == expected
+        )
+        assert (
+            settlement_date(
+                candidate, business_day_lag=0, calendar=calendar(), convention=convention
+            )
+            == expected
+        )
+        expected_lagged = date(2024, 9, 4)
+        assert (
+            service.settlement_date(date(2024, 8, 30), business_day_lag=2, convention=BDC.FOLLOWING)
+            == expected_lagged
+        )
+        assert (
+            settlement_date(
+                date(2024, 8, 30), business_day_lag=2, calendar=calendar(), convention=BDC.FOLLOWING
+            )
+            == expected_lagged
         )
 
-
-def test_calendar_coverage_and_unknown_conventions_fail_closed() -> None:
-    """Reject uncovered dates, empty calendars and untyped convention strings."""
-    for candidate in (date(2024, 8, 28), date(2024, 9, 6)):
-        with pytest.raises(ConventionError, match="coverage"):
-            adjust_business_day(candidate, calendar=calendar(), convention=BDC.UNADJUSTED)
-    with pytest.raises(ConventionError, match="coverage"):
-        settlement_date(
-            date(2024, 9, 5), business_day_lag=1, calendar=calendar(), convention=BDC.FOLLOWING
-        )
-    empty = calendar().model_copy(update={"settlement_dates": ()})
-    with pytest.raises(ConventionError, match="coverage"):
-        adjust_business_day(date(2024, 8, 31), calendar=empty, convention=BDC.FOLLOWING)
-    with pytest.raises(UnitError):
-        adjust_business_day(date(2024, 8, 31), calendar=calendar(), convention="following")  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed convention rejection; expires=2027-03-01]
-
-
-def test_native_failure_nonfinite_and_version_mismatch_are_owned(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Translate version, nonfinite-result and native-call failures into owned errors."""
-
-    def calculate() -> None:
-        """Invoke the owned adapter through its normal native day-count path.
-
-        Raises:
-            ConventionError: The currently patched metadata or native counter fails.
-        """
-        QuantLibConventions().time_to(
-            context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
-        )
-
-    monkeypatch.setattr(conventions, "version", lambda _: "1.40")
-    with pytest.raises(ConventionError, match="exactly"):
-        calculate()
-
-    def missing(_: str) -> str:
-        """Simulate unavailable native-package version metadata.
-
-        Args:
-            _: Distribution name, intentionally ignored by the failure double.
-
-        Returns:
-            No version string; every call raises instead.
-
-        Raises:
-            PackageNotFoundError: The synthetic native distribution is unavailable.
-        """
-        raise PackageNotFoundError
-
-    monkeypatch.setattr(conventions, "version", missing)
-    with pytest.raises(ConventionError, match="unavailable"):
-        calculate()
-    monkeypatch.setattr(conventions, "version", lambda _: "1.43")
-
-    class BadCounter:
-        """Simulate a native day counter returning a nonfinite float."""
-
-        def yearFraction(self, start: object, end: object) -> float:
-            """Return a nonfinite native result to exercise adapter rejection.
-
-            Args:
-                start: Native start-date argument, intentionally unused.
-                end: Native end-date argument, intentionally unused.
-
-            Returns:
-                A NaN float, without validating the supplied dates.
-            """
-            return float("nan")
-
-    monkeypatch.setattr(ql, "Actual360", BadCounter)
-    with pytest.raises(ConventionError, match="invalid year"):
-        calculate()
-
-    def fail() -> None:
-        """Simulate an exception from native counter construction.
-
-        Raises:
-            RuntimeError: The synthetic native counter cannot be constructed.
-        """
-        raise RuntimeError("synthetic native failure")
-
-    monkeypatch.setattr(ql, "Actual360", fail)
-    with pytest.raises(ConventionError, match="evaluation failed") as error:
-        calculate()
-    assert isinstance(error.value.__cause__, RuntimeError)
-
-
-def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls() -> None:
-    """Keep concurrent evaluation contexts independent of native global date state."""
-    # Settings is touched only in this adversarial test, never by the owned adapter.
-    saved = ql.Settings.instance().evaluationDate
-    try:
-        ql.Settings.instance().evaluationDate = ql.Date(1, 1, 1999)
-        contexts = [
-            CONTEXT.model_copy(update={"evaluation_date": date(2024, 1, day)}) for day in (1, 2, 3)
-        ]
-
-        def evaluate(context: EvaluationContext) -> Decimal:
-            """Calculate a context-specific year fraction ending on January 4, 2024.
-
-            Args:
-                context: Explicit evaluation date and convention revision for the adapter.
-
-            Returns:
-                Actual/360 duration from the evaluation date, rounded to 1e-15 years.
-
-            Raises:
-                ConventionError: Native evaluation or version validation fails.
-            """
-            return (
-                QuantLibConventions()
-                .time_to(context=context, end=date(2024, 1, 4), day_count=DayCount.ACTUAL_360)
-                .duration.value
+    @pytest.mark.parametrize("lag", [-1, 367, True, 1.0])
+    def test_bad_settlement_lag_rejects(self, lag: object) -> None:
+        """Reject out-of-range and non-integer lags through the settlement function."""
+        service = SettlementConventions(calendar())
+        with pytest.raises(ConventionError, match="lag"):
+            service.settlement_date(
+                date(2024, 8, 30),
+                business_day_lag=lag,  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed settlement lag rejection; expires=2027-03-01]
+                convention=BDC.FOLLOWING,
+            )
+        with pytest.raises(ConventionError, match="lag"):
+            settlement_date(
+                date(2024, 8, 30),
+                business_day_lag=lag,  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed settlement lag rejection; expires=2027-03-01]
+                calendar=calendar(),
+                convention=BDC.FOLLOWING,
             )
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            results = list(pool.map(evaluate, contexts))
-        assert results == [evaluate(context) for context in contexts]
-        assert results[0] > results[1] > results[2]
-        assert ql.Settings.instance().evaluationDate == ql.Date(1, 1, 1999)
-    finally:
-        ql.Settings.instance().evaluationDate = saved
+    def test_calendar_coverage_and_unknown_conventions_fail_closed(self) -> None:
+        """Reject uncovered dates, empty calendars and untyped convention strings."""
+        service = SettlementConventions(calendar())
+        for candidate in (date(2024, 8, 28), date(2024, 9, 6)):
+            with pytest.raises(ConventionError, match="coverage"):
+                service.adjust_business_day(candidate, convention=BDC.UNADJUSTED)
+            with pytest.raises(ConventionError, match="coverage"):
+                adjust_business_day(candidate, calendar=calendar(), convention=BDC.UNADJUSTED)
+        with pytest.raises(ConventionError, match="coverage"):
+            service.settlement_date(date(2024, 9, 5), business_day_lag=1, convention=BDC.FOLLOWING)
+        with pytest.raises(ConventionError, match="coverage"):
+            settlement_date(
+                date(2024, 9, 5), business_day_lag=1, calendar=calendar(), convention=BDC.FOLLOWING
+            )
+        calendar_update: dict[str, tuple[date, ...]] = {"settlement_dates": ()}
+        empty = calendar().model_copy(update=calendar_update)
+        with pytest.raises(ConventionError, match="coverage"):
+            service_with_empty_calendar = SettlementConventions(empty)
+            service_with_empty_calendar.adjust_business_day(
+                date(2024, 8, 31), convention=BDC.FOLLOWING
+            )
+        with pytest.raises(ConventionError, match="coverage"):
+            adjust_business_day(date(2024, 8, 31), calendar=empty, convention=BDC.FOLLOWING)
+        with pytest.raises(UnitError):
+            service.adjust_business_day(
+                date(2024, 8, 31),
+                convention="following",  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed convention rejection on SettlementConventions; expires=2027-03-01]
+            )
+        with pytest.raises(UnitError):
+            adjust_business_day(date(2024, 8, 31), calendar=calendar(), convention="following")  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed convention rejection; expires=2027-03-01]
 
+    @pytest.mark.parametrize(
+        ("candidate", "convention"),
+        [
+            (date(2024, 8, 28), BDC.MODIFIED_FOLLOWING),
+            (date(2024, 9, 6), BDC.MODIFIED_PRECEDING),
+        ],
+    )
+    def test_coverage_is_checked_before_modified_search(
+        self, candidate: date, convention: BDC
+    ) -> None:
+        """Reject uncovered dates before a modified search can use the reverse direction."""
+        service = SettlementConventions(calendar())
+        with pytest.raises(ConventionError, match="coverage"):
+            service.adjust_business_day(candidate, convention=convention)
+        with pytest.raises(ConventionError, match="coverage"):
+            adjust_business_day(candidate, calendar=calendar(), convention=convention)
 
-@pytest.mark.parametrize(
-    ("start", "end"),
-    [
-        (date(1900, 1, 1), date(2024, 1, 1)),
-        (date(2024, 1, 1), date(2200, 1, 1)),
-        (date(2024, 1, 2), date(2024, 1, 1)),
-    ],
-)
-def test_day_count_invalid_dates_fail(start: date, end: date) -> None:
-    """Reject reversed intervals and dates outside native coverage."""
-    with pytest.raises(ConventionError):
-        QuantLibConventions().year_fraction(
-            context=CONTEXT, start=start, end=end, day_count=DayCount.ACTUAL_360
+    @pytest.mark.parametrize(
+        ("candidate", "convention", "settlement_dates"),
+        [
+            (date(2024, 8, 31), BDC.FOLLOWING, (date(2024, 8, 30),)),
+            (date(2024, 8, 31), BDC.MODIFIED_FOLLOWING, (date(2024, 8, 30),)),
+            (date(2024, 8, 31), BDC.MODIFIED_FOLLOWING, (date(2024, 9, 3),)),
+            (date(2024, 9, 1), BDC.PRECEDING, (date(2024, 9, 3),)),
+            (date(2024, 9, 1), BDC.MODIFIED_PRECEDING, (date(2024, 9, 3),)),
+            (date(2024, 9, 1), BDC.MODIFIED_PRECEDING, (date(2024, 8, 30),)),
+        ],
+    )
+    def test_adjustment_stays_bounded_when_directional_date_is_missing(
+        self,
+        candidate: date,
+        convention: BDC,
+        settlement_dates: tuple[date, ...],
+    ) -> None:
+        """Reject missing primary or modified reverse dates within otherwise valid coverage."""
+        calendar_update: dict[str, tuple[date, ...]] = {"settlement_dates": settlement_dates}
+        bounded = calendar().model_copy(update=calendar_update)
+        service = SettlementConventions(bounded)
+        with pytest.raises(ConventionError, match="cannot determine"):
+            service.adjust_business_day(candidate, convention=convention)
+        with pytest.raises(ConventionError, match="cannot determine"):
+            adjust_business_day(candidate, calendar=bounded, convention=convention)
+
+    @pytest.mark.parametrize(
+        ("business_day_lag", "expected"),
+        [
+            (0, date(2024, 8, 31)),
+            (1, date(2024, 9, 3)),
+            (2, date(2024, 9, 4)),
+        ],
+    )
+    def test_unadjusted_nonsettlement_anchor_counts_only_later_eligible_dates(
+        self, business_day_lag: int, expected: date
+    ) -> None:
+        """Return an unadjusted anchor at zero lag and count later eligible dates thereafter."""
+        service = SettlementConventions(calendar())
+        trade_date = date(2024, 8, 31)
+        assert service.adjust_business_day(trade_date, convention=BDC.UNADJUSTED) == trade_date
+        assert (
+            service.settlement_date(
+                trade_date, business_day_lag=business_day_lag, convention=BDC.UNADJUSTED
+            )
+            == expected
         )
+        assert (
+            settlement_date(
+                trade_date,
+                business_day_lag=business_day_lag,
+                calendar=calendar(),
+                convention=BDC.UNADJUSTED,
+            )
+            == expected
+        )
+
+    @pytest.mark.parametrize("lag", [-1, 367])
+    def test_invalid_settlement_lag_precedes_trade_date_and_calendar_validation(
+        self, lag: int
+    ) -> None:
+        """Reject an invalid lag before checking an uncovered trade date or calendar."""
+        service = SettlementConventions(calendar())
+        with pytest.raises(ConventionError, match="lag"):
+            service.settlement_date(
+                date(2024, 8, 28), business_day_lag=lag, convention=BDC.FOLLOWING
+            )
+        invalid_update: dict[str, tuple[date, ...]] = {
+            "settlement_dates": (date(2024, 9, 3), date(2024, 8, 30))
+        }
+        invalid_calendar = calendar().model_copy(update=invalid_update)
+        with pytest.raises(ConventionError, match="lag"):
+            settlement_date(
+                date(2024, 8, 28),
+                business_day_lag=lag,
+                calendar=invalid_calendar,
+                convention=BDC.FOLLOWING,
+            )
+
+    def test_unchecked_calendar_is_rejected_at_construction_with_chained_error(self) -> None:
+        """Revalidate an unchecked calendar copy at construction and preserve its cause."""
+        invalid_update: dict[str, tuple[date, ...]] = {
+            "settlement_dates": (date(2024, 9, 3), date(2024, 8, 30))
+        }
+        invalid_calendar = calendar().model_copy(update=invalid_update)
+        with pytest.raises(ConventionError, match="invalid settlement") as caught:
+            SettlementConventions(invalid_calendar)
+        assert isinstance(caught.value.__cause__, ValidationError)
+        with pytest.raises(ConventionError, match="invalid settlement") as wrapper_error:
+            adjust_business_day(
+                date(2024, 8, 31), calendar=invalid_calendar, convention=BDC.FOLLOWING
+            )
+        assert isinstance(wrapper_error.value.__cause__, ValidationError)
+
+    def test_repeated_failures_do_not_contaminate_snapshot_or_caller_calendar(self) -> None:
+        """Keep one service usable after repeated failures and preserve the caller calendar."""
+        caller_calendar = calendar()
+        original_dates = caller_calendar.settlement_dates
+        service = SettlementConventions(caller_calendar)
+        for _ in range(2):
+            with pytest.raises(ConventionError, match="coverage"):
+                service.adjust_business_day(date(2024, 9, 6), convention=BDC.FOLLOWING)
+        assert caller_calendar.settlement_dates == original_dates
+        assert service.adjust_business_day(date(2024, 8, 31), convention=BDC.FOLLOWING) == date(
+            2024, 9, 3
+        )
+        for _ in range(2):
+            with pytest.raises(ConventionError, match="lag exceeds"):
+                service.settlement_date(
+                    date(2024, 9, 5), business_day_lag=1, convention=BDC.FOLLOWING
+                )
+        assert service.settlement_date(
+            date(2024, 8, 30), business_day_lag=2, convention=BDC.FOLLOWING
+        ) == date(2024, 9, 4)
+        assert caller_calendar.settlement_dates == original_dates
+
+    def test_strict_date_contract_rejects_datetime_candidates(self) -> None:
+        """Reject datetime subclasses at both the service and compatibility boundaries."""
+        candidate = datetime(2024, 8, 31)
+        service = SettlementConventions(calendar())
+        with pytest.raises(UnitError, match="candidate"):
+            service.adjust_business_day(candidate, convention=BDC.UNADJUSTED)
+        with pytest.raises(UnitError, match="candidate"):
+            adjust_business_day(candidate, calendar=calendar(), convention=BDC.UNADJUSTED)
+        with pytest.raises(UnitError, match="candidate"):
+            service.settlement_date(candidate, business_day_lag=0, convention=BDC.UNADJUSTED)
+        with pytest.raises(UnitError, match="candidate"):
+            settlement_date(
+                candidate,
+                business_day_lag=0,
+                calendar=calendar(),
+                convention=BDC.UNADJUSTED,
+            )
+
+    def test_modified_adjustment_compares_year_as_well_as_month(self) -> None:
+        """Treat same-month dates in different years as crossing an adjustment boundary."""
+        bounded = SettlementCalendar(
+            calendar_id="synthetic-sparse",
+            calendar_version="v1",
+            timezone_name="UTC",
+            covered_from=date(2024, 1, 1),
+            covered_through=date(2025, 1, 31),
+            settlement_dates=(date(2024, 1, 1), date(2025, 1, 31)),
+            source="synthetic",
+            source_revision="v1",
+        )
+        service = SettlementConventions(bounded)
+        assert service.adjust_business_day(
+            date(2024, 1, 30), convention=BDC.MODIFIED_FOLLOWING
+        ) == date(2024, 1, 1)
+        assert adjust_business_day(
+            date(2024, 1, 30), calendar=bounded, convention=BDC.MODIFIED_FOLLOWING
+        ) == date(2024, 1, 1)
+        assert service.adjust_business_day(
+            date(2025, 1, 2), convention=BDC.MODIFIED_PRECEDING
+        ) == date(2025, 1, 31)
+        assert adjust_business_day(
+            date(2025, 1, 2), calendar=bounded, convention=BDC.MODIFIED_PRECEDING
+        ) == date(2025, 1, 31)
+
+
+class TestQuantLibFailureContracts:
+    """Exercise native adapter version, result and exception boundaries."""
+
+    def test_native_failure_nonfinite_and_version_mismatch_are_owned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Translate version, nonfinite-result and native-call failures into owned errors."""
+
+        def calculate() -> None:
+            """Invoke the owned adapter through its normal native day-count path.
+
+            Raises:
+                ConventionError: The currently patched metadata or native counter fails.
+            """
+            QuantLibConventions().time_to(
+                context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
+            )
+
+        def mismatched_version(_: str) -> str:
+            """Return a mismatched native distribution version.
+
+            Args:
+                _: Distribution name supplied by the adapter; unused by this callback.
+
+            Returns:
+                The intentionally mismatched native distribution version.
+            """
+            return "1.40"
+
+        monkeypatch.setattr(conventions, "version", mismatched_version)
+        with pytest.raises(ConventionError, match="exactly"):
+            calculate()
+
+        def missing(_: str) -> str:
+            """Simulate unavailable native-package version metadata.
+
+            Args:
+                _: Distribution name, intentionally ignored by the failure double.
+
+            Returns:
+                No version string; every call raises instead.
+
+            Raises:
+                PackageNotFoundError: The synthetic native distribution is unavailable.
+            """
+            raise PackageNotFoundError
+
+        monkeypatch.setattr(conventions, "version", missing)
+        with pytest.raises(ConventionError, match="unavailable"):
+            calculate()
+
+        def pinned_version(_: str) -> str:
+            """Return the native distribution version accepted by the adapter.
+
+            Args:
+                _: Distribution name supplied by the adapter; unused by this callback.
+
+            Returns:
+                The pinned native distribution version accepted by the adapter.
+            """
+            return "1.43"
+
+        monkeypatch.setattr(conventions, "version", pinned_version)
+
+        class BadCounter:
+            """Simulate a native day counter returning a nonfinite float."""
+
+            def yearFraction(self, start: object, end: object) -> float:
+                """Return a nonfinite native result to exercise adapter rejection.
+
+                Args:
+                    start: Native start-date argument, intentionally unused.
+                    end: Native end-date argument, intentionally unused.
+
+                Returns:
+                    A NaN float, without validating the supplied dates.
+                """
+                return float("nan")
+
+        monkeypatch.setattr(ql, "Actual360", BadCounter)
+        with pytest.raises(ConventionError, match="invalid year"):
+            calculate()
+
+        def fail() -> None:
+            """Simulate an exception from native counter construction.
+
+            Raises:
+                RuntimeError: The synthetic native counter cannot be constructed.
+            """
+            raise RuntimeError("synthetic native failure")
+
+        monkeypatch.setattr(ql, "Actual360", fail)
+        with pytest.raises(ConventionError, match="evaluation failed") as error:
+            calculate()
+        assert isinstance(error.value.__cause__, RuntimeError)
+
+
+class TestQuantLibEvaluationContracts:
+    """Verify explicit evaluation dates stay isolated across concurrent calls."""
+
+    def test_explicit_context_isolated_from_native_global_date_and_concurrent_calls(self) -> None:
+        """Keep concurrent evaluation contexts independent of native global date state."""
+        # Settings is touched only in this adversarial test, never by the owned adapter.
+        saved = ql.Settings.instance().evaluationDate
+        try:
+            ql.Settings.instance().evaluationDate = ql.Date(1, 1, 1999)
+            contexts = [
+                CONTEXT.model_copy(update={"evaluation_date": date(2024, 1, day)})
+                for day in (1, 2, 3)
+            ]
+
+            def evaluate(context: EvaluationContext) -> Decimal:
+                """Calculate a context-specific year fraction ending on January 4, 2024.
+
+                Args:
+                    context: Explicit evaluation date and convention revision for the adapter.
+
+                Returns:
+                    Actual/360 duration from the evaluation date, rounded to 1e-15 years.
+
+                Raises:
+                    ConventionError: Native evaluation or version validation fails.
+                """
+                return (
+                    QuantLibConventions()
+                    .time_to(context=context, end=date(2024, 1, 4), day_count=DayCount.ACTUAL_360)
+                    .duration.value
+                )
+
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                results = list(pool.map(evaluate, contexts))
+            assert results == [evaluate(context) for context in contexts]
+            assert results[0] > results[1] > results[2]
+            assert ql.Settings.instance().evaluationDate == ql.Date(1, 1, 1999)
+        finally:
+            ql.Settings.instance().evaluationDate = saved
+
+
+class TestQuantLibValidationContracts:
+    """Exercise explicit date, native result and typed day-count validation."""
+
+    @pytest.mark.parametrize(
+        ("start", "end"),
+        [
+            (date(1900, 1, 1), date(2024, 1, 1)),
+            (date(2024, 1, 1), date(2200, 1, 1)),
+            (date(2024, 1, 2), date(2024, 1, 1)),
+        ],
+    )
+    def test_day_count_invalid_dates_fail(self, start: date, end: date) -> None:
+        """Reject reversed intervals and dates outside native coverage."""
+        with pytest.raises(ConventionError):
+            QuantLibConventions().year_fraction(
+                context=CONTEXT, start=start, end=end, day_count=DayCount.ACTUAL_360
+            )
+
+    @pytest.mark.parametrize("bad", [float("inf"), -1.0, 1, True, None])
+    def test_native_results_reject_wrong_type_sign_and_infinity(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        bad: object,
+    ) -> None:
+        """Reject malformed native values before they become an owned duration."""
+
+        class Counter:
+            """Inject a native result with the wrong type, sign or finiteness."""
+
+            def yearFraction(self, start: object, end: object) -> object:
+                """Return the captured invalid native value without validating it.
+
+                Args:
+                    start: Native start-date argument, intentionally unused.
+                    end: Native end-date argument, intentionally unused.
+
+                Returns:
+                    The parametrized wrong-type, negative or nonfinite value unchanged.
+                """
+                return bad
+
+        monkeypatch.setattr(ql, "Actual360", Counter)
+        with pytest.raises(ConventionError, match="invalid year"):
+            QuantLibConventions().time_to(
+                context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
+            )
+
+    @pytest.mark.parametrize("bad", ["actual_360", None, 1])
+    def test_unknown_day_count_is_not_coerced(self, bad: object) -> None:
+        """Reject raw day-count values through the typed adapter method."""
+        with pytest.raises(UnitError, match="day count"):
+            QuantLibConventions().time_to(context=CONTEXT, end=date(2025, 1, 1), day_count=bad)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed day-count rejection; expires=2027-03-01]
 
 
 @settings(max_examples=50, derandomize=True, database=None)
@@ -577,42 +868,6 @@ def test_actual360_intervals_are_additive(first: int, second: int) -> None:
     assert abs(years(start, middle) + years(middle, end) - years(start, end)) <= D("1.5e-15")
 
 
-@pytest.mark.parametrize("bad", [float("inf"), -1.0, 1, True, None])
-def test_native_results_reject_wrong_type_sign_and_infinity(
-    monkeypatch: pytest.MonkeyPatch,
-    bad: object,
-) -> None:
-    """Reject malformed native values before they become an owned duration."""
-
-    class Counter:
-        """Inject a native result with the wrong type, sign or finiteness."""
-
-        def yearFraction(self, start: object, end: object) -> object:
-            """Return the captured invalid native value without validating it.
-
-            Args:
-                start: Native start-date argument, intentionally unused.
-                end: Native end-date argument, intentionally unused.
-
-            Returns:
-                The parametrized wrong-type, negative or nonfinite value unchanged.
-            """
-            return bad
-
-    monkeypatch.setattr(ql, "Actual360", Counter)
-    with pytest.raises(ConventionError, match="invalid year"):
-        QuantLibConventions().time_to(
-            context=CONTEXT, end=date(2025, 1, 1), day_count=DayCount.ACTUAL_360
-        )
-
-
-@pytest.mark.parametrize("bad", ["actual_360", None, 1])
-def test_unknown_day_count_is_not_coerced(bad: object) -> None:
-    """Reject raw day-count values through the typed adapter method."""
-    with pytest.raises(UnitError, match="day count"):
-        QuantLibConventions().time_to(context=CONTEXT, end=date(2025, 1, 1), day_count=bad)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed day-count rejection; expires=2027-03-01]
-
-
 @pytest.mark.performance
 def test_financial_rounding_local_diagnostic_budget() -> None:
     """Measure ten thousand exact tick roundings against the local two-second budget."""
@@ -624,26 +879,6 @@ def test_financial_rounding_local_diagnostic_budget() -> None:
     elapsed = perf_counter() - start
     print(f"C03 10000 tick-rounding operations: {elapsed:.6f}s; local budget 2s")
     assert elapsed < 2
-
-
-def test_modified_adjustment_compares_year_as_well_as_month() -> None:
-    """Treat same-month dates in different years as crossing an adjustment boundary."""
-    bounded = SettlementCalendar(
-        calendar_id="synthetic-sparse",
-        calendar_version="v1",
-        timezone_name="UTC",
-        covered_from=date(2024, 1, 1),
-        covered_through=date(2025, 1, 31),
-        settlement_dates=(date(2024, 1, 1), date(2025, 1, 31)),
-        source="synthetic",
-        source_revision="v1",
-    )
-    assert adjust_business_day(
-        date(2024, 1, 30), calendar=bounded, convention=BDC.MODIFIED_FOLLOWING
-    ) == date(2024, 1, 1)
-    assert adjust_business_day(
-        date(2025, 1, 2), calendar=bounded, convention=BDC.MODIFIED_PRECEDING
-    ) == date(2025, 1, 31)
 
 
 def test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation() -> None:

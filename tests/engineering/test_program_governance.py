@@ -9,14 +9,16 @@ from __future__ import annotations
 # standard library imports
 import json
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
+from typing import ClassVar, Never
 
 # third party library imports
 import pytest
 
 # project library imports
+import alpha_research_governance.program_governance.registry as program_registry
 from alpha_research.program_governance import (
     METRIC_IDS,
     ROADMAP_PACKAGE_IDS,
@@ -33,6 +35,12 @@ from alpha_research.program_governance import (
     render_status_markdown,
     validate_repository,
     validate_status_document,
+)
+from alpha_research_governance.change_risk import ChangeRiskPolicy
+from alpha_research_governance.evidence import (
+    EvidenceGovernanceError,
+    EvidenceManifest,
+    PackageEvidenceProfile,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -79,6 +87,76 @@ class TestProgramServices:
         path.write_text(original, encoding="utf-8")
         assert repository.load_program(path) == expected
         assert repository.validate_repository() == expected
+
+    def test_repository_reloads_scoped_state_after_effective_date_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Refresh ownership, effective date, and derived state on repeated loads.
+
+        Construct a repository before its explicit ownership register exists, then
+        load once before and once after a scoped security assignment becomes active.
+        Assert the same repository re-evaluates A07 governance and reviewers from
+        current inputs, and returns to founder-only state after the assignment is
+        removed.
+
+        Args:
+            tmp_path: Pytest directory where the temporary ownership register is created.
+            monkeypatch: Pytest patcher used to advance the public date boundary for loading.
+        """
+        ownership = tmp_path / "ownership.toml"
+        repository = ProgramRepository(REPOSITORY_ROOT, ownership_register_path=ownership)
+        baseline = (REPOSITORY_ROOT / "docs/governance/domain-ownership.toml").read_text(
+            encoding="utf-8"
+        )
+        current_date = date.today()
+        effective_date = current_date + timedelta(days=1)
+        ownership.write_text(
+            baseline
+            + f'''\n[[role_assignments]]
+principal = "@security-hire"
+role = "security"
+domains = ["security"]
+status = "active"
+effective_from = "{effective_date.isoformat()}"
+''',
+            encoding="utf-8",
+        )
+
+        class MutableTodayDate(date):
+            """Supply a controllable date to the repository loader."""
+
+            current: ClassVar[date] = current_date
+
+            @classmethod
+            def today(cls) -> MutableTodayDate:
+                """Return the selected date as a date-compatible subclass.
+
+                Returns:
+                    The controlled current date represented by this subclass.
+                """
+                current = cls.current
+                return cls(current.year, current.month, current.day)
+
+        monkeypatch.setattr(program_registry, "date", MutableTodayDate)
+        before_activation = repository.load_program(POLICY_PATH)
+        before_state = before_activation.state_for("A07")
+        assert before_state is not None
+        assert before_state.governance_status == "not_required"
+        assert before_state.assigned_reviewers == ()
+
+        MutableTodayDate.current = effective_date
+        after_activation = repository.load_program(POLICY_PATH)
+        after_state = after_activation.state_for("A07")
+        assert after_state is not None
+        assert after_state.governance_status == "pending"
+        assert after_state.assigned_reviewers == ("@security-hire",)
+
+        ownership.write_text(baseline, encoding="utf-8")
+        restored = repository.load_program(POLICY_PATH)
+        restored_state = restored.state_for("A07")
+        assert restored_state is not None
+        assert restored_state.governance_status == "not_required"
+        assert restored_state.assigned_reviewers == ()
 
     def test_roadmap_parser_recovers_after_cycle_and_rereads_input(self, tmp_path: Path) -> None:
         """Reread a valid roadmap after rejecting a self-dependent mutation.
@@ -313,6 +391,226 @@ def _downgrade_current_policy(path: Path, *, schema_version: int) -> str:
         )
         + "\n"
     )
+
+
+class TestProgramContracts:
+    """Exercise refactored program-state and local-evidence public contracts."""
+
+    def test_repository_local_evidence_translates_io_failure_and_recovers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Translate a local-evidence read failure and recover on the next call.
+
+        Arrange a typed manifest callback that raises ``OSError`` during repository
+        validation. Assert the public repository method reports the exact A08 finding,
+        preserves the filesystem cause, and succeeds again after the callback is restored.
+
+        Args:
+            monkeypatch: Pytest patcher used to inject and then remove the manifest failure.
+        """
+        repository = ProgramRepository(REPOSITORY_ROOT)
+
+        def fail_manifest(
+            path: Path,
+            *,
+            expected_commit_sha: str,
+            change_policy: ChangeRiskPolicy,
+        ) -> Never:
+            """Raise the filesystem failure under test without reading its arguments.
+
+            Args:
+                path: Manifest path supplied by the repository validator.
+                expected_commit_sha: Commit digest expected by the program record.
+                change_policy: Loaded change-risk policy supplied to manifest validation.
+
+            Returns:
+                This callback never returns because it always raises ``OSError``.
+
+            Raises:
+                OSError: Always, to exercise the local-evidence I/O translation boundary.
+            """
+            del path, expected_commit_sha, change_policy
+            raise OSError("manifest unavailable")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(program_registry, "validate_manifest", fail_manifest)
+            with pytest.raises(ProgramGovernanceError) as captured:
+                repository.validate_repository()
+
+        assert captured.value.findings == ("A08 local evidence bundle: manifest unavailable",)
+        assert isinstance(captured.value.__cause__, OSError)
+        assert repository.validate_repository() == validate_repository(REPOSITORY_ROOT)
+
+    def test_repository_local_evidence_preserves_ordered_profile_findings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Preserve profile finding order and cause identity at the repository boundary.
+
+        Arrange a typed package-profile callback that reports duplicate findings in a
+        deliberate order. Assert ``validate_repository`` exposes the same ordered tuple
+        and chains the exact originating ``EvidenceGovernanceError``.
+
+        Args:
+            monkeypatch: Pytest patcher used to inject the ordered profile findings.
+        """
+        findings = (
+            "first profile mismatch",
+            "second profile mismatch",
+            "first profile mismatch",
+        )
+        profile_error = EvidenceGovernanceError(findings)
+
+        def report_profile_findings(
+            manifest: EvidenceManifest, profile: PackageEvidenceProfile
+        ) -> Never:
+            """Raise the ordered profile findings without changing inputs.
+
+            Args:
+                manifest: Validated A08 manifest passed to profile checking.
+                profile: Fixed A08 profile passed to profile checking.
+
+            Returns:
+                This callback never returns because it always raises ``profile_error``.
+
+            Raises:
+                EvidenceGovernanceError: The ordered findings configured by this test.
+            """
+            del manifest, profile
+            raise profile_error
+
+        monkeypatch.setattr(program_registry, "validate_package_evidence", report_profile_findings)
+        with pytest.raises(ProgramGovernanceError) as captured:
+            ProgramRepository(REPOSITORY_ROOT).validate_repository()
+
+        assert captured.value.findings == findings
+        assert captured.value.__cause__ is profile_error
+
+    @staticmethod
+    def _schema_policy_fixture(tmp_path: Path, *, schema_version: int) -> Path:
+        """Create a policy fixture using one of the supported schema versions.
+
+        Args:
+            tmp_path: Pytest-provided directory for the generated policy.
+            schema_version: Program schema version from 1 through 4.
+
+        Returns:
+            A copied policy with schema-version fields and legacy state fields adjusted
+            to the requested contract.
+
+        Raises:
+            OSError: If the source policy cannot be read or the fixture cannot be written.
+            ValueError: If a requested schema version is unsupported.
+        """
+        if schema_version not in {1, 2, 3, 4}:
+            raise ValueError(f"unsupported schema version {schema_version}")
+        path = _policy_fixture(tmp_path)
+        if schema_version == 4:
+            return path
+        downgraded = _downgrade_current_policy(path, schema_version=schema_version)
+        if schema_version == 1:
+            downgraded = (
+                "\n".join(
+                    line
+                    for line in downgraded.splitlines()
+                    if not line.startswith(
+                        (
+                            "implementation_status =",
+                            "domain_id =",
+                            "technical_finding_ids =",
+                        )
+                    )
+                )
+                + "\n"
+            )
+        path.write_text(downgraded, encoding="utf-8")
+        return path
+
+    @staticmethod
+    def _swap_first_package_states(path: Path) -> None:
+        """Swap the first two package-state records in a policy fixture.
+
+        Args:
+            path: Program-policy TOML fixture to rewrite in place.
+
+        Raises:
+            AssertionError: If the fixture does not begin with A01 and A02 records.
+            OSError: If the fixture cannot be read or rewritten.
+            ValueError: If fewer than three package-state boundaries are present.
+        """
+        text = path.read_text(encoding="utf-8")
+        first_start = text.index("[[package_states]]")
+        second_start = text.index("[[package_states]]", first_start + 1)
+        third_start = text.index("[[package_states]]", second_start + 1)
+        first = text[first_start:second_start]
+        second = text[second_start:third_start]
+        assert 'package_id = "A01"' in first
+        assert 'package_id = "A02"' in second
+        path.write_text(text[:first_start] + second + first + text[third_start:], encoding="utf-8")
+
+    @pytest.mark.parametrize("schema_version", (1, 2, 3, 4))
+    def test_package_state_evidence_reading_follows_schema_version(
+        self, tmp_path: Path, schema_version: int
+    ) -> None:
+        """Apply legacy evidence-content checks while allowing schema-4 contracts.
+
+        Arrange each supported program schema with A01 pointing at an existing Markdown
+        file that does not retain its findings. Assert schemas 1 through 3 reject the
+        missing finding text, while schema 4 accepts the existing contract path and
+        preserves the loaded state order.
+
+        Args:
+            tmp_path: Pytest directory where the schema-specific policy is created.
+            schema_version: Program schema version whose state evidence contract is tested.
+        """
+        path = self._schema_policy_fixture(tmp_path, schema_version=schema_version)
+        if schema_version < 4:
+            _replace_program_fixture_text(
+                path,
+                'evidence_paths = ["docs/governance/repository-charter.md", '
+                '"docs/governance/program-status.md"]',
+                'evidence_paths = ["docs/roadmap/README.md"]',
+            )
+            with pytest.raises(
+                ProgramGovernanceError, match="evidence paths do not retain findings"
+            ):
+                load_program(path, repository_root=REPOSITORY_ROOT)
+            return
+
+        _replace_program_fixture_text(
+            path,
+            'evidence_paths = ["docs/governance/repository-charter.md"]',
+            'evidence_paths = ["docs/roadmap/README.md"]',
+        )
+        program = load_program(path, repository_root=REPOSITORY_ROOT)
+        state = program.state_for("A01")
+        assert state is not None
+        assert state.evidence_paths == ("docs/roadmap/README.md",)
+        assert tuple(item.package_id for item in program.package_states[:2]) == ("A01", "A02")
+
+    @pytest.mark.parametrize("schema_version", (1, 2, 3, 4))
+    def test_package_state_ordering_follows_schema_version(
+        self, tmp_path: Path, schema_version: int
+    ) -> None:
+        """Enforce contiguous legacy prefixes and ordered modern state subsets.
+
+        Arrange schemas 1 and 2 with A02 removed, and schemas 3 and 4 with A01 and
+        A02 exchanged. Assert each schema reports its own ordering contract through
+        the public program loader.
+
+        Args:
+            tmp_path: Pytest directory where the schema-specific policy is created.
+            schema_version: Program schema version whose state ordering is tested.
+        """
+        path = self._schema_policy_fixture(tmp_path, schema_version=schema_version)
+        if schema_version < 3:
+            _remove_package_state(path, "A02")
+            expected_finding = "package_states must be a contiguous implemented prefix"
+        else:
+            self._swap_first_package_states(path)
+            expected_finding = "package_states must be unique, in roadmap order"
+
+        with pytest.raises(ProgramGovernanceError, match=expected_finding):
+            load_program(path, repository_root=REPOSITORY_ROOT)
 
 
 def _metric_observation_event(

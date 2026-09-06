@@ -211,3 +211,91 @@ owner_role = "platform"
 rationale = "Preserve the exported status validator and repository/CLI callers while ProgramStatusRenderer owns validation; reassess caller adoption in step 7."
 expires = 2027-03-01
 source_sha256 = "84e571e9e0a8f93de37ddee14187da211343f686a194a0d05c1f61406db7e6f0"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_load_control_map"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Retain the existing private model-validation seam for loader regression tests while SecurityControlMapLoader owns parsing and validation; reassess this adapter in step 7."
+expires = 2027-03-01
+source_sha256 = "dacdd8de63839d174a584ad57be4d60541421cf1f3646a770669fd26381da5ac"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "load_control_map"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported control-map loader signature, ownership override and model-error translation while SecurityControlMapLoader owns loading; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "7194cc07ee57eb1b8733d15cabd7150c1b940159902c0b760f0d7534d3c575c8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "validate_repository"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported repository validator and CLI callers while SecurityControlMapLoader owns map and local-evidence validation; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "fe88c93f53651687a13fdf8a13e47890adeba0996cbe3d742995ffe31dfbd6a4"
+
+[[exceptions]]
+path = "src/alpha_research/financial_units/conventions.py"
+symbol = "adjust_business_day"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported adjustment function and its validation precedence while SettlementConventions owns bounded adjustment; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "a24ad8c7eea054147a5a8b9dbe8da624022c0f6d153878dbb76ed3ce6eef70f1"
+
+[[exceptions]]
+path = "src/alpha_research/financial_units/conventions.py"
+symbol = "settlement_date"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "compatibility"
+owner_role = "platform"
+rationale = "Preserve the exported settlement function, lag-first validation and signature while SettlementConventions owns adjustment and lag counting; reassess caller adoption in step 7."
+expires = 2027-03-01
+source_sha256 = "9a1411be318fdcb73fbdd969231e2dcdb16890f07592582363049824fc0b4c8a"
+
+[[exceptions]]
+path = "tests/unit/test_financial_units.py"
+symbol = "calendar"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct one deterministic bounded calendar fixture shared by settlement and financial-boundary tests; this pure data factory has no workflow or retained state."
+expires = 2027-03-01
+source_sha256 = "0e6ba6d668c8fb35292543f93bd1c67dc7f73abbcf77acde01fb35a835da7ff5"
+
+[[exceptions]]
+path = "tests/unit/test_financial_units.py"
+symbol = "fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Decode and strictly validate one synthetic golden fixture into its precise record contract shared by day-count and arithmetic tests; no policy or workflow state is owned."
+expires = 2027-03-01
+source_sha256 = "8d0ddcc94f774d4d5801be217707bdc48c4e4be7e82e626e3e2435dc242f0589"
+
+[[exceptions]]
+path = "tests/unit/test_financial_units.py"
+symbol = "test_actual360_intervals_are_additive"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Retain the existing Hypothesis callback and pytest node identity while its upstream decorator typing remains tracked separately; the test checks additive day-count behavior and has no service state."
+expires = 2027-03-01
+source_sha256 = "5bec629d0adf5c6d45cef654245f4f54c24244ca061f6ed34231171b99a0cddc"

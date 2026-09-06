@@ -6,6 +6,7 @@ from alpha_research_governance.security_controls.registry import (
     JURISDICTION_IDS,
     SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS,
     THREAT_CATEGORIES,
+    SecurityControlMapLoader,
     load_control_map,
     validate_repository,
 )
@@ -15,6 +16,7 @@ __all__ = [
     "JURISDICTION_IDS",
     "SECURITY_CONTROL_DEPENDENCY_PACKAGE_IDS",
     "THREAT_CATEGORIES",
+    "SecurityControlMapLoader",
     "load_control_map",
     "validate_repository",
 ]

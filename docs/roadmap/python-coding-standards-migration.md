@@ -7,11 +7,15 @@ Status: steps 1–5 are implemented; step 6 remains in progress and step 7 remai
 planned. Step 5 closed the existing-source documentation queue in 31 slices on
 2026-09-06; its completion snapshot recorded 798 `PYC001` dispositions across
 73 files, no `PYD001` or `PYD002`, and 686 inferred-typing diagnostics. The
-current Step-6 slice leaves 787 `PYC001` dispositions across 72 files and 670
+current Step-6 slice leaves 766 `PYC001` dispositions across 71 files and 667
 inferred-typing diagnostics.
 Step 6 has completed the change-risk pilot and the program loading/status service
-extraction. Queue item 2 remains in progress while residual contextual validation
-helpers are assigned to an owning service. The earlier CLI slice preserves 12
+extraction, including the residual package-state and local-evidence workflows.
+Queue item 2 is complete, and queue item 3 has completed security-control map
+loading and validation. Inventory loading is next. Remaining helper dispositions
+stay in queue item 8. The financial settlement-convention service in queue item 7
+is also implemented, with the remaining CLI and policy work still open.
+The earlier CLI slice preserves 12
 Typer callback docstrings as help contracts, and documentation for moved workflows
 remains combined with their step-6 service slices.
 
@@ -294,7 +298,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
 | 5. Document existing contracts — implemented | Closed the existing-source documentation queue in 31 doc-only slices across domain, governance, test, policy, helper, loader, runner and artifact contracts. Moved workflows remain step 6; global rule activation remains deferred. | Final scan: zero `PYD001`/`PYD002`; 798 `PYC001` dispositions across 73 files; inferred typing remains at 686 diagnostics. See the consolidated Step-5 validation record below. |
-| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and separate approval evaluator, then extracted the program loading/status services while retaining the function APIs. Queue item 2 remains in progress for the residual contextual validation helpers; continue with the remaining loaders and CI services using the queue below. Depends on steps 2–4 for the owning package. | The change-risk pilot preserves serialized decisions, ordered errors and CLI results; the program loading/status slice preserves schema, loader, status and CLI contracts. See the step-6 records below. |
+| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and approval evaluator, program loading/status services, residual program workflows, security-control map loader and financial settlement conventions while retaining the public function APIs. Queue items 1 and 2 are complete; inventory loading is next in queue item 3. The settlement responsibility in queue item 7 is complete. Depends on steps 2–4 for the owning package. | The completed slices preserve schemas, serialized results, ordered findings, exception boundaries, evidence and CLI contracts. See the step-6 records below. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
 For gradual enforcement, use exact rule plus module/qualified-symbol identities,
@@ -546,11 +550,93 @@ the canonical governance package and the `src/alpha_research` facade. Focused
 regression coverage also exercises repeated renderer failures, loader error
 translation, parser boundaries, and the public class exports.
 
-This slice does not close queue item 2. `_parse_package_states` and
-`_validate_local_evidence` remain context-heavy module-level workflows and need
-an owning service disposition in a later step-6 slice. The current slice therefore
-records service extraction and compatibility preservation while keeping the queue
-item in progress.
+At completion, this slice left queue item 2 open because `_parse_package_states`
+and `_validate_local_evidence` still needed service ownership. The following
+slice closes those residual workflows.
+
+### Step 6 implementation — package-state and local-evidence ownership
+
+The private `_PackageStateParser` binds the resolved repository root, ownership
+roles, schema version and optional operating model without performing I/O. Its
+`parse` method creates a fresh evaluation date and state collection for each call.
+Separate methods parse one state, validate its evidence, resolve versioned
+implementation governance and check package ordering. Schemas 1–3 retain their
+UTF-8 evidence-content checks; schema 4 retains its single existing Markdown
+capability path requirement without reading that file's content.
+
+`ProgramRepository` now owns local-evidence validation as a private method using
+the root resolved for the current operation. Policy and manifest failures retain
+the A08 error prefix and chained cause; package-profile failures retain their
+ordered findings and original cause. Program loading, evidence validation and
+generated-status validation still run in that order. Neither service caches
+invocation findings or performs fallible work during construction.
+
+The two old private module functions were removed, retiring exactly two
+`PYC001` entries and updating the checksum without adding exceptions or migration
+allowances. Public functions, facade exports and schemas are unchanged. This
+closes queue item 2's workflow extraction; the remaining helper
+dispositions are part of queue item 8. Luna subagents at extra-high reasoning
+implemented the source and focused regression tests, followed by the parent
+agent's code, behavior and documentation audit.
+
+### Step 6 implementation — security-control map loader
+
+`SecurityControlMapLoader` binds repository and optional ownership-register paths
+without I/O. Its `load` method reads ownership first, parses the fixed metadata
+and ordered record collections, and creates a fresh typed validation context.
+Separate methods apply identifier, structural-reference, evidence,
+authority/mapping, coverage, package-finding and local-evidence-metadata checks
+in the original order before constructing the immutable map. Findings, used
+roles and lookup indexes belong to that invocation. Authority freshness and
+legal-review horizons continue to use the map's recorded `as_of_date`.
+
+`validate_repository` binds the operation to its first resolved root, loads the
+authoritative map with the configured ownership register, and validates the
+manifest, artifacts and fixed A07 evidence profile. Retargeting an input root
+symlink affects a later invocation without mixing repository contexts within
+the current call. The parent audit identified and corrected this boundary while
+the Luna subagents implemented the service and focused regression tests.
+
+The service is exported through the canonical package and both compatibility
+facades. `load_control_map` retains its signature and Pydantic-error translation;
+the private `_load_control_map` wrapper retains the existing validation-error
+injection seam. The public `validate_repository` function delegates to the
+service. Three fingerprinted compatibility dispositions replace their migration
+entries, and removal of the module-level local-evidence workflow retires a fourth
+entry. Other inventory metadata and existing exceptions are preserved. Small
+record parsers remain for the helper-disposition work in queue item 8.
+
+This slice completes security-control loading within queue item 3. Inventory
+loading remains the next bounded slice.
+
+### Step 6 implementation — financial settlement conventions
+
+`SettlementConventions(calendar)` owns business-day adjustment and T+n lag
+calculation against one independently revalidated, immutable C02 calendar copy.
+Construction rejects invalid calendar instances without I/O. Adjustment and lag
+state remain local to each operation, so failed calls do not affect later uses.
+The service is exported from `alpha_research.financial_units`.
+
+The exported `adjust_business_day` and `settlement_date` functions retain their
+signatures and delegate to the service. Narrow compatibility guards retain
+candidate/calendar/convention error precedence and reject invalid lags first.
+Coverage remains explicit: modified adjustments cannot reverse direction until
+the primary search succeeds, and positive lags count eligible dates strictly
+after the adjusted anchor. QuantLib day counts, result models, rounding and
+native dependency contracts are unchanged.
+
+This bounded slice completes the settlement-convention responsibility in queue
+item 7. Other CLI and policy workflows in that item remain open; inventory
+loading remains next in queue item 3.
+
+Ten existing convention tests now belong to contract-oriented classes. The
+shared golden reader and calendar factory retain narrow low-level dispositions;
+the additive-day-count Hypothesis callback retains a framework disposition and
+its separately tracked upstream typing debt. Together with two compatibility
+wrappers, these five fingerprinted exceptions retire 15 migration entries
+without adding allowances. Typed native-version callbacks and a typed calendar
+update retire three inferred diagnostics. Unrelated arithmetic/model tests and
+the mixed C01/C02 boundary test remain unchanged for later migration slices.
 
 ### Class migration queue
 
@@ -560,12 +646,12 @@ prefixed with `src/`. Names are proposed responsibilities, not mandatory new fil
 | Order / current area | Proposed responsibility | Compatibility and behavior to preserve |
 | --- | --- | --- |
 | 1. `change_risk/classification.py`, then `approvals.py` — implemented | `ChangeRiskClassifier(policy)` and `ChangeRiskApprovalEvaluator(policy)`, with invocation-local state. | Highest-dimension rule, downgrade rejection, gate ordering, founder/team rules and exact errors preserved; existing classification/approval functions delegate temporarily. |
-| 2. `program_governance/registry.py`, `status.py` — in progress (service extraction completed) | `ProgramRepository` for loading with explicit root/ownership context; distinct roadmap parsing, observation reading and status rendering responsibilities. Residual package-state and local-evidence validation remains for the owning service. | Schema versions 1–4, dependency purposes/cycles, finding mapping, deterministic status text and existing exported loaders. |
-| 3. `security_controls/registry.py`, `inventory/registry.py` | Separate `SecurityControlMapLoader` and `InventoryLoader`; pure field/ID parsing stays small. | Error categories, complete references, source identity, ownership and deterministic findings. |
+| 2. `program_governance/registry.py`, `status.py` — implemented | `ProgramRepository` for loading and local-evidence validation with explicit root/ownership context; distinct roadmap parsing, observation reading, status rendering and private package-state parsing responsibilities. Remaining helper dispositions belong to queue item 8. | Schema versions 1–4, dependency purposes/cycles, finding mapping, deterministic status text and existing exported loaders. |
+| 3. `security_controls/registry.py`, `inventory/registry.py` — in progress (security loader implemented) | `SecurityControlMapLoader` owns security-map and local-evidence validation with explicit repository context. `InventoryLoader` is next; pure field/ID parsing stays small. | Error categories, complete references, source identity, ownership and deterministic findings. |
 | 4. `repository_topology/registry.py`, `engineering_standards/policy.py`, `dependency_admission/policy.py`, `ownership_governance.py`, `architecture_governance.py` | Domain-specific loaders/validators with explicit repository context. Share only proven identical parsing primitives. | Exact accepted schema and policy values, expiry/version checks, local link safety, exception translation and root commands. |
 | 5. `evidence/manifest.py`, `mr.py`, `package.py`, `artifact_supply_chain/bundle.py` | Separate evidence validation, bundle creation and bundle verification services. | Digest/path validation, operation and revision binding, malformed-input rejection, file write boundaries and signature behavior. |
 | 6. `ci_policy/runner.py`, `selection.py`, `remote_execution/runner.py` | `CIRunner` and `RemoteExecutionRunner`; use a typed command-execution collaborator where injection is useful. | Fast/full selection, exact argv/environment, trust/secret checks, exit codes, event contents/order and safe fallback. |
-| 7. Remaining CLI modules, policies and `src/alpha_research/financial_units/conventions.py` | Thin CLI callbacks delegating to services; evaluate `SettlementConventions(calendar)` for the related high-level settlement operations. | Console scripts, `python -m` entry points and facade imports; settlement date/coverage errors; keep arithmetic and conversion kernels small. |
+| 7. Remaining CLI modules, policies and `src/alpha_research/financial_units/conventions.py` — settlement service implemented | Thin CLI callbacks delegating to services remain; `SettlementConventions(calendar)` now owns settlement adjustment and lag operations. | Console scripts, `python -m` entry points and facade imports; settlement date/coverage errors; keep arithmetic and conversion kernels small. |
 | 8. `tests/` and residual source helpers | Contract-oriented test classes and a completed function-disposition inventory. | Pytest/Bazel collection, parametrization, fixtures, markers, external selectors and meaningful failures. |
 
 ## Validation, compatibility and rollback
@@ -838,5 +924,102 @@ status rendering, status-file validation, and the recorded CLI cases.
 
 These are local checks for the program loading/status slice. The full `make ci-full`
 lane, hosted CI, and separate integration/performance selections were not run.
-Queue item 2 remains in progress because package-state parsing and local-evidence
-validation remain for the next bounded service slice.
+At this slice's completion, queue item 2 remained in progress because package-state
+parsing and local-evidence validation still needed the following bounded service slice.
+
+## Step 6 validation record — package-state and local-evidence ownership, 2026-09-06
+
+The parent audit compared this slice with saved source from revision
+`b26667b18e57a07d869897b768c41bd875b07fca`. Luna subagents used `gpt-5.6-luna`
+at `xhigh` reasoning for implementation and test corrections. The audit covered
+service ownership, validation order, accurate typing boundaries and docstrings,
+public compatibility, and recovery between calls.
+
+| Check | Observed result |
+| --- | --- |
+| Differential behavior | All 1,295 cases matched: 1,280 package-state cases across schemas 1–4, 13 local-evidence success/failure cases, and two public loading/repository-validation cases. Comparisons include serialized values, exception types and exact messages, ordered findings, and chained cause types and messages. State cases cover malformed tables and fields, missing/unknown keys, ordering, ownership, operating-model absence, completion combinations, unsafe/missing paths, absent findings and invalid UTF-8. |
+| Focused pytest | 51 passed, one performance case deselected: 47 in `test_program_governance.py` plus the four selected standards, inventory, model-error-translation and CI-observation cases listed below. New cases cover schema-specific evidence and ordering, date/ownership refresh, local-evidence failure recovery, and profile finding/cause preservation. |
+| Collection and compatibility | All 36 existing default-selected program-governance node IDs remain in order; 11 cases were added. All 39 existing test/helper function ASTs are unchanged. The four public registry wrappers are AST-identical; facade exports and status APIs are unchanged. |
+| Scoped lint, docs, format and strict typing | Ruff 0.16.5 lint/format and mypy 2.3.1 strict checks passed for the three changed Python files under Python 3.12.14. Google-docstring/`ANN401` checks passed for the registry and program tests. Manual review corrected new test documentation, the date override, exception-identity assertions, and a premature literal return annotation before final validation. |
+| Source-standard reconciliation | The engineering-standards command passed. Exactly two `PYC001` entries were retired, leaving 785 across 72 files, with no new allowances or exceptions and no `PYD001`/`PYD002` findings. |
+| Scoped inferred typing | The stronger probe on the three changed Python files matched all 22 existing diagnostics across eight identities, with no additions, relocations or multiplicity changes. The repository inventory remains unchanged at 670 diagnostics; the full-repository probe was not rerun. |
+| Owning Bazel check | `bazel test --config=ci //tests/engineering:python_standards_test` passed its single target. |
+
+The four additional pytest selections were:
+
+- `test_engineering_standards.py::test_repository_standards_bind_exact_tools_languages_and_baselines`
+- `test_python_debt.py::TestPythonDebt::test_reviewed_inventory_is_exact_and_attributed`
+- `test_pydantic_models.py::test_public_loaders_translate_validation_errors_without_leaking_details`
+- `test_ci_policy.py::test_ci_duration_event_matches_program_observation_contract_and_local_log_scope_is_bounded`
+
+All pytest paths are under `tests/engineering/`. Local Python commands used
+`PYTHONPATH=src:tools/governance/src` and the pinned `.venv` interpreter to exercise
+the changed source directly. Validation was limited to affected tests and checks
+as requested; the full test suite, full Bazel selection, all-file pre-commit,
+hosted CI, and integration/performance lanes were not run. Queue item 2 is complete;
+queue item 3 is the next workflow slice.
+
+## Step 6 validation record — security-control map loader, 2026-09-06
+
+This slice used saved security source and tests from revision
+`b26667b18e57a07d869897b768c41bd875b07fca`, preserving the preceding uncommitted
+program-governance slice. Two `gpt-5.6-luna` subagents at `xhigh` reasoning
+implemented the service and regression tests. The parent audited the source,
+documentation, exception boundaries, root binding and compatibility before
+running the final affected checks.
+
+| Check | Observed result |
+| --- | --- |
+| Differential behavior | All 5,354 comparisons matched: 2,664 document mutations through the public function and the same 2,664 through the service, one repository-validation case, one service-load case, 12 local-evidence failure cases, four file-boundary cases, and eight CLI cases. Comparisons covered serialized models, exact exception types/messages, ordered findings, cause types/messages, exit codes and stdout/stderr. Mutations included simultaneous failures to verify validation precedence. |
+| Root binding | One additional baseline comparison verified a root symlink retargeted immediately after its first resolution. The service remained bound to the original repository for that call. A new pytest case also proved that the next invocation observes the replacement repository. The audit corrected an intermediate implementation that resolved the original symlink again while loading. |
+| Focused pytest | 26 passed: all 23 cases in `test_security_controls.py`, plus the selected model-error-translation, debt-inventory and engineering-standards cases listed below. The five new service cases cover deferred constructor I/O and exports, root binding, default/explicit ownership refresh, repeated ordered findings, and evidence failure recovery. |
+| Collection and API compatibility | All 18 existing security pytest node IDs remain in order, with five added service cases. All 21 existing test/helper function ASTs are unchanged. The two public function signatures are unchanged; the loader class is identical across canonical and facade package/module exports. Remaining standalone parsing and validation functions are AST-identical. |
+| Scoped lint, typing, documentation and security | Ruff lint/format and strict mypy passed over the nine files in the affected canonical/facade packages, test module and debt checker. Google-docstring/`ANN401` checks passed for the registry and security tests. Scoped Bandit passed for the registry. Manual audit corrected public service and compatibility-wrapper descriptions. |
+| Source-standard reconciliation | Engineering-standards validation passed. Exactly four `PYC001` migration entries retired: three wrappers received fingerprinted compatibility dispositions, and the old local-evidence function was removed. The inventory now contains 781 entries across 72 files, with no new migration allowances or documentation findings. Existing exceptions and the preceding slice's program source/tests were preserved. |
+| Scoped inferred typing | The stronger probe on the six changed Python files matched 16 existing diagnostics across four identities, with no additions, relocations or count changes. The repository inventory remains unchanged at 670; the full-repository stronger probe was not run. |
+| Bazel | `bazel test --config=ci //tests/engineering:python_standards_test //tools/governance/src/alpha_research_governance:cmd_security` passed its single test target and built the security command. |
+| Governance command | The canonical security command passed for 12 threats, 12 controls and four jurisdiction profiles. |
+
+The additional pytest selections were:
+
+- `test_pydantic_models.py::test_public_loaders_translate_validation_errors_without_leaking_details`
+- `test_python_debt.py::TestPythonDebt::test_reviewed_inventory_is_exact_and_attributed`
+- `test_engineering_standards.py::test_repository_standards_bind_exact_tools_languages_and_baselines`
+
+All pytest paths are under `tests/engineering/`. Python validation used the pinned
+`.venv` tools and `PYTHONPATH=src:tools/governance/src` to exercise the current
+source. The full pytest/Bazel suites, all-file pre-commit, hosted CI, and separate
+integration/performance lanes were not run. Queue item 3 remains in progress;
+inventory loading is next.
+
+## Step 6 validation record — financial settlement conventions, 2026-09-06
+
+The baseline was the clean checkout at
+`bb2cf9829fce357456ec23ec692913279706749c`. Two `gpt-5.6-luna` subagents at
+`xhigh` reasoning implemented the source/exports and tests in disjoint files.
+The parent audited the final code using the calendar/reference-data profile,
+risk tier 2, because bounded settlement dates are shared financial-domain
+outputs. The audit checked calendar ownership, numerical compatibility, error
+precedence, test collection, documentation and exact debt retirement. No
+actionable findings remained after corrections.
+
+| Check | Observed result |
+| --- | --- |
+| Differential behavior | All 154,320 comparisons matched the saved baseline: every eligible-date subset of the eight-day synthetic calendar, all five conventions, ten candidate dates, five valid lags, and simultaneous malformed inputs. Comparisons covered both public wrappers and valid-calendar service methods, exact results, exception types/messages and chained causes. Invalid calendars are rejected at service construction; wrapper validation precedence remains unchanged. |
+| API and numerical compatibility | Both existing public function signatures are unchanged. The ASTs for `ConventionError`, `BusinessDayConvention`, `DayCountResult` and `QuantLibConventions` are unchanged. The version constant only gains an explicit annotation. Goldens, models, stubs, dependencies and global settings are unchanged. |
+| Focused pytest | `PYTHONPATH=src:tools/governance/src .venv/bin/python -m pytest -q tests/unit/test_financial_units.py`: **104 passed**, one existing performance case deselected. Sixteen added cases cover missing primary/alternate dates, explicit coverage, unadjusted lag anchors, lag-error precedence, constructor revalidation and causes, repeated failure recovery and strict dates. |
+| Collection and test audit | All 88 previously selected cases remain by leaf name and parameter ID; class-qualified node IDs change for the ten migrated functions. No external references to those old node IDs were found. All 19 retained module-level test/helper ASTs are unchanged. The audit corrected two temporarily nested, undiscovered tests, a wrong cause assertion, missing primary-search cases and overly broad calendar payload annotations. |
+| Source standards and policy | The selected `TestPythonDebt::test_reviewed_inventory_is_exact_and_attributed` and `test_repository_standards_bind_exact_tools_languages_and_baselines` cases passed (**2 passed**). Source inventory is 766 entries across 71 files; 15 entries retired, with five explicit source-bound dispositions and no added migration allowances. Both checksum pins match their inventories. |
+| Scoped lint, documentation, format, security and typing | Ruff lint/format and strict mypy passed for the five changed Python files. Google-docstring/`ANN401` checks passed for conventions and its tests; scoped Bandit passed for conventions. The audit corrected callback documentation and one source line-wrap defect. |
+| Scoped stronger typing | The stronger mypy probe over those five files exactly matched 26 retained diagnostics across 24 identities. Three test diagnostics retired; no diagnostic was added, moved or multiplied. The repository inventory is 667 diagnostics. The standalone Hypothesis callback's existing framework typing remains tracked. |
+| Owning Bazel target | `bazel test --config=ci //tests/unit:financial_units_test` passed its single target. |
+
+The two additional pytest cases are in `tests/engineering/test_python_debt.py`
+and `tests/engineering/test_engineering_standards.py`, respectively. All Python
+execution used the pinned `.venv` tools and current source through
+`PYTHONPATH=src:tools/governance/src`. Static checks covered
+`financial_units/conventions.py`, `financial_units/__init__.py`,
+`tests/unit/test_financial_units.py`, and the two engineering-standards checksum
+modules. No full pytest/Bazel suite, full-repository stronger typing probe,
+all-file pre-commit, hosted CI or separate integration/performance lane was run.
+Step 6 remains in progress outside this bounded settlement slice.
