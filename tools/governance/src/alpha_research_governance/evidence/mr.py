@@ -102,7 +102,30 @@ def _parse_sections(text: str, *, level: int) -> tuple[tuple[str, str], ...]:
 
 
 def validate_template(text: str, policy: EvidencePolicy) -> None:
-    """Reject template drift from the authoritative ordered default fields."""
+    """Validate a merge-request template against the policy's ordered fields.
+
+    Schema version ``2`` selects level-two headings; every other schema version
+    selects level-three headings. The parsed heading sequence must exactly match
+    ``policy.fields`` in order. Marker validation is a separate raw-text check:
+    it requires the exact heading text followed immediately by LF and searches
+    from the first matching heading through the next LF-plus-``#`` boundary for
+    the exact ``<!-- required:{field.key} -->`` marker. It does not parse fences
+    or comments, so marker text there can count; CRLF input can fail the exact-LF
+    heading check. Heading discovery itself uses the module's limited Markdown
+    parser, so headings in HTML comments or supported fenced code are ignored.
+    This function only inspects its arguments and does not perform filesystem I/O
+    or mutate the template or policy.
+
+    Args:
+        text: Merge-request template Markdown to inspect.
+        policy: Loaded evidence policy that supplies the schema version and the
+            ordered default field headings and keys.
+
+    Raises:
+        EvidenceGovernanceError: If the heading sequence differs from the policy
+            or any expected heading or required marker is missing. All findings
+            are reported together.
+    """
     level = 2 if policy.schema_version == 2 else 3
     headings = tuple(heading for heading, _ in _parse_sections(text, level=level))
     findings: list[str] = []
@@ -216,7 +239,58 @@ def validate_mr_body(
     changed_paths: tuple[str, ...] = (),
     change_policy: ChangeRiskPolicy | None = None,
 ) -> dict[str, str]:
-    """Reject missing, duplicate, empty or placeholder fields for the applicable profile."""
+    """Validate merge-request fields for the selected evidence profile.
+
+    Institutional mode is selected by ``profile="institutional"`` or by a
+    version-1 policy. It parses level-three headings and validates
+    ``policy.institutional_fields``, falling back to ``policy.fields`` when the
+    institutional collection is empty. Default mode parses level-two headings,
+    validates ``policy.fields``, and calls ``classify_mr`` with ``changed_paths``
+    and ``change_policy`` to select triggered conditional fields. An untriggered
+    conditional heading is optional, but is validated and returned if present.
+    ``classify_mr`` considers path names, the optional evidence-context facts, and
+    the context operation; this function does not consult a date, filesystem,
+    Git, or external control state. In institutional mode, ``changed_paths`` and
+    ``change_policy`` are unused.
+
+    Heading extraction uses the module's line-oriented subset: comments and
+    supported fenced blocks are removed, headings require one to six ``#``
+    characters followed by one space, and section bodies end at the next heading
+    at the selected or a shallower level. Deeper headings remain in the body;
+    heading order and duplicates are retained; this validator does not require a
+    global heading sequence or reject unrelated headings. Required fields are
+    checked in policy order, followed by present optional conditional fields. Each
+    body is stripped at its outer edges and rejected when empty or when it consists
+    only of ``tbd``, ``todo``, ``replace me``, ``pending answer``, ``n/a``, ``na``,
+    or ``none``, case-insensitively, with an optional final period or exclamation
+    mark.
+
+    Args:
+        text: Merge-request Markdown body to inspect.
+        policy: Loaded evidence policy supplying baseline, institutional and
+            conditional field definitions and the schema version.
+        profile: Requested ``"default"`` or ``"institutional"`` profile.
+        changed_paths: Repository-relative paths used only by default-mode
+            classification to infer documentation, migration, benchmark or
+            operational impact. The default is an empty tuple and supplies no
+            documentation-only inference.
+        change_policy: Optional change-risk policy passed to default-mode
+            classification when the body declares change facts. It is otherwise
+            unused.
+
+    Returns:
+        A mapping from accepted field keys to their outer-stripped body text, in
+        validation insertion order. It includes every required field and each
+        present optional conditional field.
+
+    Raises:
+        EvidenceGovernanceError: If default-mode classification rejects malformed
+            context, declared facts without a policy, or invalid change facts; if
+            generated metadata is invalid; or if a required or present optional
+            field is missing, duplicated, empty, or placeholder-only. Field
+            findings are accumulated in validation order and raised together;
+            classification errors propagate before field validation begins.
+    """
     institutional = profile == "institutional" or policy.schema_version == 1
     fields: tuple[MrField, ...] = (
         (policy.institutional_fields or policy.fields) if institutional else policy.fields
@@ -315,7 +389,36 @@ def _read_github_event(path: Path) -> tuple[str, str, str | None]:
 
 
 def github_changed_paths(repository_root: Path, base_sha: str, head_sha: str) -> tuple[str, ...]:
-    """Read the PR's merge-base diff, including deleted and both sides of renamed paths."""
+    """Read unique changed paths from a Git three-dot diff.
+
+    Both commit identities must be full lowercase 40- or 64-character hexadecimal
+    SHAs. The function locates ``git`` on ``PATH`` and runs
+    ``git diff --name-only -z --no-renames <base>...<head> --`` with
+    ``repository_root`` as its working directory. Disabling rename detection
+    leaves deleted paths and both pathnames of a rename in the emitted list. Git's
+    NUL-delimited output is decoded as UTF-8, deduplicated, and sorted; returned
+    names are otherwise kept as Git emitted them. Calling this function performs
+    the PATH lookup and launches the Git subprocess; no Python-side file writes or
+    path resolution are performed.
+
+    Args:
+        repository_root: Working directory in which Git resolves the repository
+            and the two commit identities.
+        base_sha: Full lowercase base commit SHA in the three-dot revision
+            expression.
+        head_sha: Full lowercase head commit SHA in the three-dot revision
+            expression.
+
+    Returns:
+        Unique changed path names emitted by Git, sorted lexicographically. An
+        empty tuple indicates that the diff emitted no path names.
+
+    Raises:
+        EvidenceGovernanceError: If either SHA is not full lowercase hexadecimal,
+            Git is unavailable, or Git exits unsuccessfully.
+        OSError: If the Git subprocess cannot be started.
+        UnicodeDecodeError: If Git's captured path output is not valid UTF-8.
+    """
     if any(_SHA.fullmatch(sha) is None for sha in (base_sha, head_sha)):
         raise EvidenceGovernanceError(["PR diff requires full lowercase base and head SHAs"])
     git = shutil.which("git")
@@ -359,6 +462,37 @@ def lint_github_event(
 
 
 def validate_github_event(path: Path, policy: EvidencePolicy) -> str:
-    """Preserve the body-only compatibility API; the CLI additionally validates Git scope."""
+    """Validate a pull-request event and return its head commit SHA.
+
+    The compatibility API reads the event as UTF-8 JSON, validates the required
+    pull-request body and head SHA, and validates a supplied non-null base SHA
+    using the event parser. It then validates the body against ``policy`` without
+    supplying a repository root, so it does not compute a Git diff or classify
+    actual changed paths. Body validation still classifies with empty
+    ``changed_paths`` and no change policy: context flags or operation can select
+    conditional fields, but declared change facts cannot be classified and fail.
+    A missing or non-object ``base`` and a null ``base.sha`` are accepted as
+    absent, and extra event keys are ignored. The returned value preserves the
+    historical head-SHA-only interface; callers needing Git-scope validation
+    should use ``lint_github_event`` with ``repository_root``.
+
+    Args:
+        path: UTF-8 GitHub pull-request event JSON file to read.
+        policy: Evidence policy used to validate the pull-request body.
+
+    Returns:
+        The validated ``pull_request.head.sha`` string.
+
+    Raises:
+        EvidenceGovernanceError: If the event structure or required SHA format is
+            invalid; the body fields, or a malformed, duplicated, or invalid
+            evidence-context comment, fail validation; or the body declares change
+            facts without a change-risk policy.
+        OSError: If the event file cannot be read.
+        UnicodeDecodeError: If the event file is not valid UTF-8.
+        ValueError: If JSON decoding raises a ValueError other than the JSON
+            syntax error translated to ``EvidenceGovernanceError``.
+        RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+    """
     metadata = lint_github_event(path, policy)
     return str(metadata["head_commit_sha"])

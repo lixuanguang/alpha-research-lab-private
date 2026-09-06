@@ -955,7 +955,67 @@ def validate_manifest(
     operating_model: OperatingModel | None = None,
     operation: Operation = "implementation",
 ) -> EvidenceManifest:
-    """Validate evidence while preserving the public domain-error contract."""
+    """Validate a SHA-bound evidence manifest and return its typed contents.
+
+    The validator first requires a full lowercase 40- or 64-character
+    ``expected_commit_sha``, rejects a symlink at the manifest path, reads UTF-8
+    TOML, and selects the strict legacy schema (version 1) or implementation
+    schema (version 2). It then validates root identities, binds the manifest
+    commit exactly to ``expected_commit_sha``, recomputes change risk with
+    ``change_policy``, parses gates, artifacts, approvals and findings, checks
+    required-gate and evidence-reference relationships, and reads each declared
+    artifact to verify its SHA-256 digest. Artifact paths must be relative,
+    remain within the resolved manifest-parent bundle root, and must not traverse
+    symlink components appended below that root; reads are ordinary, non-atomic
+    filesystem operations.
+
+    Version 1 accepts ``partial`` or ``accepted`` bundles. A partial bundle must
+    retain an open finding; an accepted bundle must have complete required gates,
+    no open findings, approved reviews, and pass merge-approval validation.
+    Version 2 is for local implementation acceptance: it requires
+    ``implementation_accepted``, an ``operating_model``, the recorded founder,
+    no institutional approvals or waivers, and ``operation="implementation"``.
+    Its accepted date resolves the operating rules, and every failed or deferred
+    gate, including optional ones, or technical finding prevents local completion.
+    The ``operating_model`` and ``operation`` arguments do not affect version 1;
+    ``operation`` defaults to ``"implementation"``.
+
+    Args:
+        path: UTF-8 TOML manifest whose parent directory contains the declared
+            evidence bundle and artifacts.
+        expected_commit_sha: Full lowercase hexadecimal source commit, 40 or 64
+            characters, that the manifest must name exactly.
+        change_policy: Validated change-risk policy used to recompute the manifest
+            classification and to validate accepted-bundle approvals.
+        operating_model: Operating model used only for version-2 implementation
+            acceptance; required for that schema and otherwise ignored.
+        operation: Requested operating scope. It defaults to ``"implementation"``;
+            version-2 manifests reject every other operation, while version 1 does
+            not use this argument.
+
+    Returns:
+        A validated immutable ``EvidenceManifest`` with parsed gates, artifact
+        claims, approvals, ordered open-finding IDs, change classification, and
+        any version-2 implementation-acceptance fields.
+
+    Raises:
+        EvidenceGovernanceError: If the expected commit, manifest symlink rule,
+            TOML syntax, schema shape, field contents, risk or retention binding,
+            gate/evidence relationship, artifact path or digest, waiver rule,
+            partial or accepted status, or version-2 implementation-completion
+            requirement fails. TOML decoding, structural Pydantic validation, and
+            any remaining final-model Pydantic validation are translated and their
+            causes are chained; any Pydantic validation error not already translated
+            by the parser is translated by this wrapper, and helper ``ValueError``
+            failures for classification, URL parsing, operating-model resolution,
+            and merge approvals are also translated and chained.
+        OSError: If manifest or artifact path inspection, resolution, reading, or
+            digest input operations fail outside translated missing/containment
+            checks.
+        UnicodeDecodeError: If the manifest TOML is not valid UTF-8.
+        RuntimeError: If manifest-parent or artifact path resolution encounters a
+            symlink loop not rejected by the component checks.
+    """
     try:
         return _validate_manifest(
             path,

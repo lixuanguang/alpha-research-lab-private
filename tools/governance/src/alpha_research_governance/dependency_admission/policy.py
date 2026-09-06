@@ -463,7 +463,38 @@ def _parse_overrides(
 
 
 def load_policy(path: Path) -> DependencyAdmission:
-    """Load the dependency policy and reject missing, unknown, or weakened controls."""
+    """Load and validate the B07 dependency-admission TOML policy.
+
+    Read ``path`` as UTF-8 TOML and enforce the fixed B07 metadata, root and nested
+    schemas, policy dates and bounds, quality gates, supported platforms and index,
+    lock surfaces and digests, migrated predecessor records, package/license/native
+    admissions, scanner and Scorecard pins, findings, decisions, overrides, and
+    optional wheel-admission profiles. The wheel parsers validate claims only: this
+    function does not read referenced evidence, hash artifacts, inspect lock files,
+    invoke a verifier, query installed packages, or access the network. Policy dates
+    define the assessment windows; this loader does not compare review or expiry dates
+    with today.
+
+    Args:
+        path: UTF-8 TOML policy file to read and validate. The file is not modified.
+
+    Returns:
+        An immutable ``DependencyAdmission`` populated from the validated policy,
+        including its exact package, lock, decision, and wheel-admission records.
+
+    Raises:
+        DependencyAdmissionError: If the TOML structure or any fixed metadata,
+            schema, identity, ordering, date, digest, package, decision, override,
+            or wheel-admission rule fails. TOML syntax failures are translated and
+            chained; wheel-parser failures are translated by their parsers, and final
+            policy-model validation failures are translated by this loader.
+        OSError: If the policy file cannot be opened or read.
+        UnicodeDecodeError: If the policy file is not valid UTF-8.
+        ValueError: If URL parsing rejects malformed URL authority syntax.
+        pydantic.ValidationError: If a parsed package record is rejected while its
+            ``PythonPackageAdmission`` is constructed; wheel-record and final-policy
+            model failures are translated to ``DependencyAdmissionError``.
+    """
     try:
         document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
     except tomllib.TOMLDecodeError as error:
@@ -847,7 +878,47 @@ def _python_lock_findings(
 
 
 def require_release_admission(repository_root: Path) -> None:
-    """Reject bootstrap-only dependencies at artifact creation, signing and consumption."""
+    """Require release admission for the repository's dependency lock boundary.
+
+    Resolve ``repository_root`` strictly, load the dependency policy, and reject
+    immediately when it contains any bootstrap-wheel admission. That short-circuit
+    occurs before reading ``uv.lock``, checking the current date, or hashing the
+    admitted lock surfaces. Otherwise, collect Python lock findings, append a
+    stale-review finding when ``review_due_on`` is before ``date.today()``, then
+    hash each policy-listed lock path in its admitted order and append digest
+    mismatches before raising one combined error.
+
+    The Python lock checks cover the admitted external package set, versions,
+    registry source, supplied wheel and source digests, platform heuristics, and
+    dependency edges. Delegated wheel verifiers compare the locked wheel set and
+    supplied digests with retained local provenance and may authenticate claims
+    with Cosign; they do not download or recompute wheel or source-archive bytes
+    and do not repeat parser-level cross-record checks. Policy, lock, evidence,
+    and digest operations read repository files without mutating them. A
+    source-bound verifier may stage a temporary trust root and invoke a local
+    Cosign subprocess with no shell, a ``PATH``-only environment, and no offline
+    flag, so this function does not establish network-free execution. This gate
+    is narrower than ``validate_repository``: it hashes every admitted lock path
+    but does not parse non-Python lock contents or run their semantic surface
+    checks, and it does not inspect migrated records, runtime-install scans, or
+    external audit signals.
+
+    Args:
+        repository_root: Existing repository directory whose policy, lock, evidence,
+            and admitted lock surfaces are evaluated.
+
+    Raises:
+        DependencyAdmissionError: If policy loading, bootstrap use, Python lock or
+            provenance checks, review freshness, or an admitted lock digest fails.
+        OSError: If strict root resolution or a policy, lock, evidence, digest, or
+            temporary-verifier filesystem operation fails.
+        RuntimeError: If strict root resolution encounters a symlink loop.
+        UnicodeDecodeError: If a required text policy or lock file is not UTF-8.
+        tomllib.TOMLDecodeError: If ``uv.lock`` is not valid TOML; policy TOML
+            syntax errors are translated to ``DependencyAdmissionError``.
+        ValueError: If URL parsing or another verifier operation raises an
+            untranslated value error.
+    """
     root = repository_root.resolve(strict=True)
     policy = load_policy(root / "docs/architecture/dependency-admission.toml")
     if policy.bootstrap_wheel_admissions:
@@ -1323,7 +1394,60 @@ def assess_scorecard_report(
 def validate_repository(
     repository_root: Path, *, validation_date: date | None = None
 ) -> DependencyAdmission:
-    """Validate policy, locks, migrations, integrations, evidence, and safe source behavior."""
+    """Validate the B07 policy, repository dependency surfaces, and local evidence.
+
+    Resolve ``repository_root`` strictly, load its policy, and use ``validation_date``
+    or ``date.today()`` for bootstrap-wheel effectiveness, review freshness, and
+    emergency-override expiry. A review deadline or override expiry equal to the
+    chosen date remains valid because the checks flag only dates before it. Collect
+    findings in order from the Python lock graph, retained B02-B06 records,
+    non-Python lock surfaces, and configured ``src``/``tools``
+    runtime-install scans. Then check policy-listed lock digests, the exact
+    ``pip-audit==2.10.1`` development dependency, and required integration fragments.
+    A non-empty finding list is raised together. When those checks pass, validate the
+    repository change-risk policy, local evidence manifest and artifact digests, and
+    the exact B07 package-evidence profile before returning the policy.
+
+    The repository checks read files and do not mutate them. An optional wheel profile
+    can cause retained evidence reads and a local Cosign subprocess through the lock
+    helper; verifier domain failures become package-prefixed findings there, while
+    unrelated I/O, decoding, parsing, URL, and temporary-resource failures propagate.
+    This function does not run pip-audit or Scorecard, query installed package metadata,
+    or install packages, and its Cosign path does not guarantee network-free execution.
+
+    Args:
+        repository_root: Existing repository directory whose policy, locks, migrated
+            records, integrations, source roots, and local evidence are checked.
+        validation_date: Date used for bootstrap validity, review freshness, and
+            override expiry; defaults to ``date.today()`` when omitted.
+
+    Returns:
+        The validated immutable ``DependencyAdmission`` policy when repository checks
+        report no findings and evidence validation succeeds.
+
+    Raises:
+        DependencyAdmissionError: If policy loading fails, repository checks produce
+            findings, or policy-bound wheel and dependency-admission evidence fails.
+            Findings from the repository scans and digest checks are aggregated; domain
+            failures translated by wheel verifiers are included through that boundary.
+        EvidenceGovernanceError: If the local evidence manifest, its artifact digests,
+            or the B07 package-evidence profile fails after repository findings clear.
+        ChangeRiskPolicyError: If the policy-bound change-risk policy cannot be loaded
+            or validated.
+        OSError: If strict root resolution or an uncaught repository, evidence,
+            lock-digest, temporary-resource, or integration-file operation fails.
+        RuntimeError: If repository or evidence-bundle path resolution encounters a
+            symlink loop.
+        UnicodeDecodeError: If an uncaught repository, policy, lock, migration,
+            integration, source, or evidence text file is not valid UTF-8.
+        json.JSONDecodeError: If a non-Python lock surface is not valid JSON.
+        tomllib.TOMLDecodeError: If an uncaught repository TOML document, including
+            a lock, migration record, or ``pyproject.toml``, is malformed. Policy,
+            change-risk, and evidence-manifest TOML syntax is translated by its
+            respective loader.
+        ValueError: If URL parsing or another helper operation raises an untranslated
+            value error.
+    """
     root = repository_root.resolve(strict=True)
     policy = load_policy(root / "docs/architecture/dependency-admission.toml")
     today = date.today() if validation_date is None else validation_date

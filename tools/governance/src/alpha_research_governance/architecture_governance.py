@@ -212,7 +212,40 @@ def validate_adr(
     template: bool = False,
     operating_model: OperatingModel | None = None,
 ) -> None:
-    """Validate one ADR's identity, metadata, required sections, and lifecycle fields."""
+    """Validate one ADR's identity, metadata, sections, and lifecycle fields.
+
+    The file is read as UTF-8 and all findings discovered during validation are
+    accumulated before one governance error is raised. A non-template ADR must
+    use the expected four-digit identifier in its filename and title, and its
+    filename must use a lowercase kebab-case slug. Every ADR requires the
+    control-metadata fields and ordered level-two sections defined by this
+    module; when all required metadata is present, non-template ADRs also
+    receive the roadmap, status, ownership, date, and approval checks. The
+    ``Accepted`` status requires syntactically valid commit-bound HTTPS evidence.
+    The ``Founder accepted`` status requires an operating model that resolves its
+    operating domain for ``operation="implementation"`` on the decision date and
+    identifies the registered founder.
+    ``template=True`` skips the filename, title, lifecycle, and non-empty-section
+    checks while retaining required metadata, section-presence, and section-order
+    checks.
+    This function only reads ``path`` and the optional operating model.
+
+    Args:
+        path: ADR or template file to read and validate as UTF-8.
+        expected_identifier: Numeric identifier formatted with a minimum width of
+            four digits for the expected filename and ADR title when validating a
+            non-template file.
+        template: Whether to apply template mode, which omits identity,
+            lifecycle, and non-empty-section checks.
+        operating_model: Optional operating model used only for Founder accepted
+            ADRs to validate the operating-domain scope and founder identity.
+
+    Raises:
+        ArchitectureGovernanceError: If one or more identity, metadata, section,
+            lifecycle, or approval findings are collected.
+        OSError: If ``path`` cannot be read.
+        UnicodeDecodeError: If ``path`` is not valid UTF-8.
+    """
     text = path.read_text(encoding="utf-8")
     findings: list[str] = []
     identifier = f"{expected_identifier:04d}"
@@ -403,7 +436,39 @@ def _validate_decision_log(
 def validate_decision_directory(
     directory: Path, *, operating_model: OperatingModel | None = None
 ) -> tuple[Path, ...]:
-    """Validate the ADR template, contiguous record identifiers, and decision log."""
+    """Validate a decision directory and return its ADR paths when it is valid.
+
+    The directory must contain a valid ``template.md`` and ``README.md`` decision
+    log. The scan considers only immediate ``*.md`` entries. Markdown files other
+    than those two must use the four-digit, lowercase-kebab-case ADR filename
+    convention, and the discovered identifiers must be contiguous starting at
+    ``0001``. Each ADR is validated with ``validate_adr``; the supplied operating
+    model is forwarded to those
+    non-template validations. The decision log must contain exactly one link for
+    each ADR. Within the Decision records section, lines starting with a table
+    cell containing exactly four digits are checked for duplicate, unexpected,
+    or malformed rows; other lines are ignored by the row parser.
+    Missing records and title, filename, status, owner, and review-date mismatches
+    are reported.
+    Findings are accumulated across these checks before one governance error is
+    raised. The function reads directory files only and does not write them.
+
+    Args:
+        directory: Directory containing ``template.md``, ``README.md``, and ADR
+            Markdown files.
+        operating_model: Optional operating model passed to each non-template
+            ADR validation for Founder accepted decisions.
+
+    Returns:
+        The matching ADR paths in lexicographic filename order after all checks
+        pass. ``template.md`` and ``README.md`` are excluded.
+
+    Raises:
+        ArchitectureGovernanceError: If the template, ADR set, or decision log
+            violates any directory or cross-file governance rule.
+        OSError: If directory traversal or any required file read fails.
+        UnicodeDecodeError: If a required text file is not valid UTF-8.
+    """
     findings: list[str] = []
     template_path = directory / "template.md"
     log_path = directory / "README.md"
@@ -476,7 +541,39 @@ def _heading_anchors(text: str) -> set[str]:
 
 
 def validate_local_links(repository_root: Path, documents: Iterable[Path]) -> None:
-    """Reject missing repository-local Markdown link targets and heading fragments."""
+    """Validate repository-local Markdown targets and Markdown heading fragments.
+
+    Each supplied document is read as UTF-8 and scanned for inline, non-image
+    Markdown links after text between triple-backtick fences is removed. Links
+    with a URL scheme or a network-relative ``//`` destination are treated as
+    external and skipped. Other destinations are resolved relative to the source
+    document. The path and fragment are percent-decoded separately, and a
+    fragment-only destination targets the source document. The checker splits
+    only at ``#``, so any query text remains part of the path text. Targets are
+    required to resolve to a file inside the resolved repository root. Fragments
+    on Markdown targets are checked against this module's approximate,
+    case-insensitive heading-anchor algorithm, including duplicate-heading
+    suffixes; fragments on other file types are not inspected. Findings are
+    reported in document and link encounter order. The function performs local
+    filesystem reads and path resolution only; it makes no network requests and
+    does not modify any file.
+
+    Args:
+        repository_root: Root directory that local links must not escape after
+            path resolution.
+        documents: Iterable of Markdown-like document paths to scan. The iterable
+            is consumed once, in its supplied order.
+
+    Raises:
+        ArchitectureGovernanceError: If a local link escapes the repository, its
+            target is missing, or a checked Markdown heading does not exist.
+        OSError: If a supplied document or checked Markdown target cannot be
+            read, or a required path resolution fails.
+        UnicodeDecodeError: If a supplied document or checked Markdown target is
+            not valid UTF-8.
+        ValueError: If URL parsing rejects a link destination.
+        RuntimeError: If path resolution encounters a symbolic-link loop.
+    """
     resolved_repository_root = repository_root.resolve()
     findings: list[str] = []
     anchor_cache: dict[Path, set[str]] = {}
@@ -526,7 +623,42 @@ def _validate_repository(repository_root: Path) -> tuple[Path, ...]:
 
 
 def validate_repository(repository_root: Path) -> tuple[Path, ...]:
-    """Run architecture checks while preserving the public domain-error contract."""
+    """Validate repository architecture decisions and local documentation links.
+
+    The delegated repository check resolves ``repository_root`` before forming
+    paths, loads the operating model from
+    ``docs/governance/domain-ownership.toml``, validates the decision directory
+    with that model, and then scans sorted Markdown files below ``docs`` for
+    repository-local links and heading fragments. The decision-directory check
+    must pass before the local-link scan starts, so the wrapper does not combine
+    findings from both stages. These operations perform local reads and path
+    resolution only; they do not write files or make network requests.
+
+    Args:
+        repository_root: Repository path containing the ownership register,
+            architecture decisions, and documentation tree. Relative and
+            symlinked paths are resolved by the delegated check.
+
+    Returns:
+        The validated ADR directory-entry paths, rooted under the resolved
+        repository root and ordered by filename; ``template.md`` and
+        ``README.md`` are excluded. A symlink entry retains its directory path
+        spelling rather than being canonicalized by the return value.
+
+    Raises:
+        ArchitectureGovernanceError: If decision-directory or local-link checks
+            report findings, or if an ``OperatingModelError`` or escaping
+            Pydantic ``ValidationError`` is translated at this public boundary.
+            Operating-model failures preserve their message and cause; escaping
+            model failures use a repository-scoped generic message and preserve
+            their cause.
+        OSError: If root resolution or any delegated operating-model, decision,
+            or local-link file operation fails.
+        UnicodeDecodeError: If delegated UTF-8 text reading fails.
+        ValueError: If delegated local-link URL parsing raises an uncaught value
+            error; the explicitly handled ``OperatingModelError`` is translated.
+        RuntimeError: If delegated path resolution encounters a symbolic-link loop.
+    """
     try:
         return _validate_repository(repository_root)
     except OperatingModelError as error:

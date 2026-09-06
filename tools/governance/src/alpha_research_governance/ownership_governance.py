@@ -274,7 +274,48 @@ def _repository_paths(repository_root: Path) -> tuple[str, ...]:
 def validate_repository(
     repository_root: Path, *, repository_paths: Iterable[str] | None = None
 ) -> tuple[str, ...]:
-    """Validate the ownership register, its CODEOWNERS mirror, and repository coverage."""
+    """Validate the ownership register, CODEOWNERS mirror, and path coverage.
+
+    The resolved ``repository_root`` locates the ownership register and resolves its
+    ``codeowners_path`` against that root; the CODEOWNERS target must remain inside the
+    resolved root. Validation checks the supported policy values, the version-2 operating
+    model, forge/status/finding constraints, required domain IDs, reviewer roles, owner
+    principals, pattern ordering, exact ordered CODEOWNERS equality, and ownership coverage
+    for every input path. The register and CODEOWNERS are read as UTF-8 without writes by
+    ``_load_registry`` and ``_parse_codeowners``. ``repository_paths`` supplies the coverage
+    input when present; otherwise the direct ``_repository_paths`` helper enumerates tracked
+    and nonignored untracked paths through its read-only Git subprocess query.
+
+    Args:
+        repository_root: Repository directory whose resolved path anchors the register,
+            CODEOWNERS target, and default Git working directory.
+        repository_paths: Optional iterable of repository-relative paths to check. When the
+            coverage stage is reached, its iteration order is retained and Git discovery is
+            bypassed when it is supplied; ``None`` selects the helper's Git enumeration.
+            Exceptions raised while consuming the iterable propagate.
+
+    Returns:
+        The validated domain IDs as a tuple in register order. A successful call returns
+        every required domain exactly once.
+
+    Raises:
+        OwnershipGovernanceError: If accumulated validation findings remain, or a direct
+            helper reports a governance failure, including invalid register values,
+            operating-model errors, domain or CODEOWNERS policy mismatches, path coverage
+            failures, malformed registry TOML or root shape, and Git unavailable or
+            nonzero-exit failures. Version-2 ``OperatingModelError`` is appended as a
+            finding, and ``_load_registry`` translates malformed TOML or a non-table root
+            into this error. Findings retain validation order and duplicates. A malformed
+            CODEOWNERS file, or its UTF-8 decoding failure, is caught here by the earlier
+            ``ValueError`` boundary as a containment finding; an ordered-entry mismatch is
+            then added when the empty parsed result differs from the expected entries. The
+            Git helper's same error propagates directly.
+        OSError: If root resolution or direct helper file or process I/O fails; this error
+            propagates.
+        UnicodeDecodeError: If the registry, version-2 operating model, or a successful Git
+            path record is not valid UTF-8; CODEOWNERS decoding is translated as described
+            above.
+    """
     resolved_repository_root = repository_root.resolve()
     registry_path = resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
     registry = _load_registry(registry_path)
