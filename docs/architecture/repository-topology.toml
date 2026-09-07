@@ -225,8 +225,13 @@ sources = [
   "tests/build/developer_environment_test.py",
   "tests/build/fixtures/proto/buf_compatibility_test.py",
   "tests/build/fixtures/proto/buf_toolchain_test.py",
+  "tests/build/fixtures/proto/test_buf_contracts.py",
   "tests/build/fixtures/sql/generated_sql_test.py",
+  "tests/build/fixtures/sql/test_generated_sql_contracts.py",
   "tests/build/sandbox_test.py",
+  "tests/build/test_build_graph_contracts.py",
+  "tests/build/test_developer_environment_contracts.py",
+  "tests/build/test_sandbox_contracts.py",
 ]
 
 [[units]]

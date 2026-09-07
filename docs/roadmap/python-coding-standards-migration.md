@@ -39,8 +39,11 @@ The requested target is segregated, commented import groups; stringent typing
 without `Any`; useful Google-style docstrings; and a preference for classes over
 standalone functions, with small low-level operations remaining functions.
 The last requirement reflects the user's clarification. New or migrated data
-records use Pydantic `BaseModel`, not dataclasses; workflow services use ordinary
-classes with explicit typed constructors.
+records default to Pydantic `BaseModel`, not dataclasses; measured allocation or
+serialization bottlenecks MAY use `msgspec.Struct` when the end-to-end contract
+and benchmark evidence justify it. Workflow services use ordinary classes with
+explicit typed constructors, and measured numeric kernels MAY use Numba alongside
+the pinned CPython runtime.
 
 The main work is strengthening enforcement and reorganizing governance workflows.
 Existing import sorting and signature annotations are already consistent. Public
