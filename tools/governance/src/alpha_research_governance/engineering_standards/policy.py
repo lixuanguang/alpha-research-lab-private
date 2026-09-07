@@ -23,7 +23,7 @@ from alpha_research_governance.engineering_standards.models import (
     LanguageStandard,
     ToolStandard,
 )
-from alpha_research_governance.engineering_standards.python_debt import (
+from alpha_research_governance.engineering_standards.python_standards import (
     PythonStandardsChecker,
 )
 from alpha_research_governance.evidence import (
@@ -1034,11 +1034,11 @@ def validate_repository(
     The repository root is resolved before paths are formed. The function loads
     the engineering policy, checks locked tool versions and the exact Python,
     Ruff, pytest, dependency-pin, Bazel-requirement, and interpreter-baseline
-    settings, then runs the ownership-aware Python and source-tree checks and
+    settings, then runs the Python source and ownership-aware source-tree checks and
     validates the engineering-tool dependency record. A missing
     ``validation_date`` defaults to ``date.today()``; the selected date is passed
-    to the source and Python standards checks for suppression and exception
-    expiry decisions. The final evidence block validates the manifest and the
+    to source-tree checks for suppression expiry decisions; Python source findings
+    are checked directly. The final evidence block validates the manifest and the
     fixed local package profile. Collected findings are raised together after
     that block; a successful call returns the loaded engineering policy. It
     reads local files and runs repository scanners, but does not invoke the
@@ -1205,7 +1205,7 @@ class _EngineeringStandardsRepositoryValidator:
 
         The complete repository validator calls this projection before source scanning;
         keeping the configuration contract isolated also makes negative policy tests
-        independent of repository evidence and source fingerprints.
+        independent of repository evidence and source scanning.
 
         Args:
             pyproject_document: Parsed ``pyproject.toml`` document to inspect.
@@ -1297,11 +1297,11 @@ class _EngineeringStandardsRepositoryValidator:
         The repository root is resolved before paths are formed. The function loads
         the engineering policy, checks locked tool versions and the exact Python,
         Ruff, pytest, dependency-pin, Bazel-requirement, and interpreter-baseline
-        settings, then runs the ownership-aware Python and source-tree checks and
+        settings, then runs the Python source and ownership-aware source-tree checks and
         validates the engineering-tool dependency record. A missing
         ``validation_date`` defaults to ``date.today()``; the selected date is passed
-        to the source and Python standards checks for suppression and exception
-        expiry decisions. The final evidence block validates the manifest and the
+        to source-tree checks for suppression expiry decisions; Python source findings
+        are checked directly. The final evidence block validates the manifest and the
         fixed local package profile. Collected findings are raised together after
         that block; a successful call returns the loaded engineering policy. It
         reads local files and runs repository scanners, but does not invoke the
@@ -1376,8 +1376,6 @@ class _EngineeringStandardsRepositoryValidator:
         findings.extend(
             PythonStandardsChecker(
                 source_roots=standards.source_roots,
-                owner_roles=owner_roles,
-                validation_date=today,
             ).findings(root)
         )
         findings.extend(

@@ -28,7 +28,7 @@ the repository's additional dynamic-type restrictions.
 | --- | --- |
 | `make lint`, `make format-check` | Configured Ruff checks across source, tests, governance tooling and owned native stubs |
 | `make typecheck` | Complete configured strict mypy scope, followed by native stubtest |
-| `make engineering-standards-check` | Source rules, exact design exceptions and static-tool configuration |
+| `make engineering-standards-check` | Source typing, import headings, docstrings and static-tool configuration |
 | `make security` | Configured Bandit checks for runtime and governance source |
 | `make check` | Authoritative complete lane with the default Bazel backend; see the [development workflow](../governance/workflow.md) |
 
@@ -196,20 +196,15 @@ Additional rules:
 
 ## Classes and object design
 
-- Prefer a cohesive class for high-level domain, policy, validation, loading,
-  and orchestration operations, with typed collaborators and explicit state
-  ownership. Use a class when state and behavior share invariants.
-- A low-level parser, arithmetic kernel, predicate, required framework or CLI
-  callback, or supported compatibility wrapper MAY remain a module-level
-  function only with an explicit low-level, framework, or compatibility
-  rationale recorded for the function in the
-  [design exception register](../architecture/python-standards-exceptions.toml).
-  Follow the [exception contract](../architecture/engineering-standards.md#python-standards-enforcement-contract)
-  for exact rule, symbol, owner, expiry and fingerprint fields. Reassess the
-  rationale when a definition changes, update only its affected records, and
-  remove records whose findings no longer exist. Do not bulk-renew fingerprints
-  or expiry dates merely to pass a check. Do not enforce this preference with a
-  class-to-function ratio or a blanket class requirement.
+- Use a cohesive class when it represents a meaningful concept, groups related
+  behavior, owns state, or establishes an invariant. A stateless validator can
+  justify a class when its operations form a coherent responsibility.
+- Module-level functions, including low-level parsers, arithmetic kernels,
+  predicates, framework or CLI callbacks, and ordinary test functions, are
+  permitted without registration, owner, expiry, or source-fingerprint records.
+  Choose functions when they express the operation clearly. Preserve typing,
+  import organization, and applicable docstrings for functions and methods alike.
+  Do not enforce a class-to-function ratio or a blanket class requirement.
 - New internal callers SHOULD use the owning service. Retain public adapters
   needed by supported imports and CLI contracts, document that boundary, and
   remove temporary wrappers once their remaining callers have migrated.
@@ -333,8 +328,8 @@ Additional rules:
 - Use `@njit` in nopython mode and keep object mode out of governed kernels.
   Extract primitive arrays and scalars from Pydantic or msgspec models in the
   Python wrapper, then state dtype, shape, layout, units, and scalar types at the
-  kernel boundary. Small module-level kernels are allowed under the existing
-  low-level function rationale when they have no hidden I/O or mutable globals.
+  kernel boundary. Small module-level kernels need no exception registration;
+  keep them free of hidden I/O or mutable globals.
 - Prefer sequential loops for path-dependent simulations. Do not parallelize
   time dependence. Use parallel execution only for independent workloads, with
   explicit thread, random-number, and reduction controls; bound thread pools to
@@ -391,9 +386,8 @@ Additional rules:
   use a useful one-line summary. Public APIs MUST include every applicable
   `Args:`, `Returns:` or `Yields:`, and `Raises:` section; document units, time
   semantics, state changes, I/O, and failure conditions where they affect use.
-  An inherited protocol contract is an exception only when recorded in the
-  [design exception register](../architecture/python-standards-exceptions.toml)
-  with its source fingerprint.
+  Implementations of inherited protocol contracts follow these same documentation
+  requirements; source findings must pass directly.
 - Use an imperative one-line summary and Google section headings. A summary MUST
   describe semantics rather than repeat annotations. Reviewers remain responsible
   for the meaning and completeness of prose; metadata checks cannot prove that
@@ -406,9 +400,8 @@ Additional rules:
 
 Ruff `D` with the Google convention and `ANN401` are required across the complete
 Python scope, including tests and owned native stubs. The engineering-standards
-checker additionally enforces useful contract sections, import headings and
-reviewed function ownership. Its exact exception register retains ownership,
-rationale, expiry and source fingerprints; no legacy source-debt allowance remains.
+checker additionally enforces applicable contract sections, import headings and
+explicit-`Any` forms. Source findings have no exception register or debt allowance.
 
 ## Testing
 

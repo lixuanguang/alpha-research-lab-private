@@ -49,5 +49,6 @@ For a changed boundary, run the affected strict typing checks and the owning
 tests, including malformed inputs and serialization or native goldens where
 applicable. Changes to global enforcement require checking the complete static
 scope. No baseline, test exclusion or blanket suppression may admit a new
-diagnostic. Reviewed source-function exceptions remain separately governed by
-the engineering-standards checker; they cannot waive typing errors.
+diagnostic. Functions need no exception registration. The engineering-standards
+checker still enforces source typing, import headings and applicable docstrings
+directly, with no source-rule waiver mechanism.

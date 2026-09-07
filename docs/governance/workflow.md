@@ -71,7 +71,7 @@ trigger. Until then, governance is `not_required`, not overdue.
 | Human-readable status and finding IDs | [Generated status](program-status.md) |
 | Package objectives and dependency expressions | [Implementation roadmap](../roadmap/README.md) |
 | Implementation and refactoring rules | [Shared coding standards and language guides](../coding_standards/README.md) |
-| Python source rules, static checks and design exceptions | [Engineering standards](../architecture/engineering-standards.md#python-standards-enforcement-contract) |
+| Python typing, import style, docstrings and static checks | [Engineering standards](../architecture/engineering-standards.md#python-standards-enforcement-contract) |
 | Engineering vs handover authority | [Domain ownership](domain-ownership.md) |
 | PR body and artifact-evidence rules | [Merge evidence](merge-evidence.md) |
 | Risk classes and operation-aware gates | [Change-risk classification](change-risk-classification.md) |

@@ -27,17 +27,17 @@ class TestPythonSourceRecords:
         finding = PythonFinding(
             path="src/a.py",
             symbol="parse",
-            rule="PYC001",
-            detail="standalone",
+            rule="PYD001",
+            detail="summary",
             line=3,
         )
 
-        assert finding.key == ("src/a.py", "parse", "PYC001", "standalone")
+        assert finding.key == ("src/a.py", "parse", "PYD001", "summary")
         invalid_line: object = {
             "path": "src/a.py",
             "symbol": "parse",
-            "rule": "PYC001",
-            "detail": "standalone",
+            "rule": "PYD001",
+            "detail": "summary",
             "line": "3",
         }
         with pytest.raises(ValidationError, match="valid integer"):
@@ -45,8 +45,8 @@ class TestPythonSourceRecords:
         unknown_field: object = {
             "path": "src/a.py",
             "symbol": "parse",
-            "rule": "PYC001",
-            "detail": "standalone",
+            "rule": "PYD001",
+            "detail": "summary",
             "line": 3,
             "unexpected": "synthetic",
         }
@@ -694,11 +694,11 @@ class TestPythonSourceChecker:
         )
         assert not any("yields" in detail or "raises" in detail for detail in parent_details)
 
-    def test_module_function_needing_class_disposition_gets_pyc001(self) -> None:
-        """Report a high-level module function needing class disposition."""
+    def test_typed_documented_ordinary_and_test_functions_are_accepted(self) -> None:
+        """Accept documented sync, async, and ordinary test functions without registration."""
         findings = self._scan(
             '''
-            """Class disposition fixture."""
+            """Ordinary function fixture."""
 
             def process_records(records: list[str], prefix: str) -> list[str]:
                 """Process records with a prefix.
@@ -713,15 +713,47 @@ class TestPythonSourceChecker:
                 """
                 normalized = [record.strip() for record in records]
                 return [prefix + record for record in normalized if record]
+
+            async def load_records(source: str) -> list[str]:
+                """Load records from one source.
+
+                Args:
+                    source: Source identifier to load.
+
+                Returns:
+                    Loaded records from the source.
+
+                """
+                return [source]
+
+            def test_records() -> None:
+                """Exercise ordinary record processing."""
+                assert process_records(["alpha"], "-") == ["-alpha"]
+            ''',
+            path="tests/test_records.py",
+        )
+
+        assert findings == ()
+
+    def test_functions_retain_typing_import_and_docstring_rejections(self) -> None:
+        """Keep retained source diagnostics active for module-level functions."""
+        findings = self._scan(
+            '''
+            """Function diagnostics fixture."""
+
+            # standard library imports
+            from typing import Any
+
+            def invalid(value: Any) -> int:
+                import os
+                return value
             '''
         )
 
-        class_findings = self._rule(findings, "PYC001")
-        assert any(finding.symbol == "process_records" for finding in class_findings)
-        assert any(
-            "function" in finding.detail.lower() or "disposition" in finding.detail.lower()
-            for finding in class_findings
-        )
+        assert any(finding.rule == "PYT001" and finding.symbol == "invalid" for finding in findings)
+        assert any(finding.rule == "PYI001" and finding.symbol == "invalid" for finding in findings)
+        assert any(finding.rule == "PYD001" and finding.symbol == "invalid" for finding in findings)
+        assert any(finding.rule == "PYD002" and finding.symbol == "invalid" for finding in findings)
 
     def test_private_and_test_functions_need_only_summary_docstrings(self) -> None:
         """Accept summary-only docs for private and test functions."""

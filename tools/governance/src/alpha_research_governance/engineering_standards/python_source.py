@@ -896,42 +896,42 @@ class _DocumentationChecker:
     def check(self, module: ast.Module) -> None:
         """Check module, class, and named-function documentation."""
         self._check_definition_doc(module, "<module>")
-        self._visit_statements(module.body, "<module>", "module")
+        self._visit_statements(module.body, "<module>")
 
-    def _visit_statements(self, statements: list[ast.stmt], parent: str, kind: str) -> None:
+    def _visit_statements(self, statements: list[ast.stmt], parent: str) -> None:
         """Visit definitions in one statement list."""
         for statement in statements:
-            self._visit_statement(statement, parent, kind)
+            self._visit_statement(statement, parent)
 
-    def _visit_statement(self, statement: ast.stmt, parent: str, kind: str) -> None:
+    def _visit_statement(self, statement: ast.stmt, parent: str) -> None:
         """Visit one definition and nested control-flow definitions."""
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
             symbol = statement.name if parent == "<module>" else f"{parent}.{statement.name}"
-            self._check_function(statement, symbol, kind == "module")
-            self._visit_statements(statement.body, symbol, "function")
+            self._check_function(statement, symbol)
+            self._visit_statements(statement.body, symbol)
             return
         if isinstance(statement, ast.ClassDef):
             symbol = statement.name if parent == "<module>" else f"{parent}.{statement.name}"
             self._check_definition_doc(statement, symbol)
-            self._visit_statements(statement.body, symbol, "class")
+            self._visit_statements(statement.body, symbol)
             return
         if isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While)):
-            self._visit_statements(statement.body, parent, kind)
-            self._visit_statements(statement.orelse, parent, kind)
+            self._visit_statements(statement.body, parent)
+            self._visit_statements(statement.orelse, parent)
             return
         if isinstance(statement, (ast.With, ast.AsyncWith)):
-            self._visit_statements(statement.body, parent, kind)
+            self._visit_statements(statement.body, parent)
             return
         if isinstance(statement, (ast.Try, ast.TryStar)):
-            self._visit_statements(statement.body, parent, kind)
+            self._visit_statements(statement.body, parent)
             for handler in statement.handlers:
-                self._visit_statements(handler.body, parent, kind)
-            self._visit_statements(statement.orelse, parent, kind)
-            self._visit_statements(statement.finalbody, parent, kind)
+                self._visit_statements(handler.body, parent)
+            self._visit_statements(statement.orelse, parent)
+            self._visit_statements(statement.finalbody, parent)
             return
         if isinstance(statement, ast.Match):
             for case in statement.cases:
-                self._visit_statements(case.body, parent, kind)
+                self._visit_statements(case.body, parent)
 
     def _check_definition_doc(
         self, node: ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef, symbol: str
@@ -948,12 +948,9 @@ class _DocumentationChecker:
         self,
         function: ast.FunctionDef | ast.AsyncFunctionDef,
         symbol: str,
-        module_level: bool,
     ) -> None:
         """Check one function summary and its required structured sections."""
         value = self._check_definition_doc(function, symbol)
-        if module_level:
-            self._add(symbol, "PYC001", "module-level-function", function.lineno)
         if not self._is_public_api(function.name, symbol):
             return
         sections = self._sections(value or "")
