@@ -117,7 +117,12 @@ _TABLE_KEYS = {
         "test_targets",
     },
 }
-_FINDING_KEYS = {"closure_condition", "finding_id", "owner_role", "unavailable_evidence"}
+_FINDING_KEYS = {
+    "closure_condition",
+    "finding_id",
+    "owner_role",
+    "unavailable_evidence",
+}
 _COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 _INSTANCE = re.compile(r"^[a-z0-9][a-z0-9._/-]{1,191}$")
 _ENVIRONMENT_VARIABLE = re.compile(r"^[A-Z][A-Z0-9_]*$")
@@ -299,6 +304,272 @@ def _require_iso_date(value: object, *, context: str) -> date:
     return value
 
 
+class _RemotePolicyLoader:
+    """Parse and semantically validate one remote-execution policy path."""
+
+    def __init__(self, path: Path) -> None:
+        """Bind the policy path without performing I/O."""
+        self._path = path
+
+    def _load(self) -> RemoteExecutionPolicy:
+        """Load and validate a closed remote-execution TOML policy.
+
+        The file must contain exactly the admitted root and nested fields. Scalar values,
+        provider and trust settings, resource budgets, deterministic sharding, quarantine
+        records, local fallback targets, and cross-field restrictions are checked against the
+        remote-execution contract. The evidence path and commit fields are required to be
+        non-empty here; this module checks commit syntax in the semantic policy validator and checks
+        path existence and evidence binding in ``validate_repository``. Quarantine records and
+        diagnostic findings retain their input or contract order; this function does not supply
+        defaults.
+
+        Returns:
+            The immutable policy assembled from the admitted values. A successful return means
+            the policy's schema and semantic findings passed this module's checks.
+
+        Raises:
+            RemoteExecutionError: If TOML is malformed, fields or values violate the closed
+                schema, final policy-model validation fails, or semantic findings are present.
+                TOML decode failures and final-model Pydantic validation failures are translated
+                with their causes.
+            ValidationError: If construction of an intermediate provider, trust, resource,
+                sharding, flake, quarantine, or fallback model rejects its values; this error
+                propagates unchanged.
+            OSError: If reading ``path`` fails; file-system errors are allowed to propagate.
+            UnicodeDecodeError: If the policy file is not valid UTF-8; the decoding error
+                propagates from ``Path.read_text``.
+        """
+        path = self._path
+        try:
+            parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+            document = _require_toml_table(parsed_document, context=str(path))
+        except tomllib.TOMLDecodeError as error:
+            raise RemoteExecutionError([f"{path}: invalid TOML: {error}"]) from error
+        if set(document) != _ROOT_KEYS:
+            raise RemoteExecutionError([f"{path}: root has missing or unknown fields"])
+        expected_scalars: dict[str, object] = {
+            "schema_version": 1,
+            "roadmap_package": _REMOTE_EXECUTION_PACKAGE_ID,
+            "operating_track": "solo_bootstrap",
+            "package_status": "partial",
+            "accountable_owner_role": "platform",
+            "risk_class": "R2",
+            "successor_package": _DEPENDENCY_ADMISSION_PACKAGE_ID,
+        }
+        for key, expected in expected_scalars.items():
+            if document.get(key) != expected:
+                raise RemoteExecutionError([f"{path}: {key} must be {expected!r}"])
+        if _require_string_tuple(
+            document.get("applicable_gate_ids"), context="applicable_gate_ids"
+        ) != (_REMOTE_EXECUTION_APPLICABLE_GATE_IDS):
+            raise RemoteExecutionError(["applicable_gate_ids must match the A04 R2 gate set"])
+        open_findings = _require_string_tuple(
+            document.get("open_finding_ids"), context="open_finding_ids"
+        )
+        if open_findings != _REMOTE_EXECUTION_OPEN_FINDING_IDS:
+            raise RemoteExecutionError(
+                ["remote-execution partial status requires the exact open findings"]
+            )
+        findings = _require_toml_table_array(document.get("findings"), context="findings")
+        if tuple(entry.get("finding_id") for entry in findings) != (
+            _REMOTE_EXECUTION_OPEN_FINDING_IDS
+        ):
+            raise RemoteExecutionError(["findings must define the exact open finding IDs in order"])
+        if any(set(entry) != _FINDING_KEYS for entry in findings):
+            raise RemoteExecutionError(["findings have missing or unknown fields"])
+        if any(
+            not isinstance(value, str) or not value
+            for entry in findings
+            for value in entry.values()
+        ):
+            raise RemoteExecutionError(["finding values must be non-empty strings"])
+
+        parsed = {
+            name: _require_toml_table(document.get(name), context=name) for name in _TABLE_KEYS
+        }
+        for name, keys in _TABLE_KEYS.items():
+            if set(parsed[name]) != keys:
+                raise RemoteExecutionError([f"{name} has missing or unknown fields"])
+
+        provider = RemoteProvider(
+            provider_id=_require_non_empty_string(
+                parsed["provider"], "provider_id", context="provider"
+            ),
+            protocol=_require_non_empty_string(parsed["provider"], "protocol", context="provider"),
+            cache_endpoint=_require_non_empty_string(
+                parsed["provider"], "cache_endpoint", context="provider"
+            ),
+            executor_endpoint=_require_non_empty_string(
+                parsed["provider"], "executor_endpoint", context="provider"
+            ),
+            results_url=_require_non_empty_string(
+                parsed["provider"], "results_url", context="provider"
+            ),
+            authentication=_require_non_empty_string(
+                parsed["provider"], "authentication", context="provider"
+            ),
+            credential_environment_variable=_require_non_empty_string(
+                parsed["provider"],
+                "credential_environment_variable",
+                context="provider",
+            ),
+            authentication_header=_require_non_empty_string(
+                parsed["provider"], "authentication_header", context="provider"
+            ),
+            decision_path=_require_non_empty_string(
+                parsed["provider"], "decision_path", context="provider"
+            ),
+        )
+        trust = RemoteTrust(
+            instance_name=_require_non_empty_string(
+                parsed["trust"], "instance_name", context="trust"
+            ),
+            trusted_contexts=_require_string_tuple(
+                parsed["trust"].get("trusted_contexts"),
+                context="trust.trusted_contexts",
+            ),
+            untrusted_contexts=_require_string_tuple(
+                parsed["trust"].get("untrusted_contexts"),
+                context="trust.untrusted_contexts",
+            ),
+            upload_contexts=_require_string_tuple(
+                parsed["trust"].get("upload_contexts"), context="trust.upload_contexts"
+            ),
+            verify_downloads=_require_boolean(parsed["trust"], "verify_downloads", context="trust"),
+            workspace_credential_helpers_permitted=_require_boolean(
+                parsed["trust"],
+                "workspace_credential_helpers_permitted",
+                context="trust",
+            ),
+        )
+        resources = ResourceBudget(
+            remote_jobs=_require_positive_integer(
+                parsed["resources"], "remote_jobs", context="resources"
+            ),
+            local_jobs=_require_positive_integer(
+                parsed["resources"], "local_jobs", context="resources"
+            ),
+            local_cpu=_require_positive_integer(
+                parsed["resources"], "local_cpu", context="resources"
+            ),
+            local_memory_mb=_require_positive_integer(
+                parsed["resources"], "local_memory_mb", context="resources"
+            ),
+            remote_retries=_require_positive_integer(
+                parsed["resources"], "remote_retries", context="resources"
+            ),
+            remote_retry_max_delay_seconds=_require_positive_integer(
+                parsed["resources"],
+                "remote_retry_max_delay_seconds",
+                context="resources",
+            ),
+            remote_timeout_seconds=_require_positive_integer(
+                parsed["resources"], "remote_timeout_seconds", context="resources"
+            ),
+        )
+        sharding = ShardingPolicy(
+            algorithm=_require_non_empty_string(
+                parsed["sharding"], "algorithm", context="sharding"
+            ),
+            seed=_require_non_empty_string(parsed["sharding"], "seed", context="sharding"),
+            shard_count=_require_positive_integer(
+                parsed["sharding"], "shard_count", context="sharding"
+            ),
+            maximum_targets=_require_positive_integer(
+                parsed["sharding"], "maximum_targets", context="sharding"
+            ),
+        )
+        as_of_date = _require_iso_date(
+            parsed["flakes"].get("as_of_date"), context="flakes.as_of_date"
+        )
+        quarantines: list[QuarantineEntry] = []
+        for index, entry in enumerate(
+            _require_toml_table_array(
+                parsed["flakes"].get("quarantines"), context="flakes.quarantines"
+            ),
+            1,
+        ):
+            context = f"flakes.quarantines[{index}]"
+            if set(entry) != _QUARANTINE_KEYS:
+                raise RemoteExecutionError([f"{context} has missing or unknown fields"])
+            quarantines.append(
+                QuarantineEntry(
+                    target=_require_non_empty_string(entry, "target", context=context),
+                    owner_role=_require_non_empty_string(entry, "owner_role", context=context),
+                    reason=_require_non_empty_string(entry, "reason", context=context),
+                    expires_on=_require_iso_date(
+                        entry.get("expires_on"), context=f"{context}.expires_on"
+                    ),
+                )
+            )
+        flakes = FlakePolicy(
+            normal_test_attempts=_require_positive_integer(
+                parsed["flakes"], "normal_test_attempts", context="flakes"
+            ),
+            quarantine_repeat_count=_require_positive_integer(
+                parsed["flakes"], "quarantine_repeat_count", context="flakes"
+            ),
+            maximum_quarantine_days=_require_positive_integer(
+                parsed["flakes"], "maximum_quarantine_days", context="flakes"
+            ),
+            as_of_date=as_of_date,
+            quarantines=tuple(quarantines),
+        )
+        fallback = LocalFallback(
+            remote_cache_disabled=_require_boolean(
+                parsed["local_fallback"],
+                "remote_cache_disabled",
+                context="local_fallback",
+            ),
+            remote_execution_disabled=_require_boolean(
+                parsed["local_fallback"],
+                "remote_execution_disabled",
+                context="local_fallback",
+            ),
+            remote_upload_disabled=_require_boolean(
+                parsed["local_fallback"],
+                "remote_upload_disabled",
+                context="local_fallback",
+            ),
+            build_targets=_require_string_tuple(
+                parsed["local_fallback"].get("build_targets"),
+                context="local_fallback.build_targets",
+            ),
+            test_targets=_require_string_tuple(
+                parsed["local_fallback"].get("test_targets"),
+                context="local_fallback.test_targets",
+            ),
+        )
+        evidence_path = _require_non_empty_string(
+            document, "local_evidence_manifest_path", context=str(path)
+        )
+        evidence_commit = _require_non_empty_string(
+            document, "local_evidence_commit_sha", context=str(path)
+        )
+        try:
+            policy = RemoteExecutionPolicy(
+                package_status="partial",
+                successor_package=_DEPENDENCY_ADMISSION_PACKAGE_ID,
+                risk_class="R2",
+                applicable_gate_ids=_REMOTE_EXECUTION_APPLICABLE_GATE_IDS,
+                local_evidence_manifest_path=evidence_path,
+                local_evidence_commit_sha=evidence_commit,
+                open_finding_ids=open_findings,
+                provider=provider,
+                trust=trust,
+                resources=resources,
+                sharding=sharding,
+                flakes=flakes,
+                local_fallback=fallback,
+            )
+        except ValidationError as error:
+            raise RemoteExecutionError([str(error)]) from error
+        semantic_findings = _RemotePolicySemanticValidator(policy)._findings()
+        if semantic_findings:
+            raise RemoteExecutionError(semantic_findings)
+        return policy
+
+
 def load_policy(path: Path) -> RemoteExecutionPolicy:
     """Load and validate a closed remote-execution TOML policy.
 
@@ -306,7 +577,7 @@ def load_policy(path: Path) -> RemoteExecutionPolicy:
     provider and trust settings, resource budgets, deterministic sharding, quarantine
     records, local fallback targets, and cross-field restrictions are checked against the
     remote-execution contract. The evidence path and commit fields are required to be
-    non-empty here; this module checks commit syntax in ``_semantic_findings`` and checks
+    non-empty here; this module checks commit syntax in the semantic policy validator and checks
     path existence and evidence binding in ``validate_repository``. Quarantine records and
     diagnostic findings retain their input or contract order; this function does not supply
     defaults.
@@ -330,324 +601,139 @@ def load_policy(path: Path) -> RemoteExecutionPolicy:
         UnicodeDecodeError: If the policy file is not valid UTF-8; the decoding error
             propagates from ``Path.read_text``.
     """
-    try:
-        document = _require_toml_table(
-            tomllib.loads(path.read_text(encoding="utf-8")), context=str(path)
-        )
-    except tomllib.TOMLDecodeError as error:
-        raise RemoteExecutionError([f"{path}: invalid TOML: {error}"]) from error
-    if set(document) != _ROOT_KEYS:
-        raise RemoteExecutionError([f"{path}: root has missing or unknown fields"])
-    expected_scalars: dict[str, object] = {
-        "schema_version": 1,
-        "roadmap_package": _REMOTE_EXECUTION_PACKAGE_ID,
-        "operating_track": "solo_bootstrap",
-        "package_status": "partial",
-        "accountable_owner_role": "platform",
-        "risk_class": "R2",
-        "successor_package": _DEPENDENCY_ADMISSION_PACKAGE_ID,
-    }
-    for key, expected in expected_scalars.items():
-        if document.get(key) != expected:
-            raise RemoteExecutionError([f"{path}: {key} must be {expected!r}"])
-    if _require_string_tuple(
-        document.get("applicable_gate_ids"), context="applicable_gate_ids"
-    ) != (_REMOTE_EXECUTION_APPLICABLE_GATE_IDS):
-        raise RemoteExecutionError(["applicable_gate_ids must match the A04 R2 gate set"])
-    open_findings = _require_string_tuple(
-        document.get("open_finding_ids"), context="open_finding_ids"
-    )
-    if open_findings != _REMOTE_EXECUTION_OPEN_FINDING_IDS:
-        raise RemoteExecutionError(
-            ["remote-execution partial status requires the exact open findings"]
-        )
-    findings = _require_toml_table_array(document.get("findings"), context="findings")
-    if tuple(entry.get("finding_id") for entry in findings) != (_REMOTE_EXECUTION_OPEN_FINDING_IDS):
-        raise RemoteExecutionError(["findings must define the exact open finding IDs in order"])
-    if any(set(entry) != _FINDING_KEYS for entry in findings):
-        raise RemoteExecutionError(["findings have missing or unknown fields"])
-    if any(
-        not isinstance(value, str) or not value for entry in findings for value in entry.values()
-    ):
-        raise RemoteExecutionError(["finding values must be non-empty strings"])
+    return _RemotePolicyLoader(path)._load()
 
-    parsed = {name: _require_toml_table(document.get(name), context=name) for name in _TABLE_KEYS}
-    for name, keys in _TABLE_KEYS.items():
-        if set(parsed[name]) != keys:
-            raise RemoteExecutionError([f"{name} has missing or unknown fields"])
 
-    provider = RemoteProvider(
-        provider_id=_require_non_empty_string(
-            parsed["provider"], "provider_id", context="provider"
-        ),
-        protocol=_require_non_empty_string(parsed["provider"], "protocol", context="provider"),
-        cache_endpoint=_require_non_empty_string(
-            parsed["provider"], "cache_endpoint", context="provider"
-        ),
-        executor_endpoint=_require_non_empty_string(
-            parsed["provider"], "executor_endpoint", context="provider"
-        ),
-        results_url=_require_non_empty_string(
-            parsed["provider"], "results_url", context="provider"
-        ),
-        authentication=_require_non_empty_string(
-            parsed["provider"], "authentication", context="provider"
-        ),
-        credential_environment_variable=_require_non_empty_string(
-            parsed["provider"], "credential_environment_variable", context="provider"
-        ),
-        authentication_header=_require_non_empty_string(
-            parsed["provider"], "authentication_header", context="provider"
-        ),
-        decision_path=_require_non_empty_string(
-            parsed["provider"], "decision_path", context="provider"
-        ),
-    )
-    trust = RemoteTrust(
-        instance_name=_require_non_empty_string(parsed["trust"], "instance_name", context="trust"),
-        trusted_contexts=_require_string_tuple(
-            parsed["trust"].get("trusted_contexts"), context="trust.trusted_contexts"
-        ),
-        untrusted_contexts=_require_string_tuple(
-            parsed["trust"].get("untrusted_contexts"), context="trust.untrusted_contexts"
-        ),
-        upload_contexts=_require_string_tuple(
-            parsed["trust"].get("upload_contexts"), context="trust.upload_contexts"
-        ),
-        verify_downloads=_require_boolean(parsed["trust"], "verify_downloads", context="trust"),
-        workspace_credential_helpers_permitted=_require_boolean(
-            parsed["trust"], "workspace_credential_helpers_permitted", context="trust"
-        ),
-    )
-    resources = ResourceBudget(
-        remote_jobs=_require_positive_integer(
-            parsed["resources"], "remote_jobs", context="resources"
-        ),
-        local_jobs=_require_positive_integer(
-            parsed["resources"], "local_jobs", context="resources"
-        ),
-        local_cpu=_require_positive_integer(parsed["resources"], "local_cpu", context="resources"),
-        local_memory_mb=_require_positive_integer(
-            parsed["resources"], "local_memory_mb", context="resources"
-        ),
-        remote_retries=_require_positive_integer(
-            parsed["resources"], "remote_retries", context="resources"
-        ),
-        remote_retry_max_delay_seconds=_require_positive_integer(
-            parsed["resources"], "remote_retry_max_delay_seconds", context="resources"
-        ),
-        remote_timeout_seconds=_require_positive_integer(
-            parsed["resources"], "remote_timeout_seconds", context="resources"
-        ),
-    )
-    sharding = ShardingPolicy(
-        algorithm=_require_non_empty_string(parsed["sharding"], "algorithm", context="sharding"),
-        seed=_require_non_empty_string(parsed["sharding"], "seed", context="sharding"),
-        shard_count=_require_positive_integer(
-            parsed["sharding"], "shard_count", context="sharding"
-        ),
-        maximum_targets=_require_positive_integer(
-            parsed["sharding"], "maximum_targets", context="sharding"
-        ),
-    )
-    as_of_date = _require_iso_date(parsed["flakes"].get("as_of_date"), context="flakes.as_of_date")
-    quarantines: list[QuarantineEntry] = []
-    for index, entry in enumerate(
-        _require_toml_table_array(
-            parsed["flakes"].get("quarantines"), context="flakes.quarantines"
-        ),
-        1,
-    ):
-        context = f"flakes.quarantines[{index}]"
-        if set(entry) != _QUARANTINE_KEYS:
-            raise RemoteExecutionError([f"{context} has missing or unknown fields"])
-        quarantines.append(
-            QuarantineEntry(
-                target=_require_non_empty_string(entry, "target", context=context),
-                owner_role=_require_non_empty_string(entry, "owner_role", context=context),
-                reason=_require_non_empty_string(entry, "reason", context=context),
-                expires_on=_require_iso_date(
-                    entry.get("expires_on"), context=f"{context}.expires_on"
-                ),
+class _RemotePolicySemanticValidator:
+    """Own contract-level evaluation of a validated remote policy."""
+
+    def __init__(self, policy: RemoteExecutionPolicy) -> None:
+        """Bind the immutable policy to evaluate without performing I/O."""
+        self._policy = policy
+
+    def _findings(self) -> list[str]:
+        """Collect ordered findings for remote-execution contract drift.
+
+        Checks admitted provider identity, credential naming, trust contexts, resource and
+        sharding bounds, flake policy, quarantine labels and dates, local fallback switches,
+        target graphs, and the local evidence commit format. Quarantine expiry is measured
+        inclusively from ``policy.flakes.as_of_date`` through the configured maximum number of
+        days; this check does not use the wall clock. The returned list is a diagnostic value
+        and does not mutate ``policy``.
+
+        Returns:
+            Findings in the fixed check order, or an empty list when all checks pass.
+        """
+        policy = self._policy
+        findings: list[str] = []
+        expected_provider = (
+            "buildbuddy_cloud",
+            "remote_execution_api_v2",
+            "grpcs://remote.buildbuddy.io",
+            "grpcs://remote.buildbuddy.io",
+            "https://app.buildbuddy.io",
+            "api_key_header",
+            "BUILDBUDDY_API_KEY",
+            "x-buildbuddy-api-key",
+            "docs/architecture/decisions/0009-remote-execution-service.md",
+        )
+        observed_provider = (
+            policy.provider.provider_id,
+            policy.provider.protocol,
+            policy.provider.cache_endpoint,
+            policy.provider.executor_endpoint,
+            policy.provider.results_url,
+            policy.provider.authentication,
+            policy.provider.credential_environment_variable,
+            policy.provider.authentication_header,
+            policy.provider.decision_path,
+        )
+        if observed_provider != expected_provider:
+            findings.append("provider must match the proposed BuildBuddy Cloud ADR contract")
+        if _ENVIRONMENT_VARIABLE.fullmatch(policy.provider.credential_environment_variable) is None:
+            findings.append("credential environment variable must be upper snake case")
+        if _INSTANCE.fullmatch(policy.trust.instance_name) is None:
+            findings.append("remote instance name is invalid")
+        required_namespace_fragments = (
+            "alpha-research-lab-private",
+            "trusted",
+            "bazel-9.1.0",
+        )
+        if any(
+            fragment not in policy.trust.instance_name for fragment in required_namespace_fragments
+        ):
+            findings.append("remote instance name must isolate repository, trust, and toolchain")
+        if policy.trust.trusted_contexts != ("github_main_push",):
+            findings.append("only github_main_push may be a trusted remote context")
+        if policy.trust.untrusted_contexts != ("developer", "github_pull_request"):
+            findings.append("developer and pull-request contexts must remain untrusted")
+        if policy.trust.upload_contexts != policy.trust.trusted_contexts:
+            findings.append("remote uploads must be limited to trusted contexts")
+        if set(policy.trust.untrusted_contexts) & set(policy.trust.trusted_contexts):
+            findings.append("trusted and untrusted contexts must be disjoint")
+        if not policy.trust.verify_downloads or policy.trust.workspace_credential_helpers_permitted:
+            findings.append(
+                "downloads must be verified and workspace credential helpers prohibited"
             )
+        observed_resources = (
+            policy.resources.remote_jobs,
+            policy.resources.local_jobs,
+            policy.resources.local_cpu,
+            policy.resources.local_memory_mb,
+            policy.resources.remote_retries,
+            policy.resources.remote_retry_max_delay_seconds,
+            policy.resources.remote_timeout_seconds,
         )
-    flakes = FlakePolicy(
-        normal_test_attempts=_require_positive_integer(
-            parsed["flakes"], "normal_test_attempts", context="flakes"
-        ),
-        quarantine_repeat_count=_require_positive_integer(
-            parsed["flakes"], "quarantine_repeat_count", context="flakes"
-        ),
-        maximum_quarantine_days=_require_positive_integer(
-            parsed["flakes"], "maximum_quarantine_days", context="flakes"
-        ),
-        as_of_date=as_of_date,
-        quarantines=tuple(quarantines),
-    )
-    fallback = LocalFallback(
-        remote_cache_disabled=_require_boolean(
-            parsed["local_fallback"], "remote_cache_disabled", context="local_fallback"
-        ),
-        remote_execution_disabled=_require_boolean(
-            parsed["local_fallback"], "remote_execution_disabled", context="local_fallback"
-        ),
-        remote_upload_disabled=_require_boolean(
-            parsed["local_fallback"], "remote_upload_disabled", context="local_fallback"
-        ),
-        build_targets=_require_string_tuple(
-            parsed["local_fallback"].get("build_targets"),
-            context="local_fallback.build_targets",
-        ),
-        test_targets=_require_string_tuple(
-            parsed["local_fallback"].get("test_targets"),
-            context="local_fallback.test_targets",
-        ),
-    )
-    evidence_path = _require_non_empty_string(
-        document, "local_evidence_manifest_path", context=str(path)
-    )
-    evidence_commit = _require_non_empty_string(
-        document, "local_evidence_commit_sha", context=str(path)
-    )
-    try:
-        policy = RemoteExecutionPolicy(
-            package_status="partial",
-            successor_package=_DEPENDENCY_ADMISSION_PACKAGE_ID,
-            risk_class="R2",
-            applicable_gate_ids=_REMOTE_EXECUTION_APPLICABLE_GATE_IDS,
-            local_evidence_manifest_path=evidence_path,
-            local_evidence_commit_sha=evidence_commit,
-            open_finding_ids=open_findings,
-            provider=provider,
-            trust=trust,
-            resources=resources,
-            sharding=sharding,
-            flakes=flakes,
-            local_fallback=fallback,
+        if observed_resources != (25, 4, 4, 4096, 2, 3, 60):
+            findings.append("resource budgets must match the reviewed remote-execution bounds")
+        if policy.sharding.algorithm != "sha256_seeded_modulo_v1":
+            findings.append("sharding algorithm must be sha256_seeded_modulo_v1")
+        if (
+            policy.sharding.seed != _REMOTE_TEST_SHARD_SEED
+            or policy.sharding.shard_count != 2
+            or policy.sharding.maximum_targets != 1000
+        ):
+            findings.append("remote execution requires two bounded deterministic shards")
+        if policy.flakes.normal_test_attempts != 1:
+            findings.append("normal tests must run once so flakes cannot silently pass")
+        if policy.flakes.quarantine_repeat_count != 5:
+            findings.append("quarantine diagnostics must run exactly five strict repetitions")
+        if policy.flakes.maximum_quarantine_days != 14:
+            findings.append("quarantine duration must be bounded at fourteen days")
+        quarantine_targets = tuple(entry.target for entry in policy.flakes.quarantines)
+        if len(quarantine_targets) != len(set(quarantine_targets)):
+            findings.append("quarantine targets must be unique")
+        for quarantine in policy.flakes.quarantines:
+            if _ROLE.fullmatch(quarantine.owner_role) is None:
+                findings.append("quarantine owner roles must be lower snake case")
+            if _BAZEL_LABEL.fullmatch(quarantine.target) is None:
+                findings.append("quarantines must identify valid Bazel test labels")
+            duration_days = (quarantine.expires_on - policy.flakes.as_of_date).days
+            if not (0 <= duration_days <= policy.flakes.maximum_quarantine_days):
+                findings.append(
+                    "quarantines must be active and expire within the governed duration"
+                )
+        if not all(
+            (
+                policy.local_fallback.remote_cache_disabled,
+                policy.local_fallback.remote_execution_disabled,
+                policy.local_fallback.remote_upload_disabled,
+            )
+        ):
+            findings.append("local fallback must disable cache, execution, and uploads")
+        expected_build_targets = (
+            "//:docs_bundle",
+            "//src/alpha_research:alpha_research",
+            "//tests/build/fixtures/sql:build_evidence",
+            "//tools/governance/src/alpha_research_governance:all",
         )
-    except ValidationError as error:
-        raise RemoteExecutionError([str(error)]) from error
-    semantic_findings = _semantic_findings(policy)
-    if semantic_findings:
-        raise RemoteExecutionError(semantic_findings)
-    return policy
-
-
-def _semantic_findings(policy: RemoteExecutionPolicy) -> list[str]:
-    """Collect ordered findings for remote-execution contract drift.
-
-    Checks admitted provider identity, credential naming, trust contexts, resource and
-    sharding bounds, flake policy, quarantine labels and dates, local fallback switches,
-    target graphs, and the local evidence commit format. Quarantine expiry is measured
-    inclusively from ``policy.flakes.as_of_date`` through the configured maximum number of
-    days; this check does not use the wall clock. The returned list is a diagnostic value
-    and does not mutate ``policy``.
-
-    Args:
-        policy: Immutable policy values to compare with the reviewed contract.
-
-    Returns:
-        Findings in the fixed check order, or an empty list when all checks pass.
-    """
-    findings: list[str] = []
-    expected_provider = (
-        "buildbuddy_cloud",
-        "remote_execution_api_v2",
-        "grpcs://remote.buildbuddy.io",
-        "grpcs://remote.buildbuddy.io",
-        "https://app.buildbuddy.io",
-        "api_key_header",
-        "BUILDBUDDY_API_KEY",
-        "x-buildbuddy-api-key",
-        "docs/architecture/decisions/0009-remote-execution-service.md",
-    )
-    observed_provider = (
-        policy.provider.provider_id,
-        policy.provider.protocol,
-        policy.provider.cache_endpoint,
-        policy.provider.executor_endpoint,
-        policy.provider.results_url,
-        policy.provider.authentication,
-        policy.provider.credential_environment_variable,
-        policy.provider.authentication_header,
-        policy.provider.decision_path,
-    )
-    if observed_provider != expected_provider:
-        findings.append("provider must match the proposed BuildBuddy Cloud ADR contract")
-    if _ENVIRONMENT_VARIABLE.fullmatch(policy.provider.credential_environment_variable) is None:
-        findings.append("credential environment variable must be upper snake case")
-    if _INSTANCE.fullmatch(policy.trust.instance_name) is None:
-        findings.append("remote instance name is invalid")
-    required_namespace_fragments = ("alpha-research-lab-private", "trusted", "bazel-9.1.0")
-    if any(fragment not in policy.trust.instance_name for fragment in required_namespace_fragments):
-        findings.append("remote instance name must isolate repository, trust, and toolchain")
-    if policy.trust.trusted_contexts != ("github_main_push",):
-        findings.append("only github_main_push may be a trusted remote context")
-    if policy.trust.untrusted_contexts != ("developer", "github_pull_request"):
-        findings.append("developer and pull-request contexts must remain untrusted")
-    if policy.trust.upload_contexts != policy.trust.trusted_contexts:
-        findings.append("remote uploads must be limited to trusted contexts")
-    if set(policy.trust.untrusted_contexts) & set(policy.trust.trusted_contexts):
-        findings.append("trusted and untrusted contexts must be disjoint")
-    if not policy.trust.verify_downloads or policy.trust.workspace_credential_helpers_permitted:
-        findings.append("downloads must be verified and workspace credential helpers prohibited")
-    observed_resources = (
-        policy.resources.remote_jobs,
-        policy.resources.local_jobs,
-        policy.resources.local_cpu,
-        policy.resources.local_memory_mb,
-        policy.resources.remote_retries,
-        policy.resources.remote_retry_max_delay_seconds,
-        policy.resources.remote_timeout_seconds,
-    )
-    if observed_resources != (25, 4, 4, 4096, 2, 3, 60):
-        findings.append("resource budgets must match the reviewed remote-execution bounds")
-    if policy.sharding.algorithm != "sha256_seeded_modulo_v1":
-        findings.append("sharding algorithm must be sha256_seeded_modulo_v1")
-    if (
-        policy.sharding.seed != _REMOTE_TEST_SHARD_SEED
-        or policy.sharding.shard_count != 2
-        or policy.sharding.maximum_targets != 1000
-    ):
-        findings.append("remote execution requires two bounded deterministic shards")
-    if policy.flakes.normal_test_attempts != 1:
-        findings.append("normal tests must run once so flakes cannot silently pass")
-    if policy.flakes.quarantine_repeat_count != 5:
-        findings.append("quarantine diagnostics must run exactly five strict repetitions")
-    if policy.flakes.maximum_quarantine_days != 14:
-        findings.append("quarantine duration must be bounded at fourteen days")
-    quarantine_targets = tuple(entry.target for entry in policy.flakes.quarantines)
-    if len(quarantine_targets) != len(set(quarantine_targets)):
-        findings.append("quarantine targets must be unique")
-    for quarantine in policy.flakes.quarantines:
-        if _ROLE.fullmatch(quarantine.owner_role) is None:
-            findings.append("quarantine owner roles must be lower snake case")
-        if _BAZEL_LABEL.fullmatch(quarantine.target) is None:
-            findings.append("quarantines must identify valid Bazel test labels")
-        duration_days = (quarantine.expires_on - policy.flakes.as_of_date).days
-        if not (0 <= duration_days <= policy.flakes.maximum_quarantine_days):
-            findings.append("quarantines must be active and expire within the governed duration")
-    if not all(
-        (
-            policy.local_fallback.remote_cache_disabled,
-            policy.local_fallback.remote_execution_disabled,
-            policy.local_fallback.remote_upload_disabled,
-        )
-    ):
-        findings.append("local fallback must disable cache, execution, and uploads")
-    expected_build_targets = (
-        "//:docs_bundle",
-        "//src/alpha_research:alpha_research",
-        "//tests/build/fixtures/sql:build_evidence",
-        "//tools/governance/src/alpha_research_governance:all",
-    )
-    if policy.local_fallback.build_targets != expected_build_targets:
-        findings.append("local fallback must build the complete governed build graph")
-    if policy.local_fallback.test_targets != ("//...",):
-        findings.append("local fallback must test the complete governed build graph")
-    if _COMMIT_SHA.fullmatch(policy.local_evidence_commit_sha) is None:
-        findings.append("local evidence commit must be a forty-character SHA")
-    return findings
+        if policy.local_fallback.build_targets != expected_build_targets:
+            findings.append("local fallback must build the complete governed build graph")
+        if policy.local_fallback.test_targets != ("//...",):
+            findings.append("local fallback must test the complete governed build graph")
+        if _COMMIT_SHA.fullmatch(policy.local_evidence_commit_sha) is None:
+            findings.append("local evidence commit must be a forty-character SHA")
+        return findings
 
 
 def validate_repository(repository_root: Path) -> RemoteExecutionPolicy:
@@ -680,86 +766,129 @@ def validate_repository(repository_root: Path) -> RemoteExecutionPolicy:
         UnicodeDecodeError: If a policy or integration file read before the final evidence
             block is not valid UTF-8; this decoding error propagates unchanged.
     """
-    policy_path = repository_root / "docs" / "architecture" / "remote-execution.toml"
-    policy = load_policy(policy_path)
-    findings = _semantic_findings(policy)
+    return _RemoteRepositoryValidator(repository_root)._validate()
 
-    integrations = {
-        ".bazelrc": (
-            "build:remote-execution --remote_cache=grpcs://remote.buildbuddy.io",
-            "build:remote-execution --remote_executor=grpcs://remote.buildbuddy.io",
-            f"build:remote-execution --remote_instance_name={policy.trust.instance_name}",
-            "build:remote-execution --remote_local_fallback=false",
-            "build:remote-execution --remote_verify_downloads",
-            f"build:remote-execution --jobs={policy.resources.remote_jobs}",
-            f"build:remote-execution --remote_retries={policy.resources.remote_retries}",
-            "build:remote-execution --remote_retry_max_delay=3s",
-            "build:remote-execution --remote_timeout=60s",
-            "test:remote-execution --flaky_test_attempts=1",
-            "test:remote-execution --runs_per_test=1",
-            "build:remote-disabled-local --remote_cache=",
-            "build:remote-disabled-local --remote_executor=",
-            "build:remote-disabled-local --remote_upload_local_results=false",
-            f"build:remote-disabled-local --jobs={policy.resources.local_jobs}",
-            f"build:remote-disabled-local --local_resources=cpu={policy.resources.local_cpu}",
-            "build:remote-disabled-local "
-            f"--local_resources=memory={policy.resources.local_memory_mb}",
-            "test:remote-quarantine-diagnostics "
-            f"--runs_per_test={policy.flakes.quarantine_repeat_count}",
-        ),
-        "Makefile": (
-            "remote-execution-policy-check:",
-            "remote-build:",
-            "remote-test:",
-            "remote-local-fallback-check:",
-        ),
-        ".pre-commit-config.yaml": (
-            "id: remote-execution-policy",
-            "alpha-governance-remote-execution",
-        ),
-        ".github/workflows/ci.yml": (
-            "REMOTE_EXECUTION_ENABLED",
-            "secrets.BUILDBUDDY_API_KEY",
-            "needs: merged-result",
-            "REMOTE_CONTEXT=github_main_push",
-            "REMOTE_SHARD_INDEX",
-        ),
-    }
-    for relative_path, required_fragments in integrations.items():
-        text = (repository_root / relative_path).read_text(encoding="utf-8")
-        for fragment in required_fragments:
-            if fragment not in text:
-                findings.append(
-                    f"{relative_path} is missing required remote-execution fragment {fragment!r}"
-                )
-    bazelrc = (repository_root / ".bazelrc").read_text(encoding="utf-8")
-    if "remote_header" in bazelrc or policy.provider.credential_environment_variable in bazelrc:
-        findings.append("workspace Bazel configuration must not contain remote credentials")
-    if "runs_per_test_detects_flakes" in bazelrc:
-        findings.append("mixed quarantine runs must fail instead of becoming a passing flake")
-    workflow = (repository_root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    remote_job = workflow.partition("  remote-execution:")[2]
-    if "github.event_name == 'push'" not in remote_job or "refs/heads/main" not in remote_job:
-        findings.append("remote execution workflow must be restricted to main pushes")
 
-    for relative_path in (
-        policy.provider.decision_path,
-        policy.local_evidence_manifest_path,
-        "docs/architecture/remote-execution.md",
-    ):
-        if not (repository_root / relative_path).is_file():
-            findings.append(f"required remote-execution path is missing: {relative_path}")
-    if findings:
-        raise RemoteExecutionError(findings)
-    try:
-        manifest = validate_manifest(
-            repository_root / policy.local_evidence_manifest_path,
-            expected_commit_sha=policy.local_evidence_commit_sha,
-            change_policy=load_change_risk_policy(
-                repository_root / "docs/governance/change-risk-policy.toml"
+class _RemoteRepositoryValidator:
+    """Own repository-root validation for the remote-execution policy."""
+
+    def __init__(self, repository_root: Path) -> None:
+        """Bind the repository root without reading policy files."""
+        self._repository_root = repository_root
+
+    def _validate(self) -> RemoteExecutionPolicy:
+        """Validate selected repository configuration fragments and local evidence.
+
+        Loads the fixed policy path below ``repository_root`` as supplied, checks for required
+        text fragments in ``.bazelrc``, ``Makefile``, pre-commit configuration, and the CI
+        workflow, then checks credential exclusion, main-push workflow restriction, admitted
+        decision/evidence paths, and the evidence manifest's commit and change-risk binding.
+        These are presence and boundary checks: the function does not execute Bazel, remote
+        execution, CI, or network calls. Repository files are read in the module's fixed path
+        and fragment order, and the function performs no writes or root-path normalization.
+
+        Returns:
+            The loaded immutable policy after all integration and evidence checks pass.
+
+        Raises:
+            RemoteExecutionError: If loading, semantic, integration, trust-boundary, required
+                path, or evidence validation produces a finding. Evidence and change-risk
+                validation errors, including ``ValueError`` subclasses such as
+                ``UnicodeDecodeError``, from the final block are translated with their causes.
+            OSError: If reading the policy or integration files fails before the final evidence
+                validation block. Operating-system errors raised inside the final evidence block
+                are translated to ``RemoteExecutionError``.
+            ValidationError: If an intermediate model in the policy loader rejects its values
+                before the final evidence block.
+            UnicodeDecodeError: If a policy or integration file read before the final evidence
+                block is not valid UTF-8; this decoding error propagates unchanged.
+        """
+        repository_root = self._repository_root
+        policy_path = repository_root / "docs" / "architecture" / "remote-execution.toml"
+        policy = load_policy(policy_path)
+        findings = _RemotePolicySemanticValidator(policy)._findings()
+
+        integrations = {
+            ".bazelrc": (
+                "build:remote-execution --remote_cache=grpcs://remote.buildbuddy.io",
+                "build:remote-execution --remote_executor=grpcs://remote.buildbuddy.io",
+                f"build:remote-execution --remote_instance_name={policy.trust.instance_name}",
+                "build:remote-execution --remote_local_fallback=false",
+                "build:remote-execution --remote_verify_downloads",
+                f"build:remote-execution --jobs={policy.resources.remote_jobs}",
+                f"build:remote-execution --remote_retries={policy.resources.remote_retries}",
+                "build:remote-execution --remote_retry_max_delay=3s",
+                "build:remote-execution --remote_timeout=60s",
+                "test:remote-execution --flaky_test_attempts=1",
+                "test:remote-execution --runs_per_test=1",
+                "build:remote-disabled-local --remote_cache=",
+                "build:remote-disabled-local --remote_executor=",
+                "build:remote-disabled-local --remote_upload_local_results=false",
+                f"build:remote-disabled-local --jobs={policy.resources.local_jobs}",
+                f"build:remote-disabled-local --local_resources=cpu={policy.resources.local_cpu}",
+                (
+                    "build:remote-disabled-local "
+                    f"--local_resources=memory={policy.resources.local_memory_mb}"
+                ),
+                (
+                    "test:remote-quarantine-diagnostics "
+                    f"--runs_per_test={policy.flakes.quarantine_repeat_count}"
+                ),
             ),
-        )
-        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
-    except (EvidenceGovernanceError, OSError, ValueError) as error:
-        raise RemoteExecutionError([str(error)]) from error
-    return policy
+            "Makefile": (
+                "remote-execution-policy-check:",
+                "remote-build:",
+                "remote-test:",
+                "remote-local-fallback-check:",
+            ),
+            ".pre-commit-config.yaml": (
+                "id: remote-execution-policy",
+                "alpha-governance-remote-execution",
+            ),
+            ".github/workflows/ci.yml": (
+                "REMOTE_EXECUTION_ENABLED",
+                "secrets.BUILDBUDDY_API_KEY",
+                "needs: merged-result",
+                "REMOTE_CONTEXT=github_main_push",
+                "REMOTE_SHARD_INDEX",
+            ),
+        }
+        for relative_path, required_fragments in integrations.items():
+            text = (repository_root / relative_path).read_text(encoding="utf-8")
+            for fragment in required_fragments:
+                if fragment not in text:
+                    findings.append(
+                        f"{relative_path} is missing required remote-execution "
+                        f"fragment {fragment!r}"
+                    )
+        bazelrc = (repository_root / ".bazelrc").read_text(encoding="utf-8")
+        if "remote_header" in bazelrc or policy.provider.credential_environment_variable in bazelrc:
+            findings.append("workspace Bazel configuration must not contain remote credentials")
+        if "runs_per_test_detects_flakes" in bazelrc:
+            findings.append("mixed quarantine runs must fail instead of becoming a passing flake")
+        workflow = (repository_root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        remote_job = workflow.partition("  remote-execution:")[2]
+        if "github.event_name == 'push'" not in remote_job or "refs/heads/main" not in remote_job:
+            findings.append("remote execution workflow must be restricted to main pushes")
+
+        for relative_path in (
+            policy.provider.decision_path,
+            policy.local_evidence_manifest_path,
+            "docs/architecture/remote-execution.md",
+        ):
+            if not (repository_root / relative_path).is_file():
+                findings.append(f"required remote-execution path is missing: {relative_path}")
+        if findings:
+            raise RemoteExecutionError(findings)
+        try:
+            manifest = validate_manifest(
+                repository_root / policy.local_evidence_manifest_path,
+                expected_commit_sha=policy.local_evidence_commit_sha,
+                change_policy=load_change_risk_policy(
+                    repository_root / "docs/governance/change-risk-policy.toml"
+                ),
+            )
+            validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+        except (EvidenceGovernanceError, OSError, ValueError) as error:
+            raise RemoteExecutionError([str(error)]) from error
+        return policy

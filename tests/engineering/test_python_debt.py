@@ -83,8 +83,7 @@ class TestPythonDebt:
             (ROOT / DEBT_PATH).read_bytes(), expected_sha256=DEBT_SHA256, owner_roles=OWNERS
         )
         assert inventory.source_revision == "d3a40ca98d71208426c8501d8d4a1aaaa049768d"
-        assert inventory.obligations
-        assert all(rule != "PYS001" for _, _, rule, _ in inventory.obligations)
+        assert not inventory.obligations
         assert not any("python_source.py" in path for path in inventory.entries)
 
     def test_changed_inventory_requires_an_explicit_policy_change(self) -> None:

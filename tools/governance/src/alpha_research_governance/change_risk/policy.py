@@ -852,153 +852,160 @@ def _parse_sample_change(value: _SampleChangeInput, *, index: int) -> SampleChan
     return SampleChange(change_id=change_id, change=change, expected_class=expected)
 
 
-def _load_policy(path: Path) -> ChangeRiskPolicy:
-    """Load the TOML policy and validate its complete semantic contract.
+class _ChangeRiskPolicyLoader:
+    """Load and semantically project one blueprint change-risk policy path."""
 
-    Validation first parses the strict structural input model, then checks
-    exact metadata, parses dimensions in sorted-name order and classes in R0-R4
-    order, validates the non-waivable hard-control minimum (extra controls are
-    allowed) and findings, applies package-status rules, projects retained
-    samples, and finally reclassifies every sample through
-    ``ChangeRiskClassifier``. Partial status requires the exact ordered
-    open-finding IDs; samples require unique IDs and coverage of every R0-R4
-    expected class, while additional samples are allowed. Validated status is
-    rejected for ``solo_bootstrap`` before any validation-evidence list is
-    checked. The output projection drops extensible input fields and freezes
-    the top-level domain model shallowly.
+    def __init__(self, path: Path) -> None:
+        """Bind the policy path without performing I/O."""
+        self._path = path
 
-    Args:
-        path: UTF-8 TOML policy file to read. The file is not modified.
+    def _load(self) -> ChangeRiskPolicy:
+        """Load the TOML policy and validate its complete semantic contract.
 
-    Returns:
-        The fully validated immutable ``ChangeRiskPolicy``.
+        Validation first parses the strict structural input model, then checks
+        exact metadata, parses dimensions in sorted-name order and classes in R0-R4
+        order, validates the non-waivable hard-control minimum (extra controls are
+        allowed) and findings, applies package-status rules, projects retained
+        samples, and finally reclassifies every sample through
+        ``ChangeRiskClassifier``. Partial status requires the exact ordered
+        open-finding IDs; samples require unique IDs and coverage of every R0-R4
+        expected class, while additional samples are allowed. Validated status is
+        rejected for ``solo_bootstrap`` before any validation-evidence list is
+        checked. The output projection drops extensible input fields and freezes
+        the top-level domain model shallowly.
 
-    Raises:
-        ChangeRiskPolicyError: If TOML syntax, structural input, exact metadata,
-            semantic policy bounds, package status, findings, sample coverage,
-            or sample classifier results fail. Structural and TOML failures are
-            translated with their original causes where handled; domain errors
-            from semantic helpers propagate unchanged.
-        OSError: If the policy file cannot be opened or read.
-        UnicodeDecodeError: If the policy file is not valid UTF-8.
-        ValidationError: If an unhandled Pydantic validation failure occurs
-            during domain-model projection; the public ``load_policy`` wrapper
-            translates it to ``ChangeRiskPolicyError``.
-    """
-    try:
-        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as error:
-        raise ChangeRiskPolicyError(f"{path}: invalid TOML: {error}") from error
-    try:
-        policy_document = _ChangeRiskPolicyInput.model_validate(parsed_document)
-    except ValidationError as error:
-        raise _policy_input_error(path, error) from error
+        Returns:
+            The fully validated immutable ``ChangeRiskPolicy``.
 
-    actual_scalars: dict[str, object] = {
-        "schema_version": policy_document.schema_version,
-        "roadmap_package": policy_document.roadmap_package,
-        "operating_track": policy_document.operating_track,
-        "author_may_lower_classification": policy_document.author_may_lower_classification,
-        "author_may_satisfy_independent_review": (
-            policy_document.author_may_satisfy_independent_review
-        ),
-    }
-    for key, expected in _EXPECTED_SCALARS.items():
-        if actual_scalars[key] != expected:
-            raise ChangeRiskPolicyError(f"{path}: {key} must be {expected!r}")
+        Raises:
+            ChangeRiskPolicyError: If TOML syntax, structural input, exact metadata,
+                semantic policy bounds, package status, findings, sample coverage,
+                or sample classifier results fail. Structural and TOML failures are
+                translated with their original causes where handled; domain errors
+                from semantic helpers propagate unchanged.
+            OSError: If the policy file cannot be opened or read.
+            UnicodeDecodeError: If the policy file is not valid UTF-8.
+            ValidationError: If an unhandled Pydantic validation failure occurs
+                during domain-model projection; the public ``load_policy`` wrapper
+                translates it to ``ChangeRiskPolicyError``.
+        """
+        path = self._path
+        try:
+            parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as error:
+            raise ChangeRiskPolicyError(f"{path}: invalid TOML: {error}") from error
+        try:
+            policy_document = _ChangeRiskPolicyInput.model_validate(parsed_document)
+        except ValidationError as error:
+            raise _policy_input_error(path, error) from error
 
-    dimension_values = {
-        "capital_at_risk": policy_document.dimensions.capital_at_risk,
-        "blast_radius": policy_document.dimensions.blast_radius,
-        "data_model_materiality": policy_document.dimensions.data_model_materiality,
-        "security_privilege": policy_document.dimensions.security_privilege,
-        "reversibility": policy_document.dimensions.reversibility,
-    }
-    dimensions = tuple(
-        _parse_dimension(name, dimension_values[name]) for name in sorted(EXPECTED_DIMENSIONS)
-    )
-
-    class_values = {
-        RiskClass.R0: policy_document.risk_classes.R0,
-        RiskClass.R1: policy_document.risk_classes.R1,
-        RiskClass.R2: policy_document.risk_classes.R2,
-        RiskClass.R3: policy_document.risk_classes.R3,
-        RiskClass.R4: policy_document.risk_classes.R4,
-    }
-    risk_classes = tuple(_parse_class(item, class_values[item]) for item in RiskClass)
-
-    hard_controls = frozenset(
-        _validated_string_list(policy_document.hard_controls, context=f"{path}: hard_controls")
-    )
-    missing_controls = NON_WAIVABLE_LIVE_CONTROLS - hard_controls
-    if missing_controls:
-        raise ChangeRiskPolicyError(f"{path}: missing hard controls {sorted(missing_controls)}")
-
-    findings: list[str] = []
-    for index, finding in enumerate(policy_document.findings, start=1):
-        values = {
-            "finding_id": finding.finding_id,
-            "owner_role": finding.owner_role,
-            "unavailable_evidence": finding.unavailable_evidence,
-            "closure_condition": finding.closure_condition,
+        actual_scalars: dict[str, object] = {
+            "schema_version": policy_document.schema_version,
+            "roadmap_package": policy_document.roadmap_package,
+            "operating_track": policy_document.operating_track,
+            "author_may_lower_classification": policy_document.author_may_lower_classification,
+            "author_may_satisfy_independent_review": (
+                policy_document.author_may_satisfy_independent_review
+            ),
         }
-        for key, value in values.items():
-            if not value:
-                raise ChangeRiskPolicyError(f"{path}: findings[{index}].{key} is required")
-        findings.append(finding.finding_id)
-    if len(findings) != len(set(findings)):
-        raise ChangeRiskPolicyError(f"{path}: finding IDs must be unique")
+        for key, expected in _EXPECTED_SCALARS.items():
+            if actual_scalars[key] != expected:
+                raise ChangeRiskPolicyError(f"{path}: {key} must be {expected!r}")
 
-    package_status = policy_document.package_status
-    if package_status == "partial":
-        if tuple(findings) != CHANGE_RISK_OPEN_FINDING_IDS:
-            raise ChangeRiskPolicyError(
-                f"{path}: partial status requires findings {list(CHANGE_RISK_OPEN_FINDING_IDS)!r}"
-            )
-    elif package_status == "validated":
-        if policy_document.operating_track == "solo_bootstrap":
-            raise ChangeRiskPolicyError(
-                f"{path}: solo_bootstrap packages cannot claim validated status"
-            )
-        if findings:
-            raise ChangeRiskPolicyError(
-                f"{path}: validated status requires retained evidence and no findings"
-            )
-        _validated_boundary_string_list(
-            policy_document.validation_evidence, context=f"{path}: validation_evidence"
+        dimension_values = {
+            "capital_at_risk": policy_document.dimensions.capital_at_risk,
+            "blast_radius": policy_document.dimensions.blast_radius,
+            "data_model_materiality": policy_document.dimensions.data_model_materiality,
+            "security_privilege": policy_document.dimensions.security_privilege,
+            "reversibility": policy_document.dimensions.reversibility,
+        }
+        dimensions = tuple(
+            _parse_dimension(name, dimension_values[name]) for name in sorted(EXPECTED_DIMENSIONS)
         )
-    else:
-        raise ChangeRiskPolicyError(f"{path}: package_status must be partial or validated")
 
-    samples = tuple(
-        _parse_sample_change(sample, index=index)
-        for index, sample in enumerate(policy_document.sample_changes, start=1)
-    )
-    sample_ids = [sample.change_id for sample in samples]
-    if len(sample_ids) != len(set(sample_ids)) or {
-        sample.expected_class for sample in samples
-    } != set(RiskClass):
-        raise ChangeRiskPolicyError(f"{path}: samples require unique IDs and coverage of R0-R4")
+        class_values = {
+            RiskClass.R0: policy_document.risk_classes.R0,
+            RiskClass.R1: policy_document.risk_classes.R1,
+            RiskClass.R2: policy_document.risk_classes.R2,
+            RiskClass.R3: policy_document.risk_classes.R3,
+            RiskClass.R4: policy_document.risk_classes.R4,
+        }
+        risk_classes = tuple(_parse_class(item, class_values[item]) for item in RiskClass)
 
-    policy = ChangeRiskPolicy(
-        dimensions=dimensions,
-        risk_classes=risk_classes,
-        hard_controls=hard_controls,
-        author_may_lower_classification=False,
-        author_may_satisfy_independent_review=False,
-        package_status=package_status,
-        samples=samples,
-        findings=tuple(findings),
-    )
-    classifier = ChangeRiskClassifier(policy)
-    for sample in samples:
-        actual = classifier.classify(sample.change).risk_class
-        if actual is not sample.expected_class:
-            raise ChangeRiskPolicyError(
-                f"{path}: sample {sample.change_id!r} expected {sample.expected_class.value}, "
-                f"got {actual.value}"
+        hard_controls = frozenset(
+            _validated_string_list(policy_document.hard_controls, context=f"{path}: hard_controls")
+        )
+        missing_controls = NON_WAIVABLE_LIVE_CONTROLS - hard_controls
+        if missing_controls:
+            raise ChangeRiskPolicyError(f"{path}: missing hard controls {sorted(missing_controls)}")
+
+        findings: list[str] = []
+        for index, finding in enumerate(policy_document.findings, start=1):
+            values = {
+                "finding_id": finding.finding_id,
+                "owner_role": finding.owner_role,
+                "unavailable_evidence": finding.unavailable_evidence,
+                "closure_condition": finding.closure_condition,
+            }
+            for key, value in values.items():
+                if not value:
+                    raise ChangeRiskPolicyError(f"{path}: findings[{index}].{key} is required")
+            findings.append(finding.finding_id)
+        if len(findings) != len(set(findings)):
+            raise ChangeRiskPolicyError(f"{path}: finding IDs must be unique")
+
+        package_status = policy_document.package_status
+        if package_status == "partial":
+            if tuple(findings) != CHANGE_RISK_OPEN_FINDING_IDS:
+                raise ChangeRiskPolicyError(
+                    f"{path}: partial status requires findings "
+                    f"{list(CHANGE_RISK_OPEN_FINDING_IDS)!r}"
+                )
+        elif package_status == "validated":
+            if policy_document.operating_track == "solo_bootstrap":
+                raise ChangeRiskPolicyError(
+                    f"{path}: solo_bootstrap packages cannot claim validated status"
+                )
+            if findings:
+                raise ChangeRiskPolicyError(
+                    f"{path}: validated status requires retained evidence and no findings"
+                )
+            _validated_boundary_string_list(
+                policy_document.validation_evidence,
+                context=f"{path}: validation_evidence",
             )
-    return policy
+        else:
+            raise ChangeRiskPolicyError(f"{path}: package_status must be partial or validated")
+
+        samples = tuple(
+            _parse_sample_change(sample, index=index)
+            for index, sample in enumerate(policy_document.sample_changes, start=1)
+        )
+        sample_ids = [sample.change_id for sample in samples]
+        if len(sample_ids) != len(set(sample_ids)) or {
+            sample.expected_class for sample in samples
+        } != set(RiskClass):
+            raise ChangeRiskPolicyError(f"{path}: samples require unique IDs and coverage of R0-R4")
+
+        policy = ChangeRiskPolicy(
+            dimensions=dimensions,
+            risk_classes=risk_classes,
+            hard_controls=hard_controls,
+            author_may_lower_classification=False,
+            author_may_satisfy_independent_review=False,
+            package_status=package_status,
+            samples=samples,
+            findings=tuple(findings),
+        )
+        classifier = ChangeRiskClassifier(policy)
+        for sample in samples:
+            actual = classifier.classify(sample.change).risk_class
+            if actual is not sample.expected_class:
+                raise ChangeRiskPolicyError(
+                    f"{path}: sample {sample.change_id!r} expected {sample.expected_class.value}, "
+                    f"got {actual.value}"
+                )
+        return policy
 
 
 def load_policy(path: Path) -> ChangeRiskPolicy:
@@ -1008,7 +1015,7 @@ def load_policy(path: Path) -> ChangeRiskPolicy:
         path: UTF-8 TOML policy file to validate. The file is not modified.
 
     Returns:
-        The validated ``ChangeRiskPolicy`` produced by ``_load_policy``.
+        The validated ``ChangeRiskPolicy`` produced by the policy loader service.
 
     Raises:
         ChangeRiskPolicyError: For errors already translated or raised by the
@@ -1016,11 +1023,11 @@ def load_policy(path: Path) -> ChangeRiskPolicy:
             semantic policy violations. An unhandled Pydantic validation error
             is translated to a generic policy-model failure with its cause.
         OSError: If opening or reading the policy file fails; filesystem errors
-            are preserved from ``_load_policy``.
+            propagate from the loader service.
         UnicodeDecodeError: If UTF-8 decoding fails; decoding errors are not
             caught by either loader layer.
     """
     try:
-        return _load_policy(path)
+        return _ChangeRiskPolicyLoader(path)._load()
     except ValidationError as error:
         raise ChangeRiskPolicyError(f"{path}: policy model validation failed") from error

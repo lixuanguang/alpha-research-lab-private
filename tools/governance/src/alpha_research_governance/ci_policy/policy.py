@@ -246,6 +246,219 @@ def _parse_continuous_integration_lanes(value: object) -> tuple[CILane, ...]:
     return tuple(lanes)
 
 
+class CIPolicyService:
+    """Own CI policy loading and repository validation for one root."""
+
+    def __init__(self, repository_root: Path) -> None:
+        """Bind CIPolicyService collaborators without filesystem or process I/O.
+
+        Args:
+            repository_root: Repository root used by later service operations.
+        """
+        self.repository_root = repository_root
+
+    def load_continuous_integration_policy(self, path: Path) -> CIPolicy:
+        """Load and validate the repository's closed-schema CI policy.
+
+        The loader reads ``path`` as UTF-8 TOML, requires the exact root key set,
+        checks the fixed B05 package, gate, scanner, evidence and lane contracts,
+        and constructs the immutable policy record. Positive integer limits and
+        repository path collections are validated through the private helpers.
+
+        Args:
+            path: TOML policy file to read. The file is not modified.
+
+        Returns:
+            The validated continuous-integration policy, including ordered gates,
+            scanner pattern IDs, safe repository paths, lanes and evidence identity.
+
+        Raises:
+            CIPolicyError: If the file cannot be read or parsed, or if its schema,
+                fixed values, collections, paths or lane contract is invalid. Read
+                and TOML errors are translated with their original causes; helper
+                validation findings are propagated.
+            ValidationError: If a value reaches the final immutable model with a
+                type that the explicit policy checks do not cover.
+            UnicodeError: If the policy file is not valid UTF-8; this decoding
+                failure is not translated by the loader.
+        """
+        try:
+            document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as error:
+            raise CIPolicyError([f"cannot load CI policy: {error}"]) from error
+        if set(document) != _POLICY_KEYS:
+            raise CIPolicyError(["CI policy root fields drifted"])
+        exact_values = {
+            "accountable_owner_role": "platform",
+            "fast_lane_target_status": "pending_owner_approval",
+            "full_lane_authoritative": True,
+            "event_log_directory": "build/ci",
+            "local_evidence_commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "local_evidence_manifest_path": (
+                "docs/governance/evidence/examples/b05-r2-partial/manifest.toml"
+            ),
+            "operating_track": "solo_bootstrap",
+            "hosted_artifact_retention_days": 30,
+            "package_status": "partial",
+            "parent_package": _CONTINUOUS_INTEGRATION_PACKAGE_ID,
+            "require_merged_result_on_pull_request": True,
+            "risk_class": "R2",
+            "roadmap_package": _CONTINUOUS_INTEGRATION_PACKAGE_ID,
+            "schema_version": 1,
+            "secret_scanner_executable": _PRIVATE_KEY_SCANNER_EXECUTABLE,
+            "secret_scanner_version": _PRIVATE_KEY_SCANNER_DISTRIBUTION,
+            "selection_strategy": "bazel_owner_reverse_dependencies",
+            "successor_package": _REMOTE_EXECUTION_SUCCESSOR_PACKAGE_ID,
+            "unknown_path_behavior": "full_lane",
+        }
+        findings = [
+            f"{key} must be {expected!r}"
+            for key, expected in exact_values.items()
+            if document.get(key) != expected
+        ]
+        if findings:
+            raise CIPolicyError(findings)
+        gate_ids = _require_unique_string_array(
+            document["applicable_gate_ids"], context="applicable_gate_ids"
+        )
+        if gate_ids != CONTINUOUS_INTEGRATION_GATE_IDS:
+            raise CIPolicyError(
+                ["applicable gates must match the exact R2 continuous-integration set"]
+            )
+        patterns = _require_unique_string_array(
+            document["secret_pattern_ids"], context="secret_pattern_ids"
+        )
+        if patterns != secret_pattern_ids():
+            raise CIPolicyError(["high-confidence secret pattern set drifted"])
+        open_findings = _require_unique_string_array(
+            document["open_finding_ids"], context="open_finding_ids"
+        )
+        raw_findings = document["findings"]
+        if not isinstance(raw_findings, list) or not all(
+            isinstance(item, dict) for item in raw_findings
+        ):
+            raise CIPolicyError(["findings must be an array of tables"])
+        finding_tables = cast(list[dict[str, object]], raw_findings)
+        if any(set(item) != _FINDING_KEYS for item in finding_tables):
+            raise CIPolicyError(["finding fields drifted"])
+        if (
+            open_findings != _CONTINUOUS_INTEGRATION_FINDING_IDS
+            or tuple(item["finding_id"] for item in finding_tables)
+            != _CONTINUOUS_INTEGRATION_FINDING_IDS
+        ):
+            raise CIPolicyError(["continuous-integration finding identities drifted"])
+        return CIPolicy(
+            package_status="partial",
+            successor_package=_REMOTE_EXECUTION_SUCCESSOR_PACKAGE_ID,
+            applicable_gate_ids=gate_ids,
+            selection_workload_budget_ms=_require_positive_integer(
+                document, "selection_workload_budget_ms"
+            ),
+            maximum_changed_files=_require_positive_integer(document, "maximum_changed_files"),
+            fast_lane_target_status="pending_owner_approval",
+            unknown_path_behavior="full_lane",
+            selection_strategy="bazel_owner_reverse_dependencies",
+            full_lane_authoritative=True,
+            require_merged_result_on_pull_request=True,
+            event_log_directory="build/ci",
+            hosted_artifact_retention_days=_require_positive_integer(
+                document, "hosted_artifact_retention_days"
+            ),
+            secret_scanner_executable=_PRIVATE_KEY_SCANNER_EXECUTABLE,
+            secret_scanner_version=_PRIVATE_KEY_SCANNER_DISTRIBUTION,
+            secret_scan_maximum_file_bytes=_require_positive_integer(
+                document, "secret_scan_maximum_file_bytes"
+            ),
+            secret_pattern_ids=patterns,
+            generated_artifact_prefixes=_require_safe_repository_paths(
+                document["generated_artifact_prefixes"],
+                context="generated_artifact_prefixes",
+                directory_prefixes=True,
+            ),
+            foundational_paths=_require_safe_repository_paths(
+                document["foundational_paths"], context="foundational_paths"
+            ),
+            schema_module_roots=_require_safe_repository_paths(
+                document["schema_module_roots"], context="schema_module_roots"
+            ),
+            lanes=_parse_continuous_integration_lanes(document["lanes"]),
+            local_evidence_manifest_path=cast(str, document["local_evidence_manifest_path"]),
+            local_evidence_commit_sha=cast(str, document["local_evidence_commit_sha"]),
+            open_finding_ids=open_findings,
+        )
+
+    def validate_continuous_integration_repository(self) -> CIPolicy:
+        """Validate the complete repository-local CI contract and evidence.
+
+        Validation resolves ``repository_root``, loads the CI policy, checks the
+        admitted scanner and repository interfaces, then validates the retained
+        evidence manifest against the change-risk policy and the exact B05 package
+        profile. The repository and its evidence files are read only.
+
+        Args:
+            The repository root is bound by the service constructor.
+
+        Returns:
+            The loaded CI policy when every repository and evidence check succeeds.
+
+        Raises:
+            CIPolicyError: If policy loading or repository checks produce CI
+                findings. Policy-file read and TOML errors are translated by the
+                policy loader; repository helper findings are aggregated before
+                this error is raised.
+            ChangeRiskPolicyError: If the referenced change-risk policy is invalid.
+            EvidenceGovernanceError: If the retained manifest is invalid or does
+                not satisfy the exact B05 evidence profile.
+            ValidationError: If the loaded CI policy reaches model construction with
+                a type not covered by its explicit policy checks.
+            OSError: If root resolution or an unhandled repository read or process
+                startup fails.
+            UnicodeError: If an unhandled strict text read or decode fails.
+        """
+        root = self.repository_root.resolve(strict=True)
+        policy = load_continuous_integration_policy(root / "docs/architecture/ci-policy.toml")
+        findings = (
+            _private_key_scanner_dependency_findings(root)
+            + CIRepositoryInspector(root, policy)._continuous_integration_repository_findings()
+        )
+        if findings:
+            raise CIPolicyError(findings)
+        manifest = validate_manifest(
+            root / policy.local_evidence_manifest_path,
+            expected_commit_sha=policy.local_evidence_commit_sha,
+            change_policy=load_change_risk_policy(root / "docs/governance/change-risk-policy.toml"),
+        )
+        validate_package_evidence(
+            manifest,
+            PackageEvidenceProfile(
+                roadmap_package_id=_CONTINUOUS_INTEGRATION_PACKAGE_ID,
+                accountable_owner_role="platform",
+                risk_class=RiskClass.R2,
+                classification_facts=ChangeRiskInput(
+                    capital_at_risk=False,
+                    blast_radius="shared_domain",
+                    data_model_materiality="shared_or_candidate",
+                    security_privilege="none",
+                    reversibility="compatibility_window",
+                    computationally_material=True,
+                    economically_or_risk_relevant=False,
+                    model_or_trading_relevant=False,
+                    declared_class=RiskClass.R2,
+                ),
+                gate_requirements=tuple(
+                    PackageGateRequirement(gate_id=gate_id, status="passed")
+                    for gate_id in CONTINUOUS_INTEGRATION_GATE_IDS
+                ),
+                expected_package_status="partial",
+                expected_finding_ids=_CONTINUOUS_INTEGRATION_FINDING_IDS,
+                approvals_permitted=False,
+                waivers_permitted=False,
+                additional_required_gates_permitted=False,
+            ),
+        )
+        return policy
+
+
 def load_continuous_integration_policy(path: Path) -> CIPolicy:
     """Load and validate the repository's closed-schema CI policy.
 
@@ -271,283 +484,197 @@ def load_continuous_integration_policy(path: Path) -> CIPolicy:
         UnicodeError: If the policy file is not valid UTF-8; this decoding
             failure is not translated by the loader.
     """
-    try:
-        document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        raise CIPolicyError([f"cannot load CI policy: {error}"]) from error
-    if set(document) != _POLICY_KEYS:
-        raise CIPolicyError(["CI policy root fields drifted"])
-    exact_values = {
-        "accountable_owner_role": "platform",
-        "fast_lane_target_status": "pending_owner_approval",
-        "full_lane_authoritative": True,
-        "event_log_directory": "build/ci",
-        "local_evidence_commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "local_evidence_manifest_path": (
-            "docs/governance/evidence/examples/b05-r2-partial/manifest.toml"
-        ),
-        "operating_track": "solo_bootstrap",
-        "hosted_artifact_retention_days": 30,
-        "package_status": "partial",
-        "parent_package": _CONTINUOUS_INTEGRATION_PACKAGE_ID,
-        "require_merged_result_on_pull_request": True,
-        "risk_class": "R2",
-        "roadmap_package": _CONTINUOUS_INTEGRATION_PACKAGE_ID,
-        "schema_version": 1,
-        "secret_scanner_executable": _PRIVATE_KEY_SCANNER_EXECUTABLE,
-        "secret_scanner_version": _PRIVATE_KEY_SCANNER_DISTRIBUTION,
-        "selection_strategy": "bazel_owner_reverse_dependencies",
-        "successor_package": _REMOTE_EXECUTION_SUCCESSOR_PACKAGE_ID,
-        "unknown_path_behavior": "full_lane",
-    }
-    findings = [
-        f"{key} must be {expected!r}"
-        for key, expected in exact_values.items()
-        if document.get(key) != expected
-    ]
-    if findings:
-        raise CIPolicyError(findings)
-    gate_ids = _require_unique_string_array(
-        document["applicable_gate_ids"], context="applicable_gate_ids"
-    )
-    if gate_ids != CONTINUOUS_INTEGRATION_GATE_IDS:
-        raise CIPolicyError(["applicable gates must match the exact R2 continuous-integration set"])
-    patterns = _require_unique_string_array(
-        document["secret_pattern_ids"], context="secret_pattern_ids"
-    )
-    if patterns != secret_pattern_ids():
-        raise CIPolicyError(["high-confidence secret pattern set drifted"])
-    open_findings = _require_unique_string_array(
-        document["open_finding_ids"], context="open_finding_ids"
-    )
-    raw_findings = document["findings"]
-    if not isinstance(raw_findings, list) or not all(
-        isinstance(item, dict) for item in raw_findings
-    ):
-        raise CIPolicyError(["findings must be an array of tables"])
-    finding_tables = cast(list[dict[str, object]], raw_findings)
-    if any(set(item) != _FINDING_KEYS for item in finding_tables):
-        raise CIPolicyError(["finding fields drifted"])
-    if (
-        open_findings != _CONTINUOUS_INTEGRATION_FINDING_IDS
-        or tuple(item["finding_id"] for item in finding_tables)
-        != _CONTINUOUS_INTEGRATION_FINDING_IDS
-    ):
-        raise CIPolicyError(["continuous-integration finding identities drifted"])
-    return CIPolicy(
-        package_status="partial",
-        successor_package=_REMOTE_EXECUTION_SUCCESSOR_PACKAGE_ID,
-        applicable_gate_ids=gate_ids,
-        selection_workload_budget_ms=_require_positive_integer(
-            document, "selection_workload_budget_ms"
-        ),
-        maximum_changed_files=_require_positive_integer(document, "maximum_changed_files"),
-        fast_lane_target_status="pending_owner_approval",
-        unknown_path_behavior="full_lane",
-        selection_strategy="bazel_owner_reverse_dependencies",
-        full_lane_authoritative=True,
-        require_merged_result_on_pull_request=True,
-        event_log_directory="build/ci",
-        hosted_artifact_retention_days=_require_positive_integer(
-            document, "hosted_artifact_retention_days"
-        ),
-        secret_scanner_executable=_PRIVATE_KEY_SCANNER_EXECUTABLE,
-        secret_scanner_version=_PRIVATE_KEY_SCANNER_DISTRIBUTION,
-        secret_scan_maximum_file_bytes=_require_positive_integer(
-            document, "secret_scan_maximum_file_bytes"
-        ),
-        secret_pattern_ids=patterns,
-        generated_artifact_prefixes=_require_safe_repository_paths(
-            document["generated_artifact_prefixes"],
-            context="generated_artifact_prefixes",
-            directory_prefixes=True,
-        ),
-        foundational_paths=_require_safe_repository_paths(
-            document["foundational_paths"], context="foundational_paths"
-        ),
-        schema_module_roots=_require_safe_repository_paths(
-            document["schema_module_roots"], context="schema_module_roots"
-        ),
-        lanes=_parse_continuous_integration_lanes(document["lanes"]),
-        local_evidence_manifest_path=cast(str, document["local_evidence_manifest_path"]),
-        local_evidence_commit_sha=cast(str, document["local_evidence_commit_sha"]),
-        open_finding_ids=open_findings,
-    )
+    return CIPolicyService(path.parent).load_continuous_integration_policy(path)
+
+
+class CIRepositoryInspector:
+    """Own repository dependency and interface checks for one root."""
+
+    def __init__(self, repository_root: Path, policy: CIPolicy | None = None) -> None:
+        """Bind CIRepositoryInspector collaborators without filesystem or process I/O.
+
+        Args:
+            repository_root: Repository root used by later service operations.
+            policy: Already validated policy object owned by the service.
+        """
+        self.repository_root = repository_root
+        self.policy = policy
+
+    def _private_key_scanner_dependency_findings(self) -> list[str]:
+        """Check the pinned private-key scanner record and lock binding.
+
+        Returns:
+            Findings in discovery order. A dependency-record read or TOML parse
+            failure is returned as one finding. Root-field and malformed-dependency
+            checks may return several accumulated findings; scanner-record and
+            lock-content mismatches are appended when those checks are reached. An
+            empty list means the checked record and lock fragments match the exact
+            CI contract.
+
+        Raises:
+            OSError: If reading ``uv.lock`` fails after the dependency record has
+                passed its shape checks.
+            UnicodeError: If a strict UTF-8 read or decode is invalid at a boundary
+                that this helper does not translate.
+        """
+        root = self.repository_root
+        path = root / "docs/architecture/ci-tool-dependencies.toml"
+        try:
+            document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as error:
+            return [f"cannot load the continuous-integration dependency record: {error}"]
+        dependencies = document.get("dependencies")
+        expected_root = {
+            "schema_version": 1,
+            "roadmap_package": _CONTINUOUS_INTEGRATION_PACKAGE_ID,
+            "operating_track": "solo_bootstrap",
+            "package_status": "partial",
+            "accountable_owner_role": "platform",
+            "admission_owner_package": _DEPENDENCY_ADMISSION_PACKAGE_ID,
+            "as_of_date": "2026-09-02",
+            "runtime_installation_allowed": False,
+        }
+        if set(document) != {*expected_root, "dependencies"}:
+            return ["dependency record root fields drifted"]
+        findings = [
+            f"dependency record {key} drifted"
+            for key, value in expected_root.items()
+            if document.get(key) != value
+        ]
+        if (
+            not isinstance(dependencies, list)
+            or len(dependencies) != 1
+            or not isinstance(dependencies[0], dict)
+        ):
+            return [*findings, "dependency record must contain exactly one scanner"]
+        dependency = cast(dict[str, object], dependencies[0])
+        expected_dependency = {
+            "dependency_id": "continuous_integration.pre_commit_hooks_private_key_scanner",
+            "name": "pre-commit-hooks detect-private-key",
+            "version": "6.0.0",
+            "purpose": (
+                "Detect private-key material in every governed fast or full CI source set; "
+                "repository-owned high-confidence token rules supplement its intentionally "
+                "narrow key detector."
+            ),
+            "source_url": "https://pypi.org/project/pre-commit-hooks/6.0.0/",
+            "source_digest": (
+                "sha256:76d8370c006f5026cdd638a397a678d26dda735a3c88137e05885a020f824034"
+            ),
+            "license": "MIT",
+            "supported_platforms": ["darwin_arm64", "linux_x86_64"],
+            "transitive_native_dependencies": [
+                "ruamel-yaml==0.19.1 (not used by detect-private-key)"
+            ],
+            "vulnerability_review": (
+                "No qualified vulnerability or exploitability review is claimed; final "
+                "admission remains B07-owned."
+            ),
+            "maintenance_review": (
+                "The existing exact repository tool pin is reused; qualified maintenance "
+                "review remains B07-owned."
+            ),
+            "rollback": (
+                "Remove the continuous-integration scanner invocation, token rules, dependency "
+                "record, CI lanes, and evidence together; restore the passing engineering "
+                "standards validation surface."
+            ),
+        }
+        if dependency != expected_dependency:
+            findings.append("scanner dependency record drifted")
+        lock = (root / "uv.lock").read_text(encoding="utf-8")
+        if (
+            'name = "pre-commit-hooks"\nversion = "6.0.0"' not in lock
+            or "76d8370c006f5026cdd638a397a678d26dda735a3c88137e05885a020f824034" not in lock
+        ):
+            findings.append("scanner version or digest is not bound to uv.lock")
+        return findings
+
+    def _continuous_integration_repository_findings(self) -> list[str]:
+        """Collect schema, generated-source, Git and interface findings.
+
+        Returns:
+            Findings in validation order. Missing or invalid schema modules,
+            ungoverned Protobuf files, a nonzero ``git ls-files`` status, tracked
+            generated artifacts and missing required interface fragments are
+            reported as strings.
+
+        Raises:
+            OSError: If repository traversal, Git startup, or required interface
+                file reads fail.
+            UnicodeError: If strict UTF-8 decoding of Git output or an interface
+                file fails.
+        """
+        root = self.repository_root
+        policy = self.policy
+        if policy is None:
+            raise ValueError("CI repository inspector requires a validated policy")
+        findings: list[str] = []
+        for module_root in policy.schema_module_roots:
+            module = root / module_root
+            try:
+                module.resolve(strict=True).relative_to(root)
+            except (FileNotFoundError, ValueError):
+                findings.append(f"schema module is missing or outside the root: {module_root}")
+                continue
+            if module.is_symlink() or not module.is_dir() or not (module / "buf.yaml").is_file():
+                findings.append(f"schema module is missing buf.yaml: {module_root}")
+        registered_modules = tuple(f"{module}/" for module in policy.schema_module_roots)
+        for proto in root.rglob("*.proto"):
+            relative = proto.relative_to(root).as_posix()
+            if not relative.startswith(registered_modules):
+                findings.append(f"Protobuf source is outside a governed schema module: {relative}")
+        completed = subprocess.run(  # nosec B603 B607  # [owner=platform; rationale=fixed Git argv without shell execution; expires=2027-02-28]
+            ["git", "ls-files", "-z"],
+            cwd=root,
+            check=False,
+            capture_output=True,
+        )
+        if completed.returncode:
+            findings.append("git ls-files failed while checking generated/source separation")
+        else:
+            tracked = completed.stdout.decode("utf-8", errors="strict").split("\0")
+            for path in tracked:
+                if path and any(
+                    path.startswith(prefix) for prefix in policy.generated_artifact_prefixes
+                ):
+                    findings.append(f"generated artifact is tracked as source: {path}")
+        expected_fragments = {
+            "Makefile": (
+                "governance-check:",
+                "program-status:",
+                "ci-policy-check:",
+                "ci-fast:",
+                "ci-full:",
+                "alpha-governance-ci",
+            ),
+            ".pre-commit-config.yaml": ("id: ci-policy", "alpha-governance-ci", "files:"),
+            ".github/workflows/ci.yml": (
+                "fast:",
+                "merged-result:",
+                "make ci-fast",
+                "make ci-full",
+                "verify-merged-result",
+                "actions/upload-artifact@",
+                "build/ci/fast-events.jsonl",
+                "build/ci/full-events.jsonl",
+                "retention-days: 30",
+            ),
+            "tools/governance/pyproject.toml": ("alpha-governance-ci",),
+        }
+        for relative, fragments in expected_fragments.items():
+            text = (root / relative).read_text(encoding="utf-8")
+            missing = [fragment for fragment in fragments if fragment not in text]
+            if missing:
+                findings.append(
+                    f"{relative} is missing continuous-integration interfaces: {missing}"
+                )
+        return findings
 
 
 def _private_key_scanner_dependency_findings(root: Path) -> list[str]:
-    """Check the pinned private-key scanner record and lock binding.
-
-    Args:
-        root: Repository root containing the dependency record and ``uv.lock``.
-            Neither file is modified.
-
-    Returns:
-        Findings in discovery order. A dependency-record read or TOML parse
-        failure is returned as one finding. Root-field and malformed-dependency
-        checks may return several accumulated findings; scanner-record and
-        lock-content mismatches are appended when those checks are reached. An
-        empty list means the checked record and lock fragments match the exact
-        CI contract.
-
-    Raises:
-        OSError: If reading ``uv.lock`` fails after the dependency record has
-            passed its shape checks.
-        UnicodeError: If a strict UTF-8 read or decode is invalid at a boundary
-            that this helper does not translate.
-    """
-    path = root / "docs/architecture/ci-tool-dependencies.toml"
-    try:
-        document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        return [f"cannot load the continuous-integration dependency record: {error}"]
-    dependencies = document.get("dependencies")
-    expected_root = {
-        "schema_version": 1,
-        "roadmap_package": _CONTINUOUS_INTEGRATION_PACKAGE_ID,
-        "operating_track": "solo_bootstrap",
-        "package_status": "partial",
-        "accountable_owner_role": "platform",
-        "admission_owner_package": _DEPENDENCY_ADMISSION_PACKAGE_ID,
-        "as_of_date": "2026-09-02",
-        "runtime_installation_allowed": False,
-    }
-    if set(document) != {*expected_root, "dependencies"}:
-        return ["dependency record root fields drifted"]
-    findings = [
-        f"dependency record {key} drifted"
-        for key, value in expected_root.items()
-        if document.get(key) != value
-    ]
-    if (
-        not isinstance(dependencies, list)
-        or len(dependencies) != 1
-        or not isinstance(dependencies[0], dict)
-    ):
-        return [*findings, "dependency record must contain exactly one scanner"]
-    dependency = cast(dict[str, object], dependencies[0])
-    expected_dependency = {
-        "dependency_id": "continuous_integration.pre_commit_hooks_private_key_scanner",
-        "name": "pre-commit-hooks detect-private-key",
-        "version": "6.0.0",
-        "purpose": (
-            "Detect private-key material in every governed fast or full CI source set; "
-            "repository-owned high-confidence token rules supplement its intentionally "
-            "narrow key detector."
-        ),
-        "source_url": "https://pypi.org/project/pre-commit-hooks/6.0.0/",
-        "source_digest": (
-            "sha256:76d8370c006f5026cdd638a397a678d26dda735a3c88137e05885a020f824034"
-        ),
-        "license": "MIT",
-        "supported_platforms": ["darwin_arm64", "linux_x86_64"],
-        "transitive_native_dependencies": ["ruamel-yaml==0.19.1 (not used by detect-private-key)"],
-        "vulnerability_review": (
-            "No qualified vulnerability or exploitability review is claimed; final "
-            "admission remains B07-owned."
-        ),
-        "maintenance_review": (
-            "The existing exact repository tool pin is reused; qualified maintenance "
-            "review remains B07-owned."
-        ),
-        "rollback": (
-            "Remove the continuous-integration scanner invocation, token rules, dependency "
-            "record, CI lanes, and evidence together; restore the passing engineering "
-            "standards validation surface."
-        ),
-    }
-    if dependency != expected_dependency:
-        findings.append("scanner dependency record drifted")
-    lock = (root / "uv.lock").read_text(encoding="utf-8")
-    if (
-        'name = "pre-commit-hooks"\nversion = "6.0.0"' not in lock
-        or "76d8370c006f5026cdd638a397a678d26dda735a3c88137e05885a020f824034" not in lock
-    ):
-        findings.append("scanner version or digest is not bound to uv.lock")
-    return findings
-
-
-def _continuous_integration_repository_findings(root: Path, policy: CIPolicy) -> list[str]:
-    """Collect schema, generated-source, Git and interface findings.
-
-    Args:
-        root: Existing resolved absolute repository root used for recursive
-            Protobuf discovery, Git execution and interface-file reads. The
-            function does not modify the repository.
-        policy: Loaded CI policy providing governed schema roots and generated
-            artifact prefixes.
-
-    Returns:
-        Findings in validation order. Missing or invalid schema modules,
-        ungoverned Protobuf files, a nonzero ``git ls-files`` status, tracked
-        generated artifacts and missing required interface fragments are
-        reported as strings.
-
-    Raises:
-        OSError: If repository traversal, Git startup, or required interface
-            file reads fail.
-        UnicodeError: If strict UTF-8 decoding of Git output or an interface
-            file fails.
-    """
-    findings: list[str] = []
-    for module_root in policy.schema_module_roots:
-        module = root / module_root
-        try:
-            module.resolve(strict=True).relative_to(root)
-        except (FileNotFoundError, ValueError):
-            findings.append(f"schema module is missing or outside the root: {module_root}")
-            continue
-        if module.is_symlink() or not module.is_dir() or not (module / "buf.yaml").is_file():
-            findings.append(f"schema module is missing buf.yaml: {module_root}")
-    registered_modules = tuple(f"{module}/" for module in policy.schema_module_roots)
-    for proto in root.rglob("*.proto"):
-        relative = proto.relative_to(root).as_posix()
-        if not relative.startswith(registered_modules):
-            findings.append(f"Protobuf source is outside a governed schema module: {relative}")
-    completed = subprocess.run(  # nosec B603 B607  # [owner=platform; rationale=fixed Git argv without shell execution; expires=2027-02-28]
-        ["git", "ls-files", "-z"],
-        cwd=root,
-        check=False,
-        capture_output=True,
-    )
-    if completed.returncode:
-        findings.append("git ls-files failed while checking generated/source separation")
-    else:
-        tracked = completed.stdout.decode("utf-8", errors="strict").split("\0")
-        for path in tracked:
-            if path and any(
-                path.startswith(prefix) for prefix in policy.generated_artifact_prefixes
-            ):
-                findings.append(f"generated artifact is tracked as source: {path}")
-    expected_fragments = {
-        "Makefile": (
-            "governance-check:",
-            "program-status:",
-            "ci-policy-check:",
-            "ci-fast:",
-            "ci-full:",
-            "alpha-governance-ci",
-        ),
-        ".pre-commit-config.yaml": ("id: ci-policy", "alpha-governance-ci", "files:"),
-        ".github/workflows/ci.yml": (
-            "fast:",
-            "merged-result:",
-            "make ci-fast",
-            "make ci-full",
-            "verify-merged-result",
-            "actions/upload-artifact@",
-            "build/ci/fast-events.jsonl",
-            "build/ci/full-events.jsonl",
-            "retention-days: 30",
-        ),
-        "tools/governance/pyproject.toml": ("alpha-governance-ci",),
-    }
-    for relative, fragments in expected_fragments.items():
-        text = (root / relative).read_text(encoding="utf-8")
-        missing = [fragment for fragment in fragments if fragment not in text]
-        if missing:
-            findings.append(f"{relative} is missing continuous-integration interfaces: {missing}")
-    return findings
+    """Compatibility facade delegating to ``CIRepositoryInspector``."""
+    return CIRepositoryInspector(root)._private_key_scanner_dependency_findings()
 
 
 def validate_continuous_integration_repository(repository_root: Path) -> CIPolicy:
@@ -579,47 +706,7 @@ def validate_continuous_integration_repository(repository_root: Path) -> CIPolic
             startup fails.
         UnicodeError: If an unhandled strict text read or decode fails.
     """
-    root = repository_root.resolve(strict=True)
-    policy = load_continuous_integration_policy(root / "docs/architecture/ci-policy.toml")
-    findings = _private_key_scanner_dependency_findings(
-        root
-    ) + _continuous_integration_repository_findings(root, policy)
-    if findings:
-        raise CIPolicyError(findings)
-    manifest = validate_manifest(
-        root / policy.local_evidence_manifest_path,
-        expected_commit_sha=policy.local_evidence_commit_sha,
-        change_policy=load_change_risk_policy(root / "docs/governance/change-risk-policy.toml"),
-    )
-    validate_package_evidence(
-        manifest,
-        PackageEvidenceProfile(
-            roadmap_package_id=_CONTINUOUS_INTEGRATION_PACKAGE_ID,
-            accountable_owner_role="platform",
-            risk_class=RiskClass.R2,
-            classification_facts=ChangeRiskInput(
-                capital_at_risk=False,
-                blast_radius="shared_domain",
-                data_model_materiality="shared_or_candidate",
-                security_privilege="none",
-                reversibility="compatibility_window",
-                computationally_material=True,
-                economically_or_risk_relevant=False,
-                model_or_trading_relevant=False,
-                declared_class=RiskClass.R2,
-            ),
-            gate_requirements=tuple(
-                PackageGateRequirement(gate_id=gate_id, status="passed")
-                for gate_id in CONTINUOUS_INTEGRATION_GATE_IDS
-            ),
-            expected_package_status="partial",
-            expected_finding_ids=_CONTINUOUS_INTEGRATION_FINDING_IDS,
-            approvals_permitted=False,
-            waivers_permitted=False,
-            additional_required_gates_permitted=False,
-        ),
-    )
-    return policy
+    return CIPolicyService(repository_root).validate_continuous_integration_repository()
 
 
 def compute_evidence_report_sha256(path: Path) -> str:

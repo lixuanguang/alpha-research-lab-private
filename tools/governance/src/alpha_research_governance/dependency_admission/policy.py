@@ -462,6 +462,734 @@ def _parse_overrides(
     return tuple(overrides)
 
 
+class DependencyPolicyLoader:
+    """Load the dependency policy at one explicit file boundary."""
+
+    def __init__(self, policy_path: Path) -> None:
+        """Bind DependencyPolicyLoader collaborators without filesystem or process I/O.
+
+        Args:
+            policy_path: Policy path read only when ``load`` is called.
+        """
+        self.policy_path = policy_path
+
+    def load(self) -> DependencyAdmission:
+        """Load and validate the B07 dependency-admission TOML policy.
+
+        Read ``path`` as UTF-8 TOML and enforce the fixed B07 metadata, root and nested
+        schemas, policy dates and bounds, quality gates, supported platforms and index,
+        lock surfaces and digests, migrated predecessor records, package/license/native
+        admissions, scanner and Scorecard pins, findings, decisions, overrides, and
+        optional wheel-admission profiles. The wheel parsers validate claims only: this
+        function does not read referenced evidence, hash artifacts, inspect lock files,
+        invoke a verifier, query installed packages, or access the network. Policy dates
+        define the assessment windows; this loader does not compare review or expiry dates
+        with today.
+
+        Returns:
+            An immutable ``DependencyAdmission`` populated from the validated policy,
+            including its exact package, lock, decision, and wheel-admission records.
+
+        Raises:
+            DependencyAdmissionError: If the TOML structure or any fixed metadata,
+                schema, identity, ordering, date, digest, package, decision, override,
+                or wheel-admission rule fails. TOML syntax failures are translated and
+                chained; wheel-parser failures are translated by their parsers, and final
+                policy-model validation failures are translated by this loader.
+            OSError: If the policy file cannot be opened or read.
+            UnicodeDecodeError: If the policy file is not valid UTF-8.
+            ValueError: If URL parsing rejects malformed URL authority syntax.
+            pydantic.ValidationError: If a parsed package record is rejected while its
+                ``PythonPackageAdmission`` is constructed; wheel-record and final-policy
+                model failures are translated to ``DependencyAdmissionError``.
+        """
+        path = self.policy_path
+        try:
+            raw_document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
+            document = _table(raw_document, context=str(path))
+        except tomllib.TOMLDecodeError as error:
+            raise DependencyAdmissionError([f"{path}: invalid TOML: {error}"]) from error
+        if not _ROOT_KEYS <= set(document) or set(document) - _ROOT_KEYS - {
+            "wheel_source_admissions",
+            "bootstrap_wheel_admissions",
+        }:
+            raise DependencyAdmissionError([f"{path}: has missing or unknown fields"])
+        expected = {
+            "accountable_owner_role": "platform",
+            "operating_track": "solo_bootstrap",
+            "package_status": "partial",
+            "risk_class": "R2",
+            "roadmap_package": "B07",
+            "runtime_installation_allowed": False,
+            "schema_version": 1,
+            "successor_package": "B08",
+        }
+        for key, value in expected.items():
+            if document.get(key) != value:
+                raise DependencyAdmissionError([f"{path}: {key} must be {value!r}"])
+        as_of_date = _iso_date(document.get("as_of_date"), context="as_of_date")
+        review_due_on = _iso_date(document.get("review_due_on"), context="review_due_on")
+        if review_due_on <= as_of_date or review_due_on > as_of_date + timedelta(days=90):
+            raise DependencyAdmissionError(
+                ["review_due_on must be within 90 days after as_of_date"]
+            )
+        maximum_signal_age_days = document.get("maximum_signal_age_days")
+        maximum_override_days = document.get("emergency_override_maximum_days")
+        patch_cadence_days = document.get("patch_cadence_days")
+        if maximum_signal_age_days != 7 or maximum_override_days != 30 or patch_cadence_days != 30:
+            raise DependencyAdmissionError(
+                ["signal, override, and patch/EOL review bounds drifted"]
+            )
+        if (
+            _strings(document.get("applicable_gate_ids"), context="applicable_gate_ids")
+            != _APPLICABLE_GATES
+        ):
+            raise DependencyAdmissionError(["dependency admission must retain the exact R2 gates"])
+        supported_platforms = _strings(
+            document.get("supported_platforms"), context="supported_platforms"
+        )
+        if supported_platforms != ("darwin_arm64", "linux_x86_64"):
+            raise DependencyAdmissionError(
+                ["supported platforms must retain Darwin arm64 and Linux x86_64"]
+            )
+        indexes = _strings(
+            document.get("approved_python_indexes"), context="approved_python_indexes"
+        )
+        if indexes != ("https://pypi.org/simple",):
+            raise DependencyAdmissionError(["only the reviewed PyPI simple index is approved"])
+        lock_paths = _strings(document.get("lock_paths"), context="lock_paths")
+        if lock_paths != _EXPECTED_LOCK_PATHS:
+            raise DependencyAdmissionError(
+                ["lock_paths must cover the exact current lock surfaces"]
+            )
+        lock_digests = _table(document.get("lock_digests"), context="lock_digests")
+        if set(lock_digests) != set(lock_paths) or any(
+            not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            for digest in lock_digests.values()
+        ):
+            raise DependencyAdmissionError(["lock_digests must bind every lock surface by SHA-256"])
+        runtime_scan_roots = _strings(
+            document.get("runtime_scan_roots"), context="runtime_scan_roots"
+        )
+        if runtime_scan_roots != ("src", "tools"):
+            raise DependencyAdmissionError(["runtime install scanning must cover src and tools"])
+
+        migrated = _tables(document.get("migrated_records"), context="migrated_records")
+        if (
+            tuple(item.get("roadmap_package") for item in migrated)
+            != _PREDECESSOR_DEPENDENCY_PACKAGE_IDS
+            or tuple(item.get("path") for item in migrated) != _EXPECTED_MIGRATED_PATHS
+            or any(set(item) != {"path", "roadmap_package"} for item in migrated)
+        ):
+            raise DependencyAdmissionError(
+                ["B02-B06 migrated dependency records are incomplete or reordered"]
+            )
+
+        native_names = set(
+            _strings(
+                document.get("native_python_packages"),
+                context="native_python_packages",
+                allow_empty=True,
+            )
+        )
+        license_groups = _tables(document.get("license_groups"), context="license_groups")
+        packages: list[PythonPackageAdmission] = []
+        for index, group in enumerate(license_groups, 1):
+            if set(group) != {"disposition", "license_expression", "packages"}:
+                raise DependencyAdmissionError(
+                    [f"license_groups[{index}] has missing or unknown fields"]
+                )
+            license_expression = group.get("license_expression")
+            if group.get("disposition") != "approved" or not isinstance(license_expression, str):
+                raise DependencyAdmissionError(
+                    [f"license_groups[{index}] is not approved and identified"]
+                )
+            if license_expression not in _APPROVED_PYTHON_LICENSES:
+                raise DependencyAdmissionError(
+                    [f"license_groups[{index}] uses an unapproved license expression"]
+                )
+            group_packages = _strings(
+                group.get("packages"), context=f"license_groups[{index}].packages"
+            )
+            if group_packages != tuple(sorted(group_packages)):
+                raise DependencyAdmissionError([f"license_groups[{index}].packages must be sorted"])
+            packages.extend(
+                _parse_package(
+                    item, license_expression=license_expression, native_names=native_names
+                )
+                for item in group_packages
+            )
+        package_names = tuple(package.name for package in packages)
+        if len(package_names) != len(set(package_names)):
+            raise DependencyAdmissionError(["Python package admissions must be unique"])
+        if native_names != {package.name for package in packages if package.native_artifacts}:
+            raise DependencyAdmissionError(
+                ["native Python package declarations must match admitted packages"]
+            )
+        if {package.license_expression for package in packages} != _APPROVED_PYTHON_LICENSES:
+            raise DependencyAdmissionError(["Python license decision groups are incomplete"])
+
+        pip_audit = _table(document.get("pip_audit"), context="pip_audit")
+        if pip_audit != {
+            "command_mode": "exact_locked_graph",
+            "failure_policy": "block_unresolved_findings_or_skips",
+            "service": "pypi",
+            "version": "2.10.1",
+        }:
+            raise DependencyAdmissionError(
+                ["pip-audit must remain an exact, blocking signal boundary"]
+            )
+        scorecard = _table(document.get("scorecard"), context="scorecard")
+        if scorecard != {
+            "required_checks": ["License", "Maintained", "Pinned-Dependencies", "Vulnerabilities"],
+            "signal_role": "advisory_input_not_admission_authority",
+            "version": "5.5.0",
+        }:
+            raise DependencyAdmissionError(["OpenSSF Scorecard signal contract drifted"])
+
+        evidence_sha = document.get("local_evidence_commit_sha")
+        if not isinstance(evidence_sha, str) or _COMMIT.fullmatch(evidence_sha) is None:
+            raise DependencyAdmissionError(
+                ["local_evidence_commit_sha must be a full lowercase SHA"]
+            )
+        finding_ids = _strings(document.get("open_finding_ids"), context="open_finding_ids")
+        findings = _tables(document.get("findings"), context="findings")
+        if (
+            finding_ids != _DEPENDENCY_ADMISSION_OPEN_FINDING_IDS
+            or tuple(item.get("finding_id") for item in findings) != finding_ids
+        ):
+            raise DependencyAdmissionError(["partial B07 status requires the exact open findings"])
+        finding_fields = {"closure_condition", "finding_id", "owner_role", "unavailable_evidence"}
+        if any(
+            set(item) != finding_fields
+            or not all(isinstance(field, str) and field for field in item.values())
+            for item in findings
+        ):
+            raise DependencyAdmissionError(["B07 findings must use exact populated fields"])
+
+        decisions = _parse_decisions(
+            document.get("vulnerability_decisions"),
+            as_of_date=as_of_date,
+            maximum_days=maximum_override_days,
+        )
+        admitted_versions = {package.name: package.version for package in packages}
+        if any(
+            admitted_versions.get(decision.package_name) != decision.affected_version
+            for decision in decisions
+        ):
+            raise DependencyAdmissionError(
+                ["vulnerability decisions must match an exact admitted package version"]
+            )
+        overrides = _parse_overrides(
+            document.get("emergency_overrides"),
+            as_of_date=as_of_date,
+            maximum_days=maximum_override_days,
+        )
+
+        wheel_sources = parse_wheel_sources(
+            document.get("wheel_source_admissions", []), tuple(packages), _APPROVED_PYTHON_LICENSES
+        )
+        bootstrap_wheels = parse_bootstrap_wheels(
+            document.get("bootstrap_wheel_admissions", []),
+            tuple(packages),
+            _APPROVED_PYTHON_LICENSES,
+            as_of_date=as_of_date,
+            review_due_on=review_due_on,
+        )
+        if {record.name for record in wheel_sources} & {record.name for record in bootstrap_wheels}:
+            raise DependencyAdmissionError(["a package cannot use both wheel admission profiles"])
+
+        try:
+            return DependencyAdmission(
+                package_status="partial",
+                successor_package="B08",
+                as_of_date=as_of_date,
+                review_due_on=review_due_on,
+                pip_audit_version="2.10.1",
+                vulnerability_service="pypi",
+                scorecard_version="5.5.0",
+                maximum_signal_age_days=maximum_signal_age_days,
+                emergency_override_maximum_days=maximum_override_days,
+                supported_platforms=supported_platforms,
+                approved_python_indexes=indexes,
+                lock_paths=lock_paths,
+                lock_digests=tuple((path, cast(str, lock_digests[path])) for path in lock_paths),
+                migrated_record_paths=_EXPECTED_MIGRATED_PATHS,
+                runtime_scan_roots=runtime_scan_roots,
+                packages=tuple(packages),
+                vulnerability_decisions=decisions,
+                emergency_overrides=overrides,
+                applicable_gate_ids=_APPLICABLE_GATES,
+                local_evidence_manifest_path=cast(str, document["local_evidence_manifest_path"]),
+                local_evidence_commit_sha=evidence_sha,
+                open_finding_ids=finding_ids,
+                wheel_source_admissions=wheel_sources,
+                bootstrap_wheel_admissions=bootstrap_wheels,
+            )
+        except ValidationError as error:
+            raise DependencyAdmissionError([f"{path}: model validation failed"]) from error
+
+
+class DependencyReportEvaluator:
+    """Evaluate scanner reports against one admitted dependency policy."""
+
+    def __init__(self, policy: DependencyAdmission) -> None:
+        """Bind DependencyReportEvaluator collaborators without filesystem or process I/O.
+
+        Args:
+            policy: Already validated policy object owned by the service.
+        """
+        self.policy = policy
+
+    def assess_pip_audit_report(
+        self,
+        report_path: Path,
+        *,
+        validation_date: date | None = None,
+    ) -> None:
+        """Assess a bounded pip-audit JSON report against the admitted lock and decisions.
+
+        Consume the already-produced report through the shared JSON loader. Require the exact root
+        fields and array types, then compare each usable dependency name and version
+        with the policy's
+        admitted package mapping. Resolve each vulnerability ID against the policy's owned decisions
+        and require an exact package/version match with an expiry on or after the validation date.
+        This function checks the decision fields it uses; it neither revalidates nor fetches a
+        decision's evidence URL, and it does not establish vulnerability exploitability.
+        It reads the report and policy without mutating either value and performs no
+        scanner, network, or decision
+        evidence I/O.
+
+        Args:
+            report_path: UTF-8 JSON report path. The loader checks the pre-read file size against
+                5,000,000 bytes before reading it; the report must decode to an object whose exact
+                root keys are ``dependencies`` and ``fixes``. Both values must be arrays, and the
+                dependency array may contain at most 1,000 entries. A dependency counts toward
+                coverage only when it is a mapping with a string ``name``, a string ``version``, and
+                a list ``vulns``; a present ``skip_reason`` records a finding instead. Extra fields
+                in dependency or vulnerability mappings are accepted, and the contents of ``fixes``
+                are not inspected.
+            validation_date: Date used for decision expiry checks; defaults to ``date.today()`` when
+                omitted. A decision is current when ``expires_on`` equals this date or is later.
+
+        Returns:
+            ``None`` after every admitted package is covered exactly once and every reported
+            vulnerability has a matching, current decision.
+
+        Raises:
+            DependencyAdmissionError: If the report exceeds the size limit, fails JSON or UTF-8
+                loading, has the wrong root shape, has non-array ``dependencies`` or ``fixes``, or
+                exceeds 1,000 dependencies. These envelope, shape, and size failures are raised
+                immediately. For a structurally valid report, malformed, unnamed, skipped,
+                incomplete, duplicate, or unresolved dependency entries become findings in traversal
+                order; a missing, unexpected, or misversioned package adds the final coverage
+                finding. Vulnerability findings are unresolved when their ID is absent,
+                their decision
+                does not match the exact package and version, or the decision has expired. If that
+                finding list is non-empty after traversal, raise one ``DependencyAdmissionError``
+                containing those findings.
+            OSError: If report ``stat`` or read operations fail.
+            ValueError: If the JSON decoder raises a non-syntax value error, such as an oversized
+                integer, while loading the report.
+            RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+        """
+        policy = self.policy
+        report = _load_json_signal(report_path, signal="pip-audit")
+        if not isinstance(report, dict):
+            raise DependencyAdmissionError(["pip-audit report has missing or unknown root fields"])
+        report_object = cast(dict[str, object], report)
+        if set(report_object) != {"dependencies", "fixes"}:
+            raise DependencyAdmissionError(["pip-audit report has missing or unknown root fields"])
+        raw_dependencies = report_object.get("dependencies")
+        if not isinstance(raw_dependencies, list) or not isinstance(
+            report_object.get("fixes"), list
+        ):
+            raise DependencyAdmissionError(["pip-audit dependencies must be an array"])
+        dependencies = cast(list[object], raw_dependencies)
+        if len(dependencies) > _MAX_PIP_AUDIT_DEPENDENCIES:
+            raise DependencyAdmissionError(["pip-audit dependency count exceeds the limit"])
+        expected = {package.name: package.version for package in policy.packages}
+        observed: dict[str, str] = {}
+        findings: list[str] = []
+        decisions = {
+            decision.vulnerability_id: decision for decision in policy.vulnerability_decisions
+        }
+        today = date.today() if validation_date is None else validation_date
+        for index, item in enumerate(dependencies, 1):
+            if not isinstance(item, dict):
+                findings.append(f"pip-audit dependency {index} is malformed")
+                continue
+            dependency = cast(dict[str, object], item)
+            name = dependency.get("name")
+            if not isinstance(name, str):
+                findings.append(f"pip-audit dependency {index} has no name")
+                continue
+            if "skip_reason" in dependency:
+                findings.append(f"pip-audit skipped dependency {name}")
+                continue
+            version = dependency.get("version")
+            raw_vulnerabilities = dependency.get("vulns")
+            vulnerabilities = (
+                cast(list[object], raw_vulnerabilities)
+                if isinstance(raw_vulnerabilities, list)
+                else None
+            )
+            if not isinstance(version, str) or not isinstance(vulnerabilities, list):
+                findings.append(f"pip-audit dependency {name} is incomplete")
+                continue
+            if name in observed:
+                findings.append(f"pip-audit reported duplicate dependency {name}")
+                continue
+            observed[name] = version
+            for vulnerability in vulnerabilities:
+                vulnerability_id = None
+                if isinstance(vulnerability, dict):
+                    vulnerability_object = cast(dict[str, object], vulnerability)
+                    vulnerability_id = vulnerability_object.get("id")
+                decision = (
+                    decisions.get(vulnerability_id) if isinstance(vulnerability_id, str) else None
+                )
+                if (
+                    decision is None
+                    or decision.package_name != name
+                    or decision.affected_version != version
+                    or decision.expires_on < today
+                ):
+                    findings.append(
+                        f"{name}=={version} has unresolved vulnerability {vulnerability_id!r}"
+                    )
+        if observed != expected:
+            mismatches = sorted(
+                name for name in set(expected) & set(observed) if expected[name] != observed[name]
+            )
+            findings.append(
+                "pip-audit coverage differs from the admitted lock: "
+                f"missing={sorted(set(expected) - set(observed))}, "
+                f"unexpected={sorted(set(observed) - set(expected))}, "
+                f"version_mismatches={mismatches}"
+            )
+        if findings:
+            raise DependencyAdmissionError(findings)
+
+    def assess_scorecard_report(
+        self,
+        report_path: Path,
+        *,
+        expected_repository: str,
+        expected_commit: str,
+        validation_time: datetime | None = None,
+    ) -> None:
+        """Assess a bounded Scorecard JSON report for identity, freshness, and required checks.
+
+        Consume the already-produced report through the shared JSON loader and validate its
+        repository binding, admitted tool version, timestamp, and required check records. Parse the
+        report timestamp with ``datetime.fromisoformat`` after replacing every ``Z`` with
+        ``+00:00``; this accepts a broader syntax than strict RFC 3339, but the resulting timestamp
+        must be timezone-aware. Treat a passing result as an advisory signal: do not apply an
+        aggregate score threshold, authenticate the repository or engine commit, or use
+        the signal as dependency admission. Read the report and policy without mutating
+        either value and perform no
+        external network or evidence I/O.
+
+        Args:
+            report_path: UTF-8 JSON report path. The loader checks the pre-read file size against
+                5,000,000 bytes before reading it. The decoded value must be an object containing
+                mapping values for ``repo`` and ``scorecard`` and a list value for ``checks``; the
+                check list may contain at most 100 entries. Extra report, repository, scorecard, and
+                check fields are accepted.
+            expected_repository: Repository name that must equal ``repo["name"]`` exactly. The value
+                is not normalized or otherwise authenticated.
+            expected_commit: Expected repository revision that must equal ``repo["commit"]`` exactly
+                and must be a full lowercase 40-character hexadecimal SHA. The report's
+                ``scorecard["commit"]`` is separately required to have that same shape, but is not
+                compared with this revision or with a policy pin.
+            validation_time: Time against which the report timestamp is checked; defaults to the
+                current UTC time. Supply a timezone-aware ``datetime`` so aware report
+                timestamps can
+                be compared; a naive or otherwise incompatible value can cause ``TypeError``.
+
+        Returns:
+            ``None`` after the report is bound to the expected repository commit, uses the admitted
+            Scorecard version, is neither future-dated nor older than the policy's inclusive age
+            window, and contains all required conclusive checks.
+
+        Raises:
+            DependencyAdmissionError: If report loading fails, the decoded report is not an object,
+                ``repo`` or ``scorecard`` is not a mapping, ``checks`` is not a list, or
+                the list has
+                more than 100 entries. The function then rejects a repository name or commit that
+                does not exactly match the supplied values, an invalid expected commit, an
+                unadmitted Scorecard version, an engine commit that is not lowercase 40-hex text, or
+                a missing or unparsable timestamp. It also rejects a naive, future-dated, or stale
+                timestamp; duplicate qualifying check names; and missing or negative
+                required checks.
+                A qualifying check is any mapping with a string ``name`` and an ``int`` ``score``;
+                malformed entries without both fields are ignored. Unknown names still qualify and
+                participate in duplicate-name rejection, while only ``License``, ``Maintained``,
+                ``Pinned-Dependencies``, and ``Vulnerabilities`` are required to have nonnegative
+                scores. ``bool`` scores satisfy the runtime ``int`` check, scores have no
+                upper bound, and the report's aggregate score is unused. The function
+                raises directly in validation
+                order, rejecting duplicate names during traversal and missing or negative required
+                checks afterward; it does not collect findings.
+            OSError: If report ``stat`` or read operations fail.
+            ValueError: If the JSON decoder raises a non-syntax value error while
+                loading the report.
+            RecursionError: If JSON nesting exceeds the decoder's recursion limit.
+            TypeError: If ``validation_time`` is naive or otherwise incompatible with an aware
+                report timestamp during freshness comparison.
+        """
+        policy = self.policy
+        report = _load_json_signal(report_path, signal="Scorecard")
+        if not isinstance(report, dict):
+            raise DependencyAdmissionError(["Scorecard report must be a JSON object"])
+        report_object = cast(dict[str, object], report)
+        repository = report_object.get("repo")
+        scorecard = report_object.get("scorecard")
+        checks = report_object.get("checks")
+        if (
+            not isinstance(repository, dict)
+            or not isinstance(scorecard, dict)
+            or not isinstance(checks, list)
+        ):
+            raise DependencyAdmissionError(
+                ["Scorecard report is missing repo, scorecard, or checks"]
+            )
+        repository = cast(dict[str, object], repository)
+        scorecard = cast(dict[str, object], scorecard)
+        checks = cast(list[object], checks)
+        if len(checks) > _MAX_SCORECARD_CHECKS:
+            raise DependencyAdmissionError(["Scorecard check count exceeds the limit"])
+        repository_name = repository.get("name")
+        repository_commit = repository.get("commit")
+        if repository_name != expected_repository or repository_commit != expected_commit:
+            raise DependencyAdmissionError(
+                ["Scorecard report is not bound to the expected repository commit"]
+            )
+        if _COMMIT.fullmatch(expected_commit) is None:
+            raise DependencyAdmissionError(
+                ["expected Scorecard commit must be a full lowercase SHA"]
+            )
+        if scorecard.get("version") != policy.scorecard_version:
+            raise DependencyAdmissionError(["Scorecard signal uses an unadmitted tool version"])
+        scorecard_commit = scorecard.get("commit")
+        if not isinstance(scorecard_commit, str) or _COMMIT.fullmatch(scorecard_commit) is None:
+            raise DependencyAdmissionError(["Scorecard signal has no immutable engine commit"])
+        raw_date = report_object.get("date")
+        if not isinstance(raw_date, str):
+            raise DependencyAdmissionError(["Scorecard report date is missing"])
+        try:
+            generated_at = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise DependencyAdmissionError(["Scorecard report date is not RFC 3339"]) from error
+        now = datetime.now(UTC) if validation_time is None else validation_time
+        if (
+            generated_at.tzinfo is None
+            or generated_at > now
+            or now - generated_at > timedelta(days=policy.maximum_signal_age_days)
+        ):
+            raise DependencyAdmissionError(["Scorecard signal is future-dated or stale"])
+        observed: dict[str, int] = {}
+        for item in checks:
+            if not isinstance(item, dict):
+                continue
+            check = cast(dict[str, object], item)
+            if isinstance(check.get("name"), str) and isinstance(check.get("score"), int):
+                name = cast(str, check["name"])
+                if name in observed:
+                    raise DependencyAdmissionError([f"Scorecard check {name!r} is duplicated"])
+                observed[name] = cast(int, check["score"])
+        required = {"License", "Maintained", "Pinned-Dependencies", "Vulnerabilities"}
+        if set(observed) & required != required or any(observed[name] < 0 for name in required):
+            raise DependencyAdmissionError(
+                ["Scorecard required checks are missing or inconclusive"]
+            )
+
+
+class DependencyRepositoryValidator:
+    """Validate repository dependency surfaces and release admission."""
+
+    def __init__(self, repository_root: Path, policy: DependencyAdmission | None = None) -> None:
+        """Bind DependencyRepositoryValidator collaborators without filesystem or process I/O.
+
+        Args:
+            repository_root: Repository root used by later service operations.
+            policy: Already validated policy object owned by the service.
+        """
+        self.repository_root = repository_root
+        self.policy = policy
+
+    def require_release_admission(self) -> None:
+        """Require release admission for the repository's dependency lock boundary.
+
+        Resolve ``repository_root`` strictly, load the dependency policy, and reject
+        immediately when it contains any bootstrap-wheel admission. That short-circuit
+        occurs before reading ``uv.lock``, checking the current date, or hashing the
+        admitted lock surfaces. Otherwise, collect Python lock findings, append a
+        stale-review finding when ``review_due_on`` is before ``date.today()``, then
+        hash each policy-listed lock path in its admitted order and append digest
+        mismatches before raising one combined error.
+
+        The Python lock checks cover the admitted external package set, versions,
+        registry source, supplied wheel and source digests, platform heuristics, and
+        dependency edges. Delegated wheel verifiers compare the locked wheel set and
+        supplied digests with retained local provenance and may authenticate claims
+        with Cosign; they do not download or recompute wheel or source-archive bytes
+        and do not repeat parser-level cross-record checks. Policy, lock, evidence,
+        and digest operations read repository files without mutating them. A
+        source-bound verifier may stage a temporary trust root and invoke a local
+        Cosign subprocess with no shell, a ``PATH``-only environment, and no offline
+        flag, so this function does not establish network-free execution. This gate
+        is narrower than ``validate_repository``: it hashes every admitted lock path
+        but does not parse non-Python lock contents or run their semantic surface
+        checks, and it does not inspect migrated records, runtime-install scans, or
+        external audit signals.
+
+        The repository root is bound by the service constructor.
+
+        Raises:
+            DependencyAdmissionError: If policy loading, bootstrap use, Python lock or
+                provenance checks, review freshness, or an admitted lock digest fails.
+            OSError: If strict root resolution or a policy, lock, evidence, digest, or
+                temporary-verifier filesystem operation fails.
+            RuntimeError: If strict root resolution encounters a symlink loop.
+            UnicodeDecodeError: If a required text policy or lock file is not UTF-8.
+            tomllib.TOMLDecodeError: If ``uv.lock`` is not valid TOML; policy TOML
+                syntax errors are translated to ``DependencyAdmissionError``.
+            ValueError: If URL parsing or another verifier operation raises an
+                untranslated value error.
+        """
+        root = self.repository_root.resolve(strict=True)
+        policy = (
+            self.policy
+            or DependencyPolicyLoader(root / "docs/architecture/dependency-admission.toml").load()
+        )
+        if policy.bootstrap_wheel_admissions:
+            names = ", ".join(record.name for record in policy.bootstrap_wheel_admissions)
+            raise DependencyAdmissionError(
+                [f"bootstrap-only dependencies block artifact release: {names}"]
+            )
+        # Removing a bootstrap record must not turn its unprovenanced locked wheel into a release.
+        findings = DependencyRepositoryInspector(root, policy)._python_lock_findings()
+        if policy.review_due_on < date.today():
+            findings.append("dependency admission review is stale")
+        for relative, expected_digest in policy.lock_digests:
+            if hashlib.sha256((root / relative).read_bytes()).hexdigest() != expected_digest:
+                findings.append(f"{relative} differs from its admitted SHA-256 digest")
+        if findings:
+            raise DependencyAdmissionError(findings)
+
+    def validate_repository(self, *, validation_date: date | None = None) -> DependencyAdmission:
+        """Validate the B07 policy, repository dependency surfaces, and local evidence.
+
+        Resolve ``repository_root`` strictly, load its policy, and use ``validation_date``
+        or ``date.today()`` for bootstrap-wheel effectiveness, review freshness, and
+        emergency-override expiry. A review deadline or override expiry equal to the
+        chosen date remains valid because the checks flag only dates before it. Collect
+        findings in order from the Python lock graph, retained B02-B06 records,
+        non-Python lock surfaces, and configured ``src``/``tools``
+        runtime-install scans. Then check policy-listed lock digests, the exact
+        ``pip-audit==2.10.1`` development dependency, and required integration fragments.
+        A non-empty finding list is raised together. When those checks pass, validate the
+        repository change-risk policy, local evidence manifest and artifact digests, and
+        the exact B07 package-evidence profile before returning the policy.
+
+        The repository checks read files and do not mutate them. An optional wheel profile
+        can cause retained evidence reads and a local Cosign subprocess through the lock
+        helper; verifier domain failures become package-prefixed findings there, while
+        unrelated I/O, decoding, parsing, URL, and temporary-resource failures propagate.
+        This function does not run pip-audit or Scorecard, query installed package metadata,
+        or install packages, and its Cosign path does not guarantee network-free execution.
+
+        Args:
+            validation_date: Date used for bootstrap validity, review freshness, and
+                override expiry; defaults to ``date.today()`` when omitted.
+
+        Returns:
+            The validated immutable ``DependencyAdmission`` policy when repository checks
+            report no findings and evidence validation succeeds.
+
+        Raises:
+            DependencyAdmissionError: If policy loading fails, repository checks produce
+                findings, or policy-bound wheel and dependency-admission evidence fails.
+                Findings from the repository scans and digest checks are aggregated; domain
+                failures translated by wheel verifiers are included through that boundary.
+            EvidenceGovernanceError: If the local evidence manifest, its artifact digests,
+                or the B07 package-evidence profile fails after repository findings clear.
+            ChangeRiskPolicyError: If the policy-bound change-risk policy cannot be loaded
+                or validated.
+            OSError: If strict root resolution or an uncaught repository, evidence,
+                lock-digest, temporary-resource, or integration-file operation fails.
+            RuntimeError: If repository or evidence-bundle path resolution encounters a
+                symlink loop.
+            UnicodeDecodeError: If an uncaught repository, policy, lock, migration,
+                integration, source, or evidence text file is not valid UTF-8.
+            json.JSONDecodeError: If a non-Python lock surface is not valid JSON.
+            tomllib.TOMLDecodeError: If an uncaught repository TOML document, including
+                a lock, migration record, or ``pyproject.toml``, is malformed. Policy,
+                change-risk, and evidence-manifest TOML syntax is translated by its
+                respective loader.
+            ValueError: If URL parsing or another helper operation raises an untranslated
+                value error.
+        """
+        root = self.repository_root.resolve(strict=True)
+        policy = (
+            self.policy
+            or DependencyPolicyLoader(root / "docs/architecture/dependency-admission.toml").load()
+        )
+        today = date.today() if validation_date is None else validation_date
+        inspector = DependencyRepositoryInspector(root, policy)
+        findings = (
+            inspector._python_lock_findings(validation_date=today)
+            + inspector._migrated_record_findings()
+            + inspector._lock_surface_findings()
+            + inspector._runtime_install_findings()
+        )
+        if policy.review_due_on < today:
+            findings.append("dependency admission review is stale")
+        for override in policy.emergency_overrides:
+            if override.expires_on < today:
+                findings.append(f"emergency override {override.override_id} is expired")
+        for relative, expected_digest in policy.lock_digests:
+            observed_digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+            if observed_digest != expected_digest:
+                findings.append(f"{relative} differs from its admitted SHA-256 digest")
+        pyproject: dict[str, object] = tomllib.loads(
+            (root / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        groups = _table(pyproject.get("dependency-groups", {}), context="dependency-groups")
+        dev = _strings(groups.get("dev", []), context="dependency-groups.dev", allow_empty=True)
+        if "pip-audit==2.10.1" not in dev:
+            findings.append("pyproject.toml is missing exact pip-audit 2.10.1 admission")
+        integrations = {
+            "Makefile": (
+                "dependency-admission-check:",
+                "dependency-audit:",
+                "alpha-governance-dependencies",
+            ),
+            ".pre-commit-config.yaml": (
+                "id: dependency-admission",
+                "alpha-governance-dependencies",
+            ),
+            ".github/workflows/ci.yml": ("make dependency-audit",),
+            "tools/governance/pyproject.toml": ("alpha-governance-dependencies",),
+        }
+        for relative, fragments in integrations.items():
+            text = (root / relative).read_text(encoding="utf-8")
+            missing = [fragment for fragment in fragments if fragment not in text]
+            if missing:
+                findings.append(f"{relative} is missing dependency-admission interfaces: {missing}")
+        if findings:
+            raise DependencyAdmissionError(findings)
+        manifest = validate_manifest(
+            root / policy.local_evidence_manifest_path,
+            expected_commit_sha=policy.local_evidence_commit_sha,
+            change_policy=load_change_risk_policy(root / "docs/governance/change-risk-policy.toml"),
+        )
+        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+        return policy
+
+
 def load_policy(path: Path) -> DependencyAdmission:
     """Load and validate the B07 dependency-admission TOML policy.
 
@@ -495,213 +1223,7 @@ def load_policy(path: Path) -> DependencyAdmission:
             ``PythonPackageAdmission`` is constructed; wheel-record and final-policy
             model failures are translated to ``DependencyAdmissionError``.
     """
-    try:
-        document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
-    except tomllib.TOMLDecodeError as error:
-        raise DependencyAdmissionError([f"{path}: invalid TOML: {error}"]) from error
-    if not _ROOT_KEYS <= set(document) or set(document) - _ROOT_KEYS - {
-        "wheel_source_admissions",
-        "bootstrap_wheel_admissions",
-    }:
-        raise DependencyAdmissionError([f"{path}: has missing or unknown fields"])
-    expected = {
-        "accountable_owner_role": "platform",
-        "operating_track": "solo_bootstrap",
-        "package_status": "partial",
-        "risk_class": "R2",
-        "roadmap_package": "B07",
-        "runtime_installation_allowed": False,
-        "schema_version": 1,
-        "successor_package": "B08",
-    }
-    for key, value in expected.items():
-        if document.get(key) != value:
-            raise DependencyAdmissionError([f"{path}: {key} must be {value!r}"])
-    as_of_date = _iso_date(document.get("as_of_date"), context="as_of_date")
-    review_due_on = _iso_date(document.get("review_due_on"), context="review_due_on")
-    if review_due_on <= as_of_date or review_due_on > as_of_date + timedelta(days=90):
-        raise DependencyAdmissionError(["review_due_on must be within 90 days after as_of_date"])
-    maximum_signal_age_days = document.get("maximum_signal_age_days")
-    maximum_override_days = document.get("emergency_override_maximum_days")
-    patch_cadence_days = document.get("patch_cadence_days")
-    if maximum_signal_age_days != 7 or maximum_override_days != 30 or patch_cadence_days != 30:
-        raise DependencyAdmissionError(["signal, override, and patch/EOL review bounds drifted"])
-    if (
-        _strings(document.get("applicable_gate_ids"), context="applicable_gate_ids")
-        != _APPLICABLE_GATES
-    ):
-        raise DependencyAdmissionError(["dependency admission must retain the exact R2 gates"])
-    supported_platforms = _strings(
-        document.get("supported_platforms"), context="supported_platforms"
-    )
-    if supported_platforms != ("darwin_arm64", "linux_x86_64"):
-        raise DependencyAdmissionError(
-            ["supported platforms must retain Darwin arm64 and Linux x86_64"]
-        )
-    indexes = _strings(document.get("approved_python_indexes"), context="approved_python_indexes")
-    if indexes != ("https://pypi.org/simple",):
-        raise DependencyAdmissionError(["only the reviewed PyPI simple index is approved"])
-    lock_paths = _strings(document.get("lock_paths"), context="lock_paths")
-    if lock_paths != _EXPECTED_LOCK_PATHS:
-        raise DependencyAdmissionError(["lock_paths must cover the exact current lock surfaces"])
-    lock_digests = _table(document.get("lock_digests"), context="lock_digests")
-    if set(lock_digests) != set(lock_paths) or any(
-        not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-        for digest in lock_digests.values()
-    ):
-        raise DependencyAdmissionError(["lock_digests must bind every lock surface by SHA-256"])
-    runtime_scan_roots = _strings(document.get("runtime_scan_roots"), context="runtime_scan_roots")
-    if runtime_scan_roots != ("src", "tools"):
-        raise DependencyAdmissionError(["runtime install scanning must cover src and tools"])
-
-    migrated = _tables(document.get("migrated_records"), context="migrated_records")
-    if (
-        tuple(item.get("roadmap_package") for item in migrated)
-        != _PREDECESSOR_DEPENDENCY_PACKAGE_IDS
-        or tuple(item.get("path") for item in migrated) != _EXPECTED_MIGRATED_PATHS
-        or any(set(item) != {"path", "roadmap_package"} for item in migrated)
-    ):
-        raise DependencyAdmissionError(
-            ["B02-B06 migrated dependency records are incomplete or reordered"]
-        )
-
-    native_names = set(
-        _strings(
-            document.get("native_python_packages"),
-            context="native_python_packages",
-            allow_empty=True,
-        )
-    )
-    license_groups = _tables(document.get("license_groups"), context="license_groups")
-    packages: list[PythonPackageAdmission] = []
-    for index, group in enumerate(license_groups, 1):
-        if set(group) != {"disposition", "license_expression", "packages"}:
-            raise DependencyAdmissionError(
-                [f"license_groups[{index}] has missing or unknown fields"]
-            )
-        license_expression = group.get("license_expression")
-        if group.get("disposition") != "approved" or not isinstance(license_expression, str):
-            raise DependencyAdmissionError(
-                [f"license_groups[{index}] is not approved and identified"]
-            )
-        if license_expression not in _APPROVED_PYTHON_LICENSES:
-            raise DependencyAdmissionError(
-                [f"license_groups[{index}] uses an unapproved license expression"]
-            )
-        group_packages = _strings(
-            group.get("packages"), context=f"license_groups[{index}].packages"
-        )
-        if group_packages != tuple(sorted(group_packages)):
-            raise DependencyAdmissionError([f"license_groups[{index}].packages must be sorted"])
-        packages.extend(
-            _parse_package(item, license_expression=license_expression, native_names=native_names)
-            for item in group_packages
-        )
-    package_names = tuple(package.name for package in packages)
-    if len(package_names) != len(set(package_names)):
-        raise DependencyAdmissionError(["Python package admissions must be unique"])
-    if native_names != {package.name for package in packages if package.native_artifacts}:
-        raise DependencyAdmissionError(
-            ["native Python package declarations must match admitted packages"]
-        )
-    if {package.license_expression for package in packages} != _APPROVED_PYTHON_LICENSES:
-        raise DependencyAdmissionError(["Python license decision groups are incomplete"])
-
-    pip_audit = _table(document.get("pip_audit"), context="pip_audit")
-    if pip_audit != {
-        "command_mode": "exact_locked_graph",
-        "failure_policy": "block_unresolved_findings_or_skips",
-        "service": "pypi",
-        "version": "2.10.1",
-    }:
-        raise DependencyAdmissionError(["pip-audit must remain an exact, blocking signal boundary"])
-    scorecard = _table(document.get("scorecard"), context="scorecard")
-    if scorecard != {
-        "required_checks": ["License", "Maintained", "Pinned-Dependencies", "Vulnerabilities"],
-        "signal_role": "advisory_input_not_admission_authority",
-        "version": "5.5.0",
-    }:
-        raise DependencyAdmissionError(["OpenSSF Scorecard signal contract drifted"])
-
-    evidence_sha = document.get("local_evidence_commit_sha")
-    if not isinstance(evidence_sha, str) or _COMMIT.fullmatch(evidence_sha) is None:
-        raise DependencyAdmissionError(["local_evidence_commit_sha must be a full lowercase SHA"])
-    finding_ids = _strings(document.get("open_finding_ids"), context="open_finding_ids")
-    findings = _tables(document.get("findings"), context="findings")
-    if (
-        finding_ids != _DEPENDENCY_ADMISSION_OPEN_FINDING_IDS
-        or tuple(item.get("finding_id") for item in findings) != finding_ids
-    ):
-        raise DependencyAdmissionError(["partial B07 status requires the exact open findings"])
-    finding_fields = {"closure_condition", "finding_id", "owner_role", "unavailable_evidence"}
-    if any(
-        set(item) != finding_fields
-        or not all(isinstance(field, str) and field for field in item.values())
-        for item in findings
-    ):
-        raise DependencyAdmissionError(["B07 findings must use exact populated fields"])
-
-    decisions = _parse_decisions(
-        document.get("vulnerability_decisions"),
-        as_of_date=as_of_date,
-        maximum_days=maximum_override_days,
-    )
-    admitted_versions = {package.name: package.version for package in packages}
-    if any(
-        admitted_versions.get(decision.package_name) != decision.affected_version
-        for decision in decisions
-    ):
-        raise DependencyAdmissionError(
-            ["vulnerability decisions must match an exact admitted package version"]
-        )
-    overrides = _parse_overrides(
-        document.get("emergency_overrides"),
-        as_of_date=as_of_date,
-        maximum_days=maximum_override_days,
-    )
-
-    wheel_sources = parse_wheel_sources(
-        document.get("wheel_source_admissions", []), tuple(packages), _APPROVED_PYTHON_LICENSES
-    )
-    bootstrap_wheels = parse_bootstrap_wheels(
-        document.get("bootstrap_wheel_admissions", []),
-        tuple(packages),
-        _APPROVED_PYTHON_LICENSES,
-        as_of_date=as_of_date,
-        review_due_on=review_due_on,
-    )
-    if {record.name for record in wheel_sources} & {record.name for record in bootstrap_wheels}:
-        raise DependencyAdmissionError(["a package cannot use both wheel admission profiles"])
-
-    try:
-        return DependencyAdmission(
-            package_status="partial",
-            successor_package="B08",
-            as_of_date=as_of_date,
-            review_due_on=review_due_on,
-            pip_audit_version="2.10.1",
-            vulnerability_service="pypi",
-            scorecard_version="5.5.0",
-            maximum_signal_age_days=maximum_signal_age_days,
-            emergency_override_maximum_days=maximum_override_days,
-            supported_platforms=supported_platforms,
-            approved_python_indexes=indexes,
-            lock_paths=lock_paths,
-            lock_digests=tuple((path, cast(str, lock_digests[path])) for path in lock_paths),
-            migrated_record_paths=_EXPECTED_MIGRATED_PATHS,
-            runtime_scan_roots=runtime_scan_roots,
-            packages=tuple(packages),
-            vulnerability_decisions=decisions,
-            emergency_overrides=overrides,
-            applicable_gate_ids=_APPLICABLE_GATES,
-            local_evidence_manifest_path=cast(str, document["local_evidence_manifest_path"]),
-            local_evidence_commit_sha=evidence_sha,
-            open_finding_ids=finding_ids,
-            wheel_source_admissions=wheel_sources,
-            bootstrap_wheel_admissions=bootstrap_wheels,
-        )
-    except ValidationError as error:
-        raise DependencyAdmissionError([f"{path}: model validation failed"]) from error
+    return DependencyPolicyLoader(path).load()
 
 
 def _locked_python_packages(path: Path) -> dict[str, dict[str, object]]:
@@ -781,100 +1303,323 @@ def _wheel_platform_findings(
     return []
 
 
+class DependencyRepositoryInspector:
+    """Own repository lock, migration, and installation-scan workflows."""
+
+    def __init__(self, repository_root: Path, policy: DependencyAdmission | None = None) -> None:
+        """Bind DependencyRepositoryInspector collaborators without filesystem or process I/O.
+
+        Args:
+            repository_root: Repository root used by later service operations.
+            policy: Already validated policy object owned by the service.
+        """
+        self.repository_root = repository_root
+        self.policy = policy
+
+    def _python_lock_findings(self, *, validation_date: date | None = None) -> list[str]:
+        """Collect findings for the admitted Python lock graph.
+
+        Args:
+            validation_date: Date passed to bootstrap-wheel verification; when omitted, the verifier
+                uses the current date, while source-bound profiles do not use this argument.
+
+        Returns:
+            Findings in deterministic order: external-name mismatch first, then each admitted
+            package
+            in policy order, with version, source, evidence, digest, platform, and dependency-edge
+            checks in their execution order. Wheel-verifier domain findings are returned with a
+            package prefix. Source-bound or bootstrap profiles can read retained local evidence and,
+            through their verifier, invoke the pinned local Cosign executable. The policy and lock
+            inputs are not mutated.
+
+        Raises:
+            DependencyAdmissionError: If ``uv.lock`` has an invalid shape, schema, or duplicate
+                usable package name. Domain failures from wheel verifiers are caught and converted
+                into findings; their non-domain filesystem, parsing, or process errors propagate.
+            OSError: If lock or wheel-evidence filesystem operations fail outside translated
+                verifier boundaries.
+            UnicodeDecodeError: If a read lock or evidence file is not valid UTF-8.
+            tomllib.TOMLDecodeError: If ``uv.lock`` is not valid TOML.
+            ValueError: If URL parsing or another verifier operation raises an untranslated value
+                error.
+        """
+        root = self.repository_root
+        policy = self.policy
+        if policy is None:
+            raise ValueError("dependency repository inspector requires an admitted policy")
+        locked = _locked_python_packages(root / "uv.lock")
+        findings: list[str] = []
+        external_names = {
+            name
+            for name, item in locked.items()
+            if item.get("source") in ({"registry": "https://pypi.org/simple"},)
+        }
+        admitted = {package.name for package in policy.packages}
+        wheel_sources = {record.name: record for record in policy.wheel_source_admissions}
+        bootstrap_wheels = {record.name: record for record in policy.bootstrap_wheel_admissions}
+        if external_names != admitted:
+            findings.append(
+                "uv.lock external packages and dependency admissions differ: "
+                f"missing={sorted(external_names - admitted)}, "
+                f"stale={sorted(admitted - external_names)}"
+            )
+        for package in policy.packages:
+            item = locked.get(package.name)
+            if item is None or item.get("version") != package.version:
+                findings.append(
+                    f"{package.name} is not locked at admitted version {package.version}"
+                )
+                continue
+            source = item.get("source")
+            if source != {"registry": "https://pypi.org/simple"}:
+                findings.append(f"{package.name} uses an unapproved package source")
+            sdist = item.get("sdist")
+            if package.name in wheel_sources:
+                try:
+                    verify_wheel_sources(root, item, wheel_sources[package.name])
+                except DependencyAdmissionError as error:
+                    findings.extend(f"{package.name}: {finding}" for finding in error.findings)
+            elif package.name in bootstrap_wheels:
+                try:
+                    verify_bootstrap_wheels(
+                        root,
+                        item,
+                        bootstrap_wheels[package.name],
+                        validation_date=date.today()
+                        if validation_date is None
+                        else validation_date,
+                    )
+                except DependencyAdmissionError as error:
+                    findings.extend(f"{package.name}: {finding}" for finding in error.findings)
+            elif (
+                not isinstance(sdist, dict)
+                or not isinstance(sdist.get("hash"), str)
+                or _HASH.fullmatch(cast(str, sdist["hash"])) is None
+            ):
+                findings.append(f"{package.name} lacks a digest-bound source distribution")
+            wheels = item.get("wheels")
+            if not isinstance(wheels, list) or any(
+                not isinstance(wheel, dict)
+                or not isinstance(wheel.get("hash"), str)
+                or _HASH.fullmatch(cast(str, wheel["hash"])) is None
+                for wheel in wheels
+            ):
+                findings.append(f"{package.name} has a wheel without a SHA-256 digest")
+            findings.extend(_wheel_platform_findings(package, item))
+            dependencies = item.get("dependencies", [])
+            if not isinstance(dependencies, list):
+                findings.append(f"{package.name} dependency edges are malformed")
+                continue
+            for dependency in dependencies:
+                if not isinstance(dependency, dict) or dependency.get("name") not in locked:
+                    findings.append(f"{package.name} has an unresolved transitive dependency")
+        return findings
+
+    def _migrated_record_findings(self) -> list[str]:
+        """Collect findings for predecessor dependency records retained after migration.
+
+        Returns:
+            Findings ordered by predecessor package and path, then by each record's ``dependencies``
+            and ``tools`` collections and their field checks. The checks cover expected roadmap
+            ownership, runtime-installation prohibition for B02 through B05, required non-empty
+            strings, HTTPS source URLs, embedded immutable digests, non-empty platform lists, and
+            transitive/native dependency lists. Inputs are read only and never mutated; URL policy
+            failures become findings.
+
+        Raises:
+            DependencyAdmissionError: If a parsed document or collection is not a TOML table or
+                table array, respectively.
+            OSError: If a migrated record cannot be read.
+            UnicodeDecodeError: If a migrated record is not valid UTF-8.
+            tomllib.TOMLDecodeError: If a migrated record is not valid TOML.
+            ValueError: If the ordered path count fails ``zip``'s strict check or URL parsing
+                rejects malformed source URL authority syntax.
+        """
+        root = self.repository_root
+        policy = self.policy
+        if policy is None:
+            raise ValueError("dependency repository inspector requires an admitted policy")
+        findings: list[str] = []
+        for expected_package, relative in zip(
+            _PREDECESSOR_DEPENDENCY_PACKAGE_IDS,
+            policy.migrated_record_paths,
+            strict=True,
+        ):
+            raw_document: object = cast(
+                object, tomllib.loads((root / relative).read_text(encoding="utf-8"))
+            )
+            document = _table(raw_document, context=relative)
+            if document.get("roadmap_package") != expected_package:
+                findings.append(f"{relative} is not the {expected_package} migration source")
+            if expected_package != "B06":
+                if document.get("admission_owner_package") != "B07":
+                    findings.append(f"{relative} does not retain B07 admission ownership")
+                if document.get("runtime_installation_allowed") is not False:
+                    findings.append(f"{relative} permits runtime dependency installation")
+            for collection in ("dependencies", "tools"):
+                for item in _tables(
+                    document.get(collection, []), context=f"{relative}.{collection}"
+                ):
+                    required = (
+                        "license",
+                        "maintenance_review",
+                        "purpose",
+                        "rollback",
+                        "source_digest",
+                        "source_url",
+                        "version",
+                        "vulnerability_review",
+                    )
+                    if any(
+                        not isinstance(item.get(key), str) or not item.get(key) for key in required
+                    ):
+                        findings.append(
+                            f"{relative} has an incomplete migrated {collection} record"
+                        )
+                        continue
+                    source_url = cast(str, item["source_url"])
+                    source_digest = cast(str, item["source_digest"])
+                    try:
+                        _https_url(source_url, context=f"{relative}.{collection}.source_url")
+                    except DependencyAdmissionError:
+                        findings.append(f"{relative} has an unapproved migrated source URL")
+                    if re.search(r"(?:[0-9a-f]{64}|[0-9a-f]{40})", source_digest) is None:
+                        findings.append(f"{relative} has no immutable migrated source digest")
+                    platform_key = (
+                        "supported_systems" if collection == "tools" else "supported_platforms"
+                    )
+                    if not isinstance(item.get(platform_key), list) or not item.get(platform_key):
+                        findings.append(f"{relative} has no migrated platform declaration")
+                    if not isinstance(item.get("transitive_native_dependencies"), list):
+                        findings.append(f"{relative} has no migrated transitive/native declaration")
+        return findings
+
+    def _lock_surface_findings(self) -> list[str]:
+        """Collect findings from the repository's non-Python lock surfaces.
+
+        Returns:
+            Findings in surface order: ``MODULE.bazel.lock``, ``flake.lock``, the exact
+            ``requirements.bazel.txt`` subset relation to ``uv.lock``, and regex-matched GitHub
+            Actions in ``ci.yml``. The checks require BCR registry URLs with lowercase 64-character
+            SHA-256 strings, and require each non-root Nix node to expose string ``rev`` and
+            ``narHash`` values without checking their content or immutability. Requirements are
+            compared only by names before the first ``==`` on non-comment, non-empty lines;
+            versions, digests, formatting, and complete uv equality are not checked. The workflow
+            check scans only matching ``uses: action@revision`` lines rather than parsing YAML, then
+            compares the
+            observed action/revision sets with the admitted map and flags non-commit revisions.
+            Malformed values within those surfaces are reported as findings. No input is mutated and
+            no network request is made.
+
+        Raises:
+            DependencyAdmissionError: If a JSON lock root is not a table, or the nested uv lock
+                parser rejects its shape, schema, or duplicate package names.
+            OSError: If a lock, requirements, or workflow file cannot be read.
+            UnicodeDecodeError: If a text input is not valid UTF-8.
+            json.JSONDecodeError: If ``MODULE.bazel.lock`` or ``flake.lock`` is not valid JSON.
+            tomllib.TOMLDecodeError: If the nested ``uv.lock`` is not valid TOML.
+        """
+        root = self.repository_root
+        findings: list[str] = []
+        raw_module_lock: object = json.loads(
+            (root / "MODULE.bazel.lock").read_text(encoding="utf-8")
+        )
+        module_lock = _table(raw_module_lock, context="MODULE.bazel.lock")
+        hashes = module_lock.get("registryFileHashes")
+        if (
+            not isinstance(hashes, dict)
+            or not hashes
+            or any(
+                not isinstance(url, str)
+                or not url.startswith("https://bcr.bazel.build/")
+                or not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                for url, digest in hashes.items()
+            )
+        ):
+            findings.append("MODULE.bazel.lock contains an unapproved or unhashed registry input")
+        raw_flake_lock: object = json.loads((root / "flake.lock").read_text(encoding="utf-8"))
+        flake_lock = _table(raw_flake_lock, context="flake.lock")
+        nodes = flake_lock.get("nodes")
+        if not isinstance(nodes, dict):
+            findings.append("flake.lock nodes are malformed")
+        else:
+            typed_nodes = cast(dict[str, object], nodes)
+            for name, node in typed_nodes.items():
+                if name == "root":
+                    continue
+                node_object = cast(dict[str, object], node) if isinstance(node, dict) else None
+                locked = node_object.get("locked") if node_object is not None else None
+                if (
+                    not isinstance(locked, dict)
+                    or not isinstance(locked.get("narHash"), str)
+                    or not isinstance(locked.get("rev"), str)
+                ):
+                    findings.append(
+                        f"flake.lock node {name!r} lacks immutable revision and NAR hash"
+                    )
+        requirements = (root / "requirements.bazel.txt").read_text(encoding="utf-8").splitlines()
+        requirement_names = {
+            line.partition("==")[0]
+            for line in requirements
+            if line and not line.startswith("#") and "==" in line
+        }
+        uv_names = set(_locked_python_packages(root / "uv.lock"))
+        if not requirement_names or not requirement_names <= uv_names:
+            findings.append("requirements.bazel.txt is not an exact uv.lock subset")
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        observed_actions: dict[str, set[str]] = {}
+        workflow_uses = cast(list[tuple[str, str]], _WORKFLOW_USE.findall(workflow))
+        for action, revision in workflow_uses:
+            observed_actions.setdefault(action, set()).add(revision)
+            if _COMMIT.fullmatch(revision) is None:
+                findings.append(f"GitHub Action {action} uses mutable reference {revision!r}")
+        if observed_actions != {action: {revision} for action, revision in _ACTION_PINS.items()}:
+            findings.append("GitHub Action set or immutable commit admission drifted")
+        return findings
+
+    def _runtime_install_findings(self) -> list[str]:
+        """Scan configured source roots for textual runtime-install command matches.
+
+        Search raw file text with the module's ``_INSTALL_COMMAND`` regular expression, so this
+        helper reports only the command forms that pattern recognizes rather than every possible
+        package installation.
+
+        Returns:
+            Findings for matching ``.py``, ``.sh``, ``.bash`` and ``.zsh`` files, ordered by scan
+            root and lexical path. Missing roots can yield no findings; source text is matched
+            directly, including comments and docstrings, without parsing or executing Python or
+            shell code.
+
+        Raises:
+            OSError: If an uncaught filesystem traversal or source-read error occurs.
+            UnicodeDecodeError: If a scanned source file is not valid UTF-8.
+        """
+        root = self.repository_root
+        policy = self.policy
+        if policy is None:
+            raise ValueError("dependency repository inspector requires an admitted policy")
+        findings: list[str] = []
+        for relative_root in policy.runtime_scan_roots:
+            scan_root = root / relative_root
+            for path in sorted(scan_root.rglob("*")):
+                if not path.is_file() or path.suffix not in {".py", ".sh", ".bash", ".zsh"}:
+                    continue
+                if _INSTALL_COMMAND.search(path.read_text(encoding="utf-8")):
+                    findings.append(
+                        "runtime package installation is prohibited: "
+                        f"{path.relative_to(root).as_posix()}"
+                    )
+        return findings
+
+
 def _python_lock_findings(
     root: Path, policy: DependencyAdmission, *, validation_date: date | None = None
 ) -> list[str]:
-    """Collect findings for the admitted Python lock graph.
-
-    Args:
-        root: Repository or fixture root containing ``uv.lock`` and any retained wheel evidence.
-        policy: Validated admission whose package, source-profile, and bootstrap-profile records
-            define the expected external lock graph.
-        validation_date: Date passed to bootstrap-wheel verification; when omitted, the verifier
-            uses the current date, while source-bound profiles do not use this argument.
-
-    Returns:
-        Findings in deterministic order: external-name mismatch first, then each admitted package
-        in policy order, with version, source, evidence, digest, platform, and dependency-edge
-        checks in their execution order. Wheel-verifier domain findings are returned with a
-        package prefix. Source-bound or bootstrap profiles can read retained local evidence and,
-        through their verifier, invoke the pinned local Cosign executable. The policy and lock
-        inputs are not mutated.
-
-    Raises:
-        DependencyAdmissionError: If ``uv.lock`` has an invalid shape, schema, or duplicate
-            usable package name. Domain failures from wheel verifiers are caught and converted
-            into findings; their non-domain filesystem, parsing, or process errors propagate.
-        OSError: If lock or wheel-evidence filesystem operations fail outside translated verifier
-            boundaries.
-        UnicodeDecodeError: If a read lock or evidence file is not valid UTF-8.
-        tomllib.TOMLDecodeError: If ``uv.lock`` is not valid TOML.
-        ValueError: If URL parsing or another verifier operation raises an untranslated value
-            error.
-    """
-    locked = _locked_python_packages(root / "uv.lock")
-    findings: list[str] = []
-    external_names = {
-        name
-        for name, item in locked.items()
-        if item.get("source") in ({"registry": "https://pypi.org/simple"},)
-    }
-    admitted = {package.name for package in policy.packages}
-    wheel_sources = {record.name: record for record in policy.wheel_source_admissions}
-    bootstrap_wheels = {record.name: record for record in policy.bootstrap_wheel_admissions}
-    if external_names != admitted:
-        findings.append(
-            "uv.lock external packages and dependency admissions differ: "
-            f"missing={sorted(external_names - admitted)}, "
-            f"stale={sorted(admitted - external_names)}"
-        )
-    for package in policy.packages:
-        item = locked.get(package.name)
-        if item is None or item.get("version") != package.version:
-            findings.append(f"{package.name} is not locked at admitted version {package.version}")
-            continue
-        source = item.get("source")
-        if source != {"registry": "https://pypi.org/simple"}:
-            findings.append(f"{package.name} uses an unapproved package source")
-        sdist = item.get("sdist")
-        if package.name in wheel_sources:
-            try:
-                verify_wheel_sources(root, item, wheel_sources[package.name])
-            except DependencyAdmissionError as error:
-                findings.extend(f"{package.name}: {finding}" for finding in error.findings)
-        elif package.name in bootstrap_wheels:
-            try:
-                verify_bootstrap_wheels(
-                    root,
-                    item,
-                    bootstrap_wheels[package.name],
-                    validation_date=date.today() if validation_date is None else validation_date,
-                )
-            except DependencyAdmissionError as error:
-                findings.extend(f"{package.name}: {finding}" for finding in error.findings)
-        elif (
-            not isinstance(sdist, dict)
-            or not isinstance(sdist.get("hash"), str)
-            or _HASH.fullmatch(cast(str, sdist["hash"])) is None
-        ):
-            findings.append(f"{package.name} lacks a digest-bound source distribution")
-        wheels = item.get("wheels")
-        if not isinstance(wheels, list) or any(
-            not isinstance(wheel, dict)
-            or not isinstance(wheel.get("hash"), str)
-            or _HASH.fullmatch(cast(str, wheel["hash"])) is None
-            for wheel in wheels
-        ):
-            findings.append(f"{package.name} has a wheel without a SHA-256 digest")
-        findings.extend(_wheel_platform_findings(package, item))
-        dependencies = item.get("dependencies", [])
-        if not isinstance(dependencies, list):
-            findings.append(f"{package.name} dependency edges are malformed")
-            continue
-        for dependency in dependencies:
-            if not isinstance(dependency, dict) or dependency.get("name") not in locked:
-                findings.append(f"{package.name} has an unresolved transitive dependency")
-    return findings
+    """Compatibility facade delegating to ``DependencyRepositoryInspector``."""
+    return DependencyRepositoryInspector(root, policy)._python_lock_findings(
+        validation_date=validation_date
+    )
 
 
 def require_release_admission(repository_root: Path) -> None:
@@ -907,6 +1652,9 @@ def require_release_admission(repository_root: Path) -> None:
         repository_root: Existing repository directory whose policy, lock, evidence,
             and admitted lock surfaces are evaluated.
 
+    Returns:
+        ``None`` after release-admission checks pass.
+
     Raises:
         DependencyAdmissionError: If policy loading, bootstrap use, Python lock or
             provenance checks, review freshness, or an admitted lock digest fails.
@@ -919,209 +1667,17 @@ def require_release_admission(repository_root: Path) -> None:
         ValueError: If URL parsing or another verifier operation raises an
             untranslated value error.
     """
-    root = repository_root.resolve(strict=True)
-    policy = load_policy(root / "docs/architecture/dependency-admission.toml")
-    if policy.bootstrap_wheel_admissions:
-        names = ", ".join(record.name for record in policy.bootstrap_wheel_admissions)
-        raise DependencyAdmissionError(
-            [f"bootstrap-only dependencies block artifact release: {names}"]
-        )
-    # Removing a bootstrap record must not turn its unprovenanced locked wheel into a release.
-    findings = _python_lock_findings(root, policy)
-    if policy.review_due_on < date.today():
-        findings.append("dependency admission review is stale")
-    for relative, expected_digest in policy.lock_digests:
-        if hashlib.sha256((root / relative).read_bytes()).hexdigest() != expected_digest:
-            findings.append(f"{relative} differs from its admitted SHA-256 digest")
-    if findings:
-        raise DependencyAdmissionError(findings)
-
-
-def _migrated_record_findings(root: Path, policy: DependencyAdmission) -> list[str]:
-    """Collect findings for predecessor dependency records retained after migration.
-
-    Args:
-        root: Repository or fixture root containing the five policy-listed migrated TOML records.
-        policy: Validated admission supplying the ordered predecessor record paths.
-
-    Returns:
-        Findings ordered by predecessor package and path, then by each record's ``dependencies``
-        and ``tools`` collections and their field checks. The checks cover expected roadmap
-        ownership, runtime-installation prohibition for B02 through B05, required non-empty
-        strings, HTTPS source URLs, embedded immutable digests, non-empty platform lists, and
-        transitive/native dependency lists. Inputs are read only and never mutated; URL policy
-        failures become findings.
-
-    Raises:
-        DependencyAdmissionError: If a parsed document or collection is not a TOML table or
-            table array, respectively.
-        OSError: If a migrated record cannot be read.
-        UnicodeDecodeError: If a migrated record is not valid UTF-8.
-        tomllib.TOMLDecodeError: If a migrated record is not valid TOML.
-        ValueError: If the ordered path count fails ``zip``'s strict check or URL parsing rejects
-            malformed source URL authority syntax.
-    """
-    findings: list[str] = []
-    for expected_package, relative in zip(
-        _PREDECESSOR_DEPENDENCY_PACKAGE_IDS,
-        policy.migrated_record_paths,
-        strict=True,
-    ):
-        document = _table(
-            tomllib.loads((root / relative).read_text(encoding="utf-8")), context=relative
-        )
-        if document.get("roadmap_package") != expected_package:
-            findings.append(f"{relative} is not the {expected_package} migration source")
-        if expected_package != "B06":
-            if document.get("admission_owner_package") != "B07":
-                findings.append(f"{relative} does not retain B07 admission ownership")
-            if document.get("runtime_installation_allowed") is not False:
-                findings.append(f"{relative} permits runtime dependency installation")
-        for collection in ("dependencies", "tools"):
-            for item in _tables(document.get(collection, []), context=f"{relative}.{collection}"):
-                required = (
-                    "license",
-                    "maintenance_review",
-                    "purpose",
-                    "rollback",
-                    "source_digest",
-                    "source_url",
-                    "version",
-                    "vulnerability_review",
-                )
-                if any(not isinstance(item.get(key), str) or not item.get(key) for key in required):
-                    findings.append(f"{relative} has an incomplete migrated {collection} record")
-                    continue
-                source_url = cast(str, item["source_url"])
-                source_digest = cast(str, item["source_digest"])
-                try:
-                    _https_url(source_url, context=f"{relative}.{collection}.source_url")
-                except DependencyAdmissionError:
-                    findings.append(f"{relative} has an unapproved migrated source URL")
-                if re.search(r"(?:[0-9a-f]{64}|[0-9a-f]{40})", source_digest) is None:
-                    findings.append(f"{relative} has no immutable migrated source digest")
-                platform_key = (
-                    "supported_systems" if collection == "tools" else "supported_platforms"
-                )
-                if not isinstance(item.get(platform_key), list) or not item.get(platform_key):
-                    findings.append(f"{relative} has no migrated platform declaration")
-                if not isinstance(item.get("transitive_native_dependencies"), list):
-                    findings.append(f"{relative} has no migrated transitive/native declaration")
-    return findings
+    return DependencyRepositoryValidator(repository_root).require_release_admission()
 
 
 def _lock_surface_findings(root: Path) -> list[str]:
-    """Collect findings from the repository's non-Python lock surfaces.
-
-    Args:
-        root: Repository or fixture root containing the Bazel, Nix, requirements, uv, and CI
-            workflow lock surfaces inspected by this helper.
-
-    Returns:
-        Findings in surface order: ``MODULE.bazel.lock``, ``flake.lock``, the exact
-        ``requirements.bazel.txt`` subset relation to ``uv.lock``, and regex-matched GitHub
-        Actions in ``ci.yml``. The checks require BCR registry URLs with lowercase 64-character
-        SHA-256 strings, and require each non-root Nix node to expose string ``rev`` and
-        ``narHash`` values without checking their content or immutability. Requirements are
-        compared only by names before the first ``==`` on non-comment, non-empty lines; versions,
-        digests, formatting, and complete uv equality are not checked. The workflow check scans
-        only matching ``uses: action@revision`` lines rather than parsing YAML, then compares the
-        observed action/revision sets with the admitted map and flags non-commit revisions.
-        Malformed values within those surfaces are reported as findings. No input is mutated and
-        no network request is made.
-
-    Raises:
-        DependencyAdmissionError: If a JSON lock root is not a table, or the nested uv lock
-            parser rejects its shape, schema, or duplicate package names.
-        OSError: If a lock, requirements, or workflow file cannot be read.
-        UnicodeDecodeError: If a text input is not valid UTF-8.
-        json.JSONDecodeError: If ``MODULE.bazel.lock`` or ``flake.lock`` is not valid JSON.
-        tomllib.TOMLDecodeError: If the nested ``uv.lock`` is not valid TOML.
-    """
-    findings: list[str] = []
-    raw_module_lock: object = json.loads((root / "MODULE.bazel.lock").read_text(encoding="utf-8"))
-    module_lock = _table(raw_module_lock, context="MODULE.bazel.lock")
-    hashes = module_lock.get("registryFileHashes")
-    if (
-        not isinstance(hashes, dict)
-        or not hashes
-        or any(
-            not isinstance(url, str)
-            or not url.startswith("https://bcr.bazel.build/")
-            or not isinstance(digest, str)
-            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-            for url, digest in hashes.items()
-        )
-    ):
-        findings.append("MODULE.bazel.lock contains an unapproved or unhashed registry input")
-    raw_flake_lock: object = json.loads((root / "flake.lock").read_text(encoding="utf-8"))
-    flake_lock = _table(raw_flake_lock, context="flake.lock")
-    nodes = flake_lock.get("nodes")
-    if not isinstance(nodes, dict):
-        findings.append("flake.lock nodes are malformed")
-    else:
-        for name, node in nodes.items():
-            if name == "root":
-                continue
-            locked = node.get("locked") if isinstance(node, dict) else None
-            if (
-                not isinstance(locked, dict)
-                or not isinstance(locked.get("narHash"), str)
-                or not isinstance(locked.get("rev"), str)
-            ):
-                findings.append(f"flake.lock node {name!r} lacks immutable revision and NAR hash")
-    requirements = (root / "requirements.bazel.txt").read_text(encoding="utf-8").splitlines()
-    requirement_names = {
-        line.partition("==")[0]
-        for line in requirements
-        if line and not line.startswith("#") and "==" in line
-    }
-    uv_names = set(_locked_python_packages(root / "uv.lock"))
-    if not requirement_names or not requirement_names <= uv_names:
-        findings.append("requirements.bazel.txt is not an exact uv.lock subset")
-    workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    observed_actions: dict[str, set[str]] = {}
-    for action, revision in _WORKFLOW_USE.findall(workflow):
-        observed_actions.setdefault(action, set()).add(revision)
-        if _COMMIT.fullmatch(revision) is None:
-            findings.append(f"GitHub Action {action} uses mutable reference {revision!r}")
-    if observed_actions != {action: {revision} for action, revision in _ACTION_PINS.items()}:
-        findings.append("GitHub Action set or immutable commit admission drifted")
-    return findings
+    """Compatibility facade delegating to ``DependencyRepositoryInspector``."""
+    return DependencyRepositoryInspector(root)._lock_surface_findings()
 
 
 def _runtime_install_findings(root: Path, policy: DependencyAdmission) -> list[str]:
-    """Scan configured source roots for textual runtime-install command matches.
-
-    Search raw file text with the module's ``_INSTALL_COMMAND`` regular expression, so this
-    helper reports only the command forms that pattern recognizes rather than every possible
-    package installation.
-
-    Args:
-        root: Repository root against which policy scan roots and finding paths are resolved.
-        policy: Validated admission policy supplying ordered repository-relative scan roots.
-
-    Returns:
-        Findings for matching ``.py``, ``.sh``, ``.bash`` and ``.zsh`` files, ordered by scan root
-        and lexical path. Missing roots can yield no findings; source text is matched directly,
-        including comments and docstrings, without parsing or executing Python or shell code.
-
-    Raises:
-        OSError: If an uncaught filesystem traversal or source-read error occurs.
-        UnicodeDecodeError: If a scanned source file is not valid UTF-8.
-    """
-    findings: list[str] = []
-    for relative_root in policy.runtime_scan_roots:
-        scan_root = root / relative_root
-        for path in sorted(scan_root.rglob("*")):
-            if not path.is_file() or path.suffix not in {".py", ".sh", ".bash", ".zsh"}:
-                continue
-            if _INSTALL_COMMAND.search(path.read_text(encoding="utf-8")):
-                findings.append(
-                    "runtime package installation is prohibited: "
-                    f"{path.relative_to(root).as_posix()}"
-                )
-    return findings
+    """Compatibility facade delegating to ``DependencyRepositoryInspector``."""
+    return DependencyRepositoryInspector(root, policy)._runtime_install_findings()
 
 
 def _load_json_signal(report_path: Path, *, signal: str) -> object:
@@ -1210,65 +1766,9 @@ def assess_pip_audit_report(
             integer, while loading the report.
         RecursionError: If JSON nesting exceeds the decoder's recursion limit.
     """
-    report = _load_json_signal(report_path, signal="pip-audit")
-    if not isinstance(report, dict) or set(report) != {"dependencies", "fixes"}:
-        raise DependencyAdmissionError(["pip-audit report has missing or unknown root fields"])
-    dependencies = report.get("dependencies")
-    if not isinstance(dependencies, list) or not isinstance(report.get("fixes"), list):
-        raise DependencyAdmissionError(["pip-audit dependencies must be an array"])
-    if len(dependencies) > _MAX_PIP_AUDIT_DEPENDENCIES:
-        raise DependencyAdmissionError(["pip-audit dependency count exceeds the limit"])
-    expected = {package.name: package.version for package in policy.packages}
-    observed: dict[str, str] = {}
-    findings: list[str] = []
-    decisions = {decision.vulnerability_id: decision for decision in policy.vulnerability_decisions}
-    today = date.today() if validation_date is None else validation_date
-    for index, item in enumerate(dependencies, 1):
-        if not isinstance(item, dict):
-            findings.append(f"pip-audit dependency {index} is malformed")
-            continue
-        name = item.get("name")
-        if not isinstance(name, str):
-            findings.append(f"pip-audit dependency {index} has no name")
-            continue
-        if "skip_reason" in item:
-            findings.append(f"pip-audit skipped dependency {name}")
-            continue
-        version = item.get("version")
-        vulnerabilities = item.get("vulns")
-        if not isinstance(version, str) or not isinstance(vulnerabilities, list):
-            findings.append(f"pip-audit dependency {name} is incomplete")
-            continue
-        if name in observed:
-            findings.append(f"pip-audit reported duplicate dependency {name}")
-            continue
-        observed[name] = version
-        for vulnerability in vulnerabilities:
-            vulnerability_id = vulnerability.get("id") if isinstance(vulnerability, dict) else None
-            decision = (
-                decisions.get(vulnerability_id) if isinstance(vulnerability_id, str) else None
-            )
-            if (
-                decision is None
-                or decision.package_name != name
-                or decision.affected_version != version
-                or decision.expires_on < today
-            ):
-                findings.append(
-                    f"{name}=={version} has unresolved vulnerability {vulnerability_id!r}"
-                )
-    if observed != expected:
-        mismatches = sorted(
-            name for name in set(expected) & set(observed) if expected[name] != observed[name]
-        )
-        findings.append(
-            "pip-audit coverage differs from the admitted lock: "
-            f"missing={sorted(set(expected) - set(observed))}, "
-            f"unexpected={sorted(set(observed) - set(expected))}, "
-            f"version_mismatches={mismatches}"
-        )
-    if findings:
-        raise DependencyAdmissionError(findings)
+    return DependencyReportEvaluator(policy).assess_pip_audit_report(
+        report_path, validation_date=validation_date
+    )
 
 
 def assess_scorecard_report(
@@ -1336,59 +1836,12 @@ def assess_scorecard_report(
         TypeError: If ``validation_time`` is naive or otherwise incompatible with an aware
             report timestamp during freshness comparison.
     """
-    report = _load_json_signal(report_path, signal="Scorecard")
-    if not isinstance(report, dict):
-        raise DependencyAdmissionError(["Scorecard report must be a JSON object"])
-    repository = report.get("repo")
-    scorecard = report.get("scorecard")
-    checks = report.get("checks")
-    if (
-        not isinstance(repository, dict)
-        or not isinstance(scorecard, dict)
-        or not isinstance(checks, list)
-    ):
-        raise DependencyAdmissionError(["Scorecard report is missing repo, scorecard, or checks"])
-    if len(checks) > _MAX_SCORECARD_CHECKS:
-        raise DependencyAdmissionError(["Scorecard check count exceeds the limit"])
-    if repository.get("name") != expected_repository or repository.get("commit") != expected_commit:
-        raise DependencyAdmissionError(
-            ["Scorecard report is not bound to the expected repository commit"]
-        )
-    if _COMMIT.fullmatch(expected_commit) is None:
-        raise DependencyAdmissionError(["expected Scorecard commit must be a full lowercase SHA"])
-    if scorecard.get("version") != policy.scorecard_version:
-        raise DependencyAdmissionError(["Scorecard signal uses an unadmitted tool version"])
-    scorecard_commit = scorecard.get("commit")
-    if not isinstance(scorecard_commit, str) or _COMMIT.fullmatch(scorecard_commit) is None:
-        raise DependencyAdmissionError(["Scorecard signal has no immutable engine commit"])
-    raw_date = report.get("date")
-    if not isinstance(raw_date, str):
-        raise DependencyAdmissionError(["Scorecard report date is missing"])
-    try:
-        generated_at = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
-    except ValueError as error:
-        raise DependencyAdmissionError(["Scorecard report date is not RFC 3339"]) from error
-    now = datetime.now(UTC) if validation_time is None else validation_time
-    if (
-        generated_at.tzinfo is None
-        or generated_at > now
-        or now - generated_at > timedelta(days=policy.maximum_signal_age_days)
-    ):
-        raise DependencyAdmissionError(["Scorecard signal is future-dated or stale"])
-    observed: dict[str, int] = {}
-    for item in checks:
-        if (
-            isinstance(item, dict)
-            and isinstance(item.get("name"), str)
-            and isinstance(item.get("score"), int)
-        ):
-            name = cast(str, item["name"])
-            if name in observed:
-                raise DependencyAdmissionError([f"Scorecard check {name!r} is duplicated"])
-            observed[name] = cast(int, item["score"])
-    required = {"License", "Maintained", "Pinned-Dependencies", "Vulnerabilities"}
-    if set(observed) & required != required or any(observed[name] < 0 for name in required):
-        raise DependencyAdmissionError(["Scorecard required checks are missing or inconclusive"])
+    return DependencyReportEvaluator(policy).assess_scorecard_report(
+        report_path,
+        expected_repository=expected_repository,
+        expected_commit=expected_commit,
+        validation_time=validation_time,
+    )
 
 
 def validate_repository(
@@ -1448,52 +1901,6 @@ def validate_repository(
         ValueError: If URL parsing or another helper operation raises an untranslated
             value error.
     """
-    root = repository_root.resolve(strict=True)
-    policy = load_policy(root / "docs/architecture/dependency-admission.toml")
-    today = date.today() if validation_date is None else validation_date
-    findings = (
-        _python_lock_findings(root, policy, validation_date=today)
-        + _migrated_record_findings(root, policy)
-        + _lock_surface_findings(root)
-        + _runtime_install_findings(root, policy)
+    return DependencyRepositoryValidator(repository_root).validate_repository(
+        validation_date=validation_date
     )
-    if policy.review_due_on < today:
-        findings.append("dependency admission review is stale")
-    for override in policy.emergency_overrides:
-        if override.expires_on < today:
-            findings.append(f"emergency override {override.override_id} is expired")
-    for relative, expected_digest in policy.lock_digests:
-        observed_digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
-        if observed_digest != expected_digest:
-            findings.append(f"{relative} differs from its admitted SHA-256 digest")
-    pyproject: dict[str, object] = tomllib.loads(
-        (root / "pyproject.toml").read_text(encoding="utf-8")
-    )
-    groups = _table(pyproject.get("dependency-groups", {}), context="dependency-groups")
-    dev = _strings(groups.get("dev", []), context="dependency-groups.dev", allow_empty=True)
-    if "pip-audit==2.10.1" not in dev:
-        findings.append("pyproject.toml is missing exact pip-audit 2.10.1 admission")
-    integrations = {
-        "Makefile": (
-            "dependency-admission-check:",
-            "dependency-audit:",
-            "alpha-governance-dependencies",
-        ),
-        ".pre-commit-config.yaml": ("id: dependency-admission", "alpha-governance-dependencies"),
-        ".github/workflows/ci.yml": ("make dependency-audit",),
-        "tools/governance/pyproject.toml": ("alpha-governance-dependencies",),
-    }
-    for relative, fragments in integrations.items():
-        text = (root / relative).read_text(encoding="utf-8")
-        missing = [fragment for fragment in fragments if fragment not in text]
-        if missing:
-            findings.append(f"{relative} is missing dependency-admission interfaces: {missing}")
-    if findings:
-        raise DependencyAdmissionError(findings)
-    manifest = validate_manifest(
-        root / policy.local_evidence_manifest_path,
-        expected_commit_sha=policy.local_evidence_commit_sha,
-        change_policy=load_change_risk_policy(root / "docs/governance/change-risk-policy.toml"),
-    )
-    validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
-    return policy

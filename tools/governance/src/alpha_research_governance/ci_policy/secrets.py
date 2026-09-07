@@ -51,6 +51,73 @@ def scan_secret_bytes(payload: bytes) -> tuple[str, ...]:
     )
 
 
+class SecretScanner:
+    """Own bounded secret scanning for one repository root."""
+
+    def __init__(self, repository_root: Path) -> None:
+        """Bind SecretScanner collaborators without filesystem or process I/O.
+
+        Args:
+            repository_root: Repository root used by later service operations.
+        """
+        self.repository_root = repository_root
+
+    def scan_secret_paths(
+        self,
+        paths: tuple[str, ...],
+        *,
+        maximum_file_bytes: int,
+    ) -> None:
+        """Scan bounded repository files and reject unsafe paths or detected patterns.
+
+        Normalize the supplied paths, check containment, scan each distinct path in
+        sorted order, and skip paths that do not exist after those checks. For an
+        existing path, check the final path for symlink and regular-file status and
+        stat its size before reading it; those checks do not provide a filesystem
+        snapshot or close races between checks and reads. This scanner covers the
+        configured high-confidence patterns and does not claim to detect every leak.
+        It reads file metadata and contents, reporting identifiers and paths rather
+        than matching file contents. It does not write files.
+
+        Args:
+            paths: Repository-relative paths to inspect after normalization.
+            maximum_file_bytes: Inclusive per-file byte limit for scanning.
+
+        Raises:
+            CIPolicyError: A path fails lexical repository-relative normalization,
+                escapes the repository, names a symlink or non-regular file, exceeds
+                the byte limit, or contains a configured secret pattern.
+            OSError: The repository or an inspected file cannot be resolved, inspected,
+                or read.
+        """
+        findings: list[str] = []
+        normalized = normalize_changed_paths(tuple(("M", path) for path in paths))
+        repository_root = self.repository_root.resolve(strict=True)
+        for relative_path in sorted({item.path for item in normalized}):
+            path = repository_root / relative_path
+            try:
+                path.resolve(strict=False).relative_to(repository_root)
+            except ValueError:
+                findings.append(f"secret scan path escapes repository root: {relative_path}")
+                continue
+            if not path.exists():
+                continue
+            if path.is_symlink() or not path.is_file():
+                findings.append(f"secret scan rejects non-regular path: {relative_path}")
+                continue
+            size = path.stat().st_size
+            if size > maximum_file_bytes:
+                findings.append(
+                    f"secret scan file exceeds {maximum_file_bytes} bytes: {relative_path}"
+                )
+                continue
+            matches = scan_secret_bytes(path.read_bytes())
+            if matches:
+                findings.append(f"secret pattern {','.join(matches)} detected in {relative_path}")
+        if findings:
+            raise CIPolicyError(findings)
+
+
 def scan_secret_paths(
     repository_root: Path,
     paths: tuple[str, ...],
@@ -73,6 +140,9 @@ def scan_secret_paths(
         paths: Repository-relative paths to inspect after normalization.
         maximum_file_bytes: Inclusive per-file byte limit for scanning.
 
+    Returns:
+        ``None`` after all selected paths pass the secret scan.
+
     Raises:
         CIPolicyError: A path fails lexical repository-relative normalization,
             escapes the repository, names a symlink or non-regular file, exceeds
@@ -80,27 +150,6 @@ def scan_secret_paths(
         OSError: The repository or an inspected file cannot be resolved, inspected,
             or read.
     """
-    findings: list[str] = []
-    normalized = normalize_changed_paths(tuple(("M", path) for path in paths))
-    repository_root = repository_root.resolve(strict=True)
-    for relative_path in sorted({item.path for item in normalized}):
-        path = repository_root / relative_path
-        try:
-            path.resolve(strict=False).relative_to(repository_root)
-        except ValueError:
-            findings.append(f"secret scan path escapes repository root: {relative_path}")
-            continue
-        if not path.exists():
-            continue
-        if path.is_symlink() or not path.is_file():
-            findings.append(f"secret scan rejects non-regular path: {relative_path}")
-            continue
-        size = path.stat().st_size
-        if size > maximum_file_bytes:
-            findings.append(f"secret scan file exceeds {maximum_file_bytes} bytes: {relative_path}")
-            continue
-        matches = scan_secret_bytes(path.read_bytes())
-        if matches:
-            findings.append(f"secret pattern {','.join(matches)} detected in {relative_path}")
-    if findings:
-        raise CIPolicyError(findings)
+    return SecretScanner(repository_root).scan_secret_paths(
+        paths, maximum_file_bytes=maximum_file_bytes
+    )

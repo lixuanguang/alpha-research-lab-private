@@ -1905,3 +1905,3390 @@ owner_role = "platform"
 rationale = "Invoke the public security-map loader with the fixed repository context so negative fixtures retain their original validation entrypoint."
 expires = 2027-03-01
 source_sha256 = "2e082239ecab86baed4365e64a3ddf995c21f5c9357cc046d64389c796aeb0a8"
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/_cli.py"
+symbol = "run_typer"
+kind = "framework"
+rationale = "Run a Typer app and preserve the repository's integer-returning API; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "43f52a7c49b86578068a33b0fa767269008cd60fa61439860ed96782cbc56cc3"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "_decision_log_entries"
+kind = "low_level"
+rationale = "Parse candidate decision rows from the decision-records section; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "29689c5020f64a8f6eeb4fbc9d776c8636bd0eb1c8b56561f5a5618cbd60c104"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "_has_commit_bound_approval"
+kind = "low_level"
+rationale = "Check the syntactic shape of a commit-bound HTTPS approval value; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "eb7ffdc29eb0f5304435317f7ec0b984459433b3554f40674870233c2440143a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "_heading_anchors"
+kind = "low_level"
+rationale = "Approximate Markdown heading anchors with duplicate suffixes; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "be4b043fb7e20d88217dd2854471156295576402deb0f859291114d4208e9546"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "_parse_date"
+kind = "low_level"
+rationale = "Parse a canonical ISO date and append one finding on failure; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7ef4f6ed725a8a517d5c2c2921dfa9a118d1e5873b7f8701ccd4219ddfaa6822"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "_parse_metadata"
+kind = "low_level"
+rationale = "Extract matching rows after the first textual metadata marker; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8a3f4c56a2aa7e245e3a1e43cb5c2144352911323bd50498c463dd08be77c021"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "_section_body"
+kind = "low_level"
+rationale = "Return the stripped body of the first matching level-two heading; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "12ea8f2c5935250c495542afafee0a6a5f6a7bfcff5099617922899a25232e73"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "main"
+kind = "framework"
+rationale = "Run the architecture-governance checker and map handled failures to status; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e6a479b0e48273a465043431a8dc0699d0f18613c0b069a7c79bd2966468b4bd"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "validate_adr"
+kind = "compatibility"
+rationale = "Preserve the supported validate_adr function signature and facade imports while ArchitectureGovernanceService.validate_adr owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "95e23d076e834942a04aca26f6156919cdbfa2f29a712156fdf7e1ed74f1ae1f"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "validate_decision_directory"
+kind = "compatibility"
+rationale = "Preserve the supported validate_decision_directory function signature and facade imports while ArchitectureGovernanceService.validate_decision_directory owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "492d8c59d52d917b02e29dd44da6281705307967f973baf1faa511ff92e39b58"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "validate_local_links"
+kind = "compatibility"
+rationale = "Preserve the supported validate_local_links function signature and facade imports while ArchitectureGovernanceService.validate_local_links owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5c688ae8d4055dd1c85d2e65e2308c133086a7c5cc9a86e27ad5c6fa4a3f662c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while ArchitectureGovernanceService.validate_repository owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2d0b602c284a7d7fb0433d28ae59e5a83bfd8e1d2e31ae88ee1e725eadbf9154"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/__init__.py"
+symbol = "_print_usage"
+kind = "framework"
+rationale = "Print the supported artifact lifecycle command syntax to standard error; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "507f9f669a58eff2ae67a49631d464eae8abe8cd11c495161dac2d77eeb9f0e9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Validate artifact policy or execute one selected lifecycle operation; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6acddf04d35f1149cd06d0fed545c1e18fa9c52b1ff87bff1d8e31894156c5fb"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_build_file_digest_record"
+kind = "low_level"
+rationale = "Build a digest and size record for a regular file; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "9be29cf39d4a5b59ba88296b49e1ea0c7b617191dbb483f1344b016b1414a431"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_build_mapping_rejecting_duplicate_json_keys"
+kind = "low_level"
+rationale = "Build an insertion-ordered mapping while rejecting duplicate JSON keys; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "a8aa40c89f63de467e3f5710c30eeb9e711c9382618f1af2a2317bc31f7554cc"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_discover_native_library_paths"
+kind = "low_level"
+rationale = "Inventory native-library names from an artifact and its archive members; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "9862af06823605104312168172ee0989c08483dc9f29b8ec86d8e17531a9351b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_extract_spdx_file_names"
+kind = "low_level"
+rationale = "Extract normalized, deduplicated file names from an SPDX mapping; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "54d52bb9f80654ede5440524ffc2fb1b84e6bb01c596364892d546646c1fd827"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_is_native_library_path"
+kind = "low_level"
+rationale = "Recognize native-library names by their POSIX basename; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "b6ed9b7acbda355f6ba874ac94d09cbb420888abcd0161d02d9e85e932ce4031"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_normalize_spdx_document"
+kind = "low_level"
+rationale = "Normalize selected SPDX metadata and lists for deterministic bundle output; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e50db3ba320ce3f46eeadf396b3af8c66989fa8fe3e8e94282469a03e024676f"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_parse_safe_bundle_relative_path"
+kind = "low_level"
+rationale = "Parse a path as a safe lexical POSIX bundle-relative path; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "708a038ed27698b37e6b6b49c3dfca0f0048ee5aa322aa3ef98c4d0c8b22b2e1"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_read_bounded_json_object"
+kind = "low_level"
+rationale = "Read a JSON object after a pre-read size check and reject duplicate keys; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3251ed70c12f668156b59b6419025400eb86ffdca4603ee1fccc9a7b1807559c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_run_artifact_tool"
+kind = "low_level"
+rationale = "Run an artifact tool and combine its captured output; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1c7267c7a3d6092ad0749e6b45c4dca3a347edefdad2db65330844877dfed459"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_run_subprocess"
+kind = "low_level"
+rationale = "Run a subprocess with the supplied context and capture decoded text; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "a8ab0a502a0f239ce99b93a2cb39b1daf74e776281419163288d978aaee553dd"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_serialize_canonical_json"
+kind = "low_level"
+rationale = "Serialize a value with the bundle's local deterministic JSON settings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3f0518f6c08f4edd5f45ee78db19aa5a8c01cede0d38f67c964a76be4f67bb6d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_verify_artifact_tool_version"
+kind = "low_level"
+rationale = "Require the admitted artifact-tool version fragment in command output; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d7275a81982cf09408afcaf5925f46f73ded2380f4d74a9809bf790e956e0aad"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_verify_file_digest_record"
+kind = "low_level"
+rationale = "Verify one bundle file against its manifest path, digest, and size; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3c0f5c0cad820513cc93a5cb6dac4872fb0dba9753233c328b1c6d109714293b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_verify_native_library_sbom_coverage"
+kind = "low_level"
+rationale = "Require every discovered native-library member in the SPDX file inventory; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2fe7b23b442af11fccf88459e4a243f667257d19e38e40dddb217172a3dfbad9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_write_canonical_json"
+kind = "low_level"
+rationale = "Write the bundle's local deterministic JSON representation to a file; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3f3142e507cc30a1733c3d61c64cd8102342fc1a4fb3f92ad1729330bce1ed94"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "create_bundle"
+kind = "compatibility"
+rationale = "Preserve the supported create_bundle function signature and facade imports while ArtifactBundleService.create_bundle owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6a604c63caca91956744b38a81b56421edd370db765911cb662b01058fcf68d8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "publish_bundle"
+kind = "compatibility"
+rationale = "Preserve the supported publish_bundle function signature and facade imports while ArtifactBundleService.publish_bundle owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "72db78347eb15312a839be43dbcf01bdf19ac9234a56c4df32b5f98a6187e380"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "sign_bundle"
+kind = "compatibility"
+rationale = "Preserve the supported sign_bundle function signature and facade imports while ArtifactSignerService.sign_bundle owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "cf24af87c8786eae4d3607664061b140c04914bc9ada1b3f9f505e24c3d29905"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "verify_bundle"
+kind = "compatibility"
+rationale = "Preserve the supported verify_bundle function signature and facade imports while ArtifactBundleService.verify_bundle owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "18c0e8bb5683ab2b5dec73933908592e3b3c40a13990e78a43386ae6be7ad689"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "_parse_artifact_tool"
+kind = "low_level"
+rationale = "Parse one closed artifact-tool declaration; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "110356f1b8212ae4931609576eb4427c146517f075e912c5c5bea86e05103847"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "_require_nonempty_string_field"
+kind = "low_level"
+rationale = "Require a present, non-empty string field without normalizing its value; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "f0fe4b50d50b3205a9e1eed4e94fd4747d9ba86b42e5794f74dc6d1cf8b19bdf"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "_require_positive_integer_field"
+kind = "low_level"
+rationale = "Require an integer field whose value is at least one; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "995b4137ebaee4b14e8cb651fe6dfe573e561fb626ce0a390228f20691463afe"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "_require_safe_repository_relative_path"
+kind = "low_level"
+rationale = "Require a lexically repository-relative POSIX path; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5092f67bb90ef0fc3afc204fb72fbf52eeddd18d19fca5f365b43d50d4cb0409"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "_require_toml_table"
+kind = "low_level"
+rationale = "Require a runtime dictionary for one parsed TOML table; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "b058ad37818d4173058326fce418bd4bce2dce7b93f8c290009d4cdf2313231d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "_require_toml_table_array"
+kind = "low_level"
+rationale = "Require an ordered list whose every item is a parsed TOML table; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c81f385f1c417905ec9d14fd6a8c8a8c275f14b3cf03f581d7835154032d025e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "_require_unique_string_tuple"
+kind = "low_level"
+rationale = "Require an ordered list of distinct, non-empty strings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2ba81dc0e76a4658519d4800b3dabf6c8e3102f58c7e42beb6b481958d5a7878"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "compute_regular_file_sha256"
+kind = "low_level"
+rationale = "Hash the bytes read from a final path component admitted as a regular file; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "71934df6581211a1dffd3a4864bfb1b8fbac471bfa0ab2ab82c1b4cf7a3d1e09"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "load_policy"
+kind = "compatibility"
+rationale = "Preserve the supported load_policy function signature and facade imports while ArtifactPolicyService.load_policy owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2f5ccd3eb54f5918984b691fb2187f4b2385b669bb5b507b35c53cec6ed1655a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/policy.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while ArtifactPolicyService.validate_repository owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d6ba61b6e751dfa1d155e3e7518ef75f5cbb356d74ecdeccfcc24cc32b070a16"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Run the change-risk policy checker from the command line; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "06402f40926f0dae13c313107ecddb1b5467fea4e82a8f978863ae406a3942a7"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/__init__.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while _ChangeRiskRepositoryValidator._validate owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c737a3ee20de340225d4841ad048660462d2a85720252fc4a9730aced251bc00"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_dimension_input_error"
+kind = "low_level"
+rationale = "Translate one dimension-model validation location into a domain error; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5c551ea091521255dbbf5a02d481a18aefdb394db0bb38bdf91368c06d719d17"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_parse_class"
+kind = "low_level"
+rationale = "Validate one class rule set against the immutable blueprint bounds; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "f43011d9ce82b881a74f09d819cbf80fdbe85fef96e08dfa9b37eeb317c46a61"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_parse_dimension"
+kind = "low_level"
+rationale = "Validate one dimension's levels and project them to a domain policy; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0f13ff350b265dad27eb8eae73e183c8c90359f82c39ac3c8a0188392922837b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_parse_reviewer_group"
+kind = "low_level"
+rationale = "Validate and project one reviewer group into an immutable record; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7f205b96609ab5780070cc4b34ec9296aca0f8beb08e9b194aa6ee26e1a1f045"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_parse_risk_class"
+kind = "low_level"
+rationale = "Parse an R0-R4 token into its enum member; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ddb2e2bcb98b0cd0242f1ca9aef1434a033cbf8ed08e50b552f918d91a2c2a63"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_parse_sample_change"
+kind = "low_level"
+rationale = "Validate one retained example and project it to a sample change; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "a7dba7ae66bf2a748c47c216839177d154d2483ad17a1ef1243279cc7b0ce55c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_policy_input_error"
+kind = "low_level"
+rationale = "Choose the public structural error for a Pydantic policy failure; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "713ac606b3699972fa22410ff36481116868c575c47d72f893023e66addc7ab2"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_risk_class_input_error"
+kind = "low_level"
+rationale = "Translate one risk-class model error into a stable domain diagnostic; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e1d0050d51b1c3a8395e8f026d5c8d426b3893a61b1c253474616f320b8f0202"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_sample_input_error"
+kind = "low_level"
+rationale = "Translate one retained-sample model error into a domain diagnostic; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "a9e9f33dd05ea99dd179958f525b663cf04b8c2f9587f5c5050c68a8ac525e72"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_validated_boundary_string_list"
+kind = "low_level"
+rationale = "Validate a boundary value as a strict unique string list; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2c727ccdf383f78e3ded6fb95fcd92c5aa609ec8712f1fb74141e57d2f682c52"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_validated_nonempty_string"
+kind = "low_level"
+rationale = "Require a truthy string and preserve its exact spelling; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3e711d274336d5141e807168a5a2d1f3f3f424ec9585bd0f3f900e185e77e23e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_validated_nonnegative_int"
+kind = "low_level"
+rationale = "Reject a negative integer without changing the accepted value; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8f55eee035a04cc3d91affaa3881046e8e136b9c3971d619b31494c5d5231d03"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "_validated_string_list"
+kind = "low_level"
+rationale = "Require a non-empty list with unique values while preserving order; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "dc692baadfd219b4f84485102ca39e7a8d3c40c92ca45267f0736111ee003328"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
+symbol = "load_policy"
+kind = "compatibility"
+rationale = "Preserve the supported load_policy function signature and facade imports while _ChangeRiskPolicyLoader._load owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3ffc69c37c4c2a9a2d3a56c5be0a40b336bc2ced7811fff9dd538bb8b2eca449"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_fast"
+kind = "framework"
+rationale = "Run the affected-target CI lane; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d38f03d989421e8deb4ee266ddff1264a03bfacdf2b5b151c00c819b7e16bf98"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_full"
+kind = "framework"
+rationale = "Run the authoritative full CI lane; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "502afb9170471c2a5b9c113707bdd8b8bf7e932818bbe4a7c68449fcd37eb6c4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_initialize_cli"
+kind = "framework"
+rationale = "Validate or execute the governed continuous-integration interfaces; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "50ad2ddaf45dbaef04fdc904985e7ff7c6ae6731711e494e2076f8b0ed82da4b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_print_validation_result"
+kind = "framework"
+rationale = "Print the successful continuous-integration policy summary to standard output; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "eb993dbcc6863a0e6449685ceadf796e84fde2e5791c5c07d51d8c78a8d1a6bf"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_scan_secrets"
+kind = "framework"
+rationale = "Scan paths, all tracked files, or a complete Git reference pair; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "972ec615ff5303e35442945398ee71449f16236b80a567247089667603d86dbe"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_schema_check"
+kind = "framework"
+rationale = "Check governed schema compatibility against a Git reference; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3d42e11194b10efb51e08a5b05d2af9fa77a2a56bad2bbf594b32deb8946bf9c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_select"
+kind = "framework"
+rationale = "Select the targets affected between two Git references; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7a9d945a0f49df4d234f574b0e597f1c1aa841c31b35396426058d416d4e3809"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_serialize_affected_selection"
+kind = "low_level"
+rationale = "Serialize an affected-target selection as compact canonical JSON; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "94e7a27bf416d6ef33bd8113a085eb0cf48f75ba9c8ca4de31396be63f52bf96"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_state"
+kind = "framework"
+rationale = "Retrieve validated CI CLI state from a Typer context; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e0b08b1472f1d83b7c23a641895abd1d911a125d2799489c67bb774b3d66c5dc"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "_verify_merged_result"
+kind = "framework"
+rationale = "Verify the exact base and head parents of a merged result; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "346ab359709249b1b55766b704d5df053297ebd30eacead37f74a1fa81039c39"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Validate or execute the governed continuous-integration interfaces from Typer; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "a1b7b1d644b7dc5836c805b10a3c5aff667ba435c9efa7c61966fd2e964ffdd4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/policy.py"
+symbol = "_parse_continuous_integration_lanes"
+kind = "low_level"
+rationale = "Parse lanes and compare the final entry for each ID with the fixed contract; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6d23474345ab96654a507b5ef2afae671af8a5f9ece87b2353fd854729bf8d52"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/policy.py"
+symbol = "_private_key_scanner_dependency_findings"
+kind = "compatibility"
+rationale = "Preserve the _private_key_scanner_dependency_findings adapter used by focused callers and injection seams while CIRepositoryInspector._private_key_scanner_dependency_findings owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0dae470b024c7aabed31b8029e72c262ca1e419b6efd4968ad302768cb0bbea2"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/policy.py"
+symbol = "_require_positive_integer"
+kind = "low_level"
+rationale = "Require a present integer value that is at least one; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8fce854f41cdb0bbf5fbab11b6442730f83257ca7fdf0e1a63cfbb3f0b0b09cd"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/policy.py"
+symbol = "_require_safe_repository_paths"
+kind = "low_level"
+rationale = "Require unique lexically safe repository-relative POSIX paths; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ed9e067df62af3c827ac53f9bbfc535bfe9020587fd53e57bb4a806f206b90f1"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/policy.py"
+symbol = "_require_unique_string_array"
+kind = "low_level"
+rationale = "Require a non-empty list of distinct strings and preserve its order; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "109c82cff72f01d39ab152ffaad95fe3d7dd9ad46e3ffc8440411e0a414e02b0"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/policy.py"
+symbol = "compute_evidence_report_sha256"
+kind = "low_level"
+rationale = "Compute the lowercase SHA-256 digest of an evidence report; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "544e50d827d6054399373e014ce975e9b60cb3462dcdcd616ed34df1d1c17ccb"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/policy.py"
+symbol = "load_continuous_integration_policy"
+kind = "compatibility"
+rationale = "Preserve the supported load_continuous_integration_policy function signature and facade imports while CIPolicyService.load_continuous_integration_policy owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6bff30738243b6d3cf34de7a5be18916472c791e38bdf2075a0e793bc236e437"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/policy.py"
+symbol = "validate_continuous_integration_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_continuous_integration_repository function signature and facade imports while CIPolicyService.validate_continuous_integration_repository owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6d74a42eae89808f41cb3d065094540920edd878a2edbf484e3faa907a68859e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_build_ci_duration_event"
+kind = "low_level"
+rationale = "Construct a validated build or test duration event for one CI phase; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "009ee7509197efd9eb93a0cd4dc7bc8bdc3c59f1d61edbd460b30c6588d97f7e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_changed_schema_modules"
+kind = "low_level"
+rationale = "Select schema roots touched by a path or one of its descendants; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "28d1da669ab5b8319d6bd3cb202cae12f51800ff7c3833cbb9d3205852080aba"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_check_schema_compatibility"
+kind = "compatibility"
+rationale = "Preserve the _check_schema_compatibility adapter used by focused callers and injection seams while CIRunner._check_schema_compatibility owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0ca92b3e7cb22a12b2c7e5f746ca8b9370c1db98972b3d531e061b36276e8940"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_git_tracked_paths"
+kind = "low_level"
+rationale = "List tracked repository-relative paths using Git's NUL-delimited output; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "559a2ce31c27747c072bafe9b6129521dbfbaba1dda9ed9e8f42b83c3b79d151"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_git_worktree_state"
+kind = "low_level"
+rationale = "Capture Git's raw porcelain worktree status for comparison; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "9099685b61fe34ff40044e5c1e8ddd8280c66dcfc7c7f4d8007fc86e72f32bd0"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_open_ci_event_log"
+kind = "low_level"
+rationale = "Open a UTF-8 CI event log after resolving it under the allowed directory; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c7840063539838afe8985844029f3f5907ab01aef7a3ddb229124f1119cf5491"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_query_bazel_labels"
+kind = "low_level"
+rationale = "Query Bazel for labels and return unique labels in lexical order; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "aae9b278c52f8c609ab7f55e09b71a17e47f688f705706071bbb483458ea327f"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_reject_generated_artifact_paths"
+kind = "low_level"
+rationale = "Reject paths whose raw names begin with a generated-artifact prefix; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "02b0ed25700a46e4f96cab5d791df1b1af42131d5de8e0c743f371f58ec788cc"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_require_clean_hosted_checkout"
+kind = "low_level"
+rationale = "Require an empty raw Git status for every environment except ``local``; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "35ac90935e022ed09450079a59f6c42b7056f6a441d93319b8703fbdae20afe5"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_run_command_and_capture_output"
+kind = "low_level"
+rationale = "Run an argv command in ``root`` and return its captured standard output; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "38f6dc70a75cf4fbc6162705f600914b5e3a418a993f5207bb97cf047a46f308"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_run_command_with_visible_output"
+kind = "low_level"
+rationale = "Run an argv command in ``root`` while leaving its output visible; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "082a85dcdb3374f58ce05c2b6082130217d870a6a7d3f41b5227cfd82e0d84a8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_run_pre_commit_without_mutation"
+kind = "compatibility"
+rationale = "Preserve the _run_pre_commit_without_mutation adapter used by focused callers and injection seams while CIRunner._run_pre_commit_without_mutation owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1dc8742ae9ccec132b42e568d89292e97dc4503fa272390c917681086217242d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_run_timed_ci_phase"
+kind = "compatibility"
+rationale = "Preserve the _run_timed_ci_phase adapter used by focused callers and injection seams while CIRunner._run_timed_ci_phase owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8c8b4bf613ea5b995d158dbdea03da0f7db24af831c646994eb8089113d9955b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_scan_paths_for_secrets"
+kind = "compatibility"
+rationale = "Preserve the _scan_paths_for_secrets adapter used by focused callers and injection seams while CIRunner._scan_paths_for_secrets owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1f6c8d4d2d76b5945c9ef45d8ad43f255a56a190859807931a7d2f9eb065bdcf"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_serialize_ci_event"
+kind = "low_level"
+rationale = "Serialize a CI event as compact, sorted-key JSON without a newline; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ebeeab8813e515ff0dfed7ebf701d4851abe524f9757e619b7997bdad5d2791d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_validate_ci_event_context"
+kind = "low_level"
+rationale = "Validate event identity, token dimensions, revision and evidence URL; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3082873db15e058e33f3d2224ebc4ee29a8bdeb865787023a744e217945cb4be"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "git_changed_paths_between"
+kind = "compatibility"
+rationale = "Preserve the supported git_changed_paths_between function signature and facade imports while CIRunner.git_changed_paths_between owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "34b5b6da35b45d822b3f627e0c51c998a87bdc130e148904dfb348059c71a3dd"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "resolve_git_commit"
+kind = "compatibility"
+rationale = "Preserve the supported resolve_git_commit function signature and facade imports while CIRunner.resolve_git_commit owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1d6712c95de6e2482f810dc957fd894f023273165a6378cae2aaf6544dc8b6ca"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "run_affected_ci_lane"
+kind = "compatibility"
+rationale = "Preserve the supported run_affected_ci_lane function signature and facade imports while CIRunner.run_affected_ci_lane owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7397efa5b41fd3497e7dcf6ef8df47358ed00db505462c6ec98a0d7d5a101b66"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "run_authoritative_full_ci_lane"
+kind = "compatibility"
+rationale = "Preserve the supported run_authoritative_full_ci_lane function signature and facade imports while CIRunner.run_authoritative_full_ci_lane owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "fab52f38428cdf269a0b212e583af61bab9ace3eb79f539ea16f38d1476fe5bf"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "select_affected_targets"
+kind = "compatibility"
+rationale = "Preserve the supported select_affected_targets function signature and facade imports while CIRunner.select_affected_targets owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ed1b0a1b0d6f3cd9b0a2cc2581181280921cbc4b7cdd40b4c1ffd33dd6caa9d3"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "verify_git_merge_parents"
+kind = "compatibility"
+rationale = "Preserve the supported verify_git_merge_parents function signature and facade imports while CIRunner.verify_git_merge_parents owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c7eb5a89dcdef0e111639a96aacc828bda6714adbced09506ceb72ad14b74e02"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/secrets.py"
+symbol = "scan_secret_bytes"
+kind = "low_level"
+rationale = "Scan bytes for configured high-confidence patterns without disclosing matches; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "92e031cab0caa34d4809b0e9620a9d94a31a83c7610eed222f98262299ba6468"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/secrets.py"
+symbol = "scan_secret_paths"
+kind = "compatibility"
+rationale = "Preserve the supported scan_secret_paths function signature and facade imports while SecretScanner.scan_secret_paths owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0ddef625c9d0f3234e8ef3755b1e65f7f39b461cb968398866c972606eea7fba"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/secrets.py"
+symbol = "secret_pattern_ids"
+kind = "low_level"
+rationale = "Return the sorted identifiers of the configured high-confidence patterns; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "81e1008e760063a2fbb7d51002ee816c936e7f6e509070354ef5fb7b097043ca"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/selection.py"
+symbol = "_repository_path_from_bazel_source_label"
+kind = "low_level"
+rationale = "Derive a repository path from a ``//`` source label when applicable; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "85b48c0c5123fcddccbb25f55e6e700f05da8266be6b5ac0dc2967d35a197d6c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/selection.py"
+symbol = "attach_bazel_reverse_dependencies"
+kind = "low_level"
+rationale = "Validate and attach reverse-dependency query results to an owner selection; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "30ca498ae7e572e16ac6da7e9007dd37bf912015838a5698f88cd7679df29b16"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/selection.py"
+symbol = "bazel_source_owners_from_query_xml"
+kind = "low_level"
+rationale = "Build a deterministic source-to-rule map from Bazel query XML; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "48fc720485aa1261954cca608899fc45b18f615073ba19494fc1333ed8fbdb14"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/selection.py"
+symbol = "normalize_changed_paths"
+kind = "low_level"
+rationale = "Validate Git name-status records and return sorted unique records; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "46d9627ccb9c9041d3c518eaf58a8a30bcda9d693387ee751e13a28d89e76c2d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/selection.py"
+symbol = "parse_git_name_status"
+kind = "low_level"
+rationale = "Parse NUL-delimited Git name-status output into changed paths; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d5ffa8cb8f5f7b079537a2cf6c52d8956550e60d02167693957d6d3de0e04bc3"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/selection.py"
+symbol = "select_bazel_owners_for_changes"
+kind = "low_level"
+rationale = "Select direct owners or fall back to the full Bazel graph; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "639df30482f8fa68d42d32c73d9da2499bd5c726208b1d148fcd7d5011690c15"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Validate dependency admission, run its audit, or assess a supplied signal report; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0523c5d7a3b1285de352a58f723825bf1c420b31c1511aa9100c7c7b23812095"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py"
+symbol = "run_pip_audit"
+kind = "compatibility"
+rationale = "Preserve the supported run_pip_audit function signature and facade imports while PipAuditRunner.run_pip_audit owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e9a5838efe2d063fdaf4d6a8064025be2d6c656a531e28de8b879ee32c1275d4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_https_url"
+kind = "low_level"
+rationale = "Require a credential-free HTTPS URL with a non-empty hostname; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "15caf68d57cbf553ffe1ef9d260165e7ad6764838c9f261c2b20cf170489de18"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_iso_date"
+kind = "low_level"
+rationale = "Parse a canonical ISO extended calendar date; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "899f23ef57598061ed356128f494e6c3c25bdbe2cae7c08f02e77a750c75909e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_load_json_signal"
+kind = "low_level"
+rationale = "Load a JSON signal after checking its reported byte size; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "62892defa17ed93581f495bcfe3ad9ce3027a2311c1d7aaa4b35fd789a016209"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_lock_surface_findings"
+kind = "compatibility"
+rationale = "Preserve the _lock_surface_findings adapter used by focused callers and injection seams while DependencyRepositoryInspector._lock_surface_findings owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "23901786f7a992e309734bb3a5f6a138800193cb4a4de23fd8e32c277d6f79ba"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_locked_python_packages"
+kind = "low_level"
+rationale = "Load named package entries from a uv lock at the admitted schema boundary; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4ae7b74133d973d5493b5f2f58d66ba8d26145f15aa147dcf33a539568ea2327"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_parse_decisions"
+kind = "low_level"
+rationale = "Parse vulnerability decisions within the policy assessment window; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0f35587750602f6790ace4a32fe7ed3b09a0b470c1b13031e7aff010226c0734"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_parse_overrides"
+kind = "low_level"
+rationale = "Parse emergency overrides within the policy assessment window; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "fc69fc20a118860f313929f4b0f84f218b074b39a1ce3739d13ec8210033f8d2"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_parse_package"
+kind = "low_level"
+rationale = "Parse an exact package identity and attach its license and native-artifact facts; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "bc039e20c5ad01f4044f1ba059408de7b167268e3517ad3e46f3843a81ffc149"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_python_lock_findings"
+kind = "compatibility"
+rationale = "Preserve the _python_lock_findings adapter used by focused callers and injection seams while DependencyRepositoryInspector._python_lock_findings owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d5a10d1c64dc2c65be8d6aa0a03b10bbef317ff69f3c216475562edae61e78ed"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_runtime_install_findings"
+kind = "compatibility"
+rationale = "Preserve the _runtime_install_findings adapter used by focused callers and injection seams while DependencyRepositoryInspector._runtime_install_findings owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2e3059465c473a79fa9e1110b0e181be5b8ad747110e3e2da5207d51ad0413b6"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_strings"
+kind = "low_level"
+rationale = "Require an ordered list of unique, non-empty strings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "02f1887da27df1d7aa6da1c292ad4d8242803f1117f87ca0f4c328606cec821c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_table"
+kind = "low_level"
+rationale = "Require a parsed value to be a TOML table without deep validation; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4e22ffb21f83d519cbb84d7e58512b9f4962e1646bfd60009186a4fc47d0b794"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_tables"
+kind = "low_level"
+rationale = "Require an ordered list of parsed TOML tables; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7ce4c5332c9e6ae4db0ab48c8d58c1a2cb48ef0bdfaceebea3744f561a055b71"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "_wheel_platform_findings"
+kind = "low_level"
+rationale = "Check locked wheel URLs for the required platform coverage heuristically; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "31198355549c00704a37b6353f11e0d42b10dd82d9b8df5432858683a2678d7b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "assess_pip_audit_report"
+kind = "compatibility"
+rationale = "Preserve the supported assess_pip_audit_report function signature and facade imports while DependencyReportEvaluator.assess_pip_audit_report owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "02b910c7f75bb85027085f07dc84e13311ede041d466eaa89ffb6aafe7d847bb"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "assess_scorecard_report"
+kind = "compatibility"
+rationale = "Preserve the supported assess_scorecard_report function signature and facade imports while DependencyReportEvaluator.assess_scorecard_report owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "55f542424588de30aea6081db1eeb2004a76cfc53b2d42a6a3296d8698a47fad"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "load_policy"
+kind = "compatibility"
+rationale = "Preserve the supported load_policy function signature and facade imports while DependencyPolicyLoader.load owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0ddf2958cebff3bdb0b6bf11454c44dfed23a51d1496aef195bd794d8f2d0af4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "require_release_admission"
+kind = "compatibility"
+rationale = "Preserve the supported require_release_admission function signature and facade imports while DependencyRepositoryValidator.require_release_admission owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3063b2ac17397698780d24650226d200f50523684b5f33c23377386da3c3aa71"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while DependencyRepositoryValidator.validate_repository owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4d259c61febea1bb69bba1cacea9f219a7e3fc8745cea5c9ef560c71a60a3b33"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_bootstrap_reports"
+kind = "low_level"
+rationale = "Return bootstrap reports in the order used for pre-verification checks; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c9c733dbf7169712923cec519dfb84e216a08faf4fd80f11746d9ea0c9aec75b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_check_statement"
+kind = "low_level"
+rationale = "Check an attestation statement against a supplied wheel admission claim; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0c5f322768ecbfaeb1dd7831e9592bebc7b78c261e6c5b40d5e90df8cef1762d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_cosign"
+kind = "low_level"
+rationale = "Run the supplied Cosign executable with bounded returned diagnostics; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8328ae3f74e8e5d6d9347fdab5469adacbd206f5a8a9437af60fbe40cf0785b6"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_https"
+kind = "low_level"
+rationale = "Require a credential-free HTTPS URL with no query or fragment; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e5d795bb5f37526c79b2007010662f0ac8461ba8a7a703d9d3171f50fb4a3b19"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_json_object"
+kind = "low_level"
+rationale = "Decode one JSON object with duplicate-key and explicit-constant checks; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5149141c46c7634ec42695dbfea4bb9b5295dc29f2fe7b5c666bf0fec074453a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_object"
+kind = "low_level"
+rationale = "Require a decoded JSON value to be an object without copying it; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c9c853b0c0669a09baf04ca6622b7117414a239080b5757c3315889af6840dfb"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_read_evidence"
+kind = "low_level"
+rationale = "Read and digest-check one repository-local evidence file; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "cbf5365858b730dd83808a0a46b6837db4e72d808f707da2b954789a48bcf0b2"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_reject_json_constant"
+kind = "low_level"
+rationale = "Reject a JSON ``NaN`` or infinity token during strict decoding; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7cf9b97889c5b614838abfe00217a9002e31d14302f606c34182c009f5e9b638"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_relative_path"
+kind = "low_level"
+rationale = "Require a canonical, relative POSIX path for repository evidence; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "adbba09edb99aca8d810a30493273de986508390af9cddf578661ee5c13fbf94"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_statement"
+kind = "low_level"
+rationale = "Decode a supported Sigstore v0.3 DSSE bundle into its in-toto statement; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2548f0c1fe05475fb7d73d14a091d94f1aabe5a45f39a7d2e5a29a734e34e2ab"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_unique_object"
+kind = "low_level"
+rationale = "Build a JSON object while rejecting duplicate member names; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "35e2a67169b461dcd0e8ad41f8145675593ba14f641f41e3a84c48e17b97c44a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "_validate_wheel_records"
+kind = "low_level"
+rationale = "Validate cross-record constraints shared by both wheel profiles; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "411a13c1863a4a418d9d51dc8ee43a3fbad4db16557e2402a2b53426f1042390"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "parse_bootstrap_wheels"
+kind = "low_level"
+rationale = "Parse bounded publication-only wheel admissions for bootstrap use; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "cb1de5fe02937f160315c196c7564b548473eb94c6e2f08301fdac18593688fe"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "parse_wheel_sources"
+kind = "low_level"
+rationale = "Parse authenticated source-binding alternatives for native packages; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "fa6395af90a41c9051eae05f014fb741ab34436e021598809c91b96dfff164c9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "verify_bootstrap_wheels"
+kind = "compatibility"
+rationale = "Preserve the supported verify_bootstrap_wheels function signature and facade imports while WheelEvidenceService.verify_bootstrap_wheels owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "de26064933845765964f2a956bab2179e9f32a44ef1745a6a52810f4ef320756"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
+symbol = "verify_wheel_sources"
+kind = "compatibility"
+rationale = "Preserve the supported verify_wheel_sources function signature and facade imports while WheelEvidenceService.verify_wheel_sources owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8a213fa909e945887f5e2cca01937bf15992403532bbe1329dee45c71afdbeae"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Run the engineering-standards checker from the command line; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c59a7bb978103ba6f512afb6e6b382a884a9631b22baf0076b877e7806436671"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_iso_date"
+kind = "low_level"
+rationale = "Parse one canonical ``YYYY-MM-DD`` string into a calendar date; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5c7f944f5c92a5783302390d82260c84ab28d7f07e034c37a22191ff57add934"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_locked_packages"
+kind = "low_level"
+rationale = "Project usable sdist lock records into a package lookup mapping; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "860754cfcd98b6706bbe8af1045cebe98391b2997fcdf463f5cb1e484f790813"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_owner_roles"
+kind = "low_level"
+rationale = "Collect role names referenced by domain ownership declarations; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c22790412fad9dc69b6b53b0dc3550cd1ce138ca685ab7000efa7c74ad79ca71"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_parse_languages"
+kind = "low_level"
+rationale = "Parse and enforce the exact admitted and dormant language declarations; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3bae5e925f5c54899c7fc7672bdae8958e3b48c9c70c885ae9439d6a23c420c8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_parse_tools"
+kind = "low_level"
+rationale = "Parse and enforce the exact ordered engineering-tool declarations; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "cce374143b44e5ba12355fc575a540097f1c343840d54dc98ef95b44582a5f61"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_positive_integer"
+kind = "low_level"
+rationale = "Require a table field to be an integer greater than or equal to one; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e7d621dd4a36f8f948240ed39cc6cb7dd2d3bce9fd10500b720c6c430a953daf"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_strings"
+kind = "low_level"
+rationale = "Require an ordered list of unique, non-empty strings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ab852d8a1f95a8626a702dbc28b16c05f3812d8f62f216160c8cee1b2d45964e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_table"
+kind = "low_level"
+rationale = "Require a parsed value to be a TOML table without deep validation; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8876b3b5ccf07ec2fff30ec5306f744967f2e8fc1b2ec4333f64ca5cf8bde1d7"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_tables"
+kind = "low_level"
+rationale = "Require an ordered list of parsed TOML tables; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3e1f1666e97fc86b54703002133676638aa4dae0b3a2ea226b8b0cafc831852f"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "_validate_dependency_record"
+kind = "compatibility"
+rationale = "Preserve the _validate_dependency_record adapter used by focused callers and injection seams while _EngineeringStandardsRepositoryValidator._validate_dependency_record owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7daa9f3ae61eadb498e8ae0a8aa4aaa21c95ce0ff8f9e302bcbd054ff3fa299d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "load_standards"
+kind = "compatibility"
+rationale = "Preserve the supported load_standards function signature and facade imports while _StandardsPolicyLoader._load owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "25a052019e9ac2cb688816b707b719657ae19599577cb9209de8634ffcb91c52"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "source_tree_findings"
+kind = "compatibility"
+rationale = "Preserve the supported source_tree_findings function signature and facade imports while _SourceTreeScanner._scan owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c8d452e6c0ce9669436c3a8dba5b14e3947dbfcbb60f9c19d468d51b4ec7495d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while _EngineeringStandardsRepositoryValidator._validate owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3a2d9c858f0ed8664af9fafc87a910aaadd23986de024f7fa5d270042fa6b53d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
+symbol = "validate_suppression_line"
+kind = "low_level"
+rationale = "Validate selected metadata on one recognized source-suppression line; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "9ca1223901256dc55a352b2dbc153e6403d4bff461ac880df4ce18030e37feb9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/__init__.py"
+symbol = "_input_path"
+kind = "low_level"
+rationale = "Construct a CLI input path relative to the selected repository root; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4c21b1a1289069e5ebca0a71ebafbd65c2de24d77a66d40cc9030d7bf73a99ba"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/__init__.py"
+symbol = "_parse_arguments"
+kind = "low_level"
+rationale = "Parse evidence options and enforce supported combinations; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "9ce4f1a2cd84963ef6e29ea461adb38fc73474ff9801f58bc0788bd85de3a95a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/__init__.py"
+symbol = "_repository_path"
+kind = "low_level"
+rationale = "Resolve a policy path and reject locations outside the repository root; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "fab15948d62605b31850b7f942fa8aa81858093b2ad2e4ba10048c20c16b65b9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Run repository, MR-body, event, and evidence-manifest checks; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "cc6225d4458e4e36c5e71e626f876b51d92357f38deb460ad3b4feeadfa123e8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/__init__.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while _EvidenceRepositoryValidator._validate owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2daca637a83053756131f86e1203e493daa1908f6b5b7cf128addcbfe6ddeb67"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_manifest_input_error"
+kind = "low_level"
+rationale = "Translate structural Pydantic errors into stable manifest diagnostics; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c2a8390d9061a3f258d68958b4134ea96222e74a623f3cca838b617981079e7d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_parse_approvals"
+kind = "low_level"
+rationale = "Parse approval claims and enforce status, role, URL, and commit bindings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "23ddf1576ae415fe2f49fe7cab04e88cea3518a945c68de58c49e220b50848a9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_parse_artifacts"
+kind = "low_level"
+rationale = "Parse artifact claims and enforce local identifier and digest rules; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "254bf1725a28419201b72017bcaa94da2bdaa80d2a25c9b79a96e02bec165a98"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_parse_change"
+kind = "low_level"
+rationale = "Convert strict change facts into the change-risk domain input; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6e9c2cbabc8cdfcfb5f79d687679ca481c104a722d93bef7eca815c4fec16a88"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_parse_findings"
+kind = "low_level"
+rationale = "Validate finding records and retain their ordered identifiers; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3a154af064df55f50c2cc5ee998c0699273903c5dd6f0ba2a0519acc8b22da62"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_parse_gates"
+kind = "low_level"
+rationale = "Parse gate tables and enforce their local evidence relationships; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1c5d9682f7f76bf0da501450d62ccd23173659f084ef23a051a555f0cc002798"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_resolve_artifact_path"
+kind = "low_level"
+rationale = "Resolve one artifact path while enforcing bundle containment; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c26a5d486b22d6ab2651cf49441d6f5a4156f9bf1171a2f569d28080b007268e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_validated_string"
+kind = "low_level"
+rationale = "Require one non-empty manifest string without normalizing it; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "540c06e6c44e86753f19f7ad79ee585d670f002bed2516d73e17c6f1cb4335d2"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "_validated_strings"
+kind = "low_level"
+rationale = "Validate and immutably copy a list of manifest strings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "dd71512fe036dd288cefab05614cc82dd17f4ba49fd281a988202ce960e6b8c7"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
+symbol = "validate_manifest"
+kind = "compatibility"
+rationale = "Preserve the supported validate_manifest function signature and facade imports while _ManifestValidator._validate owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5cfe8957994cb560dc26918f7ed6a39942c1544f2d8e3a6246136e93b89f00ae"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "_context"
+kind = "low_level"
+rationale = "Parse the optional evidence-context declaration from merge-request text; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "fc18f32267d23530fa2abd2dd64d3e5582c7ee804910ff8c3d451e0c5ac519e5"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "_parse_sections"
+kind = "low_level"
+rationale = "Extract exact-level Markdown sections using the repository subset parser; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d1645b1cb8b4c9653fdfcf21ac5a1520e1696ec8102add09d964ed3131192ce4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "_read_github_event"
+kind = "low_level"
+rationale = "Read and validate the body and commit identities from a GitHub event JSON file; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d7d856cb7396098417ce20cf131a693f5d458f9a11ddb95c0b29288b25d591e8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "_without_fenced_code"
+kind = "low_level"
+rationale = "Remove lines inside the module's supported Markdown fence subset; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d69b30d3fbd8dc60226ea405c4ff4b61a513c9d2b76d5406e172f0af9d3b1bb0"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "classify_mr"
+kind = "compatibility"
+rationale = "Preserve the supported classify_mr function signature and facade imports while _MergeRequestClassifier._classify_mr owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "010666a7cbb624165341e1c3a068633b914a134475ba7939c1d472ac47f1052a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "github_changed_paths"
+kind = "low_level"
+rationale = "Read unique changed paths from a Git three-dot diff; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4299b3662fee9a69851528b1d221e995e4eb32835fc0f80175ec0b4db0991517"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "lint_github_event"
+kind = "compatibility"
+rationale = "Preserve the supported lint_github_event function signature and facade imports while _MergeRequestValidator._lint_github_event owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "64da331b476a6256142898affbdb6651241ca65a79fe71dd52becf7573854b4a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "validate_github_event"
+kind = "compatibility"
+rationale = "Preserve the supported validate_github_event function signature and facade imports while _MergeRequestValidator._validate_github_event owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "b8032ee74dab60c9b9987bd45c9d602238c228c36abfe8ae07a6b68b5c8a793f"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "validate_mr_body"
+kind = "compatibility"
+rationale = "Preserve the supported validate_mr_body function signature and facade imports while _MergeRequestValidator._validate_mr_body owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c44ca27af0904c87609230068fa0db8abc3380a22a17dd034afc7ec8d8551b97"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
+symbol = "validate_template"
+kind = "compatibility"
+rationale = "Preserve the supported validate_template function signature and facade imports while _MergeRequestValidator._validate_template owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ba029292aa5b3af7721bdb71458ce4a5cbc963648e82a9e11899c031d3eb8a8c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/package.py"
+symbol = "validate_package_evidence"
+kind = "compatibility"
+rationale = "Preserve the supported validate_package_evidence function signature and facade imports while _PackageEvidenceValidator._validate owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "b5c26eed92bbfe8932be871a5354cbdad14827b38a968292be830fb69875dcb5"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/policy.py"
+symbol = "_policy_input_error"
+kind = "low_level"
+rationale = "Translate the first strict input-model error into a stable domain finding; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1ae3d726e65cc9542d934054db0fe1423ecb374670a9a61d59b1db722abe5a33"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/policy.py"
+symbol = "_repository_relative_path"
+kind = "low_level"
+rationale = "Convert a policy path after lexical relative-path checks; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "19ee2862c649299197ec0e205eb5803df39d6f885172b7dfd7da87c6b0244be6"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/policy.py"
+symbol = "_validated_strings"
+kind = "low_level"
+rationale = "Check string-list entries for emptiness and duplicates while preserving order; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3ea3b443ec81c4a5f883b9562c34a1705f5ca592ee2fb318427c4748c59527ae"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/evidence/policy.py"
+symbol = "load_policy"
+kind = "compatibility"
+rationale = "Preserve the supported load_policy function signature and facade imports while _EvidencePolicyLoader._load owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "022868dee40b8fbbf799f77800baaf7690e688fcb350304fa3e83b2b1126c523"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/__init__.py"
+symbol = "_parse_arguments"
+kind = "framework"
+rationale = "Parse inventory CLI tokens and derive the requested output mode; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ff3d1d7e8dc0c826e9ad30b9810edc36a6ff4edaf5d992a26778dcffa1883318"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Validate resource governance or emit a deterministic filtered inventory; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e7d7d86ee03727e7e439027cff9c86dbbb0bb6e310bcfdb04505bbd8ff837902"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_find_dependency_cycles"
+kind = "low_level"
+rationale = "Find directed dependency back edges in an inventory graph; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6fff87b4e2bd5db2fe6e7592e1dc0dc0e68c1225434916af93a6dbf2562ea86d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_load_toml"
+kind = "low_level"
+rationale = "Load a UTF-8 TOML file and require a table at its root; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c362a77afad12da53ad55be4d3b3421b3a2be461249d7d70acba754be1f236c4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_ownership_roles"
+kind = "low_level"
+rationale = "Collect and validate roles declared by the ownership register's domains; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e8daa6708a51d11befd4441ff464ae3af8afe3069e35702c4c4e1f019304fd9d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_parse_inventory_item"
+kind = "low_level"
+rationale = "Parse one inventory table into an immutable resource record; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4ae8504dc154188ef1f3ac7027649db99cf1f386b076dd9c43114eb4152dc22e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_parse_iso_date"
+kind = "low_level"
+rationale = "Parse a date in the canonical ISO extended calendar form; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "b79995a70512b0bd3db27fd5b104d2f31f1203ec0f0aa64ee733060e7bf383cd"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_parse_kind_states"
+kind = "low_level"
+rationale = "Parse kind-population tables and append local consistency findings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "93d795bcf43e6d083651fba95340ce02235817179e25c6a3e4d2d83fa7e4c328"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_require_positive_integer"
+kind = "low_level"
+rationale = "Require a positive integer field; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "20243e5b0610b4305a071d96b57080a64093850ec5bde66fbbf42c0c04ad68a9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_require_string"
+kind = "low_level"
+rationale = "Require a non-blank string field; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d8812f8a112f5bb4a1013ab51c8e6ed92f6b0d77d1a7629cb066145f8c42f386"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_require_strings"
+kind = "low_level"
+rationale = "Require an ordered sequence of unique non-empty strings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e9c578a654c755d43202b8ad0a0f92e93879f0fa6b45b74f8bd58da767bfc6b6"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_require_table"
+kind = "low_level"
+rationale = "Require a parsed value to be a TOML table; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4776c07aff411b8f4b58310c8fecc13e25ecf412a1a5c9fdbd850f23f2e3b063"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_require_table_list"
+kind = "low_level"
+rationale = "Require a parsed value to be an array of TOML tables; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3dda23c57b73a091de81b68110753f1fc4b604f41233e33527fdb2c0850ec61a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_validate_reference"
+kind = "low_level"
+rationale = "Record a finding for an unresolved or invalid inventory reference; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4dcc9e3ebbc10551821a00b639efba69e934c5cf1a75036f230f197e4b7c75a7"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "_validate_repository_path"
+kind = "low_level"
+rationale = "Record a finding when a repository path escapes, is missing, or is not a file; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e76147e5096248cce95c3ce86031f322dca4e8452b9d06ec608beb649b201186"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "load_inventory"
+kind = "compatibility"
+rationale = "Preserve the supported load_inventory function signature and facade imports while InventoryLoader.load owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "eb44668d21dad8121be8b9b63c8a5fa8b6d1dcd1e454c6a301c598cceec5a1c0"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while InventoryLoader.validate_repository owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3e0b74e3052fe440cea37a44114cd6a3feeb3b0ba47183e37f232f61f60877bf"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/operating_model.py"
+symbol = "load_operating_model"
+kind = "compatibility"
+rationale = "Preserve the supported load_operating_model function signature and facade imports while OperatingModelLoader.load owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "10b2f278c66f7598cb9dfae84013e134eb153ca2329cacb55e90969caaad4545"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "_matches"
+kind = "low_level"
+rationale = "Apply the ownership matcher for one admitted exact or prefix pattern; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "9e059fa166b315358ac5404db529134ef603b9ee0ee98ec643506944ca3d2187"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "_optional_string_list"
+kind = "low_level"
+rationale = "Read an optional string list and append one finding when its shape is invalid; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ae548cfb64547bd1ede7eb9a2c77a9478e0461625c20b99adaaffba88b6bbd82"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "_optional_table"
+kind = "low_level"
+rationale = "Return an optional dictionary entry without copying or validating its contents; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "f072ab34695c16e39a7d692b570acaff286a53dbd948cd0534a0ac5047329b00"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "_optional_table_list"
+kind = "low_level"
+rationale = "Return an optional list of dictionaries without copying nested values; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2bc412bef161f9dd0b9204b1af468d55c840b68f231165c1b782873a111d8e0d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "_parse_codeowners"
+kind = "low_level"
+rationale = "Parse the repository's limited exact/prefix CODEOWNERS syntax; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "91380bfc3929374dd26aa1fa436aaf9f555e504ac4a4808a3f33b3210d95899e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "_prefix_pattern_contains"
+kind = "low_level"
+rationale = "Return whether one slash-ended directory pattern strictly contains another; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3b1533a8737de679f0344e1c5858c79d9cd807e35bb1f337d355473d34c9776c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "_repository_paths"
+kind = "low_level"
+rationale = "Discover tracked and untracked repository paths through a fixed Git query; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7e88d91897df0c238ee1177e55a76107b03ef9aaf7b2bf5387fa1ccfc580db35"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "main"
+kind = "framework"
+rationale = "Run the ownership-governance checker from the command line; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6f20a1009564f88ebfc4286f807eab3245d01720b8c1e5db391f1f9d92f3853c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ownership_governance.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while OwnershipGovernanceValidator.validate_repository owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6e39df5ce215488fe8a1e069d81a42e6755b434c0c5951fe3c2169b21f3bc1b6"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/__init__.py"
+symbol = "_build_package_payload"
+kind = "low_level"
+rationale = "Build one JSON-compatible package record with its effective state; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "f07cbf413c3afb7290ed99099bacce0d278c476c073d65bf0d7d325f9f11b9eb"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/__init__.py"
+symbol = "_build_program_dashboard_payload"
+kind = "low_level"
+rationale = "Build the deterministic dashboard payload for the requested program selection; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ad051540973bf379501ab0edb5a00b2d5a7753177cf8860238e4d93a1d04f9db"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/__init__.py"
+symbol = "_parse_arguments"
+kind = "framework"
+rationale = "Parse program CLI options and derive the requested output mode; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "b7a2fc33f702f8cc87fd219f877380905598e58d110e3b50fb0f961d438d97df"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Validate program governance or emit a deterministic graph and KPI dashboard; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "338302e3f371c5e818742e1a5caeb760b682b3f80637fb247a4f59c9ac2e4e8c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_expand_range"
+kind = "low_level"
+rationale = "Expand one roadmap package ID or an inclusive package range; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "f6aa2046ec0ed4500d87b806d5afdfc32c9895bdb895abe5dd15c64f3bf0defd"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_find_dependency_cycles"
+kind = "low_level"
+rationale = "Find directed dependency cycles and render their roadmap diagnostics; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3c0a2451d859e4373a49efb0b24d9915b34d793a59c7184ff83f37a2c5274943"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_load_json_line"
+kind = "low_level"
+rationale = "Parse JSON text and require an object at its root; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "dde8636c8a132ce55b0f7aa4eb2c0376dc42e7517bea2ce63c632e63365ea193"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_load_toml"
+kind = "low_level"
+rationale = "Load a UTF-8 TOML file and require a table at its root; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "aa217c32b6ed71e7a8e88454b136afce743a2b7c479226aec2807f63df7443e4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_ownership_roles"
+kind = "low_level"
+rationale = "Collect roles from the ownership register's domain fields; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "633a066f28e125a60730b7af88b1158fc5b4faf3d252810e8d0ffc23e8d654ca"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_parse_dependency_expression"
+kind = "low_level"
+rationale = "Parse legacy or purpose-specific roadmap dependency expressions; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ba4b0a5dad691a13f3019ac9be83c653ab30e428eee1a1226477c3f3f8d59d64"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_parse_dependency_list"
+kind = "low_level"
+rationale = "Parse comma-separated roadmap dependency IDs and ranges; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8d43419de7cd2d7ffc2693d549b636383ea60c5c1749acb21e85463adc39865d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_parse_finding_dispositions"
+kind = "low_level"
+rationale = "Parse ordered finding-disposition groups and cover active historical findings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "62488597283bfcbeb14b525170f16bd60082b02b6624e67e9cb31ac532832388"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_parse_findings"
+kind = "low_level"
+rationale = "Parse finding records and return their identifiers in source order; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8f77ff0b00b6f18f80419291dffe8a80b7af3d9c73e1702a7fecda146937f0e8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_parse_iso_date"
+kind = "low_level"
+rationale = "Parse a date that round-trips exactly as ``YYYY-MM-DD``; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "0e37c977743f125bf1eb6cd7404f11e1e99c8af57ff4f308a0d5b28232fd264e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_parse_metric"
+kind = "low_level"
+rationale = "Parse one KPI definition and enforce its measurement contract; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "460c785ecb4d3738943776d85a2079da3aab3d04a3dfa7414cc835529d1c0a0a"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_parse_optional_number"
+kind = "low_level"
+rationale = "Parse an optional finite numeric field; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "612985062d9c37272580a4bc8e9c8d8cc7b8a94e0cdf2cceee1ec33682468a6d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_parse_utc_datetime"
+kind = "low_level"
+rationale = "Parse a UTC timestamp whose final character is ``Z``; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3f49df4bacf7e9725efc142d6ed95d2ee154120c9d3598d3e030d615832d7ded"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_require_https_url"
+kind = "low_level"
+rationale = "Require an HTTPS URL with a non-empty host and no credentials; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "aa840c21e9380f9b70a4d0fe9431a70c10d30746d08f93122e1936431be01548"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_require_number"
+kind = "low_level"
+rationale = "Require a table field to contain a finite number; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e9b2d3476d19ab63effdb622059734fc9eb346caf2fd1130f69a78e99070c36d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_require_positive_integer"
+kind = "low_level"
+rationale = "Require a table field to contain a positive integer; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5ec21f81c06a945a76a66f236b6355c07ed292eb253ac68ba8c19ee31a698132"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_require_repository_file"
+kind = "low_level"
+rationale = "Require a repository-relative path to resolve to an in-root file; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d5526ea996e29b668eeda623cab34ef6176a27a8faddcce027a4f76e2dcc8345"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_require_string"
+kind = "low_level"
+rationale = "Require a named table field to contain a non-blank string; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "b590232a975dd7ae4165a49847af47c9ea9e8227fcc32e0adede4fe5806934a1"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_require_strings"
+kind = "low_level"
+rationale = "Require an ordered list of unique non-empty strings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3aedd03f8ca1120d077680e91e91d2641d0df3eb9080f740cbe52397f5ffbb77"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_require_table"
+kind = "low_level"
+rationale = "Require a parsed value to be a table or object; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3568c70f2c891d86d84fe9453a7bc7dcdf8589e0216b3b23e7c2f454376ad3c8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
+symbol = "_require_table_list"
+kind = "low_level"
+rationale = "Require a parsed value to be a list of tables or objects; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e7ba886b546cb23d4642f2cad331742af7747339e2553c7732d43fceaa338560"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
+symbol = "_build"
+kind = "framework"
+rationale = "Run the governed remote build lane; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ab34d1172d7ef402430ee621829dbac8265cec0b03081b43544fa698914f5283"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
+symbol = "_initialize_cli"
+kind = "framework"
+rationale = "Validate the policy or execute one explicitly requested governed lane; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6c2a0e567a422afaeee91e8ceab1a33362b264e89e135cff0ff768972fcd0bbc"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
+symbol = "_print_validation_result"
+kind = "framework"
+rationale = "Print the successful remote-execution policy summary to standard output; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "dfbfa3635b403e54bb49b0bb10198ecf88fed7ab7a2c628437906d09aa251bc9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
+symbol = "_quarantine"
+kind = "framework"
+rationale = "Run governed quarantine diagnostics; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "02591b6eede8a40c2489e81bb4e8596ccc73b14603ec615a0c450d1a4e5e3ba4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
+symbol = "_state"
+kind = "framework"
+rationale = "Retrieve validated remote-execution state from a Typer context; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5b6dba5b9e9522c95dd6dba2512914e5dc2bd0be20f0066445418fd51c07a06c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
+symbol = "_test"
+kind = "framework"
+rationale = "Run one governed remote test shard; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "a28d9151b1880508a144bf5b935dc920d5bb7226b172b04e4101dc2e22c3b7cd"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
+symbol = "_validate"
+kind = "framework"
+rationale = "Validate the remote-execution policy without running a lane; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1892da10598f323e1ec6f3c85da45e3c59602d8fb277d2439f48f4fd28961a19"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Validate or execute one governed remote-execution lane from Typer; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "784a40ad703a40cb7395475ce8f5cbf88dc753adb1dc991076e6c24c989b6bca"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "_require_boolean"
+kind = "low_level"
+rationale = "Require a table field to contain a Boolean; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2b437756e1acb6f7d492e46060659932eb002eb073ac0ded1671df72e987c01e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "_require_iso_date"
+kind = "low_level"
+rationale = "Require a parsed TOML value to be a date object; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4f6a436fadc0b77ea2130f6b1a528c61c381f9299b2aa5368f8c5f638850f70b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "_require_non_empty_string"
+kind = "low_level"
+rationale = "Require a table field to contain a non-empty string; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "b75d707d68cc02b29e56252e12ca781b9586f76dedcebe0b5f7781ff1d412097"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "_require_positive_integer"
+kind = "low_level"
+rationale = "Require a table field to contain a positive integer; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "9273216f81cae1e8109347f4860323c5efabda6ee8cc3d06ffdd3af74862a0be"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "_require_string_tuple"
+kind = "low_level"
+rationale = "Require a list of non-empty, unique strings and preserve its order; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5a82e71b6a624ef341fdab18a80bed8d1afef5307b692f63a35eafc766a8d78f"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "_require_toml_table"
+kind = "low_level"
+rationale = "Require one parsed TOML value to be a table; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7921db17afe2472a918b15725f3ba5297d566827b1a6401231e40614d18b7a56"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "_require_toml_table_array"
+kind = "low_level"
+rationale = "Require one parsed TOML value to be an array containing only tables; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "31c9789ec3978af447f318ffee80b60597ec25b184deb5c317d048535153bf37"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "load_policy"
+kind = "compatibility"
+rationale = "Preserve the supported load_policy function signature and facade imports while _RemotePolicyLoader._load owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "72987ebc2512d462aa3e9b6f0e69490c0d3bca064b14cdbc5aa23d23b2dc3200"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/policy.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while _RemoteRepositoryValidator._validate owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "19ebb6c33ea61b8cc1b9ae243100090cc9c1696ba0020a9d41cae92503bda6ef"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "_resolve_executable"
+kind = "low_level"
+rationale = "Resolve an allowed tool name to an absolute executable path on host PATH; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "465fa0dadd259c4833b79903b46464ad625d80864f8f3c22b5eeea69150f049c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "_run_authenticated_bazel"
+kind = "low_level"
+rationale = "Run one Bazel lane with a temporary file-backed remote credential; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "716aa3f28c92c47bcc69b6adc647b4d086af15b7be1885a2c63e934a20dec4c9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "_run_git_command"
+kind = "low_level"
+rationale = "Run Git with captured text output and return its successful standard output; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c80ebde61b7c4018ad905f59905e3005a466381038bfc803fa463270efe60123"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "_run_process"
+kind = "low_level"
+rationale = "Run an argv vector without a shell and return its completed text process; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2159773056a7ed318f461a6267d5090d395eb8bf5b9b266df269bdd3bb91c827"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "query_test_targets"
+kind = "low_level"
+rationale = "Return non-empty output lines from a shell-free complete-test-graph query; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d4de75b5c0cd76d873a1a7bc8baf84777bb10ff9c7f30ab16135afc06949b918"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "run_quarantine_diagnostics"
+kind = "compatibility"
+rationale = "Preserve the supported run_quarantine_diagnostics function signature and facade imports while _RemoteExecutionRunner._quarantine owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3ccd388067d0887a67556c7807d026f116ff882381fc9eb099986f7221e08e94"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "run_remote_build"
+kind = "compatibility"
+rationale = "Preserve the supported run_remote_build function signature and facade imports while _RemoteExecutionRunner._build owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5baf6b63f4cb26528d9c02e1db50fbd45789c3d50daa1c49b9febff12baef50c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "run_remote_test_shard"
+kind = "compatibility"
+rationale = "Preserve the supported run_remote_test_shard function signature and facade imports while _RemoteExecutionRunner._test owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "bcd9e4b91e63cc2f35513fc7e0cdbf9d821d8527eff32387abf415b416cd7597"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/runner.py"
+symbol = "validate_trusted_context"
+kind = "compatibility"
+rationale = "Preserve the supported validate_trusted_context function signature and facade imports while _RemoteExecutionRunner._validate_trusted_context owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "be3432779cd1a0e0ac45fd9ef4a86c2eabf20bbac477eb97eaa7a9b0ab9659fe"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/sharding.py"
+symbol = "select_shard"
+kind = "low_level"
+rationale = "Select one shard from the complete validated deterministic partition; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "00e92c66579e6f105e2b58ca7e11bce5b4bfd4cf5919cf0d44e0d0623188a4ef"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/remote_execution/sharding.py"
+symbol = "shard_targets"
+kind = "low_level"
+rationale = "Partition unique, syntactically valid test labels into deterministic shards; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "caac1be0c6cabf317da594e396a2c7cdff0e9543031b8117f271787f00edcaa4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Validate governed source topology from the command line; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3a0c91b6a35efb57a5f71767ee0fe6208faf39a033c43acdb8c66c72465e43b4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_find_cycles"
+kind = "low_level"
+rationale = "Find directed dependency cycles among source units; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1edb8bc3779a22991bfe0266e57da2218a46776b7cc2189a269b8453d2ab6cd7"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_internal_imports"
+kind = "low_level"
+rationale = "Collect unique internal module names from every import AST node; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "dfc42293369c4cf0108b8d648afce5d67ce874a818528f9245d7e5d2e56bc014"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_module_name"
+kind = "low_level"
+rationale = "Map a supported repository source path to its dotted module name; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5aae5f0005f9729d42d19c1a8a4abc873aa0e1953041661f237e0e7201b958f5"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_ownership_roles"
+kind = "low_level"
+rationale = "Read an ownership TOML file and collect roles from its governed fields; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2c55a763b9f5335012510894e98fd5dcdc187488f1fe86f9b41ba2e16532ce02"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_require_repository_path"
+kind = "low_level"
+rationale = "Require a strictly existing, repository-contained POSIX path; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1f3a8d8ae09b2dbbc7a1342ae14ecbfb62903bda71a062881b432b5a296f03da"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_require_string"
+kind = "low_level"
+rationale = "Require a named table field to contain a non-empty string; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "4a06857af6989de10ec466bc502abbc094d21c99b2d8dc4611f1021633c56bc4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_require_strings"
+kind = "low_level"
+rationale = "Require a list of unique, non-empty strings; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "863f553c888d05641d6aac7869f596dd6bf8b805f9ca36287f7d8f17167c7806"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_require_table"
+kind = "low_level"
+rationale = "Require an object to be a TOML table; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "6b60ec76287586c03606d9b8bf6736f1be5860431598f9be746cdd1f2f64c23e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_require_table_list"
+kind = "low_level"
+rationale = "Require an object to be a list whose items are TOML tables; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "976e4c252cf99633f3046d61a0eb82d5de1b97f83f2b52719fda72716d1318a7"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "_source_files"
+kind = "low_level"
+rationale = "Collect qualifying source files below each declared repository root; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "a2ae8635c099221fbf213f30c691beae50e19aef4c4932eed2192cda54208873"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "load_topology"
+kind = "compatibility"
+rationale = "Preserve the supported load_topology function signature and facade imports while RepositoryTopologyLoader.load owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "fb1680f343c67f5816ea3f3b268a4e6f4cd6a301c019a27626d5c731d2884ee0"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
+symbol = "validate_repository"
+kind = "compatibility"
+rationale = "Preserve the supported validate_repository function signature and facade imports while RepositoryTopologyLoader.validate_repository owns the operation; review caller adoption in step 7."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "eaac662002bc8fed200481a972df7a32ba7dc53b1615b0d25a78ee8b78af02cb"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/__init__.py"
+symbol = "_build_security_control_payload"
+kind = "low_level"
+rationale = "Build the stable JSON payload for the validated control-map selection; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "2bad2b203202aa2fde009d7233727d17e537ce3afb2232e51aeb3225bdd8b6a7"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/__init__.py"
+symbol = "_parse_arguments"
+kind = "framework"
+rationale = "Parse security-control CLI tokens and derive the requested output mode; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3dd3a0bbea4a63d1144ba6e5d61e2b39b66c7e62fc9ae51f1fb15db428f7652e"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/__init__.py"
+symbol = "main"
+kind = "framework"
+rationale = "Validate security governance or emit a deterministic filtered control map; preserve this module-level CLI or framework adapter and its existing registration and invocation contract."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "f4f8f5a90d91c036539e627998e3fd1e8f475f68e50b7277497b1875286a42b5"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_load_toml"
+kind = "low_level"
+rationale = "Read a UTF-8 TOML file and require a table at its top level; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ad8a43581229cc9d7490411de63837b77fe982a50908edc6bd6e94a1a8e33307"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_ownership_roles"
+kind = "low_level"
+rationale = "Load accountable, review, and escalation roles from an ownership register; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "962919ec8b3b3abbf29420f95fc2a4b8406a6ea33343c13c29b43475370149a8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_assets"
+kind = "low_level"
+rationale = "Parse asset tables into immutable protected-asset records; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8e0f0cfbb5362e053e28811f780e10ba1dd0726f8b1ecb36ab40bf5ed3aabe00"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_authority_sources"
+kind = "low_level"
+rationale = "Parse authority-source tables into immutable citation records; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1d179b061bfa4d51688612230be5e25f87a4457a4ea7508ec22b6141f7a22154"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_boundaries"
+kind = "low_level"
+rationale = "Parse trust-boundary tables into immutable boundary records; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "5dcc71a14a9b2a28d722880551045cec6fce29b496b95e3c5c113bc296c38c8d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_controls"
+kind = "low_level"
+rationale = "Parse control tables into immutable security-control records; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3ed354a8cc9bd2fbf13304623b3a61bd712a64d344f9a4cb2b9892425eeee59b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_evidence_sources"
+kind = "low_level"
+rationale = "Parse evidence-source tables into immutable evidence records; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3463fc3975c60407702542994978781e63df9d9e3a958a098287e48b09fba1a8"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_iso_date"
+kind = "low_level"
+rationale = "Parse a date string only when its spelling is exactly ``YYYY-MM-DD``; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "81f34171342676dd9dafe8a91b3faf0ab2e7ead3cc5721ddd330d2bf1c4583ce"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_jurisdictions"
+kind = "low_level"
+rationale = "Parse jurisdiction tables into immutable applicability profiles; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "8a34955a8887f252b92d132eea0a4ec64d78243d58b1ed8940d3a67a26b95278"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_regulatory_mappings"
+kind = "low_level"
+rationale = "Parse regulatory-mapping tables into immutable mapping records; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "525def75d073bb7ac5f513e4f9b7d830163159405ff845450e32f08730b50f28"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_parse_threats"
+kind = "low_level"
+rationale = "Parse threat tables into immutable threat-scenario records; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "767da3c3b9e60ebac95a4e2daac220af78a2cbd56969115262845ad3c906384b"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_require_entries"
+kind = "low_level"
+rationale = "Require table entries to expose exactly a specified set of fields; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d4f608f897eca21ce5725d74fcb8fceee151faa460c1ed4e661cffd2f710d363"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_require_integer"
+kind = "low_level"
+rationale = "Require a table field to contain an integer other than a Boolean; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "d672221dd2839aed327f0822ee572ca170ced8acce97bf6d362c73f8fbfdd159"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_require_string"
+kind = "low_level"
+rationale = "Require a table field to contain a string with the selected emptiness rule; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "a0eede7165f670269cc9d5024ff19e42461018b5d2812464e5be9ff058b9c212"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_require_strings"
+kind = "low_level"
+rationale = "Require a unique list of non-empty strings and preserve its order; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "1a86cb0f900a1e865bfabe3d493ffc99abd8306a002bcd30d5cc88cdaff73b75"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_require_table"
+kind = "low_level"
+rationale = "Require a parsed value to be a TOML table; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "ce94001813ab6334992f3815a20d3f1fe341404f18edde6268dd179761f50f2d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_require_table_list"
+kind = "low_level"
+rationale = "Require a value to be a list whose items are TOML tables; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "e2b3e3678fbf6ac42456a882571ee8276fa6907b9847f666ad6bef955206ff74"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_validate_authority_url"
+kind = "low_level"
+rationale = "Append findings for an authority URL's shape and trusted host; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "c1bd4b9962bda081c807763d8c31b92d960fc9c8a47ab4ee705658f2c14829e9"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_validate_id_order"
+kind = "low_level"
+rationale = "Append findings for duplicate, unsorted, or malformed identifiers; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "3a89c54dec8e2c5467eeaa74caaac93feb8fc4ecbb5a4bd939f2c19c2455b77d"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_validate_references"
+kind = "low_level"
+rationale = "Append one finding for references absent from an allowed identifier set; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "dcbf4b9bc3a61badfe4a0af8b7efa56982811514852975c11cffe4316367173c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/security_controls/registry.py"
+symbol = "_validate_repository_path"
+kind = "low_level"
+rationale = "Append a finding when a repository-relative value is not an in-root file; retain this bounded, stateless primitive for composition by the owning workflow rather than introducing a separate service state."
+rule = "PYC001"
+detail = "module-level-function"
+owner_role = "platform"
+expires = 2027-03-01
+source_sha256 = "7acaad2e7445a68a6a9be5c907a846996462ffd13d798072878b510ada100851"

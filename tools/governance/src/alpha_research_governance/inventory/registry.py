@@ -586,206 +586,347 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
     return tuple(dict.fromkeys(cycles))
 
 
-def _load_inventory(
-    path: Path, *, repository_root: Path, ownership_register_path: Path | None = None
-) -> ResourceInventory:
-    """Load and validate a complete resource inventory against repository state."""
-    resolved_repository_root = repository_root.resolve()
-    ownership_path = (
-        resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
-        if ownership_register_path is None
-        else ownership_register_path
-    )
-    ownership_roles = _ownership_roles(ownership_path)
-    inventory_document = _load_toml(path)
-    if set(inventory_document) != _ROOT_KEYS:
-        raise InventoryGovernanceError([f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"])
-    expected_scalars: dict[str, object] = {
-        "schema_version": 1,
-        "roadmap_package": "A06",
-        "operating_track": "solo_bootstrap",
-        "accountable_owner_role": "platform",
-    }
-    for key, expected in expected_scalars.items():
-        if inventory_document.get(key) != expected:
-            raise InventoryGovernanceError([f"{path}: {key} must be {expected!r}"])
-    supported_kinds = _require_strings(
-        inventory_document.get("supported_kinds"), context="supported_kinds"
-    )
-    if supported_kinds != RESOURCE_KINDS:
-        raise InventoryGovernanceError([f"{path}: supported_kinds must be {RESOURCE_KINDS!r}"])
+class InventoryLoader:
+    """Load and validate inventory records for one repository context.
 
-    findings: list[str] = []
-    as_of_date = _parse_iso_date(
-        _require_string(inventory_document, "as_of_date", context=str(path)), context="as_of_date"
-    )
-    kinds = _parse_kind_states(
-        inventory_document.get("kind_states"), ownership_roles=ownership_roles, findings=findings
-    )
-    item_values = _require_table_list(inventory_document.get("items"), context="items")
-    items = tuple(
-        _parse_inventory_item(entry, index=index) for index, entry in enumerate(item_values, 1)
-    )
-    maximum_items = _require_positive_integer(
-        inventory_document, "maximum_items", context=str(path)
-    )
-    if len(items) > maximum_items:
-        findings.append(f"catalog contains {len(items)} items; maximum_items is {maximum_items}")
-    inventory_ids = tuple(item.inventory_id for item in items)
-    if len(inventory_ids) != len(set(inventory_ids)):
-        findings.append("inventory IDs must be unique")
-    if inventory_ids != tuple(sorted(inventory_ids)):
-        findings.append("inventory items must be ordered by stable inventory_id")
-    inventory_id_set = frozenset(inventory_ids)
+    The constructor stores path context only. Each operation builds fresh parsed
+    records and findings, so repeated calls on one loader cannot inherit state
+    from a previous invocation.
+    """
 
-    for item in items:
-        context = item.inventory_id
-        if item.kind not in RESOURCE_KINDS:
-            findings.append(f"{context}: unsupported kind {item.kind!r}")
-        if item.owner_role not in ownership_roles:
-            findings.append(f"{context}: stale ownership role {item.owner_role!r}")
-        if item.criticality not in {"T0", "T1", "T2", "T3"}:
-            findings.append(f"{context}: criticality must be T0-T3")
-        if item.status not in _STATUSES:
-            findings.append(f"{context}: unsupported status {item.status!r}")
-        if (
-            item.status == "validated"
-            and inventory_document.get("operating_track") == "solo_bootstrap"
-        ):
-            findings.append(f"{context}: solo_bootstrap resources cannot claim validated status")
-        if _RETENTION.fullmatch(item.retention_class) is None:
-            findings.append(f"{context}: retention_class must be lower_snake_case")
-        if item.deployment_status not in _DEPLOYMENT_STATUSES:
-            findings.append(f"{context}: unsupported deployment_status")
-        if item.deployment_status in {"deployed", "activated"} and not item.deployment_evidence:
-            findings.append(f"{context}: deployed resources require deployment evidence")
-        if item.review_due_on < as_of_date:
-            findings.append(f"{context}: ownership review is stale as of {as_of_date.isoformat()}")
-        if item.inventory_id in item.dependencies:
-            findings.append(f"{context}: a resource cannot depend on itself")
-        for dependency in item.dependencies:
-            if dependency not in inventory_id_set:
-                findings.append(f"{context}: unresolved dependency {dependency!r}")
-        missing_dependency_lineage = set(item.dependencies) - set(item.lineage_refs)
-        if missing_dependency_lineage:
+    def __init__(
+        self,
+        repository_root: Path,
+        *,
+        ownership_register_path: Path | None = None,
+    ) -> None:
+        """Bind repository and optional ownership-register paths without I/O.
+
+        Args:
+            repository_root: Repository root for repository-relative checks.
+            ownership_register_path: Optional ownership-register override; when
+                omitted, the default register below the resolved root is used.
+        """
+        self._repository_root = repository_root
+        self._ownership_register_path = ownership_register_path
+
+    def load(self, path: Path) -> ResourceInventory:
+        """Load one inventory document with model-error translation.
+
+        Args:
+            path: UTF-8 inventory TOML file to parse.
+
+        Returns:
+            The validated immutable inventory record.
+
+        Raises:
+            InventoryGovernanceError: If parsing, validation, or model construction fails.
+            OSError: If the inventory or ownership register cannot be read.
+            UnicodeDecodeError: If an input file is not valid UTF-8.
+        """
+        return self._load_with_context(path, self._repository_root.resolve())
+
+    def _load_with_context(self, path: Path, resolved_repository_root: Path) -> ResourceInventory:
+        """Load one inventory while preserving the public model-error boundary.
+
+        Args:
+            path: UTF-8 inventory TOML file to parse.
+            resolved_repository_root: Root snapshot for this load operation.
+
+        Returns:
+            The validated immutable inventory record.
+
+        Raises:
+            InventoryGovernanceError: If parsing or model construction fails.
+            OSError: If the inventory or ownership register cannot be read.
+            UnicodeDecodeError: If an input file is not valid UTF-8.
+        """
+        try:
+            return self._load(path, resolved_repository_root=resolved_repository_root)
+        except ValidationError as error:
+            raise InventoryGovernanceError(
+                [f"{path}: inventory model validation failed"]
+            ) from error
+
+    def _load(
+        self, path: Path, *, resolved_repository_root: Path | None = None
+    ) -> ResourceInventory:
+        """Load and validate one complete resource inventory against repository state.
+
+        Args:
+            path: UTF-8 inventory TOML file to parse.
+            resolved_repository_root: Optional root snapshot captured by the caller; when omitted,
+                this method resolves the loader's bound root for direct internal use.
+
+        Returns:
+            A validated immutable inventory record.
+
+        Raises:
+            InventoryGovernanceError: If schema, ownership, reference, lifecycle,
+                dependency, or evidence-path checks fail.
+            OSError: If repository or input files cannot be read.
+        """
+        repository_root = self._repository_root
+        ownership_register_path = self._ownership_register_path
+        resolved_repository_root = (
+            repository_root.resolve()
+            if resolved_repository_root is None
+            else resolved_repository_root
+        )
+        ownership_path = (
+            resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
+            if ownership_register_path is None
+            else ownership_register_path
+        )
+        ownership_roles = _ownership_roles(ownership_path)
+        inventory_document = _load_toml(path)
+        if set(inventory_document) != _ROOT_KEYS:
+            raise InventoryGovernanceError(
+                [f"{path}: fields must be exactly {sorted(_ROOT_KEYS)!r}"]
+            )
+        expected_scalars: dict[str, object] = {
+            "schema_version": 1,
+            "roadmap_package": "A06",
+            "operating_track": "solo_bootstrap",
+            "accountable_owner_role": "platform",
+        }
+        for key, expected in expected_scalars.items():
+            if inventory_document.get(key) != expected:
+                raise InventoryGovernanceError([f"{path}: {key} must be {expected!r}"])
+        supported_kinds = _require_strings(
+            inventory_document.get("supported_kinds"), context="supported_kinds"
+        )
+        if supported_kinds != RESOURCE_KINDS:
+            raise InventoryGovernanceError([f"{path}: supported_kinds must be {RESOURCE_KINDS!r}"])
+
+        findings: list[str] = []
+        as_of_date = _parse_iso_date(
+            _require_string(inventory_document, "as_of_date", context=str(path)),
+            context="as_of_date",
+        )
+        kinds = _parse_kind_states(
+            inventory_document.get("kind_states"),
+            ownership_roles=ownership_roles,
+            findings=findings,
+        )
+        item_values = _require_table_list(inventory_document.get("items"), context="items")
+        items = tuple(
+            _parse_inventory_item(entry, index=index) for index, entry in enumerate(item_values, 1)
+        )
+        maximum_items = _require_positive_integer(
+            inventory_document, "maximum_items", context=str(path)
+        )
+        if len(items) > maximum_items:
             findings.append(
-                f"{context}: missing lineage for dependencies "
-                f"{sorted(missing_dependency_lineage)!r}"
+                f"catalog contains {len(items)} items; maximum_items is {maximum_items}"
             )
-        missing_source_lineage = set(item.source_paths) - set(item.lineage_refs)
-        if missing_source_lineage:
-            findings.append(
-                f"{context}: missing lineage for source paths {sorted(missing_source_lineage)!r}"
-            )
-        for source_path in item.source_paths:
-            _validate_repository_path(
-                source_path,
-                repository_root=resolved_repository_root,
-                context=f"{context}.source_paths",
-                findings=findings,
-            )
-        for field_name, references in (
-            ("lineage_refs", item.lineage_refs),
-            ("deployment_evidence", item.deployment_evidence),
-            ("status_evidence", item.status_evidence),
-        ):
-            for reference in references:
-                _validate_reference(
-                    reference,
-                    inventory_ids=inventory_id_set,
+        inventory_ids = tuple(item.inventory_id for item in items)
+        if len(inventory_ids) != len(set(inventory_ids)):
+            findings.append("inventory IDs must be unique")
+        if inventory_ids != tuple(sorted(inventory_ids)):
+            findings.append("inventory items must be ordered by stable inventory_id")
+        inventory_id_set = frozenset(inventory_ids)
+
+        for item in items:
+            context = item.inventory_id
+            if item.kind not in RESOURCE_KINDS:
+                findings.append(f"{context}: unsupported kind {item.kind!r}")
+            if item.owner_role not in ownership_roles:
+                findings.append(f"{context}: stale ownership role {item.owner_role!r}")
+            if item.criticality not in {"T0", "T1", "T2", "T3"}:
+                findings.append(f"{context}: criticality must be T0-T3")
+            if item.status not in _STATUSES:
+                findings.append(f"{context}: unsupported status {item.status!r}")
+            if (
+                item.status == "validated"
+                and inventory_document.get("operating_track") == "solo_bootstrap"
+            ):
+                findings.append(
+                    f"{context}: solo_bootstrap resources cannot claim validated status"
+                )
+            if _RETENTION.fullmatch(item.retention_class) is None:
+                findings.append(f"{context}: retention_class must be lower_snake_case")
+            if item.deployment_status not in _DEPLOYMENT_STATUSES:
+                findings.append(f"{context}: unsupported deployment_status")
+            if item.deployment_status in {"deployed", "activated"} and not item.deployment_evidence:
+                findings.append(f"{context}: deployed resources require deployment evidence")
+            if item.review_due_on < as_of_date:
+                findings.append(
+                    f"{context}: ownership review is stale as of {as_of_date.isoformat()}"
+                )
+            if item.inventory_id in item.dependencies:
+                findings.append(f"{context}: a resource cannot depend on itself")
+            for dependency in item.dependencies:
+                if dependency not in inventory_id_set:
+                    findings.append(f"{context}: unresolved dependency {dependency!r}")
+            missing_dependency_lineage = set(item.dependencies) - set(item.lineage_refs)
+            if missing_dependency_lineage:
+                findings.append(
+                    f"{context}: missing lineage for dependencies "
+                    f"{sorted(missing_dependency_lineage)!r}"
+                )
+            missing_source_lineage = set(item.source_paths) - set(item.lineage_refs)
+            if missing_source_lineage:
+                findings.append(
+                    f"{context}: missing lineage for source paths "
+                    f"{sorted(missing_source_lineage)!r}"
+                )
+            for source_path in item.source_paths:
+                _validate_repository_path(
+                    source_path,
                     repository_root=resolved_repository_root,
-                    context=f"{context}.{field_name}",
+                    context=f"{context}.source_paths",
                     findings=findings,
                 )
+            for field_name, references in (
+                ("lineage_refs", item.lineage_refs),
+                ("deployment_evidence", item.deployment_evidence),
+                ("status_evidence", item.status_evidence),
+            ):
+                for reference in references:
+                    _validate_reference(
+                        reference,
+                        inventory_ids=inventory_id_set,
+                        repository_root=resolved_repository_root,
+                        context=f"{context}.{field_name}",
+                        findings=findings,
+                    )
 
-    counts = {kind: sum(item.kind == kind for item in items) for kind in RESOURCE_KINDS}
-    for state in kinds:
-        expected_population = "populated" if counts.get(state.kind, 0) else "empty"
-        if state.population_status != expected_population:
-            findings.append(
-                f"kind {state.kind!r} must be {expected_population!r} for its item count"
-            )
-    for cycle in _find_dependency_cycles(items):
-        findings.append(f"inventory dependency cycle: {cycle}")
+        counts = {kind: sum(item.kind == kind for item in items) for kind in RESOURCE_KINDS}
+        for state in kinds:
+            expected_population = "populated" if counts.get(state.kind, 0) else "empty"
+            if state.population_status != expected_population:
+                findings.append(
+                    f"kind {state.kind!r} must be {expected_population!r} for its item count"
+                )
+        for cycle in _find_dependency_cycles(items):
+            findings.append(f"inventory dependency cycle: {cycle}")
 
-    finding_values = _require_table_list(inventory_document.get("findings"), context="findings")
-    finding_ids: list[str] = []
-    expected_finding_keys = {
-        "closure_condition",
-        "finding_id",
-        "owner_role",
-        "unavailable_evidence",
-    }
-    for index, finding in enumerate(finding_values, 1):
-        context = f"findings[{index}]"
-        if set(finding) != expected_finding_keys:
-            raise InventoryGovernanceError([f"{context} has missing or unknown fields"])
-        for key in expected_finding_keys:
-            _require_string(finding, key, context=context)
-        owner_role = _require_string(finding, "owner_role", context=context)
-        if owner_role not in ownership_roles:
-            findings.append(f"{context}: stale ownership role {owner_role!r}")
-        finding_ids.append(_require_string(finding, "finding_id", context=context))
-    open_finding_ids = _require_strings(
-        inventory_document.get("open_finding_ids"), context="open_finding_ids", allow_empty=True
-    )
-    if open_finding_ids != tuple(finding_ids):
-        findings.append("open_finding_ids must exactly match findings")
-    package_status = _require_string(inventory_document, "package_status", context=str(path))
-    if package_status == "partial":
-        if tuple(finding_ids) != _RESOURCE_INVENTORY_OPEN_FINDING_IDS:
-            findings.append(
-                f"partial status requires findings {list(_RESOURCE_INVENTORY_OPEN_FINDING_IDS)!r}"
-            )
-    elif package_status == "validated":
-        if inventory_document.get("operating_track") == "solo_bootstrap":
-            findings.append("solo_bootstrap packages cannot claim validated status")
-        if finding_ids:
-            findings.append("validated status cannot retain open findings")
-    else:
-        findings.append("package_status must be partial or validated")
-
-    if findings:
-        raise InventoryGovernanceError(findings)
-    local_evidence_manifest_path = _require_string(
-        inventory_document, "local_evidence_manifest_path", context=str(path)
-    )
-    evidence_path_findings: list[str] = []
-    _validate_repository_path(
-        local_evidence_manifest_path,
-        repository_root=resolved_repository_root,
-        context="local_evidence_manifest_path",
-        findings=evidence_path_findings,
-    )
-    if evidence_path_findings:
-        raise InventoryGovernanceError(evidence_path_findings)
-    local_evidence_commit_sha = _require_string(
-        inventory_document, "local_evidence_commit_sha", context=str(path)
-    )
-    if _COMMIT_SHA.fullmatch(local_evidence_commit_sha) is None:
-        raise InventoryGovernanceError(
-            [f"{path}: local_evidence_commit_sha must be a full lowercase SHA"]
+        finding_values = _require_table_list(inventory_document.get("findings"), context="findings")
+        finding_ids: list[str] = []
+        expected_finding_keys = {
+            "closure_condition",
+            "finding_id",
+            "owner_role",
+            "unavailable_evidence",
+        }
+        for index, finding in enumerate(finding_values, 1):
+            context = f"findings[{index}]"
+            if set(finding) != expected_finding_keys:
+                raise InventoryGovernanceError([f"{context} has missing or unknown fields"])
+            for key in expected_finding_keys:
+                _require_string(finding, key, context=context)
+            owner_role = _require_string(finding, "owner_role", context=context)
+            if owner_role not in ownership_roles:
+                findings.append(f"{context}: stale ownership role {owner_role!r}")
+            finding_ids.append(_require_string(finding, "finding_id", context=context))
+        open_finding_ids = _require_strings(
+            inventory_document.get("open_finding_ids"), context="open_finding_ids", allow_empty=True
         )
-    return ResourceInventory(
-        catalog_version=_require_positive_integer(
-            inventory_document, "catalog_version", context=str(path)
-        ),
-        as_of_date=as_of_date,
-        inventory_scope=_require_string(inventory_document, "inventory_scope", context=str(path)),
-        package_status=package_status,
-        maximum_items=maximum_items,
-        query_workload_iterations=_require_positive_integer(
-            inventory_document, "query_workload_iterations", context=str(path)
-        ),
-        query_workload_budget_ms=_require_positive_integer(
-            inventory_document, "query_workload_budget_ms", context=str(path)
-        ),
-        local_evidence_manifest_path=local_evidence_manifest_path,
-        local_evidence_commit_sha=local_evidence_commit_sha,
-        kinds=kinds,
-        items=items,
-        finding_ids=tuple(finding_ids),
-    )
+        if open_finding_ids != tuple(finding_ids):
+            findings.append("open_finding_ids must exactly match findings")
+        package_status = _require_string(inventory_document, "package_status", context=str(path))
+        if package_status == "partial":
+            if tuple(finding_ids) != _RESOURCE_INVENTORY_OPEN_FINDING_IDS:
+                findings.append(
+                    "partial status requires findings "
+                    f"{list(_RESOURCE_INVENTORY_OPEN_FINDING_IDS)!r}"
+                )
+        elif package_status == "validated":
+            if inventory_document.get("operating_track") == "solo_bootstrap":
+                findings.append("solo_bootstrap packages cannot claim validated status")
+            if finding_ids:
+                findings.append("validated status cannot retain open findings")
+        else:
+            findings.append("package_status must be partial or validated")
+
+        if findings:
+            raise InventoryGovernanceError(findings)
+        local_evidence_manifest_path = _require_string(
+            inventory_document, "local_evidence_manifest_path", context=str(path)
+        )
+        evidence_path_findings: list[str] = []
+        _validate_repository_path(
+            local_evidence_manifest_path,
+            repository_root=resolved_repository_root,
+            context="local_evidence_manifest_path",
+            findings=evidence_path_findings,
+        )
+        if evidence_path_findings:
+            raise InventoryGovernanceError(evidence_path_findings)
+        local_evidence_commit_sha = _require_string(
+            inventory_document, "local_evidence_commit_sha", context=str(path)
+        )
+        if _COMMIT_SHA.fullmatch(local_evidence_commit_sha) is None:
+            raise InventoryGovernanceError(
+                [f"{path}: local_evidence_commit_sha must be a full lowercase SHA"]
+            )
+        return ResourceInventory(
+            catalog_version=_require_positive_integer(
+                inventory_document, "catalog_version", context=str(path)
+            ),
+            as_of_date=as_of_date,
+            inventory_scope=_require_string(
+                inventory_document, "inventory_scope", context=str(path)
+            ),
+            package_status=package_status,
+            maximum_items=maximum_items,
+            query_workload_iterations=_require_positive_integer(
+                inventory_document, "query_workload_iterations", context=str(path)
+            ),
+            query_workload_budget_ms=_require_positive_integer(
+                inventory_document, "query_workload_budget_ms", context=str(path)
+            ),
+            local_evidence_manifest_path=local_evidence_manifest_path,
+            local_evidence_commit_sha=local_evidence_commit_sha,
+            kinds=kinds,
+            items=items,
+            finding_ids=tuple(finding_ids),
+        )
+
+    def _validate_local_evidence(self, repository_root: Path, inventory: ResourceInventory) -> None:
+        """Validate the synthetic R2 bundle without treating it as forge acceptance.
+
+        Args:
+            repository_root: Resolved repository root containing policy and evidence files.
+            inventory: Validated inventory whose manifest path and commit are checked.
+
+        Raises:
+            InventoryGovernanceError: If policy, manifest, or package evidence fails.
+        """
+        try:
+            change_policy = load_change_risk_policy(
+                repository_root / "docs" / "governance" / "change-risk-policy.toml"
+            )
+            manifest = validate_manifest(
+                repository_root / inventory.local_evidence_manifest_path,
+                expected_commit_sha=inventory.local_evidence_commit_sha,
+                change_policy=change_policy,
+            )
+        except (OSError, ValueError) as error:
+            raise InventoryGovernanceError([f"A06 local evidence bundle: {error}"]) from error
+        try:
+            validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+        except EvidenceGovernanceError as error:
+            raise InventoryGovernanceError(error.findings) from error
+
+    def validate_repository(self) -> ResourceInventory:
+        """Validate the authoritative inventory and its local evidence bundle.
+
+        Returns:
+            The validated immutable inventory record.
+
+        Raises:
+            InventoryGovernanceError: If inventory or local evidence validation fails.
+            OSError: If repository files cannot be read.
+        """
+        resolved_repository_root = self._repository_root.resolve()
+        inventory = self._load_with_context(
+            resolved_repository_root / "docs" / "governance" / "resource-inventory.toml",
+            resolved_repository_root,
+        )
+        self._validate_local_evidence(resolved_repository_root, inventory)
+        return inventory
 
 
 def load_inventory(
@@ -800,109 +941,60 @@ def load_inventory(
     inventory, checks its exact schema and scalar values, parses kind and item
     records, evaluates each ``review_due_on`` against the catalog's
     ``as_of_date`` rather than today's date, and accumulates catalog-wide
-    ownership, lifecycle, lineage, dependency, population and package
-    findings in validation order. When no earlier findings remain, it checks
-    the recorded local evidence manifest path and commit SHA before
-    constructing the immutable result. It does not read or validate manifest
-    contents; ``validate_repository`` performs that separate evidence check.
-    Filesystem checks are read-only.
+    ownership, lifecycle, lineage, dependency, population and package findings
+    in validation order. When no earlier findings remain, it checks the
+    recorded local evidence manifest path and commit SHA before constructing
+    the immutable result. It does not read or validate manifest contents;
+    ``validate_repository`` performs that separate evidence check.
 
     Args:
-        path: UTF-8 TOML inventory file to read; a relative path is interpreted
-            from the process current working directory.
-        repository_root: Repository root used to resolve the default ownership
-            register and validate repository-relative source and reference
-            paths; a relative path is resolved from the process current working
-            directory.
+        path: UTF-8 TOML inventory file; a relative path follows normal
+            process working-directory semantics.
+        repository_root: Repository root used for ownership and reference
+            checks; relative paths are resolved from the process directory.
         ownership_register_path: Optional ownership-register TOML file. ``None``
-            uses ``docs/governance/domain-ownership.toml`` below the resolved
-            root; a supplied relative path is interpreted from the process
-            current working directory and is not rebased to ``repository_root``.
+            uses the default register below the resolved root; a supplied
+            relative path remains process-relative.
 
     Returns:
-        A validated ``ResourceInventory`` containing parsed metadata, kind
-        declarations, items and retained open finding IDs.
+        The validated immutable ``ResourceInventory``.
 
     Raises:
-        InventoryGovernanceError: If TOML syntax, root or schema shape, field
-            values, ownership roles, repository references, lifecycle,
-            dependency, lineage, population or package consistency, local
-            evidence path, or commit-SHA validation fails. TOML decoding and
-            Pydantic model failures are translated with their causes chained.
-        OSError: If an inventory or ownership file cannot be read, or an
-            uncaught filesystem error occurs during repository-path checks.
-        UnicodeDecodeError: If the inventory or ownership TOML is not valid
-            UTF-8.
+        InventoryGovernanceError: If TOML, schema, ownership, references,
+            lifecycle, dependency, lineage, population, package, evidence-path,
+            commit-SHA, or model validation fails.
+        OSError: If input or ownership files cannot be read, or an uncaught
+            filesystem error occurs during path checks.
+        UnicodeDecodeError: If inventory or ownership TOML is not valid UTF-8.
         RuntimeError: If path resolution encounters a symlink loop.
     """
-    try:
-        return _load_inventory(
-            path,
-            repository_root=repository_root,
-            ownership_register_path=ownership_register_path,
-        )
-    except ValidationError as error:
-        raise InventoryGovernanceError([f"{path}: inventory model validation failed"]) from error
-
-
-def _validate_local_evidence(repository_root: Path, inventory: ResourceInventory) -> None:
-    """Validate the synthetic R2 bundle without treating it as forge acceptance."""
-    try:
-        change_policy = load_change_risk_policy(
-            repository_root / "docs" / "governance" / "change-risk-policy.toml"
-        )
-        manifest = validate_manifest(
-            repository_root / inventory.local_evidence_manifest_path,
-            expected_commit_sha=inventory.local_evidence_commit_sha,
-            change_policy=change_policy,
-        )
-    except (OSError, ValueError) as error:
-        raise InventoryGovernanceError([f"A06 local evidence bundle: {error}"]) from error
-    try:
-        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
-    except EvidenceGovernanceError as error:
-        raise InventoryGovernanceError(error.findings) from error
+    return InventoryLoader(repository_root, ownership_register_path=ownership_register_path).load(
+        path
+    )
 
 
 def validate_repository(repository_root: Path) -> ResourceInventory:
     """Validate the authoritative inventory and its synthetic local R2 evidence.
 
-    The function resolves ``repository_root``, loads
-    ``docs/governance/resource-inventory.toml`` with the default ownership
-    register, then loads the change-risk policy and validates the inventory's
-    recorded local evidence manifest against its commit SHA and the fixed A06
-    R2 package profile. It returns only after both inventory and evidence
-    checks pass; all operations are read-only.
+    The function resolves ``repository_root``, loads the authoritative
+    inventory with its default ownership register, then validates the recorded
+    local evidence manifest against its commit SHA and the fixed A06 R2 package
+    profile. All operations are read-only.
 
     Args:
-        repository_root: Repository root containing the authoritative
-            governance TOML files and recorded local evidence bundle; a
-            relative path is resolved from the process current working
-            directory.
+        repository_root: Repository root containing the governance TOML files
+            and recorded local evidence bundle.
 
     Returns:
         The immutable ``ResourceInventory`` loaded from the authoritative
         catalog.
 
     Raises:
-        InventoryGovernanceError: If inventory parsing or validation fails, or
-            if change-risk policy, manifest or package-profile failures are
-            translated at the local-evidence boundary. Translated causes are
-            chained.
-        OSError: If root resolution or authoritative inventory/ownership reads
-            and path checks fail. Filesystem failures while loading the
-            change-risk policy or evidence manifest are translated to
-            ``InventoryGovernanceError``.
-        UnicodeDecodeError: If authoritative inventory or ownership TOML is not
-            valid UTF-8. Invalid UTF-8 in local-evidence inputs is translated
-            to ``InventoryGovernanceError``.
-        RuntimeError: If root, repository or local-evidence path resolution
-            encounters a symlink loop.
+        InventoryGovernanceError: If inventory, change-risk policy, manifest,
+            or package-profile validation fails; translated causes are chained.
+        OSError: If root or authoritative files cannot be read. Evidence-stage
+            filesystem failures are translated to the domain error.
+        UnicodeDecodeError: If authoritative input is not valid UTF-8.
+        RuntimeError: If path resolution encounters a symlink loop.
     """
-    resolved_repository_root = repository_root.resolve()
-    inventory = load_inventory(
-        resolved_repository_root / "docs" / "governance" / "resource-inventory.toml",
-        repository_root=resolved_repository_root,
-    )
-    _validate_local_evidence(resolved_repository_root, inventory)
-    return inventory
+    return InventoryLoader(repository_root).validate_repository()

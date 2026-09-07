@@ -106,7 +106,89 @@ def _input_path(repository_root: Path, value: str) -> Path:
     return path if path.is_absolute() else repository_root.resolve() / path
 
 
-def validate_repository(repository_root: Path) -> tuple[EvidencePolicy, EvidenceManifest]:
+class _EvidenceRepositoryValidator:
+    """Validate repository evidence policy, risk bindings, and local artifacts."""
+
+    def __init__(
+        self,
+        repository_root: Path,
+    ) -> None:
+        """Bind the repository root without performing I/O."""
+        self._repository_root = repository_root
+
+    def _validate(self) -> tuple[EvidencePolicy, EvidenceManifest]:
+        """Validate evidence policy, template, example MR, and example bundle.
+
+        Returns:
+            A pair containing the validated evidence policy followed by its validated example
+            manifest. The manifest includes the policy-bound change classification and gate
+            evidence.
+
+        Raises:
+            EvidenceGovernanceError: If any policy, template, example MR, change-risk binding,
+                manifest, gate, finding, or artifact check fails.
+            ChangeRiskPolicyError: If the repository change-risk policy cannot be loaded or
+                validated.
+            OSError: If a referenced repository file cannot be resolved or read.
+            UnicodeDecodeError: If a referenced repository file is not valid UTF-8.
+        """
+        repository_root = self._repository_root
+        resolved_repository_root = repository_root.resolve()
+        policy = load_policy(
+            resolved_repository_root / "docs" / "governance" / "merge-evidence-policy.toml"
+        )
+        template_path = _repository_path(resolved_repository_root, policy.template_path)
+        example_mr_path = _repository_path(resolved_repository_root, policy.example_mr_body_path)
+        example_manifest_path = _repository_path(
+            resolved_repository_root, policy.example_manifest_path
+        )
+        validate_template(template_path.read_text(encoding="utf-8"), policy)
+        example_fields = validate_mr_body(
+            example_mr_path.read_text(encoding="utf-8"), policy, profile="institutional"
+        )
+        if policy.founder_example_mr_body_path is not None:
+            founder_example = _repository_path(
+                resolved_repository_root, policy.founder_example_mr_body_path
+            )
+            validate_mr_body(founder_example.read_text(encoding="utf-8"), policy)
+        if example_fields["evidence_manifest"] != policy.example_manifest_path.as_posix():
+            raise EvidenceGovernanceError(
+                ["example MR evidence manifest field must match the A05 policy path"]
+            )
+        change_policy = load_change_risk_policy(
+            resolved_repository_root / "docs" / "governance" / "change-risk-policy.toml"
+        )
+        manifest = validate_manifest(
+            example_manifest_path,
+            expected_commit_sha=policy.example_commit_sha,
+            change_policy=change_policy,
+        )
+        if manifest.roadmap_id != "A05" or manifest.open_finding_ids != policy.finding_ids:
+            raise EvidenceGovernanceError(
+                ["example manifest must retain the A05 roadmap ID and policy findings"]
+            )
+        if {gate.gate_id for gate in manifest.gates} != set(policy.applicable_gates):
+            raise EvidenceGovernanceError(
+                ["example manifest must record every applicable A05 gate exactly once"]
+            )
+        decision = classify_change(manifest.change, change_policy)
+        example_required_gates = set(decision.mandatory_gates) | set(
+            manifest.additional_required_gates
+        )
+        if example_required_gates != set(policy.mandatory_package_gates):
+            raise EvidenceGovernanceError(
+                ["example manifest required gates must exactly match the A05 policy"]
+            )
+        if any(gate.status != "passed" for gate in manifest.gates):
+            raise EvidenceGovernanceError(
+                ["example manifest must pass every repository-local applicable gate"]
+            )
+        return policy, manifest
+
+
+def validate_repository(
+    repository_root: Path,
+) -> tuple[EvidencePolicy, EvidenceManifest]:
     """Validate evidence policy, template, example MR, and example bundle.
 
     Args:
@@ -126,53 +208,7 @@ def validate_repository(repository_root: Path) -> tuple[EvidencePolicy, Evidence
         OSError: If a referenced repository file cannot be resolved or read.
         UnicodeDecodeError: If a referenced repository file is not valid UTF-8.
     """
-    resolved_repository_root = repository_root.resolve()
-    policy = load_policy(
-        resolved_repository_root / "docs" / "governance" / "merge-evidence-policy.toml"
-    )
-    template_path = _repository_path(resolved_repository_root, policy.template_path)
-    example_mr_path = _repository_path(resolved_repository_root, policy.example_mr_body_path)
-    example_manifest_path = _repository_path(resolved_repository_root, policy.example_manifest_path)
-    validate_template(template_path.read_text(encoding="utf-8"), policy)
-    example_fields = validate_mr_body(
-        example_mr_path.read_text(encoding="utf-8"), policy, profile="institutional"
-    )
-    if policy.founder_example_mr_body_path is not None:
-        founder_example = _repository_path(
-            resolved_repository_root, policy.founder_example_mr_body_path
-        )
-        validate_mr_body(founder_example.read_text(encoding="utf-8"), policy)
-    if example_fields["evidence_manifest"] != policy.example_manifest_path.as_posix():
-        raise EvidenceGovernanceError(
-            ["example MR evidence manifest field must match the A05 policy path"]
-        )
-    change_policy = load_change_risk_policy(
-        resolved_repository_root / "docs" / "governance" / "change-risk-policy.toml"
-    )
-    manifest = validate_manifest(
-        example_manifest_path,
-        expected_commit_sha=policy.example_commit_sha,
-        change_policy=change_policy,
-    )
-    if manifest.roadmap_id != "A05" or manifest.open_finding_ids != policy.finding_ids:
-        raise EvidenceGovernanceError(
-            ["example manifest must retain the A05 roadmap ID and policy findings"]
-        )
-    if {gate.gate_id for gate in manifest.gates} != set(policy.applicable_gates):
-        raise EvidenceGovernanceError(
-            ["example manifest must record every applicable A05 gate exactly once"]
-        )
-    decision = classify_change(manifest.change, change_policy)
-    example_required_gates = set(decision.mandatory_gates) | set(manifest.additional_required_gates)
-    if example_required_gates != set(policy.mandatory_package_gates):
-        raise EvidenceGovernanceError(
-            ["example manifest required gates must exactly match the A05 policy"]
-        )
-    if any(gate.status != "passed" for gate in manifest.gates):
-        raise EvidenceGovernanceError(
-            ["example manifest must pass every repository-local applicable gate"]
-        )
-    return policy, manifest
+    return _EvidenceRepositoryValidator(repository_root)._validate()
 
 
 def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, dict[str, str]]:
@@ -193,7 +229,13 @@ def _parse_arguments(arguments: Sequence[str]) -> tuple[Path, dict[str, str]]:
     repository_root: Path | None = None
     options: dict[str, str] = {}
     index = 0
-    allowed = {"--expected-commit-sha", "--github-event", "--manifest", "--mr-body", "--operation"}
+    allowed = {
+        "--expected-commit-sha",
+        "--github-event",
+        "--manifest",
+        "--mr-body",
+        "--operation",
+    }
     while index < len(arguments):
         argument = arguments[index]
         if argument.startswith("--"):

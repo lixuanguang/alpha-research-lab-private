@@ -113,33 +113,6 @@ def _optional_string_list(
     return cast(list[str], value)
 
 
-def _load_registry(path: Path) -> dict[str, object]:
-    """Read a UTF-8 TOML registry and require a table-shaped root.
-
-    The parsed dictionary is returned with its nested values untouched; schema and semantic
-    checks belong to ``validate_repository``. TOML syntax failures are translated with the
-    path context, while file and UTF-8 decoding failures propagate.
-
-    Args:
-        path: Registry TOML file to read.
-
-    Returns:
-        The parsed root dictionary, retaining its parser-produced key/value structure.
-
-    Raises:
-        OwnershipGovernanceError: If TOML is malformed or the parsed root is not a table.
-        OSError: If the file cannot be read.
-        UnicodeDecodeError: If the file is not valid UTF-8.
-    """
-    try:
-        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as error:
-        raise OwnershipGovernanceError([f"{path}: invalid TOML: {error}"]) from error
-    if not isinstance(parsed_document, dict):
-        raise OwnershipGovernanceError([f"{path}: registry root must be a TOML table"])
-    return cast(dict[str, object], parsed_document)
-
-
 def _parse_codeowners(path: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
     """Parse the repository's limited exact/prefix CODEOWNERS syntax.
 
@@ -271,221 +244,289 @@ def _repository_paths(repository_root: Path) -> tuple[str, ...]:
     return tuple(path.decode("utf-8") for path in git_process.stdout.split(b"\0") if path)
 
 
+class OwnershipGovernanceValidator:
+    """Validate ownership policy for one repository context.
+
+    The constructor stores the repository path only. Each validation allocates
+    fresh findings, domain IDs, and CODEOWNERS expectations.
+    """
+
+    def __init__(self, repository_root: Path) -> None:
+        """Bind a repository root without reading policy or Git state.
+
+        Args:
+            repository_root: Root containing the ownership register and CODEOWNERS file.
+        """
+        self._repository_root = repository_root
+
+    def _load_registry(self, path: Path) -> dict[str, object]:
+        """Read a UTF-8 TOML registry and require a table-shaped root.
+
+        The parsed dictionary is returned with its nested values untouched; schema and semantic
+        checks belong to ``validate_repository``. TOML syntax failures are translated with the
+        path context, while file and UTF-8 decoding failures propagate.
+
+        Args:
+            path: Registry TOML file to read.
+
+        Returns:
+            The parsed root dictionary, retaining its parser-produced key/value structure.
+
+        Raises:
+            OwnershipGovernanceError: If TOML is malformed or the parsed root is not a table.
+            OSError: If the file cannot be read.
+            UnicodeDecodeError: If the file is not valid UTF-8.
+        """
+        try:
+            parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as error:
+            raise OwnershipGovernanceError([f"{path}: invalid TOML: {error}"]) from error
+        if not isinstance(parsed_document, dict):
+            raise OwnershipGovernanceError([f"{path}: registry root must be a TOML table"])
+        return cast(dict[str, object], parsed_document)
+
+    def validate_repository(
+        self, *, repository_paths: Iterable[str] | None = None
+    ) -> tuple[str, ...]:
+        """Validate the ownership register, CODEOWNERS mirror, and path coverage.
+
+        The resolved ``repository_root`` locates the ownership register and resolves its
+        ``codeowners_path`` against that root; the CODEOWNERS target must remain inside the
+        resolved root. Validation checks the supported policy values, the version-2 operating
+        model, forge/status/finding constraints, required domain IDs, reviewer roles, owner
+        principals, pattern ordering, exact ordered CODEOWNERS equality, and ownership coverage
+        for every input path. The register and CODEOWNERS are read as UTF-8 without writes by
+        ``_load_registry`` and ``_parse_codeowners``. ``repository_paths`` supplies the coverage
+        input when present; otherwise the direct ``_repository_paths`` helper enumerates tracked
+        and nonignored untracked paths through its read-only Git subprocess query.
+
+        Args:
+            repository_paths: Optional iterable of repository-relative paths to check. When the
+                coverage stage is reached, its iteration order is retained and Git discovery is
+                bypassed when it is supplied; ``None`` selects the helper's Git enumeration.
+                Exceptions raised while consuming the iterable propagate.
+
+        Returns:
+            The validated domain IDs as a tuple in register order. A successful call returns
+            every required domain exactly once.
+
+        Raises:
+            OwnershipGovernanceError: If accumulated validation findings remain, or a direct
+                helper reports a governance failure, including invalid register values,
+                operating-model errors, domain or CODEOWNERS policy mismatches, path coverage
+                failures, malformed registry TOML or root shape, and Git unavailable or
+                nonzero-exit failures. Version-2 ``OperatingModelError`` is appended as a
+                finding, and ``_load_registry`` translates malformed TOML or a non-table root
+                into this error. Findings retain validation order and duplicates. A malformed
+                CODEOWNERS file, or its UTF-8 decoding failure, is caught here by the earlier
+                ``ValueError`` boundary as a containment finding; an ordered-entry mismatch is
+                then added when the empty parsed result differs from the expected entries. The
+                Git helper's same error propagates directly.
+            OSError: If root resolution or direct helper file or process I/O fails; this error
+                propagates.
+            UnicodeDecodeError: If the registry, version-2 operating model, or a successful Git
+                path record is not valid UTF-8; CODEOWNERS decoding is translated as described
+                above.
+        """
+        resolved_repository_root = self._repository_root.resolve()
+        registry_path = resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
+        registry = self._load_registry(registry_path)
+        findings: list[str] = []
+
+        expected_scalar_values: dict[str, object] = {
+            "roadmap_package": "A03",
+            "operating_track": "solo_bootstrap",
+            "unmatched_path_policy": "reject",
+            "author_may_satisfy_independent_review": False,
+        }
+        schema_version = registry.get("schema_version")
+        if type(schema_version) is not int or schema_version not in {1, 2}:
+            findings.append(f"{registry_path}: schema_version must be 1 or 2")
+        if schema_version == 2:
+            try:
+                load_operating_model(registry_path)
+            except OperatingModelError as error:
+                findings.append(str(error))
+        for key, expected in expected_scalar_values.items():
+            if registry.get(key) != expected:
+                findings.append(f"{registry_path}: {key} must be {expected!r}")
+
+        package_status = registry.get("package_status")
+        forge = _optional_table(registry, "forge_enforcement")
+        if forge is None:
+            findings.append(f"{registry_path}: forge_enforcement must be a TOML table")
+            forge = {}
+        for key in ("require_code_owner_review", "require_approval_after_last_push"):
+            if forge.get(key) is not True:
+                findings.append(f"{registry_path}: forge_enforcement.{key} must be true")
+        if forge.get("protected_branch") != "main":
+            findings.append(f"{registry_path}: forge_enforcement.protected_branch must be 'main'")
+
+        open_findings = _optional_table_list(registry, "findings")
+        if open_findings is None:
+            findings.append(f"{registry_path}: findings must be an array of TOML tables")
+            open_findings = []
+        if package_status == "validated":
+            if forge.get("verification_status") != "verified" or not forge.get("evidence"):
+                findings.append(
+                    f"{registry_path}: validated status requires verified forge evidence"
+                )
+            if registry.get("operating_track") == "solo_bootstrap":
+                findings.append(
+                    f"{registry_path}: solo_bootstrap packages cannot claim validated status"
+                )
+            if open_findings:
+                findings.append(f"{registry_path}: validated status cannot retain open findings")
+        elif package_status != "partial" or not open_findings:
+            findings.append(f"{registry_path}: package_status must be partial with open findings")
+        for finding in open_findings:
+            if any(
+                not isinstance(finding.get(key), str) or not finding.get(key)
+                for key in (
+                    "finding_id",
+                    "owner_role",
+                    "unavailable_evidence",
+                    "closure_condition",
+                )
+            ):
+                findings.append(
+                    f"{registry_path}: each finding requires an id, owner, evidence, and closure"
+                )
+        finding_ids = tuple(
+            cast(str, finding["finding_id"])
+            for finding in open_findings
+            if isinstance(finding.get("finding_id"), str)
+        )
+        if package_status == "partial" and finding_ids != _OWNERSHIP_GOVERNANCE_OPEN_FINDING_IDS:
+            findings.append(
+                f"{registry_path}: partial status requires findings "
+                f"{list(_OWNERSHIP_GOVERNANCE_OPEN_FINDING_IDS)!r}"
+            )
+
+        domains = _optional_table_list(registry, "domains")
+        if domains is None:
+            findings.append(f"{registry_path}: domains must be an array of TOML tables")
+            domains = []
+        domain_ids: list[str] = []
+        expected_entries: list[tuple[str, tuple[str, ...]]] = []
+        seen_patterns: set[str] = set()
+        for index, domain in enumerate(domains, start=1):
+            context = f"{registry_path}: domain {index}"
+            domain_id = domain.get("domain_id")
+            accountable_role = domain.get("accountable_role")
+            if not isinstance(domain_id, str) or _ROLE.fullmatch(domain_id) is None:
+                findings.append(f"{context}: domain_id must be lower_snake_case")
+                continue
+            domain_ids.append(domain_id)
+            context = f"{registry_path}: domain {domain_id}"
+            if not isinstance(accountable_role, str) or _ROLE.fullmatch(accountable_role) is None:
+                findings.append(f"{context}: accountable_role must be lower_snake_case")
+                accountable_role = ""
+            patterns = _optional_string_list(domain, "patterns", context=context, findings=findings)
+            codeowners = _optional_string_list(
+                domain, "codeowners", context=context, findings=findings
+            )
+            required = _optional_string_list(
+                domain, "required_review_roles", context=context, findings=findings
+            )
+            independent = _optional_string_list(
+                domain, "independent_review_roles", context=context, findings=findings
+            )
+            escalation = _optional_string_list(
+                domain, "escalation_roles", context=context, findings=findings
+            )
+            if not patterns or not codeowners or not escalation:
+                findings.append(
+                    f"{context}: patterns, codeowners, and escalation_roles cannot be empty"
+                )
+            if "*" in patterns:
+                findings.append(
+                    f"{context}: catch-all CODEOWNERS pattern '*' is incompatible with "
+                    "unmatched_path_policy 'reject'"
+                )
+            if accountable_role not in required:
+                findings.append(f"{context}: accountable_role must be a required reviewer")
+            if not set(independent) <= set(required):
+                findings.append(f"{context}: independent reviewers must also be required reviewers")
+            if accountable_role in independent:
+                findings.append(f"{context}: accountable_role cannot satisfy independent review")
+            if any(_ROLE.fullmatch(role) is None for role in required + independent + escalation):
+                findings.append(f"{context}: review and escalation roles must be lower_snake_case")
+            if any(_PRINCIPAL.fullmatch(owner) is None for owner in codeowners):
+                findings.append(f"{context}: codeowners must use @user or @org/team principals")
+            for pattern in patterns:
+                if pattern in seen_patterns:
+                    findings.append(f"{context}: duplicate CODEOWNERS pattern {pattern!r}")
+                seen_patterns.add(pattern)
+                expected_entries.append((pattern, tuple(codeowners)))
+
+        ordered_patterns = tuple(pattern for pattern, _ in expected_entries)
+        for narrower_index, narrower in enumerate(ordered_patterns):
+            for broader in ordered_patterns[narrower_index + 1 :]:
+                if _prefix_pattern_contains(broader, narrower):
+                    findings.append(
+                        f"{registry_path}: broader CODEOWNERS pattern {broader!r} must precede "
+                        f"narrower pattern {narrower!r} so last-match routing stays fail-closed"
+                    )
+
+        domain_set = set(domain_ids)
+        if domain_set != _REQUIRED_DOMAINS or len(domain_ids) != len(domain_set):
+            findings.append(
+                f"{registry_path}: domains must be exactly {sorted(_REQUIRED_DOMAINS)!r}"
+            )
+
+        codeowners_value = registry.get("codeowners_path")
+        if not isinstance(codeowners_value, str) or not codeowners_value:
+            findings.append(f"{registry_path}: codeowners_path must be a non-empty string")
+        else:
+            codeowners_path = (resolved_repository_root / codeowners_value).resolve()
+            try:
+                codeowners_path.relative_to(resolved_repository_root)
+                actual_entries = _parse_codeowners(codeowners_path)
+            except ValueError:
+                findings.append(f"{registry_path}: codeowners_path must stay inside the repository")
+                actual_entries = ()
+            except OwnershipGovernanceError as error:
+                findings.extend(error.findings)
+                actual_entries = ()
+            if actual_entries != tuple(expected_entries):
+                findings.append(
+                    f"{codeowners_path}: entries must exactly match the ordered register"
+                )
+            paths = (
+                tuple(repository_paths)
+                if repository_paths is not None
+                else _repository_paths(resolved_repository_root)
+            )
+            actual_patterns = tuple(pattern for pattern, _ in actual_entries)
+            for path in paths:
+                if not any(_matches(pattern, path) for pattern in actual_patterns):
+                    findings.append(f"{path}: repository path has no CODEOWNER")
+
+        if findings:
+            raise OwnershipGovernanceError(findings)
+        return tuple(domain_ids)
+
+
 def validate_repository(
     repository_root: Path, *, repository_paths: Iterable[str] | None = None
 ) -> tuple[str, ...]:
     """Validate the ownership register, CODEOWNERS mirror, and path coverage.
 
-    The resolved ``repository_root`` locates the ownership register and resolves its
-    ``codeowners_path`` against that root; the CODEOWNERS target must remain inside the
-    resolved root. Validation checks the supported policy values, the version-2 operating
-    model, forge/status/finding constraints, required domain IDs, reviewer roles, owner
-    principals, pattern ordering, exact ordered CODEOWNERS equality, and ownership coverage
-    for every input path. The register and CODEOWNERS are read as UTF-8 without writes by
-    ``_load_registry`` and ``_parse_codeowners``. ``repository_paths`` supplies the coverage
-    input when present; otherwise the direct ``_repository_paths`` helper enumerates tracked
-    and nonignored untracked paths through its read-only Git subprocess query.
-
     Args:
-        repository_root: Repository directory whose resolved path anchors the register,
-            CODEOWNERS target, and default Git working directory.
-        repository_paths: Optional iterable of repository-relative paths to check. When the
-            coverage stage is reached, its iteration order is retained and Git discovery is
-            bypassed when it is supplied; ``None`` selects the helper's Git enumeration.
-            Exceptions raised while consuming the iterable propagate.
+        repository_root: Repository whose ownership policy and CODEOWNERS are checked.
+        repository_paths: Optional paths to check; omitted paths are discovered through Git.
 
     Returns:
-        The validated domain IDs as a tuple in register order. A successful call returns
-        every required domain exactly once.
+        Validated domain IDs in register order.
 
     Raises:
-        OwnershipGovernanceError: If accumulated validation findings remain, or a direct
-            helper reports a governance failure, including invalid register values,
-            operating-model errors, domain or CODEOWNERS policy mismatches, path coverage
-            failures, malformed registry TOML or root shape, and Git unavailable or
-            nonzero-exit failures. Version-2 ``OperatingModelError`` is appended as a
-            finding, and ``_load_registry`` translates malformed TOML or a non-table root
-            into this error. Findings retain validation order and duplicates. A malformed
-            CODEOWNERS file, or its UTF-8 decoding failure, is caught here by the earlier
-            ``ValueError`` boundary as a containment finding; an ordered-entry mismatch is
-            then added when the empty parsed result differs from the expected entries. The
-            Git helper's same error propagates directly.
-        OSError: If root resolution or direct helper file or process I/O fails; this error
-            propagates.
-        UnicodeDecodeError: If the registry, version-2 operating model, or a successful Git
-            path record is not valid UTF-8; CODEOWNERS decoding is translated as described
-            above.
+        OwnershipGovernanceError: If policy, CODEOWNERS, or coverage checks fail.
+        OSError: If repository or Git operations fail.
     """
-    resolved_repository_root = repository_root.resolve()
-    registry_path = resolved_repository_root / "docs" / "governance" / "domain-ownership.toml"
-    registry = _load_registry(registry_path)
-    findings: list[str] = []
-
-    expected_scalar_values: dict[str, object] = {
-        "roadmap_package": "A03",
-        "operating_track": "solo_bootstrap",
-        "unmatched_path_policy": "reject",
-        "author_may_satisfy_independent_review": False,
-    }
-    schema_version = registry.get("schema_version")
-    if type(schema_version) is not int or schema_version not in {1, 2}:
-        findings.append(f"{registry_path}: schema_version must be 1 or 2")
-    if schema_version == 2:
-        try:
-            load_operating_model(registry_path)
-        except OperatingModelError as error:
-            findings.append(str(error))
-    for key, expected in expected_scalar_values.items():
-        if registry.get(key) != expected:
-            findings.append(f"{registry_path}: {key} must be {expected!r}")
-
-    package_status = registry.get("package_status")
-    forge = _optional_table(registry, "forge_enforcement")
-    if forge is None:
-        findings.append(f"{registry_path}: forge_enforcement must be a TOML table")
-        forge = {}
-    for key in ("require_code_owner_review", "require_approval_after_last_push"):
-        if forge.get(key) is not True:
-            findings.append(f"{registry_path}: forge_enforcement.{key} must be true")
-    if forge.get("protected_branch") != "main":
-        findings.append(f"{registry_path}: forge_enforcement.protected_branch must be 'main'")
-
-    open_findings = _optional_table_list(registry, "findings")
-    if open_findings is None:
-        findings.append(f"{registry_path}: findings must be an array of TOML tables")
-        open_findings = []
-    if package_status == "validated":
-        if forge.get("verification_status") != "verified" or not forge.get("evidence"):
-            findings.append(f"{registry_path}: validated status requires verified forge evidence")
-        if registry.get("operating_track") == "solo_bootstrap":
-            findings.append(
-                f"{registry_path}: solo_bootstrap packages cannot claim validated status"
-            )
-        if open_findings:
-            findings.append(f"{registry_path}: validated status cannot retain open findings")
-    elif package_status != "partial" or not open_findings:
-        findings.append(f"{registry_path}: package_status must be partial with open findings")
-    for finding in open_findings:
-        if any(
-            not isinstance(finding.get(key), str) or not finding.get(key)
-            for key in (
-                "finding_id",
-                "owner_role",
-                "unavailable_evidence",
-                "closure_condition",
-            )
-        ):
-            findings.append(
-                f"{registry_path}: each finding requires an id, owner, evidence, and closure"
-            )
-    finding_ids = tuple(
-        cast(str, finding["finding_id"])
-        for finding in open_findings
-        if isinstance(finding.get("finding_id"), str)
+    return OwnershipGovernanceValidator(repository_root).validate_repository(
+        repository_paths=repository_paths
     )
-    if package_status == "partial" and finding_ids != _OWNERSHIP_GOVERNANCE_OPEN_FINDING_IDS:
-        findings.append(
-            f"{registry_path}: partial status requires findings "
-            f"{list(_OWNERSHIP_GOVERNANCE_OPEN_FINDING_IDS)!r}"
-        )
-
-    domains = _optional_table_list(registry, "domains")
-    if domains is None:
-        findings.append(f"{registry_path}: domains must be an array of TOML tables")
-        domains = []
-    domain_ids: list[str] = []
-    expected_entries: list[tuple[str, tuple[str, ...]]] = []
-    seen_patterns: set[str] = set()
-    for index, domain in enumerate(domains, start=1):
-        context = f"{registry_path}: domain {index}"
-        domain_id = domain.get("domain_id")
-        accountable_role = domain.get("accountable_role")
-        if not isinstance(domain_id, str) or _ROLE.fullmatch(domain_id) is None:
-            findings.append(f"{context}: domain_id must be lower_snake_case")
-            continue
-        domain_ids.append(domain_id)
-        context = f"{registry_path}: domain {domain_id}"
-        if not isinstance(accountable_role, str) or _ROLE.fullmatch(accountable_role) is None:
-            findings.append(f"{context}: accountable_role must be lower_snake_case")
-            accountable_role = ""
-        patterns = _optional_string_list(domain, "patterns", context=context, findings=findings)
-        codeowners = _optional_string_list(domain, "codeowners", context=context, findings=findings)
-        required = _optional_string_list(
-            domain, "required_review_roles", context=context, findings=findings
-        )
-        independent = _optional_string_list(
-            domain, "independent_review_roles", context=context, findings=findings
-        )
-        escalation = _optional_string_list(
-            domain, "escalation_roles", context=context, findings=findings
-        )
-        if not patterns or not codeowners or not escalation:
-            findings.append(
-                f"{context}: patterns, codeowners, and escalation_roles cannot be empty"
-            )
-        if "*" in patterns:
-            findings.append(
-                f"{context}: catch-all CODEOWNERS pattern '*' is incompatible with "
-                "unmatched_path_policy 'reject'"
-            )
-        if accountable_role not in required:
-            findings.append(f"{context}: accountable_role must be a required reviewer")
-        if not set(independent) <= set(required):
-            findings.append(f"{context}: independent reviewers must also be required reviewers")
-        if accountable_role in independent:
-            findings.append(f"{context}: accountable_role cannot satisfy independent review")
-        if any(_ROLE.fullmatch(role) is None for role in required + independent + escalation):
-            findings.append(f"{context}: review and escalation roles must be lower_snake_case")
-        if any(_PRINCIPAL.fullmatch(owner) is None for owner in codeowners):
-            findings.append(f"{context}: codeowners must use @user or @org/team principals")
-        for pattern in patterns:
-            if pattern in seen_patterns:
-                findings.append(f"{context}: duplicate CODEOWNERS pattern {pattern!r}")
-            seen_patterns.add(pattern)
-            expected_entries.append((pattern, tuple(codeowners)))
-
-    ordered_patterns = tuple(pattern for pattern, _ in expected_entries)
-    for narrower_index, narrower in enumerate(ordered_patterns):
-        for broader in ordered_patterns[narrower_index + 1 :]:
-            if _prefix_pattern_contains(broader, narrower):
-                findings.append(
-                    f"{registry_path}: broader CODEOWNERS pattern {broader!r} must precede "
-                    f"narrower pattern {narrower!r} so last-match routing stays fail-closed"
-                )
-
-    domain_set = set(domain_ids)
-    if domain_set != _REQUIRED_DOMAINS or len(domain_ids) != len(domain_set):
-        findings.append(f"{registry_path}: domains must be exactly {sorted(_REQUIRED_DOMAINS)!r}")
-
-    codeowners_value = registry.get("codeowners_path")
-    if not isinstance(codeowners_value, str) or not codeowners_value:
-        findings.append(f"{registry_path}: codeowners_path must be a non-empty string")
-    else:
-        codeowners_path = (resolved_repository_root / codeowners_value).resolve()
-        try:
-            codeowners_path.relative_to(resolved_repository_root)
-            actual_entries = _parse_codeowners(codeowners_path)
-        except ValueError:
-            findings.append(f"{registry_path}: codeowners_path must stay inside the repository")
-            actual_entries = ()
-        except OwnershipGovernanceError as error:
-            findings.extend(error.findings)
-            actual_entries = ()
-        if actual_entries != tuple(expected_entries):
-            findings.append(f"{codeowners_path}: entries must exactly match the ordered register")
-        paths = (
-            tuple(repository_paths)
-            if repository_paths is not None
-            else _repository_paths(resolved_repository_root)
-        )
-        actual_patterns = tuple(pattern for pattern, _ in actual_entries)
-        for path in paths:
-            if not any(_matches(pattern, path) for pattern in actual_patterns):
-                findings.append(f"{path}: repository path has no CODEOWNER")
-
-    if findings:
-        raise OwnershipGovernanceError(findings)
-    return tuple(domain_ids)
 
 
 def main(arguments: Sequence[str] | None = None) -> int:

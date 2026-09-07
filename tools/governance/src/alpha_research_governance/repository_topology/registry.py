@@ -492,386 +492,458 @@ def _find_cycles(units: tuple[SourceUnit, ...]) -> tuple[str, ...]:
     return tuple(sorted(cycles))
 
 
-def _validate_graph(topology: RepositoryTopology, repository_root: Path) -> None:
-    """Validate declared topology, filesystem registration, and import dependencies.
+class RepositoryTopologyLoader:
+    """Load and validate topology for one repository context.
 
-    Args:
-        topology: In-memory topology whose units, layer order, source roots, dependencies, and
-            visibility declarations are checked without mutation.
-        repository_root: Caller-resolved repository root used to read the ownership register,
-            inspect source roots/files, and resolve source imports.
-
-    Returns:
-        ``None`` when every graph, ownership, path, source-set, visibility, cycle, and import
-        dependency check passes. Diagnostics are accumulated as the validation phases visit
-        units, sources, cycles, and imports; source-path ``RepositoryTopologyError`` findings are
-        folded into that list, and duplicate findings are retained. Import-related comparisons
-        include iteration over frozensets, so their relative finding order is not a promised
-        stable sort order. Only imports rooted in the known internal modules become graph edges;
-        external imports are omitted by the import collector.
-        The unit pass also compares visibility with the set of direct consumers and checks layer
-        direction for each known dependency. Source registration is compared with the qualifying
-        files discovered below every declared root, then each registered Python module's parsed
-        internal imports are compared with its declared cross-unit dependencies.
-        Cycle findings are appended before import findings, while set-based source and import
-        operations may determine the relative order of some diagnostics. The method does not
-        rewrite unit dependencies, visibility, source paths, or the topology object.
-
-    Raises:
-        RepositoryTopologyError: If accumulated findings report duplicate/unsorted units, invalid
-            unit metadata, path or ownership mismatches, unknown/self/upward dependencies,
-            visibility or cycle errors, source-set drift, or declared/import dependency drift.
-            Errors from ownership loading, source scanning, and source parsing may also propagate
-            immediately, before previously accumulated findings are raised; only per-unit
-            source-path domain errors are collected for the final report.
-        OSError: If ownership, source scanning, path inspection, or source reading encounters an
-            uncaught filesystem error.
-        UnicodeDecodeError: If an ownership register or source file is not valid UTF-8.
-        RuntimeError: If strict path resolution encounters a symlink loop.
+    The constructor stores the repository path only. Each load allocates
+    independent findings, parsed units, and dependency indexes.
     """
-    findings: list[str] = []
-    unit_by_id = {unit.unit_id: unit for unit in topology.units}
-    if len(unit_by_id) != len(topology.units):
-        findings.append("unit IDs must be unique")
-    if tuple(unit_by_id) != tuple(sorted(unit_by_id)):
-        findings.append("units must be sorted by unit_id")
-    layer_index = {layer: index for index, layer in enumerate(topology.layer_order)}
-    ownership_roles = _ownership_roles(
-        repository_root / "docs" / "governance" / "domain-ownership.toml"
-    )
-    declared_sources: dict[str, str] = {}
-    for unit in topology.units:
-        if unit.kind not in {"compatibility", "library", "test", "tool"}:
-            findings.append(f"{unit.unit_id}: kind must be compatibility, library, test, or tool")
-        if unit.layer not in layer_index:
-            findings.append(f"{unit.unit_id}: unknown layer {unit.layer!r}")
-        if unit.owner_role not in ownership_roles:
-            findings.append(f"{unit.unit_id}: stale owner role {unit.owner_role!r}")
-        if any(_TOKEN.fullmatch(platform) is None for platform in unit.supported_platforms):
-            findings.append(f"{unit.unit_id}: supported platforms must be lower_snake_case")
-        if "any" in unit.supported_platforms and unit.supported_platforms != ("any",):
-            findings.append(f"{unit.unit_id}: platform 'any' cannot be combined")
-        for source in unit.sources:
-            if source in declared_sources:
+
+    def __init__(self, repository_root: Path) -> None:
+        """Bind a repository root without performing filesystem I/O.
+
+        Args:
+            repository_root: Root used for ownership, source, and evidence checks.
+        """
+        self._repository_root = repository_root
+
+    def _validate_graph(self, topology: RepositoryTopology, repository_root: Path) -> None:
+        """Validate declared topology, filesystem registration, and import dependencies.
+
+        Args:
+            topology: In-memory topology whose units, layer order, source roots, dependencies, and
+                visibility declarations are checked without mutation.
+            repository_root: Resolved root snapshot used for ownership, source, and import checks.
+
+        Returns:
+            ``None`` when every graph, ownership, path, source-set, visibility, cycle, and import
+            dependency check passes. Diagnostics are accumulated as the validation phases visit
+            units, sources, cycles, and imports; source-path ``RepositoryTopologyError``
+            findings are
+            folded into that list, and duplicate findings are retained. Import-related comparisons
+            include iteration over frozensets, so their relative finding order is not a promised
+            stable sort order. Only imports rooted in the known internal modules become graph edges;
+            external imports are omitted by the import collector.
+            The unit pass also compares visibility with the set of direct consumers and checks layer
+            direction for each known dependency. Source registration is compared with the qualifying
+            files discovered below every declared root, then each registered Python module's parsed
+            internal imports are compared with its declared cross-unit dependencies.
+            Cycle findings are appended before import findings, while set-based source and import
+            operations may determine the relative order of some diagnostics. The method does not
+            rewrite unit dependencies, visibility, source paths, or the topology object.
+
+        Raises:
+            RepositoryTopologyError: If accumulated findings report duplicate/unsorted units,
+                invalid
+                unit metadata, path or ownership mismatches, unknown/self/upward dependencies,
+                visibility or cycle errors, source-set drift, or declared/import dependency drift.
+            Errors from ownership loading, source scanning, and source parsing may also
+                propagate
+                immediately, before previously accumulated findings are raised; only per-unit
+                source-path domain errors are collected for the final report.
+            OSError: If ownership, source scanning, path inspection, or source reading encounters an
+                uncaught filesystem error.
+            UnicodeDecodeError: If an ownership register or source file is not valid UTF-8.
+            RuntimeError: If strict path resolution encounters a symlink loop.
+        """
+        findings: list[str] = []
+        unit_by_id = {unit.unit_id: unit for unit in topology.units}
+        if len(unit_by_id) != len(topology.units):
+            findings.append("unit IDs must be unique")
+        if tuple(unit_by_id) != tuple(sorted(unit_by_id)):
+            findings.append("units must be sorted by unit_id")
+        layer_index = {layer: index for index, layer in enumerate(topology.layer_order)}
+        ownership_roles = _ownership_roles(
+            repository_root / "docs" / "governance" / "domain-ownership.toml"
+        )
+        declared_sources: dict[str, str] = {}
+        for unit in topology.units:
+            if unit.kind not in {"compatibility", "library", "test", "tool"}:
                 findings.append(
-                    f"{source}: source is assigned to both {declared_sources[source]} "
-                    f"and {unit.unit_id}"
+                    f"{unit.unit_id}: kind must be compatibility, library, test, or tool"
                 )
-            declared_sources[source] = unit.unit_id
-            try:
-                candidate = _require_repository_path(
-                    source, repository_root=repository_root, context=f"{unit.unit_id}.sources"
+            if unit.layer not in layer_index:
+                findings.append(f"{unit.unit_id}: unknown layer {unit.layer!r}")
+            if unit.owner_role not in ownership_roles:
+                findings.append(f"{unit.unit_id}: stale owner role {unit.owner_role!r}")
+            if any(_TOKEN.fullmatch(platform) is None for platform in unit.supported_platforms):
+                findings.append(f"{unit.unit_id}: supported platforms must be lower_snake_case")
+            if "any" in unit.supported_platforms and unit.supported_platforms != ("any",):
+                findings.append(f"{unit.unit_id}: platform 'any' cannot be combined")
+            for source in unit.sources:
+                if source in declared_sources:
+                    findings.append(
+                        f"{source}: source is assigned to both {declared_sources[source]} "
+                        f"and {unit.unit_id}"
+                    )
+                declared_sources[source] = unit.unit_id
+                try:
+                    candidate = _require_repository_path(
+                        source, repository_root=repository_root, context=f"{unit.unit_id}.sources"
+                    )
+                except RepositoryTopologyError as error:
+                    findings.extend(error.findings)
+                else:
+                    if not candidate.is_file():
+                        findings.append(f"{unit.unit_id}: source must be a file: {source}")
+            for dependency in unit.dependencies:
+                target = unit_by_id.get(dependency)
+                if target is None:
+                    findings.append(f"{unit.unit_id}: unknown dependency {dependency!r}")
+                elif dependency == unit.unit_id:
+                    findings.append(f"{unit.unit_id}: self-dependency is prohibited")
+                elif unit.layer in layer_index and target.layer in layer_index:
+                    if layer_index[target.layer] > layer_index[unit.layer]:
+                        findings.append(
+                            f"{unit.unit_id}: forbidden upward dependency on {dependency}"
+                        )
+            for consumer in unit.visibility:
+                if consumer not in unit_by_id:
+                    findings.append(f"{unit.unit_id}: visibility names unknown unit {consumer!r}")
+
+        actual_sources = _source_files(
+            repository_root, topology.source_roots, topology.maximum_source_files
+        )
+        declared_source_set = frozenset(declared_sources)
+        for source in sorted(actual_sources - declared_source_set):
+            findings.append(f"{source}: current source is not registered")
+        for source in sorted(declared_source_set - actual_sources):
+            findings.append(f"{source}: registered path is outside the current source set")
+
+        expected_consumers: dict[str, set[str]] = {unit_id: set() for unit_id in unit_by_id}
+        for unit in topology.units:
+            for dependency in unit.dependencies:
+                if dependency in expected_consumers:
+                    expected_consumers[dependency].add(unit.unit_id)
+        for unit in topology.units:
+            if set(unit.visibility) != expected_consumers[unit.unit_id]:
+                findings.append(f"{unit.unit_id}: visibility must exactly match direct consumers")
+
+        for cycle in _find_cycles(topology.units):
+            findings.append(f"source dependency cycle: {cycle}")
+
+        module_units: dict[str, str] = {}
+        source_modules: dict[str, tuple[str, bool]] = {}
+        for source, unit_id in declared_sources.items():
+            if source not in actual_sources:
+                continue
+            module = _module_name(source)
+            if module is not None:
+                module_name, _ = module
+                if module_name in module_units and module_units[module_name] != unit_id:
+                    findings.append(f"{module_name}: module is assigned to multiple source units")
+                module_units[module_name] = unit_id
+                source_modules[source] = module
+        actual_dependencies: dict[str, set[str]] = {unit_id: set() for unit_id in unit_by_id}
+        known_modules = frozenset(module_units)
+        for source, (module_name, is_package) in source_modules.items():
+            unit_id = declared_sources[source]
+            for imported_module in _internal_imports(
+                repository_root / source, module_name, is_package, known_modules
+            ):
+                resolved_import = imported_module
+                while resolved_import not in module_units and "." in resolved_import:
+                    resolved_import = resolved_import.rpartition(".")[0]
+                imported_unit = module_units.get(resolved_import)
+                if imported_unit is None:
+                    findings.append(
+                        f"{source}: internal import {imported_module!r} is not registered"
+                    )
+                elif imported_unit != unit_id:
+                    actual_dependencies[unit_id].add(imported_unit)
+        for unit in topology.units:
+            declared = set(unit.dependencies)
+            actual = actual_dependencies[unit.unit_id]
+            if declared != actual:
+                findings.append(
+                    f"{unit.unit_id}: direct dependencies differ from imports; "
+                    f"missing={sorted(actual - declared)!r}, stale={sorted(declared - actual)!r}"
                 )
-            except RepositoryTopologyError as error:
-                findings.extend(error.findings)
-            else:
-                if not candidate.is_file():
-                    findings.append(f"{unit.unit_id}: source must be a file: {source}")
-        for dependency in unit.dependencies:
-            target = unit_by_id.get(dependency)
-            if target is None:
-                findings.append(f"{unit.unit_id}: unknown dependency {dependency!r}")
-            elif dependency == unit.unit_id:
-                findings.append(f"{unit.unit_id}: self-dependency is prohibited")
-            elif unit.layer in layer_index and target.layer in layer_index:
-                if layer_index[target.layer] > layer_index[unit.layer]:
-                    findings.append(f"{unit.unit_id}: forbidden upward dependency on {dependency}")
-        for consumer in unit.visibility:
-            if consumer not in unit_by_id:
-                findings.append(f"{unit.unit_id}: visibility names unknown unit {consumer!r}")
+        if findings:
+            raise RepositoryTopologyError(findings)
 
-    actual_sources = _source_files(
-        repository_root, topology.source_roots, topology.maximum_source_files
-    )
-    declared_source_set = frozenset(declared_sources)
-    for source in sorted(actual_sources - declared_source_set):
-        findings.append(f"{source}: current source is not registered")
-    for source in sorted(declared_source_set - actual_sources):
-        findings.append(f"{source}: registered path is outside the current source set")
+    def load(self, path: Path) -> RepositoryTopology:
+        """Load and validate one topology registry for the bound repository.
 
-    expected_consumers: dict[str, set[str]] = {unit_id: set() for unit_id in unit_by_id}
-    for unit in topology.units:
-        for dependency in unit.dependencies:
-            if dependency in expected_consumers:
-                expected_consumers[dependency].add(unit.unit_id)
-    for unit in topology.units:
-        if set(unit.visibility) != expected_consumers[unit.unit_id]:
-            findings.append(f"{unit.unit_id}: visibility must exactly match direct consumers")
+        Args:
+            path: UTF-8 TOML topology registry to read and validate.
 
-    for cycle in _find_cycles(topology.units):
-        findings.append(f"source dependency cycle: {cycle}")
+        Returns:
+            The validated immutable topology model.
 
-    module_units: dict[str, str] = {}
-    source_modules: dict[str, tuple[str, bool]] = {}
-    for source, unit_id in declared_sources.items():
-        if source not in actual_sources:
-            continue
-        module = _module_name(source)
-        if module is not None:
-            module_name, _ = module
-            if module_name in module_units and module_units[module_name] != unit_id:
-                findings.append(f"{module_name}: module is assigned to multiple source units")
-            module_units[module_name] = unit_id
-            source_modules[source] = module
-    actual_dependencies: dict[str, set[str]] = {unit_id: set() for unit_id in unit_by_id}
-    known_modules = frozenset(module_units)
-    for source, (module_name, is_package) in source_modules.items():
-        unit_id = declared_sources[source]
-        for imported_module in _internal_imports(
-            repository_root / source, module_name, is_package, known_modules
+        Raises:
+            RepositoryTopologyError: If registry metadata or graph checks fail.
+            OSError: If the registry or repository files cannot be read.
+            UnicodeDecodeError: If required text is not valid UTF-8.
+            RuntimeError: If path resolution encounters a symbolic-link loop.
+        """
+        return self._load(path)
+
+    def _load(self, path: Path, resolved_repository_root: Path | None = None) -> RepositoryTopology:
+        """Load the topology TOML and validate its metadata, graph, and source set.
+
+        The loader reads ``path`` as UTF-8, requires the exact root, unit and finding
+        fields, validates the fixed B01c metadata and ownership references, constructs
+        the immutable topology model, and then checks source registration, ownership,
+        visibility, layer direction, cycles, and parsed internal imports below the
+        declared source roots. It also reads the repository ownership register and
+        qualifying source files; it does not read the local evidence manifest or write
+        files. ``path`` and ``repository_root`` are caller-supplied and have no implicit
+        defaults; the latter is resolved before repository-relative checks.
+
+        Args:
+            path: UTF-8 TOML topology registry to read and validate. A relative path
+                follows normal process working-directory semantics and is not rebased
+                to ``repository_root``. The file is not modified.
+            resolved_repository_root: Optional root snapshot captured by the caller; when omitted,
+                the bound root is resolved immediately before graph validation.
+
+        Returns:
+            The immutable ``RepositoryTopology`` after all metadata and graph checks
+            pass. The returned model retains declaration order for units and finding IDs.
+
+        Raises:
+            RepositoryTopologyError: If TOML syntax, table shapes, required values,
+                ownership references, model construction, source registration, graph
+                edges, visibility, cycles, or parsed internal imports violate the
+                topology contract. TOML decoding and final Pydantic model failures are
+                translated with their original causes; other domain findings are raised
+                directly, including accumulated graph findings.
+            OSError: If resolving or reading the registry, ownership register, source
+                roots, or source files fails outside a translated validation finding.
+            UnicodeDecodeError: If the registry, ownership register, or parsed source
+                file is not valid UTF-8; decoding failures propagate.
+            RuntimeError: If strict repository-path resolution encounters a symlink loop.
+        """
+        repository_root = (
+            self._repository_root if resolved_repository_root is None else resolved_repository_root
+        )
+        try:
+            parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+            topology_document = _require_table(parsed_document, context=str(path))
+        except tomllib.TOMLDecodeError as error:
+            raise RepositoryTopologyError([f"{path}: invalid TOML: {error}"]) from error
+        if set(topology_document) != _ROOT_KEYS:
+            raise RepositoryTopologyError([f"{path}: registry has missing or unknown fields"])
+        units: list[SourceUnit] = []
+        for index, item in enumerate(
+            _require_table_list(topology_document.get("units"), context="units"), 1
         ):
-            resolved_import = imported_module
-            while resolved_import not in module_units and "." in resolved_import:
-                resolved_import = resolved_import.rpartition(".")[0]
-            imported_unit = module_units.get(resolved_import)
-            if imported_unit is None:
-                findings.append(f"{source}: internal import {imported_module!r} is not registered")
-            elif imported_unit != unit_id:
-                actual_dependencies[unit_id].add(imported_unit)
-    for unit in topology.units:
-        declared = set(unit.dependencies)
-        actual = actual_dependencies[unit.unit_id]
-        if declared != actual:
-            findings.append(
-                f"{unit.unit_id}: direct dependencies differ from imports; "
-                f"missing={sorted(actual - declared)!r}, stale={sorted(declared - actual)!r}"
+            context = f"units[{index}]"
+            if set(item) != _UNIT_KEYS:
+                raise RepositoryTopologyError([f"{context} has missing or unknown fields"])
+            unit_id = _require_string(item, "unit_id", context=context)
+            owner_role = _require_string(item, "owner_role", context=context)
+            if _UNIT_ID.fullmatch(unit_id) is None or _TOKEN.fullmatch(owner_role) is None:
+                raise RepositoryTopologyError([f"{context}: invalid unit_id or owner_role"])
+            units.append(
+                SourceUnit(
+                    unit_id=unit_id,
+                    kind=_require_string(item, "kind", context=context),
+                    layer=_require_string(item, "layer", context=context),
+                    owner_role=owner_role,
+                    supported_platforms=_require_strings(
+                        item.get("supported_platforms"),
+                        context=f"{context}.supported_platforms",
+                        require_sorted=True,
+                    ),
+                    dependencies=_require_strings(
+                        item.get("dependencies"),
+                        context=f"{context}.dependencies",
+                        allow_empty=True,
+                        require_sorted=True,
+                    ),
+                    visibility=_require_strings(
+                        item.get("visibility"),
+                        context=f"{context}.visibility",
+                        allow_empty=True,
+                        require_sorted=True,
+                    ),
+                    sources=_require_strings(
+                        item.get("sources"), context=f"{context}.sources", require_sorted=True
+                    ),
+                )
             )
-    if findings:
-        raise RepositoryTopologyError(findings)
+        finding_ids: list[str] = []
+        ownership_roles = _ownership_roles(
+            repository_root / "docs" / "governance" / "domain-ownership.toml"
+        )
+        for index, item in enumerate(
+            _require_table_list(topology_document.get("findings"), context="findings"), 1
+        ):
+            context = f"findings[{index}]"
+            if set(item) != _FINDING_KEYS:
+                raise RepositoryTopologyError([f"{context} has missing or unknown fields"])
+            for key in _FINDING_KEYS:
+                _require_string(item, key, context=context)
+            if _require_string(item, "owner_role", context=context) not in ownership_roles:
+                raise RepositoryTopologyError([f"{context}: stale finding owner role"])
+            finding_ids.append(_require_string(item, "finding_id", context=context))
+        open_finding_ids = _require_strings(
+            topology_document.get("open_finding_ids"), context="open_finding_ids"
+        )
+        expected_scalars = {
+            "accountable_owner_role": "platform",
+            "delivery_slice": "B01c",
+            "maximum_source_files": 1000,
+            "operating_track": "solo_bootstrap",
+            "package_status": "partial",
+            "risk_class": "R2",
+            "roadmap_package": "B01",
+            "schema_version": 1,
+            "slice_status": "provisionally_implemented",
+            "validation_workload_budget_ms": 1000,
+        }
+        findings: list[str] = []
+        for key, expected in expected_scalars.items():
+            if topology_document.get(key) != expected:
+                findings.append(f"{path}: {key} must be {expected!r}")
+        applicable_gates = _require_strings(
+            topology_document.get("applicable_gate_ids"), context="applicable_gate_ids"
+        )
+        if applicable_gates != _APPLICABLE_GATES:
+            findings.append(f"{path}: applicable_gate_ids must match the R2 policy")
+        remaining_slices = _require_strings(
+            topology_document.get("remaining_slices"), context="remaining_slices", allow_empty=True
+        )
+        if remaining_slices != _EXPECTED_REMAINING_SLICES:
+            findings.append(f"{path}: remaining_slices must be empty after B01c")
+        source_roots = _require_strings(
+            topology_document.get("source_roots"), context="source_roots"
+        )
+        if source_roots != _EXPECTED_SOURCE_ROOTS:
+            findings.append(f"{path}: source_roots must identify the exact current source areas")
+        layer_order = _require_strings(topology_document.get("layer_order"), context="layer_order")
+        if layer_order != _EXPECTED_LAYER_ORDER:
+            findings.append(f"{path}: layer_order must preserve the governed dependency direction")
+        if tuple(finding_ids) != _REPOSITORY_TOPOLOGY_OPEN_FINDING_IDS or open_finding_ids != tuple(
+            finding_ids
+        ):
+            findings.append(f"{path}: partial status requires the exact B01 findings")
+        evidence_sha = _require_string(
+            topology_document, "local_evidence_commit_sha", context=str(path)
+        )
+        if _COMMIT_SHA.fullmatch(evidence_sha) is None:
+            findings.append(f"{path}: local_evidence_commit_sha must be a full lowercase SHA")
+        evidence_path = _require_string(
+            topology_document, "local_evidence_manifest_path", context=str(path)
+        )
+        if findings:
+            raise RepositoryTopologyError(findings)
+        try:
+            topology = RepositoryTopology(
+                schema_version=cast(int, topology_document["schema_version"]),
+                roadmap_package=cast(str, topology_document["roadmap_package"]),
+                delivery_slice=cast(str, topology_document["delivery_slice"]),
+                operating_track=cast(str, topology_document["operating_track"]),
+                package_status=cast(str, topology_document["package_status"]),
+                slice_status=cast(str, topology_document["slice_status"]),
+                accountable_owner_role=cast(str, topology_document["accountable_owner_role"]),
+                risk_class=cast(str, topology_document["risk_class"]),
+                applicable_gate_ids=applicable_gates,
+                source_roots=source_roots,
+                maximum_source_files=cast(int, topology_document["maximum_source_files"]),
+                validation_workload_budget_ms=cast(
+                    int, topology_document["validation_workload_budget_ms"]
+                ),
+                layer_order=layer_order,
+                remaining_slices=remaining_slices,
+                local_evidence_manifest_path=evidence_path,
+                local_evidence_commit_sha=evidence_sha,
+                units=tuple(units),
+                finding_ids=tuple(finding_ids),
+            )
+        except ValidationError as error:
+            raise RepositoryTopologyError([f"{path}: topology model validation failed"]) from error
+        graph_root = (
+            repository_root.resolve() if resolved_repository_root is None else repository_root
+        )
+        self._validate_graph(topology, graph_root)
+        return topology
+
+    def validate_repository(self) -> RepositoryTopology:
+        """Validate the authoritative topology and its synthetic B01c evidence.
+
+        The supplied root is resolved first, then the fixed
+        ``docs/architecture/repository-topology.toml`` registry is loaded and its
+        complete source graph is checked. Validation next requires the topology's
+        repository-contained evidence-manifest path, loads the root's
+        ``docs/governance/change-risk-policy.toml`` policy, validates the manifest
+        against the recorded commit, and applies the exact local B01c evidence
+        profile. The function performs read-only filesystem I/O and has no default
+        root; callers that want the current directory must pass ``Path.cwd()``.
+
+        Returns:
+            The fully validated immutable ``RepositoryTopology`` loaded from the
+            authoritative registry.
+
+        Raises:
+            RepositoryTopologyError: If topology loading fails, the evidence manifest
+                path is invalid, or the B01c evidence bundle fails its path, policy,
+                commit, manifest, or exact-profile checks. Failures from the evidence
+                stage that are ``EvidenceGovernanceError``, ``OSError``, or any
+                ``ValueError`` (including ``ChangeRiskPolicyError`` and decoding
+                failures) are wrapped with the B01c context and chained; topology-stage
+                domain errors propagate unchanged.
+            OSError: If root resolution or topology-stage filesystem operations fail;
+                evidence-stage filesystem errors are translated as described above.
+            UnicodeDecodeError: If topology-stage UTF-8 input is invalid; evidence-stage
+                decoding failures are translated as ``RepositoryTopologyError``.
+            RuntimeError: If repository-path resolution encounters a symlink loop.
+        """
+        resolved_repository_root = self._repository_root.resolve()
+        topology = self._load(
+            resolved_repository_root / "docs" / "architecture" / "repository-topology.toml",
+            resolved_repository_root,
+        )
+        try:
+            manifest_path = _require_repository_path(
+                topology.local_evidence_manifest_path,
+                repository_root=resolved_repository_root,
+                context="local_evidence_manifest_path",
+            )
+            manifest = validate_manifest(
+                manifest_path,
+                expected_commit_sha=topology.local_evidence_commit_sha,
+                change_policy=load_change_risk_policy(
+                    resolved_repository_root / "docs" / "governance" / "change-risk-policy.toml"
+                ),
+            )
+            validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+        except (EvidenceGovernanceError, OSError, ValueError) as error:
+            raise RepositoryTopologyError([f"B01c local evidence bundle: {error}"]) from error
+        return topology
 
 
 def load_topology(path: Path, *, repository_root: Path) -> RepositoryTopology:
-    """Load the topology TOML and validate its metadata, graph, and source set.
-
-    The loader reads ``path`` as UTF-8, requires the exact root, unit and finding
-    fields, validates the fixed B01c metadata and ownership references, constructs
-    the immutable topology model, and then checks source registration, ownership,
-    visibility, layer direction, cycles, and parsed internal imports below the
-    declared source roots. It also reads the repository ownership register and
-    qualifying source files; it does not read the local evidence manifest or write
-    files. ``path`` and ``repository_root`` are caller-supplied and have no implicit
-    defaults; the latter is resolved before repository-relative checks.
+    """Load and validate a topology registry for a repository root.
 
     Args:
-        path: UTF-8 TOML topology registry to read and validate. A relative path
-            follows normal process working-directory semantics and is not rebased
-            to ``repository_root``. The file is not modified.
-        repository_root: Repository root used to resolve the ownership register,
-            source roots, registered files, and Python imports. It need not be the
-            process working directory.
+        path: UTF-8 topology TOML file to read.
+        repository_root: Root used for ownership, source, and import checks.
 
     Returns:
-        The immutable ``RepositoryTopology`` after all metadata and graph checks
-        pass. The returned model retains declaration order for units and finding IDs.
+        Validated immutable repository topology.
 
     Raises:
-        RepositoryTopologyError: If TOML syntax, table shapes, required values,
-            ownership references, model construction, source registration, graph
-            edges, visibility, cycles, or parsed internal imports violate the
-            topology contract. TOML decoding and final Pydantic model failures are
-            translated with their original causes; other domain findings are raised
-            directly, including accumulated graph findings.
-        OSError: If resolving or reading the registry, ownership register, source
-            roots, or source files fails outside a translated validation finding.
-        UnicodeDecodeError: If the registry, ownership register, or parsed source
-            file is not valid UTF-8; decoding failures propagate.
-        RuntimeError: If strict repository-path resolution encounters a symlink loop.
+        RepositoryTopologyError: If topology metadata or graph checks fail.
+        OSError: If registry or source files cannot be read.
+        UnicodeDecodeError: If input is not valid UTF-8.
     """
-    try:
-        topology_document = _require_table(
-            tomllib.loads(path.read_text(encoding="utf-8")), context=str(path)
-        )
-    except tomllib.TOMLDecodeError as error:
-        raise RepositoryTopologyError([f"{path}: invalid TOML: {error}"]) from error
-    if set(topology_document) != _ROOT_KEYS:
-        raise RepositoryTopologyError([f"{path}: registry has missing or unknown fields"])
-    units: list[SourceUnit] = []
-    for index, item in enumerate(
-        _require_table_list(topology_document.get("units"), context="units"), 1
-    ):
-        context = f"units[{index}]"
-        if set(item) != _UNIT_KEYS:
-            raise RepositoryTopologyError([f"{context} has missing or unknown fields"])
-        unit_id = _require_string(item, "unit_id", context=context)
-        owner_role = _require_string(item, "owner_role", context=context)
-        if _UNIT_ID.fullmatch(unit_id) is None or _TOKEN.fullmatch(owner_role) is None:
-            raise RepositoryTopologyError([f"{context}: invalid unit_id or owner_role"])
-        units.append(
-            SourceUnit(
-                unit_id=unit_id,
-                kind=_require_string(item, "kind", context=context),
-                layer=_require_string(item, "layer", context=context),
-                owner_role=owner_role,
-                supported_platforms=_require_strings(
-                    item.get("supported_platforms"),
-                    context=f"{context}.supported_platforms",
-                    require_sorted=True,
-                ),
-                dependencies=_require_strings(
-                    item.get("dependencies"),
-                    context=f"{context}.dependencies",
-                    allow_empty=True,
-                    require_sorted=True,
-                ),
-                visibility=_require_strings(
-                    item.get("visibility"),
-                    context=f"{context}.visibility",
-                    allow_empty=True,
-                    require_sorted=True,
-                ),
-                sources=_require_strings(
-                    item.get("sources"), context=f"{context}.sources", require_sorted=True
-                ),
-            )
-        )
-    finding_ids: list[str] = []
-    ownership_roles = _ownership_roles(
-        repository_root.resolve() / "docs" / "governance" / "domain-ownership.toml"
-    )
-    for index, item in enumerate(
-        _require_table_list(topology_document.get("findings"), context="findings"), 1
-    ):
-        context = f"findings[{index}]"
-        if set(item) != _FINDING_KEYS:
-            raise RepositoryTopologyError([f"{context} has missing or unknown fields"])
-        for key in _FINDING_KEYS:
-            _require_string(item, key, context=context)
-        if _require_string(item, "owner_role", context=context) not in ownership_roles:
-            raise RepositoryTopologyError([f"{context}: stale finding owner role"])
-        finding_ids.append(_require_string(item, "finding_id", context=context))
-    open_finding_ids = _require_strings(
-        topology_document.get("open_finding_ids"), context="open_finding_ids"
-    )
-    expected_scalars = {
-        "accountable_owner_role": "platform",
-        "delivery_slice": "B01c",
-        "maximum_source_files": 1000,
-        "operating_track": "solo_bootstrap",
-        "package_status": "partial",
-        "risk_class": "R2",
-        "roadmap_package": "B01",
-        "schema_version": 1,
-        "slice_status": "provisionally_implemented",
-        "validation_workload_budget_ms": 1000,
-    }
-    findings: list[str] = []
-    for key, expected in expected_scalars.items():
-        if topology_document.get(key) != expected:
-            findings.append(f"{path}: {key} must be {expected!r}")
-    applicable_gates = _require_strings(
-        topology_document.get("applicable_gate_ids"), context="applicable_gate_ids"
-    )
-    if applicable_gates != _APPLICABLE_GATES:
-        findings.append(f"{path}: applicable_gate_ids must match the R2 policy")
-    remaining_slices = _require_strings(
-        topology_document.get("remaining_slices"), context="remaining_slices", allow_empty=True
-    )
-    if remaining_slices != _EXPECTED_REMAINING_SLICES:
-        findings.append(f"{path}: remaining_slices must be empty after B01c")
-    source_roots = _require_strings(topology_document.get("source_roots"), context="source_roots")
-    if source_roots != _EXPECTED_SOURCE_ROOTS:
-        findings.append(f"{path}: source_roots must identify the exact current source areas")
-    layer_order = _require_strings(topology_document.get("layer_order"), context="layer_order")
-    if layer_order != _EXPECTED_LAYER_ORDER:
-        findings.append(f"{path}: layer_order must preserve the governed dependency direction")
-    if tuple(finding_ids) != _REPOSITORY_TOPOLOGY_OPEN_FINDING_IDS or open_finding_ids != tuple(
-        finding_ids
-    ):
-        findings.append(f"{path}: partial status requires the exact B01 findings")
-    evidence_sha = _require_string(
-        topology_document, "local_evidence_commit_sha", context=str(path)
-    )
-    if _COMMIT_SHA.fullmatch(evidence_sha) is None:
-        findings.append(f"{path}: local_evidence_commit_sha must be a full lowercase SHA")
-    evidence_path = _require_string(
-        topology_document, "local_evidence_manifest_path", context=str(path)
-    )
-    if findings:
-        raise RepositoryTopologyError(findings)
-    try:
-        topology = RepositoryTopology(
-            schema_version=cast(int, topology_document["schema_version"]),
-            roadmap_package=cast(str, topology_document["roadmap_package"]),
-            delivery_slice=cast(str, topology_document["delivery_slice"]),
-            operating_track=cast(str, topology_document["operating_track"]),
-            package_status=cast(str, topology_document["package_status"]),
-            slice_status=cast(str, topology_document["slice_status"]),
-            accountable_owner_role=cast(str, topology_document["accountable_owner_role"]),
-            risk_class=cast(str, topology_document["risk_class"]),
-            applicable_gate_ids=applicable_gates,
-            source_roots=source_roots,
-            maximum_source_files=cast(int, topology_document["maximum_source_files"]),
-            validation_workload_budget_ms=cast(
-                int, topology_document["validation_workload_budget_ms"]
-            ),
-            layer_order=layer_order,
-            remaining_slices=remaining_slices,
-            local_evidence_manifest_path=evidence_path,
-            local_evidence_commit_sha=evidence_sha,
-            units=tuple(units),
-            finding_ids=tuple(finding_ids),
-        )
-    except ValidationError as error:
-        raise RepositoryTopologyError([f"{path}: topology model validation failed"]) from error
-    _validate_graph(topology, repository_root.resolve())
-    return topology
+    return RepositoryTopologyLoader(repository_root).load(path)
 
 
 def validate_repository(repository_root: Path) -> RepositoryTopology:
     """Validate the authoritative topology and its synthetic B01c evidence.
 
-    The supplied root is resolved first, then the fixed
-    ``docs/architecture/repository-topology.toml`` registry is loaded and its
-    complete source graph is checked. Validation next requires the topology's
-    repository-contained evidence-manifest path, loads the root's
-    ``docs/governance/change-risk-policy.toml`` policy, validates the manifest
-    against the recorded commit, and applies the exact local B01c evidence
-    profile. The function performs read-only filesystem I/O and has no default
-    root; callers that want the current directory must pass ``Path.cwd()``.
-
     Args:
-        repository_root: Repository directory containing the topology registry,
-            ownership register, source roots, change-risk policy, and B01c local
-            evidence bundle. Its resolved path anchors all repository-relative
-            lookups.
+        repository_root: Repository containing topology, source, policy, and evidence files.
 
     Returns:
-        The fully validated immutable ``RepositoryTopology`` loaded from the
-        authoritative registry.
+        Fully validated immutable repository topology.
 
     Raises:
-        RepositoryTopologyError: If topology loading fails, the evidence manifest
-            path is invalid, or the B01c evidence bundle fails its path, policy,
-            commit, manifest, or exact-profile checks. Failures from the evidence
-            stage that are ``EvidenceGovernanceError``, ``OSError``, or any
-            ``ValueError`` (including ``ChangeRiskPolicyError`` and decoding
-            failures) are wrapped with the B01c context and chained; topology-stage
-            domain errors propagate unchanged.
-        OSError: If root resolution or topology-stage filesystem operations fail;
-            evidence-stage filesystem errors are translated as described above.
-        UnicodeDecodeError: If topology-stage UTF-8 input is invalid; evidence-stage
-            decoding failures are translated as ``RepositoryTopologyError``.
-        RuntimeError: If repository-path resolution encounters a symlink loop.
+        RepositoryTopologyError: If topology or local evidence checks fail.
+        OSError: If repository files cannot be read.
     """
-    resolved_repository_root = repository_root.resolve()
-    topology = load_topology(
-        resolved_repository_root / "docs" / "architecture" / "repository-topology.toml",
-        repository_root=resolved_repository_root,
-    )
-    try:
-        manifest_path = _require_repository_path(
-            topology.local_evidence_manifest_path,
-            repository_root=resolved_repository_root,
-            context="local_evidence_manifest_path",
-        )
-        manifest = validate_manifest(
-            manifest_path,
-            expected_commit_sha=topology.local_evidence_commit_sha,
-            change_policy=load_change_risk_policy(
-                resolved_repository_root / "docs" / "governance" / "change-risk-policy.toml"
-            ),
-        )
-        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
-    except (EvidenceGovernanceError, OSError, ValueError) as error:
-        raise RepositoryTopologyError([f"B01c local evidence bundle: {error}"]) from error
-    return topology
+    return RepositoryTopologyLoader(repository_root).validate_repository()

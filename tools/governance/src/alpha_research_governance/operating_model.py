@@ -287,48 +287,80 @@ class OperatingModel(ImmutableModel):
         )
 
 
-def load_operating_model(path: Path) -> OperatingModel:
-    """Read staffing from the version-2 ownership register, retaining its role catalog.
+class OperatingModelLoader:
+    """Load one ownership operating model from a bound TOML path.
 
-    The loader performs one file read and no writes. It projects only the fields
-    needed for operating rules; it does not validate the entire ownership register.
-    Assignment dates use JSON date strings in the TOML input; native TOML date
-    values cannot be encoded by the intermediate JSON conversion.
+    The constructor stores the path only. Validation and file I/O occur when
+    :meth:`load` is called, and every call builds a fresh model.
+    """
+
+    def __init__(self, path: Path) -> None:
+        """Bind an operating-model path without reading it.
+
+        Args:
+            path: UTF-8 ownership register containing the version-2 model.
+        """
+        self._path = path
+
+    def load(self) -> OperatingModel:
+        """Read staffing from the version-2 ownership register, retaining its role catalog.
+
+        The loader performs one file read and no writes. It projects only the fields
+        needed for operating rules; it does not validate the entire ownership register.
+        Assignment dates use JSON date strings in the TOML input; native TOML date
+        values cannot be encoded by the intermediate JSON conversion.
+
+        Returns:
+            Validated founder settings, projected domain-role fields and role assignments.
+
+        Raises:
+            OperatingModelError: The schema, settings, domain tables or assignments are invalid,
+                TOML parsing fails, or the projected payload cannot be JSON-encoded.
+            OSError: The file cannot be read.
+            UnicodeError: The file is not valid UTF-8.
+        """
+        path = self._path
+        try:
+            document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
+            if document.get("schema_version") != 2:
+                raise OperatingModelError("operating model requires ownership schema_version 2")
+            settings = document.get("operating_model")
+            if not isinstance(settings, dict):
+                raise OperatingModelError("operating_model requires exactly founder_principal")
+            settings_table = cast(dict[str, object], settings)
+            if set(settings_table) != {"founder_principal"}:
+                raise OperatingModelError("operating_model requires exactly founder_principal")
+            domains = document.get("domains")
+            if not isinstance(domains, list) or not all(
+                isinstance(domain, dict) for domain in domains
+            ):
+                raise OperatingModelError("operating domains must be tables")
+            domain_tables = cast(list[dict[str, object]], domains)
+            payload = {
+                "founder_principal": settings_table["founder_principal"],
+                "assignments": document.get("role_assignments"),
+                "domains": [
+                    {key: domain.get(key) for key in DomainRoles.model_fields}
+                    for domain in domain_tables
+                ],
+            }
+            return OperatingModel.model_validate_json(json.dumps(payload))
+        except (tomllib.TOMLDecodeError, ValidationError, TypeError) as error:
+            raise OperatingModelError(f"{path}: invalid operating model: {error}") from error
+
+
+def load_operating_model(path: Path) -> OperatingModel:
+    """Load staffing from a version-2 ownership register.
 
     Args:
-        path: UTF-8 TOML file to read; a relative path uses the process working directory.
+        path: UTF-8 TOML ownership register to read.
 
     Returns:
-        Validated founder settings, projected domain-role fields and role assignments.
+        Validated founder settings, domain roles, and role assignments.
 
     Raises:
-        OperatingModelError: The schema, settings, domain tables or assignments are invalid,
-            TOML parsing fails, or the projected payload cannot be JSON-encoded.
-        OSError: The file cannot be read.
-        UnicodeError: The file is not valid UTF-8.
+        OperatingModelError: If the schema or projected model is invalid.
+        OSError: If the file cannot be read.
+        UnicodeError: If the file is not valid UTF-8.
     """
-    try:
-        document: dict[str, object] = tomllib.loads(path.read_text(encoding="utf-8"))
-        if document.get("schema_version") != 2:
-            raise OperatingModelError("operating model requires ownership schema_version 2")
-        settings = document.get("operating_model")
-        if not isinstance(settings, dict):
-            raise OperatingModelError("operating_model requires exactly founder_principal")
-        settings_table = cast(dict[str, object], settings)
-        if set(settings_table) != {"founder_principal"}:
-            raise OperatingModelError("operating_model requires exactly founder_principal")
-        domains = document.get("domains")
-        if not isinstance(domains, list) or not all(isinstance(domain, dict) for domain in domains):
-            raise OperatingModelError("operating domains must be tables")
-        domain_tables = cast(list[dict[str, object]], domains)
-        payload = {
-            "founder_principal": settings_table["founder_principal"],
-            "assignments": document.get("role_assignments"),
-            "domains": [
-                {key: domain.get(key) for key in DomainRoles.model_fields}
-                for domain in domain_tables
-            ],
-        }
-        return OperatingModel.model_validate_json(json.dumps(payload))
-    except (tomllib.TOMLDecodeError, ValidationError, TypeError) as error:
-        raise OperatingModelError(f"{path}: invalid operating model: {error}") from error
+    return OperatingModelLoader(path).load()

@@ -267,31 +267,33 @@ class TestBoundaryLoaderErrors:
             """
             raise validation_error
 
-        cases: tuple[tuple[ModuleType, str, Callable[[], object], type[ValueError], str], ...] = (
+        cases: tuple[
+            tuple[ModuleType | type[object], str, Callable[[], object], type[ValueError], str], ...
+        ] = (
             (
-                architecture_module,
+                architecture_module.ArchitectureGovernanceService,
                 "_validate_repository",
                 lambda: architecture_module.validate_repository(REPOSITORY_ROOT),
                 ArchitectureGovernanceError,
                 "architecture model validation failed",
             ),
             (
-                change_policy_module,
-                "_load_policy",
+                change_policy_module._ChangeRiskPolicyLoader,
+                "_load",
                 lambda: change_policy_module.load_policy(CHANGE_POLICY_PATH),
                 ChangeRiskPolicyError,
                 "policy model validation failed",
             ),
             (
-                evidence_policy_module,
-                "_load_policy",
+                evidence_policy_module._EvidencePolicyLoader,
+                "_load",
                 lambda: evidence_policy_module.load_policy(Path("policy.toml")),
                 EvidenceGovernanceError,
                 "policy model validation failed",
             ),
             (
-                evidence_manifest_module,
-                "_validate_manifest",
+                evidence_manifest_module._ManifestValidator,
+                "_validate",
                 lambda: evidence_manifest_module.validate_manifest(
                     Path("manifest.toml"),
                     expected_commit_sha="5" * 40,
@@ -301,8 +303,8 @@ class TestBoundaryLoaderErrors:
                 "manifest model validation failed",
             ),
             (
-                inventory_module,
-                "_load_inventory",
+                inventory_module.InventoryLoader,
+                "_load",
                 lambda: inventory_module.load_inventory(
                     Path("inventory.toml"), repository_root=REPOSITORY_ROOT
                 ),
