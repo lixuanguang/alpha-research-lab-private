@@ -1,4 +1,10 @@
-# Clean-Machine Developer Environment
+# Clean-Machine Developer Environment (Historical)
+
+This page records the retired B03 Nix bootstrap for provenance. It remains
+reachable from the program and inventory records, but Nix, flakes, and the
+`environments/dev` bootstrap are no longer active prerequisites. A supported
+checkout uses Python 3.12.14, uv, and the repository's frozen `uv.lock`; run
+`make check` after `uv sync --frozen`.
 
 ## Control metadata
 
@@ -11,13 +17,13 @@
 | Accountable owner role | Platform |
 | Change risk | R2 |
 | Applicable gates | QG01-QG06, QG09-QG14 |
-| Environment definition | [`flake.nix`](../../flake.nix) |
-| Environment lock | [`flake.lock`](../../flake.lock) |
-| Host-tool record | [`environments/dev/toolchain.toml`](../../environments/dev/toolchain.toml) |
+| Environment definition | `flake.nix` (retired) |
+| Environment lock | `flake.lock` (retired) |
+| Host-tool record | `environments/dev/toolchain.toml` (retired) |
 
-## Objective and delivery boundary
+## Historical objective and delivery boundary
 
-B03 provides a declarative Nix development shell for the supported
+B03 provided a declarative Nix development shell for the supported
 `aarch64-darwin` and `x86_64-linux` host systems. The flake contains no
 workstation path, Homebrew package, ambient Python, ambient Git, or ambient Make
 dependency. It supplies an exact Nix client, CPython, uv, Bazelisk launcher, Git,
@@ -33,7 +39,7 @@ authority. uv uses the flake's CPython 3.12.14 with
 managed download. `uv.lock`, `MODULE.bazel.lock`, and the B02 source digests
 remain authoritative for project and build dependencies.
 
-## Documented prerequisites and bootstrap
+## Historical prerequisites and bootstrap
 
 The clean host prerequisites are:
 
@@ -52,7 +58,7 @@ profile on `PATH`, invoke the stable multi-user profile path directly:
   develop --no-write-lock-file
 ```
 
-Inside the shell, the supported interfaces are:
+Inside the historical shell, the supported interfaces were:
 
 ```sh
 environments/dev/bootstrap.sh verify
@@ -60,13 +66,12 @@ environments/dev/bootstrap.sh check
 environments/dev/bootstrap.sh rollback
 ```
 
-`verify` fails unless the platform is supported, the shell marker is present,
+`verify` failed unless the platform was supported, the shell marker was present,
 every required command resolves from `/nix/store`, exact version output matches,
-and uv is bound to the Nix CPython with downloads disabled. `check`, the default,
-then checks and synchronizes `uv.lock`, runs the focused B03 Bazel test, and runs
-the complete B02 Bazel plus frozen-uv compatibility suite. `rollback` verifies
-the same shell and runs `make BUILD_BACKEND=uv check`, demonstrating the retained
-pre-B02 build-backend path without invoking Bazel.
+and uv was bound to the Nix CPython with downloads disabled. `check` then checked
+and synchronized `uv.lock`, ran the focused B03 Bazel test, and ran the complete
+B02 Bazel plus frozen-uv compatibility suite. `rollback` verified the same shell
+and ran the former `make BUILD_BACKEND=uv check` path.
 
 The bootstrap requires network access only to realize content-addressed Nix and
 locked project/build artifacts that are absent from local caches. Repeated runs
@@ -103,7 +108,7 @@ and uv rollback have executed on `aarch64-darwin`. Protected merged-result
 the repository does not claim that an evaluation-only result is an executed
 Linux build.
 
-## IDE and hook integration
+## Historical IDE and hook integration
 
 `.envrc` uses the locked flake with `--no-write-lock-file`, so a reviewed direnv
 integration cannot refresh the environment implicitly. `.vscode/settings.json`
@@ -115,22 +120,22 @@ The existing local pre-commit hooks remain unchanged and run through
 `uv run --frozen` inside the shell. B03 does not change hook policy or hosted-CI
 selection; B04 and B05 retain those boundaries.
 
-## Bazel equivalence, migration, and rollback
+## Historical Bazel equivalence, migration, and rollback
 
-B03 is additive. Existing developers may continue using the documented pre-B03
-host prerequisites while the Nix shell is reviewed. The clean-machine `check`
-mode executes the same `make check`, Bazel target set, `uv.lock`,
+The B03 rollout was additive. Existing developers could continue using the
+documented pre-B03 host prerequisites while the Nix shell was reviewed. The
+clean-machine `check` mode executed the same `make check`, Bazel target set, `uv.lock`,
 `MODULE.bazel.lock`, sandbox tests, generation tests, governance checks, and
 package build used by the existing root interface. It introduces no alternate
 compiler flag, dependency lock, test selection, or generated source.
 
 Rollback has two levels:
 
-1. `environments/dev/bootstrap.sh rollback` exercises the retained complete uv
+1. `environments/dev/bootstrap.sh rollback` exercised the retained complete uv
    path from inside the declarative environment.
-2. A B03 environment rollback is a reviewed revert of `flake.nix`, `flake.lock`,
+2. A B03 environment rollback was a reviewed revert of `flake.nix`, `flake.lock`,
    the environment/IDE files, B03 tests, records, documentation, and evidence
-   together. The pre-B03 host interface remains documented and unchanged.
+together. The pre-B03 host interface remains documented here as historical context.
 
 A partial revert that leaves the IDE or bootstrap consuming an unreviewed or
 missing lock is invalid. Unknown bootstrap modes, unsupported systems, floating
@@ -147,7 +152,7 @@ finding IDs are rendered in the [program status](../governance/program-status.md
 
 ## Operational signals and boundary
 
-Repository-local signals are flake evaluation/realization failure, lock rewrite,
+Historical repository-local signals were flake evaluation/realization failure, lock rewrite,
 unsupported platform, host-command fallback, version mismatch, uv interpreter
 download, Bazel graph failure, or rollback failure. There is no deployed service,
 production monitor, alert, SLO, migration, or operator runbook.

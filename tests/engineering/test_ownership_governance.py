@@ -258,7 +258,7 @@ class TestRepositoryOwnershipPolicy:
         subprocess.run(["git", "add", orphan.name], cwd=fixture_repository_root, check=True)
 
         completed_process = subprocess.run(
-            ["uv", "run", "--frozen", "pre-commit", "run", "ownership-governance"],
+            ["uv", "run", "--frozen", "pre-commit", "run", "governance"],
             cwd=fixture_repository_root,
             check=False,
             capture_output=True,

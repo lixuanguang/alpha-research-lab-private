@@ -1,4 +1,10 @@
-# Pinned Hermetic Build Graph
+# Pinned Hermetic Build Graph (Historical)
+
+This page records the retired B02 Bazel contract for provenance. It is kept with
+its original evidence links so the historical decision remains auditable. The
+active repository path is the pinned uv environment and `make check`; Bazel,
+its module lock, and the build-only fixtures are no longer setup or validation
+requirements.
 
 ## Control metadata
 
@@ -11,12 +17,12 @@
 | Accountable owner role | Platform |
 | Change risk | R2 |
 | Applicable gates | QG01-QG06, QG09-QG14 |
-| Build module | [`MODULE.bazel`](../../MODULE.bazel) |
-| Provisional dependencies | [Build-tool dependency records](build-tool-dependencies.toml) |
+| Build module | `MODULE.bazel` (retired) |
+| Provisional dependencies | `build-tool-dependencies.toml` (retired) |
 
-## Objective and delivery boundary
+## Historical objective and delivery boundary
 
-B02 makes Bazel the default repository build and test graph. Bazel 9.1.0,
+B02 made Bazel the default repository build and test graph. Bazel 9.1.0,
 `rules_python` 2.2.0, `rules_buf` 0.5.4, `bazel-skylib` 1.8.2, CPython
 3.12.14, and Buf 1.72.0 are exact inputs. `MODULE.bazel.lock` captures module
 resolution. The official python-build-standalone and Buf manifests are bound by
@@ -59,38 +65,31 @@ SHA-256 digests. Documentation is a declared Bazel filegroup so documentation
 changes participate in the representative graph without inventing a publishing
 pipeline.
 
-The retained focused local interface is `make bazel-check`; B05 hosted CI now
-contains that graph inside its authoritative `make ci-full` interface. CI installs
-Bazelisk 1.29.0 from an immutable action commit; `.bazelversion` then selects
-Bazel 9.1.0. The workflow intentionally adds no remote cache or remote execution:
-B06 owns authentication, isolation, correctness, and local fallback for those
-services. [B03](clean-machine-environment.md) now supplies the clean-machine
-developer environment and repository-local Darwin equivalence evidence. B02
-continues to configure the same graph for hosted Linux; protected merged-result
-Linux execution remains external evidence.
+The former focused local interface was `make bazel-check`; the former B05 hosted
+lane included that graph. Those interfaces were retired after the uv path became
+authoritative. [B03](clean-machine-environment.md) and B06
+([remote execution](remote-execution.md)) are retained as historical records;
+neither supplies an active developer or CI dependency.
 
 ## Root interface, migration, and rollback
 
-The default `BUILD_BACKEND=bazel` makes `make build`, `make test`, and
-`make check` delegate to Bazel. `make check` also executes `rollback-check`, the
-entire pre-B02 frozen-uv validation, smoke, and package-build path. This makes the
-migration additive while compatibility is being measured.
+The historical `BUILD_BACKEND=bazel` interface made `make build`, `make test`,
+and `make check` delegate to Bazel. It was removed after the uv path and installed
+wheel smoke check became authoritative.
 
 The explicit rollback is:
 
 ```sh
-make BUILD_BACKEND=uv check
+make check
 ```
 
-That command contains no Bazel invocation and is contract-tested. A full rollback
-is a reviewed revert of the module, lock, BUILD files, build fixtures, Make/CI
+The active command uses the frozen uv environment. The historical rollback was a
+reviewed revert of the module, lock, BUILD files, build fixtures, Make/CI
 delegation, inventory/program records, evidence, and documentation together.
-Removing only the lock or only the delegating surface is invalid and fails the
-structural build test.
 
 ## Provisional dependency admission
 
-The [machine-readable dependency record](build-tool-dependencies.toml) gives each
+The historical `build-tool-dependencies.toml` record gave each
 new build dependency an immutable version/source digest, purpose, licence,
 supported platforms, native/transitive dependencies, maintenance and
 vulnerability review statement, and rollback. These records are provisional:
@@ -112,10 +111,11 @@ finding IDs are rendered in the [program status](../governance/program-status.md
 
 ## Operational signals and boundary
 
-The repository-local signals are a lockfile-resolution failure, Bazel action or
-test failure, sandbox leakage, nondeterministic generated digest, missing target,
-dependency-record drift, CI setup failure, or rollback-path failure. There is no
-deployed service, production alert, or operator runbook in B02.
+The historical repository-local signals were lockfile-resolution failure, Bazel
+action or test failure, sandbox leakage, nondeterministic generated digest,
+missing target, dependency-record drift, CI setup failure, or rollback-path
+failure. The active signals come from uv synchronization, source validation,
+tests, package installation, and the installed wheel smoke check.
 
 The [development workflow](../governance/workflow.md) owns daily evidence. B02
 creates build behavior only and grants no deployment, activation, credential,

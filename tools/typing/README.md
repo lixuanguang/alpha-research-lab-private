@@ -1,8 +1,8 @@
 # Python boundary typing
 
-`make typecheck` checks runtime source, governance, tests and the local native
-stubs with strict mypy and then runs stubtest against the installed native
-libraries. Pre-commit and the full CI lane use the same command.
+`make check` checks runtime source, governance, tests and the local native stubs
+with strict mypy and runs stubtest against the installed native libraries.
+`make typecheck` remains an optional focused command while developing.
 
 The Pydantic 2.13.5 plugin uses typed constructors, forbids extra constructor
 keywords and rejects required dynamic aliases. Explicit and unfollowed-import
@@ -25,9 +25,8 @@ The date inputs cover the adapter's usage; pandas timestamps and its NaT
 singleton are datetime subclasses. Existing adapter checks still validate raw
 results, including deliberately malformed test doubles.
 
-The root mypy path and stubtest configuration resolve these declarations.
-Bazel includes them as data of the native adapters and repository build checks;
-the source distribution includes `tools/typing`. The stubs are development
+The root mypy path and stubtest configuration resolve these declarations. The
+source distribution includes `tools/typing`. The stubs are development
 inputs and are not injected into the runtime wheel or dependency resolution.
 No dependency pin or lockfile changes for this slice.
 

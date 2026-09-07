@@ -1,348 +1,120 @@
-"""Expose the canonical affected and full continuous-integration policy API and command."""
+"""Run the small CI preflight retained during the cleanup migration."""
 
 from __future__ import annotations
 
 # standard library imports
-import json
+import subprocess  # nosec B404  # [owner=platform; rationale=Git path listing boundary; expires=2027-03-01]
+import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Literal, NamedTuple, Protocol, runtime_checkable
-
-# third party library imports
-import typer
 
 # project library imports
-from alpha_research_governance._cli import _TypedTyper, run_typer
-from alpha_research_governance.ci_policy.models import (
-    AffectedSelection,
-    ChangedPath,
-    CIEvent,
-    CILane,
-    CIPolicy,
+from alpha_research_governance.ci_policy.secrets import (
     CIPolicyError,
-)
-from alpha_research_governance.ci_policy.policy import (
-    load_continuous_integration_policy,
-    validate_continuous_integration_repository,
-)
-from alpha_research_governance.ci_policy.runner import (
-    _check_schema_compatibility,
-    _git_tracked_paths,
-    _scan_paths_for_secrets,
-    git_changed_paths_between,
-    resolve_git_commit,
-    run_affected_ci_lane,
-    run_authoritative_full_ci_lane,
-    select_affected_targets,
-    verify_git_merge_parents,
-)
-from alpha_research_governance.ci_policy.secrets import scan_secret_bytes, scan_secret_paths
-from alpha_research_governance.ci_policy.selection import (
-    attach_bazel_reverse_dependencies,
-    bazel_source_owners_from_query_xml,
-    normalize_changed_paths,
-    parse_git_name_status,
-    select_bazel_owners_for_changes,
+    run_external_secret_scanner,
+    scan_repository_paths,
+    scan_secret_bytes,
+    scan_secret_paths,
+    secret_pattern_ids,
 )
 
 __all__ = [
-    "AffectedSelection",
-    "CIEvent",
-    "CILane",
-    "CIPolicy",
     "CIPolicyError",
-    "ChangedPath",
-    "attach_bazel_reverse_dependencies",
-    "bazel_source_owners_from_query_xml",
-    "git_changed_paths_between",
-    "load_continuous_integration_policy",
     "main",
-    "normalize_changed_paths",
-    "parse_git_name_status",
-    "resolve_git_commit",
-    "run_affected_ci_lane",
-    "run_authoritative_full_ci_lane",
+    "run_external_secret_scanner",
+    "scan_repository_paths",
     "scan_secret_bytes",
     "scan_secret_paths",
-    "select_affected_targets",
-    "select_bazel_owners_for_changes",
-    "validate_continuous_integration_repository",
-    "verify_git_merge_parents",
+    "secret_pattern_ids",
 ]
 
 
-@runtime_checkable
-class _ContextWithObject(Protocol):
-    """Expose Typer's context object as an untrusted object boundary."""
-
-    obj: object
-
-
-class _JsonDumpModel(Protocol):
-    """Expose the JSON-mode model dump consumed by the CLI."""
-
-    def model_dump(self, *, mode: Literal["json"]) -> object:
-        """Return the model's JSON-compatible representation."""
-
-
-def _serialize_affected_selection(selection: AffectedSelection) -> str:
-    """Serialize an affected-target selection as compact canonical JSON.
+def _git_tracked_paths(repository_root: Path) -> tuple[str, ...]:
+    """Return all tracked repository paths using a NUL-delimited Git query.
 
     Args:
-        selection: Validated selection record to encode.
+        repository_root: Checkout whose index supplies the tracked paths.
 
     Returns:
-        A sorted-key JSON string without insignificant whitespace.
-    """
-    serializer: _JsonDumpModel = selection
-    return json.dumps(serializer.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-
-
-class _CICLIState(NamedTuple):
-    """Store the repository root and validated policy for one CI CLI invocation.
-
-    Attributes:
-        repository_root: Resolved repository directory used by the command.
-        policy: Validated continuous-integration policy for that repository.
-    """
-
-    repository_root: Path
-    policy: CIPolicy
-
-
-_DEFAULT_EVENT_LOG = Path("build/ci/continuous-integration-events.jsonl")
-_CONTEXT_SETTINGS: dict[str, object] = {"help_option_names": ["-h", "--help"]}
-_APP = typer.Typer(
-    add_completion=False,
-    context_settings=_CONTEXT_SETTINGS,
-    invoke_without_command=True,
-    no_args_is_help=False,
-    pretty_exceptions_enable=False,
-    rich_markup_mode=None,
-    suggest_commands=False,
-)
-
-
-def _state(context: typer.Context) -> _CICLIState:
-    """Retrieve validated CI CLI state from a Typer context.
-
-    Args:
-        context: Typer invocation context carrying the initialized state.
-
-    Returns:
-        The repository root and validated CI policy stored by the callback.
+        Canonical repository-relative paths in Git's index order.
 
     Raises:
-        RuntimeError: The context does not contain the expected CI state.
+        CIPolicyError: Git cannot start, exits unsuccessfully, or emits invalid UTF-8.
     """
-    if not isinstance(context, _ContextWithObject):
-        raise RuntimeError("continuous-integration CLI context has no object storage")
-    typed_context: _ContextWithObject = context
-    state = typed_context.obj
-    if not isinstance(state, _CICLIState):
-        raise RuntimeError("continuous-integration CLI state is unavailable")
-    return state
+    try:
+        completed = subprocess.run(  # nosec B603, B607  # [owner=platform; rationale=constant Git argv; expires=2027-03-01]
+            ["git", "ls-files", "-z"],
+            cwd=repository_root,
+            check=False,
+            capture_output=True,
+        )
+    except OSError as error:
+        raise CIPolicyError([f"Git tracked-path query could not start: {error}"]) from error
+    if completed.returncode:
+        detail = (completed.stdout + completed.stderr).decode("utf-8", errors="replace").strip()
+        raise CIPolicyError([f"Git tracked-path query failed: {detail}"])
+    try:
+        paths = tuple(item for item in completed.stdout.decode("utf-8").split("\0") if item)
+    except UnicodeDecodeError as error:
+        raise CIPolicyError(["Git tracked-path query emitted invalid UTF-8"]) from error
+    return paths
 
 
-_TYPED_APP: _TypedTyper = _APP
-
-
-def _print_validation_result(policy: CIPolicy) -> None:
-    """Print the successful continuous-integration policy summary to standard output.
+def _parse_arguments(arguments: Sequence[str]) -> tuple[bool, tuple[str, ...]]:
+    """Parse the minimal secret-scan interface without accepting ambiguous modes.
 
     Args:
-        policy: Validated policy whose lane and schema counts are displayed.
+        arguments: Full CLI tokens excluding the executable name.
+
+    Returns:
+        ``(scan_all, paths)`` where exactly one mode is selected.
+
+    Raises:
+        CIPolicyError: The command name is unsupported, or both ``--all`` and paths,
+            neither mode, or an unknown option is supplied.
     """
-    print(
-        f"CI policy passed for {len(policy.lanes)} lanes and "
-        f"{len(policy.schema_module_roots)} schema module; package status is partial."
-    )
+    if not arguments or arguments[0] != "scan-secrets":
+        raise CIPolicyError(["CI command accepts only scan-secrets"])
 
-
-@_TYPED_APP.callback()
-def _initialize_cli(
-    context: typer.Context,
-    repository_root: Annotated[
-        Path | None,
-        typer.Option("--repository-root", help="Repository root to validate."),
-    ] = None,
-) -> None:
-    """Validate or execute the governed continuous-integration interfaces."""
-    root = (Path.cwd() if repository_root is None else repository_root).resolve(strict=True)
-    policy = validate_continuous_integration_repository(root)
-    context.obj = _CICLIState(root, policy)
-    if context.invoked_subcommand is None:
-        _print_validation_result(policy)
-
-
-@_TYPED_APP.command("select")
-def _select(
-    context: typer.Context,
-    base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")],
-    head_ref: Annotated[str, typer.Option("--head-ref", help="Head Git reference.")],
-) -> None:
-    """Select the targets affected between two Git references."""
-    root = _state(context).repository_root
-    print(
-        _serialize_affected_selection(
-            select_affected_targets(root, base_ref=base_ref, head_ref=head_ref)
-        )
-    )
-
-
-@_TYPED_APP.command("scan-secrets")
-def _scan_secrets(
-    context: typer.Context,
-    paths: Annotated[list[str] | None, typer.Argument(help="Repository-relative paths.")] = None,
-    scan_all: Annotated[
-        bool,
-        typer.Option("--all", help="Scan every tracked path."),
-    ] = False,
-    base_ref: Annotated[str | None, typer.Option("--base-ref", help="Base Git reference.")] = None,
-    head_ref: Annotated[str | None, typer.Option("--head-ref", help="Head Git reference.")] = None,
-) -> None:
-    """Scan paths, all tracked files, or a complete Git reference pair."""
-    root = _state(context).repository_root
-    modes = sum((scan_all, bool(base_ref or head_ref), bool(paths)))
-    if modes != 1:
-        raise CIPolicyError(["scan-secrets accepts paths, --all, or one complete ref pair"])
-    if scan_all:
-        selected_paths = _git_tracked_paths(root)
-    elif base_ref and head_ref:
-        _, _, changes = git_changed_paths_between(root, base_ref, head_ref)
-        selected_paths = tuple(item.path for item in changes)
-    elif paths:
-        selected_paths = tuple(paths)
-    else:
-        raise CIPolicyError(["scan-secrets requires both --base-ref and --head-ref"])
-    _scan_paths_for_secrets(root, selected_paths)
-    print(f"Secret scan passed for {len(selected_paths)} governed paths.")
-
-
-@_TYPED_APP.command("schema-check")
-def _schema_check(
-    context: typer.Context,
-    base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")] = "HEAD",
-) -> None:
-    """Check governed schema compatibility against a Git reference."""
-    state = _state(context)
-    base = resolve_git_commit(state.repository_root, base_ref)
-    _check_schema_compatibility(
-        state.repository_root,
-        modules=state.policy.schema_module_roots,
-        base=base,
-    )
-    print(f"Schema compatibility passed for {len(state.policy.schema_module_roots)} modules.")
-
-
-@_TYPED_APP.command("verify-merged-result")
-def _verify_merged_result(
-    context: typer.Context,
-    base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")],
-    head_ref: Annotated[str, typer.Option("--head-ref", help="Head Git reference.")],
-    revision: Annotated[
-        str,
-        typer.Option("--revision", help="Merged revision to verify."),
-    ] = "HEAD",
-) -> None:
-    """Verify the exact base and head parents of a merged result."""
-    root = _state(context).repository_root
-    merged = verify_git_merge_parents(
-        root,
-        base_ref=base_ref,
-        head_ref=head_ref,
-        revision=revision,
-    )
-    print(f"Merged-result identity passed for {merged}.")
-
-
-@_TYPED_APP.command("fast")
-def _fast(
-    context: typer.Context,
-    base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")],
-    head_ref: Annotated[str, typer.Option("--head-ref", help="Head Git reference.")],
-    event_log: Annotated[
-        Path,
-        typer.Option("--event-log", help="Repository-local CI event log."),
-    ] = _DEFAULT_EVENT_LOG,
-    run_id: Annotated[str, typer.Option("--run-id", help="CI run identifier.")] = "local",
-    environment: Annotated[
-        str,
-        typer.Option("--environment", help="Execution environment."),
-    ] = "local",
-    evidence_url: Annotated[
-        str,
-        typer.Option("--evidence-url", help="Retained CI evidence URL."),
-    ] = "",
-) -> None:
-    """Run the affected-target CI lane."""
-    root = _state(context).repository_root
-    selection = run_affected_ci_lane(
-        root,
-        base_ref=base_ref,
-        head_ref=head_ref,
-        event_log=event_log,
-        run_id=run_id,
-        evidence_url=evidence_url,
-        environment=environment,
-    )
-    print(_serialize_affected_selection(selection))
-
-
-@_TYPED_APP.command("full")
-def _full(
-    context: typer.Context,
-    base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")],
-    event_log: Annotated[
-        Path,
-        typer.Option("--event-log", help="Repository-local CI event log."),
-    ] = _DEFAULT_EVENT_LOG,
-    run_id: Annotated[str, typer.Option("--run-id", help="CI run identifier.")] = "local",
-    environment: Annotated[
-        str,
-        typer.Option("--environment", help="Execution environment."),
-    ] = "local",
-    evidence_url: Annotated[
-        str,
-        typer.Option("--evidence-url", help="Retained CI evidence URL."),
-    ] = "",
-) -> None:
-    """Run the authoritative full CI lane."""
-    root = _state(context).repository_root
-    run_authoritative_full_ci_lane(
-        root,
-        base_ref=base_ref,
-        event_log=event_log,
-        run_id=run_id,
-        evidence_url=evidence_url,
-        environment=environment,
-    )
-    print("Authoritative full CI lane passed.")
+    scan_all = False
+    paths: list[str] = []
+    for argument in arguments[1:]:
+        if argument == "--all":
+            scan_all = True
+        elif argument == "--":
+            continue
+        elif argument.startswith("-"):
+            raise CIPolicyError([f"unknown scan-secrets option: {argument}"])
+        else:
+            paths.append(argument)
+    if scan_all == bool(paths):
+        raise CIPolicyError(["scan-secrets accepts --all or one or more paths"])
+    return scan_all, tuple(paths)
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Validate or execute the governed continuous-integration interfaces from Typer.
+    """Scan tracked or explicitly supplied files for repository secrets.
 
-    With no command, validate the repository policy and print its summary. Selected
-    commands can invoke Git, Bazel, Buf, or pre-commit, and the fast and full lanes
-    write CI duration records to the repository-local event log.
+    The ``--all`` mode obtains every Git-tracked path. Both modes run the bounded
+    repository-owned patterns and the external ``detect-private-key`` executable;
+    an absent scanner, unsafe path, unreadable file, detected pattern, or nonzero
+    scanner status returns a failure. Matching contents are never printed.
 
     Args:
-        arguments: Explicit CLI arguments, or ``None`` to read ``sys.argv[1:]``.
+        arguments: CLI tokens, or ``None`` to consume ``sys.argv[1:]``.
 
     Returns:
-        The translated Typer status: command status, ``0`` for successful
-        ``None`` results, ``1`` for handled policy or operational errors, or a
-        parser error's exit code.
+        Zero after both scanners pass, or one after a handled preflight failure.
 
-    Raises:
-        TypeError: A dispatched command returns a result other than ``None`` or an integer.
-        Exception: An unexpected exception is not renderable as a Typer parser
-            error and therefore escapes the adapter.
     """
-    return run_typer(
-        _APP,
-        arguments=arguments,
-        handled_errors=(CIPolicyError, OSError, UnicodeError, ValueError),
-        program_name="alpha-governance-ci",
-    )
+    cli_arguments = tuple(sys.argv[1:] if arguments is None else arguments)
+    try:
+        scan_all, paths = _parse_arguments(cli_arguments)
+        repository_root = Path.cwd().resolve(strict=True)
+        selected_paths = _git_tracked_paths(repository_root) if scan_all else paths
+        scan_repository_paths(repository_root, selected_paths)
+    except (CIPolicyError, OSError, UnicodeError, ValueError) as error:
+        print(f"CI secret scan failed: {error}", file=sys.stderr)
+        return 1
+    print(f"CI secret scan passed for {len(selected_paths)} governed paths.")
+    return 0

@@ -56,7 +56,7 @@ venue, account, capital, activation, or risk authority.
 
 | Class | Gates | Distinct review minimum | Rollout | Evidence retention class |
 | --- | --- | --- | --- | --- |
-| R0 | QG01, QG13 | One Code Owner | Fast lane | Source/governance record |
+| R0 | QG01, QG13 | One Code Owner | Automated checks | Source/governance record |
 | R1 | QG01-QG06, QG13; conditional QG10 | Research owner plus independent peer | Reproducible batch; no production promotion | Governed research lifecycle |
 | R2 | QG01-QG06, QG09-QG14; conditional QG07-QG08 | Code Owner plus independent data/model/domain reviewer | Merged result, compatibility replay, impact analysis | Shared-contract compatibility lifecycle |
 | R3 | QG01-QG05, QG09-QG15; conditional QG06-QG08 | Code Owner, independent Platform/SRE, independent Security | Staging, failure injection, shadow or synthetic | Deployable-service lifecycle |

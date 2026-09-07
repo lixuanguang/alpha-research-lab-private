@@ -856,11 +856,11 @@ class TestProgramGovernance:
         )
         assert packages_by_id["L06"].any_of_dependency_groups == (("L01", "L02", "L04"),)
         assert packages_by_id["L07"].any_of_dependency_groups == (("L01", "L02", "L03", "L04"),)
-        assert packages_by_id["B07"].dependencies == ("B02", "B03", "B04", "B05")
-        assert packages_by_id["B07"].operation_release_dependencies == ("B06",)
+        assert packages_by_id["B07"].dependencies == ("B01", "B04", "B05")
+        assert packages_by_id["B07"].operation_release_dependencies == ()
         assert packages_by_id["B07"].as_json()["dependency_purposes"] == {
-            "implementation": {"all_of": ["B02", "B03", "B04", "B05"], "any_of": []},
-            "operation_release": {"all_of": ["B06"], "any_of": []},
+            "implementation": {"all_of": ["B01", "B04", "B05"], "any_of": []},
+            "operation_release": {"all_of": [], "any_of": []},
             "team_handover": {"all_of": [], "any_of": []},
         }
         assert packages_by_id["D01"].dependencies == ("C04",)
@@ -922,13 +922,13 @@ class TestProgramGovernance:
         purpose_cycle = _roadmap_fixture(tmp_path)
         _replace_program_fixture_text(
             purpose_cycle,
-            "| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, "
-            "and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate "
-            "namespaces and trust; pass poisoning tests; retain verified local fallback | B05 |",
-            "| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, "
-            "and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate "
-            "namespaces and trust; pass poisoning tests; retain verified local fallback | "
-            "implementation: B05; operation/release: B07 |",
+            "| B05 | Source validation, package installation smoke checks, hygiene, secrets, and "
+            "required CI result | uv, pre-commit, admitted secret scanner | One `make check` "
+            "path is authoritative; focused checks remain optional | B01, B04 |",
+            "| B05 | Source validation, package installation smoke checks, hygiene, secrets, and "
+            "required CI result | uv, pre-commit, admitted secret scanner | One `make check` "
+            "path is authoritative; focused checks remain optional | implementation: B01, "
+            "B04; operation/release: B07 |",
         )
         with pytest.raises(ProgramGovernanceError, match="dependency cycle"):
             load_roadmap(purpose_cycle)
@@ -1561,10 +1561,11 @@ class TestProgramReadiness:
         assert all(state.status == "partial" for state in program.package_states)
 
     def test_program_reader_retains_version_two_dependency_semantics(self, tmp_path: Path) -> None:
-        """Apply version-two dependency semantics to the B06 operation-release edge.
+        """Keep version-two loading independent of the retired B06 operation edge.
 
         Arrange a version-two policy with B06 blocked and its local evidence failed,
-        then assert loading it rejects B07 because that dependency is incomplete.
+        then assert loading it still retains B07 because remote execution is no
+        longer a technical or operation-release dependency.
 
         Args:
             tmp_path: Pytest directory where the downgraded and mutated policy is
@@ -1584,11 +1585,8 @@ class TestProgramReadiness:
         )
         path.write_text(prefix + 'package_id = "B06"' + suffix, encoding="utf-8")
 
-        with pytest.raises(
-            ProgramGovernanceError,
-            match="B07: completion requires complete technical dependencies",
-        ):
-            load_program(path, repository_root=REPOSITORY_ROOT)
+        program = load_program(path, repository_root=REPOSITORY_ROOT)
+        assert program.state_for("B07") is not None
 
     def test_hiring_derives_scoped_governance_without_rewriting_package_states(
         self, tmp_path: Path

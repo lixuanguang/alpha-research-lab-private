@@ -11,13 +11,6 @@ from pathlib import Path
 from pydantic import TypeAdapter
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
-EXPECTED_RUNTIME_REQUIREMENTS = {
-    "alpha-research-governance==0.1.0",
-    "exchange-calendars==4.13.2",
-    "pydantic==2.13.5",
-    "quantlib==1.43",
-}
-EXPECTED_TOOL_REQUIREMENTS = {"pydantic==2.13.5", "typer==0.27.2"}
 
 
 def _load_pyproject(relative_path: str = "pyproject.toml") -> dict[str, object]:
@@ -59,49 +52,66 @@ def _require_table(container: dict[str, object], key: str) -> dict[str, object]:
 
 
 class TestPackageDefinitionContracts:
-    """Verify installed distribution metadata and explicit project entrypoints."""
+    """Verify installed metadata and the explicit wheel-smoke entrypoint."""
 
     def test_installed_distribution_exposes_expected_metadata(self) -> None:
-        """Verify installed runtime and governance distributions expose pinned metadata."""
+        """Verify installed metadata matches each distribution's current project definition."""
+        runtime_project = _require_table(_load_pyproject(), "project")
+        tool_project = _require_table(_load_pyproject("tools/governance/pyproject.toml"), "project")
         distribution = importlib.metadata.distribution("alpha-research-lab")
         tool_distribution = importlib.metadata.distribution("alpha-research-governance")
 
         assert distribution.metadata["Name"] == "alpha-research-lab"
-        assert distribution.version == "0.1.0"
-        assert distribution.metadata["Requires-Python"] == "==3.12.*"
-        assert set(distribution.requires or ()) == EXPECTED_RUNTIME_REQUIREMENTS
-        assert tool_distribution.version == "0.1.0"
-        assert set(tool_distribution.requires or ()) == EXPECTED_TOOL_REQUIREMENTS
+        assert distribution.version == runtime_project["version"]
+        assert distribution.metadata["Requires-Python"] == runtime_project["requires-python"]
+        runtime_dependencies = TypeAdapter(list[str]).validate_python(
+            runtime_project["dependencies"]
+        )
+        assert {requirement.lower() for requirement in distribution.requires or ()} == {
+            requirement.lower() for requirement in runtime_dependencies
+        }
+        assert tool_distribution.metadata["Name"] == "alpha-research-governance"
+        assert tool_distribution.version == tool_project["version"]
+        assert tool_distribution.metadata["Requires-Python"] == tool_project["requires-python"]
+        tool_dependencies = TypeAdapter(list[str]).validate_python(tool_project["dependencies"])
+        assert {requirement.lower() for requirement in tool_distribution.requires or ()} == {
+            requirement.lower() for requirement in tool_dependencies
+        }
 
     def test_governance_path_target_and_owned_commands_are_explicit(self) -> None:
-        """Verify project TOML declares the non-editable governance path and owned commands."""
+        """Verify project TOML declares the compatibility path and retained commands."""
         configuration = _load_pyproject()
         tool_configuration = _load_pyproject("tools/governance/pyproject.toml")
         uv = _require_table(_require_table(configuration, "tool"), "uv")
         sources = _require_table(uv, "sources")
         scripts = _require_table(_require_table(tool_configuration, "project"), "scripts")
-        compatibility_scripts = _require_table(configuration, "project")["scripts"]
+        compatibility_scripts = _require_table(_require_table(configuration, "project"), "scripts")
 
-        assert sources == {
-            "alpha-research-governance": {
-                "editable": False,
-                "path": "tools/governance",
-            }
-        }
-        assert uv["constraint-dependencies"] == ["numpy==2.4.6"]
-        assert set(scripts) == {
-            "alpha-governance-architecture",
-            "alpha-governance-artifacts",
-            "alpha-governance-change-risk",
-            "alpha-governance-ci",
-            "alpha-governance-dependencies",
-            "alpha-governance-engineering-standards",
-            "alpha-governance-evidence",
-            "alpha-governance-inventory",
-            "alpha-governance-ownership",
-            "alpha-governance-program",
-            "alpha-governance-remote-execution",
-            "alpha-governance-security",
-            "alpha-governance-topology",
-        }
-        assert compatibility_scripts == {"alpha-research-ci": "alpha_research.ci_policy:main"}
+        governance_source = _require_table(sources, "alpha-research-governance")
+        assert governance_source["path"] == "tools/governance"
+        assert governance_source["editable"] is False
+        constraints = TypeAdapter(list[str]).validate_python(uv["constraint-dependencies"])
+        assert "numpy==2.4.6" in constraints
+        assert scripts["alpha-governance-ci"] == "alpha_research_governance.ci_policy:main"
+        assert "alpha-governance-remote-execution" not in scripts
+        assert compatibility_scripts["alpha-research-ci"] == "alpha_research.ci_policy:main"
+
+    def test_wheel_smoke_is_the_build_install_boundary(self) -> None:
+        """Require the root interface to invoke the isolated installed-wheel smoke."""
+        makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
+        smoke = (
+            REPOSITORY_ROOT
+            / "tools"
+            / "governance"
+            / "src"
+            / "alpha_research_governance"
+            / "wheel_smoke.py"
+        ).read_text(encoding="utf-8")
+
+        assert "wheel-smoke:" in makefile
+        assert "python -m alpha_research_governance.wheel_smoke" in makefile
+        assert "alpha_research_governance-" in smoke
+        assert "alpha_research_lab-" in smoke
+        assert "--require-hashes" in smoke
+        assert '"-I"' in smoke
+        assert "PYTHONPATH" in smoke

@@ -212,9 +212,10 @@ def _repository_paths(repository_root: Path) -> tuple[str, ...]:
     ``git ls-files --cached --others --exclude-standard -z`` with ``repository_root`` as
     ``cwd``, captured output, no shell, ``check=False``, and no timeout. The query includes
     all tracked paths through ``--cached`` and nonignored untracked paths through
-    ``--others --exclude-standard``. It splits NUL-delimited output, removes empty records,
-    and preserves Git's output order without sorting, deduplicating, or normalizing paths.
-    The query is read-only.
+    ``--others --exclude-standard``. Paths absent from the working tree (for example,
+    staged deletions) are omitted before coverage validation. It splits NUL-delimited output,
+    removes empty records, and preserves Git's output order without sorting, deduplicating, or
+    normalizing paths. The query is read-only.
 
     Args:
         repository_root: Directory supplied as the Git process working directory.
@@ -241,7 +242,8 @@ def _repository_paths(repository_root: Path) -> tuple[str, ...]:
     if git_process.returncode != 0:
         message = git_process.stderr.decode("utf-8", errors="replace").strip()
         raise OwnershipGovernanceError([f"git ls-files failed: {message}"])
-    return tuple(path.decode("utf-8") for path in git_process.stdout.split(b"\0") if path)
+    paths = tuple(path.decode("utf-8") for path in git_process.stdout.split(b"\0") if path)
+    return tuple(path for path in paths if (repository_root / path).is_file())
 
 
 class OwnershipGovernanceValidator:

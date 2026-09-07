@@ -8,11 +8,13 @@ delivery order.
 
 ## Current status
 
-The repository has governance and build tooling, plus the first domain contracts:
-instrument identity, venue calendars, and financial units (C01-C03). It does not
-yet implement the data platform, simulator, independent risk gateway, OMS/EMS, or
-production deployment. The proposed first workload is a digital-asset
-factor-residual strategy under its separate certification package.
+The repository has the first domain contracts: instrument identity, venue
+calendars, and financial units (C01-C03). It does not yet implement the data
+platform, simulator, independent risk gateway, OMS/EMS, or production
+deployment. The proposed first workload is a digital-asset factor-residual
+strategy under its separate certification package. The former Bazel, Nix,
+remote-execution, and custom affected-target CI surfaces are retained only as
+historical records while the active path uses uv and one source check.
 
 The [generated program status](governance/program-status.md) shows demonstrated
 implementation, the next technical package, retained findings and any active
@@ -24,29 +26,29 @@ binding; B08 artifact release remains blocked. See
 
 ## Development environment
 
-With uv and Bazelisk available, install the locked environment:
+Install the locked environment with Python 3.12.14 and uv:
 
 ```sh
 uv sync --frozen
 ```
 
-Exact versions live in [pyproject.toml](../pyproject.toml),
-[uv.lock](../uv.lock), [.python-version](../.python-version),
-[.bazelversion](../.bazelversion), and [MODULE.bazel](../MODULE.bazel).
-For a clean machine, follow the
-[Nix bootstrap guide](architecture/clean-machine-environment.md#documented-prerequisites-and-bootstrap).
+Exact Python, uv, and dependency versions live in
+[pyproject.toml](../pyproject.toml), [uv.lock](../uv.lock), and
+[.python-version](../.python-version). A clean checkout needs only those pinned
+inputs and a working uv installation for environment synchronization. `make check`
+also needs Git, GNU Make, and Cosign 3.1.3; hosted CI installs the pinned Cosign
+release.
 
-[Makefile](../Makefile) is the root command interface. Bazel is the default build
-backend; the frozen-uv path is retained for rollback. Governance targets invoke
-installed `alpha-governance-*` commands without ambient `PYTHONPATH`.
+[Makefile](../Makefile) is the root command interface. `make check` is the
+required source and policy validation command; focused commands are optional
+while developing. Governance targets invoke installed `alpha-governance-*`
+commands without ambient `PYTHONPATH`.
 
 | Command | Use |
 | --- | --- |
-| `make format`, `make format-check`, `make lint`, `make typecheck` | Python formatting and static checks |
-| `make build`, `make test` | Build the representative Bazel graph; run focused hermetic-build tests |
-| `make ci-fast CI_BASE_REF=<base> CI_HEAD_REF=HEAD` | Validate affected targets and reverse dependencies |
-| `make check` / `make ci-full` | Authoritative full validation; also the default for bare `make` |
-| `make rollback-check` | Complete frozen-uv validation, integration tests, smoke import, and package build |
+| `make check` | Required source, policy, test, and package validation |
+| `make format`, `make format-check`, `make lint`, `make typecheck` | Optional focused Python formatting and static checks |
+| `make build`, `make test` | Optional local package build and default tests |
 | `make integration-test`, `make performance-test` | Dedicated integration and non-blocking performance checks |
 
 Use the focused checks while changing the corresponding contract:
@@ -64,23 +66,24 @@ Use the focused checks while changing the corresponding contract:
 | `make dependency-admission-check` | Dependency sources, digests, locks, licenses, and platforms |
 | `make dependency-audit` | Admitted pip-audit signal and vulnerability decisions |
 | `make artifact-supply-chain-check` | SBOM, provenance, signing, publication, and consumption |
-| `make ci-policy-check`, `make ci-secrets-check`, `make ci-schema-check` | CI policy, tracked-source secrets, and schema compatibility |
-| `make remote-execution-policy-check` | Remote trust, sharding, resource, and fallback policy |
+| `make ci-secrets-check` | Tracked-source secrets and private-key scanning |
 
-Remote execution commands and their protected-context prerequisites are documented
-in [remote execution](architecture/remote-execution.md). See the
-[build graph](architecture/hermetic-build-graph.md) and
-[CI policy](architecture/ci-policy.md) for target coverage and lane behavior.
+Use `uv run --frozen --no-editable pytest -q <test-paths>` for focused tests. The
+[CI policy](architecture/ci-policy.md) documents the retained source check and
+secret scanner. The [hermetic build graph](architecture/hermetic-build-graph.md),
+[clean-machine environment](architecture/clean-machine-environment.md), and
+[remote-execution policy](architecture/remote-execution.md) remain historical
+records and do not add active setup or check prerequisites.
 
 ## Documentation map
 
 | Start here | Contents |
 | --- | --- |
 | [Solo-maintainer cleanup plan](cleanup/README.md) | Repository audit and proposed simplification of docs, code, governance, CI, and tests |
-| [Architecture](architecture/README.md) | System overview and links to build and domain contracts |
+| [Architecture](architecture/README.md) | System overview and links to current domain contracts |
 | [Development workflow](governance/workflow.md) | The one active implementation, evidence, validation, and handover workflow |
 | [Program status](governance/program-status.md) | Generated implementation, governance, readiness, and finding view |
-| [Implementation roadmap](roadmap/README.md) | 96 packages, dependencies, milestones, and solo-bootstrap rules |
+| [Implementation roadmap](roadmap/README.md) | 96-package implementation roadmap and current research direction |
 | [Research program](roadmap/research-program.md) | Empirical stages for the first strategy candidate |
 | [Coding standards](coding_standards/README.md) | Shared rules and language guides |
 | [Repository charter](governance/repository-charter.md) | Scope and external-system boundaries |

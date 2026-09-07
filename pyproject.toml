@@ -37,6 +37,12 @@ dev = [
 required-version = "==0.12.7"
 default-groups = ["dev"]
 constraint-dependencies = ["numpy==2.4.6"]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/**/*.py" },
+    { file = "src/**/py.typed" },
+    { file = "docs/README.md" },
+]
 
 [tool.uv.sources]
 alpha-research-governance = { path = "tools/governance", editable = false }

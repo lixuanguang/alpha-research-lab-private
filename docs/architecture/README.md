@@ -4,7 +4,8 @@ This is the target architecture under the
 [implementation blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf).
 Current implementation status is in the [documentation home](../README.md#current-status).
 The [principles](principles.md) define the invariants and permitted dependency
-direction; the [roadmap](../roadmap/README.md) defines delivery order.
+direction; the [roadmap](../roadmap/README.md) records historical package
+provenance and the current research direction.
 
 ## Control plane, data plane, and runtime lanes
 
@@ -65,9 +66,9 @@ strategies. Tests, environments, and tools support those owned targets. Populate
 directories only when their owning package is implemented.
 
 The [topology registry](repository-topology.md) describes current targets and
-compatibility facades. Bulk datasets, trial outputs, compiler outputs, deployable
-artifacts, and secrets stay outside Git. Git retains source, schemas, manifests,
-build definitions, synthetic fixtures, and policies.
+the remaining compatibility facades. Bulk datasets, trial outputs, compiler
+outputs, deployable artifacts, and secrets stay outside Git. Git retains source,
+schemas, manifests, synthetic fixtures, and policies.
 
 ## Build and domain contracts
 
@@ -77,11 +78,11 @@ findings. Adjacent TOML records provide machine-readable policy where applicable
 | Package | Contract |
 | --- | --- |
 | B01 | [Repository topology and tooling](repository-topology.md) |
-| B02 | [Pinned hermetic build graph](hermetic-build-graph.md) |
-| B03 | [Clean-machine developer environment](clean-machine-environment.md) |
+| B02 | [Pinned hermetic build graph](hermetic-build-graph.md) (historical) |
+| B03 | [Clean-machine developer environment](clean-machine-environment.md) (historical) |
 | B04 | [Engineering standards](engineering-standards.md) |
-| B05 | [Affected and full CI](ci-policy.md) |
-| B06 | [Remote execution, sharding, and fallback](remote-execution.md) |
+| B05 | [Source validation and CI policy](ci-policy.md) |
+| B06 | [Remote execution, sharding, and fallback](remote-execution.md) (retired) |
 | B07 | [Dependency admission](dependency-admission.md) |
 | B08 | [Artifact supply chain](artifact-supply-chain.md) |
 | C01 | [Instrument identity and temporal symbology](instrument-identity.md) |

@@ -19,10 +19,10 @@ style choice more specific. Do not hand-format code against `ruff format`.
 
 ## Required tooling
 
-Run commands from the repository root using the pinned environment.
-[Makefile](../../Makefile), [pyproject.toml](../../pyproject.toml), and the owning
-Bazel targets define the executable scope; `mypy --strict` alone does not express
-the repository's additional dynamic-type restrictions.
+Run commands from the repository root using the pinned Python 3.12.14 environment.
+[Makefile](../../Makefile) and [pyproject.toml](../../pyproject.toml) define the
+executable scope; `mypy --strict` alone does not express the repository's
+additional dynamic-type restrictions.
 
 | Command | Scope and purpose |
 | --- | --- |
@@ -30,18 +30,17 @@ the repository's additional dynamic-type restrictions.
 | `make typecheck` | Complete configured strict mypy scope, followed by native stubtest |
 | `make engineering-standards-check` | Source typing, import headings, docstrings and static-tool configuration |
 | `make security` | Configured Bandit checks for runtime and governance source |
-| `make check` | Authoritative complete lane with the default Bazel backend; see the [development workflow](../governance/workflow.md) |
+| `make check` | Authoritative source, policy, test, and wheel-smoke check; see the [development workflow](../governance/workflow.md) |
 
 For local iteration, use `uv run --frozen ruff check <affected-paths>`,
 `uv run --frozen ruff format --check <affected-paths>` and
 `uv run --frozen mypy --strict <affected-paths>` with actual repository paths.
 Run focused tests with `uv run --frozen --no-editable pytest -q <test-paths>` and
-their owning targets with `bazel test --config=ci <target-labels>`. Resolve targets
-and relevant reverse dependencies from the checked-in build graph.
+record the selected paths in the validation result.
 
 The default pytest configuration excludes `integration` and `performance` cases.
 When affected, select them explicitly with `-m integration` or `-m performance`
-and the relevant test paths. Verify that pytest and Bazel actually execute the
+and the relevant test paths. Verify that pytest actually executes the
 expected cases; an entry point that exits successfully without running tests is
 not validation. Report skips and deselections separately from passes.
 
@@ -49,7 +48,7 @@ Before completion, run every applicable repository check affected by the change.
 Changes to global lint or typing enforcement require the complete configured
 static scope. Run `uv run --frozen pre-commit run --all-files` when hook behavior
 or multiple file types are involved. Focused checks and hooks do not replace the
-complete lane required before merge.
+complete `make check` command required before merge.
 
 Do not silence a tool globally to fix a local violation. A suppression MUST be as
 narrow as possible and use the exact B04 suffix

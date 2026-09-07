@@ -1,135 +1,63 @@
-# Whole-Artifact Supply Chain
+# Artifact supply chain
 
-## Control metadata
-
-| Field | Value |
-| --- | --- |
-| Roadmap package | B08 |
-| Operating track | Solo bootstrap |
-| Package status | Partial |
-| Accountable owner role | Platform |
-| Dependencies | B07 and A07, provisionally ready with open external findings |
-| Risk class | R2 shared sensitive, compatibility-window change |
-| Applicable gates | QG01-QG06, QG09-QG15 |
-| Required reviewers | Platform Code Owner plus one independent Data, Model, or Domain reviewer; independent Security review for the supply-chain control |
-| Machine-readable policy | [Artifact supply-chain policy](artifact-supply-chain.toml) |
-| Applicable ADRs | [Build and developer tooling](decisions/0001-build-and-developer-tooling.md), [deployment and activation](decisions/0006-deployment-and-activation.md) |
-
-## Objective and boundary
-
-B08 binds one complete artifact file to an SPDX 2.3 SBOM, SLSA v1 provenance,
-test evidence, source commit, Bazel target, build platform, all build locks, the
-locked toolchain, policy, and a Sigstore bundle over the canonical manifest.
-Consumers must provide the exact `sha256:<digest>` of the artifact and repeat all
-policy and signature checks. Unknown fields, missing evidence, mutable names,
-symlinks, digest drift, untrusted signing context, or revoked identity fail closed.
-
-B07's bounded bootstrap publication-evidence tier permits development checks but
-blocks this artifact lifecycle. Creation, signing and consumer verification all
-require release-eligible dependency admission. Any bootstrap-only record blocks
-the entire graph; removing it without replacing its missing source evidence or
-removing the dependency also fails. This guard adds no signing authority and
-preserves B08's own SLSA, SBOM and signature requirements.
-
-The artifact input may be a binary or a deterministic archive produced by an
-owning target. B08 does not define how a container, model, configuration bundle,
-or later domain artifact is built. It secures that opaque, whole output. Archive
-members whose names contain `.so`, `.so.`, `.dylib`, or `.dll` must also appear in
-the SPDX file inventory, preventing native/shared libraries from disappearing
-behind a Python or archive-level record.
+The artifact boundary builds from one project contract: `pyproject.toml` with the
+frozen `uv.lock`. A release candidate is produced by the canonical uv wheel build,
+then inspected, signed, published under its content digest, and verified by the
+consumer. The workflow runs dependency admission before any artifact tool.
 
 ## Build contract
 
-`create` accepts one non-empty regular artifact, an allowed kind, an explicit
-Bazel label, a full lowercase Git commit, and at least one non-empty test report.
-It invokes the exact Nix-locked Syft 1.51.1 with file metadata enabled and update
-checks disabled. B08 normalizes Syft's creation timestamp, namespace, name, and
-array ordering, then emits canonical newline-terminated JSON. SLSA provenance
-records the subject digest, source revision, builder and build-type identities,
-external build parameters, four immutable lock digests, and the B03/B07-governed
-toolchain digest. A staging directory is renamed only after every check succeeds;
-failure removes the incomplete candidate.
+`alpha-governance-artifacts create` accepts an artifact produced by the canonical
+uv build invocation and records:
 
-Example lifecycle commands are deliberately separate:
+- the complete artifact filename, kind, byte size, and SHA-256 digest;
+- the source commit and build platform;
+- the normalized backend command identity `uv build --no-build-isolation --wheel --no-sources`;
+- the SHA-256 identities of `pyproject.toml` and `uv.lock`;
+- normalized SPDX 2.3 output from the admitted Syft version; and
+- opaque test evidence files with their copied digest and size.
 
-```sh
-uv run --frozen alpha-governance-artifacts create \
-  dist/service.zip binary //platform/service:release "$GIT_COMMIT" \
-  build/test-results.json build/candidate
-uv run --frozen alpha-governance-artifacts sign \
-  build/candidate github_protected_main
-uv run --frozen alpha-governance-artifacts publish \
-  build/candidate sha256:<artifact-digest> build/local-artifact-registry
-uv run --frozen alpha-governance-artifacts verify \
-  build/local-artifact-registry/sha256/<artifact-digest> sha256:<artifact-digest>
-```
+The bundle manifest is version 2. Version 1 manifests that refer to retired build
+targets or duplicate toolchain files are rejected and must be rebuilt. Syft and
+Cosign versions remain explicit in the manifest and in policy-bound tool
+invocations. The in-toto statement binds the source commit, project manifest, uv
+lock, build command, artifact digest, SPDX identity, and builder identity.
 
-The first command creates an unsigned candidate, never a releasable artifact.
+The Make build wrapper runs this backend with the frozen environment and supplies
+the project and output directory. Those wrapper arguments are intentionally outside
+the normalized identity so local and hosted invocations bind the same build backend
+while the wrapper controls the checkout and output location.
 
-## Signing, publication, and consumption
+## Verification and publication
 
-`sign` invokes Cosign 3.1.3 `sign-blob` with a Sigstore bundle only when the
-caller selects `github_protected_main`, GitHub reports a protected `main` ref,
-and `GITHUB_SHA` equals provenance. The repository stores no key, token, signing
-certificate, or credential. The external protected workflow identity, OIDC
-permission, transparency service, and approval remain B08-F02 evidence and are
-not activated by this package.
+Verification checks the expected immutable `sha256:<64 lowercase hex>` reference,
+regular-file and archive safety, every manifest digest and size, the exact bundle
+file set, provenance identity and dependencies, SPDX identity, native-library
+coverage, signer identity and issuer, and the Cosign signature. It rejects changed
+artifact bytes, changed evidence, unknown manifest fields, unsafe symlinks, revoked
+signers, malformed provenance, and mutable consumer references. Publication first
+verifies a staged copy and creates only one directory at
+`<registry>/sha256/<artifact-digest>`.
 
-`publish` first performs complete consumer verification, then writes exactly once
-below `sha256/<artifact-digest>`. This repository-local content store proves
-immutability and rollback behavior; it is not the production artifact registry
-owned by I01. A pre-existing digest is rejected rather than overwritten.
+Every lifecycle operation calls dependency release admission before external tools.
+QuantLib's current bootstrap-only, unverified source-to-wheel binding therefore
+blocks creation, signing, verification, and publication until its recorded review
+condition is resolved. This preserves the native dependency restriction while the
+repository moves to uv.
 
-`verify` requires a non-revoked configured signer, a non-empty Sigstore bundle,
-Cosign verification constrained to the exact workflow identity and OIDC issuer,
-and exact artifact, manifest, SBOM, provenance, test, lock, toolchain, and policy
-digests. It never resolves a tag or chooses a favorable fallback. Signature,
-provenance, native-library, immutable-reference, and tamper failures stop
-publication and consumption.
+## Tool and evidence boundaries
 
-## Evidence
+Syft and Cosign are resolved as ordinary development tools and checked against the
+exact versions in the artifact policy. Their output is treated as untrusted input:
+JSON duplicate keys, oversized documents, missing native members, and unexpected
+tool failures fail closed. The default process runner passes argv without a shell;
+the lifecycle does not download or silently regenerate an artifact.
 
-The A04 facts classify B08 as R2. Applicable control definitions live in the
-[quality-gate catalog](operations.md#quality-gate-catalog), while exact gate state
-and finding closure conditions live in
-[artifact-supply-chain.toml](artifact-supply-chain.toml). The retained synthetic
-bundle at
-[`b08-r2-partial`](../governance/evidence/examples/b08-r2-partial/manifest.toml)
-records those exact gates and no approvals or waivers.
+The local B08 evidence remains partial. Protected CI signing, independent review,
+registry retention, signer rotation, and recovery exercises are still open findings
+and are not implied by a local injected runner.
 
-Repository tests cover deterministic success; archive/native coverage; missing,
-malformed, duplicate, unknown, and unsafe input; tool absence/version/failure;
-unsigned, tampered, mutable, and revoked-signer rejection; digest-only immutable
-publication; and CLI failure. The real locked executables' version contracts are
-also checked by Nix. Deterministic process doubles exercise the credential-free
-local signing boundary; they are not evidence of a real cryptographic signature.
-
-## Migration, rollout, rollback, monitoring, and runbook
-
-Migration is additive: B08 admits Syft and Cosign through the existing locked Nix
-and B07 records, adds an artifact target to the governed topology, and places its
-offline policy check in Make, pre-commit, Bazel, and full CI. No existing artifact
-is grandfathered. A later producer must create a new conforming bundle.
-
-Rollout stops at repository-local validation. External rollout requires the
-findings below to close on an exact commit before a registry or consumer may rely
-on B08. Rollback is a reviewed revert of B08 and its two tool records; unpublished
-candidates and the local test registry may be discarded. Already published
-digests are never mutated or re-signed in place. Consumers remain fail closed
-rather than accepting legacy unsigned output.
-
-The policy command, failed lifecycle command, Cosign verification, and consumer
-rejection are the current monitoring signals. On failure: retain the bundle and
-logs; stop publish/consume; compare artifact, manifest, SBOM, provenance, lock,
-toolchain, policy, and signature identities; revoke a suspected signer in policy;
-rotate it externally; rebuild from reviewed source; and verify a new digest. Do
-not overwrite or reactivate the rejected digest. There is no deployed alert,
-registry, signing service, SLO, or on-call route in this package.
-
-## Governance references
-
-Current implementation, governance and retained finding IDs are rendered in the
-[program status](../governance/program-status.md); detailed closure conditions stay
-in the adjacent TOML policy. The [development workflow](../governance/workflow.md)
-owns daily evidence. B08 does not itself create a production registry, release,
-deployment, activation, credential or capital authority.
+The retired Bazel label, module lock, Nix toolchain, and four-lock build graph were
+removed in cleanup step 2. Their former guarantees are explicitly retired. Clean
+`uv build`, installation outside the checkout, digest verification, and the retained
+provenance/tamper checks provide the supported replacement evidence.

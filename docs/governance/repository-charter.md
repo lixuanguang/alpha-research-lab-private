@@ -89,8 +89,8 @@ may become true.
   `alpha-research-lab-private`.
 - New domain directories, packages, modules, and non-conventional files use
   lower_snake_case. Conventional build and governance names such as
-  `MODULE.bazel`, `README.md`, `Makefile`, and `CODEOWNERS` retain their standard
-  spelling.
+  `.python-version`, `README.md`, `Makefile`, and `CODEOWNERS` retain their
+  standard spelling.
 - Names use the canonical domain vocabulary and include units or representation
   where ambiguity is unsafe. Unscoped names such as `utils`, `common`, `manager`,
   or `helper` do not define a public boundary.

@@ -1,9 +1,0 @@
-syntax = "proto3";
-
-package alpha_research.build.v1;
-
-// ToolchainProbe is a test-only message used to exercise pinned Protobuf tooling.
-message ToolchainProbe {
-  string target = 1;
-  bytes source_digest = 2;
-}

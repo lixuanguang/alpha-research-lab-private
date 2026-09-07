@@ -13,7 +13,7 @@
 | Change risk | R2 shared build and quality policy |
 | Applicable gates | QG01-QG06, QG09-QG14 |
 | Machine-readable policy | [Engineering standards policy](engineering-standards.toml) |
-| Provisional dependency record | [Engineering tool dependencies](engineering-tool-dependencies.toml) |
+| Dependency admission | [Dependency admission contract](dependency-admission.md) and the frozen `uv.lock` |
 | Evidence | [B04 partial evidence](../governance/evidence/examples/b04-r2-partial/manifest.toml) |
 
 This contract implements the blueprint's B04 language, sanitizer, warnings,
@@ -25,23 +25,23 @@ weaken them.
 ## Scope and delivery boundary
 
 B04 makes current engineering standards executable for the repository's admitted
-Python targets. It adds the `alpha-governance-engineering-standards` checker and a
-sandboxed Bazel property/state-machine test target. The checker binds exact tool
+Python targets. It adds the `alpha-governance-engineering-standards` checker and
+property/state-machine coverage. The checker binds exact tool
 versions to the uv lock, validates warnings-as-errors configuration, rejects an
 unowned or expired suppression, prevents generated source outside an admitted
 root, enforces the Python standards contract, and blocks C, C++, or Rust
 source until an owned native target and sanitizer profile are admitted.
 
-B02 and B03 remain provisional dependencies. Their Bazel graph, exact Python
-toolchain, clean-machine shell, sandbox, and rollback are preserved. The completed
-pre-B01 toolchain refresh is retained in Git history (`ba121d4`, formerly
+The former B02/B03 Bazel and Nix paths are historical records. The active source
+and test contract uses the pinned Python/uv environment and `make check`. The
+completed pre-B01 toolchain refresh is retained in Git history (`ba121d4`, formerly
 `docs/roadmap/pre-b01-toolchain-refresh.md`). Current pins and admission decisions
 belong to the lock and [dependency-admission contract](dependency-admission.md).
-B04 does not repeat that refresh or claim final B07 admission.
+B04 does not claim final B07 admission.
 
 No economic, data, schema, research, model, strategy, risk, execution, runtime, or
-deployment behavior is introduced. Fast affected-target selection and authoritative
-merged-result policy remain B05-owned.
+deployment behavior is introduced. Source validation, retained secret scanning,
+and installed wheel smoke are owned by B05's current check path.
 
 The repository-internal checker separates Python source rules from policy parsing
 and repository cross-checks. Import headings, source typing and documentation
@@ -63,7 +63,7 @@ sanitizer. Before native source enters a governed root, the owning change must:
 
 1. justify the language and target under ADR 0002;
 2. pin the compiler, standard library, linker, formatter, static analyzer, and
-   sanitizer inputs in the B02 graph and B03 environment;
+   sanitizer inputs in the repository lock and owning admission record;
 3. add a provisional B07-compatible dependency record;
 4. run AddressSanitizer plus UndefinedBehaviorSanitizer for relevant C/C++ changes
    and a separate ThreadSanitizer build for shared-memory concurrency;
@@ -168,9 +168,9 @@ review; performance evidence cannot waive them.
 
 ## Generated code
 
-B04 admits no generated source root. Existing SQL and Protobuf files under
-`tests/build/fixtures` remain B02 test fixtures rather than generated production
-source. A future generated source root requires an owning generator target and a
+B04 admits no generated source root. Existing SQL and Protobuf files under the
+retired build fixture area were historical test fixtures rather than generated
+production source. A future generated source root requires an owning generator target and a
 policy update. Each generated file then identifies:
 
 - the generator and exact generator version;
@@ -221,8 +221,8 @@ uv run --frozen alpha-governance-engineering-standards
 The command exits `0` only when the policy, exact locks, dependency record, current
 source, suppressions, language admission, configuration, and synthetic evidence
 agree. It exits `1` for invalid repository state and `2` for invalid command use.
-`make engineering-standards-check` is the root compatibility entry point. The B04
-Bazel test is part of the existing sandboxed build-platform suite.
+`make check` is the required repository entry point; focused standards commands
+remain optional during development.
 
 Unknown fields, missing roots, malformed TOML, invalid dates, stale tool versions,
 unlocked dependencies, absent warnings-as-errors, generated source, dormant native
@@ -248,11 +248,10 @@ rollback. B07 retains qualified binary/source provenance, license, vulnerability
 exploitability, and final admission authority.
 
 The change is additive: it creates no data/state/schema migration and no deployable
-artifact. Rollout adds the checker and property target to the existing root, hook,
-hosted, uv, and Bazel validation surfaces without implementing B05 affected-target
-or merged-result policy. Rollback removes the property target, dependency pins,
-checker, policy, and B04 evidence together while preserving the prior B03 graph
-and frozen-uv path.
+artifact. Rollout adds the checker and property coverage to the existing root,
+hook, hosted, and uv validation surfaces without implementing a separate scheduler.
+Rollback removes the checker, policy, and B04 evidence together while preserving
+the retained clarity rules and frozen lock.
 
 Current monitoring is a nonzero checker/test exit with retained repository-local
 evidence. There is no service, dashboard, page, alert route, on-call action,

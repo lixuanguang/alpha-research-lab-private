@@ -48,7 +48,7 @@ def _print_usage() -> None:
     """Print the supported artifact lifecycle command syntax to standard error."""
     print(
         "usage: alpha-governance-artifacts "
-        "[create ARTIFACT_PATH ARTIFACT_KIND BUILD_TARGET SOURCE_COMMIT_SHA "
+        "[create ARTIFACT_PATH ARTIFACT_KIND BUILD_COMMAND SOURCE_COMMIT_SHA "
         "TEST_EVIDENCE_PATH OUTPUT_BUNDLE_PATH | "
         "sign BUNDLE_PATH SIGNING_CONTEXT | "
         "publish BUNDLE_PATH SHA256_DIGEST REGISTRY_ROOT | "
@@ -73,8 +73,8 @@ def _serialize_bundle_summary(bundle: ArtifactBundle) -> str:
 def main(arguments: Sequence[str] | None = None) -> int:
     """Validate artifact policy or execute one selected lifecycle operation.
 
-    The command uses ``Path.cwd()`` as the repository root and uses the policy, lock,
-    toolchain, integration and evidence files as validation inputs. With no command it
+    The command uses ``Path.cwd()`` as the repository root and uses the policy, uv lock,
+    project manifest, integration and evidence files as validation inputs. With no command it
     prints the policy status. ``create`` runs the configured Syft process and writes an
     unsigned candidate directory, printing its bundle summary as sorted JSON; ``sign``
     runs Cosign and writes the candidate's signature bundle before verifying it;
@@ -116,7 +116,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             created_bundle = create_bundle(
                 Path(cli_arguments[0]),
                 artifact_kind=cli_arguments[1],
-                build_target=cli_arguments[2],
+                build_command=cli_arguments[2],
                 source_commit=cli_arguments[3],
                 test_evidence_paths=(Path(cli_arguments[4]),),
                 output_path=Path(cli_arguments[5]),

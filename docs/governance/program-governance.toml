@@ -399,7 +399,7 @@ open_finding_ids = ["C03-F01", "C03-F02", "C03-F03"]
 
 [[metrics]]
 metric_id = "kpi.build_duration_seconds"
-name = "Clean build duration"
+name = "Required make-check duration"
 owner_role = "platform"
 value_kind = "duration"
 aggregation = "p95"
@@ -411,9 +411,9 @@ denominator_unit = "not_applicable"
 bounded_ratio = false
 minimum_observations = 5
 window = "P30D"
-source_event_type = "ci_build_completed"
-producer_packages = ["B02", "B05", "B06"]
-required_dimensions = ["environment", "outcome", "target"]
+source_event_type = "source_check_completed"
+producer_packages = ["B04", "B05"]
+required_dimensions = ["environment", "outcome", "command"]
 collection_mode = "automatic_event"
 manual_entry_allowed = false
 baseline_status = "awaiting_target_observations"
@@ -422,7 +422,7 @@ hard_gate_substitute = false
 
 [[metrics]]
 metric_id = "kpi.test_duration_seconds"
-name = "Required test duration"
+name = "Required check test duration"
 owner_role = "platform"
 value_kind = "duration"
 aggregation = "p95"
@@ -434,9 +434,9 @@ denominator_unit = "not_applicable"
 bounded_ratio = false
 minimum_observations = 5
 window = "P30D"
-source_event_type = "ci_test_completed"
-producer_packages = ["B05", "B06"]
-required_dimensions = ["environment", "outcome", "target"]
+source_event_type = "wheel_smoke_completed"
+producer_packages = ["B05"]
+required_dimensions = ["environment", "outcome", "command"]
 collection_mode = "automatic_event"
 manual_entry_allowed = false
 baseline_status = "awaiting_target_observations"

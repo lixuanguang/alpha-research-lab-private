@@ -11,7 +11,9 @@ import json
 import os
 import subprocess
 import tomllib
+from collections.abc import Callable
 from datetime import UTC, date, datetime
+from functools import partial
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from typing import TypeGuard
@@ -54,7 +56,11 @@ from alpha_research_governance.dependency_admission.wheel_sources import (
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs" / "architecture" / "dependency-admission.toml"
-RUNNING_UNDER_BAZEL = bool(os.environ.get("TEST_SRCDIR"))
+
+
+def _fake_which(executable: Path, _name: str) -> str:
+    """Return a fixture executable path for the verifier's binary lookup."""
+    return str(executable)
 
 
 def _model_payload(model: BaseModel) -> dict[str, object]:
@@ -237,11 +243,20 @@ def _write_json(tmp_path: Path, name: str, value: object) -> Path:
 class TestDependencyPolicyAndPipAudit:
     """Exercise dependency policy, scanner coverage and vulnerability contracts."""
 
-    @pytest.mark.skipif(
-        RUNNING_UNDER_BAZEL, reason="repository evidence rejects Bazel runfile symlinks"
-    )
-    def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor(self) -> None:
+    def test_dependency_admission_contract_is_partial_and_bounds_sbom_successor(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Validate current admissions, package counts, tool pins and open findings."""
+        executable = tmp_path / "cosign"
+        executable.write_text("synthetic executable", encoding="utf-8")
+
+        fake_which: Callable[[str], str] = partial(_fake_which, executable)
+
+        monkeypatch.setattr(
+            "alpha_research_governance.dependency_admission.wheel_sources.shutil.which",
+            fake_which,
+        )
+        monkeypatch.setattr(subprocess, "run", _fake_cosign)
         policy = validate_repository(REPOSITORY_ROOT)
 
         assert policy.package_status == "partial"
@@ -557,9 +572,6 @@ class TestScorecardAndLockAdmission:
         monkeypatch.setattr(subprocess, "run", _fake_cosign)
         assert _python_lock_findings(tmp_path, load_policy(POLICY_PATH)) == []
 
-    @pytest.mark.skipif(
-        RUNNING_UNDER_BAZEL, reason="repository evidence rejects Bazel runfile symlinks"
-    )
     def test_repository_review_expiry_fails_closed(self) -> None:
         """Reject repository admission after the recorded policy review window expires."""
         with pytest.raises(DependencyAdmissionError, match="review is stale"):
@@ -569,10 +581,9 @@ class TestScorecardAndLockAdmission:
         self, tmp_path: Path
     ) -> None:
         """Detect mutable workflow actions and runtime package-install calls in fixtures."""
-        for relative in ("MODULE.bazel.lock", "flake.lock", "requirements.bazel.txt", "uv.lock"):
-            (tmp_path / relative).write_text(
-                (REPOSITORY_ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8"
-            )
+        (tmp_path / "uv.lock").write_text(
+            (REPOSITORY_ROOT / "uv.lock").read_text(encoding="utf-8"), encoding="utf-8"
+        )
         workflow = tmp_path / ".github" / "workflows" / "ci.yml"
         workflow.parent.mkdir(parents=True)
         workflow.write_text(

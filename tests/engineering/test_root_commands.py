@@ -1,4 +1,4 @@
-"""Contract tests for the repository root command interface."""
+"""Contract tests for the direct uv source and wheel-smoke command interface."""
 
 from __future__ import annotations
 
@@ -7,20 +7,6 @@ import subprocess
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
-GOVERNANCE_COMMANDS = (
-    "alpha-governance-architecture",
-    "alpha-governance-artifacts",
-    "alpha-governance-change-risk",
-    "alpha-governance-ci",
-    "alpha-governance-dependencies",
-    "alpha-governance-engineering-standards",
-    "alpha-governance-evidence",
-    "alpha-governance-inventory",
-    "alpha-governance-program",
-    "alpha-governance-remote-execution",
-    "alpha-governance-security",
-    "alpha-governance-topology",
-)
 
 
 def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -30,11 +16,8 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
         *arguments: Make options, targets and variable assignments passed without a shell.
 
     Returns:
-        Completed process with captured text stdout and stderr; nonzero exit status
-        does not raise because callers assert it explicitly.
-
-    Raises:
-        OSError: If the Make process cannot be started.
+        Completed process with captured text stdout and stderr; nonzero exit status does not
+        raise because callers assert it explicitly.
     """
     return subprocess.run(
         ["make", "--no-print-directory", *arguments],
@@ -45,125 +28,131 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-class TestRootCommandContracts:
-    """Exercise rollback, automation and authoritative CI root commands."""
+def test_authoritative_check_has_one_direct_uv_source_path_and_wheel_smoke() -> None:
+    """Require frozen source checks, security checks, one pytest path and installed smoke."""
+    result = _run_make("-n", "check")
 
-    def test_uv_backend_preserves_the_legacy_rollback_path(self) -> None:
-        """Verify the uv dry-run check sequence remains available without Bazel commands."""
-        rollback_dry_run = _run_make("-n", "BUILD_BACKEND=uv", "check")
-
-        assert rollback_dry_run.returncode == 0, rollback_dry_run.stderr
-        assert "bazel " not in rollback_dry_run.stdout
-        assert rollback_dry_run.stdout.splitlines() == [
-            "uv lock --check",
-            "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs",
-            "uv run --frozen ruff format --check src tests tools/governance/src tools/typing/stubs",
-            "uv run --frozen mypy --strict src tests tools/governance/src tools/typing/stubs",
-            "uv run --frozen python -m mypy.stubtest "
-            "--mypy-config-file=tools/typing/stubtest.toml "
-            "--ignore-missing-stub QuantLib exchange_calendars pandas",
-            "uv run --frozen alpha-governance-engineering-standards",
-            "uv run --frozen alpha-governance-dependencies",
-            "uv run --frozen alpha-governance-artifacts",
-            "uv run --frozen alpha-governance-architecture",
-            "uv run --frozen alpha-governance-ownership",
-            "uv run --frozen alpha-governance-change-risk",
-            "uv run --frozen alpha-governance-evidence",
-            "uv run --frozen alpha-governance-topology",
-            "uv run --frozen alpha-governance-inventory",
-            "uv run --frozen alpha-governance-security",
-            "uv run --frozen alpha-governance-program",
-            "uv run --frozen alpha-governance-ci",
-            "uv run --frozen alpha-governance-remote-execution",
-            "uv run --frozen bandit -q -c pyproject.toml -r src tools/governance/src",
-            "uv run --frozen --no-editable pytest -q",
-            "uv run --frozen --no-editable pytest -q -m integration",
-            'uv run --frozen --no-editable python -c "import alpha_research"',
-            "uv build --no-sources",
-        ]
-
-    def test_repository_automation_wires_current_toolchain_and_governance_checks(self) -> None:
-        """Verify Make, pre-commit and CI reference current toolchain commands."""
-        makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
-        pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-        continuous_integration = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(
-            encoding="utf-8"
+    assert result.returncode == 0, result.stderr
+    commands = result.stdout.splitlines()
+    assert commands.count("uv lock --check") == 1
+    assert (
+        commands.count(
+            "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs"
         )
-        documentation = (REPOSITORY_ROOT / "docs/README.md").read_text(encoding="utf-8")
+        == 1
+    )
+    assert commands.count("uv run --frozen alpha-governance-ci scan-secrets --all") == 1
+    assert commands.count("uv run --frozen --no-editable pytest -q -m 'not performance'") == 1
+    assert commands.count("uv run --frozen python -m alpha_research_governance.wheel_smoke") == 1
+    assert any("mypy.stubtest" in command for command in commands)
+    assert any("bandit" in command for command in commands)
+    assert all(
+        retired not in result.stdout
+        for retired in ("bazel", "remote-execution", "run_affected_ci_lane", "event-log")
+    )
 
-        for canonical_command in GOVERNANCE_COMMANDS:
-            assert canonical_command in makefile
-            assert canonical_command in pre_commit
-        assert "make ci-full" in continuous_integration
-        assert "make ci-fast" in continuous_integration
-        assert "make dependency-audit" in continuous_integration
-        assert "make remote-build" in continuous_integration
-        assert "make remote-test" in continuous_integration
-        assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in (
-            continuous_integration
-        )
-        assert "build/ci/fast-events.jsonl" in continuous_integration
-        assert "build/ci/full-events.jsonl" in continuous_integration
-        assert "retention-days: 30" in continuous_integration
-        assert "github.event_name == 'push'" in continuous_integration
 
-        assert "tools/governance/src/alpha_research_governance/change_risk/[a-z_]+\\.py" in (
-            pre_commit
-        )
-        assert "--github-event" in continuous_integration
-        for command_suffix in ("ownership", "change-risk", "evidence"):
-            assert f"uv run --frozen alpha-governance-{command_suffix}" in pre_commit
-        assert "id: repository-topology" in pre_commit
-        assert "id: dependency-admission" in pre_commit
-        assert "always_run: true" in pre_commit
+def test_hosted_workflow_has_one_source_job_and_cross_platform_smoke() -> None:
+    """Require direct CI steps, the preserved merged-result name and no retired scheduler."""
+    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
+    workflow = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    secrets = (
+        REPOSITORY_ROOT
+        / "tools"
+        / "governance"
+        / "src"
+        / "alpha_research_governance"
+        / "ci_policy"
+        / "secrets.py"
+    ).read_text(encoding="utf-8")
 
-        automation_configuration = makefile + pre_commit + continuous_integration
-        assert "python -m alpha_research." not in automation_configuration
-        assert "python-typing-debt.json" not in automation_configuration
-        assert "python-standards-debt.json" not in automation_configuration
-        assert "PYTHONPATH=src" not in automation_configuration
-        assert all(
-            fragment not in automation_configuration
-            for fragment in (
-                "alpha_core",
-                "apps/",
-                "duckdb",
-                "libs/core",
-                "research-smoke",
-                'python-version: ["3.11"]',
-                ".[dev,research]",
-            )
-        )
+    assert "name: Source validation" in workflow
+    assert "name: Authoritative merged-result full lane" in workflow
+    assert "runs-on: macos-14" in workflow
+    assert workflow.count("make source-check") == 1
+    assert workflow.count("make wheel-smoke") == 2
+    assert "--github-event" in workflow
+    assert "merged result parents do not match" in workflow
+    assert "checked-out commit does not match the merged result" in workflow
+    assert "detect-private-key" in secrets
+    assert "alpha-governance-ci scan-secrets --all" in makefile
+    assert "dependency-audit:" in makefile
+    assert "bandit" in makefile
+    for retired in (
+        "ci-fast",
+        "run_affected_ci_lane",
+        "run_authoritative_full_ci_lane",
+        "event-log",
+        "bazel",
+        "remote-execution",
+    ):
+        assert retired not in makefile
+        assert retired not in workflow
 
-        assert "uv sync --frozen" in continuous_integration
-        assert "rollback-check" in makefile
-        assert 'version: "0.12.7"' in continuous_integration
-        assert "repo: local" in pre_commit
-        assert "uv lock --check" in pre_commit
-        for make_target in (
-            "ci-policy-check",
-            "ci-secrets-check",
-            "ci-schema-check",
-            "dependency-admission-check",
-            "dependency-audit",
-            "artifact-supply-chain-check",
-            "engineering-standards-check",
-            "inventory-check",
-            "program-governance-check",
-            "security-controls-check",
-        ):
-            assert f"make {make_target}" in documentation
-        assert "program-status:" in makefile
-        assert "governance-check:" in makefile
 
-    def test_affected_and_authoritative_full_ci_root_interfaces_are_explicit(self) -> None:
-        """Verify dry-run fast and full CI commands include their required revision boundaries."""
-        fast = _run_make("-n", "ci-fast", "CI_BASE_REF=HEAD", "CI_HEAD_REF=HEAD")
-        full = _run_make("-n", "ci-full", "CI_BASE_REF=HEAD")
+def test_build_and_check_do_not_offer_a_second_backend() -> None:
+    """Reject the retired Bazel/rollback backend switches at the root interface."""
+    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
 
-        assert fast.returncode == 0, fast.stderr
-        assert "alpha-governance-ci fast" in fast.stdout
-        assert "--base-ref HEAD --head-ref HEAD" in fast.stdout
-        assert full.returncode == 0, full.stderr
-        assert "alpha-governance-ci full" in full.stdout
-        assert "--base-ref HEAD" in full.stdout
+    assert "BUILD_BACKEND" not in makefile
+    assert "rollback-check" not in makefile
+    assert "build:" in makefile
+    assert (
+        "$(UV) run --frozen --no-editable uv build --no-build-isolation --wheel "
+        "tools/governance --out-dir dist" in makefile
+    )
+    assert (
+        "$(UV) run --frozen --no-editable uv build --no-build-isolation --wheel "
+        "--no-sources . --out-dir dist" in makefile
+    )
+
+
+def test_source_check_propagates_a_required_phase_failure(tmp_path: Path) -> None:
+    """Stop after a failed direct uv phase and preserve its nonzero status."""
+    log = tmp_path / "uv.log"
+    fake_uv = tmp_path / "uv"
+    fake_uv.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$*\" >> {log}\n"
+        'if [ "$1" = run ] && [ "$3" = ruff ] && [ "$4" = check ]; then\n'
+        "  exit 17\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+
+    result = _run_make(f"UV={fake_uv}", "source-check")
+
+    assert result.returncode != 0
+    assert "Error 17" in result.stderr
+    invocations = log.read_text(encoding="utf-8").splitlines()
+    assert invocations[:2] == [
+        "lock --check",
+        "run --frozen ruff check src tests tools/governance/src tools/typing/stubs",
+    ]
+    assert not any("format" in invocation or "mypy" in invocation for invocation in invocations)
+
+
+def test_test_target_passes_marker_expression_as_one_argument(tmp_path: Path) -> None:
+    """Keep the pytest marker expression intact at Make's process boundary."""
+    log = tmp_path / "uv-args.log"
+    fake_uv = tmp_path / "uv"
+    fake_uv.write_text(
+        f"#!/bin/sh\nfor arg do printf '<%s>\\n' \"$arg\" >> {log}; done\n",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+
+    result = _run_make(f"UV={fake_uv}", "test")
+
+    assert result.returncode == 0, result.stderr
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "<run>",
+        "<--frozen>",
+        "<--no-editable>",
+        "<pytest>",
+        "<-q>",
+        "<-m>",
+        "<not performance>",
+    ]

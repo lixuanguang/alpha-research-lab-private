@@ -121,15 +121,15 @@ review or grant release or activation authority.
   Production code cannot depend on notebooks or research-only approximations.
 - Control clocks, seeds, input identity, and ordering for deterministic work.
 
-## Monorepo targets, builds, and artifacts
+## Repository targets, builds, and artifacts
 
-A build target owns dependency, visibility, platform, generated inputs, testing,
-and artifact boundaries; directory proximity does not make an API public. Follow
-[repository topology](../architecture/repository-topology.md) and the
-[pinned build contract](../architecture/hermetic-build-graph.md). Language-native
-iteration tools do not override the Bazel graph or authoritative full validation.
-Generated source identifies its generator and inputs; keep generated rewrites
-separate from unrelated semantic changes.
+A repository target owns dependency, visibility, platform, generated inputs,
+testing, and artifact boundaries; directory proximity does not make an API
+public. Follow [repository topology](../architecture/repository-topology.md) and
+run the pinned uv environment through `make check`. The former hermetic-build
+contract is historical; it does not add an active build backend or validation
+requirement. Generated source identifies its generator and inputs; keep generated
+rewrites separate from unrelated semantic changes.
 
 Each deployable has its own immutable source/target/toolchain/dependency/schema/
 platform/build-mode identity. Build once and promote by digest under the
