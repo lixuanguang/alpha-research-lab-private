@@ -1,466 +1,300 @@
-# Research Program
+# Research program
 
-## Purpose
+This page describes the empirical work needed to grow the repository from its current domain libraries into an
+institutional, multi-asset, multi-strategy research-to-production platform. It is a human-maintained program,
+not an executable package catalog, registry service, or release gate. The repository currently has no
+data-ingestion system, strategy runner, simulator, broker integration, or monitoring service.
 
-> **Historical reference.** This document describes a proposed research program;
-> it is not an active gate or package registry. Current work follows the
-> [development and release workflow](../governance/workflow.md).
+The immediate operating model is a single founder choosing one data source, one bounded universe, one strategy
+hypothesis, and one operating target. The long-term model can add asset classes, strategy families, shared
+portfolio construction, production execution, monitoring, and recovery. Independent research, model-risk,
+risk, release, and activation controls become formal organizational controls when people are hired; they do
+not block the founder from implementing and reproducibly testing technical work now.
 
-This document sequences the empirical work for the proposed first digital-asset
-factor-residual candidate. Digital assets are an optional, separately governed
-certification package (`L05`); choosing them for the first workload does not make
-the platform crypto-specific or waive the canonical-contract-through-security
-foundations (`C` through `K`). This program is subordinate to the 96 platform
-[implementation packages](README.md) and the
-[operations runbook](../governance/operations.md).
+The workstreams below are candidate hypothesis workstreams selected when a strategy, asset, or observed
+failure makes them relevant. Their numbering gives the work a common vocabulary; it does not make every stage
+a mandatory sequential prerequisite for every strategy. A simple strategy may use R01, R02, R05, R10, and R15.
+A cross-asset or capacity-sensitive strategy may use most of the workstreams. Record why an applicable
+workstream was used, deferred, or marked not applicable.
 
-The stages are ordered research gates, not calendar promises. Technical work
-pauses when an implementation dependency, data-quality check, or required
-technical artifact is incomplete. Pending organizational handover does not block
-implementation or reproducible research validation. Later results cannot waive
-earlier leakage, accounting, entitlement, release, or activation failures.
+## Rules for every workstream
 
-Stage headings and prose lead with the research objective and place the stable
-stage selector in parentheses. Tables retain selectors because dependency and
-evidence records require them; a selector is never used as a substitute for a
-human-readable stage or work-package name.
+Before formal comparison, record the economic hypothesis, target or decision variable, decision and fill
+timing, universe, horizon, rebalance rule, constraints, cost and financing conventions, primary selection
+rule, and no-trade and transparent baselines. A paper or published result is a hypothesis source, not evidence
+that the local result replicates it. Record the exact claim, equation, table, source, and differences in data,
+universe, timing, and implementation.
 
-## Research execution rules
+Use point-in-time data. Keep raw identity, source event time, publication or availability time, ingestion
+time, revisions, historical universe membership, units, timezone, adjustment rules, and deterministic
+ordering. A decision may consume only values whose knowledge time is at or before the decision time.
+Historical membership and eligibility must be reconstructed as known then; today's survivors cannot define the
+past. Gaps, duplicates, stale values, outliers, delistings, corrections, and missingness need explicit
+policies.
 
-- Register the hypothesis and primary decision rule before formal comparison.
-- A run becomes governed when its result informs comparison, selection, final OOS,
-  or promotion. Failed/rejected governed runs remain append-only.
-- Use the same point-in-time dataset, splits, cost conventions, risk budget, and
-  portfolio constraints for model comparisons.
-- Transparent baselines remain permanent challengers.
-- Select on predeclared net portfolio utility and stability, not in-sample fit or
-  one headline metric.
-- Freeze data, code/artifacts, configuration, decision rules, thresholds, and
-  candidate family before final OOS.
-- Do not access final OOS merely to decide what to try next.
-- Use the shared strategy kernel and declared adapters for research, deterministic
-  replay, paper, shadow, canary, and live; do not rewrite selected logic during a
-  production hand-off.
-- Every stage produces a reproducible artifact, not only a narrative conclusion.
+Fit normalizers, imputers, feature selectors, dimensionality reductions, and all other learned transforms on
+training data only. For maximum label or holding horizon `H`, purge a training row when its label interval
+overlaps validation or test. Set an embargo from the actual information intervals: exclude observations that
+could still share label, feature, publication, or execution information across the split boundary. Use `H` as a
+conservative default when those intervals cannot be modeled; an earlier-only walk-forward fold may use no extra
+embargo when its intervals prove that no overlap is possible. Record the intervals, effective gap, and rationale
+with the split manifest.
 
-## Platform enablement map
+Use time-ordered rolling or nested selection for temporal work. An outer fold estimates performance; an inner
+earlier-only fold selects transforms, features, hyperparameters, and thresholds. A fixed
+train/validation/final holdout is acceptable only with predeclared boundaries and rationale. Do not inspect
+final OOS to decide what to try next. When a holdout is consumed, label it evaluated and define new untouched
+evidence for a new experiment.
 
-The package column below is a technical-work entry rule: each applicable package
-must have complete implementation and no technical finding. It does not require
-institutional `validated` status. Operation/release edges, entitlements and the
-rightmost conditions apply when a result is promoted, released, or given access
-to a controlled final-OOS or target environment. Team-handover review activates
-only for staffed scope.
+Use the same versioned strategy logic in research, deterministic replay, paper, shadow, and live operation.
+Adapters may supply asset- or venue-specific data, execution, representation, and precision, but economic
+semantics and the decision contract remain the same. Test conversion and parity at those boundaries; do not
+create a second production implementation merely because runtime representation differs.
 
-| Research stage | Technical-work package entry | Additional operation, claim, or promotion condition |
+Every formal attempt that influences comparison or selection, including failed, rejected, abandoned, or
+stopped variants, remains in an append-only trial record. Account for related trials, researcher choices,
+search bounds, seeds, transforms, and stopping decisions. Report uncertainty appropriate to repeated and
+dependent trials. Prefer net utility, risk-adjusted contribution, drawdown, turnover, capacity, exposure, and
+stability over one headline return.
+
+## Small records and artifacts
+
+Start with small versioned records, not a registry platform. Assign a stable `strategy_id` from the first formal
+run. Add a `family_id` when variants or shared selection rules make grouping useful. Keep each record
+human-readable and append changes rather than silently renaming history. A strategy record identifies its asset,
+universe, representation and precision, horizon, lifecycle state, current version, optional family, and links to
+code and data contracts. A family record groups related variants; neither record approves a strategy or replaces
+the trial ledger.
+
+| Artifact | Minimum contents | Purpose |
 | --- | --- | --- |
-| R01 registered baseline | E01-E04 plus applicable F03/F06 accounting and cost contracts | Reproducible PIT raw-to-report baseline before a stage-complete claim |
-| R02 data audit | C01-C08 and D01-D08 | Entitlement and target-source evidence before using controlled data or making an institutional claim |
-| R03-R09 factors/signals/models | E03-E08 | Independent research review before institutional acceptance or promotion |
-| R10-R12 risk and portfolio | F06 and G01-G04 | Independent risk review before a risk limit or promotion decision |
-| R13-R14 execution/financing | F03-F08 and applicable G controls | Calibrated target evidence before operational use or a capacity claim |
-| R15 governance/freeze | E02, E06, E08, and K07 | Staffed independent validation before institutional freeze acceptance |
-| R16 final OOS/certification | R15 technical freeze plus applicable E08/F08/G08/H01/K07 implementation | Active access control and applicable independent acceptance before final-OOS access and certification |
-
-Synthetic-fixture work may begin earlier, but a technical stage result cannot be
-used by a later technical stage until its implementation entry and evidence pass.
-Institutional claims, controlled-data access, release, promotion, and activation
-remain subject to their separately listed conditions.
-
-## Strategy definition and transparent baseline (research stage `R01`)
-
-**Entry:** the research contract, trial ledger, PIT dataset API, accounting, and
-cost conventions required for a reproducible raw-to-report baseline have complete
-implementation and passing applicable technical checks (`E` and `F`).
-
-Work packages:
-
-- **Decision contract** (`REP-01A`): freeze horizon, universe rule, decision
-  time/price, fill delay, rebalance policy, cost convention, and gross-to-net
-  identity.
-- **Transparent baselines** (`REP-01B`): run transparent no-trade,
-  equal-weight/rank, and simple residual or reversal baselines through the same
-  ledger.
-- **Economic decomposition** (`REP-01C`): decompose predictability, turnover,
-  costs, financing, exposure, and concentration rather than reporting only
-  aggregate return.
-
-Required evidence: registered hypothesis, configuration, dataset identity,
-baseline report, attribution, leakage checks, and hand-reconciled examples.
-
-Advance only if the sign and economic interpretation are stable under corrected
-timing and plausible costs. Otherwise stop or reformulate before adding models.
-
-## Point-in-time data and instrument audit (research stage `R02`)
-
-**Entry:** the applicable canonical-contract and point-in-time data packages
-(`C01` through `D08`) have complete implementation and passing technical checks.
-
-Work packages:
-
-- **Canonical lineage** (`REP-02A`): reproduce raw-to-canonical lineage,
-  identifiers, aliases, timestamp semantics, and funding/contract metadata.
-- **Historical-universe audit** (`REP-02B`): audit historical membership, gaps,
-  duplicates, stale periods, revisions, delistings/inactive contracts, and
-  exclusion reasons.
-- **Data-policy sensitivity** (`REP-02C`): quantify how source, gap, resampling,
-  outlier, and eligibility policies change sample composition and baseline results.
-
-Required evidence: data-lineage map, quality report, historical universe artifact,
-timestamp audit, policy sensitivity, and source limitations.
-
-Advance technical work only if a clean independent process can rebuild the
-dataset and no unresolved look-ahead or survivorship path can change the result
-materially. A second person is required for an institutional independent-review
-claim, not for the founder to execute and retain that reproducibility check.
-
-## Observable-factor and PCA residual baselines (research stage `R03`)
-
-**Entry:** the feature, split, transform, and evaluation contracts (`E03` through
-`E06`) have complete implementation and passing technical checks.
-
-Work packages:
-
-- **Observable factors** (`REP-03A`): implement transparent observable factors
-  with explicit units and exposures.
-- **Latent-dimension stability** (`REP-03B`): determine rolling latent dimension
-  and deterministic PCA sign/basis handling using training data only.
-- **Residual comparison** (`REP-03C`): compare residual reconstruction,
-  covariance, convergence, turnover, costs, and factor contamination.
-
-Required evidence: factor reconstruction, exposure stability, eigenvalue/dimension
-diagnostics, residual properties, and costed portfolio comparison.
-
-Advance only if residual behavior is not an artifact of future normalization,
-unstable basis orientation, or uncosted turnover.
-
-## Conditional and pricing-relevant factor robustness (research stage `R04`)
-
-**Entry:** the observable-factor and PCA residual baseline stage (`R03`) passes and
-a registered conditional-factor question exists.
-
-Work packages:
-
-- **Conditional exposures** (`REP-04A`): evaluate conditional exposures and
-  state-dependent factor behavior.
-- **Pricing-relevant challengers** (`REP-04B`): compare pricing-relevant or
-  supervised factors with observable/PCA baselines under identical splits.
-- **Incremental-value test** (`REP-04C`): measure omitted-factor exposure,
-  loading instability, and whether the challenger changes net portfolio value.
-
-Required evidence: aligned challenger comparison, loading/exposure stability,
-omitted-factor diagnostics, and incremental net utility.
-
-Advance only when extra complexity improves a predeclared decision metric and
-survives stability and cost checks.
-
-## Signal library and economic hypotheses (research stage `R05`)
-
-**Entry:** signal registry and governed trial ledger are active.
-
-Work packages:
-
-- **Signal registration** (`REP-05A`): register every formal signal's formula,
-  timing, units, mechanism, direction, horizon, and failure mode.
-- **Signal replication** (`REP-05B`): replicate selected signals under original-style and corrected
-  point-in-time/cost assumptions.
-- **Signal decay and redundancy** (`REP-05C`): measure decay, turnover, coverage,
-  missingness, correlation clusters, and incremental value after existing signals.
-
-Required evidence: signal dossiers, replication differences, trial-family manifest,
-decay curves, redundancy clusters, and net incremental contribution.
-
-Advance only if signal value is economically interpretable and not explained by
-data cleaning, universe selection, or overlap with existing features.
-
-## Normalization and neutralization (research stage `R06`)
-
-**Entry:** the signal-library stage's (`R05`) definitions are frozen for this
-comparison.
-
-Work packages:
-
-- **Transform comparison** (`REP-06A`): compare raw, winsorized, ranked,
-  z-scored, and other registered transforms fitted inside training windows.
-- **Neutralization analysis** (`REP-06B`): measure explicit
-  factor/sector/liquidity/venue neutralization where relevant.
-- **Orthogonalization sensitivity** (`REP-06C`): test orthogonalization order and
-  quantify alpha removed, risk removed, turnover added, and incremental information
-  retained.
-
-Required evidence: transform stability, exposure before/after, ordering sensitivity,
-future-perturbation tests, and net portfolio results.
-
-Advance only if the selected transformation has a stated economic/statistical
-reason and does not gain from future distribution information.
-
-## Predictive-model benchmark matrix (research stage `R07`)
-
-**Entry:** the common model adapters and evaluation controls (`E05` through `E06`)
-have complete implementation and passing technical checks.
-
-Work packages:
-
-- **Linear baselines** (`REP-07A`): compare mean/linear/regularized baselines using identical data,
-  features, splits, and seeds.
-- **Tree challengers** (`REP-07B`): add tree/forest challengers with predeclared
-  search space and resource budget.
-- **Complex-model admission** (`REP-07C`): add neural or other complex models only
-  if simpler challengers leave a documented limitation they can plausibly address.
-
-Required evidence: IC/calibration, turnover, gross/net utility, stability by time
-and side, seed/search sensitivity, compute cost, and complete governed trials.
-
-Advance only when the selected model improves locked net utility and stability,
-not merely training or validation fit. This is a provisional ranking under the
-current cost model; final selection waits for the execution-through-selection-
-freeze stages (`R13` through `R15`) and their governance evidence.
-
-## Missing data and representation learning (research stage `R08`)
-
-**Entry:** the predictive-model benchmark stage (`R07`) establishes a stable common
-benchmark.
-
-Work packages:
-
-- **Missing-data policies** (`REP-08A`): compare complete-case, indicator, simple
-  imputation, and registered model-based missing policies.
-- **Missingness signal** (`REP-08B`): test whether missingness itself is
-  predictive and point-in-time available rather than a source artifact.
-- **Representation-learning comparison** (`REP-08C`): compare any
-  representation-learning challenger with transparent factor/model baselines using
-  ablations.
-
-Required evidence: missingness by source/time/asset, imputation leakage tests,
-coverage/performance trade-offs, ablations, seed stability, and net utility.
-
-Advance only if gains remain after controlling for coverage changes, source
-artifacts, and implicit look-ahead.
-
-## Conditional evaluation, regimes, and degradation rules (research stage `R09`)
-
-**Entry:** the factor-through-representation-learning stages (`R03` through `R08`)
-produce a bounded candidate family.
-
-Work packages:
-
-- **Regime reporting** (`REP-09A`): report predeclared results by volatility,
-  liquidity, trend, funding, crowding, venue, and relevant market states.
-- **Degradation analysis** (`REP-09B`): test structural breaks, calibration drift,
-  feature drift, model age, and long/short asymmetry.
-- **Degradation controls** (`REP-09C`): propose versioned alert, de-risk, pause,
-  retrain, and kill criteria using only observable state; final thresholds freeze
-  in the multiple-testing and selection-freeze stage (`R15`) after risk and
-  execution evidence.
-
-Required evidence: conditional tables with sample counts, break/drift diagnostics,
-threshold rationale, expected response, owner, and false-positive analysis.
-
-Advance only if degradation can be observed using information available at the
-time and every response is operationally implementable.
-
-## Covariance and risk-model validation (research stage `R10`)
-
-**Entry:** the risk-model and covariance contracts (`G03`) have complete
-implementation and passing technical checks.
-
-Work packages:
-
-- **Covariance baselines** (`REP-10A`): compare sample and shrinkage covariance
-  baselines.
-- **Structured covariance challengers** (`REP-10B`): compare factor and
-  sparse-residual covariance where justified.
-- **Risk calibration** (`REP-10C`): evaluate forecast versus realized portfolio
-  risk, tails, concentration, stability, and optimizer sensitivity.
-
-Required evidence: calibration plots/tables, eigenstructure, factor/residual
-reconstruction, tail outcomes, concentration, and runtime/resource cost.
-
-Advance only if risk is validated through realized portfolio behavior and the
-selected estimator improves a declared operational decision.
-
-## Static portfolio construction (research stage `R11`)
-
-**Entry:** the portfolio contracts, optimizer diagnostics, constraints, and
-fallback behavior (`G01` through `G04`) have complete implementation and passing
-technical checks.
-
-Work packages:
-
-- **Portfolio baselines** (`REP-11A`): compare transparent rank/equal-risk
-  baselines with the constrained optimizer.
-- **Constraint validation** (`REP-11B`): exercise every constraint's sign, unit,
-  boundary, feasibility, and comparative statics.
-- **Constraint diagnostics** (`REP-11C`): measure transfer coefficient, shadow
-  prices, binding frequency, concentration, and incremental signal value after
-  netting.
-
-Required evidence: baseline/optimized comparison, constraint diagnostics,
-feasibility failures, registered fallback results, and stress response.
-
-Advance only if the optimizer behaves predictably and adds net value rather than
-hiding risk or costs behind constraint interactions.
-
-## Dynamic cost-aware trading (research stage `R12`)
-
-**Entry:** static portfolio construction (`R11`) selects a stable reference,
-portfolio constraint limiting tests (`G04`) pass, and calibrated transaction-cost
-models (`F06`) supply the contract used for net comparison.
-
-Work packages:
-
-- **Linear trading baseline** (`REP-12A`): implement a transparent linear
-  cost-aware trading baseline.
-- **Multi-period optimizer** (`REP-12B`): evaluate a multi-period optimizer and
-  verify its one-period limiting case.
-- **Trading-policy comparison** (`REP-12C`): compare trading speed, turnover,
-  exposures, capacity, and net value across alpha decay and cost assumptions.
-
-Required evidence: comparative statics, limiting-case tests, cost attribution,
-position paths, and robust net benefit over the static reference.
-
-Advance only if higher costs slow trading, slower decay slows trading, and the
-dynamic policy survives reasonable cost/forecast error.
-
-## Execution, impact, and capacity (research stage `R13`)
-
-**Entry:** the replay, state-machine, cost, scenario, TCA, and parity packages
-(`F05` through `F08`) have complete implementation and passing technical checks.
-
-Work packages:
-
-- **Execution reconciliation** (`REP-13A`): reconcile decision, arrival, and fill
-  prices, fees, partial fills, delay, opportunity cost, and ledger P&L.
-- **Impact calibration** (`REP-13B`): calibrate or bound
-  spread/impact/participation/urgency assumptions and document unsupported venue
-  behavior.
-- **Capacity frontiers** (`REP-13C`): produce capacity frontiers across capital,
-  participation, horizon, liquidity, and stress with uncertainty.
-
-Required evidence: TCA reconciliation, model calibration/limitations, vector/replay
-parity, and net-return/risk capacity curves.
-
-Advance only if the proposed capital is below stressed capacity and the result is
-not dependent on an unobservable fill assumption.
-
-## Financing, margin, and short-side stress (research stage `R14`)
-
-**Entry:** the applicable accounting, funding, margin, and lifecycle contracts
-(`F03` and `F06`) plus isolated asset fixtures have complete implementation and
-passing technical checks. Equity
-borrow is not applicable to a digital-asset candidate, but exchange/custody credit,
-liquidation, stablecoin FX, and venue/chain outage evidence are mandatory under the
-digital-asset certification package (`L05`).
-
-Work packages:
-
-- **Financing reconciliation** (`REP-14A`): reconcile funding, financing, margin,
-  liquidation, and collateral state across historical regimes.
-- **Short-availability modeling** (`REP-14B`): for supported shortable assets,
-  model historical availability, fees, recalls, and forced buy-ins; otherwise mark
-  the evidence not applicable.
-- **Financing stress** (`REP-14C`): run funding jumps, margin changes, liquidity
-  withdrawal, squeeze, concentration, and forced-deleveraging stresses.
-
-Required evidence: financing attribution, margin utilization, availability and
-source limitations, liquidation paths, concentration, and severe plausible stress.
-
-Advance only if short/financing assumptions are historically available or bounded
-conservatively and the candidate survives predeclared operational limits.
-
-## Multiple testing, selection freeze, and independent review (research stage `R15`)
-
-**Entry:** the candidate family is closed and the experiment-ledger, robustness,
-model-report, and independent-validation controls (`E02`, `E06`, `E08`, and
-`K07`) have complete implementation and passing technical checks.
-
-Work packages:
-
-- **Trial-family reconciliation** (`REP-15A`): reconcile the complete governed
-  trial family, search space, abandoned branches, and researcher degrees of
-  freedom.
-- **Multiple-testing controls** (`REP-15B`): apply dependence-aware uncertainty
-  and multiple-testing corrections appropriate to the research design.
-- **Selection freeze** (`REP-15C`): freeze candidate, final-OOS inputs, rules,
-  thresholds, model card, and independent-review findings.
-
-Required evidence: trial-family manifest, selection rule, corrected uncertainty,
-freeze manifest, access policy, model card draft, dissenting findings, and owners.
-
-Advance to a technical freeze only if selection would have chosen the same
-candidate using evidence available before final OOS. Institutional freeze
-acceptance and final-OOS access additionally require every applicable staffed
-review and operation-specific condition to be closed.
-
-## Final OOS and certification package (research stage `R16`)
-
-**Entry:** the multiple-testing and selection freeze (`R15`) is complete; the
-final-OOS access control is active; and the applicable model-report, replay-parity,
-portfolio-replay, strategy-kernel, and independent-validation certification gates
-(`E08`, `F08`, `G08`, `H01`, and `K07`) pass. Paper and shadow are subsequent
-operational promotion stages, not prerequisites for opening the final OOS set.
-
-Work packages:
-
-- **Final out-of-sample run** (`REP-16A`): run the frozen candidate once on
-  untouched final OOS and retain the access log and complete outcome, including
-  failure.
-- **Crowding and withdrawal stress** (`REP-16B`): run crowding, capital
-  withdrawal, liquidity withdrawal, correlated impact, funding/margin, and
-  drawdown scenarios.
-- **Replay reconciliation** (`REP-16C`): reconcile research and deterministic
-  replay from forecast through target, simulated order/fill, costs, cash,
-  positions, and P&L; deliver the
-  certification decision package and parity expectations for later paper/shadow.
-
-Required evidence: untouched OOS with access log, attribution, capacity frontier,
-stress, model card, reconciliation, review findings, and a
-certify/de-risk/reject decision. H07, I, J, and K subsequently add paper/shadow,
-operational incidents, recovery, monitoring, security, and activation evidence.
-
-Completion does not authorize live capital. A certified candidate must still pass
-paper, shadow, bounded canary, release-manifest, independent-risk, security, SLO,
-recovery, rollback, venue/asset certification, and dual-control activation gates.
-
-## Required research deliverables
-
-| Deliverable | Produced primarily in | Promotion check |
-| --- | --- | --- |
-| Data and universe audit | R02 | No unresolved look-ahead, revision, or survivorship path |
-| Baseline replication | R01, R03 | Corrected timing/cost result reproduces independently |
-| Signal dossier | R05, R06 | Formula, mechanism, timing, decay, risks, incremental value |
-| Model bake-off | R07, R08 | Common data/splits/costs; stability and net utility select |
-| Regime/degradation policy | R09 | Observable state, precommitted threshold/response/owner |
-| Risk validation | R10 | Forecast risk calibrated through realized outcomes |
-| Optimizer validation | R11, R12 | Units, feasibility, shadow prices, limiting cases, fallback |
-| Execution/cost model | R13 | Decision-to-fill and ledger reconcile; uncertainty explicit |
-| Financing/short report | R14 | Funding/margin/availability and severe stress are credible |
-| Capacity/crowding report | R13, R16 | Proposed scale below average and stressed capacity |
-| Final OOS package | R15, R16 | Inputs frozen; untouched result and failures retained |
-| Model card and decision | R15, R16 | Owners, limits, monitoring, kill/recovery, review complete |
-
-## Decision questions
-
-| Question | Principal evidence | Fail or de-risk trigger |
-| --- | --- | --- |
-| Is the alpha real? | R01-R06, R09, R15-R16 | Sign/order depends on one period, survivor set, or post-hoc cleaning |
-| Is it incremental? | R05-R06, R11 | Value disappears after existing signals, netting, constraints |
-| Is it implementable? | R12-R14 | Turnover, impact, delay, financing, or unavailable shorts consume result |
-| Is risk understood? | R09-R10, R14, R16 | Neutrality relies only on historical beta or average volatility |
-| Is complexity justified? | R07-R08, R12 | Gain comes from leakage, missingness, unstable features, seeds, or costs |
-| Can it be operated? | R02, R09, R15-R16 | Manual fixes, unavailable live inputs, unobservable states, failed recovery |
+| Dataset manifest | Source and rights, raw identity, availability and knowledge times, revisions, universe rule, units, timezone, adjustments, quality policy | Rebuild the point-in-time sample and limitations |
+| Split/transform manifest | Train/validation/test intervals, label horizon, purge/embargo, fit rows, feature and imputation versions, seed | Prove selection used permitted information |
+| Trial record | Strategy/family IDs, hypothesis, exact command, commit, lock identity, data/config/model identities, choices, resources, metrics, uncertainty, outcome | Account for every result influencing a decision |
+| Model/rule artifact | Version, inputs, parameters, transforms, precision, representation, serialization identity, expected errors | Reuse decision logic in replay and operation |
+| Portfolio/replay trace | Signals, targets, orders, fills, costs, financing, cash, positions, exposures, risk, timestamps, reconciliation | Compare decisions with executable behavior |
+| Selection/OOS manifest | Closed family, selection rule, freeze identity, access record, final result, failures and deviations | Protect and interpret final evidence |
+| Handoff/monitoring record | Artifact digest, limits, state compatibility, rollback reference, alerts, stop/reconcile procedure, unresolved assumptions | Carry a result into controlled operation |
+
+Keep small identities, manifests, and summaries in version control. Keep bulk data and run outputs outside Git
+with durable references and retention suitable for reproduction. Do not restore synthetic evidence packs,
+institutional registries, or fictional approvals to make an experiment look complete.
+
+## Candidate research workstreams
+
+Each workstream states when it is useful, its implementation/research output, and decisive tests. These are
+technical research decisions; future staffed review is described below.
+
+### R01 — Define the strategy and transparent baseline
+
+Use for every new family: define the mechanism, target, horizon, tradable universe, decision/fill timestamps,
+rebalance, constraints, financing, and rejection rule; run no-trade, equal-weight/rank, and other simple
+challengers through common accounting where meaningful. Deliverables: typed strategy contract, reproducible
+data-to-report input, baseline configuration, and hand-calculated ledger examples. Decisive tests: sign,
+units, timing, no-trade and empty-input behavior, sizing, cash, positions, fees, and gross-to-net P&L. Stop
+when the effect depends on hidden selection, corrected timing, or an assumption that cannot be bounded.
+
+### R02 — Audit point-in-time data and the tradable universe
+
+Use when a source, asset class, historical universe, or reference convention changes: rebuild raw-to-canonical
+lineage, identifiers, aliases, publication delays, revisions, inactive instruments, delistings, contract
+metadata, and historical eligibility; quantify gaps, duplicates, stale periods, outliers, resampling,
+adjustments, and source-policy effects. Deliverables: dataset manifest, quality/coverage report,
+historical-universe artifact, timestamp audit, and source limitations. Decisive tests delay publication,
+revise future values, perturb membership, inject duplicates, and vary stale/gap policies; earlier decisions
+must stay unchanged. Founder rebuild is technical evidence now; independent review is added with staffed
+scope.
+
+### R03 — Build observable factors, PCA, and residual baselines
+
+Use when the hypothesis is factor/residual based or shared return sources need separating: define observable
+factors with units and exposures; compare PCA or other latent dimensions with training-only fitting, rolling
+dimension selection, and deterministic sign/basis conventions; measure reconstruction, covariance,
+convergence, turnover, costs, and factor contamination. Deliverables: factor definitions,
+exposure/reconstruction reports, eigenvalue/dimension diagnostics, residual artifacts, and costed comparisons.
+Decisive tests use rolling windows, permuted columns, constant/degenerate inputs, missing factors, future
+perturbations, and basis-orientation changes; stop for future normalization, unstable basis selection, or
+uncosted turnover.
+
+### R04 — Test conditional and pricing-relevant factors
+
+Use only when a recorded question says unconditional factors are insufficient: compare conditional
+exposures, state-dependent factors, pricing-relevant factors, and supervised challengers under R03's data,
+splits, costs, and risk budget; measure loading instability, omitted-factor exposure, and incremental net
+portfolio contribution. Deliverables: aligned challenger report, loading/exposure stability, omitted-factor
+diagnostics, and complexity decision. Decisive tests perturb conditioning states, use out-of-window states,
+check decision-time availability, and compare the transparent factor baseline; continue only when extra
+complexity improves a predeclared net metric and survives stability/cost.
+
+### R05 — Record economic signals and replicate hypotheses
+
+Give each formal signal a stable `signal_id`, family, formula, direction, units, timing, mechanism, expected
+horizon, coverage, and failure mode. Replicate published or internal hypotheses under original-style and
+corrected point-in-time, universe, and cost assumptions when those answer different questions; measure decay,
+turnover, missingness, redundancy, and incremental value. Deliverables: small signal records, formula/feature
+implementations, replication notes, decay curves, coverage reports, correlation clusters, and trial links.
+Decisive tests use hand examples, sign reversals, shifted timestamps, unavailable inputs, future
+perturbations, and incremental ablations; stop for cleaning, survivor selection, leakage, or duplicate
+signals.
+
+### R06 — Compare normalization and neutralization policies
+
+Use when scale, outliers, cross-sectional comparability, or exposure control affects a signal: compare raw,
+ranked, winsorized, centered, scaled, and other recorded transforms fitted within each training window;
+evaluate factor, sector, liquidity, venue, or other neutralization only with an explicit economic purpose;
+quantify alpha removed, risk removed, turnover added, and information retained. Deliverables: transform
+manifests, before/after exposures, ordering and neutralization reports, and selected-policy rationale.
+Decisive tests fit on training rows only, perturb future distributions, exercise outliers and constant
+windows, vary neutralization order, and verify missing/zero-scale behavior; continue only without a
+future-distribution advantage.
+
+### R07 — Compare model families under a common benchmark
+
+Use when a predictive model is needed beyond transparent rules. Start with mean, linear, and regularized
+baselines; add other challengers only with a predeclared search space, resource budget, and limitation the
+simpler model cannot address. Complex families need an explicit hypothesis, ablations, and reproducible seeds.
+Deliverables: model matrix, common feature/split manifest, search/resource record, calibration and utility
+report, and complete trials. Decisive tests use identical inputs, costs, constraints, rolling or nested
+splits, seeds, and asset/time slices; test serialization and repeated inference. Select on locked net utility,
+stability, calibration, and operating cost, not training fit.
+
+### R08 — Handle missing data and representation choices
+
+Use when coverage, sparse histories, modality, or structured representation may change the result: compare
+complete-case, indicator, simple-imputation, and documented model-based policies; test whether missingness is
+available and economically meaningful rather than a source artifact; compare representations through ablations
+while preserving strategy-appropriate representation/precision. Deliverables:
+missingness-by-source/time/asset report, imputation and representation manifests, coverage/performance
+trade-offs, ablations, and seed stability. Decisive tests use missing windows, missing-by-regime fixtures,
+late arrivals, constant features, dtype/shape changes, and future perturbations; continue only when gains
+survive coverage changes and implicit look-ahead.
+
+### R09 — Measure regimes, drift, and degradation
+
+Use when performance or risk may vary with market, venue, liquidity, funding, or model state: define
+observable regimes before final evaluation where possible; report conditional utility, exposure, turnover,
+drawdown, and sample counts; test structural breaks, feature/calibration drift, model age, and long/short
+asymmetry. Deliverables: regime definitions, conditional reports, drift diagnostics, and versioned alert,
+de-risk, pause, retrain, or stop proposals. Decisive tests prove states are observable at decision time,
+thresholds are not tuned on future outcomes, and responses work in replay and operation; freeze thresholds
+with the selected strategy's risk and execution assumptions.
+
+### R10 — Validate covariance and risk forecasts
+
+Use when sizing or constraints depend on predicted risk: compare sample and shrinkage covariance with
+structured or factor/residual alternatives only when justified; evaluate forecast versus realized portfolio
+risk, tails, eigenstructure, concentration, stability, and optimizer sensitivity across relevant regimes.
+Deliverables: covariance manifests, calibration tables, factor/residual reconstruction, tail/concentration
+reports, and resource costs. Decisive tests cover one asset, duplicate assets, singular/near-singular
+matrices, empty windows, changing order, non-finite inputs, and held-out risk; continue only when the
+estimator improves a declared allocation or risk decision.
+
+### R11 — Construct portfolios and measure cross-strategy contribution
+
+Use for one strategy when constraints shape its outcome and for multiple strategies/assets when capital is
+shared. Compare transparent rank, equal-weight, and equal-risk baselines with constrained construction; test
+every constraint's sign, unit, boundary, feasibility, fallback, and comparative static. Across strategies
+compare total/marginal contribution, incremental P&L, marginal risk, correlation, overlap, turnover, capacity,
+drawdown, and diversification by asset, family, and regime. Deliverables: portfolio contract, optimizer
+diagnostics, contribution/overlap reports, binding-frequency and shadow-price records, feasible/fallback
+traces, and cross-strategy scorecard. Decisive tests vary one constraint and signal, use infeasible and
+zero-target fixtures, replay repeated calls, and reconcile contribution to positions and P&L.
+
+### R12 — Model dynamic costs and trading decisions
+
+Use when target changes, alpha decay, turnover, or multi-period execution affects net results. Establish a
+transparent linear or one-period trading baseline; compare a dynamic policy with explicit decay, liquidity,
+impact, participation, urgency, and inventory assumptions; verify its one-period limiting case and compare
+speed, turnover, exposure, capacity, and net utility under uncertainty. Deliverables: trading-policy
+contract, comparative statics, target/position paths, cost attribution, and limiting-case report. Decisive
+tests check zero target change, zero cost, liquidity bounds, delayed fills, cost-sign errors, and position
+continuity. Under a declared fixed scenario, comparative statics should show higher costs slowing trading or
+reducing net result; investigate exceptions caused by changed constraints or paths.
+
+### R13 — Reconcile execution, impact, and capacity
+
+Use before an executable-net or capacity claim. Reconcile decision, arrival, and fill prices; delay, spread,
+fees, partial fills, opportunity cost, order state, cash, positions, and ledger P&L. Calibrate or
+conservatively bound impact, participation, urgency, and venue behavior; produce capacity frontiers across
+capital, participation, horizon, liquidity, and stress with uncertainty. Deliverables: execution trace, TCA
+reconciliation, cost calibration and limits, replay parity report, and capacity curves. Decisive tests use no,
+partial, and duplicate fills, out-of-order events, rejects, stale prices, delayed acknowledgements, and
+restart/reconciliation. Any deployed capital and participation must be bounded by a conservative stress-based
+capacity estimate and cannot depend on an unobservable fill assumption.
+
+### R14 — Account for financing and the full lifecycle
+
+Use when funding, borrowing, margin, collateral, leverage, liquidation, settlement, or cash lifecycle can
+change a decision. Reconcile opening/closing cash, financing, fees, margin, collateral, funding, borrow,
+corporate or contract events, forced reductions, and liquidation. For shortable assets model availability,
+recalls, fees, and buy-ins; when inapplicable, record that boundary rather than inventing an assumption.
+Deliverables: financing conventions, lifecycle transitions, attribution, utilization/availability reports,
+severe-stress scenarios, and source limits. Decisive tests cover funding jumps, margin changes, liquidity
+withdrawal, missing collateral, zero/negative balances, forced deleveraging, repeated settlement, and restart
+from persisted state.
+
+### R15 — Account for trials, select robustly, and freeze
+
+Use whenever variants, transforms, models, assets, or stopping choices can influence selection. Reconcile the
+complete family, including abandoned branches, search bounds, researcher choices, seeds, and failures; apply
+uncertainty and multiple-testing treatment appropriate to related trials. Use nested or rolling selection and
+lock candidate, transforms, data/config identities, decision rules, thresholds, costs, and operating
+assumptions before final OOS. Deliverables: closed family manifest, trial accounting, uncertainty and
+multiple-testing report, freeze manifest, model/rule card, access policy, and founder decision. Decisive tests
+rebuild selection, prevent later trials changing the frozen candidate, and verify purge/embargo intervals.
+Formal independent validation and model-risk signoff are added for staffed scope; technical reproducibility is
+required now.
+
+### R16 — Run untouched final OOS evidence and prepare handoff
+
+Use after R15 when final OOS informs a real promotion decision. Run the frozen candidate once on untouched
+data and retain access history, complete output, failures, and deviations. Evaluate crowding,
+capital/liquidity withdrawal, correlated impact, financing, margin, drawdown, and recovery; reconcile research
+and deterministic replay from forecast through target, order/fill, costs, cash, positions, risk, and P&L.
+Deliverables: untouched-OOS package, attribution and uncertainty, capacity/stress reports, replay
+reconciliation, handoff manifest, rollback reference, monitoring conditions, and
+continue/de-risk/reject/new-trial decision. Decisive tests prohibit retuning or selection from the holdout;
+rerunning the unchanged frozen candidate for reproducibility is allowed. They also check same-logic
+research/replay, future perturbation, and stop/recovery paths. This does not authorize live capital; release,
+security, limits, risk separation, activation, and operations follow current policies.
+
+## From research to production and monitoring
+
+Research correctness is the immediate bar: point-in-time data, train-only transforms, honest trial accounting,
+costed behavior, numerical and lifecycle invariants, reproducible artifacts, and strategy/replay parity. A
+founder can review and rerun these records without a committee. An operating target adds build identity,
+dependency lock, configuration, model/data references, limits, state compatibility, rollback, secrets
+handling, reconciliation, and a tested stop path.
+
+The long-term platform should give each strategy one versioned kernel and contract shared across replay, paper, shadow, canary, and live. Monitoring should surface stale inputs, missing heartbeats, reject/error bursts, position or cash
+mismatch, drift, risk and loss limits, and broken reconciliation. Preserve orders, fills, decisions, state,
+alerts, and recovery evidence for the operating lifetime. Choose process and computing topology from measured
+latency, availability, data, and broker requirements.
+
+Formal independent review, model-risk challenge, portfolio and risk signoff, release approval, dual-control
+activation, and separation of duties are future organizational controls. Add them when the corresponding
+people and authority exist; they strengthen the handoff and capital boundary without replacing the technical
+tests and artifacts the founder produces now.
+
+## Computing scale and implementation status
+
+Run locally while data volume, working set, elapsed time, and trial count fit the existing environment.
+Consider a larger or parallel path only after measuring a reproducible bottleneck: local memory no longer
+fits, rolling/nested trials exceed a documented time budget, replay needs more throughput, or cross-asset
+comparison needs controlled parallelism. Record hardware, environment, seed, input identities, resource
+limits, and failure/retry behavior; keep a small reference run and compare scaled results against it. Do not
+add a scheduler, experiment registry, model-serving layer, or other platform component before a measured
+workload requires it.
+
+There is no research runner command today. Until one exists, use the existing `uv run --frozen` environment and
+affected pytest/static checks for iteration. `make check` remains the complete local entrypoint when full
+validation is needed; the hosted required lane remains authoritative before merge. Record external analysis
+commands explicitly. A future runner must retain the trial and artifact fields above, fail clearly on missing or
+stale inputs, and make data, code, configuration, seed, and resource identity visible in results.
 
 ## Research-source policy
 
-Papers and specifications inform hypotheses, baselines, and diagnostics; they do
-not substitute for executable evidence. Before starting a replication package:
-
-1. Record a stable DOI, publisher, arXiv, or official specification link.
-2. State the exact table, equation, algorithm, or claim being reproduced.
-3. Record data, universe, timing, and implementation differences.
-4. Define success/failure evidence before seeing the result.
-5. Preserve both published-style and corrected point-in-time/costed results where
-   they answer different questions.
-
-The earlier untracked local reading-list PDF is not a normative dependency. A
-candidate cannot claim replication from an author/year citation alone.
+Papers, specifications, and prior results inform hypotheses, baselines, and diagnostics. Before a replication, record a stable DOI, publisher, arXiv, or official specification link; identify the exact claim; state data,
+universe, timing, and implementation differences; define success and failure evidence; and retain
+published-style and corrected point-in-time/costed results when they answer different questions. An author/year
+citation alone is not a replication. A negative result is a useful completed experiment when its limitations and attempted alternatives are retained.

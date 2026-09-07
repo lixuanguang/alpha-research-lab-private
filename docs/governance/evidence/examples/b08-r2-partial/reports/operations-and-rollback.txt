@@ -1,6 +1,0 @@
-B08 repository-local operations and rollback evidence
-Result: lifecycle failures retain diagnostics, remove incomplete staging state, and halt publication or consumption.
-Result: rollback is a reviewed revert; immutable published digests are never overwritten and consumers remain fail closed.
-Monitoring: policy, tool, signature, provenance, SBOM, and consumer failures are repository/CI signals only.
-Runbook: stop, retain evidence, compare every digest and identity, revoke suspected signer, rotate externally, rebuild, and verify a new digest.
-Non-goal: no deployment, activation, credentials, market access, capital, external system, or C01 behavior is created.

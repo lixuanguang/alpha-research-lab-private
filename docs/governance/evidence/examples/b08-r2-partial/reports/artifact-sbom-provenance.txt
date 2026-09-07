@@ -1,6 +1,0 @@
-B08 repository-local artifact, SBOM, and provenance evidence
-Scope: deterministic whole-file candidate creation; no external build or release.
-Result: success, invalid-input, archive boundary, failure-cleanup, and repeated-byte tests pass.
-Result: SPDX 2.3 identity and native/shared-library membership are enforced.
-Result: SLSA v1 provenance binds source, target, platform, locks, toolchain, and artifact digest.
-Limitation: protected multi-platform reproducibility and target container/native inventory remain B08-F02/B08-F03.

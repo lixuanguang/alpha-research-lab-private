@@ -1,8 +1,0 @@
-B02 repository-local contract and test evidence
-Synthetic commit: 8888888888888888888888888888888888888888
-
-- Bazel structural checks bind exact module, runtime, Buf, CI-action, and launcher pins.
-- Five focused Bazel tests cover graph structure, sandbox exclusion, Buf generation,
-  SQL golden output, and invalid SQL substitutions.
-- Root command tests cover default delegation, the uv rollback backend, and failure
-  propagation without granting institutional approval.

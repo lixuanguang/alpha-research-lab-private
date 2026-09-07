@@ -1,1 +1,0 @@
-Synthetic B05 fixture: the architecture contract records scope, dependencies, interfaces, schema and security impact, risk classification, gates, reviewers, migration, rollout, rollback, monitoring, runbook, findings, non-goals, and B06 successor without claiming deployment or activation.

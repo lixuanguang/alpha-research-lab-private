@@ -1,1 +1,0 @@
-Synthetic B01a fixture: scope, ownership, R2 gates, partial parent status, external findings, migration, rollback, operational signal, non-goals, and B01b successor remain explicit.

@@ -1,6 +1,0 @@
-B08 repository-local signing, publication, and consumption evidence
-Scope: guarded process boundary and content-addressed local store; no production registry or credential.
-Result: unsigned, mutable-reference, tampered, unknown, digest-mismatched, and revoked-signer states reject.
-Result: only protected-main context and exact GITHUB_SHA reach Cosign; duplicate digest publication rejects.
-Result: consumer verification constrains the exact configured certificate identity and OIDC issuer.
-Limitation: process doubles do not claim a cryptographic signature; protected keyless signing and registry evidence remain B08-F02.

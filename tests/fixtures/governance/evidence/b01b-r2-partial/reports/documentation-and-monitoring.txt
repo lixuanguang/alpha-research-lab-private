@@ -1,1 +1,0 @@
-Synthetic B01b fixture: scope, R2 gates, target ownership, compatibility window, partial parent status, rollback, operational signal, findings, non-goals, and B01c successor remain explicit.

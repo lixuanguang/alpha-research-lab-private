@@ -1,6 +1,11 @@
 # Artifact supply chain
 
+## Build contract
+
 This boundary verifies a built artifact before a release consumer can use it.
+The consolidated [architecture guide](README.md#dependency-and-release-boundaries)
+describes when this boundary applies; this page and the adjacent TOML remain the
+stable artifact identity and verification reference consumed by the tooling.
 The policy binds the root project manifest and `uv.lock`, accepted artifact
 kinds, archive member limits, native-library markers, in-toto/SLSA identities,
 and the protected-main Cosign identity. `alpha-governance-artifacts` does not

@@ -1,9 +1,0 @@
-C02 repository-local operations and rollback evidence
-Status: partial under solo bootstrap; no independent approval, production authority, or external evidence is represented.
-Migration: additive Python API and build target with no existing calendar consumer, persisted state, wire schema, service, or deployment.
-Rollout: repository-only merged-result testing, golden compatibility replay, dependency admission, and impact analysis; no deployment or activation.
-Rollback: reviewed Git revert of library, dependency/constraint, locks, targets, fixture, status, docs, and evidence together.
-Monitoring: typed validation/adapter failures and returned source/version/state are local signals; no deployed SLO, dashboard, page, or alert is claimed.
-Runbook: stop the affected path, retain venue/version/range/override context, reconcile with the accountable source owner, issue a new version, replay, then publish a replacement snapshot.
-Non-goal: no C03 units or conventions, D04 persistent master data, H04 live venue adapter, provider connection, credentials, market access, capital, or expanded risk authority.
-Scope: root commands, CI lanes, resource inventories, and A08 readiness reporting are unchanged. Existing build/source-ownership registration covers only C02 inputs.

@@ -1,14 +1,16 @@
 # Repository cleanup plan for a solo quant founder
 
 Audit date: 2026-09-07. Baseline: `97775789cfc21425abf4afcbb0498dd5ec69ea89`.
-Status: steps 1–3 complete; hosted CI validation for steps 2 and 3 passed and was
-verified on 2026-09-07. Steps 4–6 remain planned. The measured
+Status: steps 1–4 complete; hosted CI validation for steps 2 and 3 passed and was
+verified on 2026-09-07. Step 4 passed focused local validation; steps 5–6 remain
+planned. The measured
 baseline and audit findings below describe the repository before cleanup. The
 working tree was clean at the start of the audit.
 
 **Recommendation: keep the financial domain code, replace most of the custom
-governance platform with ordinary development tools, and organize delivery around
-one reproducible strategy progressing from research to monitored live operation.
+governance platform with ordinary development tools, and start delivery with
+one reproducible strategy progressing from research to monitored live operation,
+then expand shared multi-asset, multi-strategy capabilities.
 Bring governance implementation below 3,000 lines while retaining typing,
 import-style, and docstring enforcement and a smaller set of cohesive classes.**
 
@@ -18,13 +20,35 @@ time: the current domain suite passed 184 tests in 2.36 seconds during this audi
 Prioritize removing retired policy obligations, their implementations, and their
 tests together.
 
-This extends the earlier [solo-founder migration](../roadmap/solo-founder-governance-migration.md),
+This extends the earlier [solo-founder migration](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/docs/roadmap/solo-founder-governance-migration.md),
 whose steps 1–4 are already recorded as implemented. That migration established
 founder implementation authority and a four-section PR. Retain those improvements.
 This plan goes further by retiring infrastructure that still encodes the
 institutional operating model, including prerequisites for future solo go-live.
 Implementation must update the owning policies alongside their enforcement;
 this document alone does not supersede the current operating rules.
+
+### Scope refinement: preserve the institutional destination
+
+The founder clarified on 2026-09-07 that cleanup must preserve the technical path
+to an institutional-grade monorepo for multi-asset, multi-strategy research,
+productionization and monitoring. The first strategy is a delivery milestone.
+It does not cap the platform at one package, strategy, asset or deployment.
+The [platform roadmap](../roadmap/README.md),
+[platform design](../architecture/platform-design.md) and
+[research program](../roadmap/research-program.md) retain detailed capabilities,
+interfaces, implementation work and completion evidence. Remove duplicated policy
+machinery and obsolete registries; do not replace useful technical design with a
+short checklist or impose an arbitrary documentation page limit.
+
+Team ownership, independent approvals, formal review programs and other
+staffing-dependent controls are the lowest speculative implementation priority,
+introduced when actual people join or concrete obligations arise. Runtime
+correctness and safety accompany the relevant functionality: causal data,
+accounting, reproducibility, limits, reconciliation, monitoring and recovery are
+needed even for a sole operator. The governance-code budget below applies to this
+cleanup, not to research/runtime code or a permanent ceiling on future justified
+team tooling.
 
 ## Clarity requirements to preserve
 
@@ -92,12 +116,12 @@ verify an actual capability without unrelated organizational prerequisites.
 
 | Finding | Evidence and concrete maintenance trigger | Recommended decision |
 | --- | --- | --- |
-| Function policy creates ongoing administrative work | At the audit baseline, the Python policy required individual exceptions for module-level functions. `docs/architecture/python-standards-exceptions.toml` bound symbols to owner, expiry, and AST fingerprint, so editing a legitimate function could require a policy-record update. | Step 1 removes `PYC001` and its exception system. The [current Python policy](../coding_standards/python.md#classes-and-object-design) permits functions and ordinary test functions without registration, keeps cohesive classes, and preserves typing, import-style and docstring rules. |
+| Function policy creates ongoing administrative work | At the audit baseline, the Python policy required individual exceptions for module-level functions. `docs/architecture/python-standards-exceptions.toml` bound symbols to owner, expiry, and AST fingerprint, so editing a legitimate function could require a policy-record update. | Step 1 removes `PYC001` and its exception system. The [current Python policy](../coding_standards/README.md#design-and-interfaces) permits functions and ordinary test functions without registration, keeps cohesive classes, and preserves typing, import-style and docstring rules. |
 | Governance is a runtime dependency | [Baseline root project, line 13](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/pyproject.toml#L13) requires the governance distribution; the baseline `src/alpha_research/BUILD.bazel:21` also depended on it. [Compatibility exports](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/src/alpha_research/program_governance/registry.py#L1) and governance tests retain the old namespace. | Move surviving tooling to development-only use. Remove governance facades and `alpha-research-ci` after updating repository callers. Keep the deployable package independent of docs and policy registries. |
 | Multiple call layers preserve the old API without adding domain behavior | [Public program loader, line 2096](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/tools/governance/src/alpha_research_governance/program_governance/registry.py#L2096) calls a private compatibility function, then a service method, then another private loader. The public and service methods both translate the same error types. | Retire this subsystem where possible; otherwise keep one entry point, one implementation, and one error-translation boundary. Remove test-only compatibility seams with their callers. |
 | CI repeatedly checks the same source through different routes | The baseline `tools/governance/src/alpha_research_governance/ci_policy/runner.py:715` ran all pre-commit hooks, Bazel build/test, then `rollback-check`. [Makefile](../../Makefile) makes rollback rerun lint, format, typing, governance, and pytest. [Hosted CI](../../.github/workflows/ci.yml) also runs separate affected and full jobs. | Use one required source-validation job and one build/install smoke check. Remove the custom affected-target scheduler and permanent second build backend after proving replacement coverage. |
 | Tests freeze repository shape and historical status | [Root command test, line 56](../../tests/engineering/test_root_commands.py#L56) asserts an exact command sequence; [package test, line 92](../../tests/engineering/test_package_definition.py#L92) freezes the governance entry-point set; [C03 evidence test, line 90](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/tests/engineering/test_financial_units_evidence.py#L90) requires `partial` status and historical finding IDs. Routine simplification causes failures unrelated to numerical correctness. | Retire obsolete assertions with their contracts. Preserve small tests for real installed imports, command failures, integrity checks, and domain outcomes. |
-| Research remains subordinate to a large platform program | [Research program, line 5](../roadmap/research-program.md#purpose) is subordinate to 96 packages; its [enablement map](../roadmap/research-program.md#platform-enablement-map) requires large C–K capability groups. [Roadmap parser, line 924](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/tools/governance/src/alpha_research_governance/program_governance/registry.py#L924) requires all 96 IDs. Removing a speculative work package requires parser/policy/test changes. | Replace the executable roadmap with a short, human-maintained backlog for one data source, strategy, and operating target. Implement prerequisites for that workload as it needs them. |
+| Research remains subordinate to a large platform program | [Research program, line 5](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/docs/roadmap/research-program.md#purpose) is subordinate to 96 packages; its [enablement map](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/docs/roadmap/research-program.md#platform-enablement-map) requires large C–K capability groups. [Roadmap parser, line 924](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/tools/governance/src/alpha_research_governance/program_governance/registry.py#L924) requires all 96 IDs. Removing a speculative work package requires parser/policy/test changes. | Replace the executable roadmap with a detailed human-maintained platform roadmap and design. Start with one data source and strategy, then expand shared multi-asset, multi-strategy research, production and monitoring. Implement each workload’s prerequisites as needed. |
 | Active documentation still contains historical execution instructions | [Topology contract, line 78](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/docs/architecture/repository-topology.md#canonical-targets-and-enforced-consumers) says the program derives B02 next, while [generated status](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/docs/governance/program-status.md) selects C04. Its source-target description also predates C03. | Remove historical delivery narratives from active contracts and eliminate duplicate status fields. Keep one current status/backlog page. |
 
 The CI finding establishes duplicated work from command wiring; no current full-CI
@@ -108,9 +132,13 @@ changes already avoid per-package evidence packs.
 
 ## Target working model
 
-Keep one Python package, one dependency lock, one standard check command, and a
-small number of operational entry points. Use the existing uv, Ruff, mypy, pytest,
-Hypothesis, and packaging tools. Make can remain a short list of aliases.
+Start with the current Python package, dependency lock, standard check command
+and a small number of operational entry points. Use the existing uv, Ruff, mypy,
+pytest, Hypothesis and packaging tools. Make can remain a short list of aliases.
+Grow to multiple packages, languages, independently released artifacts and runtime
+lanes when real consumers or measured requirements justify them. Preserve shared
+contracts, selective validation and a supported development path as the monorepo
+grows; the present single-package setup is a starting point.
 Do not add another task framework, policy DSL, or replacement governance service.
 
 The first useful delivery sequence is:
@@ -263,16 +291,18 @@ parameterization alone does not reduce executed work.
 
 ## Documentation disposition
 
-Aim for roughly 8–12 active explanatory pages, plus concise retained decisions and
-necessary fixtures/reference records. This is a planning target, not a CI quota.
+Keep a navigable documentation entry point and remove duplication. Retain enough
+technical detail to implement the long-term platform, including planned interfaces,
+module boundaries, failure behavior, delivery slices and decisive tests. There is
+no page-count target; add focused design notes when they make implementation clearer.
 
 | Current material | Target |
 | --- | --- |
 | `docs/README.md` | Keep as the single entry point: current capabilities, setup, check, research, paper, deploy, stop and monitor commands as they become real. A root README can be a small pointer. |
-| Architecture overview, principles and broad contracts | One current architecture page. Keep the three domain-contract pages for units, identity and calendars. |
+| Architecture overview, principles and broad contracts | A current architecture overview, detailed planned platform design and the three implemented domain contracts. Add focused design notes for complex capabilities; distinguish implemented behavior from intended interfaces. |
 | `docs/coding_standards/{README,python}.md` plus enforcement prose | One concise engineering guide preserving enforced function typing, import organization, explanatory Google-style docstrings, cohesive class design, boundary validation, financial/time invariants and behavior-based tests. Retire unused C/C++ and Rust guides until those languages enter the project. |
 | Governance workflow, ownership, change classes, quality gates, threat/control maps | One workflow page and one operational runbook with concrete triggers; remove repeated role and gate catalogs. |
-| 96-package roadmap, generated program state, large research-stage framework | One prioritized backlog and one practical research protocol. Start with the smallest costed PIT baseline; preserve trial/holdout discipline without requiring all platform services. |
+| 96-package roadmap, generated program state, large research-stage framework | A detailed human-maintained roadmap across multi-asset, multi-strategy research, production, monitoring and scale, plus research workstreams with implementation outputs and evidence. Start with a costed PIT baseline; select relevant prerequisites without a fixed executable package catalog. |
 | ADRs and completed migration diaries | Keep only decisions that still explain current constraints. Historical material is recoverable from this baseline commit; avoid a duplicate archive tree in the active checkout. |
 | Blueprint PDF (489 KB) | Retire as active implementation authority. Keep in Git history or a deliberately chosen reference location after removing policy, test and documentation dependencies on it. |
 | Evidence examples and native signature/source records | Remove synthetic institutional packs after their consumers retire. Keep unresolved admission evidence, financial goldens and actual release/research identities. Store future large run outputs outside Git with durable references and appropriate retention. |
@@ -294,15 +324,15 @@ Avoid a permanent compatibility layer or a second policy profile as the migratio
 | 1. Preserve clarity; remove exception bureaucracy — complete | Recorded the protected typing/import/docstring rules and their existing tests. Retained useful class organization; removed `PYC001`, its 486 function-exception records, reconciliation/fingerprint machinery and exclusive tests. | Strict typing, retained import/docstring fixtures and domain tests pass; ordinary functions need no expiry/fingerprint record. See [step 1 results](#step-1-results). |
 | 2. Establish the smaller CI/build path — complete | Inventoried Bazel guarantees, made frozen uv source checks and installed-wheel smoke validation authoritative, retained security checks, and updated Make, workflow, hooks and affected tests together. Removed Bazel, remote execution, the custom scheduler and the Nix bootstrap path. | Fresh local macOS setup, focused affected-code checks, external wheel imports and failure propagation passed. Hosted source validation, macOS wheel smoke and the authoritative Linux lane passed in runs #204 and #205. Every former Bazel-only guarantee has a replacement or explicit retirement decision. See [step 2 results](#step-2-results). |
 | 3. Retire policy frameworks and runtime coupling — complete | Replaced development, release and founder activation rules; removed program, ownership, topology, inventory, role and historical evidence machinery. Reduced retained dependency/artifact policies, moved tools to development dependencies, removed runtime facades and obsolete entry points, and regenerated the single lock. | Runtime wheel installs without governance or repository docs; retained commands and focused tests pass. No active check requires the package catalog, legacy finding IDs or staff registries. QuantLib remains release-blocking. See [step 3 results](#step-3-results). |
-| 4. Consolidate docs and fixtures | Replace active overview/workflow/backlog pages, remove stale package narratives and synthetic packs, prune unused ADRs/blueprint references. Remove retired tests and their build/data declarations together. | Local links pass; retained goldens and real release/admission evidence remain reachable; all setup/operation instructions refer to actual commands or are clearly marked planned. |
+| 4. Consolidate docs and fixtures — complete | Consolidated current guides and backlog, removed stale package narratives, synthetic packs, unused fixture trees, obsolete ADRs and the blueprint; preserved native evidence at explicit paths. | The initial consolidation passed local-link validation and 31 focused tests; the scope refinement below adds the detailed platform design; three goldens and 23 native evidence files retain their original bytes. Actual commands and planned capabilities are explicit. See [step 4 results](#step-4-results). |
 | 5. Reduce classes and finish the line budget | Remove forwarding wrappers, duplicate error translation and duplicate parser/report/model classes; retain useful classifications and cohesive services. Keep typing, import-style and docstring enforcement unchanged. Review optional native adapters without altering domain contracts implicitly. | Governance implementation is below 3,000 physical lines with fewer classes; clarity checks and domain invariants pass. Native checks and base/optional installs pass if changed. Show simpler callers and preserved explanations. |
-| 6. Resume strategy delivery | Build one data-to-net-report baseline, then paper/replay and the minimal deploy/activate/monitor path described above. Add missing safety tests as those behaviors appear. | A reproducible research result first; later, a bounded paper/canary run with reconciliation, alerts, stop and rollback evidence. Do not spend the next cycle building a replacement governance framework. |
+| 6. Resume platform and strategy delivery | Follow the detailed platform roadmap: first a data-to-net-report baseline, then reusable research, simulation/accounting and supervised production; expand assets, strategies, portfolio operation and infrastructure as their dependencies are exercised. Add safety tests with the behaviors they protect; team controls follow real onboarding. | A reproducible research result first; later, bounded paper/live operation with reconciliation, alerts, stop and recovery, followed by demonstrated multi-strategy reuse and reconciled portfolio operation. Each slice has executable evidence. |
 
 During migration, remove a required check only when its requirement is retired or
 its replacement has passed. A check that remains required must not be disabled
 merely because the migration makes it fail. Keep policy changes and affected
 callers/tests coherent within each slice. Hosted CI runs the full required lane;
-local validation for steps 2 and 3 runs only affected tests, as requested by the founder.
+local validation for each slice runs only affected tests, as requested by the founder.
 Preserve the hosted required-check name or update its
 branch rule with the replacement job, where such a rule exists. Do not run obsolete
 and replacement stacks forever.
@@ -311,7 +341,7 @@ and replacement stacks forever.
 
 Implemented on 2026-09-07 using two Luna subagents at extra-high reasoning, with
 integration review and focused validation. The
-[engineering standards](../architecture/engineering-standards.md)
+[engineering standards](../coding_standards/README.md)
 record the retained rules and their regression coverage. Python and engineering
 policies now permit ordinary functions without registration; typing, import
 organization and applicable Google-style docstrings remain enforced.
@@ -341,7 +371,7 @@ Validation used the existing pinned environment and current checkout code via
 No full pytest suite, full CI lane, performance suite, or native-stub conformance
 run was needed for this slice. Domain implementations, native boundaries,
 dependency pins and lockfiles were unchanged. Step 2 is recorded below;
-steps 3–6 remain separate work.
+later steps retain their own completion records below.
 
 ### Step 2 build-contract disposition
 
@@ -510,6 +540,106 @@ and no real release was signed or published. Hosted CI was pending when the
 implementation was recorded; [CI #205](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/34115358275)
 subsequently passed, as verified in the step 2 completion follow-up above.
 
+### Step 4 results
+
+Implemented on 2026-09-07 on `codex/cleanup-step-4` using three Luna subagents at
+extra-high reasoning, with integration review and only affected local checks.
+
+The documentation home now leads to one architecture overview, three domain
+contracts, one engineering guide, the development workflow and operations
+runbook, a prioritized delivery backlog, and a practical research protocol.
+The first planned research delivery is one versioned data slice through a
+costed point-in-time baseline. Research, replay/paper and operating commands
+are explicitly planned until their implementations exist.
+
+Removed obsolete package/role/gate narratives, the completed migration diary,
+the institutional blueprint and obsolete blueprint/fixture ignore exceptions, unused language guides,
+retired build/remote-execution pages, and duplicate architecture decisions.
+Current domain decisions and failure behavior remain documented. The artifact
+build-contract reference stays at its existing URL because the retained
+provenance identity consumes it; its source and policy identity are unchanged.
+Historical audit links use immutable Git revisions rather than an archive tree.
+
+Removed synthetic institutional evidence packs and the unused build-probe
+fixtures under `tests/fixtures/governance/evidence/`. Their exclusive tests and
+build declarations were already retired in steps 2–3; no behavioral test was
+removed in this step. The three domain golden datasets remain byte-identical.
+
+Moved the current native admission evidence to
+[QuantLib 1.43 evidence](../governance/evidence/quantlib-1.43/README.md), retaining
+signatures, trust material, source/security reviews, native inventory,
+compatibility and supporting observations unchanged. The
+[earlier investigation](../governance/evidence/quantlib-1.40-investigation/README.md)
+remains reachable, including its Darwin and Linux publication bundles. The
+admission configuration changes only 15 evidence paths; all non-path values,
+digests, package/lock identities, expiry and release restrictions are unchanged.
+The native test fixture already follows the policy paths and needs no code edit.
+
+QuantLib's source-to-wheel binding remains unverified. Isolated development/CI
+admission still ends on 2026-10-04; artifact release lifecycle operations remain
+blocked. Moving evidence does not resolve that uncertainty.
+
+At initial consolidation, compared with the step 3 checkout at `5e23b24`, repository files fell from 233 to
+115, documentation files from 150 to 43, Markdown pages from 49 to 18, and evidence
+files from 105 to 27. The 18 Markdown pages consist of ten current guides, three
+short dependency/artifact decision references, this cleanup record and four
+native-evidence context pages. All ten retired build-fixture files are removed.
+Counts include new paths and exclude deleted paths; relocated evidence is not
+counted as deleted capability. No cache cleanup or Git-history rewrite occurred.
+
+Only 31 distinct pytest cases ran successfully; earlier link checks during
+consolidation are not additive counts.
+
+| Validation | Result |
+| --- | --- |
+| `PATH=/private/tmp/step6_final:$PATH PYTHONPATH=src:tools/governance/src .venv/bin/python -m pytest -q tests/engineering/test_dependency_admission.py tests/engineering/test_wheel_sources.py -p no:cacheprovider` | 21 passed, no skips; Cosign 3.1.3 verified retained publication evidence, and expiry, source/hash/path/tamper and release-blocking checks passed. |
+| `uv run --frozen --no-editable pytest -q tests/engineering/test_artifact_supply_chain.py::test_policy_and_repository_file_identities_are_current tests/engineering/test_package_definition.py` | 5 passed; artifact identity and installed packaging/CLI boundaries remain consistent. |
+| `uv run --frozen --no-editable pytest -q tests/engineering/test_architecture_governance.py` | 5 passed; current links and rejection of missing/escaping targets and invalid headings are covered. |
+| `uv run --frozen alpha-governance-architecture` | Passed for all 18 documents at initial consolidation; see the subsequent scope refinement below. |
+| `uv run --frozen alpha-governance-engineering-standards` | Passed with the retained source, test and native-stub scope. |
+| Original/current byte and parsed-policy comparison | Three golden files and 23 native evidence files match original Git bytes; only 15 path values change in the admission policy. |
+| `alpha-governance-ci scan-secrets -- <changed-paths>` and `git diff --check` | Secret/private-key checks passed for 39 changed or relocated files; diff checks passed. |
+
+No full local pytest, performance, full hook or hosted CI run was performed for
+this slice. Runtime and governance implementation, native stubs, strict checking
+configuration, dependency pins and lock, Make commands and hosted workflows are
+unchanged. The implementation line-budget reduction remains step 5; strategy
+implementation remains step 6.
+
+### Step 4 scope refinement
+
+On 2026-09-07 the founder clarified that the initial consolidation removed too
+much technical implementation detail. The documentation now preserves the
+institutional multi-asset, multi-strategy destination while keeping the completed
+removal of obsolete policy machinery and synthetic evidence.
+
+- Expanded the [roadmap](../roadmap/README.md) into phased deliverables for causal
+  data, reusable research, simulation/accounting, supervised production and
+  monitoring, multi-strategy portfolio operation, and infrastructure scale.
+- Added [platform design](../architecture/platform-design.md) with proposed
+  modules and interfaces, PIT data semantics, asset lifecycles, strategy parity,
+  allocation/netting, OMS, accounting, recovery, runtime lanes, artifact/state
+  migration, observability and concrete scaling triggers.
+- Restored sixteen candidate [research workstreams](../roadmap/research-program.md)
+  with implementation outputs and decisive evidence, selected according to the
+  strategy's actual hypothesis and dependencies.
+- Aligned the documentation home, architecture overview, workflow, runbook and
+  cleanup guidance. One strategy/package is the starting point; technical detail
+  has no page quota. Organizational controls follow actual onboarding and remain
+  the lowest speculative priority. Runtime safety accompanies the relevant feature.
+
+The revised checkout has 116 repository files, 44 documentation files, 19
+documentation Markdown pages and 27 evidence files. The additional document is
+the platform design; all prior fixture and evidence preservation results still
+apply. Counts describe the checkout, not a target for future technical scope.
+
+Only documentation changed in this refinement. The five affected tests in
+`tests/engineering/test_architecture_governance.py` passed with
+`uv run --frozen --no-editable pytest -q tests/engineering/test_architecture_governance.py`.
+The final `uv run --frozen alpha-governance-architecture` check passed for all
+19 documents, and `git diff --check` passed. No full local test suite,
+runtime suite, performance suite or hosted CI run is part of this refinement.
+
 ## Success measures and stopping point
 
 The governance implementation limit is **strictly below 3,000 physical source
@@ -547,12 +677,14 @@ Additional success measures:
   quota that encourages oversized classes or erases important types.
 - Preserve enforced function typing, import style and explanatory docstrings at
   the current strictness and scope throughout the cleanup.
-- Reduce active explanatory documentation to roughly 8–12 pages and retire the
-  exception register. Keep small reference evidence where it still has a consumer.
+- Remove obsolete policy duplication and retire the exception register while
+  preserving detailed platform architecture and implementation plans. Keep
+  reference evidence where it still has a consumer; do not impose a page quota.
 - Have one required CI validation route, a small local hook set, and no governance
   runtime dependency. Keep only one supported build/setup contract.
 - Make a normal strategy change touch strategy code/config, its relevant tests,
-  and at most its short research record or runbook when behavior requires it.
+  and the research record, design or runbook details required by changed behavior.
+  Do not require unrelated policy catalogs or evidence packs.
 - Measure CI before/after on the same machine and revision class. An initial goal
   is warm local checks within a few minutes and hosted validation within 10 minutes;
   adjust from actual bottlenecks. No current full-CI baseline was captured here.
@@ -576,7 +708,7 @@ No cache deletion or Git-history rewrite is part of this audit; the approximatel
 
 The following records the original documentation audit; implementation validation
 is recorded in [step 1 results](#step-1-results), [step 2 results](#step-2-results),
-and [step 3 results](#step-3-results).
+[step 3 results](#step-3-results), and [step 4 results](#step-4-results).
 The audit used the local checkout
 and existing Python environment:
 

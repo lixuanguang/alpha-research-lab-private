@@ -4,7 +4,7 @@
 
 **Historical investigation:** the blocked result below describes the policy at
 the time of investigation. The subsequent
-[bounded bootstrap policy revision](../../../architecture/dependency-admission.md#bounded-solo-bootstrap-publication-evidence)
+[bounded bootstrap policy revision](../../../architecture/README.md#dependency-and-release-boundaries)
 permits a separate publication-evidence route with owned review, expiry and
 artifact-release denial. QuantLib is still unadmitted; a complete record and
 the owning package's local checks are required. The source-to-build gap remains.
@@ -15,7 +15,7 @@ prerequisite. It records new observations against clean main
 `c09d1f175c6709daab94faccfcf4121e594ce112`; that SHA identifies the investigation
 base, not independent review or acceptance of this report.
 
-The [B07 source-admission contract](../../../architecture/dependency-admission.md#wheel-only-source-evidence)
+The [current dependency and release boundary](../../../architecture/README.md#dependency-and-release-boundaries)
 and [ADR 0012](../../../architecture/decisions/0012-wheel-only-source-admission.md)
 remain unchanged. This is supplemental investigative evidence, not an A05
 acceptance manifest, dependency admission, signature over a build claim, or
@@ -57,8 +57,10 @@ request. It found no SLSA build evidence and does not change the blocked result.
 The raw signature bundle and exact observations, hashes, safe diagnostics and
 source URLs are retained in [observations.json](observations.json) and
 [linux-publish.sigstore.json](linux-publish.sigstore.json). Darwin's bundle and
-the trust root are reused from the existing B07 evidence and hash-bound by the
-observations. Source archives are not vendored. Their verified hashes are:
+the trust root are retained in this directory and the sibling
+[`quantlib-1.43`](../quantlib-1.43/README.md) evidence directory, respectively, and are
+hash-bound by the observations. Source archives are not vendored. Their verified
+hashes are:
 
 | Source archive | SHA-256 |
 | --- | --- |
@@ -121,15 +123,15 @@ reuse the publication-only fixtures as accepted build attestations.
 
 ## Reproduce signature checks
 
-From the repository root, enter the existing pinned Nix developer shell. It
-provides Cosign 3.1.3. The following uses retained local evidence and creates no
-signatures or external artifacts:
+The following historical replay used Cosign 3.1.3 and retained local evidence;
+it creates no signatures or external artifacts. Run it with the repository's
+currently admitted Cosign 3.1.3 binary; no retired Nix setup is implied:
 
 ```sh
 proof_dir=docs/governance/evidence/quantlib-1.40-investigation
-prior_dir=docs/governance/evidence/examples/b07-r2-partial/reports
+evidence_dir=docs/governance/evidence/quantlib-1.43
 cosign verify-blob-attestation --check-claims=true \
-  --trusted-root "$prior_dir/sigstore-trusted-root-2026-09-04.json" \
+  --trusted-root "$evidence_dir/sigstore-trusted-root-2026-09-04.json" \
   --bundle "$proof_dir/linux-publish.sigstore.json" \
   --certificate-identity https://github.com/lballabio/quantlib-wheels/.github/workflows/wheels.yml@refs/heads/master \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
@@ -139,7 +141,7 @@ cosign verify-blob-attestation --check-claims=true \
 ```
 
 Expected: `Verified OK`. Repeat with the existing Darwin bundle
-`$prior_dir/quantlib-1.40-publish.sigstore.json` and digest
+`$proof_dir/quantlib-1.40-publish.sigstore.json` and digest
 `fefb04e34a4f6a529e8d3a0506de6cd443d52ba85fbc13b4c30b7865ce5fa4ce`.
 For each, require a nonzero exit after changing `--type` to
 `https://slsa.dev/provenance/v1`, the digest to 64 zeroes, or the identity to
@@ -148,13 +150,10 @@ is not permission to ignore a positive verification failure.
 
 ## Repository validation
 
-`make check` passed: all 16 Bazel test targets, 396 Python tests, one integration
-test, strict typing of 118 files, Ruff, Bandit, governance checks, package import,
-and sdist/wheel build. The full lane also passed `uv lock --check` and the frozen
-pre-commit all-files run. Explicit pre-commit checks passed for the new untracked
-evidence files, which the all-files run alone does not cover. Retained evidence
-hashes, all eight verifier outcomes and local documentation links were checked;
-`git diff --check` passed. These results validate this report and the existing
+Historical repository validation (before the build-path cleanup) used `make check`
+with Bazel, Nix, the former governance checks, and the former package layout. The
+retained evidence hashes, verifier outcomes, and local documentation links were
+checked at that time. Those results validate this report and the then-current
 repository, not QuantLib admission or C03 behavior.
 
 ## Change classification and operating impact

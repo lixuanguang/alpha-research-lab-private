@@ -3,7 +3,7 @@
 ## Result and scope
 
 This is a historical observation under the earlier policy. The later
-[bootstrap revision](../../../architecture/dependency-admission.md#bounded-solo-bootstrap-publication-evidence)
+[current dependency boundary](../../../architecture/README.md#dependency-and-release-boundaries)
 adds a bounded development admission route. It does not alter the observed
 publication statements, supply build provenance or admit QuantLib automatically.
 
@@ -66,12 +66,12 @@ repository-owned-build path. No reply or attestation is assumed to exist.
 
 ## Validation
 
-`uv lock --check` and `make check` passed. The full lane exercised Bazel,
-all-files pre-commit, 396 Python tests, one integration test, strict typing of
-118 source files, governance, package import and sdist/wheel build. Observation
-counts, response hashes, exact subjects and all four request digests were checked
-against the downloaded metadata. These checks validate the report and existing
-repository behavior; they do not validate QuantLib admission or C03.
+Historical repository validation (before the build-path cleanup) used
+`uv lock --check` and `make check` with Bazel, all-files pre-commit, the former
+governance checks, package import and sdist/wheel build. Observation counts,
+response hashes, exact subjects and all four request digests were checked against
+the downloaded metadata. These checks validate the report and the then-current
+repository; they do not validate QuantLib admission or C03.
 
 ## Change classification and operations
 

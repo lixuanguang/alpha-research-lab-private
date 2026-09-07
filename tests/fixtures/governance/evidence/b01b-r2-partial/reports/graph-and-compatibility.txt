@@ -1,1 +1,0 @@
-Synthetic B01b fixture: governance implementation is owned by tool targets, legacy alpha_research APIs delegate to canonical objects, and the runtime wheel declares the exact canonical governance dependency required by those facades.
