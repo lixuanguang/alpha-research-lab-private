@@ -1,1 +1,0 @@
-Synthetic B01b fixture: canonical governance targets, compatibility facades, module commands, packaging boundaries, invalid-input handling, and failure propagation are repository-locally exercised.

@@ -1,1 +1,0 @@
-Synthetic A07 fixture: strict fields, stable identifiers, threat-category coverage, ownership, independent review, cross-references, fail-safe responses, evidence states, jurisdiction profiles, and deterministic queries are repository-locally exercised.

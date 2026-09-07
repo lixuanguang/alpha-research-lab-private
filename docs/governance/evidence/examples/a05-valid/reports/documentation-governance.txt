@@ -1,1 +1,0 @@
-Synthetic A05 fixture: required MR fields, policy links, and examples validated.

@@ -1,1 +1,0 @@
-Synthetic A08 fixture: strict graph, package-state, KPI, automatic-observation, aggregation, retry, boundary, invalid-input, and failure behavior is repository-locally exercised.

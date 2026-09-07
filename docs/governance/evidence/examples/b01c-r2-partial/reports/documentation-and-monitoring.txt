@@ -1,1 +1,0 @@
-Synthetic B01c fixture: final-slice scope, R2 gates, parent partial status, compatibility retention, rollback, operational signals, external findings, non-goals, and B02 successor remain explicit.

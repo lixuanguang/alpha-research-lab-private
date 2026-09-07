@@ -1,19 +1,5 @@
 # Venue, Session, Calendar, and Market-Status Contracts
 
-## Control metadata
-
-| Field | Value |
-| --- | --- |
-| Roadmap package | C02 |
-| Operating track | Solo bootstrap |
-| Implementation status | Complete |
-| Institutional status | Partial |
-| Accountable owner role | Domain Architecture |
-| Dependencies | C01, provisionally satisfied with open findings |
-| Change risk | R2 shared-domain and shared-library contract |
-| Applicable gates | QG01-QG06, QG09-QG14 |
-| Evidence retention | Shared-contract compatibility lifecycle |
-
 ## Objective and delivery boundary
 
 C02 establishes the owned strict immutable Pydantic venue, calendar, session,
@@ -23,8 +9,8 @@ ISO 10383 MIC-shaped values, preserves both segment and operating MICs, and make
 every schedule lookup depend on an explicit bounded calendar snapshot rather than
 the host clock, host timezone, a provider SDK, or a live service.
 
-The roadmap-required `exchange_calendars==4.13.2` dependency is isolated behind
-`ExchangeCalendarsAdapter` under [ADR 0011](decisions/0011-versioned-venue-calendar-adapter.md).
+The selected `exchange_calendars==4.13.2` dependency is isolated behind
+`ExchangeCalendarsAdapter` under the [current architecture decision](README.md#current-architecture-decisions).
 It supplies base session labels, opens, breaks, closes, early closes, holidays by
 session absence, and IANA timezone metadata. Owned values represent attributed
 closures, auctions, halts, limit states, settlement dates, and overrides because
@@ -111,16 +97,16 @@ still fails explicitly; no session or live status is inferred.
 
 Override IDs and target labels are unique within a snapshot. Any override requires
 matching override source and revision on the calendar version; applied records
-remain in the snapshot and must agree with its resulting sessions. A later correction emits
-a new immutable snapshot and calendar version; it does not mutate a retained
-snapshot. D04 will own persistent temporal master data, priority rules, full
-valid/knowledge history, impact reports, and publication.
+remain in the snapshot and must agree with its resulting sessions. A later
+correction emits a new immutable snapshot and calendar version; it does not
+mutate a retained snapshot. A future temporal master-data layer may own
+persistent history, priority rules, impact reports, and publication.
 
 The NumPy transitive dependency is constrained to 2.4.6 because 2.5.2 causes the
 pinned XHKG source calendar to emit a deprecation warning under the repository's
 warnings-as-errors policy. This is an explicit compatibility constraint, not an
 ambient environment workaround. The complete source, wheel, hash, license, and
-native-artifact graph remains under B07 admission.
+native-artifact graph remains under dependency admission.
 
 ## Golden and property evidence
 
@@ -144,32 +130,23 @@ and explicit timezone round trips. Explicit gap/fold tests retain distinct UTC
 instants across repeated local times. Strict Pydantic tests reject raw nested
 mappings, extra fields, coercion, mutation, and invalid nested instances.
 
-## Evidence and governance
-
-The C02 evidence manifest retains exact classification, gate, dependency and
-artifact state. Gate definitions live in the
-[operations runbook](../governance/operations.md); current package state
-and finding IDs are rendered in the
-[development workflow](../governance/workflow.md).
-
 The diagnostic workload uses the retained 185-session XNYS range, with lookups at
 session opens and closes. Session selection uses binary search over the validated
 opening-order invariant; no mutable index or external cache is introduced.
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
-C02 is an additive Python API and build target. There is no existing calendar
-consumer, serialized schema, database, service, order state, or deployment to
-migrate. Consumers later migrate by constructing a stable `Venue`, selecting an
+Financial-unit settlement conventions already consume `SettlementCalendar`.
+There is no external strategy/service, database, order state or deployment to
+migrate. Additional consumers integrate by constructing a stable `Venue`, selecting an
 explicit calendar version and bounded range, applying only source-attributed
 overrides, and carrying the complete snapshot/version identity with results.
 
-Rollout is repository-local merged-result testing, golden compatibility replay,
-dependency admission, and consumer impact analysis. It deploys and activates
-nothing. Rollback is a reviewed revert of the library, exact dependency and lock
-edges, targets, tests, architecture/ADR, status, and evidence together. Retain the
-golden fixture and any failing source revision or override record needed to
-explain affected results.
+Rollout uses focused tests, golden compatibility replay, dependency admission,
+and consumer impact analysis. It deploys and activates nothing. Rollback is a
+reviewed revert of the library, exact dependency and lock edges, tests, and
+documentation together. Retain the golden fixture and any failing source
+revision or override record needed to explain affected results.
 
 If adapter construction, a session lookup, or state validation fails, stop the
 affected calendar path. Retain the venue, calendar version, bounded range, source
@@ -179,12 +156,3 @@ consumer replay, and only then publish a replacement snapshot. Never guess a
 timezone, select a nearby session, suppress an unknown halt/limit, or treat the
 library as live authority. C02 adds no production monitor, page, alert route, or
 operator control.
-
-## Governance references
-
-Finding detail remains in the retained
-[C02 evidence manifest](../governance/evidence/examples/c02-r2-partial/manifest.toml).
-The [development workflow](../governance/workflow.md) owns daily evidence and the
-[development workflow](../governance/workflow.md) records implementation. C02 grants no
-provider, credential, deployment, activation, executable-order or capital
-authority.

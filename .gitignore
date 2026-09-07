@@ -65,8 +65,6 @@ data/silver/
 data/gold/
 *.parquet
 *.pdf
-!Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf
-!tests/data/fixtures/*.parquet
 
 # -----------------------------------------------------------------------------
 # IDE / editor

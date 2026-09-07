@@ -1,1 +1,0 @@
-Synthetic A06 fixture: canonical root, pre-commit, and hosted-CI integration, the B01-B04 control records, catalog-size bounds, and the governed query workload budget are repository-locally exercised.

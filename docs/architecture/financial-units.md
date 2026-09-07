@@ -1,34 +1,20 @@
 # Typed Financial Units and Conventions
 
-## Control metadata
-
-| Field | Value |
-| --- | --- |
-| Roadmap package | C03 |
-| Operating track | Solo bootstrap |
-| Implementation status | Complete |
-| Institutional status | Partial |
-| Accountable owner role | Domain Architecture |
-| Dependencies | C01-C02, provisionally satisfied with open institutional findings |
-| Change risk | R2, shared financial library and native dependency boundary |
-| Applicable gates | QG01-QG14 |
-| Evidence retention | Shared-contract compatibility lifecycle |
-
 ## Objective and boundary
 
 `alpha_research.financial_units` owns immutable in-process financial values and
-explicit convention adapters under [ADR 0013](decisions/0013-explicit-financial-units-and-conventions.md).
-It supplies the blueprint's money, FX, price, yield, volatility, rate, duration,
+explicit convention adapters under the [current architecture decision](README.md#current-architecture-decisions).
+It supplies the repository's money, FX, price, yield, volatility, rate, duration,
 multiplier, lot, tick and quantity abstractions. It adds no wire schema, position,
 cash ledger, valuation engine, executable order, risk decision or market authority.
 
-The maintainer selected `QuantLib==1.43` for C03. Version 1.40 failed the pinned
+The convention adapter uses `QuantLib==1.43`. Version 1.40 failed the pinned
 Python 3.12.14 warnings-as-errors import check with a native segmentation fault;
-1.43 passes without changing warning filters. B07's existing bounded publication
-profile admits 1.43 only for isolated development and CI, through 2026-10-04.
-Authenticated wheel publication is not authenticated build provenance. B08's
-existing guard blocks artifact creation, signing, publication and verification
-for the whole graph while this admission remains. No production use is permitted.
+1.43 passes without changing warning filters. The dependency policy's bounded
+profile admits 1.43 only for isolated development and CI through 2026-10-04.
+Authenticated wheel publication is not authenticated build provenance. The
+artifact boundary blocks artifact creation, signing, publication and verification
+for the graph while this admission remains. No production use is permitted.
 
 ## Public values and operations
 
@@ -145,43 +131,26 @@ multi-year modified adjustments, and independence from Decimal
 context and QuantLib's evaluation date across concurrent calls. A bounded local
 performance check is diagnostic; it supplies no target latency/SLO certification.
 
-A04 facts are no capital, shared-domain blast radius, shared-library materiality,
-shared-sensitive native admission, compatibility-window reversibility, and
-computational/economic relevance. Classification is R2 with QG01-QG14. Code Owner
-and independent domain review are mandatory; Platform/SRE and Security assess the
-native dependency and inherited B07 obligations. No independent approval exists.
-
-Applicable gate definitions live in the
-[operations runbook](../governance/operations.md). Exact dependency,
-classification, artifact and finding state remains in the machine-readable
-admission and evidence records; current package state and finding IDs are rendered
-in the [development workflow](../governance/workflow.md).
-
-The [evidence example](../governance/evidence/examples/c03-r2-partial/manifest.toml)
-is a hash-bound partial A05 fixture with an explicitly synthetic SHA, not approval
-of uncommitted code. Its reports identify the actual implementation base and
-executed local checks. Exact-commit protected evidence remains C03-F01/F02.
-A separate `working-tree-inputs.json` artifact binds the changed implementation
-inputs to their actual SHA-256 digests and base commit. The manifest also retains
-hashes of the actual vulnerability scan, native observations and publication
-verification results; none is an independent approval.
+The direct [golden fixture](../../tests/golden/financial_units/c03_units.json)
+and focused tests are the behavioral evidence for this contract. Dependency and
+artifact checks retain the exact lock, native evidence, vulnerability coverage,
+and release block described in the [dependency policy](dependency-admission.toml)
+and [artifact boundary](artifact-supply-chain.md).
 
 ## Migration, rollout, rollback and runbook
 
-This is an additive API with no existing consumer or persisted state to migrate.
-The requested migration replaces every C03 dataclass with Pydantic and replaces
-internal `dataclasses.replace` calls with validated `model_copy`. Pydantic is
-already exactly pinned; only its direct lock and admission records are maintained. Msgspec
-is not introduced because C03 has no codec requirement or measured serialization
-need. QuantLib remains exactly 1.43.
-Rollout is repository-local full-lane validation, golden replay and consumer impact
-review. No runtime, root command, CI lane, A06 inventory or A08 readiness update is
-owned here. Build/source registrations cover only C03 and its required inputs.
+This is an additive API with no external strategy or service consumer and no
+persisted state to migrate.
+The implementation uses strict Pydantic models and validated `model_copy` updates;
+Pydantic is already exactly pinned. Msgspec is not introduced because this package
+has no codec requirement or measured serialization need. QuantLib remains exactly
+1.43. Rollout uses focused domain tests, golden replay, and consumer impact review.
+No deployment or activation is introduced.
 
-Rollback reverts source, tests, dependency declarations/locks/admission, build
-registrations and documentation together, preserving diagnostic evidence. A later
+Rollback reverts source, tests, dependency declarations, locks, admission, and
+documentation together, preserving diagnostic evidence. A later
 consumer migration must first account for dimensions, precision, convention
-revisions and replay obligations. No deployment or activation is introduced.
+revisions, and replay obligations.
 
 On `UnitError` or `ConventionError`, stop the affected calculation. Retain safe
 instrument/currency dimensions, explicit context and source/calendar revisions,
@@ -189,14 +158,5 @@ operation, adapter version and exception cause. Reconcile inputs with the domain
 owner, issue corrected versioned inputs and replay goldens and consumer tests.
 Never substitute a unit, infer a calendar, suppress a warning, mutate global
 Settings or round implicitly to recover. Admission expiry or evidence mismatch
-stops validation; Platform must renew with actual review or replace/remove the
-dependency. It does not renew automatically or permit artifact release.
-
-## Governance references
-
-Finding detail remains in the retained
-[C03 evidence manifest](../governance/evidence/examples/c03-r2-partial/manifest.toml)
-and [dependency admission](dependency-admission.toml), including `B07-DEP-001`.
-The [development workflow](../governance/workflow.md) owns daily evidence and the
-[development workflow](../governance/workflow.md) records implementation. C03 grants no
-release, deployment, activation, credential, market or capital authority.
+stops validation; resolve the dependency evidence or replace/remove the
+dependency before any artifact release.

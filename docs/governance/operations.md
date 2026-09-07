@@ -1,10 +1,24 @@
 # Operations and security runbook
 
-This runbook applies to a real deployed strategy or service. The repository
-does not claim live readiness until the behavior below is implemented and
-tested for the selected venue and environment.
+This runbook states requirements for a future deployed strategy or service.
+Deployment, activation, monitoring, stop/cancel and recovery commands are not
+implemented. Add the selected target, actual commands, numeric limits and tested
+failure responses to the strategy's runbook before operation. The repository
+does not claim live readiness.
+
+The operating destination includes multiple strategy instances, accounts, venues
+and asset classes. Start with the selected first deployment and add the relevant
+operational behavior with each capability in the
+[platform roadmap](../roadmap/README.md). The
+[platform design](../architecture/platform-design.md) describes the planned state,
+execution and observability boundaries.
 
 ## Deploy
+
+Current `make build` and `make wheel-smoke` commands verify development artifacts.
+The [QuantLib restriction](../architecture/README.md#dependency-and-release-boundaries)
+blocks release lifecycle operations until its source-to-wheel uncertainty is
+resolved. Passing checks or moving an evidence file does not remove that block.
 
 Build and verify one immutable artifact. Record its commit, digest, dependency
 lock, configuration/model/data references, target environment, limits, and
@@ -43,6 +57,18 @@ On an alert, stop new orders, cancel where safe, preserve state and logs, and
 reconcile against the venue before resuming. If the founder is unavailable,
 the process must take its defined safe action automatically. Test stop,
 restart, backup/restore, rollback, and reconciliation before increasing limits.
+
+As strategies and accounts multiply, identify every event and alert by release,
+strategy instance, account and venue where applicable. Reconcile both each
+strategy's attributed activity and the actual account ledger; monitor aggregate
+exposure, margin and pending orders across strategies. Define which failures stop
+one instance, an account or all trading. A failed strategy must not disable shared
+account protection or conceal another strategy's live orders.
+
+Add dashboards, centralized telemetry and additional operators when the workload
+needs them. Minimum health, financial monitoring and tested recovery accompany the
+first live path. Staffing-dependent approval and review programs follow actual
+onboarding and are a separate, lower-priority workstream.
 
 ## Incident record
 

@@ -1,18 +1,5 @@
 # Canonical Instrument Identity and Temporal Symbology
 
-## Control metadata
-
-| Field | Value |
-| --- | --- |
-| Roadmap package | C01 |
-| Operating track | Solo bootstrap |
-| Package status | Partial |
-| Accountable owner role | Domain Architecture |
-| Dependencies | B01-B05, provisionally satisfied with open findings |
-| Change risk | R2 shared-domain and shared-library contract |
-| Applicable gates | QG01-QG06, QG09-QG14 |
-| Evidence retention | Shared-contract compatibility lifecycle |
-
 ## Objective and delivery boundary
 
 C01 establishes the first implemented canonical multi-asset domain contract. An
@@ -27,7 +14,7 @@ assertions. Provider-specific classes, normalization rules, SDK values, and
 source-priority policy do not enter the canonical model. The package has no
 network, filesystem, database, clock, or configuration dependency. Its strict
 immutable Pydantic construction boundary is governed by
-[ADR 0010](decisions/0010-pydantic-instrument-identity-models.md).
+the [current architecture decision](README.md#current-architecture-decisions).
 
 ## Public interface
 
@@ -76,8 +63,9 @@ case-fold, or rewrite a provider value.
 - Resolution and reverse lookup return the complete mapping assertion so the
   caller retains source, revision, interval, mapping ID, and correction lineage.
 
-The C01 current projection is not a knowledge-time query. C04 will define event,
-receipt, ingestion, knowledge, valid-time, sequence, and bitemporal selection.
+The C01 current projection is not a knowledge-time query. A future data layer may
+define event, receipt, ingestion, knowledge, valid-time, sequence, and bitemporal
+selection.
 Until then, a historical catalog snapshot must be identified outside this library;
 C01 does not reconstruct what was known at an earlier decision time.
 
@@ -101,29 +89,22 @@ tests also cover unknown values, invalid checksums and namespaces, bad UTC
 intervals, duplicate and orphaned identities, overlap, missing correction
 predecessors, changed correction keys, forks, and cycles.
 
-## Evidence and governance
-
-The C01 evidence manifest retains exact classification, gate and artifact state.
-Gate and operation guidance lives in the [operations runbook](../governance/operations.md);
-current package state and finding IDs are rendered in the
-[development workflow](../governance/workflow.md).
-
 ## Migration, rollout, rollback, monitoring, and runbook
 
-This remains an additive Python API and build target with no existing canonical
-consumer or serialized state to migrate. The internal model implementation moved
+Financial-unit dimensions already consume `InstrumentId`. There is no external
+strategy/service or persisted state to migrate. The internal model implementation moved
 from frozen dataclasses to strict immutable Pydantic models without changing the
 public constructors or domain exceptions. Downstream adapters migrate by converting
 provider identifiers into `ExternalIdentifier`, resolving at an explicit valid
-time, and carrying only `InstrumentId` into canonical consumers. C05/C08 will own
-cross-process schemas, compatibility versions, generated clients, and formal
-migration windows.
+time, and carrying only `InstrumentId` into canonical consumers. A future
+cross-process boundary can define versioned schemas, compatibility versions,
+generated clients, and migration windows.
 
-Rollout is repository-local only: merged-result tests, compatibility replay of the
-golden fixture, and consumer impact analysis. It deploys and activates nothing.
-Rollback-safe rollback is a reviewed revert of the library, target registration,
-tests, documentation, status record, and evidence bundle together. Retain the
-fixture and any failed mapping records needed to explain affected results.
+Rollout uses focused tests, compatibility replay of the golden fixture, and
+consumer impact analysis. It deploys and activates nothing. Rollback is a
+reviewed revert of the library, tests, dependency declarations, and documentation
+together. Retain the fixture and any failed mapping records needed to explain
+affected results.
 
 If a consumer sees unknown or ambiguous identity, it must stop that affected
 resolution path and retain the error context; it must not guess a namespace or
@@ -132,11 +113,3 @@ revision, append a corrected assertion that supersedes the bad record, rerun the
 golden/property/consumer replay, and only then publish a new catalog snapshot.
 There is no production service, dashboard, page, alert route, or operator control
 introduced by C01.
-
-## Governance references
-
-Finding detail remains in the retained
-[C01 evidence manifest](../governance/evidence/examples/c01-r2-partial/manifest.toml).
-The [development workflow](../governance/workflow.md) owns daily evidence. C01
-defines identity behavior only and grants no provider, credential, deployment,
-activation, market or capital authority.

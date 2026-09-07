@@ -1,1 +1,0 @@
-Synthetic B01c fixture: root, pre-commit, and hosted-CI consumers invoke installed canonical governance commands; topology enforcement, invalid arguments, missing roots, and command failure propagation are repository-locally exercised.

@@ -1,1 +1,0 @@
-Synthetic A08 fixture: owners, missing baselines, pending target approvals, partial status, open findings, deterministic dashboard queries, and the prohibition on KPI substitution remain explicit.

@@ -1,17 +1,24 @@
 # Alpha Research Platform
 
-A Python workspace for quantitative research. The implemented domain libraries
-cover instrument identity, venue calendars, and financial units. Data ingestion,
-simulation, risk enforcement, order execution, and production deployment remain
-future work. The first delivery target is one reproducible strategy baseline with
-explicit data availability, realistic costs, and accounting.
+A monorepo growing toward institutional-grade multi-asset, multi-strategy research,
+production trading and monitoring. The implemented Python domain libraries cover
+instrument identity, venue calendars and financial units. Data ingestion,
+simulation, risk enforcement, execution and deployment remain future work.
+One reproducible strategy baseline is the first delivery target; shared research,
+portfolio infrastructure and independently operated strategies are the destination.
+
+The [platform roadmap](roadmap/README.md) sets phased deliverables and evidence.
+The [platform design](architecture/platform-design.md) preserves intended module
+boundaries, interfaces, runtime lanes and scaling choices. Technical correctness,
+reproducibility and trading safety accompany the features that need them. Team
+ownership, independent approvals and organizational controls are the lowest
+priority workstream, introduced as actual contributors and operators join.
 
 The [development workflow](governance/workflow.md) owns development and founder
-activation decisions. The institutional blueprint and package roadmap are historical
-planning material, not prerequisites for implementation. QuantLib 1.43 remains
+activation decisions. QuantLib 1.43 remains
 restricted to isolated development/CI through 2026-10-04 because its
 source-to-wheel binding is unverified; artifact release remains blocked. See the
-[dependency decision](architecture/dependency-admission.md).
+[dependency decision](architecture/README.md#dependency-and-release-boundaries).
 
 ## Development environment
 
@@ -55,7 +62,7 @@ For selected tests use:
 uv run --frozen --no-editable pytest -q <test-paths>
 ```
 
-The [CI guide](architecture/ci-policy.md) explains the source and installed-package
+The [architecture guide](architecture/README.md) explains the source and installed-package
 checks. Runtime consumers can install the built wheel with its declared domain
 dependencies; development tools and the retired `alpha-research-ci` command are
 absent from the runtime distribution. This installation boundary does not override
@@ -66,13 +73,17 @@ the QuantLib release restriction.
 | Start here | Contents |
 | --- | --- |
 | [Cleanup plan](cleanup/README.md) | Cleanup scope, decisions and measured validation |
-| [Architecture](architecture/README.md) | Architecture and implemented domain contracts |
+| [Architecture](architecture/README.md) | Current architecture and implemented domain contracts |
+| [Platform design](architecture/platform-design.md) | Planned shared modules, runtime lanes, contracts, recovery and scaling decisions |
 | [Development workflow](governance/workflow.md) | Implementation, validation and founder activation rules |
-| [Research program](roadmap/research-program.md) | Research protocol and remaining historical planning context |
-| [Coding standards](coding_standards/README.md) | Enforced clarity and numerical engineering requirements |
-| [Financial units](architecture/financial-units.md) | Exact units and native convention boundaries |
+| [Operations runbook](governance/operations.md) | Security, monitoring, stop and recovery requirements for a future deployment |
+| [Platform roadmap](roadmap/README.md) | Phased multi-asset, multi-strategy research, production, monitoring and scaling work |
+| [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |
+| [Engineering guide](coding_standards/README.md) | Enforced clarity and numerical engineering requirements |
+| [Instrument identity](architecture/instrument-identity.md), [venue calendars](architecture/venue-calendar.md), [financial units](architecture/financial-units.md) | Implemented domain contracts and golden datasets |
 
-Keep actual release identities, data provenance and unresolved dependency evidence.
-Synthetic historical evidence and the old package catalog confer no current
-approval or live readiness. Documentation consolidation and the practical backlog
-are the next cleanup slice.
+Data ingestion, backtesting, paper/replay, deployment, activation, monitoring and
+stop commands are planned. Follow the roadmap and add commands here as those
+capabilities are implemented and tested. Keep actual release identities, data
+provenance and unresolved dependency evidence; no current result grants live
+readiness.
