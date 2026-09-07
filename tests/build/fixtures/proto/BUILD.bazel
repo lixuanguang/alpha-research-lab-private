@@ -1,3 +1,4 @@
+load("@alpha_research_pypi//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_test")
 
 package(default_visibility = ["//visibility:private"])
@@ -33,4 +34,17 @@ py_test(
         "@rules_buf_toolchains//:buf",
     ],
     main = "buf_toolchain_test.py",
+)
+
+py_test(
+    name = "buf_contract_test",
+    srcs = [
+        "buf_compatibility_test.py",
+        "buf_toolchain_test.py",
+        "test_buf_contracts.py",
+    ],
+    imports = ["."],
+    main = "test_buf_contracts.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [requirement("pytest")],
 )

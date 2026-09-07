@@ -179,8 +179,12 @@ test_suite(
     name = "hermetic_build_tests",
     tests = [
         "//tests/build:build_graph_test",
+        "//tests/build:build_graph_contracts_test",
+        "//tests/build:sandbox_contract_test",
         "//tests/build:sandbox_test",
+        "//tests/build/fixtures/proto:buf_contract_test",
         "//tests/build/fixtures/proto:buf_toolchain_test",
+        "//tests/build/fixtures/sql:generated_sql_contract_test",
         "//tests/build/fixtures/sql:generated_sql_test",
         "//tests/build/fixtures/sql:invalid_substitution_test",
         "//tests/engineering:ci_runner_test",
@@ -200,5 +204,8 @@ test_suite(
 
 test_suite(
     name = "developer_environment_tests",
-    tests = ["//tests/build:developer_environment_test"],
+    tests = [
+        "//tests/build:developer_environment_contracts_test",
+        "//tests/build:developer_environment_test",
+    ],
 )

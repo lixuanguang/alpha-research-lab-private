@@ -30,37 +30,6 @@
     }
   },
   "entries": {
-    "tests/build/build_graph_test.py": [
-      ["_dependency_record_errors", "PYC001", "module-level-function"],
-      ["_evidence_errors", "PYC001", "module-level-function"],
-      ["_report_artifact_path", "PYC001", "module-level-function"],
-      ["_repository_root", "PYC001", "module-level-function"],
-      ["main", "PYC001", "module-level-function"]
-    ],
-    "tests/build/developer_environment_test.py": [
-      ["_assert_script_failure", "PYC001", "module-level-function"],
-      ["_contract_errors", "PYC001", "module-level-function"],
-      ["_evidence_errors", "PYC001", "module-level-function"],
-      ["_flake_lock_errors", "PYC001", "module-level-function"],
-      ["_report_artifact_path", "PYC001", "module-level-function"],
-      ["_repository_root", "PYC001", "module-level-function"],
-      ["_roadmap_named_implementation_tokens", "PYC001", "module-level-function"],
-      ["main", "PYC001", "module-level-function"]
-    ],
-    "tests/build/fixtures/proto/buf_compatibility_test.py": [
-      ["_run", "PYC001", "module-level-function"],
-      ["main", "PYC001", "module-level-function"]
-    ],
-    "tests/build/fixtures/proto/buf_toolchain_test.py": [
-      ["_run", "PYC001", "module-level-function"],
-      ["main", "PYC001", "module-level-function"]
-    ],
-    "tests/build/fixtures/sql/generated_sql_test.py": [
-      ["main", "PYC001", "module-level-function"]
-    ],
-    "tests/build/sandbox_test.py": [
-      ["main", "PYC001", "module-level-function"]
-    ],
     "tests/engineering/test_architecture_governance.py": [
       ["_adr_text", "PYC001", "module-level-function"],
       ["test_accepted_adr_requires_commit_bound_https_approval", "PYC001", "module-level-function"],
