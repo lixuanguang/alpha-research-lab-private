@@ -76,6 +76,7 @@ in [remote execution](architecture/remote-execution.md). See the
 
 | Start here | Contents |
 | --- | --- |
+| [Solo-maintainer cleanup plan](cleanup/README.md) | Repository audit and proposed simplification of docs, code, governance, CI, and tests |
 | [Architecture](architecture/README.md) | System overview and links to build and domain contracts |
 | [Development workflow](governance/workflow.md) | The one active implementation, evidence, validation, and handover workflow |
 | [Program status](governance/program-status.md) | Generated implementation, governance, readiness, and finding view |
