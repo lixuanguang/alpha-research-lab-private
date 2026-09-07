@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as installed_version
-from typing import Protocol, cast
+from typing import Protocol, runtime_checkable
 
 # third party library imports
 import exchange_calendars as _exchange_calendars
@@ -49,12 +49,27 @@ class IncompatibleCalendarLibraryError(CalendarAdapterError):
 
 
 class _ExchangeCalendar(Protocol):
-    """Describe only the untyped third-party surface consumed by C02."""
+    """Describe the third-party schedule surface consumed by C02."""
 
-    name: str
-    tz: object
-    sessions: Iterable[object]
-    early_closes: Iterable[object]
+    @property
+    def name(self) -> str:
+        """Return the source calendar's canonical name."""
+        ...
+
+    @property
+    def tz(self) -> object:
+        """Return the source calendar's timezone value for owned validation."""
+        ...
+
+    @property
+    def sessions(self) -> Iterable[object]:
+        """Return source session labels."""
+        ...
+
+    @property
+    def early_closes(self) -> Iterable[object]:
+        """Return source early-close labels."""
+        ...
 
     def session_open(self, session: date) -> object:
         """Return the source opening timestamp for an eligible session label."""
@@ -73,8 +88,17 @@ class _ExchangeCalendar(Protocol):
         ...
 
 
+@runtime_checkable
+class _TimestampConverter(Protocol):
+    """Describe a validated source timestamp conversion callable."""
+
+    def __call__(self) -> object:
+        """Return the converted standard-library value."""
+        ...
+
+
 def _calendar_library_version() -> str:
-    """Read installed distribution metadata or report an unavailable calendar library."""
+    """Read the installed calendar distribution metadata."""
     try:
         return installed_version(EXCHANGE_CALENDARS_DISTRIBUTION)
     except PackageNotFoundError as error:
@@ -83,72 +107,19 @@ def _calendar_library_version() -> str:
         ) from error
 
 
-def _load_exchange_calendar(*, calendar_name: str, start: date, end: date) -> _ExchangeCalendar:
-    """Load the pinned source calendar and verify its consumed schedule surface.
-
-    The source constructor may extend the end date to find a session in an empty
-    interval. Snapshot construction subsequently filters labels to the original
-    inclusive bounds. Library aliases are resolved here; the caller checks that
-    the resolved name and timezone exactly match the requested venue.
-    """
-    if _calendar_library_version() != EXCHANGE_CALENDARS_VERSION:
-        raise IncompatibleCalendarLibraryError(
-            f"{EXCHANGE_CALENDARS_DISTRIBUTION} must be exactly {EXCHANGE_CALENDARS_VERSION}"
-        )
-    if (
-        not isinstance(calendar_name, str)
-        or not calendar_name
-        or calendar_name != calendar_name.strip()
-        or len(calendar_name) > 32
-    ):
-        raise VenueCalendarValidationError("calendar_name must be a bounded exact source name")
-    try:
-        constructor_end = end + timedelta(days=1) if start == end else end
-        try:
-            candidate: object = _exchange_calendars.get_calendar(
-                calendar_name,
-                start=start,
-                end=constructor_end,
-                side="left",
-            )
-        except _NoSessionsError:
-            candidate = _exchange_calendars.get_calendar(
-                calendar_name,
-                start=start,
-                end=end + timedelta(days=31),
-                side="left",
-            )
-    except (_ExchangeCalendarError, KeyError, TypeError, ValueError, OverflowError) as error:
-        raise CalendarAdapterError(
-            f"cannot load calendar {calendar_name!r} for {start.isoformat()} "
-            f"through {end.isoformat()}"
-        ) from error
-    required_members = (
-        "name",
-        "tz",
-        "sessions",
-        "early_closes",
-        "session_open",
-        "session_close",
-        "session_break_start",
-        "session_break_end",
-    )
-    if any(not hasattr(candidate, member) for member in required_members):
-        raise CalendarAdapterError("calendar source does not expose the required schedule surface")
-    return cast(_ExchangeCalendar, candidate)
-
-
 def _as_date(candidate: object, *, field_name: str) -> date:
-    """Extract a source session label's date without applying a timezone conversion."""
+    """Extract a source session label's date without applying timezone conversion."""
     if isinstance(candidate, datetime):
         return candidate.date()
     if isinstance(candidate, date):
         return candidate
-    to_datetime = getattr(candidate, "to_pydatetime", None)
-    if callable(to_datetime):
+    to_datetime: object = getattr(candidate, "to_pydatetime", None)
+    if isinstance(to_datetime, _TimestampConverter) and callable(to_datetime):
         converted = to_datetime()
-        if isinstance(converted, datetime):
-            return converted.date()
+    else:
+        converted = None
+    if isinstance(converted, datetime):
+        return converted.date()
     raise CalendarAdapterError(f"calendar source returned invalid {field_name}")
 
 
@@ -159,8 +130,8 @@ def _as_utc_datetime(
     if optional and (candidate is None or candidate is _pandas.NaT):
         return None
     converted: object = candidate
-    to_datetime = getattr(candidate, "to_pydatetime", None)
-    if callable(to_datetime):
+    to_datetime: object = getattr(candidate, "to_pydatetime", None)
+    if isinstance(to_datetime, _TimestampConverter) and callable(to_datetime):
         converted = to_datetime()
     if isinstance(converted, datetime) and converted.tzinfo is not None:
         try:
@@ -178,91 +149,185 @@ def _required_utc_datetime(candidate: object, *, field_name: str) -> datetime:
     return converted
 
 
-def _adapt_session(
-    calendar: _ExchangeCalendar, *, session_label: date, kind: SessionKind
-) -> TradingSession:
-    """Query source session boundaries and validate an owned UTC session with optional break."""
-    try:
-        source_open = calendar.session_open(session_label)
-        source_close = calendar.session_close(session_label)
-        source_break_start = calendar.session_break_start(session_label)
-        source_break_end = calendar.session_break_end(session_label)
-    except (_ExchangeCalendarError, KeyError, TypeError, ValueError) as error:
-        raise CalendarAdapterError(
-            f"calendar source failed to query session {session_label.isoformat()}"
-        ) from error
-    return TradingSession(
-        session_label=session_label,
-        opens_at=_required_utc_datetime(source_open, field_name="session open"),
-        closes_at=_required_utc_datetime(source_close, field_name="session close"),
-        kind=kind,
-        break_starts_at=_as_utc_datetime(
-            source_break_start, field_name="session break start", optional=True
-        ),
-        break_ends_at=_as_utc_datetime(
-            source_break_end, field_name="session break end", optional=True
-        ),
-    )
-
-
-def _apply_overrides(
-    base_sessions: tuple[TradingSession, ...],
-    overrides: tuple[SessionOverride, ...],
-) -> tuple[TradingSession, ...]:
-    """Apply unique explicit add, replace, or remove instructions to a copied session map.
-
-    ADD requires an absent label; REPLACE and REMOVE require an existing label.
-    Conflicting labels or IDs fail. Return sessions ordered by opening instant and
-    label without mutating the input tuples or their immutable records.
-    """
-    sessions_by_label = {session.session_label: session for session in base_sessions}
-    if len(sessions_by_label) != len(base_sessions):
-        raise CalendarAdapterError("calendar source session labels must be unique")
-    seen_override_ids: set[str] = set()
-    seen_labels: set[date] = set()
-    for override in overrides:
-        if not isinstance(override, SessionOverride):
-            raise VenueCalendarValidationError(
-                "overrides must be an immutable tuple of SessionOverride values"
-            )
-        if override.override_id in seen_override_ids:
-            raise VenueCalendarValidationError("session override IDs must be unique")
-        if override.session_label in seen_labels:
-            raise VenueCalendarValidationError(
-                "only one session override may target a label in a snapshot"
-            )
-        seen_override_ids.add(override.override_id)
-        seen_labels.add(override.session_label)
-        exists = override.session_label in sessions_by_label
-        if override.action is SessionOverrideAction.ADD:
-            if exists:
-                raise VenueCalendarValidationError("ADD override requires an absent base session")
-            replacement = override.replacement
-            if replacement is None:
-                raise VenueCalendarValidationError("ADD override requires a replacement")
-            sessions_by_label[override.session_label] = replacement
-        elif override.action is SessionOverrideAction.REPLACE:
-            if not exists:
-                raise VenueCalendarValidationError(
-                    "REPLACE override requires an existing base session"
-                )
-            replacement = override.replacement
-            if replacement is None:
-                raise VenueCalendarValidationError("REPLACE override requires a replacement")
-            sessions_by_label[override.session_label] = replacement
-        else:
-            if not exists:
-                raise VenueCalendarValidationError(
-                    "REMOVE override requires an existing base session"
-                )
-            del sessions_by_label[override.session_label]
-    return tuple(
-        sorted(sessions_by_label.values(), key=lambda item: (item.opens_at, item.session_label))
-    )
-
-
 class ExchangeCalendarsAdapter:
     """Build bounded owned snapshots from exactly exchange-calendars 4.13.2."""
+
+    @staticmethod
+    def _has_exchange_calendar_surface(candidate: object) -> bool:
+        """Check that a source object exposes the consumed schedule members."""
+        required_members = (
+            "name",
+            "tz",
+            "sessions",
+            "early_closes",
+            "session_open",
+            "session_close",
+            "session_break_start",
+            "session_break_end",
+        )
+        return all(hasattr(candidate, member) for member in required_members)
+
+    def _load_calendar(self, *, calendar_name: str, start: date, end: date) -> _ExchangeCalendar:
+        """Load and validate the pinned source calendar schedule surface.
+
+        The source constructor may extend the end date to find a session in an
+        empty interval. Snapshot construction later filters labels to the original
+        inclusive bounds. Aliases are resolved here; callers verify the resolved
+        name and timezone against the requested venue.
+        """
+        if _calendar_library_version() != EXCHANGE_CALENDARS_VERSION:
+            raise IncompatibleCalendarLibraryError(
+                f"{EXCHANGE_CALENDARS_DISTRIBUTION} must be exactly {EXCHANGE_CALENDARS_VERSION}"
+            )
+        if (
+            not isinstance(calendar_name, str)
+            or not calendar_name
+            or calendar_name != calendar_name.strip()
+            or len(calendar_name) > 32
+        ):
+            raise VenueCalendarValidationError("calendar_name must be a bounded exact source name")
+        try:
+            constructor_end = end + timedelta(days=1) if start == end else end
+            try:
+                candidate = _exchange_calendars.get_calendar(
+                    calendar_name,
+                    start=start,
+                    end=constructor_end,
+                    side="left",
+                )
+            except _NoSessionsError:
+                candidate = _exchange_calendars.get_calendar(
+                    calendar_name,
+                    start=start,
+                    end=end + timedelta(days=31),
+                    side="left",
+                )
+        except (_ExchangeCalendarError, KeyError, TypeError, ValueError, OverflowError) as error:
+            raise CalendarAdapterError(
+                f"cannot load calendar {calendar_name!r} for {start.isoformat()} "
+                f"through {end.isoformat()}"
+            ) from error
+        if not self._has_exchange_calendar_surface(candidate):
+            raise CalendarAdapterError(
+                "calendar source does not expose the required schedule surface"
+            )
+        return candidate
+
+    def _adapt_session(
+        self, calendar: _ExchangeCalendar, *, session_label: date, kind: SessionKind
+    ) -> TradingSession:
+        """Query and validate one source session as an owned UTC record."""
+        try:
+            source_open = calendar.session_open(session_label)
+            source_close = calendar.session_close(session_label)
+            source_break_start = calendar.session_break_start(session_label)
+            source_break_end = calendar.session_break_end(session_label)
+        except (_ExchangeCalendarError, KeyError, TypeError, ValueError) as error:
+            raise CalendarAdapterError(
+                f"calendar source failed to query session {session_label.isoformat()}"
+            ) from error
+        return TradingSession(
+            session_label=session_label,
+            opens_at=_required_utc_datetime(source_open, field_name="session open"),
+            closes_at=_required_utc_datetime(source_close, field_name="session close"),
+            kind=kind,
+            break_starts_at=_as_utc_datetime(
+                source_break_start, field_name="session break start", optional=True
+            ),
+            break_ends_at=_as_utc_datetime(
+                source_break_end, field_name="session break end", optional=True
+            ),
+        )
+
+    def _adapt_sessions(
+        self,
+        calendar: _ExchangeCalendar,
+        *,
+        start: date,
+        end: date,
+    ) -> tuple[TradingSession, ...]:
+        """Adapt source labels in the requested inclusive range."""
+        early_close_labels = {
+            _as_date(item, field_name="early-close label") for item in calendar.early_closes
+        }
+        base_sessions: list[TradingSession] = []
+        for raw_label in calendar.sessions:
+            session_label = _as_date(raw_label, field_name="session label")
+            if session_label < start or session_label > end:
+                continue
+            base_sessions.append(
+                self._adapt_session(
+                    calendar,
+                    session_label=session_label,
+                    kind=(
+                        SessionKind.HALF_DAY
+                        if session_label in early_close_labels
+                        else SessionKind.REGULAR
+                    ),
+                )
+            )
+        return tuple(base_sessions)
+
+    def _apply_overrides(
+        self,
+        base_sessions: tuple[TradingSession, ...],
+        overrides: tuple[SessionOverride, ...],
+    ) -> tuple[TradingSession, ...]:
+        """Apply unique add, replace, or remove instructions to copied sessions."""
+        sessions_by_label = {session.session_label: session for session in base_sessions}
+        if len(sessions_by_label) != len(base_sessions):
+            raise CalendarAdapterError("calendar source session labels must be unique")
+        seen_override_ids: set[str] = set()
+        seen_labels: set[date] = set()
+        for override in overrides:
+            if not isinstance(override, SessionOverride):
+                raise VenueCalendarValidationError(
+                    "overrides must be an immutable tuple of SessionOverride values"
+                )
+            if override.override_id in seen_override_ids:
+                raise VenueCalendarValidationError("session override IDs must be unique")
+            if override.session_label in seen_labels:
+                raise VenueCalendarValidationError(
+                    "only one session override may target a label in a snapshot"
+                )
+            seen_override_ids.add(override.override_id)
+            seen_labels.add(override.session_label)
+            exists = override.session_label in sessions_by_label
+            if override.action is SessionOverrideAction.ADD:
+                if exists:
+                    raise VenueCalendarValidationError(
+                        "ADD override requires an absent base session"
+                    )
+                replacement = override.replacement
+                if replacement is None:
+                    raise VenueCalendarValidationError("ADD override requires a replacement")
+                sessions_by_label[override.session_label] = replacement
+            elif override.action is SessionOverrideAction.REPLACE:
+                if not exists:
+                    raise VenueCalendarValidationError(
+                        "REPLACE override requires an existing base session"
+                    )
+                replacement = override.replacement
+                if replacement is None:
+                    raise VenueCalendarValidationError("REPLACE override requires a replacement")
+                sessions_by_label[override.session_label] = replacement
+            else:
+                if not exists:
+                    raise VenueCalendarValidationError(
+                        "REMOVE override requires an existing base session"
+                    )
+                del sessions_by_label[override.session_label]
+        return self._sort_sessions(sessions_by_label.values())
+
+    @staticmethod
+    def _session_sort_key(item: TradingSession) -> tuple[datetime, date]:
+        """Return the stable opening-instant and label ordering for a session."""
+        return item.opens_at, item.session_label
+
+    @classmethod
+    def _sort_sessions(cls, sessions: Iterable[TradingSession]) -> tuple[TradingSession, ...]:
+        """Return sessions ordered by opening instant and then session label."""
+        return tuple(sorted(sessions, key=cls._session_sort_key))
 
     def build_snapshot(
         self,
@@ -361,7 +426,7 @@ class ExchangeCalendarsAdapter:
             raise VenueCalendarValidationError(
                 "calendar override attribution must match the calendar version"
             )
-        calendar = _load_exchange_calendar(calendar_name=calendar_name, start=start, end=end)
+        calendar = self._load_calendar(calendar_name=calendar_name, start=start, end=end)
         if calendar.name != calendar_name:
             raise CalendarAdapterError(
                 f"calendar source resolved {calendar_name!r} as unexpected {calendar.name!r}"
@@ -371,26 +436,8 @@ class ExchangeCalendarsAdapter:
                 f"calendar timezone {calendar.tz!s} does not match venue timezone "
                 f"{venue.timezone_name!r}"
             )
-        early_close_labels = {
-            _as_date(item, field_name="early-close label") for item in calendar.early_closes
-        }
-        base_sessions: list[TradingSession] = []
-        for raw_label in calendar.sessions:
-            session_label = _as_date(raw_label, field_name="session label")
-            if session_label < start or session_label > end:
-                continue
-            base_sessions.append(
-                _adapt_session(
-                    calendar,
-                    session_label=session_label,
-                    kind=(
-                        SessionKind.HALF_DAY
-                        if session_label in early_close_labels
-                        else SessionKind.REGULAR
-                    ),
-                )
-            )
-        adapted_sessions = _apply_overrides(tuple(base_sessions), overrides)
+        base_sessions = self._adapt_sessions(calendar, start=start, end=end)
+        adapted_sessions = self._apply_overrides(base_sessions, overrides)
         return VenueCalendarSnapshot(
             venue=venue,
             version=version,

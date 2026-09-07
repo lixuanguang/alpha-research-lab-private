@@ -181,118 +181,6 @@
       "task": "callbacks"
     },
     {
-      "path": "src/alpha_research/venue_calendar/adapter.py",
-      "symbol": "_apply_overrides",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/adapter.py",
-      "symbol": "_apply_overrides",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, Any]]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/adapter.py",
-      "symbol": "_apply_overrides",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"tuple[Any, Any]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/adapter.py",
-      "symbol": "_as_date",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 2,
-      "task": "reflection"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/adapter.py",
-      "symbol": "_as_date",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Any | None\")",
-      "count": 2,
-      "task": "reflection"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/adapter.py",
-      "symbol": "_as_utc_datetime",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Any | None\")",
-      "count": 2,
-      "task": "reflection"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/models.py",
-      "symbol": "VenueCalendarSnapshot._validate_sessions",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/models.py",
-      "symbol": "VenueCalendarSnapshot._validate_sessions",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], tuple[Any, Any]]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/models.py",
-      "symbol": "VenueCalendarSnapshot._validate_sessions",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"tuple[Any, Any]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/models.py",
-      "symbol": "VenueCalendarSnapshot.market_state_at",
-      "code": "misc",
-      "message": "Expression has type \"Any\"",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/models.py",
-      "symbol": "VenueCalendarSnapshot.market_state_at",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], Any]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/models.py",
-      "symbol": "_validation_error_message",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"ErrorDetails\")",
-      "count": 4,
-      "task": "error_details"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/models.py",
-      "symbol": "_validation_error_message",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any] | None\")",
-      "count": 2,
-      "task": "error_details"
-    },
-    {
-      "path": "src/alpha_research/venue_calendar/models.py",
-      "symbol": "_validation_error_message",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"list[ErrorDetails]\")",
-      "count": 1,
-      "task": "error_details"
-    },
-    {
       "path": "tests/build/build_graph_test.py",
       "symbol": "_dependency_record_errors",
       "code": "misc",
@@ -1670,14 +1558,6 @@
     },
     {
       "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_adapter_rejects_mislabeled_source_revision_and_duplicate_source_sessions",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
-      "count": 1,
-      "task": "payload"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
       "symbol": "test_explicit_venue_timezone_round_trip_preserves_instant",
       "code": "misc",
       "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
@@ -1702,14 +1582,6 @@
     },
     {
       "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_incompatible_calendar_library_version_fails_before_source_use",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"Callable[[Any], str]\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
       "symbol": "test_market_state_projection_is_deterministic_for_every_boundary_offset",
       "code": "misc",
       "message": "Expression type contains \"Any\" (has type \"Callable[..., None]\")",
@@ -1731,62 +1603,6 @@
       "message": "Type of decorated function contains type \"Any\" (\"Callable[..., None]\")",
       "count": 1,
       "task": "hypothesis"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_source_session_query_failure_is_translated",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"def <lambda>(**_: Any) -> FailingCalendar\")",
-      "count": 1,
-      "task": "callbacks"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[Any, Any]\")",
-      "count": 5,
-      "task": "collections+payload"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"dict[str, Any]\")",
-      "count": 1,
-      "task": "collections+payload"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"list[Any]\")",
-      "count": 1,
-      "task": "collections+payload"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"tuple[str, dict[Any, Any]]\")",
-      "count": 1,
-      "task": "collections+payload"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"tuple[str, list[Any]]\")",
-      "count": 1,
-      "task": "collections+payload"
-    },
-    {
-      "path": "tests/unit/test_venue_calendar.py",
-      "symbol": "test_venue_calendar_models_are_strict_frozen_pydantic_boundaries",
-      "code": "misc",
-      "message": "Expression type contains \"Any\" (has type \"type[BaseModel]\")",
-      "count": 1,
-      "task": "collections+payload"
     },
     {
       "path": "tools/governance/src/alpha_research_governance/_cli.py",

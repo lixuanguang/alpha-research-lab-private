@@ -7,7 +7,7 @@ Status: steps 1–5 are implemented; step 6 remains in progress and step 7 remai
 planned. Step 5 closed the existing-source documentation queue in 31 slices on
 2026-09-06; its completion snapshot recorded 798 `PYC001` dispositions across
 73 files, no `PYD001` or `PYD002`, and 686 inferred-typing diagnostics. The
-current Step-6 slice leaves 714 `PYC001` dispositions across 67 files and 632
+current Step-6 slice leaves 666 `PYC001` dispositions across 63 files and 598
 inferred-typing diagnostics.
 Step 6 has completed the change-risk pilot and the program loading/status service
 extraction, including the residual package-state and local-evidence workflows.
@@ -22,6 +22,8 @@ The financial-model boundary and associated unit-test slice in queue item 8 is
 also implemented; its remaining Hypothesis decorator typing is explicitly tracked.
 The instrument-identity model and associated unit-test slice in queue item 8 is
 also implemented, with six existing Hypothesis decorator diagnostics retained.
+The venue-calendar adapter, models and associated unit/evidence-test slice is
+also implemented, with its six existing Hypothesis decorator diagnostics retained.
 
 See the [consolidated step-5 validation record](#step-5-validation-record-consolidated-completion-2026-09-06)
 for evidence recorded at completion.
@@ -302,7 +304,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
 | 5. Document existing contracts — implemented | Closed the existing-source documentation queue in 31 doc-only slices across domain, governance, test, policy, helper, loader, runner and artifact contracts. Moved workflows remain step 6; global rule activation remains deferred. | Final scan: zero `PYD001`/`PYD002`; 798 `PYC001` dispositions across 73 files; inferred typing remains at 686 diagnostics. See the consolidated Step-5 validation record below. |
-| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and approval evaluator, program loading/status services, residual program workflows, security-control map loader and financial settlement conventions while retaining the public function APIs. Queue items 1 and 2 are complete; inventory loading is next in queue item 3. The settlement responsibility in queue item 7 and financial-model/test and instrument-identity-model/test portions of queue item 8 are complete. Depends on steps 2–4 for the owning package. | The completed slices preserve schemas, serialized results, ordered findings, exception boundaries, evidence and CLI contracts. See the step-6 records below. |
+| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and approval evaluator, program loading/status services, residual program workflows, security-control map loader and financial settlement conventions while retaining the public function APIs. Queue items 1 and 2 are complete; inventory loading is next in queue item 3. The settlement responsibility in queue item 7 and financial-model/test, instrument-identity-model/test and venue-calendar source/test portions of queue item 8 are complete. Depends on steps 2–4 for the owning package. | The completed slices preserve schemas, serialized results, ordered findings, exception boundaries, evidence and CLI contracts. See the step-6 records below. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
 For gradual enforcement, use exact rule plus module/qualified-symbol identities,
@@ -681,6 +683,26 @@ This slice retires 32 source migration obligations and ten inferred diagnostics.
 Six existing Hypothesis decorator diagnostics remain in the exact typing inventory;
 no new or relocated typing allowance is introduced. Step 6 remains in progress
 outside this model and unit-test slice.
+
+### Step 6 implementation — venue-calendar ownership and test contracts
+
+`ExchangeCalendarsAdapter` now directly owns source loading, session adaptation
+and override application. Private test-only forwarding functions are removed;
+the exported adapter API and the existing native stubs are unchanged. Read-only
+source protocols use the pinned stub contract, and timestamp conversion keeps
+raw values at the boundary until runtime validation establishes their types.
+
+`_VenueCalendarModel` owns error-message translation through strict validated
+error-detail records. Typed session keys preserve sorting and bisect behavior.
+The unit tests now use calendar contract classes and precise fixture/payload
+records; the C02 evidence assertion belongs to its own test class. Ten low-level
+source helpers and two retained Hypothesis callbacks have individual fingerprinted
+dispositions. All 48 source obligations for this slice are retired, together with
+34 inferred diagnostics. The six original Hypothesis decorator diagnostics remain
+explicitly tracked without changing their identities or multiplicities.
+
+This completes the venue-calendar source and associated unit/evidence-test portion
+of queue item 8. Step 6 remains in progress elsewhere.
 
 ### Class migration queue
 
@@ -1121,3 +1143,46 @@ Only the named affected tests and owning Bazel target were run; no full pytest o
 Bazel suite, full-repository stronger typing probe, all-file pre-commit, hosted CI
 or separate integration lane was run. Six upstream Hypothesis decorator diagnostics
 remain explicitly tracked. Step 6 remains in progress outside this bounded slice.
+
+## Step 6 validation record — venue-calendar source and tests, 2026-09-07
+
+The baseline was the clean checkout at
+`53b469dd257e3e5839bae474c977a14b21e977ca`. Three `gpt-5.6-luna` subagents at
+`xhigh` reasoning implemented the adapter, model and test scopes. The parent
+audited the integrated result using the market-data profile, risk tier 2, because
+the shared calendar contract governs UTC sessions, reference-data coverage and
+settlement eligibility. No actionable audit findings remain in this slice.
+
+| Check | Observed result |
+| --- | --- |
+| Differential behavior | **5,403 model results** and **63 adapter results** match the saved baseline. Coverage includes strict construction and raw validation, all public model schemas, serialized values, ordered error text and causes, market-state intervals, settlement queries, complete 2024 XNYS/XLON/XHKG snapshots, empty ranges and invalid adapter inputs. |
+| Focused pytest | **90 passed, one performance case deselected** across the two calendar files, settlement consumers and the two selected standards checks listed below. Nine added calendar cases cover malformed nested fixture values and range cardinality, ordered error translation, dynamic timestamp converters, missing converter properties and non-callable converter objects. |
+| Performance | The separately selected calendar projection diagnostic passed: **one passed**, covering ten thousand queries over the existing 185-session fixture. |
+| Collection and assertions | All **51 baseline selected cases** retain their leaf names, parameter IDs and order; nine cases are added. The performance case is preserved separately. Class ownership changes node IDs, with no external selectors found. Twenty-five unit-test/helper functions and the evidence-test body are unchanged after normalizing method ownership. Changed assertions preserve original validation entry points and explicit Pydantic ancestry checks. |
+| Audit corrections | Removed private forwarding wrappers that created fresh adapters, replaced unchecked type-guard claims with the pinned native stub contract, restored reflective timestamp behavior and the original callability gate, tightened known fixture/payload shapes, and completed new callback docstrings. |
+| Source standards and inventory | The full source reconciliation and fingerprint checks pass through the selected engineering-standards test. Exactly **48** `PYC001` entries retire, leaving **666** across **63** files. Twelve individually fingerprinted dispositions cover ten low-level source helpers and two retained property callbacks. |
+| Scoped inferred typing | The stronger probe over the five calendar source/test files exactly matches the **six original Hypothesis decorator diagnostics**. Exactly **34** diagnostics across **23** identities retire, leaving **598** across **301** identities repository-wide. No new, moved or multiplied diagnostics are allowed; unrelated obligations, metadata and prior exceptions are unchanged. Both inventory checksum pins match. |
+| Lint, format and types | Ruff lint, Google-docstring/`ANN401` checks and formatting pass for the five calendar files. Lint/format and strict mypy also cover the two checksum-bearing checker modules: **seven files** pass strict typing. Bandit passes for the calendar source package. |
+| Bazel | `//tests/unit:venue_calendar_test` and `//tests/engineering:venue_calendar_evidence_test` both pass. Native schedule-conformance cases remain in the unit target; stubs, dependencies, public exports and golden fixture bytes are unchanged. |
+
+Final focused pytest command, using the pinned existing Python environment and
+the checkout's source paths:
+
+```sh
+PYTHONPATH=src:tools/governance/src .venv/bin/python -m pytest -q \
+  tests/unit/test_venue_calendar.py \
+  tests/engineering/test_venue_calendar_evidence.py \
+  tests/unit/test_financial_units.py::TestSettlementConventions \
+  tests/unit/test_financial_units.py::TestFinancialModelContracts::test_c01_c02_unvalidated_copies_cannot_bypass_boundary_validation \
+  tests/engineering/test_python_debt.py::TestPythonDebt::test_reviewed_inventory_is_exact_and_attributed \
+  tests/engineering/test_engineering_standards.py::test_repository_standards_bind_exact_tools_languages_and_baselines
+```
+
+The performance case was selected directly with `-m performance`. Scoped mypy
+used `--strict --follow-imports=silent --no-warn-unused-configs`; the stronger
+probe additionally used `--disallow-any-expr --disallow-any-decorated --output=json`
+and reconciled its six diagnostics by exact symbol, message and multiplicity.
+The full repository test suite, full repository stronger typing probe and native
+stubtest were not run. The six framework diagnostics remain an explicit
+step-7 task; this record does not claim their retirement or completion of step 6
+outside the venue-calendar slice.
