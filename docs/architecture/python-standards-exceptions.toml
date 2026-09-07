@@ -860,3 +860,1048 @@ owner_role = "platform"
 rationale = "Preserve the Bazel script entry point, argument or runfiles contract, and exit behavior while SandboxInputCheck owns the workflow."
 expires = 2027-03-01
 source_sha256 = "c883a0fb918ef72c70a81a9ab9150c2cfef836b5635eba7d06e04853a0df212b"
+
+[[exceptions]]
+path = "tests/engineering/test_architecture_governance.py"
+symbol = "_adr_text"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure Markdown fixture builder for architecture decision mutations; keeping the text shape visible supports exact parser assertions."
+expires = 2027-03-01
+source_sha256 = "debe63fa300e49ef652b9cbc38c81f029b3bd2d2af446bdcf33e1ce12a608f8e"
+
+[[exceptions]]
+path = "tests/engineering/test_artifact_supply_chain.py"
+symbol = "_allow_release_admission"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Typed monkeypatch callback required by the artifact release-admission fixture boundary."
+expires = 2027-03-01
+source_sha256 = "ad2e792b298c2965c168ff0b390eb0c4c8fb38f71196f2600622959ad882fe68"
+
+[[exceptions]]
+path = "tests/engineering/test_artifact_supply_chain.py"
+symbol = "_create_test_artifact_and_evidence"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Small filesystem fixture primitive; the multi-step bundle and signing workflow is owned by ArtifactFixtureService."
+expires = 2027-03-01
+source_sha256 = "04afaae3f07a608a1b6761095eb8c6a82d7a4f348c83bda132441f0149f038d2"
+
+[[exceptions]]
+path = "tests/engineering/test_artifact_supply_chain.py"
+symbol = "_is_object_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Reusable TypeGuard for narrowing decoded JSON arrays without coercion."
+expires = 2027-03-01
+source_sha256 = "181abd2e861d971b4eca0b5c562274e1d2d3e3576c42e358877f89fca33c4edc"
+
+[[exceptions]]
+path = "tests/engineering/test_artifact_supply_chain.py"
+symbol = "_is_string_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Reusable TypeGuard for narrowing decoded JSON objects without coercion."
+expires = 2027-03-01
+source_sha256 = "985db3092a96b9d375e44920bfa4495c189a2511a66d100c023a8dcffe7d563b"
+
+[[exceptions]]
+path = "tests/engineering/test_artifact_supply_chain.py"
+symbol = "artifact_fixture_service"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Pytest fixture entry point that constructs the typed artifact workflow service."
+expires = 2027-03-01
+source_sha256 = "e37e31737294bc838698ddefac708a53b196235f36b22ee899d07b5be0b69d6e"
+
+[[exceptions]]
+path = "tests/engineering/test_artifact_supply_chain.py"
+symbol = "artifact_repository_root"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Pytest fixture entry point that materializes policy-declared repository inputs as regular files for Bazel runfiles compatibility."
+expires = 2027-03-01
+source_sha256 = "c191c5f92b56ef4da1d7d6fd8bdba7e0353f0eef9bc16654074bfd50f7868775"
+
+[[exceptions]]
+path = "tests/engineering/test_artifact_supply_chain.py"
+symbol = "artifact_supply_chain_policy"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Pytest fixture entry point required for policy injection."
+expires = 2027-03-01
+source_sha256 = "cac5cb12123f6f50baa928d361e4ae71c4c0a0b8c1ce0f1e56927a2a1a5bbc1c"
+
+[[exceptions]]
+path = "tests/engineering/test_artifact_supply_chain.py"
+symbol = "synthetic_dependency_boundary"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Autouse pytest fixture owns the release-admission monkeypatch boundary."
+expires = 2027-03-01
+source_sha256 = "9a87b349b90df99bdc3304e1e5109457decbaeca16dddadcd67bd4109cd905b5"
+
+[[exceptions]]
+path = "tests/engineering/test_change_risk.py"
+symbol = "_change_for"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure representative input builder for each risk-class boundary."
+expires = 2027-03-01
+source_sha256 = "34f17e44aa64d759346fcf6051c6689d4e0d1d2c6995a88a43b6020e4d9508a2"
+
+[[exceptions]]
+path = "tests/engineering/test_change_risk.py"
+symbol = "_highest_risk_class_approvals"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure canonical approval tuple builder used by merge and activation contract tests."
+expires = 2027-03-01
+source_sha256 = "28069438650ddf22da988dc08bd60b5d77239d62e6573319ddff933347f4c208"
+
+[[exceptions]]
+path = "tests/engineering/test_change_risk.py"
+symbol = "_mutated_policy"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Single-file text mutation primitive for policy schema and boundary negative tests."
+expires = 2027-03-01
+source_sha256 = "c339509e7a0b2d4b257adb4c9c5c223c9352a016bc87d71662db2e1dea673055"
+
+[[exceptions]]
+path = "tests/engineering/test_change_risk.py"
+symbol = "_validated_change_update"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure model reconstruction helper retaining explicit typed fields for negative mutations."
+expires = 2027-03-01
+source_sha256 = "a9a7fe20c670cd2c04513e5ca34a773c912467c596e72ee890ccd007484d76e8"
+
+[[exceptions]]
+path = "tests/engineering/test_change_risk.py"
+symbol = "policy"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Pytest fixture entry point supplying the checked-in policy to contract methods."
+expires = 2027-03-01
+source_sha256 = "6b66baeda964793db1a04e9ba0383a3ac4c6446845d4b6fb1de093f6c1a9384b"
+
+[[exceptions]]
+path = "tests/engineering/test_ci_policy.py"
+symbol = "_git"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Execute one explicit Git argument vector without a shell in a synthetic repository; the calling test owns commit and merge sequencing."
+expires = 2027-03-01
+source_sha256 = "0c48d91131d4a7ee349d3121e2a51f85b5835d88b3e28a331fd6cd0909604565"
+
+[[exceptions]]
+path = "tests/engineering/test_ci_runner.py"
+symbol = "_is_string_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Small TypeGuard preserving exact decoded CI event fields for the failure-event oracle."
+expires = 2027-03-01
+source_sha256 = "38d591f6bd889923ee57163ee72ed030e79a8f9d58127849c56a7b0429751831"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_bundle_statement"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Focused DSSE decoding helper that returns the decoded statement and its mutable envelope together, preserving fixture mutation identity for claim-negative tests."
+expires = 2027-03-01
+source_sha256 = "480cbc7b8970ec483898cbb43c21dbd63344cc7f5dea21ea5917d74614beda25"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_clean_audit_report"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure deterministic payload builder for pip-audit coverage tests; it delegates policy loading and does not own a multi-step workflow."
+expires = 2027-03-01
+source_sha256 = "02781ddbea10551241dfbf14f572a05ddb94906e1ab97b071d7eab2457cb447a"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_copy_current_wheel_evidence"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copies declared repository evidence files for a structural test and has no lifecycle beyond one call; substantive wheel construction and bootstrap workflows live in typed factory services."
+expires = 2027-03-01
+source_sha256 = "7b1f400914728a092026a6ef3342e620f82b5a357d75522d08e75bb67d7b4545"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_evidence_file"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Write one supplied fixture payload and construct its matching digest record; wheel assembly and bootstrap transformation belong to their fixture services."
+expires = 2027-03-01
+source_sha256 = "034394a9b1e5553a1f4ee1008d9f239d45ccbff55b385f46f66afd732a31f27c"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_fake_cosign"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Typed subprocess seam required to exercise verifier behavior without invoking an external Cosign executable; it preserves argv and stdout contracts."
+expires = 2027-03-01
+source_sha256 = "9d15da5d42a49a57edc7270012ef7401848c0bde803ee259c91fdb16f668bea2"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_inline_toml"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Tiny TOML fixture serializer used for malformed bootstrap-policy inputs; retaining it preserves exact text and parser failure assertions."
+expires = 2027-03-01
+source_sha256 = "182b2b3ba2a0dd06b9fc304ca7faf6a04b1a10aa89e5684c019df260511e6abd"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_is_string_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Identity-preserving runtime guard for nested JSON objects; it prevents TypeAdapter copying or coercing the mutable fixture containers consumed by negative tests."
+expires = 2027-03-01
+source_sha256 = "07b8baed8f53b97ede8dabcfc6b0c44b2fd9b7888ea8e491af9ad6d4b80093d1"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_json_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow JSON parser boundary used to make untyped json.loads output explicit before assertions and mutations; it is a single low-level conversion seam."
+expires = 2027-03-01
+source_sha256 = "a3d31cd19117b479187ce47dba02b69f6594377d9d450a9e8b23b55e4cff4af5"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Identity-preserving narrowing helper for one nested JSON object; keeping this tiny guard module-level preserves exact mutation propagation without a utility class."
+expires = 2027-03-01
+source_sha256 = "f97af6bebb07927631200c770fe87b443ff8fa4a825b34ee9f9ccd9a0eb93a66"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_model_payload"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Small boundary adapter that serializes a validated Pydantic fixture record into a JSON-shaped mapping; it has no workflow state and is reused across independent negative mutations."
+expires = 2027-03-01
+source_sha256 = "6b9e30b45b4da543ff3faf19a7eca7a13663a5902530f82c229cc87c2d21d49b"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_object_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Identity-preserving narrowing helper for one nested JSON array; it rejects tuple/list coercion so malformed shapes retain their original oracle."
+expires = 2027-03-01
+source_sha256 = "8e894f65315de87afc9695541736740e4fac4385680c03963218cc3045b95e7d"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_parse_bootstrap_record"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Supply the explicit package, license and validation-date context to the public bootstrap-wheel parser for malformed-record tests."
+expires = 2027-03-01
+source_sha256 = "3ebe9665b287ae2188ff63c4f0e86610cce8aade06e372e814a19212a68b4ce6"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_parse_source_record"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Supply the explicit NumPy package and license context to the public wheel-source parser, preserving its raw invalid-input boundary."
+expires = 2027-03-01
+source_sha256 = "cf19f2652192968237d70648eb7b63858cb796cd614e8b7aa55c13bae7540269"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_policy_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy the checked-in admission policy to a supplied temporary file for isolated mutations; wheel-evidence construction belongs to the fixture services."
+expires = 2027-03-01
+source_sha256 = "b59a74caf95fca2678ef9d6301fd77437511af0846ba600cd747edeb1e33039b"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_replace"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Exact one-fragment mutation primitive used by policy negative tests; its narrow contract makes the original fixture oracle auditable."
+expires = 2027-03-01
+source_sha256 = "1d895ee04b17219a0d1df0b4444058eb21ffbb544d4a019535cfb88079bd95e8"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_scorecard_report"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure synthetic scorecard payload builder used to exercise report validation branches; it intentionally remains close to each test's asserted contract."
+expires = 2027-03-01
+source_sha256 = "95afc16b235bae8c71e8bd594d4580a25fb53eabbe2e15cf53c1b720f211fed8"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_toml_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "TOML parser boundary that gives the untyped tomllib result an explicit object shape for fixture reads."
+expires = 2027-03-01
+source_sha256 = "5c2d13f5a29391e5aae14ec99798ef1962924374f2a10d6141fbb0f0bb8c0b4f"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_without_bootstrap"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure text fixture transformation used by one policy mutation family; retaining it as a tiny helper keeps the exact source fragment visible."
+expires = 2027-03-01
+source_sha256 = "eced7f924911aad3d7df0b75cedd34b141fa5669214b7fcb5d0633da7963d444"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "_write_json"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Small deterministic JSON fixture serializer shared by report tests; it has no independent service state."
+expires = 2027-03-01
+source_sha256 = "0073c9b90263951e46dad6f32247f1fef05bd11bda8635c8945889a4669f75e1"
+
+[[exceptions]]
+path = "tests/engineering/test_dependency_admission.py"
+symbol = "wheel_cosign"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Pytest fixture entrypoint that controls executable discovery for the Cosign seam; it is intentionally module-level so pytest can inject it into multiple test methods."
+expires = 2027-03-01
+source_sha256 = "c6abc9fb458c61936a05c48e0e5ea8d0350e08dbf363f8ac4d0d52d97db101ac"
+
+[[exceptions]]
+path = "tests/engineering/test_engineering_standards.py"
+symbol = "_policy_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Deterministic copier for isolated standards-policy mutations; it has no reusable state beyond one temporary path."
+expires = 2027-03-01
+source_sha256 = "b05d76086fd8cdfa971eaa4134c595c05cc4d7e8a002139bf3e52e819a2d5ed3"
+
+[[exceptions]]
+path = "tests/engineering/test_evidence_governance.py"
+symbol = "_bundle_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy the fixed valid evidence directory to one temporary location; implementation-acceptance transformation belongs to ImplementationBundleFixture."
+expires = 2027-03-01
+source_sha256 = "f0f361a2cb8b4d59d1a1c582a87adeb953c72c8884e548857e7939554472ff2d"
+
+[[exceptions]]
+path = "tests/engineering/test_evidence_governance.py"
+symbol = "_encode_json"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Encode one supplied evidence-context object as JSON text for the real event and merge-request parsers; no state or multi-step workflow is owned."
+expires = 2027-03-01
+source_sha256 = "8d9e2f01736a5420391e94a7259c55388a5823f26e8444ffbe41fa876e41b542"
+
+[[exceptions]]
+path = "tests/engineering/test_evidence_governance.py"
+symbol = "_git"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Run one explicit Git argument vector without a shell in the supplied synthetic repository and return captured output; the calling test owns the workflow."
+expires = 2027-03-01
+source_sha256 = "43aac233e365341f895b7f239a7b1215355a8b4a2d9a3a6a615339cf8bc33dda"
+
+[[exceptions]]
+path = "tests/engineering/test_evidence_governance.py"
+symbol = "_json_object"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check the decoded CLI dictionary and string keys without dropping fields or copying values; later assertions narrow each consumed field."
+expires = 2027-03-01
+source_sha256 = "0179f6cd0c6c866333eed7e8efb8cb23fa672ddfdc0d56ac8a4ae94a1ed7e5e5"
+
+[[exceptions]]
+path = "tests/engineering/test_evidence_governance.py"
+symbol = "_replace_evidence_fixture_text"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Apply one asserted text replacement to an evidence fixture so each malformed-input test changes its intended field."
+expires = 2027-03-01
+source_sha256 = "bb4e302f77b6e6ce7eb7b9ddf2ae3cc153861de1561f52ff7471d63917de9ee0"
+
+[[exceptions]]
+path = "tests/engineering/test_evidence_governance.py"
+symbol = "_validate_fixture_manifest"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Call the public manifest validator with the fixed example commit and change policy, retaining the existing malformed-input entrypoint."
+expires = 2027-03-01
+source_sha256 = "357f9787b3ce8887de2f467a2933d05d313a490f1d85f6f6288d5a4c9c74e8c8"
+
+[[exceptions]]
+path = "tests/engineering/test_inventory_governance.py"
+symbol = "_catalog_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy one checked-in inventory catalog to a temporary path for isolated mutations; no catalog workflow or query state is retained."
+expires = 2027-03-01
+source_sha256 = "addec08014e9d3f50878f57218a0530a47ad6506fa64c3fe3d1ade537a14face"
+
+[[exceptions]]
+path = "tests/engineering/test_inventory_governance.py"
+symbol = "_json_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check the decoded CLI array shape without coercing or copying its elements; callers then validate the consumed object fields."
+expires = 2027-03-01
+source_sha256 = "43d6e6146f2469da2e0ea13d3a2309116f54765ec9103c254706c70a16bb9295"
+
+[[exceptions]]
+path = "tests/engineering/test_inventory_governance.py"
+symbol = "_json_object"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check the decoded CLI dictionary and string keys without dropping fields or copying values; later assertions narrow each consumed field."
+expires = 2027-03-01
+source_sha256 = "38419277b12a33d137e95be371c23dd2086be63bfa26e54f95fe146e186f14aa"
+
+[[exceptions]]
+path = "tests/engineering/test_inventory_governance.py"
+symbol = "_replace_inventory_fixture_text"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Apply one asserted first-occurrence text mutation to the temporary inventory catalog."
+expires = 2027-03-01
+source_sha256 = "e4f2399ff32445bd0edd0894c0b3fda3e4f1d61fd77ffbcb786dd4a3e433ccce"
+
+[[exceptions]]
+path = "tests/engineering/test_inventory_governance.py"
+symbol = "_validate_inventory_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Invoke the inventory loader with the fixed repository context, retaining its schema and reference-validation boundary."
+expires = 2027-03-01
+source_sha256 = "1ba1eff2b9421847a569ff2a0d937ec16e3e2df79e712e52a4dcc6be6752e863"
+
+[[exceptions]]
+path = "tests/engineering/test_ownership_governance.py"
+symbol = "_policy_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Deterministic copier for ownership-policy mutation tests; it has no stateful workflow to own."
+expires = 2027-03-01
+source_sha256 = "eaba0c5fbedcc50b3ce84a315c4228e50bbadabe6326e2fee968848bf32772c8"
+
+[[exceptions]]
+path = "tests/engineering/test_package_definition.py"
+symbol = "_load_pyproject"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "TOML fixture loader that anchors package-definition tests at the repository root and returns an explicitly typed boundary object."
+expires = 2027-03-01
+source_sha256 = "3f06c944f5f8804b64f82f25e29d440b263d587fcfe018144a32d1baa36b0b9b"
+
+[[exceptions]]
+path = "tests/engineering/test_package_definition.py"
+symbol = "_require_table"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Typed narrowing helper for package metadata tables, preserving exact wrong-shape failures without a utility class."
+expires = 2027-03-01
+source_sha256 = "25fa5ac7eddd2b6e6a559d04b373e126961f113c4a97bf93ab5edcfe38f9860b"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_additional_gate"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Append one explicit unexpected quality gate to a fresh manifest for the additional-gate rejection case."
+expires = 2027-03-01
+source_sha256 = "9da7428837ba2dcb7a45205a6df07aec48b99f3d136ccf6adc6694098231934e"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_caller_additional_gate"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Add one caller-required gate identifier to a fresh manifest for the profile additional-requirements prohibition."
+expires = 2027-03-01
+source_sha256 = "2b1aa2e4d9b8e8e0a636295fb202fd7bba0adc32bdcef82f298fba97b7ba0950"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_changed_gate_status"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Change only the first gate status while retaining its identity and evidence fields for the profile-status rejection case."
+expires = 2027-03-01
+source_sha256 = "337fb4eeba7b77b7a320f18dfb7f45a14f03736953889cd58d66bee26ff3858e"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_changed_risk_fact"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct only the shared-sensitive privilege mutation while preserving the manifest remaining risk facts for profile comparison."
+expires = 2027-03-01
+source_sha256 = "05598034ab1ca88936fba0632de8a9be9ed017a32917d2a21f8353318a0d34dc"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_copy_manifest_with_updates"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct a fresh manifest through its validation boundary after applying explicit field replacements, preserving the original immutable fixture."
+expires = 2027-03-01
+source_sha256 = "640ebe09b511dbd0abc54861b03fcd4edf1356d9ba664cbd9b5feeb09ddcdbed"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_manifest"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Load the fixed A06 manifest through the public validator with its exact example commit and policy for package-profile test inputs."
+expires = 2027-03-01
+source_sha256 = "1af936f90aa5d797f2437f77184eedb768291a6e3217507c66100eb8c9eebbc6"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_missing_gate"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct only the missing-first-gate mutation used by package-profile rejection cases."
+expires = 2027-03-01
+source_sha256 = "7c0f12072589ae5cea937f52a995af670a691708aec21634ebb48be7151d451b"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_profile"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct the explicit expected A06 package profile from supplied validated change facts and gate identifiers; all acceptance flags and finding expectations remain literal."
+expires = 2027-03-01
+source_sha256 = "3a37486d495fe47d4e2d7bd48e3847f57f6950f66fb864b7e1a439626eb84369"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_unexpected_approval"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Add one explicit synthetic approval to test the profile ban on approvals without changing unrelated manifest fields."
+expires = 2027-03-01
+source_sha256 = "a6bf3f102f47afb2afdf859eda052b79b6776ed32df2494edbc09710882b5218"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_waiver"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Add one explicit waived-control identifier to a fresh manifest for the profile waiver prohibition."
+expires = 2027-03-01
+source_sha256 = "9079e5ad4de9d3ab6119fe5d2ad120b191406c35ce3ba3ead06564a591c994e8"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_wrong_findings"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct only the shortened finding-ID tuple needed to test exact package-profile findings."
+expires = 2027-03-01
+source_sha256 = "1ead62d156084bdc54f101b968b9ee90cd38564fecc322bd9b32aff85e0d1354"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_wrong_owner"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct only the wrong-owner manifest mutation used by the parametrized package-profile rejection contract."
+expires = 2027-03-01
+source_sha256 = "99efa8061806726927272b1d6892e1c16580cb1405525f1f070e04768529600b"
+
+[[exceptions]]
+path = "tests/engineering/test_package_evidence.py"
+symbol = "_wrong_roadmap"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct only the wrong-roadmap identifier mutation used by package-profile rejection cases."
+expires = 2027-03-01
+source_sha256 = "5439f949e47e4a6d180fd32f9a561be8c16acdcb16cc1b2897cfa42c42c31c4d"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_downgrade_current_policy"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Render the fixed current policy into a requested legacy test schema by removing modern fields and restoring legacy evidence references; it returns text and owns no reusable workflow state."
+expires = 2027-03-01
+source_sha256 = "bff74e92d392cfe5f6b263e6cd08fe3a7fb2046cdd840af0466533a4d3e420cb"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_json_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check the decoded CLI array shape without coercing or copying its elements; callers then validate the consumed object fields."
+expires = 2027-03-01
+source_sha256 = "874bb22a45f515fdaf212ee039808cb8f94f5913e88f1a6c158529d797e77a1f"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_json_object"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check the decoded CLI dictionary and string keys without dropping fields or copying values; later assertions narrow each consumed field."
+expires = 2027-03-01
+source_sha256 = "e2790178479c8ed52996e57132a41898f768d89f1451fa04c14345d4c8863de6"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_metric_observation_event"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Construct one deliberately unvalidated metric-event payload, retaining invalid boundary values for the observation loader to reject."
+expires = 2027-03-01
+source_sha256 = "678f7083e85abc17d1d11435b162da91a98fc40920c1e6dec2ead83b2870ecb5"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_policy_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy one checked-in program policy to the supplied temporary path; this is a single fixture-file operation without workflow state."
+expires = 2027-03-01
+source_sha256 = "715d0029778d22bc079beb16c430f6ec5f59e04f5dde8c66a5e59a6721547b80"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_remove_package_state"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Remove one bounded package-state text section from a fixture while retaining surrounding sections; this is a local text mutation primitive."
+expires = 2027-03-01
+source_sha256 = "a53914fbcb26d764987a6b4130939e357def65c6d756ca499e2b82c68aec2304"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_replace_program_fixture_text"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Replace one asserted text fragment in a program fixture; mutation scope and failure on stale fixture text are explicit."
+expires = 2027-03-01
+source_sha256 = "0eca501075d9892b2c6b600d7d3cfc3af0ed2cbdd626e606c62cca5f7a94e033"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_roadmap_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy one checked-in roadmap to the supplied temporary path so parser tests can mutate an isolated file."
+expires = 2027-03-01
+source_sha256 = "d1cab9b0a80b60fe73797c71a8ee006506f72e8fde25ab246da9ac20bb87af72"
+
+[[exceptions]]
+path = "tests/engineering/test_program_governance.py"
+symbol = "_write_observation_events"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Write a supplied sequence of event payloads as JSON lines in one temporary file; aggregation and validation remain in the production reader."
+expires = 2027-03-01
+source_sha256 = "3febdd92c59045c391131c2f4bb120569a6b955eb6cf974188a15566c44492a6"
+
+[[exceptions]]
+path = "tests/engineering/test_pydantic_models.py"
+symbol = "_captured_validation_error"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Small negative-test capture helper preserving the original model validation entry point."
+expires = 2027-03-01
+source_sha256 = "e39f78eda04e0f093e6afe343a0d5ab13c899d687ae48cd1f96f2d896020c51b"
+
+[[exceptions]]
+path = "tests/engineering/test_pydantic_models.py"
+symbol = "_change_values"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure minimal boundary payload builder for strict validation tests."
+expires = 2027-03-01
+source_sha256 = "c0d9fc733a4cc281c1806449922b8c1fe7e015c2c7c41951846e25c105d587bd"
+
+[[exceptions]]
+path = "tests/engineering/test_pydantic_models.py"
+symbol = "_is_object_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Reusable TypeGuard for narrowing serialized arrays without type erasure."
+expires = 2027-03-01
+source_sha256 = "5d4da642d2b00673af5b66ad50982b93b2755bb7bb17eb1bee30e2dc7950953d"
+
+[[exceptions]]
+path = "tests/engineering/test_pydantic_models.py"
+symbol = "_is_string_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Reusable TypeGuard for preserving exact serialized model values."
+expires = 2027-03-01
+source_sha256 = "41aac57e07136d784702927afda898ca41d546cce2816f869cca8ef010751c62"
+
+[[exceptions]]
+path = "tests/engineering/test_pydantic_models.py"
+symbol = "_observation_values"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure minimal observation payload builder for strict validation tests."
+expires = 2027-03-01
+source_sha256 = "f0bf7206478f7e4e4598c829f68d9dba874fcf8356f8cb24df8c077433a3f3ea"
+
+[[exceptions]]
+path = "tests/engineering/test_pydantic_models.py"
+symbol = "_observation_with"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Pure typed payload builder used to mutate one validated-model negative-test field."
+expires = 2027-03-01
+source_sha256 = "3604f21f1913101eace27d57802661c3fbb8e113ac36732c5c028685740bdf39"
+
+[[exceptions]]
+path = "tests/engineering/test_remote_execution.py"
+symbol = "_copy_remote_execution_policy_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Single-file copy primitive used by mutation tests; policy workflows remain under the remote contract classes."
+expires = 2027-03-01
+source_sha256 = "e94e3076fe73564da4021abf8cc7cdcb5029cdd838a79c48a9b2fda3a00fa57e"
+
+[[exceptions]]
+path = "tests/engineering/test_remote_execution.py"
+symbol = "_is_string_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Typed mapping guard preserving the captured credential-environment contract without coercion or type erasure."
+expires = 2027-03-01
+source_sha256 = "ac4005307be3c88bed41ac3f6cca609208f32e732219f5cc69aa5b2e46914e2b"
+
+[[exceptions]]
+path = "tests/engineering/test_remote_execution.py"
+symbol = "_replace_policy_text"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Small deterministic text mutation primitive for negative policy fixtures."
+expires = 2027-03-01
+source_sha256 = "dc126816ba9e0c44ce91ce713803cc0135c8fc3e6ad78a98e6d84558f10acebc"
+
+[[exceptions]]
+path = "tests/engineering/test_repository_governance.py"
+symbol = "_load_register"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "TOML fixture loader at the test boundary; it centralizes the repository register path while leaving each contract assertion explicit."
+expires = 2027-03-01
+source_sha256 = "2ba07fef493b660582e38f85bebbebd345f5b7e0dcc0f87b15c741f766362739"
+
+[[exceptions]]
+path = "tests/engineering/test_repository_governance.py"
+symbol = "_require_nonempty_string"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Typed nonempty-string boundary helper preserving the repository policy's whitespace and empty-value oracle."
+expires = 2027-03-01
+source_sha256 = "0e7d3e17341a423e8cb2bab4d0b6949a479b02eed5d2dc2c73f6679ff719815b"
+
+[[exceptions]]
+path = "tests/engineering/test_repository_governance.py"
+symbol = "_require_string"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Typed scalar boundary helper preserving exact required-string failures for governance fixtures."
+expires = 2027-03-01
+source_sha256 = "8c0ea34bd9b67a7bbcf43f2947263ada40fda38af28bd8651dfcd4a95a1ad106"
+
+[[exceptions]]
+path = "tests/engineering/test_repository_governance.py"
+symbol = "_require_table"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Typed narrowing helper for one governance table, retaining the exact missing/wrong-shape assertion behavior."
+expires = 2027-03-01
+source_sha256 = "13ecbc8d1038345d94a282d1f0c92ff83ce41332e02c369121193066519dc3a6"
+
+[[exceptions]]
+path = "tests/engineering/test_repository_governance.py"
+symbol = "_require_table_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Typed narrowing helper for one list of governance tables; its small reusable contract avoids repeated unchecked indexing."
+expires = 2027-03-01
+source_sha256 = "10ad5acba0f7df1b4c3dee2900b1a44acfccc330964f6755cdf4ac3e5cc3fa13"
+
+[[exceptions]]
+path = "tests/engineering/test_repository_topology.py"
+symbol = "_replace_topology_fixture_text"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Single-fragment TOML mutation primitive for adversarial topology cases."
+expires = 2027-03-01
+source_sha256 = "15c0acd870eb129d988ac38d8f3100a36f342f26231cd0b95ec8e9c59503fefd"
+
+[[exceptions]]
+path = "tests/engineering/test_root_commands.py"
+symbol = "_run_make"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Execute one Make argument vector at the fixed repository root and capture status/output; callers choose dry-run targets and assert the root command contract."
+expires = 2027-03-01
+source_sha256 = "b566dff4f554a18eab96ce0f5e20633fde9626e5d72e60a468272eb55f827db1"
+
+[[exceptions]]
+path = "tests/engineering/test_security_controls.py"
+symbol = "_json_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check the decoded CLI array shape without coercing or copying its elements; callers then validate the consumed object fields."
+expires = 2027-03-01
+source_sha256 = "e1322ec90c240a4727e11f172afd154be1431d44b13fc908882aeec91ed85274"
+
+[[exceptions]]
+path = "tests/engineering/test_security_controls.py"
+symbol = "_json_object"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Check the decoded CLI dictionary and string keys without dropping fields or copying values; later assertions narrow each consumed field."
+expires = 2027-03-01
+source_sha256 = "32c09d32fd8a0ad4cbd6cf628522c6996d1b9095009a6d4b24ac21f515e65e2b"
+
+[[exceptions]]
+path = "tests/engineering/test_security_controls.py"
+symbol = "_map_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy one checked-in security map to a temporary file for isolated field mutations; complete repository setup belongs to SecurityRepositoryFixture."
+expires = 2027-03-01
+source_sha256 = "4621cbd3cff095fd12f3ed134667dfd673ca5fe0c8dab513bf0f1074143dca23"
+
+[[exceptions]]
+path = "tests/engineering/test_security_controls.py"
+symbol = "_replace_security_fixture_text"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Apply one asserted first-occurrence mutation to a security-map fixture without owning loader or repository state."
+expires = 2027-03-01
+source_sha256 = "92a5dce71f55a3899120803cab430d021b577318909b9e9b9bae3f3445c0559b"
+
+[[exceptions]]
+path = "tests/engineering/test_security_controls.py"
+symbol = "_replace_security_fixture_text_after_marker"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Apply one asserted mutation only after a specified text marker, keeping negative security-map cases scoped to their intended record."
+expires = 2027-03-01
+source_sha256 = "c83d5ddf90910c07722d85e0314ec5c749843bb24b2cd824356d24b4c8eb975d"
+
+[[exceptions]]
+path = "tests/engineering/test_security_controls.py"
+symbol = "_validate_security_fixture"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Invoke the public security-map loader with the fixed repository context so negative fixtures retain their original validation entrypoint."
+expires = 2027-03-01
+source_sha256 = "2e082239ecab86baed4365e64a3ddf995c21f5c9357cc046d64389c796aeb0a8"

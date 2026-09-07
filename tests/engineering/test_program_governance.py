@@ -8,7 +8,6 @@ from __future__ import annotations
 
 # standard library imports
 import json
-import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
@@ -16,6 +15,7 @@ from typing import ClassVar, Never
 
 # third party library imports
 import pytest
+from pydantic import TypeAdapter
 
 # project library imports
 import alpha_research_governance.program_governance.registry as program_registry
@@ -47,6 +47,20 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs" / "governance" / "program-governance.toml"
 ROADMAP_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "README.md"
 RESEARCH_PROGRAM_PATH = REPOSITORY_ROOT / "docs" / "roadmap" / "research-program.md"
+
+
+def _json_object(value: object) -> dict[str, object]:
+    """Narrow a decoded CLI value to the object shape used by assertions."""
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise TypeError("expected a JSON object")
+    return value
+
+
+def _json_list(value: object) -> list[object]:
+    """Narrow a decoded CLI value to a JSON array for nested assertions."""
+    if not isinstance(value, list):
+        raise TypeError("expected a JSON array")
+    return value
 
 
 class TestProgramServices:
@@ -108,7 +122,7 @@ class TestProgramServices:
         baseline = (REPOSITORY_ROOT / "docs/governance/domain-ownership.toml").read_text(
             encoding="utf-8"
         )
-        current_date = date.today()
+        current_date = datetime.now(tz=UTC).date()
         effective_date = current_date + timedelta(days=1)
         ownership.write_text(
             baseline
@@ -378,19 +392,17 @@ def _downgrade_current_policy(path: Path, *, schema_version: int) -> str:
     text = "\n".join(
         line for line in text.splitlines() if not line.startswith("generated_status_path =")
     )
-    return (
-        re.sub(
-            r"evidence_paths = \[(.*?)\]",
-            lambda match: (
-                "evidence_paths = ["
-                f"{match.group(1).rstrip().removesuffix(',')}, "
-                '"docs/governance/program-status.md"]'
-            ),
-            text,
-            flags=re.DOTALL,
+    sections = text.split("evidence_paths = [")
+    rendered = sections[0]
+    for section in sections[1:]:
+        body, suffix = section.split("]", 1)
+        rendered += (
+            "evidence_paths = ["
+            f"{body.rstrip().removesuffix(',')}, "
+            '"docs/governance/program-status.md"]'
+            f"{suffix}"
         )
-        + "\n"
-    )
+    return rendered + "\n"
 
 
 class TestProgramContracts:
@@ -585,7 +597,10 @@ class TestProgramContracts:
         state = program.state_for("A01")
         assert state is not None
         assert state.evidence_paths == ("docs/roadmap/README.md",)
-        assert tuple(item.package_id for item in program.package_states[:2]) == ("A01", "A02")
+        assert tuple(item.package_id for item in program.package_states[:2]) == (
+            "A01",
+            "A02",
+        )
 
     @pytest.mark.parametrize("schema_version", (1, 2, 3, 4))
     def test_package_state_ordering_follows_schema_version(
@@ -692,927 +707,973 @@ def _write_observation_events(tmp_path: Path, events: list[dict[str, object]]) -
     return path
 
 
-def test_repository_program_is_complete_partial_and_non_vanity() -> None:
-    """Validate the committed program graph, package states, findings, and KPI controls.
+class TestProgramGovernance:
+    """Exercise repository program policy, roadmap, and readiness contracts."""
 
-    Arrange the repository configuration, then assert its package and metric
-    registries, partial status, finding dispositions, implementation and governance
-    states, and non-vanity collection controls match the governed program.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
+    def test_repository_program_is_complete_partial_and_non_vanity(self) -> None:
+        """Validate the committed program graph, package states, findings, and KPI controls.
 
-    assert tuple(package.package_id for package in program.packages) == ROADMAP_PACKAGE_IDS
-    assert tuple(metric.metric_id for metric in program.metrics) == METRIC_IDS
-    assert len(program.packages) == 96
-    assert len(program.package_states) == 19
-    assert program.package_status == "partial"
-    assert program.risk_class == "R2"
-    assert program.maximum_observations == 10_000
-    assert program.aggregation_workload_budget_ms == 1_000
-    assert program.finding_ids == ("A08-F01", "A08-F02", "A08-F03")
-    assert all(state.status == "partial" for state in program.package_states)
-    assert all(state.repository_local_status == "passed" for state in program.package_states)
-    assert program.schema_version == 4
-    assert program.generated_status_path == "docs/governance/program-status.md"
-    assert tuple(group.disposition for group in program.finding_dispositions) == (
-        "technical",
-        "operation_prerequisite",
-        "role_handover",
-    )
-    assert program.finding_disposition_for("A01-F01") == "operation_prerequisite"
-    assert program.finding_disposition_for("A01-F03") == "role_handover"
-    assert sum(len(group.finding_ids) for group in program.finding_dispositions) == 54
-    assert program.implementation_status == "complete"
-    assert program.governance_status == "not_required"
-    assert all(state.implementation_status == "complete" for state in program.package_states)
-    assert all(state.governance_status == "not_required" for state in program.package_states)
-    assert all(
-        len(state.evidence_paths) == 1 and state.contract_path.endswith(".md")
-        for state in program.package_states
-    )
-    assert all(metric.collection_mode == "automatic_event" for metric in program.metrics)
-    assert all(not metric.manual_entry_allowed for metric in program.metrics)
-    assert all(not metric.hard_gate_substitute for metric in program.metrics)
-    assert all(metric.baseline_value is None for metric in program.metrics)
-    assert all(metric.target_value is None for metric in program.metrics)
-    repository_topology_state = program.state_for("B01")
-    assert repository_topology_state is not None
-    assert repository_topology_state.open_finding_ids == ("B01-F01", "B01-F02")
-    build_graph_state = program.state_for("B02")
-    assert build_graph_state is not None
-    assert build_graph_state.open_finding_ids == ("B02-F01", "B02-F02", "B02-F03")
-    environment_state = program.state_for("B03")
-    assert environment_state is not None
-    assert environment_state.open_finding_ids == ("B03-F01", "B03-F02", "B03-F03")
-    standards_state = program.state_for("B04")
-    assert standards_state is not None
-    assert standards_state.open_finding_ids == ("B04-F01", "B04-F02", "B04-F03")
-    continuous_integration_state = program.state_for("B05")
-    assert continuous_integration_state is not None
-    assert continuous_integration_state.open_finding_ids == (
-        "B05-F01",
-        "B05-F02",
-        "B05-F03",
-    )
-    remote_execution_state = program.state_for("B06")
-    assert remote_execution_state is not None
-    assert remote_execution_state.open_finding_ids == (
-        "B06-F01",
-        "B06-F02",
-        "B06-F03",
-    )
-    dependency_admission_state = program.state_for("B07")
-    assert dependency_admission_state is not None
-    assert dependency_admission_state.open_finding_ids == (
-        "B07-F01",
-        "B07-F02",
-        "B07-F03",
-    )
-    artifact_supply_chain_state = program.state_for("B08")
-    assert artifact_supply_chain_state is not None
-    assert artifact_supply_chain_state.open_finding_ids == (
-        "B08-F01",
-        "B08-F02",
-        "B08-F03",
-    )
-    instrument_identity_state = program.state_for("C01")
-    assert instrument_identity_state is not None
-    assert instrument_identity_state.open_finding_ids == (
-        "C01-F01",
-        "C01-F02",
-        "C01-F03",
-    )
-    venue_calendar_state = program.state_for("C02")
-    assert venue_calendar_state is not None
-    assert venue_calendar_state.open_finding_ids == (
-        "C02-F01",
-        "C02-F02",
-        "C02-F03",
-    )
-    financial_units_state = program.state_for("C03")
-    assert financial_units_state is not None
-    assert financial_units_state.open_finding_ids == (
-        "C03-F01",
-        "C03-F02",
-        "C03-F03",
-    )
+        Arrange the repository configuration, then assert its package and metric
+        registries, partial status, finding dispositions, implementation and governance
+        states, and non-vanity collection controls match the governed program.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
 
-
-@pytest.mark.performance
-def test_program_aggregation_workload_stays_within_governed_budget() -> None:
-    """Measure maximum-observation aggregation against its configured time budget.
-
-    Arrange the maximum number of duration observations and start timing only
-    immediately before ``summarize_metrics``. Assert the summary count equals
-    the configured maximum and elapsed aggregation milliseconds stay within the
-    policy budget; the performance marker keeps this workload out of default
-    test runs.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    metric = next(
-        item for item in program.metrics if item.metric_id == "kpi.build_duration_seconds"
-    )
-    base_time = datetime(2026, 8, 30, tzinfo=UTC)
-    observations = tuple(
-        MetricObservation(
-            event_id=f"workload-{index}",
-            metric_id=metric.metric_id,
-            source_event_type=metric.source_event_type,
-            source_run_id=f"run-workload-{index}",
-            source_revision="5" * 40,
-            evidence_url=f"https://forge.example/runs/workload-{index}",
-            window_start=base_time + timedelta(seconds=index),
-            window_end=base_time + timedelta(seconds=index + 5),
-            dimensions=tuple(
-                (dimension, f"value-{dimension}") for dimension in metric.required_dimensions
-            ),
-            numerator=None,
-            denominator=None,
+        assert tuple(package.package_id for package in program.packages) == ROADMAP_PACKAGE_IDS
+        assert tuple(metric.metric_id for metric in program.metrics) == METRIC_IDS
+        assert len(program.packages) == 96
+        assert len(program.package_states) == 19
+        assert program.package_status == "partial"
+        assert program.risk_class == "R2"
+        assert program.maximum_observations == 10_000
+        assert program.aggregation_workload_budget_ms == 1_000
+        assert program.finding_ids == ("A08-F01", "A08-F02", "A08-F03")
+        assert all(state.status == "partial" for state in program.package_states)
+        assert all(state.repository_local_status == "passed" for state in program.package_states)
+        assert program.schema_version == 4
+        assert program.generated_status_path == "docs/governance/program-status.md"
+        assert tuple(group.disposition for group in program.finding_dispositions) == (
+            "technical",
+            "operation_prerequisite",
+            "role_handover",
         )
-        for index in range(program.maximum_observations)
-    )
-
-    started_at = perf_counter()
-    summaries = program.summarize_metrics(observations)
-    elapsed_ms = (perf_counter() - started_at) * 1_000
-
-    build_summary = next(item for item in summaries if item.metric_id == metric.metric_id)
-    assert build_summary.observation_count == program.maximum_observations
-    assert elapsed_ms <= program.aggregation_workload_budget_ms, (
-        f"aggregation of {program.maximum_observations} observations took "
-        f"{elapsed_ms:.1f} ms; budget is {program.aggregation_workload_budget_ms} ms"
-    )
-
-
-def test_program_dates_require_extended_calendar_format(tmp_path: Path) -> None:
-    """Reject a policy whose as-of date omits the extended calendar separators.
-
-    Arrange a copied policy with a compact date, then assert that loading it
-    raises a governance error identifying the required ``YYYY-MM-DD`` format.
-
-    Args:
-        tmp_path: Pytest directory where the mutated policy is created.
-    """
-    path = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        path,
-        'as_of_date = "2026-09-05"',
-        'as_of_date = "20260901"',
-    )
-
-    with pytest.raises(ProgramGovernanceError, match="must use YYYY-MM-DD"):
-        load_program(path, repository_root=REPOSITORY_ROOT)
-
-
-def test_exact_ranges_conditional_dependencies_and_readiness_are_derived() -> None:
-    """Derive dependency ranges, purposes, and solo versus institutional readiness.
-
-    Arrange the committed repository program and assert representative wave
-    ranges, conditional dependencies, dependency purposes, and readiness queues
-    expose the configured technical and operational relationships.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    packages_by_id = {package.package_id: package for package in program.packages}
-
-    assert packages_by_id["A08"].dependencies == tuple(f"A{number:02d}" for number in range(1, 8))
-    assert packages_by_id["A08"].team_handover_dependencies == ("A03",)
-    assert packages_by_id["H02"].dependencies[-4:] == ("I01", "I02", "I03", "I04")
-    assert packages_by_id["L01"].dependencies == tuple(
-        f"{wave}{number:02d}" for wave in "CDEFGHIJK" for number in range(1, 9)
-    )
-    assert packages_by_id["L06"].any_of_dependency_groups == (("L01", "L02", "L04"),)
-    assert packages_by_id["L07"].any_of_dependency_groups == (("L01", "L02", "L03", "L04"),)
-    assert packages_by_id["B07"].dependencies == ("B02", "B03", "B04", "B05")
-    assert packages_by_id["B07"].operation_release_dependencies == ("B06",)
-    assert packages_by_id["B07"].as_json()["dependency_purposes"] == {
-        "implementation": {"all_of": ["B02", "B03", "B04", "B05"], "any_of": []},
-        "operation_release": {"all_of": ["B06"], "any_of": []},
-        "team_handover": {"all_of": [], "any_of": []},
-    }
-    assert packages_by_id["D01"].dependencies == ("C04",)
-    assert packages_by_id["D01"].operation_release_dependencies == ("B08",)
-    assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
-        "C04",
-    )
-    assert program.ready_packages(institutional=True) == ()
-
-
-def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(tmp_path: Path) -> None:
-    """Reject roadmap cycles, shorthand dependencies, missing packages, and malformed rows.
-
-    Arrange separate roadmap copies for each mutation, then assert that each
-    invalid row raises a governance error containing the corresponding failure
-    description.
-
-    Args:
-        tmp_path: Pytest directory where mutated roadmap copies are created.
-    """
-    cyclic = _roadmap_fixture(tmp_path)
-    _replace_program_fixture_text(
-        cyclic,
-        "| A01 | Repository charter and monorepo boundary | — | "
-        "Repository-owned governance; no external authority | - |",
-        "| A01 | Repository charter and monorepo boundary | — | "
-        "Repository-owned governance; no external authority | A08 |",
-    )
-    with pytest.raises(ProgramGovernanceError, match="dependency cycle"):
-        load_roadmap(cyclic)
-
-    shorthand = _roadmap_fixture(tmp_path)
-    _replace_program_fixture_text(shorthand, "B01-B08, C01-C08, D06", "B, C, D06")
-    with pytest.raises(ProgramGovernanceError, match="unsupported roadmap dependency token"):
-        load_roadmap(shorthand)
-
-    missing = _roadmap_fixture(tmp_path)
-    _replace_program_fixture_text(
-        missing,
-        "| A08 | Program dependency graph and owned baseline KPIs | — | "
-        "Metrics are non-vanity signals and never replace hard gates | "
-        "implementation: A01-A07; team handover: A03 |",
-        "",
-    )
-    with pytest.raises(ProgramGovernanceError, match="A01-L08 exactly once"):
-        load_roadmap(missing)
-
-    malformed = _roadmap_fixture(tmp_path)
-    _replace_program_fixture_text(
-        malformed,
-        "| A01 | Repository charter and monorepo boundary | — | "
-        "Repository-owned governance; no external authority | - |",
-        "| A01 | Repository charter and monorepo boundary | - |",
-    )
-    with pytest.raises(ProgramGovernanceError, match="must declare objective, library/tool"):
-        load_roadmap(malformed)
-
-    purpose_cycle = _roadmap_fixture(tmp_path)
-    _replace_program_fixture_text(
-        purpose_cycle,
-        "| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, "
-        "and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate "
-        "namespaces and trust; pass poisoning tests; retain verified local fallback | B05 |",
-        "| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, "
-        "and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate "
-        "namespaces and trust; pass poisoning tests; retain verified local fallback | "
-        "implementation: B05; operation/release: B07 |",
-    )
-    with pytest.raises(ProgramGovernanceError, match="dependency cycle"):
-        load_roadmap(purpose_cycle)
-
-
-def test_roadmap_parses_team_handover_purpose_without_changing_technical_readiness(
-    tmp_path: Path,
-) -> None:
-    """Parse a team-handover dependency beside the technical dependency.
-
-    Arrange a C02 roadmap row with an added A03 handover purpose, then assert the
-    parsed package keeps C01 as its technical dependency and records A03 only in
-    the team-handover dependency field.
-
-    Args:
-        tmp_path: Pytest directory where the mutated roadmap is created.
-    """
-    path = _roadmap_fixture(tmp_path)
-    _replace_program_fixture_text(
-        path,
-        "| C02 | Venue, session, calendar, market-status, and timezone contracts | "
-        "`exchange_calendars` 4.13.2 | Versioned source/override adapter and pinned "
-        "fixtures; never live authority | C01 |",
-        "| C02 | Venue, session, calendar, market-status, and timezone contracts | "
-        "`exchange_calendars` 4.13.2 | Versioned source/override adapter and pinned "
-        "fixtures; never live authority | implementation: C01; team handover: A03 |",
-    )
-
-    package = next(item for item in load_roadmap(path) if item.package_id == "C02")
-    assert package.dependencies == ("C01",)
-    assert package.team_handover_dependencies == ("A03",)
-
-
-def test_research_entry_rules_separate_technical_progress_from_operations_and_review() -> None:
-    """Check that research-entry prose names technical, operational, and review boundaries.
-
-    Arrange the committed research-program document and assert it contains the
-    required phrases for technical completion, institutional validation, pending
-    handover, and final out-of-sample access.
-    """
-    text = RESEARCH_PROGRAM_PATH.read_text(encoding="utf-8")
-
-    assert "must have complete implementation and no technical finding" in text
-    assert "It does not require\ninstitutional `validated` status" in text
-    assert "Pending organizational handover does not block" in text
-    assert "before final-OOS access and certification" in text
-
-
-def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
-    tmp_path: Path,
-) -> None:
-    """Reject policies with failed evidence, overclaimed status, manual KPIs, or gate substitutes.
-
-    Arrange four independent policy mutations and assert that loading each one
-    raises the matching governance error for local evidence, package status,
-    manual entry, or hard-gate substitution.
-
-    Args:
-        tmp_path: Pytest directory where mutated policy copies are created.
-    """
-    local_gap = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        local_gap, 'repository_local_status = "passed"', 'repository_local_status = "failed"'
-    )
-    with pytest.raises(ProgramGovernanceError, match="passing repository-local evidence"):
-        load_program(local_gap, repository_root=REPOSITORY_ROOT)
-
-    validated = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        validated,
-        'package_id = "A01"\nstatus = "partial"',
-        'package_id = "A01"\nstatus = "validated"',
-    )
-    with pytest.raises(ProgramGovernanceError, match="must remain partial"):
-        load_program(validated, repository_root=REPOSITORY_ROOT)
-
-    manual = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        manual, "manual_entry_allowed = false", "manual_entry_allowed = true"
-    )
-    with pytest.raises(ProgramGovernanceError, match="manual KPI entry is prohibited"):
-        load_program(manual, repository_root=REPOSITORY_ROOT)
-
-    vanity = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        vanity, "hard_gate_substitute = false", "hard_gate_substitute = true"
-    )
-    with pytest.raises(ProgramGovernanceError, match="cannot substitute for a hard gate"):
-        load_program(vanity, repository_root=REPOSITORY_ROOT)
-
-
-def test_program_policy_rejects_unapproved_target_claim_and_parallel_contracts(
-    tmp_path: Path,
-) -> None:
-    """Reject unsupported target claims, parallel contracts, and deferred-evidence classes.
-
-    Arrange independent mutations for an unsupported approved target, multiple
-    capability contracts, and an invalid deferred-evidence class. Assert that
-    each policy load raises the corresponding governance error.
-
-    Args:
-        tmp_path: Pytest directory where mutated policy copies are created.
-    """
-    target = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        target, 'target_status = "pending_owner_approval"', 'target_status = "approved"'
-    )
-    with pytest.raises(ProgramGovernanceError, match="approved target requires value and evidence"):
-        load_program(target, repository_root=REPOSITORY_ROOT)
-
-    contracts = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        contracts,
-        'evidence_paths = ["docs/governance/repository-charter.md"]',
-        'evidence_paths = ["docs/governance/repository-charter.md", '
-        '"docs/governance/domain-ownership.md"]',
-    )
-    with pytest.raises(ProgramGovernanceError, match="exactly one Markdown capability contract"):
-        load_program(contracts, repository_root=REPOSITORY_ROOT)
-
-    deferred = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(deferred, '"organization",', '"later_technical_package",')
-    with pytest.raises(ProgramGovernanceError, match="deferred evidence classes"):
-        load_program(deferred, repository_root=REPOSITORY_ROOT)
-
-
-def test_program_policy_rejects_an_unmapped_active_historical_finding(tmp_path: Path) -> None:
-    """Reject an active historical finding without a migration disposition.
-
-    Arrange a policy with one historical finding removed from its disposition
-    group, then assert that loading the policy reports the unmapped finding.
-
-    Args:
-        tmp_path: Pytest directory where the mutated policy is created.
-    """
-    path = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(path, '  "A01-F01",\n', "")
-
-    with pytest.raises(ProgramGovernanceError, match="lack a migration disposition"):
-        load_program(path, repository_root=REPOSITORY_ROOT)
-
-
-def test_program_policy_rejects_impossible_approved_target_values(tmp_path: Path) -> None:
-    """Reject approved targets that are negative or outside the bounded ratio scale.
-
-    Arrange separate policies with a negative target and a ratio target above
-    100, then assert that each load identifies the violated target constraint.
-
-    Args:
-        tmp_path: Pytest directory where mutated policy copies are created.
-    """
-    negative = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        negative,
-        'target_status = "pending_owner_approval"',
-        'target_status = "approved"\n'
-        "target_value = -1\n"
-        'target_approval_evidence = "https://forge.example/approvals/negative-target"',
-    )
-    with pytest.raises(ProgramGovernanceError, match="target_value must be non-negative"):
-        load_program(negative, repository_root=REPOSITORY_ROOT)
-
-    over_scale = _policy_fixture(tmp_path)
-    text = over_scale.read_text(encoding="utf-8")
-    metric_marker = 'metric_id = "kpi.research_reproducibility_percent"'
-    prefix, bounded_metric_and_rest = text.split(metric_marker, maxsplit=1)
-    bounded_metric_and_rest = bounded_metric_and_rest.replace(
-        'target_status = "pending_owner_approval"',
-        'target_status = "approved"\n'
-        "target_value = 101\n"
-        'target_approval_evidence = "https://forge.example/approvals/over-scale-target"',
-        1,
-    )
-    over_scale.write_text(prefix + metric_marker + bounded_metric_and_rest, encoding="utf-8")
-    with pytest.raises(ProgramGovernanceError, match="bounded ratio scale"):
-        load_program(over_scale, repository_root=REPOSITORY_ROOT)
-
-
-def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
-    tmp_path: Path,
-) -> None:
-    """Aggregate duration and ratio events while marking under-sampled metrics insufficient.
-
-    Arrange five duration events and two ratio events totaling 9/12 in a JSONL
-    fixture, with no deployment observations. Assert the duration p95 is
-    5 seconds, the pooled ratio is 75 percent, and deployment remains
-    insufficient without a value.
-
-    Args:
-        tmp_path: Pytest directory where the observation JSONL file is written.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    events = [
-        _metric_observation_event(
-            "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
+        assert program.finding_disposition_for("A01-F01") == "operation_prerequisite"
+        assert program.finding_disposition_for("A01-F03") == "role_handover"
+        assert sum(len(group.finding_ids) for group in program.finding_dispositions) == 54
+        assert program.implementation_status == "complete"
+        assert program.governance_status == "not_required"
+        assert all(state.implementation_status == "complete" for state in program.package_states)
+        assert all(state.governance_status == "not_required" for state in program.package_states)
+        assert all(
+            len(state.evidence_paths) == 1 and state.contract_path.endswith(".md")
+            for state in program.package_states
         )
-        for number in range(1, 6)
-    ]
-    events.extend(
-        [
+        assert all(metric.collection_mode == "automatic_event" for metric in program.metrics)
+        assert all(not metric.manual_entry_allowed for metric in program.metrics)
+        assert all(not metric.hard_gate_substitute for metric in program.metrics)
+        assert all(metric.baseline_value is None for metric in program.metrics)
+        assert all(metric.target_value is None for metric in program.metrics)
+        repository_topology_state = program.state_for("B01")
+        assert repository_topology_state is not None
+        assert repository_topology_state.open_finding_ids == ("B01-F01", "B01-F02")
+        build_graph_state = program.state_for("B02")
+        assert build_graph_state is not None
+        assert build_graph_state.open_finding_ids == ("B02-F01", "B02-F02", "B02-F03")
+        environment_state = program.state_for("B03")
+        assert environment_state is not None
+        assert environment_state.open_finding_ids == ("B03-F01", "B03-F02", "B03-F03")
+        standards_state = program.state_for("B04")
+        assert standards_state is not None
+        assert standards_state.open_finding_ids == ("B04-F01", "B04-F02", "B04-F03")
+        continuous_integration_state = program.state_for("B05")
+        assert continuous_integration_state is not None
+        assert continuous_integration_state.open_finding_ids == (
+            "B05-F01",
+            "B05-F02",
+            "B05-F03",
+        )
+        remote_execution_state = program.state_for("B06")
+        assert remote_execution_state is not None
+        assert remote_execution_state.open_finding_ids == (
+            "B06-F01",
+            "B06-F02",
+            "B06-F03",
+        )
+        dependency_admission_state = program.state_for("B07")
+        assert dependency_admission_state is not None
+        assert dependency_admission_state.open_finding_ids == (
+            "B07-F01",
+            "B07-F02",
+            "B07-F03",
+        )
+        artifact_supply_chain_state = program.state_for("B08")
+        assert artifact_supply_chain_state is not None
+        assert artifact_supply_chain_state.open_finding_ids == (
+            "B08-F01",
+            "B08-F02",
+            "B08-F03",
+        )
+        instrument_identity_state = program.state_for("C01")
+        assert instrument_identity_state is not None
+        assert instrument_identity_state.open_finding_ids == (
+            "C01-F01",
+            "C01-F02",
+            "C01-F03",
+        )
+        venue_calendar_state = program.state_for("C02")
+        assert venue_calendar_state is not None
+        assert venue_calendar_state.open_finding_ids == (
+            "C02-F01",
+            "C02-F02",
+            "C02-F03",
+        )
+        financial_units_state = program.state_for("C03")
+        assert financial_units_state is not None
+        assert financial_units_state.open_finding_ids == (
+            "C03-F01",
+            "C03-F02",
+            "C03-F03",
+        )
+
+    def test_program_dates_require_extended_calendar_format(self, tmp_path: Path) -> None:
+        """Reject a policy whose as-of date omits the extended calendar separators.
+
+        Arrange a copied policy with a compact date, then assert that loading it
+        raises a governance error identifying the required ``YYYY-MM-DD`` format.
+
+        Args:
+            tmp_path: Pytest directory where the mutated policy is created.
+        """
+        path = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            path,
+            'as_of_date = "2026-09-05"',
+            'as_of_date = "20260901"',
+        )
+
+        with pytest.raises(ProgramGovernanceError, match="must use YYYY-MM-DD"):
+            load_program(path, repository_root=REPOSITORY_ROOT)
+
+    def test_exact_ranges_conditional_dependencies_and_readiness_are_derived(
+        self,
+    ) -> None:
+        """Derive dependency ranges, purposes, and solo versus institutional readiness.
+
+        Arrange the committed repository program and assert representative wave
+        ranges, conditional dependencies, dependency purposes, and readiness queues
+        expose the configured technical and operational relationships.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        packages_by_id = {package.package_id: package for package in program.packages}
+
+        assert packages_by_id["A08"].dependencies == tuple(
+            f"A{number:02d}" for number in range(1, 8)
+        )
+        assert packages_by_id["A08"].team_handover_dependencies == ("A03",)
+        assert packages_by_id["H02"].dependencies[-4:] == ("I01", "I02", "I03", "I04")
+        assert packages_by_id["L01"].dependencies == tuple(
+            f"{wave}{number:02d}" for wave in "CDEFGHIJK" for number in range(1, 9)
+        )
+        assert packages_by_id["L06"].any_of_dependency_groups == (("L01", "L02", "L04"),)
+        assert packages_by_id["L07"].any_of_dependency_groups == (("L01", "L02", "L03", "L04"),)
+        assert packages_by_id["B07"].dependencies == ("B02", "B03", "B04", "B05")
+        assert packages_by_id["B07"].operation_release_dependencies == ("B06",)
+        assert packages_by_id["B07"].as_json()["dependency_purposes"] == {
+            "implementation": {"all_of": ["B02", "B03", "B04", "B05"], "any_of": []},
+            "operation_release": {"all_of": ["B06"], "any_of": []},
+            "team_handover": {"all_of": [], "any_of": []},
+        }
+        assert packages_by_id["D01"].dependencies == ("C04",)
+        assert packages_by_id["D01"].operation_release_dependencies == ("B08",)
+        assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
+            "C04",
+        )
+        assert program.ready_packages(institutional=True) == ()
+
+    def test_roadmap_rejects_cycle_unknown_shorthand_and_missing_package(
+        self, tmp_path: Path
+    ) -> None:
+        """Reject roadmap cycles, shorthand dependencies, missing packages, and malformed rows.
+
+        Arrange separate roadmap copies for each mutation, then assert that each
+        invalid row raises a governance error containing the corresponding failure
+        description.
+
+        Args:
+            tmp_path: Pytest directory where mutated roadmap copies are created.
+        """
+        cyclic = _roadmap_fixture(tmp_path)
+        _replace_program_fixture_text(
+            cyclic,
+            "| A01 | Repository charter and monorepo boundary | — | "
+            "Repository-owned governance; no external authority | - |",
+            "| A01 | Repository charter and monorepo boundary | — | "
+            "Repository-owned governance; no external authority | A08 |",
+        )
+        with pytest.raises(ProgramGovernanceError, match="dependency cycle"):
+            load_roadmap(cyclic)
+
+        shorthand = _roadmap_fixture(tmp_path)
+        _replace_program_fixture_text(shorthand, "B01-B08, C01-C08, D06", "B, C, D06")
+        with pytest.raises(ProgramGovernanceError, match="unsupported roadmap dependency token"):
+            load_roadmap(shorthand)
+
+        missing = _roadmap_fixture(tmp_path)
+        _replace_program_fixture_text(
+            missing,
+            "| A08 | Program dependency graph and owned baseline KPIs | — | "
+            "Metrics are non-vanity signals and never replace hard gates | "
+            "implementation: A01-A07; team handover: A03 |",
+            "",
+        )
+        with pytest.raises(ProgramGovernanceError, match="A01-L08 exactly once"):
+            load_roadmap(missing)
+
+        malformed = _roadmap_fixture(tmp_path)
+        _replace_program_fixture_text(
+            malformed,
+            "| A01 | Repository charter and monorepo boundary | — | "
+            "Repository-owned governance; no external authority | - |",
+            "| A01 | Repository charter and monorepo boundary | - |",
+        )
+        with pytest.raises(ProgramGovernanceError, match="must declare objective, library/tool"):
+            load_roadmap(malformed)
+
+        purpose_cycle = _roadmap_fixture(tmp_path)
+        _replace_program_fixture_text(
+            purpose_cycle,
+            "| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, "
+            "and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate "
+            "namespaces and trust; pass poisoning tests; retain verified local fallback | B05 |",
+            "| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, "
+            "and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate "
+            "namespaces and trust; pass poisoning tests; retain verified local fallback | "
+            "implementation: B05; operation/release: B07 |",
+        )
+        with pytest.raises(ProgramGovernanceError, match="dependency cycle"):
+            load_roadmap(purpose_cycle)
+
+    def test_roadmap_parses_team_handover_purpose_without_changing_technical_readiness(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Parse a team-handover dependency beside the technical dependency.
+
+        Arrange a C02 roadmap row with an added A03 handover purpose, then assert the
+        parsed package keeps C01 as its technical dependency and records A03 only in
+        the team-handover dependency field.
+
+        Args:
+            tmp_path: Pytest directory where the mutated roadmap is created.
+        """
+        path = _roadmap_fixture(tmp_path)
+        _replace_program_fixture_text(
+            path,
+            "| C02 | Venue, session, calendar, market-status, and timezone contracts | "
+            "`exchange_calendars` 4.13.2 | Versioned source/override adapter and pinned "
+            "fixtures; never live authority | C01 |",
+            "| C02 | Venue, session, calendar, market-status, and timezone contracts | "
+            "`exchange_calendars` 4.13.2 | Versioned source/override adapter and pinned "
+            "fixtures; never live authority | implementation: C01; team handover: A03 |",
+        )
+
+        package = next(item for item in load_roadmap(path) if item.package_id == "C02")
+        assert package.dependencies == ("C01",)
+        assert package.team_handover_dependencies == ("A03",)
+
+    def test_research_entry_rules_separate_technical_progress_from_operations_and_review(
+        self,
+    ) -> None:
+        """Check that research-entry prose names technical, operational, and review boundaries.
+
+        Arrange the committed research-program document and assert it contains the
+        required phrases for technical completion, institutional validation, pending
+        handover, and final out-of-sample access.
+        """
+        text = RESEARCH_PROGRAM_PATH.read_text(encoding="utf-8")
+
+        assert "must have complete implementation and no technical finding" in text
+        assert "It does not require\ninstitutional `validated` status" in text
+        assert "Pending organizational handover does not block" in text
+        assert "before final-OOS access and certification" in text
+
+    def test_program_policy_rejects_local_gap_status_overclaim_and_vanity_controls(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Reject policies with failed evidence, overclaimed status, or gate substitutes.
+
+        Arrange four independent policy mutations and assert that loading each one
+        raises the matching governance error for local evidence, package status,
+        manual entry, or hard-gate substitution.
+
+        Args:
+            tmp_path: Pytest directory where mutated policy copies are created.
+        """
+        local_gap = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            local_gap,
+            'repository_local_status = "passed"',
+            'repository_local_status = "failed"',
+        )
+        with pytest.raises(ProgramGovernanceError, match="passing repository-local evidence"):
+            load_program(local_gap, repository_root=REPOSITORY_ROOT)
+
+        validated = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            validated,
+            'package_id = "A01"\nstatus = "partial"',
+            'package_id = "A01"\nstatus = "validated"',
+        )
+        with pytest.raises(ProgramGovernanceError, match="must remain partial"):
+            load_program(validated, repository_root=REPOSITORY_ROOT)
+
+        manual = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            manual, "manual_entry_allowed = false", "manual_entry_allowed = true"
+        )
+        with pytest.raises(ProgramGovernanceError, match="manual KPI entry is prohibited"):
+            load_program(manual, repository_root=REPOSITORY_ROOT)
+
+        vanity = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            vanity, "hard_gate_substitute = false", "hard_gate_substitute = true"
+        )
+        with pytest.raises(ProgramGovernanceError, match="cannot substitute for a hard gate"):
+            load_program(vanity, repository_root=REPOSITORY_ROOT)
+
+    def test_program_policy_rejects_unapproved_target_claim_and_parallel_contracts(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Reject unsupported target claims, parallel contracts, and deferred-evidence classes.
+
+        Arrange independent mutations for an unsupported approved target, multiple
+        capability contracts, and an invalid deferred-evidence class. Assert that
+        each policy load raises the corresponding governance error.
+
+        Args:
+            tmp_path: Pytest directory where mutated policy copies are created.
+        """
+        target = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            target,
+            'target_status = "pending_owner_approval"',
+            'target_status = "approved"',
+        )
+        with pytest.raises(
+            ProgramGovernanceError, match="approved target requires value and evidence"
+        ):
+            load_program(target, repository_root=REPOSITORY_ROOT)
+
+        contracts = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            contracts,
+            'evidence_paths = ["docs/governance/repository-charter.md"]',
+            'evidence_paths = ["docs/governance/repository-charter.md", '
+            '"docs/governance/domain-ownership.md"]',
+        )
+        with pytest.raises(
+            ProgramGovernanceError, match="exactly one Markdown capability contract"
+        ):
+            load_program(contracts, repository_root=REPOSITORY_ROOT)
+
+        deferred = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(deferred, '"organization",', '"later_technical_package",')
+        with pytest.raises(ProgramGovernanceError, match="deferred evidence classes"):
+            load_program(deferred, repository_root=REPOSITORY_ROOT)
+
+    def test_program_policy_rejects_an_unmapped_active_historical_finding(
+        self, tmp_path: Path
+    ) -> None:
+        """Reject an active historical finding without a migration disposition.
+
+        Arrange a policy with one historical finding removed from its disposition
+        group, then assert that loading the policy reports the unmapped finding.
+
+        Args:
+            tmp_path: Pytest directory where the mutated policy is created.
+        """
+        path = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(path, '  "A01-F01",\n', "")
+
+        with pytest.raises(ProgramGovernanceError, match="lack a migration disposition"):
+            load_program(path, repository_root=REPOSITORY_ROOT)
+
+    def test_program_policy_rejects_impossible_approved_target_values(self, tmp_path: Path) -> None:
+        """Reject approved targets that are negative or outside the bounded ratio scale.
+
+        Arrange separate policies with a negative target and a ratio target above
+        100, then assert that each load identifies the violated target constraint.
+
+        Args:
+            tmp_path: Pytest directory where mutated policy copies are created.
+        """
+        negative = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            negative,
+            'target_status = "pending_owner_approval"',
+            'target_status = "approved"\n'
+            "target_value = -1\n"
+            'target_approval_evidence = "https://forge.example/approvals/negative-target"',
+        )
+        with pytest.raises(ProgramGovernanceError, match="target_value must be non-negative"):
+            load_program(negative, repository_root=REPOSITORY_ROOT)
+
+        over_scale = _policy_fixture(tmp_path)
+        text = over_scale.read_text(encoding="utf-8")
+        metric_marker = 'metric_id = "kpi.research_reproducibility_percent"'
+        prefix, bounded_metric_and_rest = text.split(metric_marker, maxsplit=1)
+        bounded_metric_and_rest = bounded_metric_and_rest.replace(
+            'target_status = "pending_owner_approval"',
+            'target_status = "approved"\n'
+            "target_value = 101\n"
+            'target_approval_evidence = "https://forge.example/approvals/over-scale-target"',
+            1,
+        )
+        over_scale.write_text(prefix + metric_marker + bounded_metric_and_rest, encoding="utf-8")
+        with pytest.raises(ProgramGovernanceError, match="bounded ratio scale"):
+            load_program(over_scale, repository_root=REPOSITORY_ROOT)
+
+
+class TestProgramObservations:
+    """Exercise KPI observation parsing, aggregation, and boundary contracts."""
+
+    def test_duration_and_ratio_observations_aggregate_from_sufficient_statistics(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Aggregate duration and ratio events while marking under-sampled metrics insufficient.
+
+        Arrange five duration events and two ratio events totaling 9/12 in a JSONL
+        fixture, with no deployment observations. Assert the duration p95 is
+        5 seconds, the pooled ratio is 75 percent, and deployment remains
+        insufficient without a value.
+
+        Args:
+            tmp_path: Pytest directory where the observation JSONL file is written.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        events = [
             _metric_observation_event(
-                "kpi.research_reproducibility_percent",
-                event_id="research-1",
-                numerator=8,
-                denominator=10,
-            ),
-            _metric_observation_event(
-                "kpi.research_reproducibility_percent",
-                event_id="research-2",
-                start_seconds=5,
-                seconds=10,
-                numerator=1,
-                denominator=2,
-            ),
+                "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
+            )
+            for number in range(1, 6)
         ]
-    )
-    observations = load_observations(_write_observation_events(tmp_path, events), program=program)
-    summaries = {item.metric_id: item for item in program.summarize_metrics(observations)}
-
-    assert summaries["kpi.build_duration_seconds"].value == 5
-    assert summaries["kpi.build_duration_seconds"].status == "measured"
-    assert summaries["kpi.research_reproducibility_percent"].value == 75
-    assert summaries["kpi.deployment_lead_time_seconds"].status == ("insufficient_observations")
-    assert summaries["kpi.deployment_lead_time_seconds"].value is None
-
-
-def test_reporting_window_excludes_stale_duration_observations(tmp_path: Path) -> None:
-    """Exclude stale duration events from the reporting-window summary.
-
-    Arrange one January event and five August events, then assert the build-duration
-    summary includes only the five August observations and returns 5 seconds.
-
-    Args:
-        tmp_path: Pytest directory where the observation JSONL file is written.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    stale = _metric_observation_event(
-        "kpi.build_duration_seconds", event_id="build-stale", seconds=59
-    )
-    stale["window_start"] = "2026-01-01T00:00:00Z"
-    stale["window_end"] = "2026-01-01T00:00:59Z"
-    recent = [
-        _metric_observation_event(
-            "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
+        events.extend(
+            [
+                _metric_observation_event(
+                    "kpi.research_reproducibility_percent",
+                    event_id="research-1",
+                    numerator=8,
+                    denominator=10,
+                ),
+                _metric_observation_event(
+                    "kpi.research_reproducibility_percent",
+                    event_id="research-2",
+                    start_seconds=5,
+                    seconds=10,
+                    numerator=1,
+                    denominator=2,
+                ),
+            ]
         )
-        for number in range(1, 6)
-    ]
+        observations = load_observations(
+            _write_observation_events(tmp_path, events), program=program
+        )
+        summaries = {item.metric_id: item for item in program.summarize_metrics(observations)}
 
-    observations = load_observations(
-        _write_observation_events(tmp_path, [stale, *recent]), program=program
-    )
-    summaries = {item.metric_id: item for item in program.summarize_metrics(observations)}
+        assert summaries["kpi.build_duration_seconds"].value == 5
+        assert summaries["kpi.build_duration_seconds"].status == "measured"
+        assert summaries["kpi.research_reproducibility_percent"].value == 75
+        assert summaries["kpi.deployment_lead_time_seconds"].status == ("insufficient_observations")
+        assert summaries["kpi.deployment_lead_time_seconds"].value is None
 
-    assert summaries["kpi.build_duration_seconds"].observation_count == 5
-    assert summaries["kpi.build_duration_seconds"].value == 5
+    def test_reporting_window_excludes_stale_duration_observations(self, tmp_path: Path) -> None:
+        """Exclude stale duration events from the reporting-window summary.
 
+        Arrange one January event and five August events, then assert the build-duration
+        summary includes only the five August observations and returns 5 seconds.
 
-def test_identical_retry_is_idempotent_and_conflicting_duplicate_fails(tmp_path: Path) -> None:
-    """Collapse identical retries and reject conflicting duplicate payloads.
+        Args:
+            tmp_path: Pytest directory where the observation JSONL file is written.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        stale = _metric_observation_event(
+            "kpi.build_duration_seconds", event_id="build-stale", seconds=59
+        )
+        stale["window_start"] = "2026-01-01T00:00:00Z"
+        stale["window_end"] = "2026-01-01T00:00:59Z"
+        recent = [
+            _metric_observation_event(
+                "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
+            )
+            for number in range(1, 6)
+        ]
 
-    Arrange two identical incident events, then replace one with a conflicting
-    numerator. Assert that the retry yields one observation and the conflicting
-    input raises the duplicate-payload error.
+        observations = load_observations(
+            _write_observation_events(tmp_path, [stale, *recent]), program=program
+        )
+        summaries = {item.metric_id: item for item in program.summarize_metrics(observations)}
 
-    Args:
-        tmp_path: Pytest directory where observation JSONL files are written.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    event = _metric_observation_event(
-        "kpi.incident_rate_per_1000_runtime_hours", event_id="incident-1"
-    )
-    observations = load_observations(
-        _write_observation_events(tmp_path, [event, event]), program=program
-    )
-    assert len(observations) == 1
+        assert summaries["kpi.build_duration_seconds"].observation_count == 5
+        assert summaries["kpi.build_duration_seconds"].value == 5
 
-    conflicting = dict(event)
-    conflicting["numerator"] = 2
-    with pytest.raises(ProgramGovernanceError, match="conflicting duplicate"):
-        load_observations(
-            _write_observation_events(tmp_path, [event, conflicting]), program=program
+    def test_identical_retry_is_idempotent_and_conflicting_duplicate_fails(
+        self, tmp_path: Path
+    ) -> None:
+        """Collapse identical retries and reject conflicting duplicate payloads.
+
+        Arrange two identical incident events, then replace one with a conflicting
+        numerator. Assert that the retry yields one observation and the conflicting
+        input raises the duplicate-payload error.
+
+        Args:
+            tmp_path: Pytest directory where observation JSONL files are written.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        event = _metric_observation_event(
+            "kpi.incident_rate_per_1000_runtime_hours", event_id="incident-1"
+        )
+        observations = load_observations(
+            _write_observation_events(tmp_path, [event, event]), program=program
+        )
+        assert len(observations) == 1
+
+        conflicting = dict(event)
+        conflicting["numerator"] = 2
+        with pytest.raises(ProgramGovernanceError, match="conflicting duplicate"):
+            load_observations(
+                _write_observation_events(tmp_path, [event, conflicting]),
+                program=program,
+            )
+
+    def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Reject overlapping ratio windows for identical metric dimensions.
+
+        Arrange two research-ratio events whose windows overlap, then assert that
+        loading them raises the overlap validation error.
+
+        Args:
+            tmp_path: Pytest directory where the observation JSONL file is written.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        first = _metric_observation_event(
+            "kpi.research_reproducibility_percent", event_id="research-first"
+        )
+        overlapping = _metric_observation_event(
+            "kpi.research_reproducibility_percent",
+            event_id="research-overlap",
+            start_seconds=4,
+            seconds=8,
         )
 
+        with pytest.raises(ProgramGovernanceError, match="overlapping ratio observations"):
+            load_observations(
+                _write_observation_events(tmp_path, [first, overlapping]),
+                program=program,
+            )
 
-def test_ratio_observation_windows_cannot_overlap_for_the_same_dimensions(
-    tmp_path: Path,
-) -> None:
-    """Reject overlapping ratio windows for identical metric dimensions.
-
-    Arrange two research-ratio events whose windows overlap, then assert that
-    loading them raises the overlap validation error.
-
-    Args:
-        tmp_path: Pytest directory where the observation JSONL file is written.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    first = _metric_observation_event(
-        "kpi.research_reproducibility_percent", event_id="research-first"
+    @pytest.mark.parametrize(
+        ("mutation", "message"),
+        [
+            ({"window_start": "2026-08-30T00:00:00+00:00"}, "ending Z"),
+            ({"source_revision": "branch-main"}, "full digest"),
+            ({"evidence_url": "https://user@example.com/run"}, "without credentials"),
+            ({"evidence_url": "https://[malformed/run"}, "valid HTTPS URL"),
+            ({"dimensions": {"environment": "ci"}}, "dimensions do not match"),
+            ({"window_end": "2026-08-30T00:00:00Z"}, "window must be positive"),
+        ],
     )
-    overlapping = _metric_observation_event(
-        "kpi.research_reproducibility_percent",
-        event_id="research-overlap",
-        start_seconds=4,
-        seconds=8,
-    )
+    def test_observation_boundary_failures_are_explicit(
+        self, tmp_path: Path, mutation: dict[str, object], message: str
+    ) -> None:
+        """Reject each malformed observation boundary with its specific message.
 
-    with pytest.raises(ProgramGovernanceError, match="overlapping ratio observations"):
-        load_observations(
-            _write_observation_events(tmp_path, [first, overlapping]), program=program
+        Arrange the parametrized event mutation, load the resulting one-event JSONL
+        fixture, and assert that the governance error includes the expected message
+        fragment for its timestamp, provenance, URL, dimensions, or window failure.
+
+        Args:
+            tmp_path: Pytest directory where the mutated observation JSONL file is
+                written.
+            mutation: Event field change that introduces one boundary failure.
+            message: Expected fragment in the resulting governance error.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        event = _metric_observation_event("kpi.build_duration_seconds", event_id="build-invalid")
+        event.update(mutation)
+
+        with pytest.raises(ProgramGovernanceError, match=message):
+            load_observations(_write_observation_events(tmp_path, [event]), program=program)
+
+    def test_ratio_rejects_zero_denominator_unit_drift_and_impossible_bounded_value(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Reject invalid ratio denominators, units, and bounded numerators.
+
+        Arrange events with a zero denominator, mismatched denominator units, and a
+        numerator greater than its denominator. Assert each observation load reports
+        the corresponding ratio violation.
+
+        Args:
+            tmp_path: Pytest directory where mutated observation JSONL files are written.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        zero = _metric_observation_event(
+            "kpi.research_reproducibility_percent",
+            event_id="research-zero",
+            denominator=0,
+        )
+        with pytest.raises(ProgramGovernanceError, match="denominator positive"):
+            load_observations(_write_observation_events(tmp_path, [zero]), program=program)
+
+        unit = _metric_observation_event(
+            "kpi.research_reproducibility_percent",
+            event_id="research-unit",
+        )
+        unit["denominator_unit"] = "trials"
+        with pytest.raises(ProgramGovernanceError, match="denominator unit"):
+            load_observations(_write_observation_events(tmp_path, [unit]), program=program)
+
+        impossible = _metric_observation_event(
+            "kpi.research_reproducibility_percent",
+            event_id="research-impossible",
+            numerator=2,
+            denominator=1,
+        )
+        with pytest.raises(ProgramGovernanceError, match="bounded numerator"):
+            load_observations(_write_observation_events(tmp_path, [impossible]), program=program)
+
+
+class TestProgramCli:
+    """Exercise deterministic program-governance CLI output contracts."""
+
+    def test_cli_emits_stable_filtered_dashboard(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Emit the same filtered dashboard text and report the expected readiness values.
+
+        Arrange five build observations, invoke the CLI twice for wave A, and compare
+        the decoded stdout strings. Assert the dashboard counts, readiness fields,
+        metric controls, and solo-ready package match the repository program.
+
+        Args:
+            tmp_path: Pytest directory where the observation JSONL file is written.
+            capsys: Pytest capture fixture used to read each decoded CLI stdout value.
+        """
+        events = [
+            _metric_observation_event(
+                "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
+            )
+            for number in range(1, 6)
+        ]
+        path = _write_observation_events(tmp_path, events)
+
+        arguments = [str(REPOSITORY_ROOT), "--observations", str(path), "--wave", "A"]
+        assert main(arguments) == 0
+        first = capsys.readouterr().out
+        assert main(arguments) == 0
+        second = capsys.readouterr().out
+        assert first == second
+
+        dashboard = _json_object(TypeAdapter(dict[str, object]).validate_json(first))
+        assert dashboard["package_count"] == 96
+        package_rows = [_json_object(item) for item in _json_list(dashboard["packages"])]
+        assert len(package_rows) == 8
+        assert dashboard["next_solo_ready_package"] == "C04"
+        assert dashboard["next_implementation_ready_package"] == "C04"
+        assert dashboard["next_institutionally_ready_package"] is None
+        assert dashboard["observation_count"] == 5
+        metric_rows = [_json_object(item) for item in _json_list(dashboard["metrics"])]
+        assert all(
+            _json_object(item["definition"])["hard_gate_substitute"] is False
+            for item in metric_rows
         )
 
-
-@pytest.mark.parametrize(
-    ("mutation", "message"),
-    [
-        ({"window_start": "2026-08-30T00:00:00+00:00"}, "ending Z"),
-        ({"source_revision": "branch-main"}, "full digest"),
-        ({"evidence_url": "https://user@example.com/run"}, "without credentials"),
-        ({"evidence_url": "https://[malformed/run"}, "valid HTTPS URL"),
-        ({"dimensions": {"environment": "ci"}}, "dimensions do not match"),
-        ({"window_end": "2026-08-30T00:00:00Z"}, "window must be positive"),
-    ],
-)
-def test_observation_boundary_failures_are_explicit(
-    tmp_path: Path, mutation: dict[str, object], message: str
-) -> None:
-    """Reject each malformed observation boundary with its specific message.
-
-    Arrange the parametrized event mutation, load the resulting one-event JSONL
-    fixture, and assert that the governance error includes the expected message
-    fragment for its timestamp, provenance, URL, dimensions, or window failure.
-
-    Args:
-        tmp_path: Pytest directory where the mutated observation JSONL file is
-            written.
-        mutation: Event field change that introduces one boundary failure.
-        message: Expected fragment in the resulting governance error.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    event = _metric_observation_event("kpi.build_duration_seconds", event_id="build-invalid")
-    event.update(mutation)
-
-    with pytest.raises(ProgramGovernanceError, match=message):
-        load_observations(_write_observation_events(tmp_path, [event]), program=program)
+        assert main([str(REPOSITORY_ROOT), "--ready", "solo"]) == 0
+        ready = _json_object(TypeAdapter(dict[str, object]).validate_json(capsys.readouterr().out))
+        ready_rows = [_json_object(item) for item in _json_list(ready["packages"])]
+        assert [item["package_id"] for item in ready_rows] == ["C04"]
 
 
-def test_ratio_rejects_zero_denominator_unit_drift_and_impossible_bounded_value(
-    tmp_path: Path,
-) -> None:
-    """Reject invalid ratio denominators, units, and bounded numerators.
+class TestProgramReadiness:
+    """Exercise package readiness, generated status, and version compatibility contracts."""
 
-    Arrange events with a zero denominator, mismatched denominator units, and a
-    numerator greater than its denominator. Assert each observation load reports
-    the corresponding ratio violation.
+    def test_generated_status_is_deterministic_and_rejects_hand_edits(self, tmp_path: Path) -> None:
+        """Validate rendered status content and reject an appended hand edit.
 
-    Args:
-        tmp_path: Pytest directory where mutated observation JSONL files are written.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    zero = _metric_observation_event(
-        "kpi.research_reproducibility_percent",
-        event_id="research-zero",
-        denominator=0,
-    )
-    with pytest.raises(ProgramGovernanceError, match="denominator positive"):
-        load_observations(_write_observation_events(tmp_path, [zero]), program=program)
+        Arrange a rendered status document in a temporary file, assert its required
+        generated content validates, then append text and assert validation reports
+        stale generated status.
 
-    unit = _metric_observation_event(
-        "kpi.research_reproducibility_percent",
-        event_id="research-unit",
-    )
-    unit["denominator_unit"] = "trials"
-    with pytest.raises(ProgramGovernanceError, match="denominator unit"):
-        load_observations(_write_observation_events(tmp_path, [unit]), program=program)
+        Args:
+            tmp_path: Pytest directory where the generated status file is written.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        rendered = render_status_markdown(program)
+        status_path = tmp_path / "program-status.md"
+        status_path.write_text(rendered, encoding="utf-8")
 
-    impossible = _metric_observation_event(
-        "kpi.research_reproducibility_percent",
-        event_id="research-impossible",
-        numerator=2,
-        denominator=1,
-    )
-    with pytest.raises(ProgramGovernanceError, match="bounded numerator"):
-        load_observations(_write_observation_events(tmp_path, [impossible]), program=program)
-
-
-def test_cli_emits_stable_filtered_dashboard(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Emit the same filtered dashboard text and report the expected readiness values.
-
-    Arrange five build observations, invoke the CLI twice for wave A, and compare
-    the decoded stdout strings. Assert the dashboard counts, readiness fields,
-    metric controls, and solo-ready package match the repository program.
-
-    Args:
-        tmp_path: Pytest directory where the observation JSONL file is written.
-        capsys: Pytest capture fixture used to read each decoded CLI stdout value.
-    """
-    events = [
-        _metric_observation_event(
-            "kpi.build_duration_seconds", event_id=f"build-{number}", seconds=number
-        )
-        for number in range(1, 6)
-    ]
-    path = _write_observation_events(tmp_path, events)
-
-    arguments = [str(REPOSITORY_ROOT), "--observations", str(path), "--wave", "A"]
-    assert main(arguments) == 0
-    first = capsys.readouterr().out
-    assert main(arguments) == 0
-    second = capsys.readouterr().out
-    assert first == second
-
-    dashboard = json.loads(first)
-    assert dashboard["package_count"] == 96
-    assert len(dashboard["packages"]) == 8
-    assert dashboard["next_solo_ready_package"] == "C04"
-    assert dashboard["next_implementation_ready_package"] == "C04"
-    assert dashboard["next_institutionally_ready_package"] is None
-    assert dashboard["observation_count"] == 5
-    assert all(item["definition"]["hard_gate_substitute"] is False for item in dashboard["metrics"])
-
-    assert main([str(REPOSITORY_ROOT), "--ready", "solo"]) == 0
-    ready = json.loads(capsys.readouterr().out)
-    assert [item["package_id"] for item in ready["packages"]] == ["C04"]
-
-
-def test_generated_status_is_deterministic_and_rejects_hand_edits(tmp_path: Path) -> None:
-    """Validate rendered status content and reject an appended hand edit.
-
-    Arrange a rendered status document in a temporary file, assert its required
-    generated content validates, then append text and assert validation reports
-    stale generated status.
-
-    Args:
-        tmp_path: Pytest directory where the generated status file is written.
-    """
-    program = validate_repository(REPOSITORY_ROOT)
-    rendered = render_status_markdown(program)
-    status_path = tmp_path / "program-status.md"
-    status_path.write_text(rendered, encoding="utf-8")
-
-    validate_status_document(status_path, program)
-    assert "Registered implementation records: 19 of 96 packages" in rendered
-    assert "Next implementation-ready package: `C04`" in rendered
-    assert "`A01-F01`, `A01-F02`" in rendered
-    assert "`A01-F03`" in rendered
-    assert "No scoped handover is active" in rendered
-
-    status_path.write_text(rendered + "hand edit\n", encoding="utf-8")
-    with pytest.raises(ProgramGovernanceError, match="generated program status is stale"):
         validate_status_document(status_path, program)
+        assert "Registered implementation records: 19 of 96 packages" in rendered
+        assert "Next implementation-ready package: `C04`" in rendered
+        assert "`A01-F01`, `A01-F02`" in rendered
+        assert "`A01-F03`" in rendered
+        assert "No scoped handover is active" in rendered
 
+        status_path.write_text(rendered + "hand edit\n", encoding="utf-8")
+        with pytest.raises(ProgramGovernanceError, match="generated program status is stale"):
+            validate_status_document(status_path, program)
 
-def test_solo_package_completes_without_invented_findings(tmp_path: Path) -> None:
-    """Allow a cleared existing finding list to produce a complete solo package record.
+    def test_solo_package_completes_without_invented_findings(self, tmp_path: Path) -> None:
+        """Allow a cleared existing finding list to produce a complete solo package record.
 
-    Arrange the existing A01 policy with its open findings removed, then assert
-    the loaded record is technically complete without inventing findings and the
-    institutional-ready package queue remains empty.
+        Arrange the existing A01 policy with its open findings removed, then assert
+        the loaded record is technically complete without inventing findings and the
+        institutional-ready package queue remains empty.
 
-    Args:
-        tmp_path: Pytest directory where the mutated policy is created.
-    """
-    path = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        path,
-        'open_finding_ids = ["A01-F01", "A01-F02", "A01-F03"]',
-        "open_finding_ids = []",
-    )
-    program = load_program(path, repository_root=REPOSITORY_ROOT)
-    state = program.state_for("A01")
-    assert state is not None
-    assert state.implementation_status == "complete"
-    assert state.open_finding_ids == ()
-    assert state.technical_finding_ids == ()
-    assert state.assigned_reviewers == ()
-    assert state.governance_status == "not_required"
-    assert program.ready_packages(institutional=True) == ()
+        Args:
+            tmp_path: Pytest directory where the mutated policy is created.
+        """
+        path = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            path,
+            'open_finding_ids = ["A01-F01", "A01-F02", "A01-F03"]',
+            "open_finding_ids = []",
+        )
+        program = load_program(path, repository_root=REPOSITORY_ROOT)
+        state = program.state_for("A01")
+        assert state is not None
+        assert state.implementation_status == "complete"
+        assert state.open_finding_ids == ()
+        assert state.technical_finding_ids == ()
+        assert state.assigned_reviewers == ()
+        assert state.governance_status == "not_required"
+        assert program.ready_packages(institutional=True) == ()
 
+    def test_blocked_technical_dependency_stops_solo_readiness(self, tmp_path: Path) -> None:
+        """Reject a completed C02 record when its C01 technical dependency is blocked.
 
-def test_blocked_technical_dependency_stops_solo_readiness(tmp_path: Path) -> None:
-    """Reject a completed C02 record when its C01 technical dependency is blocked.
+        Arrange a policy whose C01 implementation is blocked and local evidence is
+        failed, then assert loading it raises the dependency-completion governance
+        error for C02.
 
-    Arrange a policy whose C01 implementation is blocked and local evidence is
-    failed, then assert loading it raises the dependency-completion governance
-    error for C02.
+        Args:
+            tmp_path: Pytest directory where the mutated policy is created.
+        """
+        path = _policy_fixture(tmp_path)
+        text = path.read_text()
+        prefix, suffix = text.split('package_id = "C01"', 1)
+        suffix = suffix.replace(
+            'implementation_status = "complete"', 'implementation_status = "blocked"', 1
+        )
+        suffix = suffix.replace(
+            'repository_local_status = "passed"',
+            'repository_local_status = "failed"',
+            1,
+        )
+        path.write_text(prefix + 'package_id = "C01"' + suffix)
+        with pytest.raises(
+            ProgramGovernanceError,
+            match="C02: completion requires complete technical dependencies",
+        ):
+            load_program(path, repository_root=REPOSITORY_ROOT)
 
-    Args:
-        tmp_path: Pytest directory where the mutated policy is created.
-    """
-    path = _policy_fixture(tmp_path)
-    text = path.read_text()
-    prefix, suffix = text.split('package_id = "C01"', 1)
-    suffix = suffix.replace(
-        'implementation_status = "complete"', 'implementation_status = "blocked"', 1
-    )
-    suffix = suffix.replace(
-        'repository_local_status = "passed"', 'repository_local_status = "failed"', 1
-    )
-    path.write_text(prefix + 'package_id = "C01"' + suffix)
-    with pytest.raises(
-        ProgramGovernanceError, match="C02: completion requires complete technical dependencies"
-    ):
-        load_program(path, repository_root=REPOSITORY_ROOT)
+    def test_non_contiguous_state_and_operational_dependency_do_not_block_delivery(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Retain B07's loaded state when the separate B06 state record is absent.
 
+        Arrange a policy with B06 removed, then assert B06 has no state, B07 retains
+        a state, and the solo-ready queue contains B06 and C04.
 
-def test_non_contiguous_state_and_operational_dependency_do_not_block_delivery(
-    tmp_path: Path,
-) -> None:
-    """Retain B07's loaded state when the separate B06 state record is absent.
+        Args:
+            tmp_path: Pytest directory where the mutated policy is created.
+        """
+        path = _policy_fixture(tmp_path)
+        _remove_package_state(path, "B06")
 
-    Arrange a policy with B06 removed, then assert B06 has no state, B07 retains
-    a state, and the solo-ready queue contains B06 and C04.
+        program = load_program(path, repository_root=REPOSITORY_ROOT)
 
-    Args:
-        tmp_path: Pytest directory where the mutated policy is created.
-    """
-    path = _policy_fixture(tmp_path)
-    _remove_package_state(path, "B06")
+        assert program.state_for("B06") is None
+        assert program.state_for("B07") is not None
+        assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
+            "B06",
+            "C04",
+        )
 
-    program = load_program(path, repository_root=REPOSITORY_ROOT)
+    def test_missing_implementation_dependency_still_blocks_non_contiguous_state(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Reject C03 when its missing C02 implementation dependency prevents completion.
 
-    assert program.state_for("B06") is None
-    assert program.state_for("B07") is not None
-    assert tuple(item.package_id for item in program.ready_packages(institutional=False)) == (
-        "B06",
-        "C04",
-    )
+        Arrange a policy with the C02 state record removed, then assert loading it
+        raises the dependency-completion governance error for C03.
 
+        Args:
+            tmp_path: Pytest directory where the mutated policy is created.
+        """
+        path = _policy_fixture(tmp_path)
+        _remove_package_state(path, "C02")
 
-def test_missing_implementation_dependency_still_blocks_non_contiguous_state(
-    tmp_path: Path,
-) -> None:
-    """Reject C03 when its missing C02 implementation dependency prevents completion.
+        with pytest.raises(
+            ProgramGovernanceError,
+            match="C03: completion requires complete technical dependencies",
+        ):
+            load_program(path, repository_root=REPOSITORY_ROOT)
 
-    Arrange a policy with the C02 state record removed, then assert loading it
-    raises the dependency-completion governance error for C03.
+    def test_technical_findings_cannot_be_hidden_by_complete_status(self, tmp_path: Path) -> None:
+        """Reject a completed-status record that contains a technical finding.
 
-    Args:
-        tmp_path: Pytest directory where the mutated policy is created.
-    """
-    path = _policy_fixture(tmp_path)
-    _remove_package_state(path, "C02")
+        Arrange the existing policy with one technical finding added to its otherwise
+        complete implementation record, then assert loading it raises the
+        no-technical-findings governance error.
 
-    with pytest.raises(
-        ProgramGovernanceError, match="C03: completion requires complete technical dependencies"
-    ):
-        load_program(path, repository_root=REPOSITORY_ROOT)
+        Args:
+            tmp_path: Pytest directory where the mutated policy is created.
+        """
+        path = _policy_fixture(tmp_path)
+        _replace_program_fixture_text(
+            path,
+            "technical_finding_ids = []",
+            'technical_finding_ids = ["broken-schema"]',
+        )
+        with pytest.raises(ProgramGovernanceError, match="no technical findings"):
+            load_program(path, repository_root=REPOSITORY_ROOT)
 
+    def test_program_reader_retains_version_one_semantics(self, tmp_path: Path) -> None:
+        """Read a version-one policy with its original institutional acceptance semantics.
 
-def test_technical_findings_cannot_be_hidden_by_complete_status(tmp_path: Path) -> None:
-    """Reject a completed-status record that contains a technical finding.
+        Arrange a downgraded legacy policy without newer implementation fields, then
+        assert version one remains partial, has no institutional-ready packages, and
+        still exposes C04 as the first solo-ready package.
 
-    Arrange the existing policy with one technical finding added to its otherwise
-    complete implementation record, then assert loading it raises the
-    no-technical-findings governance error.
-
-    Args:
-        tmp_path: Pytest directory where the mutated policy is created.
-    """
-    path = _policy_fixture(tmp_path)
-    _replace_program_fixture_text(
-        path, "technical_finding_ids = []", 'technical_finding_ids = ["broken-schema"]'
-    )
-    with pytest.raises(ProgramGovernanceError, match="no technical findings"):
-        load_program(path, repository_root=REPOSITORY_ROOT)
-
-
-def test_program_reader_retains_version_one_semantics(tmp_path: Path) -> None:
-    """Read a version-one policy with its original institutional acceptance semantics.
-
-    Arrange a downgraded legacy policy without newer implementation fields, then
-    assert version one remains partial, has no institutional-ready packages, and
-    still exposes C04 as the first solo-ready package.
-
-    Args:
-        tmp_path: Pytest directory where the downgraded policy is created.
-    """
-    path = _policy_fixture(tmp_path)
-    lines = _downgrade_current_policy(path, schema_version=1).splitlines()
-    path.write_text(
-        "\n".join(
-            line
-            for line in lines
-            if not line.startswith(
-                (
-                    "implementation_status =",
-                    "domain_id =",
-                    "technical_finding_ids =",
+        Args:
+            tmp_path: Pytest directory where the downgraded policy is created.
+        """
+        path = _policy_fixture(tmp_path)
+        lines = _downgrade_current_policy(path, schema_version=1).splitlines()
+        path.write_text(
+            "\n".join(
+                line
+                for line in lines
+                if not line.startswith(
+                    (
+                        "implementation_status =",
+                        "domain_id =",
+                        "technical_finding_ids =",
+                    )
                 )
             )
+            + "\n"
         )
-        + "\n"
-    )
-    program = load_program(path, repository_root=REPOSITORY_ROOT)
-    assert program.schema_version == 1
-    assert program.ready_packages(institutional=True) == ()
-    assert program.ready_packages(institutional=False)[0].package_id == "C04"
-    assert all(state.status == "partial" for state in program.package_states)
+        program = load_program(path, repository_root=REPOSITORY_ROOT)
+        assert program.schema_version == 1
+        assert program.ready_packages(institutional=True) == ()
+        assert program.ready_packages(institutional=False)[0].package_id == "C04"
+        assert all(state.status == "partial" for state in program.package_states)
 
+    def test_program_reader_retains_version_two_dependency_semantics(self, tmp_path: Path) -> None:
+        """Apply version-two dependency semantics to the B06 operation-release edge.
 
-def test_program_reader_retains_version_two_dependency_semantics(tmp_path: Path) -> None:
-    """Apply version-two dependency semantics to the B06 operation-release edge.
+        Arrange a version-two policy with B06 blocked and its local evidence failed,
+        then assert loading it rejects B07 because that dependency is incomplete.
 
-    Arrange a version-two policy with B06 blocked and its local evidence failed,
-    then assert loading it rejects B07 because that dependency is incomplete.
+        Args:
+            tmp_path: Pytest directory where the downgraded and mutated policy is
+                created.
+        """
+        path = _policy_fixture(tmp_path)
+        path.write_text(_downgrade_current_policy(path, schema_version=2), encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
+        prefix, suffix = text.split('package_id = "B06"', 1)
+        suffix = suffix.replace(
+            'implementation_status = "complete"', 'implementation_status = "blocked"', 1
+        )
+        suffix = suffix.replace(
+            'repository_local_status = "passed"',
+            'repository_local_status = "failed"',
+            1,
+        )
+        path.write_text(prefix + 'package_id = "B06"' + suffix, encoding="utf-8")
 
-    Args:
-        tmp_path: Pytest directory where the downgraded and mutated policy is
-            created.
+        with pytest.raises(
+            ProgramGovernanceError,
+            match="B07: completion requires complete technical dependencies",
+        ):
+            load_program(path, repository_root=REPOSITORY_ROOT)
+
+    def test_hiring_derives_scoped_governance_without_rewriting_package_states(
+        self, tmp_path: Path
+    ) -> None:
+        """Derive a scoped security handover while preserving implementation status.
+
+        Arrange an active security hire in a copied ownership register, then assert
+        only A07 becomes governance-pending, every package remains implementation
+        complete, and solo readiness still begins with C04.
+
+        Args:
+            tmp_path: Pytest directory where the temporary ownership register is
+                created.
+        """
+        register = tmp_path / "ownership.toml"
+        register.write_text(
+            (REPOSITORY_ROOT / "docs/governance/domain-ownership.toml").read_text()
+            + """
+    [[role_assignments]]
+    principal = "@security-hire"
+    role = "security"
+    domains = ["security"]
+    status = "active"
+    effective_from = "2026-09-04"
     """
-    path = _policy_fixture(tmp_path)
-    path.write_text(_downgrade_current_policy(path, schema_version=2), encoding="utf-8")
-    text = path.read_text(encoding="utf-8")
-    prefix, suffix = text.split('package_id = "B06"', 1)
-    suffix = suffix.replace(
-        'implementation_status = "complete"', 'implementation_status = "blocked"', 1
-    )
-    suffix = suffix.replace(
-        'repository_local_status = "passed"', 'repository_local_status = "failed"', 1
-    )
-    path.write_text(prefix + 'package_id = "B06"' + suffix, encoding="utf-8")
-
-    with pytest.raises(
-        ProgramGovernanceError, match="B07: completion requires complete technical dependencies"
-    ):
-        load_program(path, repository_root=REPOSITORY_ROOT)
+        )
+        program = load_program(
+            POLICY_PATH,
+            repository_root=REPOSITORY_ROOT,
+            ownership_register_path=register,
+        )
+        pending = [
+            state.package_id
+            for state in program.package_states
+            if state.governance_status == "pending"
+        ]
+        assert pending == ["A07"]
+        assert all(state.implementation_status == "complete" for state in program.package_states)
+        assert program.ready_packages(institutional=False)[0].package_id == "C04"
 
 
-def test_hiring_derives_scoped_governance_without_rewriting_package_states(tmp_path: Path) -> None:
-    """Derive a scoped security handover while preserving implementation status.
+class TestProgramWorkload:
+    """Exercise the governed program aggregation workload budget."""
 
-    Arrange an active security hire in a copied ownership register, then assert
-    only A07 becomes governance-pending, every package remains implementation
-    complete, and solo readiness still begins with C04.
+    @pytest.mark.performance
+    def test_program_aggregation_workload_stays_within_governed_budget(self) -> None:
+        """Measure maximum-observation aggregation against its configured time budget.
 
-    Args:
-        tmp_path: Pytest directory where the temporary ownership register is
-            created.
-    """
-    register = tmp_path / "ownership.toml"
-    register.write_text(
-        (REPOSITORY_ROOT / "docs/governance/domain-ownership.toml").read_text()
-        + """
-[[role_assignments]]
-principal = "@security-hire"
-role = "security"
-domains = ["security"]
-status = "active"
-effective_from = "2026-09-04"
-"""
-    )
-    program = load_program(
-        POLICY_PATH, repository_root=REPOSITORY_ROOT, ownership_register_path=register
-    )
-    pending = [
-        state.package_id for state in program.package_states if state.governance_status == "pending"
-    ]
-    assert pending == ["A07"]
-    assert all(state.implementation_status == "complete" for state in program.package_states)
-    assert program.ready_packages(institutional=False)[0].package_id == "C04"
+        Arrange the maximum number of duration observations and start timing only
+        immediately before ``summarize_metrics``. Assert the summary count equals
+        the configured maximum and elapsed aggregation milliseconds stay within the
+        policy budget; the performance marker keeps this workload out of default
+        test runs.
+        """
+        program = validate_repository(REPOSITORY_ROOT)
+        metric = next(
+            item for item in program.metrics if item.metric_id == "kpi.build_duration_seconds"
+        )
+        base_time = datetime(2026, 8, 30, tzinfo=UTC)
+        observations = tuple(
+            MetricObservation(
+                event_id=f"workload-{index}",
+                metric_id=metric.metric_id,
+                source_event_type=metric.source_event_type,
+                source_run_id=f"run-workload-{index}",
+                source_revision="5" * 40,
+                evidence_url=f"https://forge.example/runs/workload-{index}",
+                window_start=base_time + timedelta(seconds=index),
+                window_end=base_time + timedelta(seconds=index + 5),
+                dimensions=tuple(
+                    (dimension, f"value-{dimension}") for dimension in metric.required_dimensions
+                ),
+                numerator=None,
+                denominator=None,
+            )
+            for index in range(program.maximum_observations)
+        )
+
+        started_at = perf_counter()
+        summaries = program.summarize_metrics(observations)
+        elapsed_ms = (perf_counter() - started_at) * 1_000
+
+        build_summary = next(item for item in summaries if item.metric_id == metric.metric_id)
+        assert build_summary.observation_count == program.maximum_observations
+        assert elapsed_ms <= program.aggregation_workload_budget_ms, (
+            f"aggregation of {program.maximum_observations} observations took "
+            f"{elapsed_ms:.1f} ms; budget is {program.aggregation_workload_budget_ms} ms"
+        )
