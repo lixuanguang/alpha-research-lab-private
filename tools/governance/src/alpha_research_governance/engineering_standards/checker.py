@@ -7,6 +7,7 @@ import re
 import tokenize
 import tomllib
 from datetime import date, timedelta
+from functools import partial
 from io import StringIO
 from pathlib import Path
 
@@ -22,15 +23,6 @@ from alpha_research_governance.engineering_standards.python_standards import (
 
 class EngineeringStandardsError(ValueError):
     """Report one or more direct engineering-standards findings."""
-
-    def __init__(self, findings: tuple[str, ...]) -> None:
-        """Capture the ordered findings for a user-facing diagnostic.
-
-        Args:
-            findings: Ordered source diagnostics to render.
-        """
-        self.findings = findings
-        super().__init__("\n".join(findings))
 
 
 _SUPPRESSION = re.compile(
@@ -51,13 +43,6 @@ def _table(value: object, context: str) -> dict[str, object]:
         return _TABLE.validate_python(value)
     except (TypeError, ValueError, ValidationError) as error:
         raise ValueError(f"{context} must be a TOML table") from error
-
-
-def _strings(value: object, context: str) -> tuple[str, ...]:
-    """Return one TOML string sequence or raise a controlled configuration error."""
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise ValueError(f"{context} must be a list of strings")
-    return tuple(value)
 
 
 def tooling_configuration_findings(repository_root: Path) -> tuple[str, ...]:
@@ -113,11 +98,12 @@ def tooling_configuration_findings(repository_root: Path) -> tuple[str, ...]:
         if key in mypy:
             findings.append(f"mypy must not bypass checks with {key}")
 
-    try:
-        selected_rules = _strings(ruff_lint.get("select"), "Ruff selected rules")
-    except ValueError as error:
-        findings.append(str(error))
-        selected_rules = ()
+    selected = ruff_lint.get("select")
+    if not isinstance(selected, list) or not all(isinstance(item, str) for item in selected):
+        findings.append("Ruff selected rules must be a list of strings")
+        selected_rules: tuple[str, ...] = ()
+    else:
+        selected_rules = tuple(selected)
     for rule, description in (
         ("I", "import sorting"),
         ("D", "Google documentation"),
@@ -184,37 +170,21 @@ def validate_suppression_line(
     return tuple(findings)
 
 
-def _suppression_findings(
-    repository_root: Path,
-    source_roots: tuple[str, ...],
-    validation_date: date,
-) -> tuple[str, ...]:
-    """Collect metadata findings from comments in owned Python files."""
-    findings: list[str] = []
-    for source_root in source_roots:
-        root = repository_root / source_root
-        if not root.is_dir():
-            continue
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.suffix not in {".py", ".pyi"}:
-                continue
-            relative = path.relative_to(repository_root).as_posix()
-            try:
-                text = path.read_text(encoding="utf-8")
-                tokens = tokenize.generate_tokens(StringIO(text).readline)
-                comments = tuple(token for token in tokens if token.type == tokenize.COMMENT)
-            except (OSError, UnicodeError, IndentationError, tokenize.TokenError) as error:
-                findings.append(f"{relative}: cannot inspect suppression comments: {error}")
-                continue
-            for comment in comments:
-                findings.extend(
-                    f"{relative}:{comment.start[0]}: {issue}"
-                    for issue in validate_suppression_line(
-                        comment.string,
-                        validation_date=validation_date,
-                    )
-                )
-    return tuple(findings)
+def _suppression_for_source(relative: str, text: str, *, validation_date: date) -> tuple[str, ...]:
+    """Collect suppression metadata findings from one already-read source file."""
+    try:
+        comments = tuple(
+            token
+            for token in tokenize.generate_tokens(StringIO(text).readline)
+            if token.type == tokenize.COMMENT
+        )
+    except (IndentationError, tokenize.TokenError) as error:
+        return (f"{relative}: cannot inspect suppression comments: {error}",)
+    return tuple(
+        f"{relative}:{comment.start[0]}: {issue}"
+        for comment in comments
+        for issue in validate_suppression_line(comment.string, validation_date=validation_date)
+    )
 
 
 def source_tree_findings(
@@ -235,13 +205,13 @@ def source_tree_findings(
         Stable source diagnostics. A missing root or unreadable source is a
         finding so the command fails closed.
     """
-    source_findings = PythonStandardsChecker(source_roots=source_roots).findings(repository_root)
-    suppression_findings = _suppression_findings(
-        repository_root,
-        source_roots,
-        date.today() if validation_date is None else validation_date,
+    observer = partial(
+        _suppression_for_source,
+        validation_date=date.today() if validation_date is None else validation_date,
     )
-    return (*source_findings, *suppression_findings)
+    return PythonStandardsChecker(source_roots=source_roots).findings(
+        repository_root, source_observer=observer
+    )
 
 
 def validate_repository(
@@ -272,5 +242,5 @@ def validate_repository(
         ),
     )
     if findings:
-        raise EngineeringStandardsError(findings)
+        raise EngineeringStandardsError("\n".join(findings))
     return findings

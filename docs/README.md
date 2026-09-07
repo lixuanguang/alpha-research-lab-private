@@ -52,9 +52,9 @@ record what ran. `make check` remains the complete check entry point.
 | `make engineering-standards-check` | Protected typing, import and docstring rules |
 | `make architecture-check` | Local documentation links |
 | `make dependency-admission-check`, `make dependency-audit` | Frozen dependency sources, retained restrictions and vulnerability audit |
-| `make artifact-supply-chain-check` | Retained artifact/release boundary |
+| `uv run --frozen alpha-governance-artifacts release-check` | Report release blockers; currently always fails closed |
 | `make ci-secrets-check`, `make security` | Secret/private-key scanning and Bandit |
-| `make governance-check` | Group the retained clarity, dependency, artifact and link checks |
+| `make governance-check` | Group the retained clarity, dependency and link checks |
 
 For selected tests use:
 

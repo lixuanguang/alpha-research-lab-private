@@ -1,11 +1,6 @@
-schema_version = 2
+schema_version = 3
 as_of_date = "2026-09-04"
 review_due_on = "2026-10-04"
-maximum_signal_age_days = 7
-supported_platforms = ["darwin_arm64", "linux_x86_64"]
-approved_python_indexes = ["https://pypi.org/simple"]
-lock_paths = ["uv.lock"]
-runtime_scan_roots = ["src", "tools"]
 native_python_packages = [
   "ast-serialize",
   "charset-normalizer",
@@ -22,9 +17,6 @@ native_python_packages = [
   "ruff",
   "tomli",
 ]
-vulnerability_decisions = []
-emergency_overrides = []
-wheel_source_admissions = []
 
 [lock_digests]
 "uv.lock" = "4c07ddd8fa583a0aa3f88a5c4f3b320fbd436868d80d3c72f74e7d0f0f005bee"
@@ -34,11 +26,6 @@ version = "2.10.1"
 service = "pypi"
 command_mode = "exact_locked_graph"
 failure_policy = "block_unresolved_findings_or_skips"
-
-[scorecard]
-version = "5.5.0"
-signal_role = "advisory_input_not_admission_authority"
-required_checks = ["License", "Maintained", "Pinned-Dependencies", "Vulnerabilities"]
 
 [[license_groups]]
 license_expression = "Apache-2.0"

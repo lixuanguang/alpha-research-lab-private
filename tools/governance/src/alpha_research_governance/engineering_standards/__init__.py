@@ -45,7 +45,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     cli_arguments = list(sys.argv[1:] if arguments is None else arguments)
     if len(cli_arguments) > 1:
         print(
-            "usage: python -m alpha_research_governance.engineering_standards [repository-root]",
+            "usage: alpha-governance-engineering-standards [repository-root]",
             file=sys.stderr,
         )
         return 2

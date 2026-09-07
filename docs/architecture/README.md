@@ -136,17 +136,17 @@ custom affected-target scheduling, and the former build probes are retired.
 
 ## Dependency and release boundaries
 
-The machine-readable policies remain the authority for the checks that consume
-them:
+The retained development checks and release boundary are:
 
 - [Dependency admission](dependency-admission.md) and
   [dependency-admission.toml](dependency-admission.toml) bind `pyproject.toml`,
   `uv.lock`, exact artifacts, sources, hashes, platforms, licenses, and
   vulnerability coverage.
-- [Artifact supply chain](artifact-supply-chain.md) and
-  [artifact-supply-chain.toml](artifact-supply-chain.toml) bind the project
-  manifest and lock to an artifact digest, provenance, inventory, and trusted
-  verification inputs.
+- [Artifact supply chain](artifact-supply-chain.md) rejects release use until
+  dependency admission is resolved and a concrete trusted release consumer is
+  implemented. The unused general bundle, signing and publication framework
+  is retired. Future consumers must bind the artifact digest to its source,
+  lock, provenance and trusted origin before use.
 
 QuantLib 1.43 is still used by C03's convention adapter under a bounded
 development/CI admission through **2026-10-04**. Its source-to-wheel binding is

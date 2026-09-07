@@ -1,4 +1,4 @@
-"""Detect high-confidence repository secrets for local and hosted checks."""
+"""Detect high-confidence repository secrets."""
 
 from __future__ import annotations
 
@@ -9,16 +9,15 @@ from pathlib import Path, PurePosixPath
 
 
 class CIPolicyError(ValueError):
-    """Report one or more fail-closed CI preflight findings."""
+    """Report fail-closed CI preflight findings."""
 
     def __init__(self, findings: list[str] | tuple[str, ...]) -> None:
-        """Capture ordered diagnostics without retaining secret contents.
+        """Join ordered diagnostics without retaining secret contents.
 
         Args:
-            findings: Diagnostic messages that identify paths or pattern names only.
+            findings: Path or pattern diagnostics without secret contents.
         """
-        self.findings = tuple(findings)
-        super().__init__("\n".join(self.findings))
+        super().__init__("\n".join(findings))
 
 
 _SECRET_PATTERNS = {
@@ -39,23 +38,14 @@ _MAXIMUM_FILE_BYTES = 1_000_000
 _EXTERNAL_SCANNER = "detect-private-key"
 
 
-def secret_pattern_ids() -> tuple[str, ...]:
-    """Return the configured high-confidence secret-pattern identifiers in order.
-
-    Returns:
-        Pattern identifiers sorted in deterministic lexical order.
-    """
-    return tuple(sorted(_SECRET_PATTERNS))
-
-
 def scan_secret_bytes(payload: bytes) -> tuple[str, ...]:
     """Scan bytes without returning matching secret material.
 
     Args:
-        payload: Byte content to inspect.
+        payload: Byte content to inspect for known secret patterns.
 
     Returns:
-        Matching pattern identifiers in lexical order.
+        Matching pattern identifiers in lexical order, without secret contents.
     """
     return tuple(
         pattern_id
@@ -65,16 +55,10 @@ def scan_secret_bytes(payload: bytes) -> tuple[str, ...]:
 
 
 def _normalize_paths(paths: tuple[str, ...]) -> tuple[str, ...]:
-    """Validate and sort repository-relative path arguments.
+    """Return distinct canonical repository-relative POSIX paths in lexical order.
 
-    Args:
-        paths: Candidate paths supplied by Git or pre-commit.
-
-    Returns:
-        Distinct canonical POSIX paths in lexical order.
-
-    Raises:
-        CIPolicyError: A path is empty, absolute, non-canonical, contains ``..`` or NUL.
+    Reject empty, absolute, non-canonical, traversal, and NUL-containing paths
+    with ``CIPolicyError`` before filesystem access.
     """
     normalized: set[str] = set()
     for raw_path in paths:
@@ -91,25 +75,30 @@ def _normalize_paths(paths: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(normalized))
 
 
-def _scan_path_contents(
+def scan_repository_paths(
     repository_root: Path,
     paths: tuple[str, ...],
     *,
-    maximum_file_bytes: int,
-) -> tuple[str, ...]:
-    """Inspect regular files after checking containment and size limits.
+    maximum_file_bytes: int = _MAXIMUM_FILE_BYTES,
+) -> None:
+    """Validate bounded local files, then run both retained scanners.
+
+    Missing tracked files are skipped as deletions. Unsafe or oversized inputs fail before the
+    external scanner, and findings exclude secret material.
 
     Args:
-        repository_root: Existing directory that bounds every path.
-        paths: Canonical repository-relative paths to inspect.
-        maximum_file_bytes: Inclusive per-file scan limit.
-
-    Returns:
-        Fail-closed diagnostics that contain no matching secret contents.
+        repository_root: Existing repository directory bounding the scan.
+        paths: Repository-relative paths selected by Git or a caller.
+        maximum_file_bytes: Inclusive positive per-file scan limit.
 
     Raises:
-        OSError: A repository or file metadata/content operation fails.
+        CIPolicyError: Paths, sizes, secret patterns or the external scanner fail.
+        OSError: File metadata or content cannot be read.
+        ValueError: The byte limit is not positive.
     """
+    if maximum_file_bytes <= 0:
+        raise ValueError("maximum_file_bytes must be positive")
+    paths = _normalize_paths(paths)
     root = repository_root.resolve(strict=True)
     findings: list[str] = []
     for relative_path in paths:
@@ -134,46 +123,18 @@ def _scan_path_contents(
         matches = scan_secret_bytes(path.read_bytes())
         if matches:
             findings.append(f"secret pattern {','.join(matches)} detected in {relative_path}")
-    return tuple(findings)
-
-
-def scan_secret_paths(
-    repository_root: Path,
-    paths: tuple[str, ...],
-    *,
-    maximum_file_bytes: int = _MAXIMUM_FILE_BYTES,
-) -> None:
-    """Scan bounded files and fail closed on unsafe paths, content, or limits.
-
-    Args:
-        repository_root: Existing directory that bounds file access.
-        paths: Repository-relative paths to inspect.
-        maximum_file_bytes: Inclusive per-file byte limit.
-
-    Raises:
-        CIPolicyError: A path is unsafe, a file exceeds the limit, or a configured
-            high-confidence pattern is detected.
-        OSError: The repository or an inspected file cannot be resolved, inspected,
-            or read.
-        ValueError: ``maximum_file_bytes`` is not positive.
-    """
-    if maximum_file_bytes <= 0:
-        raise ValueError("maximum_file_bytes must be positive")
-    findings = _scan_path_contents(
-        repository_root,
-        _normalize_paths(paths),
-        maximum_file_bytes=maximum_file_bytes,
-    )
     if findings:
         raise CIPolicyError(findings)
+    existing = tuple(path for path in paths if (root / path).is_file())
+    run_external_secret_scanner(root, existing)
 
 
 def run_external_secret_scanner(repository_root: Path, paths: tuple[str, ...]) -> None:
-    """Run the pinned pre-commit private-key scanner and propagate failures.
+    """Run the pinned private-key scanner.
 
     Args:
-        repository_root: Repository directory used as the scanner working directory.
-        paths: Canonical repository-relative files passed to ``detect-private-key``.
+        repository_root: Scanner working directory.
+        paths: Canonical files passed to ``detect-private-key``.
 
     Raises:
         CIPolicyError: The scanner cannot start or exits with a nonzero status.
@@ -190,30 +151,3 @@ def run_external_secret_scanner(repository_root: Path, paths: tuple[str, ...]) -
         raise CIPolicyError([f"private-key scanner could not start: {error}"]) from error
     if completed.returncode:
         raise CIPolicyError([f"private-key scanner failed with exit {completed.returncode}"])
-
-
-def scan_repository_paths(
-    repository_root: Path,
-    paths: tuple[str, ...],
-    *,
-    maximum_file_bytes: int = _MAXIMUM_FILE_BYTES,
-) -> None:
-    """Run both repository-owned patterns and the external private-key scanner.
-
-    Args:
-        repository_root: Repository directory that bounds the scan.
-        paths: Repository-relative files to inspect.
-        maximum_file_bytes: Inclusive per-file limit for repository-owned checks.
-
-    Raises:
-        CIPolicyError: A local pattern, unsafe path, or external scanner fails.
-        OSError: A local file operation fails.
-    """
-    normalized = _normalize_paths(paths)
-    scan_secret_paths(
-        repository_root,
-        normalized,
-        maximum_file_bytes=maximum_file_bytes,
-    )
-    existing = tuple(path for path in normalized if (repository_root / path).is_file())
-    run_external_secret_scanner(repository_root, existing)

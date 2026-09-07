@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 
 # project library imports
@@ -31,43 +32,44 @@ class PythonStandardsChecker:
         """
         self._source_roots = source_roots
 
-    def findings(self, repository_root: Path) -> tuple[str, ...]:
-        """Scan all governed Python files, including files not tracked by Git.
+    def findings(
+        self,
+        repository_root: Path,
+        *,
+        source_observer: Callable[[str, str], tuple[str, ...]] | None = None,
+    ) -> tuple[str, ...]:
+        """Scan every governed Python file, including untracked files.
 
         Args:
             repository_root: Repository or fixture containing the source roots.
+            source_observer: Optional callback receiving each relative path and source text.
 
         Returns:
-            Deterministic direct diagnostics, or one fail-closed scanner diagnostic.
+            Deterministic diagnostics, or one fail-closed scanner diagnostic.
         """
+        observed: list[PythonFinding] = []
+        auxiliary: list[str] = []
         try:
-            return self._format_findings(self._scan(repository_root))
+            for source_root in self._source_roots:
+                root = repository_root / source_root
+                if not root.is_dir():
+                    return (
+                        "Python standards scanner: missing Python standards source root: "
+                        f"{source_root}",
+                    )
+                for path in sorted(root.rglob("*")):
+                    if path.is_file() and path.suffix in {".py", ".pyi"}:
+                        relative = path.relative_to(repository_root).as_posix()
+                        text = path.read_text(encoding="utf-8")
+                        observed.extend(PythonSourceChecker().scan(relative, text))
+                        if source_observer is not None:
+                            auxiliary.extend(source_observer(relative, text))
+            counts = Counter(finding.key for finding in observed)
+            rendered = tuple(
+                f"{path}:{symbol}: {rule} {detail}"
+                + (f" (occurrences: {count})" if count > 1 else "")
+                for (path, symbol, rule, detail), count in sorted(counts.items())
+            )
+            return (*rendered, *auxiliary)
         except (OSError, UnicodeError, ValueError) as error:
             return (f"Python standards scanner: {error}",)
-
-    def _scan(self, repository_root: Path) -> tuple[PythonFinding, ...]:
-        """Scan every Python source file in source-root and path order."""
-        observed: list[PythonFinding] = []
-        scanner = PythonSourceChecker()
-        for source_root in self._source_roots:
-            root = repository_root / source_root
-            if not root.is_dir():
-                raise ValueError(f"missing Python standards source root: {source_root}")
-            for path in sorted(root.rglob("*")):
-                if not path.is_file() or path.suffix not in {".py", ".pyi"}:
-                    continue
-                relative = path.relative_to(repository_root).as_posix()
-                observed.extend(scanner.scan(relative, path.read_text(encoding="utf-8")))
-        return tuple(observed)
-
-    @staticmethod
-    def _format_findings(observed: tuple[PythonFinding, ...]) -> tuple[str, ...]:
-        """Render stable diagnostic identities while retaining repeated occurrences."""
-        counts = Counter(finding.key for finding in observed)
-        rendered: list[str] = []
-        for (path, symbol, rule, detail), count in sorted(counts.items()):
-            message = f"{path}:{symbol}: {rule} {detail}"
-            if count > 1:
-                message += f" (occurrences: {count})"
-            rendered.append(message)
-        return tuple(rendered)

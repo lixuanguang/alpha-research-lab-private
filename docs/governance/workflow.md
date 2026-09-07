@@ -32,10 +32,13 @@ authority.
 ## Build a release
 
 `make build` and `make wheel-smoke` build and test installation for development.
-The retained artifact tooling is described in the
+The fail-closed artifact boundary is described in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
 QuantLib's unresolved source-to-wheel binding currently blocks all artifact
-release lifecycle operations, even when the development checks pass.
+release use, even when the development checks pass. Clearing that dependency
+restriction will not itself enable releases: a concrete trusted consumer and
+its integrity, tamper and failure tests must be implemented first. The unused
+general bundle/signing/publication framework has been retired.
 
 Build once from the locked environment and retain one release record containing:
 

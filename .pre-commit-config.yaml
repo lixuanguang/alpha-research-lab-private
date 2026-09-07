@@ -28,7 +28,7 @@ repos:
         pass_filenames: false
 
       - id: governance
-        name: check clarity, dependency restrictions, artifacts and links
+        name: check clarity, dependency restrictions and links
         entry: make governance-check
         language: system
         always_run: true
