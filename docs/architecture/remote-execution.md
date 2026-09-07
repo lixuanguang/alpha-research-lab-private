@@ -71,8 +71,8 @@ variable or protected key enables remote work.
 
 Exact classification, gate state and finding closure conditions were recorded in
 the retired `remote-execution.toml` file. Gate definitions live in the
-[quality-gate catalog](operations.md#quality-gate-catalog); current state and
-finding IDs are rendered in the [program status](../governance/program-status.md).
+[operations runbook](../governance/operations.md); current state and
+validation results are recorded in the [development workflow](../governance/workflow.md).
 
 ## Migration, rollback, monitoring, and evidence
 

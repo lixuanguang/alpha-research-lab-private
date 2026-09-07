@@ -1,4 +1,9 @@
-"""Load and enforce the B08 artifact supply-chain policy."""
+"""Load the small artifact identity and integrity policy.
+
+Artifact policy owns archive shape, provenance, signing, and repository byte
+identities.  Dependency release eligibility remains in the dependency admission
+module, which blocks the currently unresolved QuantLib wheel binding.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import re
 import tomllib
-from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import cast
 
@@ -17,752 +21,346 @@ from alpha_research_governance.artifact_supply_chain.models import (
     ArtifactTool,
     LockIdentity,
 )
-from alpha_research_governance.change_risk import ChangeRiskInput, RiskClass
-from alpha_research_governance.change_risk import load_policy as load_change_risk_policy
-from alpha_research_governance.evidence import (
-    EvidenceGovernanceError,
-    PackageEvidenceProfile,
-    PackageGateRequirement,
-    validate_manifest,
-    validate_package_evidence,
-)
 
-_ARTIFACT_SUPPLY_CHAIN_PACKAGE_ID = "B08"
-_CANONICAL_INSTRUMENT_IDENTITY_SUCCESSOR_PACKAGE_ID = "C01"
-_ARTIFACT_SUPPLY_CHAIN_GATE_IDS = (
-    "QG01",
-    "QG02",
-    "QG03",
-    "QG04",
-    "QG05",
-    "QG06",
-    "QG09",
-    "QG10",
-    "QG11",
-    "QG12",
-    "QG13",
-    "QG14",
-    "QG15",
-)
-_ARTIFACT_SUPPLY_CHAIN_OPEN_FINDING_IDS = ("B08-F01", "B08-F02", "B08-F03")
-_SUPPORTED_ARTIFACT_KINDS = ("binary", "configuration_bundle", "container", "model")
-_NATIVE_LIBRARY_FILENAME_MARKERS = (".dll", ".dylib", ".so", ".so.")
-_LOWERCASE_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-_ARTIFACT_TOOL_COMMAND_PATTERN = re.compile(r"^[a-z][a-z0-9-]*$")
-_POLICY_ROOT_KEYS = {
-    "accountable_owner_role",
-    "applicable_gate_ids",
-    "as_of_date",
-    "findings",
-    "formats",
-    "identity",
-    "limits",
-    "local_evidence_commit_sha",
-    "local_evidence_manifest_path",
-    "locks",
-    "open_finding_ids",
-    "operating_track",
-    "package_status",
-    "review_due_on",
-    "risk_class",
-    "roadmap_package",
+_ROOT_KEYS = {
     "schema_version",
-    "signing",
-    "successor_package",
     "supported_artifact_kinds",
     "native_library_markers",
+    "formats",
+    "identity",
+    "signing",
+    "limits",
     "project",
     "tools",
+    "locks",
 }
-_POLICY_TABLE_KEYS = {
-    "formats": {"provenance_predicate_type", "spdx_version", "statement_type"},
-    "identity": {"build_type", "builder_id", "source_repository"},
-    "limits": {"maximum_archive_members", "maximum_artifact_bytes"},
+_TABLE_KEYS = {
+    "formats": {"statement_type", "provenance_predicate_type", "spdx_version"},
+    "identity": {"builder_id", "build_type", "source_repository"},
     "signing": {
+        "signer_identity",
         "oidc_issuer",
+        "trusted_context",
         "required_environment",
         "revoked_signer_identities",
-        "signer_identity",
-        "trusted_context",
     },
+    "limits": {"maximum_artifact_bytes", "maximum_archive_members"},
     "project": {"path", "sha256"},
 }
-_POLICY_FINDING_KEYS = {
-    "closure_condition",
-    "finding_id",
-    "owner_role",
-    "unavailable_evidence",
-}
-_POLICY_LOCK_KEYS = {"path", "sha256"}
-_POLICY_TOOL_KEYS = {"command", "version"}
-_ARTIFACT_SUPPLY_CHAIN_EVIDENCE_PROFILE = PackageEvidenceProfile(
-    roadmap_package_id=_ARTIFACT_SUPPLY_CHAIN_PACKAGE_ID,
-    accountable_owner_role="platform",
-    risk_class=RiskClass.R2,
-    classification_facts=ChangeRiskInput(
-        capital_at_risk=False,
-        blast_radius="shared_domain",
-        data_model_materiality="shared_or_candidate",
-        security_privilege="shared_sensitive",
-        reversibility="compatibility_window",
-        computationally_material=True,
-        economically_or_risk_relevant=False,
-        model_or_trading_relevant=False,
-        declared_class=RiskClass.R2,
-    ),
-    gate_requirements=tuple(
-        PackageGateRequirement(gate_id=gate_id, status="passed")
-        for gate_id in _ARTIFACT_SUPPLY_CHAIN_GATE_IDS
-    ),
-    expected_package_status="partial",
-    expected_finding_ids=_ARTIFACT_SUPPLY_CHAIN_OPEN_FINDING_IDS,
-    approvals_permitted=False,
-    waivers_permitted=False,
-    additional_required_gates_permitted=True,
-)
+_TOOL_KEYS = {"command", "version"}
+_LOCK_KEYS = {"path", "sha256"}
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_COMMAND = re.compile(r"^[a-z][a-z0-9-]*$")
+_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_SUPPORTED_ARTIFACT_KINDS = ("binary", "configuration_bundle", "container", "model")
+_NATIVE_MARKERS = (".dll", ".dylib", ".so", ".so.")
+_BUILDER = "https://github.com/lixuanguang/alpha-research-lab-private/.github/workflows/ci.yml@refs/heads/main"
+_BUILD_TYPE = "https://github.com/lixuanguang/alpha-research-lab-private/blob/main/docs/architecture/artifact-supply-chain.md#build-contract"
+_SOURCE_REPOSITORY = "git+https://github.com/lixuanguang/alpha-research-lab-private.git"
 
 
 def compute_regular_file_sha256(file_path: Path) -> str:
-    """Hash the bytes read from a final path component admitted as a regular file.
-
-    The final component is checked with ``is_symlink()`` and ``is_file()`` before
-    opening it. This is a non-atomic filesystem admission check: parent-directory
-    symlinks are followed, and a concurrent replacement can occur between the
-    check and the read. The function does not constrain the path to the repository.
+    """Hash a regular, non-symlink file.
 
     Args:
-        file_path: Path to the file whose complete contents should be hashed.
+        file_path: File whose complete bytes are hashed.
 
     Returns:
-        The lowercase hexadecimal SHA-256 digest of the bytes read from the file.
+        Lowercase SHA-256 digest.
 
     Raises:
-        ArtifactSupplyChainError: If the final path component is missing, is not a
-            regular file, or is a symlink.
-        OSError: If filesystem inspection, opening, or reading the path fails.
+        ArtifactSupplyChainError: If the final component is missing, non-regular,
+            or a symlink.
+        OSError: If the file cannot be inspected or read.
     """
     if file_path.is_symlink() or not file_path.is_file():
         raise ArtifactSupplyChainError([f"required regular file is missing or unsafe: {file_path}"])
     digest = hashlib.sha256()
-    with file_path.open("rb") as file_stream:
-        for content_block in iter(lambda: file_stream.read(1024 * 1024), b""):
-            digest.update(content_block)
+    with file_path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
     return digest.hexdigest()
 
 
-def _require_toml_table(value: object, *, context: str) -> dict[str, object]:
-    """Require a runtime dictionary for one parsed TOML table.
-
-    Args:
-        value: Parsed value expected to be a ``dict``. The object is returned as
-            supplied; this helper does not copy or recursively validate it.
-        context: TOML location used in a validation error message.
-
-    Returns:
-        The same dictionary object, typed for subsequent field inspection.
-
-    Raises:
-        ArtifactSupplyChainError: If ``value`` is not a dictionary.
-    """
-    if not isinstance(value, dict):
+def _table(value: object, *, context: str) -> dict[str, object]:
+    """Narrow one decoded TOML table."""
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise ArtifactSupplyChainError([f"{context} must be a TOML table"])
     return cast(dict[str, object], value)
 
 
-def _require_toml_table_array(value: object, *, context: str) -> list[dict[str, object]]:
-    """Require an ordered list whose every item is a parsed TOML table.
-
-    Args:
-        value: Parsed value expected to be a list of dictionaries. The list may
-            be empty and its items are not copied or recursively validated here.
-        context: TOML location used in a validation error message.
-
-    Returns:
-        The same list object, typed for subsequent field inspection, with item
-        order preserved.
-
-    Raises:
-        ArtifactSupplyChainError: If ``value`` is not a list of dictionaries.
-    """
+def _tables(value: object, *, context: str) -> list[dict[str, object]]:
+    """Narrow an ordered array of TOML tables."""
     if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
         raise ArtifactSupplyChainError([f"{context} must be an array of TOML tables"])
-    return cast(list[dict[str, object]], value)
+    return [cast(dict[str, object], item) for item in value]
 
 
-def _require_unique_string_tuple(
-    value: object, *, context: str, allow_empty: bool = False
-) -> tuple[str, ...]:
-    """Require an ordered list of distinct, non-empty strings.
-
-    Args:
-        value: Parsed value expected to be a list of non-empty strings.
-        context: TOML location used in a validation error message.
-        allow_empty: Whether an empty list is accepted. The default is ``False``.
-
-    Returns:
-        A tuple containing the strings in their input order.
-
-    Raises:
-        ArtifactSupplyChainError: If the value is not a list of non-empty strings,
-            is empty while ``allow_empty`` is false, or contains duplicates.
-    """
+def _strings(value: object, *, context: str, allow_empty: bool = False) -> tuple[str, ...]:
+    """Validate an ordered tuple of unique non-empty strings."""
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise ArtifactSupplyChainError([f"{context} must contain non-empty strings"])
     result = tuple(cast(list[str], value))
-    if (not result and not allow_empty) or len(result) != len(set(result)):
+    if not result and not allow_empty:
+        raise ArtifactSupplyChainError([f"{context} must not be empty"])
+    if len(result) != len(set(result)):
         raise ArtifactSupplyChainError([f"{context} must contain unique values"])
     return result
 
 
-def _require_nonempty_string_field(table: dict[str, object], key: str, *, context: str) -> str:
-    """Require a present, non-empty string field without normalizing its value.
-
-    Args:
-        table: Parsed TOML table containing the field.
-        key: Field name to retrieve.
-        context: TOML location used in a validation error message.
-
-    Returns:
-        The field value unchanged, including whitespace that was supplied.
-
-    Raises:
-        ArtifactSupplyChainError: If the field is absent, not a string, or empty.
-    """
+def _field(table: dict[str, object], key: str, *, context: str) -> str:
+    """Read a required non-empty string field."""
     value = table.get(key)
     if not isinstance(value, str) or not value:
         raise ArtifactSupplyChainError([f"{context}.{key} must be a non-empty string"])
     return value
 
 
-def _require_positive_integer_field(table: dict[str, object], key: str, *, context: str) -> int:
-    """Require an integer field whose value is at least one.
-
-    Boolean values are rejected even though ``bool`` is an ``int`` subclass.
-
-    Args:
-        table: Parsed TOML table containing the field.
-        key: Field name to retrieve.
-        context: TOML location used in a validation error message.
-
-    Returns:
-        The positive integer value unchanged.
-
-    Raises:
-        ArtifactSupplyChainError: If the field is absent, is not an integer, is
-            boolean, or is less than one.
-    """
-    value = table.get(key)
-    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise ArtifactSupplyChainError([f"{context}.{key} must be a positive integer"])
-    return value
-
-
-def _require_safe_repository_relative_path(value: str, *, context: str) -> str:
-    """Require a lexically repository-relative POSIX path.
-
-    This check compares ``PurePosixPath.as_posix()`` with the supplied text and
-    rejects absolute paths and any ``..`` component. It does not resolve the path,
-    inspect the filesystem, reject symlinks, or establish containment after
-    resolution; ``.`` is accepted as a relative path.
-
-    Args:
-        value: Path text to check.
-        context: Policy field used in a validation error message.
-
-    Returns:
-        The original path text unchanged.
-
-    Raises:
-        ArtifactSupplyChainError: If the path is absolute, non-canonical under
-            ``PurePosixPath``, or contains a parent-directory component.
-    """
+def _safe_path(value: str, *, context: str) -> str:
+    """Require a canonical repository-relative POSIX path."""
     path = PurePosixPath(value)
-    if path.is_absolute() or path.as_posix() != value or ".." in path.parts:
+    if path.is_absolute() or not value or path.as_posix() != value or ".." in path.parts:
         raise ArtifactSupplyChainError([f"{context} must stay inside the repository"])
     return value
 
 
-def _parse_artifact_tool(tool_table: dict[str, object], *, tool_name: str) -> ArtifactTool:
-    """Parse one closed artifact-tool declaration.
-
-    The command must match the lowercase executable-name pattern and the version
-    must be non-empty and free of the case-insensitive substring ``latest``. Exact
-    Syft and Cosign identities are checked by ``load_policy`` after this parser.
-
-    Args:
-        tool_table: Parsed ``[tools.<tool_name>]`` table.
-        tool_name: Tool key used in validation error messages.
-
-    Returns:
-        An ``ArtifactTool`` retaining the supplied command and version strings.
-
-    Raises:
-        ArtifactSupplyChainError: If the table has missing or additional fields,
-            either field is empty or not a string, or the command or version is
-            unsafe or floating.
-    """
-    if set(tool_table) != _POLICY_TOOL_KEYS:
-        raise ArtifactSupplyChainError([f"tools.{tool_name} has missing or unknown fields"])
-    command = _require_nonempty_string_field(tool_table, "command", context=f"tools.{tool_name}")
-    version = _require_nonempty_string_field(tool_table, "version", context=f"tools.{tool_name}")
-    if _ARTIFACT_TOOL_COMMAND_PATTERN.fullmatch(command) is None or "latest" in version.lower():
-        raise ArtifactSupplyChainError([f"tools.{tool_name} identity is unsafe or floating"])
+def _tool(
+    value: object, *, context: str, expected_command: str, expected_version: str
+) -> ArtifactTool:
+    """Parse and pin one artifact tool identity."""
+    table = _table(value, context=context)
+    if set(table) != _TOOL_KEYS:
+        raise ArtifactSupplyChainError([f"{context} has missing or unknown fields"])
+    command = _field(table, "command", context=context)
+    version = _field(table, "version", context=context)
+    if (
+        _COMMAND.fullmatch(command) is None
+        or "latest" in version.lower()
+        or (command, version) != (expected_command, expected_version)
+    ):
+        raise ArtifactSupplyChainError([f"{context} identity is not pinned"])
     return ArtifactTool(command=command, version=version)
 
 
 class ArtifactPolicyService:
-    """Own artifact policy loading and repository validation for one boundary."""
+    """Load and validate artifact policy for one repository root."""
 
     def __init__(self, repository_root: Path) -> None:
-        """Bind ArtifactPolicyService collaborators without filesystem or process I/O.
+        """Bind the repository root without reading files.
 
         Args:
-            repository_root: Repository root used by later service operations.
+            repository_root: Root whose policy-bound files are checked.
         """
         self.repository_root = repository_root
 
     def load_policy(self, policy_path: Path) -> ArtifactSupplyChainPolicy:
-        """Load and validate the closed B08 artifact supply-chain policy.
-
-        The file is read as UTF-8 TOML. Admission requires the exact root and nested
-        table schemas, B08 metadata and ordered gate/artifact/finding values, the
-        protected-main signing environment, the locked Syft ``1.51.1`` and Cosign
-        ``3.1.3`` identities, the uv lock, lowercase digests, lexically safe
-        repository-relative paths, expected SPDX/SLSA and builder identities, and
-        date values where ``review_due_on`` follows ``as_of_date``. The loader does
-        not compare dates with the current date or verify referenced file contents.
+        """Read a closed artifact policy with no governance framework dependencies.
 
         Args:
-            policy_path: TOML policy file to read.
+            policy_path: TOML policy path.
 
         Returns:
-            An immutable ``ArtifactSupplyChainPolicy`` populated from the admitted
-            policy and the module's fixed B08 contract values.
+            The parsed artifact policy.
 
         Raises:
-            ArtifactSupplyChainError: If TOML is malformed or an explicit schema,
-                field, ordering, identity, digest, date, or B08 contract check fails.
-                TOML decoding failures are translated and chained from the decoder
-                exception. A type or model-construction failure that is not explicitly
-                raised by this loader can propagate from the parsed values.
-            OSError: If the policy path cannot be opened or read.
-            UnicodeDecodeError: If the policy is not valid UTF-8.
-            TypeError: If parsed dates and datetimes, or datetimes with incompatible
-                timezone awareness, cannot be ordered.
-            pydantic.ValidationError: If the immutable policy model rejects a value
-                that reached construction.
+            ArtifactSupplyChainError: If the policy schema or identities are invalid.
         """
         try:
-            raw_policy_document: dict[str, object] = tomllib.loads(
-                policy_path.read_text(encoding="utf-8")
+            raw_document: object = tomllib.loads(policy_path.read_text(encoding="utf-8"))
+            document = _table(
+                raw_document,
+                context=str(policy_path),
             )
-            policy_document = _require_toml_table(raw_policy_document, context=str(policy_path))
         except tomllib.TOMLDecodeError as error:
             raise ArtifactSupplyChainError([f"{policy_path}: invalid TOML: {error}"]) from error
-        if set(policy_document) != _POLICY_ROOT_KEYS:
+        if set(document) != _ROOT_KEYS or document.get("schema_version") != 2:
             raise ArtifactSupplyChainError([f"{policy_path}: root has missing or unknown fields"])
-        expected_policy_metadata: dict[str, object] = {
-            "schema_version": 1,
-            "roadmap_package": _ARTIFACT_SUPPLY_CHAIN_PACKAGE_ID,
-            "operating_track": "solo_bootstrap",
-            "package_status": "partial",
-            "accountable_owner_role": "platform",
-            "risk_class": "R2",
-            "successor_package": _CANONICAL_INSTRUMENT_IDENTITY_SUCCESSOR_PACKAGE_ID,
-        }
-        for metadata_key, expected_value in expected_policy_metadata.items():
-            if policy_document.get(metadata_key) != expected_value:
-                raise ArtifactSupplyChainError(
-                    [f"{policy_path}: {metadata_key} must be {expected_value!r}"]
-                )
+        kinds = _strings(
+            document.get("supported_artifact_kinds"), context="supported_artifact_kinds"
+        )
+        markers = _strings(document.get("native_library_markers"), context="native_library_markers")
+        if kinds != _SUPPORTED_ARTIFACT_KINDS or markers != _NATIVE_MARKERS:
+            raise ArtifactSupplyChainError(["artifact format or native marker contract drifted"])
+        tables = {name: _table(document.get(name), context=name) for name in _TABLE_KEYS}
+        for name, keys in _TABLE_KEYS.items():
+            if set(tables[name]) != keys:
+                raise ArtifactSupplyChainError([f"{name} has missing or unknown fields"])
+        formats = tables["formats"]
         if (
-            _require_unique_string_tuple(
-                policy_document.get("applicable_gate_ids"), context="applicable_gate_ids"
-            )
-            != _ARTIFACT_SUPPLY_CHAIN_GATE_IDS
+            _field(formats, "statement_type", context="formats")
+            != "https://in-toto.io/Statement/v1"
+            or _field(formats, "provenance_predicate_type", context="formats")
+            != "https://slsa.dev/provenance/v1"
+            or _field(formats, "spdx_version", context="formats") != "SPDX-2.3"
         ):
-            raise ArtifactSupplyChainError(["applicable_gate_ids must be A04 R2 plus B08 QG15"])
-        if (
-            _require_unique_string_tuple(
-                policy_document.get("supported_artifact_kinds"),
-                context="supported_artifact_kinds",
-            )
-            != _SUPPORTED_ARTIFACT_KINDS
-        ):
-            raise ArtifactSupplyChainError(["supported_artifact_kinds must match the B08 contract"])
-        if (
-            _require_unique_string_tuple(
-                policy_document.get("native_library_markers"),
-                context="native_library_markers",
-            )
-            != _NATIVE_LIBRARY_FILENAME_MARKERS
-        ):
-            raise ArtifactSupplyChainError(["native_library_markers must match the B08 contract"])
-        configured_open_finding_ids = _require_unique_string_tuple(
-            policy_document.get("open_finding_ids"), context="open_finding_ids"
+            raise ArtifactSupplyChainError(["artifact formats are not admitted"])
+        identity = tables["identity"]
+        if {key: _field(identity, key, context="identity") for key in _TABLE_KEYS["identity"]} != {
+            "builder_id": _BUILDER,
+            "build_type": _BUILD_TYPE,
+            "source_repository": _SOURCE_REPOSITORY,
+        }:
+            raise ArtifactSupplyChainError(["artifact build identity drifted"])
+        limits = tables["limits"]
+        limits_values: dict[str, int] = {}
+        for key in _TABLE_KEYS["limits"]:
+            value = limits.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise ArtifactSupplyChainError([f"limits.{key} must be a positive integer"])
+            limits_values[key] = value
+        project = tables["project"]
+        project_path = _safe_path(
+            _field(project, "path", context="project"), context="project.path"
         )
-        finding_records = _require_toml_table_array(
-            policy_document.get("findings"), context="findings"
-        )
-        if (
-            configured_open_finding_ids != _ARTIFACT_SUPPLY_CHAIN_OPEN_FINDING_IDS
-            or tuple(finding_record.get("finding_id") for finding_record in finding_records)
-            != _ARTIFACT_SUPPLY_CHAIN_OPEN_FINDING_IDS
+        if project_path != "pyproject.toml":
+            raise ArtifactSupplyChainError(["project.path must be exactly pyproject.toml"])
+        project_digest = _field(project, "sha256", context="project")
+        if _SHA256.fullmatch(project_digest) is None:
+            raise ArtifactSupplyChainError(["project.sha256 must be lowercase SHA-256"])
+        signing = tables["signing"]
+        signer = _field(signing, "signer_identity", context="signing")
+        oidc = _field(signing, "oidc_issuer", context="signing")
+        trusted_context = _field(signing, "trusted_context", context="signing")
+        if (signer, oidc, trusted_context) != (
+            _BUILDER,
+            "https://token.actions.githubusercontent.com",
+            "github_protected_main",
         ):
-            raise ArtifactSupplyChainError(["partial B08 policy requires the exact open findings"])
-        if any(set(finding_record) != _POLICY_FINDING_KEYS for finding_record in finding_records):
-            raise ArtifactSupplyChainError(["findings have missing or unknown fields"])
-        if any(
-            not isinstance(value, str) or not value
-            for finding_record in finding_records
-            for value in finding_record.values()
-        ):
-            raise ArtifactSupplyChainError(["finding values must be non-empty strings"])
-
-        policy_tables = {
-            table_name: _require_toml_table(policy_document.get(table_name), context=table_name)
-            for table_name in _POLICY_TABLE_KEYS
-        }
-        for table_name, expected_table_keys in _POLICY_TABLE_KEYS.items():
-            if set(policy_tables[table_name]) != expected_table_keys:
-                raise ArtifactSupplyChainError([f"{table_name} has missing or unknown fields"])
-        artifact_tool_tables = _require_toml_table(policy_document.get("tools"), context="tools")
-        if set(artifact_tool_tables) != {"cosign", "syft"}:
-            raise ArtifactSupplyChainError(["tools must define exactly cosign and syft"])
-        syft = _parse_artifact_tool(
-            _require_toml_table(artifact_tool_tables["syft"], context="tools.syft"),
-            tool_name="syft",
+            raise ArtifactSupplyChainError(["signing identity or context drifted"])
+        required_environment = _strings(
+            signing.get("required_environment"), context="signing.required_environment"
         )
-        cosign = _parse_artifact_tool(
-            _require_toml_table(artifact_tool_tables["cosign"], context="tools.cosign"),
-            tool_name="cosign",
-        )
-        if (syft.command, syft.version, cosign.command, cosign.version) != (
-            "syft",
-            "1.51.1",
-            "cosign",
-            "3.1.3",
-        ):
-            raise ArtifactSupplyChainError(["artifact tools must match the locked B08 versions"])
-
-        lock_tables = _require_toml_table_array(policy_document.get("locks"), context="locks")
-        lock_identities: list[LockIdentity] = []
-        for index, lock_table in enumerate(lock_tables):
-            if set(lock_table) != _POLICY_LOCK_KEYS:
-                raise ArtifactSupplyChainError([f"locks[{index}] has missing or unknown fields"])
-            lock_path = _require_safe_repository_relative_path(
-                _require_nonempty_string_field(lock_table, "path", context=f"locks[{index}]"),
-                context=f"locks[{index}].path",
-            )
-            lock_digest = _require_nonempty_string_field(
-                lock_table, "sha256", context=f"locks[{index}]"
-            )
-            if _LOWERCASE_SHA256_PATTERN.fullmatch(lock_digest) is None:
-                raise ArtifactSupplyChainError([f"locks[{index}].sha256 must be lowercase SHA-256"])
-            lock_identities.append(LockIdentity(path=lock_path, sha256=lock_digest))
-        expected_lock_paths = ("uv.lock",)
-        if tuple(lock_identity.path for lock_identity in lock_identities) != expected_lock_paths:
-            raise ArtifactSupplyChainError(["locks must contain exactly uv.lock"])
-
-        signing_policy = policy_tables["signing"]
-        signing_environment = _require_unique_string_tuple(
-            signing_policy.get("required_environment"), context="signing.required_environment"
-        )
-        parsed_signing_environment: list[tuple[str, str]] = []
-        for environment_entry in signing_environment:
-            environment_variable_name, separator, required_value = environment_entry.partition("=")
-            if not separator or not environment_variable_name or not required_value:
+        parsed_environment: list[tuple[str, str]] = []
+        for entry in required_environment:
+            name, separator, value = entry.partition("=")
+            if not separator or not name or not value:
                 raise ArtifactSupplyChainError(
                     ["signing.required_environment entries must be NAME=value"]
                 )
-            parsed_signing_environment.append((environment_variable_name, required_value))
-        if tuple(parsed_signing_environment) != (
+            parsed_environment.append((name, value))
+        if tuple(parsed_environment) != (
             ("GITHUB_ACTIONS", "true"),
             ("GITHUB_REF", "refs/heads/main"),
             ("GITHUB_REF_PROTECTED", "true"),
         ):
             raise ArtifactSupplyChainError(
-                ["signing environment must be the exact protected-main context"]
+                ["signing environment must be the protected-main context"]
             )
-        revoked_signer_identities = _require_unique_string_tuple(
-            signing_policy.get("revoked_signer_identities"),
+        revoked = _strings(
+            signing.get("revoked_signer_identities"),
             context="signing.revoked_signer_identities",
             allow_empty=True,
         )
-        project_policy = policy_tables["project"]
-        project_path = _require_safe_repository_relative_path(
-            _require_nonempty_string_field(project_policy, "path", context="project"),
-            context="project.path",
-        )
-        project_digest = _require_nonempty_string_field(project_policy, "sha256", context="project")
-        if project_path != "pyproject.toml":
-            raise ArtifactSupplyChainError(["project.path must be exactly pyproject.toml"])
-        if _LOWERCASE_SHA256_PATTERN.fullmatch(project_digest) is None:
-            raise ArtifactSupplyChainError(["project.sha256 must be lowercase SHA-256"])
-        artifact_formats = policy_tables["formats"]
-        build_identity = policy_tables["identity"]
-        resource_limits = policy_tables["limits"]
-        if (
-            _require_nonempty_string_field(artifact_formats, "statement_type", context="formats")
-            != "https://in-toto.io/Statement/v1"
-            or _require_nonempty_string_field(
-                artifact_formats, "provenance_predicate_type", context="formats"
+        locks: list[LockIdentity] = []
+        for index, item in enumerate(_tables(document.get("locks"), context="locks")):
+            if set(item) != _LOCK_KEYS:
+                raise ArtifactSupplyChainError([f"locks[{index}] has missing or unknown fields"])
+            path = _safe_path(
+                _field(item, "path", context=f"locks[{index}]"), context=f"locks[{index}].path"
             )
-            != "https://slsa.dev/provenance/v1"
-            or _require_nonempty_string_field(artifact_formats, "spdx_version", context="formats")
-            != "SPDX-2.3"
-        ):
-            raise ArtifactSupplyChainError(["formats must match the B08 SPDX and SLSA contract"])
-        expected_build_identity = {
-            "builder_id": (
-                "https://github.com/lixuanguang/alpha-research-lab-private/"
-                ".github/workflows/ci.yml@refs/heads/main"
-            ),
-            "build_type": (
-                "https://github.com/lixuanguang/alpha-research-lab-private/blob/main/"
-                "docs/architecture/artifact-supply-chain.md#build-contract"
-            ),
-            "source_repository": (
-                "git+https://github.com/lixuanguang/alpha-research-lab-private.git"
-            ),
-        }
-        if any(
-            build_identity.get(identity_key) != expected_value
-            for identity_key, expected_value in expected_build_identity.items()
-        ):
-            raise ArtifactSupplyChainError(["builder, build-type, or source identity drifted"])
-        if (
-            signing_policy.get("signer_identity") != expected_build_identity["builder_id"]
-            or signing_policy.get("oidc_issuer") != "https://token.actions.githubusercontent.com"
-            or signing_policy.get("trusted_context") != "github_protected_main"
-        ):
-            raise ArtifactSupplyChainError(["signer identity or protected context drifted"])
-        as_of_date = policy_document.get("as_of_date")
-        review_due_on = policy_document.get("review_due_on")
-        if not isinstance(as_of_date, date) or not isinstance(review_due_on, date):
-            raise ArtifactSupplyChainError(["as_of_date and review_due_on must be unquoted dates"])
-        if review_due_on <= as_of_date:
-            raise ArtifactSupplyChainError(["review_due_on must follow as_of_date"])
-        evidence_manifest_path = _require_safe_repository_relative_path(
-            _require_nonempty_string_field(
-                policy_document, "local_evidence_manifest_path", context=str(policy_path)
-            ),
-            context="local_evidence_manifest_path",
-        )
-        evidence_commit_sha = _require_nonempty_string_field(
-            policy_document, "local_evidence_commit_sha", context=str(policy_path)
-        )
-        if re.fullmatch(r"[0-9a-f]{40}", evidence_commit_sha) is None:
-            raise ArtifactSupplyChainError(["local_evidence_commit_sha must be lowercase Git SHA"])
+            digest = _field(item, "sha256", context=f"locks[{index}]")
+            if _SHA256.fullmatch(digest) is None:
+                raise ArtifactSupplyChainError([f"locks[{index}].sha256 must be lowercase SHA-256"])
+            locks.append(LockIdentity(path=path, sha256=digest))
+        if tuple(item.path for item in locks) != ("uv.lock",):
+            raise ArtifactSupplyChainError(["locks must contain exactly uv.lock"])
+        tools = _table(document.get("tools"), context="tools")
+        if set(tools) != {"cosign", "syft"}:
+            raise ArtifactSupplyChainError(["tools must define exactly cosign and syft"])
         return ArtifactSupplyChainPolicy(
-            package_status="partial",
-            successor_package=_CANONICAL_INSTRUMENT_IDENTITY_SUCCESSOR_PACKAGE_ID,
-            as_of_date=as_of_date,
-            review_due_on=review_due_on,
-            supported_artifact_kinds=_SUPPORTED_ARTIFACT_KINDS,
-            native_library_markers=_NATIVE_LIBRARY_FILENAME_MARKERS,
-            maximum_artifact_bytes=_require_positive_integer_field(
-                resource_limits, "maximum_artifact_bytes", context="limits"
+            supported_artifact_kinds=kinds,
+            native_library_markers=markers,
+            maximum_artifact_bytes=limits_values["maximum_artifact_bytes"],
+            maximum_archive_members=limits_values["maximum_archive_members"],
+            statement_type=_field(formats, "statement_type", context="formats"),
+            provenance_predicate_type=_field(
+                formats, "provenance_predicate_type", context="formats"
             ),
-            maximum_archive_members=_require_positive_integer_field(
-                resource_limits, "maximum_archive_members", context="limits"
-            ),
-            statement_type=_require_nonempty_string_field(
-                artifact_formats, "statement_type", context="formats"
-            ),
-            provenance_predicate_type=_require_nonempty_string_field(
-                artifact_formats, "provenance_predicate_type", context="formats"
-            ),
-            spdx_version=_require_nonempty_string_field(
-                artifact_formats, "spdx_version", context="formats"
-            ),
-            builder_id=_require_nonempty_string_field(
-                build_identity, "builder_id", context="identity"
-            ),
-            build_type=_require_nonempty_string_field(
-                build_identity, "build_type", context="identity"
-            ),
-            source_repository=_require_nonempty_string_field(
-                build_identity, "source_repository", context="identity"
-            ),
-            signer_identity=_require_nonempty_string_field(
-                signing_policy, "signer_identity", context="signing"
-            ),
-            oidc_issuer=_require_nonempty_string_field(
-                signing_policy, "oidc_issuer", context="signing"
-            ),
-            trusted_signing_context=_require_nonempty_string_field(
-                signing_policy, "trusted_context", context="signing"
-            ),
-            signing_environment=tuple(parsed_signing_environment),
-            revoked_signer_identities=revoked_signer_identities,
+            spdx_version=_field(formats, "spdx_version", context="formats"),
+            builder_id=_field(identity, "builder_id", context="identity"),
+            build_type=_field(identity, "build_type", context="identity"),
+            source_repository=_field(identity, "source_repository", context="identity"),
+            signer_identity=signer,
+            oidc_issuer=oidc,
+            trusted_signing_context=trusted_context,
+            signing_environment=tuple(parsed_environment),
+            revoked_signer_identities=revoked,
             project_path=project_path,
             project_sha256=project_digest,
-            locks=tuple(lock_identities),
-            syft=syft,
-            cosign=cosign,
-            applicable_gate_ids=_ARTIFACT_SUPPLY_CHAIN_GATE_IDS,
-            local_evidence_manifest_path=evidence_manifest_path,
-            local_evidence_commit_sha=evidence_commit_sha,
-            open_finding_ids=_ARTIFACT_SUPPLY_CHAIN_OPEN_FINDING_IDS,
+            locks=tuple(locks),
+            syft=_tool(
+                tools["syft"],
+                context="tools.syft",
+                expected_command="syft",
+                expected_version="1.51.1",
+            ),
+            cosign=_tool(
+                tools["cosign"],
+                context="tools.cosign",
+                expected_command="cosign",
+                expected_version="3.1.3",
+            ),
         )
 
     def validate_repository(self) -> ArtifactSupplyChainPolicy:
-        """Validate the repository against its admitted B08 policy and evidence.
-
-        The resolved root supplies the policy, uv lock and project manifest,
-        integration files, change-risk policy, and local evidence manifest. Validation
-        checks lock and project digests, admitted Syft/Cosign versions, required
-        integration fragments, signer revocation, the manifest's expected commit and
-        change-risk binding, package evidence, and the exact additional ``QG15`` gate.
-        Lock-file absence or digest drift is accumulated with other findings; an
-        unsafe or missing project manifest fails when its digest is computed.
-
-        Args:
-            The repository root is bound by the service constructor.
+        """Validate policy-bound project and lock bytes in the repository.
 
         Returns:
-            The loaded ``ArtifactSupplyChainPolicy`` when every repository check passes.
+            The validated artifact policy.
 
         Raises:
-            ArtifactSupplyChainError: If the policy is invalid, repository identities or
-                integration fragments drift, findings are accumulated, the signer is revoked,
-                or evidence validation fails. Evidence failures are translated and chained. An
-                ``ArtifactSupplyChainError`` from a lock-file digest check is accumulated
-                in the final findings; digest-check I/O errors propagate.
-            OSError: If the policy, lockfile, project manifest, or integration files cannot
-                be inspected or read. Evidence read failures are translated where this function
-                catches them.
-            UnicodeDecodeError: If an uncaught repository text file is not UTF-8.
-            TypeError: If the initial policy loader cannot compare its parsed date values.
-            pydantic.ValidationError: If the initial policy loader's immutable model rejects
-                a value. Such errors inside the final evidence block are translated.
+            ArtifactSupplyChainError: If a project, lock, signer, or path check fails.
         """
-        resolved_repository_root = self.repository_root.resolve()
-        artifact_supply_chain_policy = load_policy(
-            resolved_repository_root / "docs/architecture/artifact-supply-chain.toml"
-        )
-        validation_findings: list[str] = []
-        for lock_identity in artifact_supply_chain_policy.locks:
+        root = self.repository_root.resolve(strict=True)
+        policy = self.load_policy(root / "docs/architecture/artifact-supply-chain.toml")
+        findings: list[str] = []
+        for lock in policy.locks:
             try:
-                observed_lock_digest = compute_regular_file_sha256(
-                    resolved_repository_root / lock_identity.path
-                )
+                observed = compute_regular_file_sha256(root / lock.path)
             except ArtifactSupplyChainError as error:
-                validation_findings.extend(error.findings)
+                findings.extend(error.findings)
                 continue
-            if observed_lock_digest != lock_identity.sha256:
-                validation_findings.append(f"{lock_identity.path} digest drifted from B08 policy")
-        if (
-            compute_regular_file_sha256(
-                resolved_repository_root / artifact_supply_chain_policy.project_path
-            )
-            != artifact_supply_chain_policy.project_sha256
-        ):
-            validation_findings.append(
-                f"{artifact_supply_chain_policy.project_path} digest drifted from B08 policy"
-            )
-        required_integration_fragments = {
-            "Makefile": ("artifact-supply-chain-check:", "alpha-governance-artifacts"),
-            ".github/workflows/ci.yml": ("make wheel-smoke",),
-        }
-        for repository_relative_path, required_fragments in required_integration_fragments.items():
-            integration_content = (resolved_repository_root / repository_relative_path).read_text(
-                encoding="utf-8"
-            )
-            for required_fragment in required_fragments:
-                if required_fragment not in integration_content:
-                    validation_findings.append(
-                        f"{repository_relative_path} is missing required B08 fragment "
-                        f"{required_fragment!r}"
-                    )
-        if (
-            artifact_supply_chain_policy.signer_identity
-            in artifact_supply_chain_policy.revoked_signer_identities
-        ):
-            validation_findings.append("configured signer identity is revoked")
-        if validation_findings:
-            raise ArtifactSupplyChainError(validation_findings)
+            if observed != lock.sha256:
+                findings.append(f"{lock.path} differs from its admitted SHA-256 digest")
         try:
-            manifest = validate_manifest(
-                resolved_repository_root
-                / artifact_supply_chain_policy.local_evidence_manifest_path,
-                expected_commit_sha=artifact_supply_chain_policy.local_evidence_commit_sha,
-                change_policy=load_change_risk_policy(
-                    resolved_repository_root / "docs/governance/change-risk-policy.toml"
-                ),
-            )
-            validate_package_evidence(manifest, _ARTIFACT_SUPPLY_CHAIN_EVIDENCE_PROFILE)
-            if manifest.additional_required_gates != ("QG15",):
-                raise ArtifactSupplyChainError(["B08 evidence must add exactly QG15"])
-        except (EvidenceGovernanceError, OSError, ValueError) as error:
-            raise ArtifactSupplyChainError([str(error)]) from error
-        return artifact_supply_chain_policy
+            observed_project = compute_regular_file_sha256(root / policy.project_path)
+        except ArtifactSupplyChainError as error:
+            findings.extend(error.findings)
+        else:
+            if observed_project != policy.project_sha256:
+                findings.append(f"{policy.project_path} differs from its admitted SHA-256 digest")
+        if policy.signer_identity in policy.revoked_signer_identities:
+            findings.append("configured signer identity is revoked")
+        if findings:
+            raise ArtifactSupplyChainError(findings)
+        return policy
 
 
 def load_policy(policy_path: Path) -> ArtifactSupplyChainPolicy:
-    """Load and validate the closed B08 artifact supply-chain policy.
-
-    The file is read as UTF-8 TOML. Admission requires the exact root and nested
-    table schemas, B08 metadata and ordered gate/artifact/finding values, the
-    protected-main signing environment, the locked Syft ``1.51.1`` and Cosign
-    ``3.1.3`` identities, the four ordered build locks, lowercase digests, lexically safe
-    repository-relative paths, expected SPDX/SLSA and builder identities, and
-    date values where ``review_due_on`` follows ``as_of_date``. The loader does
-    not compare dates with the current date or verify referenced file contents.
+    """Load an artifact policy from a TOML path.
 
     Args:
-        policy_path: TOML policy file to read.
+        policy_path: TOML policy path.
 
     Returns:
-        An immutable ``ArtifactSupplyChainPolicy`` populated from the admitted
-        policy and the module's fixed B08 contract values.
+        The parsed artifact policy.
 
     Raises:
-        ArtifactSupplyChainError: If TOML is malformed or an explicit schema,
-            field, ordering, identity, digest, date, or B08 contract check fails.
-            TOML decoding failures are translated and chained from the decoder
-            exception. A type or model-construction failure that is not explicitly
-            raised by this loader can propagate from the parsed values.
-        OSError: If the policy path cannot be opened or read.
-        UnicodeDecodeError: If the policy is not valid UTF-8.
-        TypeError: If parsed dates and datetimes, or datetimes with incompatible
-            timezone awareness, cannot be ordered.
-        pydantic.ValidationError: If the immutable policy model rejects a value
-            that reached construction.
+        ArtifactSupplyChainError: If the policy schema or identities are invalid.
     """
     return ArtifactPolicyService(policy_path.parent).load_policy(policy_path)
 
 
 def validate_repository(repository_root: Path) -> ArtifactSupplyChainPolicy:
-    """Validate the repository against its admitted B08 policy and evidence.
-
-    The resolved root supplies the policy, uv lock and project manifest,
-    integration files, change-risk policy, and local evidence manifest. Validation
-    checks lock and project digests, admitted Syft/Cosign versions, required
-    integration fragments, signer revocation, the manifest's expected commit and
-    change-risk binding, package evidence, and the exact additional ``QG15`` gate.
-    Lock-file absence or digest drift is accumulated with other findings; an
-    unsafe or missing project manifest fails when its digest is computed.
+    """Validate the artifact policy and its repository-bound file identities.
 
     Args:
-        repository_root: Repository root whose B08 files and evidence are checked.
+        repository_root: Repository whose project and lock bytes are checked.
 
     Returns:
-        The loaded ``ArtifactSupplyChainPolicy`` when every repository check passes.
+        The validated artifact policy.
 
     Raises:
-        ArtifactSupplyChainError: If the policy is invalid, repository identities or
-            integration fragments drift, findings are accumulated, the signer is revoked,
-            or evidence validation fails. Evidence failures are translated and chained. An
-            ``ArtifactSupplyChainError`` from a lock-file digest check is accumulated
-            in the final findings; digest-check I/O errors propagate.
-        OSError: If the policy, lockfile, project manifest, or integration files cannot
-            be inspected or read. Evidence read failures are translated where this function
-            catches them.
-        UnicodeDecodeError: If an uncaught repository text file is not UTF-8.
-        TypeError: If the initial policy loader cannot compare its parsed date values.
-        pydantic.ValidationError: If the initial policy loader's immutable model rejects
-            a value. Such errors inside the final evidence block are translated.
+        ArtifactSupplyChainError: If a project, lock, signer, or path check fails.
     """
     return ArtifactPolicyService(repository_root).validate_repository()

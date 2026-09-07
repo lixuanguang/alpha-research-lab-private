@@ -1,4 +1,4 @@
-"""Build both distributions and verify imports from an isolated wheel install."""
+"""Build the runtime distribution and verify a governance-free wheel installation."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-_GOVERNANCE_WHEEL_PREFIX = "alpha_research_governance-"
 _RUNTIME_WHEEL_PREFIX = "alpha_research_lab-"
 
 
@@ -50,34 +49,16 @@ def _single_wheel(directory: Path, *, prefix: str) -> Path:
     return candidates[0]
 
 
-def _build_wheels(repository_root: Path, wheel_directory: Path) -> tuple[Path, Path]:
-    """Build the governance and runtime wheels into a fresh temporary directory.
+def _build_wheel(repository_root: Path, wheel_directory: Path) -> Path:
+    """Build the runtime wheel into a fresh temporary directory.
 
     Args:
-        repository_root: Checkout containing both PEP 517 projects.
-        wheel_directory: Empty temporary directory receiving wheel artifacts.
+        repository_root: Checkout containing the runtime PEP 517 project.
+        wheel_directory: Empty temporary directory receiving the wheel artifact.
 
     Returns:
-        The governance wheel followed by the runtime wheel.
+        The newly built runtime wheel.
     """
-    _run(
-        [
-            "uv",
-            "run",
-            "--frozen",
-            "--no-editable",
-            "uv",
-            "build",
-            "--no-build-isolation",
-            "--python",
-            sys.executable,
-            "--wheel",
-            "tools/governance",
-            "--out-dir",
-            str(wheel_directory),
-        ],
-        cwd=repository_root,
-    )
     _run(
         [
             "uv",
@@ -97,10 +78,7 @@ def _build_wheels(repository_root: Path, wheel_directory: Path) -> tuple[Path, P
         ],
         cwd=repository_root,
     )
-    return (
-        _single_wheel(wheel_directory, prefix=_GOVERNANCE_WHEEL_PREFIX),
-        _single_wheel(wheel_directory, prefix=_RUNTIME_WHEEL_PREFIX),
-    )
+    return _single_wheel(wheel_directory, prefix=_RUNTIME_WHEEL_PREFIX)
 
 
 def _export_runtime_requirements(repository_root: Path, destination: Path) -> None:
@@ -130,20 +108,18 @@ def _export_runtime_requirements(repository_root: Path, destination: Path) -> No
 def _install_and_import(
     repository_root: Path,
     smoke_root: Path,
-    governance_wheel: Path,
     runtime_wheel: Path,
 ) -> None:
-    """Install locked dependencies and both wheels, then exercise public imports.
+    """Install locked runtime dependencies and the wheel, then exercise public imports.
 
     The isolated interpreter runs from ``smoke_root`` with ``PYTHONPATH`` removed and
-    ``-I`` enabled, so imports cannot resolve from the checkout. The runtime wheel
-    currently depends on the governance wheel; that coupling is intentional until
-    the next cleanup step removes the compatibility surface.
+    ``-I`` enabled, so imports cannot resolve from the checkout. Governance tooling is
+    absent from this environment, so an accidental runtime dependency on it fails
+    dependency checking or imports.
 
     Args:
         repository_root: Checkout containing the frozen lockfile.
         smoke_root: Temporary directory outside the checkout used as the work root.
-        governance_wheel: Built governance wheel to install.
         runtime_wheel: Built runtime wheel to install.
     """
     virtual_environment = smoke_root / "venv"
@@ -176,7 +152,6 @@ def _install_and_import(
             "--python",
             str(python),
             "--no-deps",
-            str(governance_wheel),
             str(runtime_wheel),
         ],
         cwd=smoke_root,
@@ -191,13 +166,13 @@ def _install_and_import(
         "-I",
         "-c",
         (
-            "from importlib.metadata import version; "
+            "from importlib.metadata import distributions, version; "
+            "from importlib.util import find_spec; "
             "import os; "
             "from datetime import date; "
             "from pathlib import Path; "
             "import sys; "
             "import alpha_research; "
-            "import alpha_research_governance; "
             "from alpha_research.financial_units import QuantLibConventions; "
             "from alpha_research.instrument_identity import InstrumentId; "
             "from alpha_research.venue_calendar import CalendarAuthority, CalendarSourceVersion, "
@@ -205,13 +180,14 @@ def _install_and_import(
             "root = Path(os.environ['SMOKE_REPOSITORY_ROOT']).resolve(); "
             "prefix = Path(sys.prefix).resolve(); "
             "runtime_origin = Path(alpha_research.__file__).resolve(); "
-            "governance_origin = Path(alpha_research_governance.__file__).resolve(); "
             "assert runtime_origin.is_relative_to(prefix); "
-            "assert governance_origin.is_relative_to(prefix); "
             "assert not runtime_origin.is_relative_to(root); "
-            "assert not governance_origin.is_relative_to(root); "
             "assert version('alpha-research-lab'); "
-            "assert version('alpha-research-governance'); "
+            "assert find_spec('alpha_research_governance') is None; "
+            "assert 'alpha-research-governance' not in "
+            "{item.metadata['Name'] for item in distributions()}; "
+            "assert find_spec('alpha_research.ci_policy') is None; "
+            "assert not (prefix / 'bin' / 'alpha-research-ci').exists(); "
             "assert InstrumentId; "
             "assert QuantLibConventions(); "
             "venue = Venue(venue_id=VenueId.from_canonical_text("
@@ -232,31 +208,20 @@ def _install_and_import(
     subprocess.run(  # nosec B603  # [owner=platform; rationale=isolated interpreter smoke argv; expires=2027-03-01]
         command, cwd=smoke_root, env=environment, check=True
     )
-    cli = virtual_environment / "bin" / "alpha-research-ci"
-    completed = subprocess.run(  # nosec B603  # [owner=platform; rationale=installed CLI boundary smoke; expires=2027-03-01]
-        [str(cli), "scan-secrets"],
-        cwd=smoke_root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 1 or "scan-secrets accepts" not in completed.stderr:
-        raise RuntimeError("installed alpha-research-ci did not reject an empty scan scope")
 
 
 def main(repository_root: Path | None = None) -> int:
-    """Build and install both local wheels in a clean, checkout-independent environment.
+    """Build and install the runtime wheel in a clean environment without governance.
 
     Args:
         repository_root: Checkout root, or the current directory when omitted.
 
     Returns:
-        Zero after building both wheels and completing the isolated import smoke.
+        Zero after building the wheel and completing the isolated import smoke.
 
     Raises:
         OSError: A required build, virtual-environment, or installer executable cannot start.
-        RuntimeError: Wheel selection does not identify exactly one artifact per project.
+        RuntimeError: Wheel selection does not identify exactly one runtime artifact.
         subprocess.CalledProcessError: A build, dependency install, or import smoke fails.
     """
     root = (Path.cwd() if repository_root is None else repository_root).resolve(strict=True)
@@ -264,11 +229,10 @@ def main(repository_root: Path | None = None) -> int:
         smoke_root = Path(temporary)
         wheel_directory = smoke_root / "wheels"
         wheel_directory.mkdir()
-        governance_wheel, runtime_wheel = _build_wheels(root, wheel_directory)
+        runtime_wheel = _build_wheel(root, wheel_directory)
         _install_and_import(
             root,
             smoke_root,
-            governance_wheel,
             runtime_wheel,
         )
     return 0

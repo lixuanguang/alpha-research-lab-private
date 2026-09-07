@@ -2,40 +2,25 @@
 
 ## Purpose and authority
 
-This is the repository view of the
-[institutional blueprint's](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
-12 waves and 96 logical implementation merge-request packages. It replaces the
-obsolete P0-P8/`ENG-*`/`CRY-*` phase plan. The companion
-[research program](research-program.md) sequences strategy evidence but remains
-subordinate to these platform gates.
+> **Historical reference.** The package tables below preserve the original
+> institutional blueprint and its 96 selectors for context. They are not an
+> executable roadmap, registry, readiness state, or merge prerequisite. Current
+> work follows the [development and release workflow](../governance/workflow.md)
+> and the smallest actual research or operating task.
 
-Each row below is a logical MR package. The ID column contains the stable selector
-required by dependency, evidence, and automation contracts; the adjacent objective
-is the human-readable package name. Outside machine-oriented tables and commands,
-prose leads with the package name and places the selector in parentheses. If a
-package exceeds reviewable size, split it into code, migration, backfill, and
-rollout MRs while preserving the selector as an epic.
-Prefer one logical behavior change and keep non-generated changes near or below
-400 lines where practical. Institutional acceptance uses the R0-R4 approvers and
-QG01-QG15 evidence from
-[quality and operations](../architecture/operations.md).
-Solo implementation follows the operating policy below.
-
-A wave is complete only when exit evidence is demonstrated in the target
-environment. Code merge, a favorable metric, or a dashboard score alone does not
-complete a package.
+The table is the repository's historical view of the
+[institutional blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf)
+and its 12 waves. It preserves package names and selectors so old decisions and
+evidence remain readable. The companion [research program](research-program.md)
+is historical context as well. Neither document defines an active gate or
+completion status.
 
 ## Solo-bootstrap execution overlay
 
-The [development workflow](../governance/workflow.md) and
-[current operating policy](../governance/domain-ownership.md#current-operating-policy)
-supersede blueprint organizational sequencing for solo implementation. The
-[generated status](../governance/program-status.md) reports implementation,
-governance, retained findings and the active technical queue without restating them
-here. Dependency expressions without a purpose are implementation edges; explicit
-`operation/release:` and `team handover:` edges activate only for those contexts.
-Repository implementation does not itself authorize release, production access,
-executable orders or capital exposure.
+The [development and release workflow](../governance/workflow.md) supersedes the
+blueprint's organizational sequencing for solo implementation. Repository
+implementation does not itself authorize release, production access, executable
+orders, or capital exposure.
 
 ## Milestones
 
@@ -293,12 +278,12 @@ the shared kernel is the production path.
 
 ## Current repository mapping
 
-See the [current implementation summary](../README.md#current-status) and the
+See the [current implementation summary](../README.md) and the
 [build and domain contracts](../architecture/README.md#build-and-domain-contracts)
 for delivery evidence and open findings. The
-[program governance registry](../governance/program-governance.md) separately
-tracks machine-readable readiness; implementation summaries do not change its
-acceptance state.
+The [development and release workflow](../governance/workflow.md) records the
+current implementation path; historical package summaries do not create an
+active acceptance requirement.
 
 ## Migration and reuse overlay
 

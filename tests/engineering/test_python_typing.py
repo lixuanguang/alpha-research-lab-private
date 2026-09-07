@@ -11,7 +11,6 @@ import pytest
 
 # project library imports
 from alpha_research_governance.engineering_standards.python_typing import TypingChecker
-from alpha_research_governance.operating_model import OperatingModelError, load_operating_model
 
 
 def _clean_probe(_checker: TypingChecker) -> str:
@@ -102,25 +101,6 @@ class TestTypingChecker:
 
         assert TypingChecker(tmp_path).run() == 0
         assert "native stubs" in capsys.readouterr().out
-
-
-class TestParsedBoundaries:
-    """Reject malformed ownership tables before nested access."""
-
-    @pytest.mark.parametrize(
-        "settings",
-        ['"not a table"', "{founder_principal = 2026-09-05}", "{founder_principal = 42}"],
-    )
-    def test_operating_settings_reject_wrong_shapes(self, tmp_path: Path, settings: str) -> None:
-        """Keep TOML dates distinct from JSON scalars and reject invalid principals."""
-        path = tmp_path / "ownership.toml"
-        path.write_text(
-            f"schema_version = 2\noperating_model = {settings}\n"
-            "domains = []\nrole_assignments = []\n",
-            encoding="utf-8",
-        )
-        with pytest.raises(OperatingModelError):
-            load_operating_model(path)
 
 
 if __name__ == "__main__":

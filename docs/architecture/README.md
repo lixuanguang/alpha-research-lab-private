@@ -2,7 +2,7 @@
 
 This is the target architecture under the
 [implementation blueprint](../../Institutional_Multi_Asset_Quant_Monorepo_Blueprint.pdf).
-Current implementation status is in the [documentation home](../README.md#current-status).
+Current implementation status is in the [documentation home](../README.md).
 The [principles](principles.md) define the invariants and permitted dependency
 direction; the [roadmap](../roadmap/README.md) records historical package
 provenance and the current research direction.
@@ -65,8 +65,8 @@ research, simulation, portfolio/risk, trading, platform services, assets, and
 strategies. Tests, environments, and tools support those owned targets. Populate
 directories only when their owning package is implemented.
 
-The [topology registry](repository-topology.md) describes current targets and
-the remaining compatibility facades. Bulk datasets, trial outputs, compiler
+The repository keeps only implemented domain packages and the development
+tooling that validates them. Bulk datasets, trial outputs, compiler
 outputs, deployable artifacts, and secrets stay outside Git. Git retains source,
 schemas, manifests, synthetic fixtures, and policies.
 
@@ -77,7 +77,6 @@ findings. Adjacent TOML records provide machine-readable policy where applicable
 
 | Package | Contract |
 | --- | --- |
-| B01 | [Repository topology and tooling](repository-topology.md) |
 | B02 | [Pinned hermetic build graph](hermetic-build-graph.md) (historical) |
 | B03 | [Clean-machine developer environment](clean-machine-environment.md) (historical) |
 | B04 | [Engineering standards](engineering-standards.md) |
@@ -92,14 +91,15 @@ findings. Adjacent TOML records provide machine-readable policy where applicable
 ## Decisions and operations
 
 - [Principles and dependency rules](principles.md): mandatory architectural constraints.
-- [Decision governance](governance.md) and [ADR log](decisions/README.md): technology
-  choices, alternatives, acceptance, deprecation, and exceptions.
+- [Architecture decisions](governance.md) and [ADR notes](decisions/README.md):
+  technology choices, alternatives, consequences, and reversal.
 - [Platform contracts](contracts.md): data, research/model, accounting, execution,
   and asset-extension requirements.
-- [Quality and operations](operations.md): QG01-QG15, state authority, release and
-  activation, monitoring, recovery, security, and definition of done.
+- [Operations boundary](operations.md): current implementation limits and the
+  path to a real release and activation.
 
-Reference technologies are proposals subject to ADR acceptance and dependency
-admission. Build once and promote immutable artifacts by digest; releases and
+Reference technologies are documented with an ADR when the choice is expensive
+to reverse and pass the dependency checks that apply to the actual consumer.
+Build once and promote immutable artifacts by digest; releases and
 rollback bind code, model, data/schema references, configuration, limits, state,
-and evidence under the [release controls](operations.md#deployment-activation-and-promotion).
+and evidence under the [operations runbook](../governance/operations.md).

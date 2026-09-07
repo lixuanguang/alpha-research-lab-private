@@ -1,39 +1,11 @@
-schema_version = 1
-roadmap_package = "B07"
-operating_track = "solo_bootstrap"
-package_status = "partial"
-accountable_owner_role = "platform"
-risk_class = "R2"
-successor_package = "B08"
+schema_version = 2
 as_of_date = "2026-09-04"
-review_due_on = "2026-12-03"
-runtime_installation_allowed = false
+review_due_on = "2026-10-04"
 maximum_signal_age_days = 7
-emergency_override_maximum_days = 30
-patch_cadence_days = 30
 supported_platforms = ["darwin_arm64", "linux_x86_64"]
 approved_python_indexes = ["https://pypi.org/simple"]
-lock_paths = [
-  "uv.lock",
-]
+lock_paths = ["uv.lock"]
 runtime_scan_roots = ["src", "tools"]
-applicable_gate_ids = [
-  "QG01",
-  "QG02",
-  "QG03",
-  "QG04",
-  "QG05",
-  "QG06",
-  "QG09",
-  "QG10",
-  "QG11",
-  "QG12",
-  "QG13",
-  "QG14",
-]
-local_evidence_manifest_path = "docs/governance/evidence/examples/b07-r2-partial/manifest.toml"
-local_evidence_commit_sha = "dddddddddddddddddddddddddddddddddddddddd"
-open_finding_ids = ["B07-F01", "B07-F02", "B07-F03"]
 native_python_packages = [
   "ast-serialize",
   "charset-normalizer",
@@ -52,9 +24,10 @@ native_python_packages = [
 ]
 vulnerability_decisions = []
 emergency_overrides = []
+wheel_source_admissions = []
 
 [lock_digests]
-"uv.lock" = "22f953c3cabb20af3d8203e188accb9a1011b4784b9674d77bc535930ffd31bd"
+"uv.lock" = "4c07ddd8fa583a0aa3f88a5c4f3b320fbd436868d80d3c72f74e7d0f0f005bee"
 
 [pip_audit]
 version = "2.10.1"
@@ -114,15 +87,9 @@ packages = [
 ]
 
 [[license_groups]]
-license_expression = "ISC"
-disposition = "approved"
-packages = ["shellingham==1.5.4"]
-
-[[license_groups]]
 license_expression = "MIT"
 disposition = "approved"
 packages = [
-  "annotated-doc==0.0.5",
   "annotated-types==0.8.0",
   "ast-serialize==0.8.0",
   "cfgv==3.5.0",
@@ -159,7 +126,6 @@ packages = [
   "tomli-w==1.2.0",
   "tomli==2.4.1",
   "tomlkit==0.15.1",
-  "typer==0.27.2",
   "typing-inspection==0.4.4",
   "urllib3==2.7.0",
   "virtualenv==21.7.4",
@@ -193,28 +159,9 @@ packages = [
   "typing-extensions==4.16.0",
 ]
 
-[[findings]]
-finding_id = "B07-F01"
-owner_role = "domain_architecture"
-unavailable_evidence = "Independent Platform Code Owner, domain, SRE, and Security review of the exact admission policy, decisions, migrations, scanner boundary, tests, and rollback is unavailable during solo bootstrap."
-closure_condition = "Named independent reviewers resolve findings and record commit-bound approval of the exact B07 policy, dependency graph, license dispositions, exploitability decisions, integrations, and evidence."
-
-[[findings]]
-finding_id = "B07-F02"
-owner_role = "platform_ci"
-unavailable_evidence = "Protected merged-result pip-audit execution, retained exact-commit reports, Linux x86_64 clean-machine wheel installation, approved-registry controls, and mutable-reference rejection exercises are unavailable from this local checkout."
-closure_condition = "Protected CI audits the exact lock and reviewed commit, retains the report, installs every selected Linux x86_64 wheel without source fallback, and proves unapproved sources, mutable references, missing digests, and runtime installation are blocked."
-
-[[findings]]
-finding_id = "B07-F03"
-owner_role = "security"
-unavailable_evidence = "Qualified license-obligation review, upstream OpenSSF Scorecard signals, organization registry reconciliation, and independent vulnerability and exploitability review are unavailable during solo bootstrap."
-closure_condition = "Security and qualified reviewers reconcile all direct and transitive components, review current Scorecard and vulnerability signals, resolve license obligations and exploitability findings, approve patch/EOL dispositions, and retain exact-source evidence."
-
 [[bootstrap_wheel_admissions]]
 name = "quantlib"
 version = "1.43"
-owner_role = "platform"
 rationale = "User-selected C03 explicit day-count adapter; native source binding is unverified and all artifact release remains blocked."
 sources = [{"uri" = "https://api.github.com/repos/lballabio/QuantLib-SWIG/tarball/bb5a63b376008e4482d11600ff7a1434284558e1", "revision" = "bb5a63b376008e4482d11600ff7a1434284558e1", "sha256" = "7c7a68937cb0fa7c2cf1ef72aa3b6c42d88120a79c3d10fba5b8d7434b97d2f6", "license_expression" = "BSD-3-Clause"}, {"uri" = "https://api.github.com/repos/lballabio/QuantLib/tarball/6b57206e04598f092efee66e3b367efc84771995", "revision" = "6b57206e04598f092efee66e3b367efc84771995", "sha256" = "9f2dc75ccba548859e186c9644a51436162fbef21cdcd3563032391a4eef2195", "license_expression" = "BSD-3-Clause"}]
 certificate_identity = "https://github.com/lballabio/QuantLib-SWIG/.github/workflows/wheels.yml@refs/tags/v1.43"
@@ -223,7 +170,7 @@ trusted_root = {"path" = "docs/governance/evidence/examples/b07-r2-partial/repor
 wheels = [{"filename" = "quantlib-1.43-cp39-abi3-macosx_10_13_x86_64.whl", "sha256" = "cf113464f75500c3f67ec7a6865b9dee1082650b37943a45974d83d9b29a32b1", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-macosx_10_13_x86_64.whl.sigstore.json", "sha256" = "70a3fd23013c2a824d06144ee0c3be6ff33418be17597467bbf452084b844876"}}, {"filename" = "quantlib-1.43-cp39-abi3-macosx_11_0_arm64.whl", "sha256" = "85d70b28778afca84b9b6ae74ef05a1069b2dca00e80fc74aa8ddf438259dc0c", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-macosx_11_0_arm64.whl.sigstore.json", "sha256" = "e5c28c088b0e2126013b7e620c2fb683d5a789bb50648c411a58b1b375fbe3d6"}}, {"filename" = "quantlib-1.43-cp39-abi3-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", "sha256" = "3c0ec04adb19660a029d2095609f5a8add1541b1d2bb14a990665738c911770e", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl.sigstore.json", "sha256" = "e3178666aeb25275f3e38abb95c9979609b53d3879fc86fe69c5b2b43c964f13"}}, {"filename" = "quantlib-1.43-cp39-abi3-manylinux_2_24_i686.manylinux_2_28_i686.whl", "sha256" = "9d028659a2557d549766bcebb346a9cacae0b3514bf205ddefadb64f9330bbb4", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-manylinux_2_24_i686.manylinux_2_28_i686.whl.sigstore.json", "sha256" = "77dd4c433f0d98cb1c189a69333fece66d7d39c9899052f08f39420bea10f182"}}, {"filename" = "quantlib-1.43-cp39-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", "sha256" = "35cd2c178aa9a30c3b7a9ca050536037c3185afd6728e6a1cf2085adef54464e", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.sigstore.json", "sha256" = "70aa25edc0f84a9b630a956eb1722ddd5ee7f2c1d821edbc9b2acdb197dde39e"}}, {"filename" = "quantlib-1.43-cp39-abi3-musllinux_1_2_aarch64.whl", "sha256" = "f21eaf656ea5bd26e023a402eda81a6b66338c7a3d1f3dfef3894f05312f7ac6", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-musllinux_1_2_aarch64.whl.sigstore.json", "sha256" = "d499cc55691608112b04b982f4eef9bd44a5db810aa99b353459db8fd2d80b6d"}}, {"filename" = "quantlib-1.43-cp39-abi3-musllinux_1_2_i686.whl", "sha256" = "c2d1680e1bb28bc58fe9d5cd1a966382cc490264368cc77300c9c9a381416d7e", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-musllinux_1_2_i686.whl.sigstore.json", "sha256" = "9ea142c0da7d755b8e6ef2c8bf0fc92c329a14212f96170d2089e48dac5ddb75"}}, {"filename" = "quantlib-1.43-cp39-abi3-musllinux_1_2_x86_64.whl", "sha256" = "f9c620de81c8bea76b7bd82a190fdf0393f18812a2c2529351fabc7338b6b3c1", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-musllinux_1_2_x86_64.whl.sigstore.json", "sha256" = "833352e89e7a5f131dcab7bcaa20b832bc8e1b62f4cf81f087991b19ceaa2fe0"}}, {"filename" = "quantlib-1.43-cp39-abi3-win32.whl", "sha256" = "70adba78db6bbb72b5b608af866c2fb3d3e440dc54bee9eb68d757e31c1c2e90", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-win32.whl.sigstore.json", "sha256" = "ec8a6f7ee36a5089fe30229d53b8c8fc9df82f84ebee7bf8f0bceb3ee38d98ed"}}, {"filename" = "quantlib-1.43-cp39-abi3-win_amd64.whl", "sha256" = "61fcb95e8d7e15dfd23e83104d24ce28d45582a645e7dbce0c248216bf51913b", "bundle" = {"path" = "docs/governance/evidence/examples/c03-r2-partial/reports/quantlib-1.43/quantlib-1.43-cp39-abi3-win_amd64.whl.sigstore.json", "sha256" = "e11cc05c5c9a6c07a6aa62f358f0d4c230b8758590b45dff63201fb15be43a50"}}]
 usage = "isolated_development_and_ci"
 source_to_wheel_binding = "unverified"
-finding_id = "B07-DEP-001"
+finding_id = "quantlib-wheel-binding"
 reviewed_on = "2026-09-04"
 expires_on = "2026-10-04"
 residual_risk = "Authenticated publisher wheel bytes may differ from inspected source archives; native generated/runtime/Boost/compiler inputs are not authenticated. Isolated development only; all graph artifact releases remain blocked."

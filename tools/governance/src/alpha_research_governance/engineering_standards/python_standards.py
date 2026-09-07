@@ -12,6 +12,13 @@ from alpha_research_governance.engineering_standards.python_source import (
     PythonSourceChecker,
 )
 
+DEFAULT_SOURCE_ROOTS = (
+    "src",
+    "tests",
+    "tools/governance/src",
+    "tools/typing/stubs",
+)
+
 
 class PythonStandardsChecker:
     """Scan governed Python source files and return direct diagnostics."""

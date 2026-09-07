@@ -10,7 +10,7 @@
 | Package status | Partial |
 | Accountable owner role | Platform |
 | Change risk | R0 with package-specific QG12 and QG13 evidence |
-| Machine-readable register | [System boundaries](system-boundaries.toml) |
+| Current workflow | [Development and release workflow](workflow.md) |
 
 This charter defines the source and governance boundary for the Alpha Research
 Platform. It is subordinate to the root blueprint and the architecture,
@@ -62,9 +62,9 @@ policies are reviewed here:
 - Developer workstations, notebooks, and local caches as sources of convenience,
   never as production or deterministic authority.
 
-The machine-readable register records the boundary disposition and authority on
-each side. An external implementation may change only through a versioned,
-owned, tested interface and the applicable later roadmap package.
+External systems may change only through a versioned, tested interface. The
+selected data or broker adapter owns the boundary when an actual integration is
+implemented.
 
 ## Repository disposition rules
 
@@ -96,21 +96,18 @@ may become true.
   or `helper` do not define a public boundary.
 - Canonical packages do not use vendor or venue names. Provider-specific names
   belong only inside the owning connector or adapter boundary.
-- Implementation packages use `A01` through `L08`. Research stages use `R01`
-  through `R16`; superseded implementation IDs must not label new work.
-- Dataset, schema, service, model, strategy, and release identifier formats are
-  deliberately deferred to their owning roadmap packages; this charter does not
-  pre-empt A06, C01, or C08.
+- A short backlog identifies the next actual data, strategy, or operating task.
+- Dataset, schema, service, model, strategy, and release identifiers are chosen
+  by the capability that needs them and recorded with that capability.
 
 Language-specific symbols follow the applicable coding guide.
 
 ## Source governance policy
 
-The [current operating policy](domain-ownership.md#current-operating-policy)
-governs solo implementation and supersedes blueprint organizational sequencing.
-The founder may review and merge changes after applicable technical checks;
-unavailable independent reviewers do not block engineering completion. Keep
-source revisions and CI results. This policy does not change forge settings.
+The [development and release workflow](workflow.md) governs solo implementation.
+The founder may review and merge changes after applicable technical checks.
+Keep source revisions, focused test results, and the CI result. This policy does
+not change forge settings.
 
 For institutional acceptance, `main` requires protected integration, exact-commit
 reviews and controls against direct pushes and implicit administrator bypasses.
@@ -119,16 +116,9 @@ the shared-team handover.
 
 ## Acceptance, rollout, and rollback
 
-Institutional acceptance requires platform, quantitative research, trading engineering, risk,
-SRE, security, and compliance approval; an attested complete repository
-inventory; a tracked authoritative blueprint; and verified protected-branch
-enforcement. Pending evidence is explicit in the register and must not be treated
-as a waiver or approval.
-
-The founder owns A01 implementation. Passing repository-local checks complete
-the implementation recorded in the program register. Organizational acceptance
-is a separate final handover after the relevant roles join; retained external
-findings do not make completed engineering partial.
+Repository checks complete the engineering change. A real release and activation
+remain separate founder decisions with the artifact identity, limits, stop path,
+and operating checks described in the [operations runbook](operations.md).
 
 Adoption is a governance change only. It does not move code, alter a runtime, or
 activate trading. Rollback is a reviewed revert of this charter and register; it
@@ -137,9 +127,7 @@ runtime monitoring or runbook changes are introduced by A01.
 
 ## Governance references
 
-Exact A01 finding closure conditions live in
-[system-boundaries.toml](system-boundaries.toml); current implementation,
-governance and retained finding IDs are rendered in the
-[program status](program-status.md). The [development workflow](workflow.md) owns
-daily evidence. This charter grants no deployment, credential, market, capital or
-trading authority.
+The [development workflow](workflow.md) owns daily implementation records and
+the [operations runbook](operations.md) owns deployment and activation behavior.
+This charter grants no deployment, credential, market, capital, or trading
+authority.

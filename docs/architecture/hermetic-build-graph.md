@@ -106,8 +106,8 @@ and open findings. Repository-local checks cover pins, lock enforcement, targets
 sandbox exclusion, deterministic SQL/Protobuf generation, dependency-record
 shape, Make delegation and rollback, topology/inventory/program integration,
 documentation, security scan, and failure propagation. Gate definitions live in
-the [quality-gate catalog](operations.md#quality-gate-catalog); current state and
-finding IDs are rendered in the [program status](../governance/program-status.md).
+the [operations runbook](../governance/operations.md); current state and
+validation results are recorded in the [development workflow](../governance/workflow.md).
 
 ## Operational signals and boundary
 

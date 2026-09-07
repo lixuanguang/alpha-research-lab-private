@@ -2,13 +2,17 @@
 
 ## Purpose
 
+> **Historical reference.** This document describes a proposed research program;
+> it is not an active gate or package registry. Current work follows the
+> [development and release workflow](../governance/workflow.md).
+
 This document sequences the empirical work for the proposed first digital-asset
 factor-residual candidate. Digital assets are an optional, separately governed
 certification package (`L05`); choosing them for the first workload does not make
 the platform crypto-specific or waive the canonical-contract-through-security
 foundations (`C` through `K`). This program is subordinate to the 96 platform
 [implementation packages](README.md) and the
-[promotion controls](../architecture/operations.md#deployment-activation-and-promotion).
+[operations runbook](../governance/operations.md).
 
 The stages are ordered research gates, not calendar promises. Technical work
 pauses when an implementation dependency, data-quality check, or required

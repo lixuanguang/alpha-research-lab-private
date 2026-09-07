@@ -104,9 +104,9 @@ predecessors, changed correction keys, forks, and cycles.
 ## Evidence and governance
 
 The C01 evidence manifest retains exact classification, gate and artifact state.
-Gate definitions live in the [quality-gate catalog](operations.md#quality-gate-catalog);
+Gate and operation guidance lives in the [operations runbook](../governance/operations.md);
 current package state and finding IDs are rendered in the
-[program status](../governance/program-status.md).
+[development workflow](../governance/workflow.md).
 
 ## Migration, rollout, rollback, monitoring, and runbook
 

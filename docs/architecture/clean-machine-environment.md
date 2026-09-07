@@ -147,8 +147,8 @@ or mismatched exact versions fail closed.
 The [B03 synthetic local evidence bundle](../governance/evidence/examples/b03-r2-partial/manifest.toml)
 binds that classification, exact gates, artifact digests, partial status, and
 findings. Gate definitions live in the
-[quality-gate catalog](operations.md#quality-gate-catalog); current state and
-finding IDs are rendered in the [program status](../governance/program-status.md).
+[operations runbook](../governance/operations.md); current state and
+validation results are recorded in the [development workflow](../governance/workflow.md).
 
 ## Operational signals and boundary
 

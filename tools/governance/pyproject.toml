@@ -10,22 +10,14 @@ requires-python = "==3.12.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "pydantic==2.13.5",
-    "typer==0.27.2",
 ]
 
 [project.scripts]
 alpha-governance-architecture = "alpha_research_governance.architecture_governance:main"
 alpha-governance-artifacts = "alpha_research_governance.artifact_supply_chain:main"
-alpha-governance-change-risk = "alpha_research_governance.change_risk:main"
 alpha-governance-ci = "alpha_research_governance.ci_policy:main"
 alpha-governance-dependencies = "alpha_research_governance.dependency_admission:main"
 alpha-governance-engineering-standards = "alpha_research_governance.engineering_standards:main"
-alpha-governance-evidence = "alpha_research_governance.evidence:main"
-alpha-governance-inventory = "alpha_research_governance.inventory:main"
-alpha-governance-ownership = "alpha_research_governance.ownership_governance:main"
-alpha-governance-program = "alpha_research_governance.program_governance:main"
-alpha-governance-security = "alpha_research_governance.security_controls:main"
-alpha-governance-topology = "alpha_research_governance.repository_topology:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/alpha_research_governance"]
