@@ -1248,7 +1248,8 @@ def _locked_python_packages(path: Path) -> dict[str, dict[str, object]]:
         UnicodeDecodeError: If the lock file is not valid UTF-8.
         tomllib.TOMLDecodeError: If the lock file contains invalid TOML.
     """
-    document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
+    parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+    document = _table(parsed_document, context=str(path))
     if (
         document.get("version") != 1
         or document.get("revision") != 3
@@ -1705,7 +1706,8 @@ def _load_json_signal(report_path: Path, *, signal: str) -> object:
     try:
         if report_path.stat().st_size > _MAX_SIGNAL_BYTES:
             raise DependencyAdmissionError([f"{signal} report exceeds the size limit"])
-        return json.loads(report_path.read_text(encoding="utf-8"))
+        parsed_report: object = json.loads(report_path.read_text(encoding="utf-8"))
+        return parsed_report
     except json.JSONDecodeError as error:
         raise DependencyAdmissionError([f"invalid {signal} JSON: {error}"]) from error
     except UnicodeDecodeError as error:

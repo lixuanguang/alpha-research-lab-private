@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 import os
+import tomllib
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Protocol
 import pytest
 from hypothesis import given, settings, strategies
 from hypothesis.strategies import SearchStrategy
+from pydantic import TypeAdapter
 
 # project library imports
 from alpha_research_governance.engineering_standards import (
@@ -25,12 +27,13 @@ from alpha_research_governance.engineering_standards import (
     validate_suppression_line,
 )
 from alpha_research_governance.engineering_standards.policy import (
+    _EngineeringStandardsRepositoryValidator,
     _locked_packages,
-    _validate_dependency_record,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs/architecture/engineering-standards.toml"
+PYPROJECT_PATH = REPOSITORY_ROOT / "pyproject.toml"
 VALIDATION_DATE = date(2026, 9, 2)
 OWNER_ROLES = frozenset({"platform", "security"})
 UNDER_BAZEL = bool(os.environ.get("TEST_SRCDIR"))
@@ -121,6 +124,73 @@ def _policy_fixture(tmp_path: Path) -> Path:
 class TestEngineeringStandardsContracts:
     """Exercise repository policy bindings, source findings and suppression contracts."""
 
+    @staticmethod
+    def _toml_table(value: object, context: str) -> dict[str, object]:
+        """Return a parsed TOML table with a typed boundary for mutation tests.
+
+        Args:
+            value: Parsed TOML value expected to be a table.
+            context: Human-readable table name for the failure message.
+
+        Returns:
+            The value narrowed to a string-keyed TOML table.
+
+        Raises:
+            AssertionError: If ``value`` is not a TOML table.
+        """
+        try:
+            return TypeAdapter(dict[str, object]).validate_python(value)
+        except (TypeError, ValueError) as error:
+            raise AssertionError(f"{context} must be a TOML table") from error
+
+    @staticmethod
+    def _pyproject_fixture() -> dict[str, object]:
+        """Load the repository pyproject as a typed mutable TOML fixture."""
+        parsed: object = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
+        return TestEngineeringStandardsContracts._toml_table(parsed, "pyproject.toml")
+
+    @staticmethod
+    def _mutated_pyproject(mutation: str) -> dict[str, object]:
+        """Apply one enforcement weakening to a fresh pyproject fixture."""
+        document = TestEngineeringStandardsContracts._pyproject_fixture()
+        tool = TestEngineeringStandardsContracts._toml_table(
+            document["tool"], "pyproject.toml.tool"
+        )
+        mypy = TestEngineeringStandardsContracts._toml_table(
+            tool["mypy"], "pyproject.toml.tool.mypy"
+        )
+        ruff = TestEngineeringStandardsContracts._toml_table(
+            tool["ruff"], "pyproject.toml.tool.ruff"
+        )
+        ruff_lint = TestEngineeringStandardsContracts._toml_table(
+            ruff["lint"], "pyproject.toml.tool.ruff.lint"
+        )
+        if mutation == "missing-google-docs":
+            ruff_lint["select"] = ["E", "F", "I", "W", "UP", "RUF", "ANN401"]
+        elif mutation == "missing-dynamic-typing":
+            ruff_lint["select"] = ["E", "F", "I", "W", "UP", "RUF", "D"]
+        elif mutation == "pep257":
+            ruff_lint["pydocstyle"] = {"convention": "pep257"}
+        elif mutation == "global-any-expr":
+            mypy["disallow_any_expr"] = False
+        elif mutation == "global-any-decorated":
+            mypy["disallow_any_decorated"] = False
+        elif mutation == "mypy-overrides":
+            mypy["overrides"] = [{"module": "tests.*", "ignore_errors": True}]
+        elif mutation == "mypy-exclude":
+            mypy["exclude"] = "tests"
+        elif mutation == "ruff-exclude":
+            ruff["exclude"] = ["tests"]
+        elif mutation == "ruff-per-file-ignores":
+            ruff_lint["per-file-ignores"] = {"tests/*": ["D"]}
+        else:
+            raise AssertionError(f"unknown pyproject mutation: {mutation}")
+        ruff["lint"] = ruff_lint
+        tool["mypy"] = mypy
+        tool["ruff"] = ruff
+        document["tool"] = tool
+        return document
+
     @pytest.mark.skipif(UNDER_BAZEL, reason="repository evidence rejects Bazel runfile symlinks")
     def test_repository_standards_bind_exact_tools_languages_and_baselines(self) -> None:
         """Validate exact tool, language, baseline, and open-finding policy bindings."""
@@ -159,6 +229,32 @@ class TestEngineeringStandardsContracts:
         with pytest.raises(EngineeringStandardsError):
             load_standards(path)
 
+    def test_python_tooling_policy_rejects_enforcement_bypass_mutations(self) -> None:
+        """Reject weakened global checks, rule sets, exclusions, and module overrides."""
+        validator = _EngineeringStandardsRepositoryValidator(REPOSITORY_ROOT, None)
+        assert (
+            validator._python_tooling_findings(
+                TestEngineeringStandardsContracts._pyproject_fixture()
+            )
+            == []
+        )
+        cases = (
+            ("missing-google-docs", "Ruff Google documentation checks"),
+            ("missing-dynamic-typing", "Ruff dynamic-typing checks"),
+            ("pep257", "Google documentation convention"),
+            ("global-any-expr", "global disallow_any_expr"),
+            ("global-any-decorated", "global disallow_any_decorated"),
+            ("mypy-overrides", "narrow global enforcement scopes"),
+            ("mypy-exclude", "mypy exclude"),
+            ("ruff-exclude", "ruff exclude"),
+            ("ruff-per-file-ignores", "ruff.lint per-file-ignores"),
+        )
+        for mutation, expected in cases:
+            findings = validator._python_tooling_findings(
+                TestEngineeringStandardsContracts._mutated_pyproject(mutation)
+            )
+            assert any(expected in finding for finding in findings), mutation
+
     def test_unknown_field_and_malformed_toml_fail_closed(self, tmp_path: Path) -> None:
         """Reject unknown policy fields and malformed TOML with controlled errors."""
         unknown = _policy_fixture(tmp_path)
@@ -183,7 +279,8 @@ class TestEngineeringStandardsContracts:
         source_record = REPOSITORY_ROOT / "docs/architecture/engineering-tool-dependencies.toml"
         dependency_record.write_text(source_record.read_text(encoding="utf-8"), encoding="utf-8")
         locked = _locked_packages(REPOSITORY_ROOT / "uv.lock")
-        assert _validate_dependency_record(tmp_path, locked) == []
+        validator = _EngineeringStandardsRepositoryValidator(tmp_path, None)
+        assert validator._validate_dependency_record(tmp_path, locked) == []
 
         content = dependency_record.read_text(encoding="utf-8")
         content = content.replace('version = "6.167.1"', 'version = "6.167.0"', 1)
@@ -197,7 +294,7 @@ class TestEngineeringStandardsContracts:
         )
         dependency_record.write_text(content, encoding="utf-8")
 
-        findings = _validate_dependency_record(tmp_path, locked)
+        findings = validator._validate_dependency_record(tmp_path, locked)
         assert any("identity, version, source, or license" in finding for finding in findings)
         assert any("transitive dependency record" in finding for finding in findings)
 

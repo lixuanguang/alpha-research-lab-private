@@ -1,11 +1,9 @@
-"""Verify exact inferred-debt reconciliation and parsed boundary rejection."""
+"""Verify complete stronger typing checks fail directly on diagnostics."""
 
 from __future__ import annotations
 
 # standard library imports
-import json
 import subprocess
-from collections import Counter
 from pathlib import Path
 
 # third party library imports
@@ -14,113 +12,27 @@ import pytest
 # project library imports
 from alpha_research_governance.dependency_admission.models import DependencyAdmissionError
 from alpha_research_governance.dependency_admission.policy import _lock_surface_findings
-from alpha_research_governance.engineering_standards.python_typing import (
-    DiagnosticKey,
-    TypingDebtInventory,
-    TypingInventoryChecker,
-    TypingObligation,
-    TypingRetirementTask,
-)
+from alpha_research_governance.engineering_standards.python_typing import TypingChecker
 from alpha_research_governance.operating_model import OperatingModelError, load_operating_model
 
 
-class TestTypingInventory:
-    """Keep identity stable under line shifts and reject every form of debt drift."""
+def _clean_probe(_checker: TypingChecker) -> str:
+    """Return no diagnostics for the isolated command contract test."""
+    return ""
 
-    def test_reconciliation_requires_exact_identity_and_count(self) -> None:
-        """Reject new, moved, multiplied, stale and unattributed obligations."""
-        obligation = TypingObligation(
-            path="src/sample.py",
-            symbol="Reader.load",
-            code="misc",
-            message='Expression has type "Any"',
-            count=2,
-            task="parsed-shape",
-        )
-        inventory = TypingDebtInventory(
-            schema_version=1,
-            baseline_revision="a" * 40,
-            mypy_version="2.3.1",
-            tasks={
-                "parsed-shape": TypingRetirementTask(
-                    owner_role="platform",
-                    cause="Parsed JSON values have no validated field shape.",
-                    retirement="Validate raw input into the consumer's exact record before access.",
-                )
-            },
-            obligations=(obligation,),
-        )
-        observed: Counter[DiagnosticKey] = Counter({obligation.key: 2})
-        assert inventory.reconcile(observed) == ()
-        for count in (0, 1, 3):
-            assert inventory.reconcile(Counter({obligation.key: count}))
-        for index in range(4):
-            components = list(obligation.key)
-            components[index] += ".moved"
-            moved = components[0], components[1], components[2], components[3]
-            assert len(inventory.reconcile(Counter({moved: 2}))) == 2
-        duplicate = TypingDebtInventory(
-            schema_version=1,
-            baseline_revision=inventory.baseline_revision,
-            mypy_version="2.3.1",
-            tasks=inventory.tasks,
-            obligations=(obligation, obligation),
-        )
-        assert duplicate.reconcile(Counter({obligation.key: 4}))
-        unknown_task = TypingDebtInventory(
-            schema_version=1,
-            baseline_revision=inventory.baseline_revision,
-            mypy_version="2.3.1",
-            tasks={},
-            obligations=(obligation,),
-        )
-        assert unknown_task.reconcile(observed)
 
-    def test_decorator_and_nested_symbols_survive_line_shifts(self) -> None:
-        """Attribute decorated methods and nested functions to lexical ownership."""
-        source = (
-            "class Reader:\n"
-            "    @decorate\n"
-            "    def load(self):\n"
-            "        if True:\n"
-            "            def parse():\n"
-            "                return dynamic()\n"
-            "        return parse()\n"
-        )
-        for line, expected in ((1, "Reader"), (2, "Reader.load"), (6, "Reader.load.parse")):
-            assert TypingInventoryChecker.symbol_at(source, line) == expected
-            assert TypingInventoryChecker.symbol_at("\n\n" + source, line + 2) == expected
-
-    def test_machine_output_is_validated(self, tmp_path: Path) -> None:
-        """Reject malformed output and paths outside the owned source roots."""
-        (tmp_path / "src").mkdir()
-        (tmp_path / "src/sample.py").write_text("value = dynamic()\n", encoding="utf-8")
-        checker = TypingInventoryChecker(tmp_path)
-        record: dict[str, str | int | None] = {
-            "file": "src/sample.py",
-            "line": 1,
-            "column": 8,
-            "end_line": 1,
-            "end_column": 17,
-            "message": 'Expression has type "Any"',
-            "hint": None,
-            "code": "misc",
-            "severity": "error",
-        }
-        output = json.dumps(record)
-        observed = checker.observed(output + "\n" + output)
-        assert observed.total() == 2
-        for path in ("/src/sample.py", "src/../sample.py", "outside/sample.py"):
-            record["file"] = path
-            with pytest.raises(ValueError, match="outside the owned scope"):
-                checker.observed(json.dumps(record))
-        for malformed in ("not JSON", "[]", '{"file": 4}'):
-            with pytest.raises(ValueError):
-                checker.observed(malformed)
+class TestTypingChecker:
+    """Keep stronger mypy enforcement direct and baseline-free."""
 
     @pytest.mark.parametrize(
         ("status", "output", "error"),
-        [(2, "", "crashed"), (1, "", ""), (0, "", "warning"), (0, "not JSON", "")],
+        [
+            (2, "", "crashed"),
+            (1, '{"file":"src/sample.py","message":"Expression has type Any"}', ""),
+            (1, "", ""),
+            (0, "", "warning"),
+            (0, "not JSON", ""),
+        ],
     )
     def test_probe_fails_closed_on_tool_errors(
         self,
@@ -130,10 +42,10 @@ class TestTypingInventory:
         output: str,
         error: str,
     ) -> None:
-        """Reject failed processes, contradictory status and invalid machine output."""
+        """Reject failed processes, stderr and diagnostics without consulting a baseline."""
 
-        def complete(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
-            """Return a controlled checker failure with the requested diagnostic streams.
+        def _complete(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+            """Return a controlled checker result with the requested streams.
 
             Args:
                 command: Checker argument vector retained in the fake process result.
@@ -145,21 +57,57 @@ class TestTypingInventory:
             return subprocess.CompletedProcess(command, status, output, error)
 
         monkeypatch.setattr(
-            "alpha_research_governance.engineering_standards.python_typing.subprocess.run", complete
+            "alpha_research_governance.engineering_standards.python_typing.subprocess.run",
+            _complete,
         )
         with pytest.raises(ValueError):
-            TypingInventoryChecker(tmp_path)._probe()
+            TypingChecker(tmp_path)._probe()
 
-    def test_inventory_checksum_failure_returns_failure(self, tmp_path: Path) -> None:
-        """Reject unreviewed inventory bytes before launching the checker."""
-        path = tmp_path / "docs/architecture/python-typing-debt.json"
-        path.parent.mkdir(parents=True)
-        path.write_text("{}", encoding="utf-8")
-        assert TypingInventoryChecker(tmp_path).run() == 1
+    def test_probe_uses_complete_scope_and_stronger_flags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pass all governed roots and strict stronger flags to the pinned checker."""
+        calls: list[list[str]] = []
+
+        def _complete(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+            """Record the command and return a clean process result."""
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        monkeypatch.setattr(
+            "alpha_research_governance.engineering_standards.python_typing.subprocess.run",
+            _complete,
+        )
+
+        assert TypingChecker(tmp_path)._probe() == ""
+        assert calls == [
+            [
+                calls[0][0],
+                "-m",
+                "mypy",
+                "--strict",
+                "--disallow-any-expr",
+                "--disallow-any-decorated",
+                "--output=json",
+                "src",
+                "tests",
+                "tools/governance/src",
+                "tools/typing/stubs",
+            ]
+        ]
+
+    def test_run_reports_success_without_reading_an_inventory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Allow a clean check in a root that has no legacy inventory file."""
+        monkeypatch.setattr(TypingChecker, "_probe", _clean_probe)
+
+        assert TypingChecker(tmp_path).run() == 0
+        assert "native stubs" in capsys.readouterr().out
 
 
 class TestParsedBoundaries:
-    """Reject malformed tables before nested access or policy construction."""
+    """Reject malformed lock and ownership tables before nested access."""
 
     @pytest.mark.parametrize("payload", ["null", "[]", '"text"', "42"])
     def test_module_lock_root_is_validated(self, tmp_path: Path, payload: str) -> None:

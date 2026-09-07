@@ -814,3 +814,14 @@ class TestPythonSourceChecker:
             for finding in syntax_findings
         )
         assert all(finding.path == "broken.py" for finding in syntax_findings)
+
+    def test_unterminated_multiline_string_preserves_token_error_line(self) -> None:
+        """Report an unterminated string at its opening line, not the file end."""
+        findings = self._scan(
+            '"""Module."""\nvalue = """unterminated\nsecond line\n',
+            path="unterminated.py",
+        )
+
+        syntax_findings = self._rule(findings, "PYS001")
+        assert syntax_findings
+        assert syntax_findings[0].line == 2

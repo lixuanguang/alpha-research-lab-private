@@ -24,14 +24,14 @@ repos:
         name: mypy
         entry: make typecheck
         language: system
-        files: ^(pyproject\.toml|Makefile|docs/architecture/python-typing-debt\.json|tools/typing/.*|src/.*\.pyi?|tests/.*\.pyi?|tools/governance/src/.*\.pyi?)$
+        files: ^(pyproject\.toml|Makefile|tools/typing/.*|src/.*\.pyi?|tests/.*\.pyi?|tools/governance/src/.*\.pyi?)$
         pass_filenames: false
 
       - id: engineering-standards
         name: check language and static quality standards
         entry: uv run --frozen alpha-governance-engineering-standards
         language: system
-        files: ^(pyproject\.toml|uv\.lock|docs/(architecture/(engineering-(standards\.(md|toml)|tool-dependencies\.toml)|python-standards-(debt\.json|exceptions\.toml)|python-typing-debt\.json)|coding_standards/.*\.md)|tools/typing/.*\.pyi|src/.*\.(py|pyi)|tests/.*\.(py|pyi)|tools/governance/src/.*\.(py|pyi))$
+        files: ^(pyproject\.toml|uv\.lock|docs/(architecture/(engineering-(standards\.(md|toml)|tool-dependencies\.toml)|python-standards-exceptions\.toml)|coding_standards/.*\.md)|tools/typing/.*\.pyi|src/.*\.(py|pyi)|tests/.*\.(py|pyi)|tools/governance/src/.*\.(py|pyi))$
         pass_filenames: false
 
       - id: dependency-admission

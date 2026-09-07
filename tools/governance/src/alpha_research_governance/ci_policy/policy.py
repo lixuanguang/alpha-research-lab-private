@@ -417,9 +417,10 @@ class CIPolicyService:
         """
         root = self.repository_root.resolve(strict=True)
         policy = load_continuous_integration_policy(root / "docs/architecture/ci-policy.toml")
+        inspector = CIRepositoryInspector(root, policy)
         findings = (
-            _private_key_scanner_dependency_findings(root)
-            + CIRepositoryInspector(root, policy)._continuous_integration_repository_findings()
+            inspector._private_key_scanner_dependency_findings()
+            + inspector._continuous_integration_repository_findings()
         )
         if findings:
             raise CIPolicyError(findings)

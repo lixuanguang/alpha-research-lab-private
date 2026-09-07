@@ -148,9 +148,8 @@ filegroup(
     srcs = [
         "docs/architecture/engineering-standards.toml",
         "docs/architecture/engineering-tool-dependencies.toml",
-        "docs/architecture/python-standards-debt.json",
         "docs/architecture/python-standards-exceptions.toml",
-        "docs/architecture/python-typing-debt.json",
+        "pyproject.toml",
         "uv.lock",
     ],
     visibility = ["//tests/engineering:__pkg__"],
@@ -193,6 +192,7 @@ test_suite(
         "//tests/engineering:financial_units_evidence_test",
         "//tests/engineering:artifact_supply_chain_test",
         "//tests/engineering:engineering_standards_test",
+        "//tests/engineering:python_standards_test",
         "//tests/engineering:python_typing_test",
         "//tests/engineering:dependency_admission_test",
         "//tests/engineering:remote_execution_test",

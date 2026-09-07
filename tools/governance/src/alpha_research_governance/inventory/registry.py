@@ -496,7 +496,12 @@ def _parse_inventory_item(entry: dict[str, object], *, index: int) -> InventoryI
     kind = _require_string(entry, "kind", context=context)
     inventory_id = _require_string(entry, "inventory_id", context=context)
     match = _INVENTORY_ID.fullmatch(inventory_id)
-    if match is None or match.group("kind") != kind:
+    if match is None:
+        raise InventoryGovernanceError(
+            [f"{context}.inventory_id must be inv.<matching-kind>.<namespace>.<name>"]
+        )
+    matched_kind: object = match.groupdict().get("kind")
+    if matched_kind != kind:
         raise InventoryGovernanceError(
             [f"{context}.inventory_id must be inv.<matching-kind>.<namespace>.<name>"]
         )
@@ -583,7 +588,13 @@ def _find_dependency_cycles(items: tuple[InventoryItem, ...]) -> tuple[str, ...]
                 active_positions[dependency] = len(active_path)
                 active_path.append(dependency)
                 stack.append((dependency, 0))
-    return tuple(dict.fromkeys(cycles))
+    unique_cycles: list[str] = []
+    seen_cycles: set[str] = set()
+    for cycle in cycles:
+        if cycle not in seen_cycles:
+            seen_cycles.add(cycle)
+            unique_cycles.append(cycle)
+    return tuple(unique_cycles)
 
 
 class InventoryLoader:

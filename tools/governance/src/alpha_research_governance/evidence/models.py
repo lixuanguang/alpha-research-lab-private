@@ -289,14 +289,12 @@ class PackageEvidenceProfile(ImmutableModel):
             raise ValueError("partial package profiles require expected_finding_ids")
         if self.expected_package_status != "partial" and self.expected_finding_ids:
             raise ValueError("completed package profiles cannot retain expected_finding_ids")
-        if any(
-            (matched := _FINDING_ID.fullmatch(finding_id)) is None
-            or matched.group("package") != self.roadmap_package_id
-            for finding_id in self.expected_finding_ids
-        ):
-            raise ValueError(
-                "expected_finding_ids must be canonical IDs belonging to roadmap_package_id"
-            )
+        for finding_id in self.expected_finding_ids:
+            matched = _FINDING_ID.fullmatch(finding_id)
+            if matched is None or matched.groups(default="")[0] != self.roadmap_package_id:
+                raise ValueError(
+                    "expected_finding_ids must be canonical IDs belonging to roadmap_package_id"
+                )
         return self
 
 

@@ -77,11 +77,10 @@ Python does not claim a native memory sanitizer. A Python extension inherits the
 owning native target's sanitizer requirements and must additionally satisfy the
 binding lifetime, GIL, exception, and differential-test rules.
 
-## Python standards migration contract
+## Python standards enforcement contract
 
-Step 1 extends the existing `alpha-governance-engineering-standards` command; it
-does not add a dependency or a separate approval stage. The command enforces the
-following staged Python rules:
+The `alpha-governance-engineering-standards` command enforces the following
+Python rules alongside the configured Ruff and mypy checks:
 
 - Every nonempty import category has its exact comment heading and blank-line
   separation. `__future__` imports stay in their own group immediately after the
@@ -89,9 +88,10 @@ following staged Python rules:
   first-party; relative and `TYPE_CHECKING` imports follow the same rules.
 - Owned source and tests contain no explicit `Any`, including aliases, qualified
   references, container members, type aliases, and quoted annotations. Strict
-  mypy remains required across `src`, `tests`, and governance tooling. Inferred
-  `Any` from an untyped library or framework remains a step-4 unresolved
-  inventory item and is not newly disallowed globally.
+  mypy is required across `src`, `tests`, governance tooling and owned native
+  stubs. Explicit, unfollowed-import, decorated-signature and expression-level
+  dynamic types are prohibited throughout that scope. Library and framework
+  boundaries must provide a precise consumed contract and validate raw results.
 - Every module, class, and named function, including private helpers, has a
   Google-style summary. Public APIs include every applicable `Args:`,
   `Returns:`/`Yields:`, and `Raises:` section. Reviewers check that the prose is
@@ -100,13 +100,10 @@ following staged Python rules:
   prefer cohesive classes. Low-level, framework, and compatibility functions
   require an explicit rationale.
 
-The exact migration debt is stored in the checksum-pinned JSON file
-[`docs/architecture/python-standards-debt.json`](python-standards-debt.json).
-Each entry is keyed by file, qualified symbol, rule, detail, and multiplicity.
-New debt is never auto-baselined. A resolved stale entry fails until it is
-pruned; a moved obligation fails as both the stale old entry and the new
-obligation. Updating the inventory or its checksum is an explicit, reviewed
-retirement and never a blanket count update.
+Ruff `D` uses the Google convention and `ANN401` rejects dynamically typed
+annotations. `make lint` and `make typecheck`, pre-commit and hosted CI share
+these controls. The completed migration's source and inferred-typing inventories
+have been retired; diagnostics cannot be admitted through a baseline.
 
 Exact exceptions are separate in
 [`docs/architecture/python-standards-exceptions.toml`](python-standards-exceptions.toml).
@@ -127,7 +124,7 @@ pinned Python interpreter. Whitespace and line relocation do not change it;
 definition changes do. Duplicate qualified definitions cannot receive an
 ambiguous exception. `PYC001` permits `low_level`, `framework`, or `compatibility`;
 `PYD001`/`PYD002` permit only `inherited_contract`. Each record discharges exactly
-one finding and may not overlap the legacy inventory.
+one finding; duplicate, moved or multiplied findings are rejected.
 
 The scanner validates summaries and structured sections, including each public
 parameter. It checks `Raises:` for explicit raises in a function's own body;
@@ -136,9 +133,9 @@ Private helpers and `test_` functions under `tests/` may use summary-only docs.
 It inspects source-level type syntax, including quoted annotations and generic
 bounds; mypy remains responsible for inferred types and signature correctness.
 
-Do not enable Ruff `D` or `ANN` as a blanket global requirement while legacy debt
-remains. Expand active Ruff selection as exact debt is retired. The existing
-strict and lint controls remain in force throughout the migration.
+The final Ruff selection and global mypy flags are enforced by the repository
+validator. Removing them, restricting their scope or adding configuration
+overrides fails the engineering-standards check.
 
 ## Suppressions
 

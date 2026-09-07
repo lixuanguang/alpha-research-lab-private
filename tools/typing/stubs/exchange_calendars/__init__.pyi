@@ -22,5 +22,6 @@ def get_calendar(
         side: Which boundary minutes belong to the session.
 
     Returns:
-        A named calendar over explicit inclusive date bounds."""
+        A named calendar over explicit inclusive date bounds.
+    """
     ...

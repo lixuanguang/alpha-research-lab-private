@@ -244,7 +244,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 expected_commit=cli_arguments[2],
                 policy=policy,
             )
-            print(json.dumps({"signal": "accepted", "authority": "advisory_only"}, sort_keys=True))
+            scorecard_result: dict[str, str] = {
+                "signal": "accepted",
+                "authority": "advisory_only",
+            }
+            print(json.dumps(scorecard_result, sort_keys=True))
             return 0
     except (DependencyAdmissionError, OSError, ValueError) as error:
         print(error, file=sys.stderr)

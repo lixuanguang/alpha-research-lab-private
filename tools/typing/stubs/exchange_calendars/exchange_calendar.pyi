@@ -20,7 +20,8 @@ class ExchangeCalendar(metaclass=ABCMeta):
         Args:
             start: Inclusive first date, or the source default when omitted.
             end: Inclusive last date, or the source default when omitted.
-            side: Which boundary minutes belong to the session."""
+            side: Which boundary minutes belong to the session.
+        """
         ...
 
     @property
@@ -29,7 +30,8 @@ class ExchangeCalendar(metaclass=ABCMeta):
         """Return the source calendar's canonical identifier.
 
         Returns:
-            The source calendar's canonical identifier."""
+            The source calendar's canonical identifier.
+        """
         ...
 
     @property
@@ -38,7 +40,8 @@ class ExchangeCalendar(metaclass=ABCMeta):
         """Return the source calendar's local timezone.
 
         Returns:
-            The source calendar's local timezone."""
+            The source calendar's local timezone.
+        """
         ...
 
     @property
@@ -46,7 +49,8 @@ class ExchangeCalendar(metaclass=ABCMeta):
         """Return the source's ordered session labels.
 
         Returns:
-            The source's ordered session labels."""
+            The source's ordered session labels.
+        """
         ...
 
     @property
@@ -54,7 +58,8 @@ class ExchangeCalendar(metaclass=ABCMeta):
         """Return the labels with an earlier than regular close.
 
         Returns:
-            The labels with an earlier than regular close."""
+            The labels with an earlier than regular close.
+        """
         ...
 
     def session_open(self, session: date, _parse: bool = True) -> datetime:
@@ -65,7 +70,8 @@ class ExchangeCalendar(metaclass=ABCMeta):
             _parse: Whether the source validates the session label before lookup.
 
         Returns:
-            The timezone-aware opening timestamp for a session."""
+            The timezone-aware opening timestamp for a session.
+        """
         ...
 
     def session_close(self, session: date, _parse: bool = True) -> datetime:
@@ -76,7 +82,8 @@ class ExchangeCalendar(metaclass=ABCMeta):
             _parse: Whether the source validates the session label before lookup.
 
         Returns:
-            The timezone-aware closing timestamp for a session."""
+            The timezone-aware closing timestamp for a session.
+        """
         ...
 
     def session_break_start(self, session: date, _parse: bool = True) -> datetime:
@@ -87,7 +94,8 @@ class ExchangeCalendar(metaclass=ABCMeta):
             _parse: Whether the source validates the session label before lookup.
 
         Returns:
-            The timezone-aware break start or the nat singleton."""
+            The timezone-aware break start or the nat singleton.
+        """
         ...
 
     def session_break_end(self, session: date, _parse: bool = True) -> datetime:
@@ -98,5 +106,6 @@ class ExchangeCalendar(metaclass=ABCMeta):
             _parse: Whether the source validates the session label before lookup.
 
         Returns:
-            The timezone-aware break end or the nat singleton."""
+            The timezone-aware break end or the nat singleton.
+        """
         ...

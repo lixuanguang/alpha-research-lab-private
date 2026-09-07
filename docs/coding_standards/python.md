@@ -135,16 +135,14 @@ Additional rules:
 - Keep strict `mypy` across `src`, `tests`, governance tooling and the owned
   native stubs under `tools/typing/stubs`. The pinned Pydantic plugin requires
   `init_typed`, `init_forbid_extra` and `warn_required_dynamic_aliases`.
-  `disallow_any_explicit` and `disallow_any_unimported` apply throughout;
-  `disallow_any_decorated` applies to both owned packages. Preserve custom
-  constructor entry points and runtime negative tests when adopting these checks.
-- `disallow_any_expr` is enforced in the audited modules listed in
-  `pyproject.toml`. The full-scope stronger probe reconciles the remaining
-  [inferred typing inventory](../architecture/python-typing-debt.json) by exact
-  file, qualified symbol, diagnostic and multiplicity. Each entry has a concrete
-  cause and retirement task. New, moved, multiplied or resolved debt fails;
-  retire resolved entries and update the checksum together without regenerating
-  allowances. Complete the remaining tasks before migration step 7 closes.
+  `disallow_any_explicit`, `disallow_any_unimported`, `disallow_any_decorated`
+  and `disallow_any_expr` apply throughout the complete scope, including tests.
+  Preserve custom constructor entry points and runtime negative tests.
+- Resolve inferred dynamic types at their library, parsing, callback or framework
+  boundary. Bind a precise consumed contract, receive untrusted results as
+  `object`, then validate before using them. There is no migration inventory
+  that permits remaining diagnostics, and tests must not be excluded to make
+  the checks pass.
 - `make typecheck` and pre-commit run the same checks, including native stubtest.
   Follow the [boundary typing contract](../../tools/typing/README.md) when
   changing a stub, native dependency, parser or serialized model contract.
@@ -186,10 +184,13 @@ Additional rules:
   and orchestration operations, with typed collaborators and explicit state
   ownership. Use a class when state and behavior share invariants.
 - A low-level parser, arithmetic kernel, predicate, required framework or CLI
-  callback, or temporary compatibility wrapper MAY remain a module-level
+  callback, or supported compatibility wrapper MAY remain a module-level
   function only with an explicit low-level, framework, or compatibility
   rationale recorded for the function. Do not enforce this preference with a
   class-to-function ratio or a blanket class requirement.
+- New internal callers SHOULD use the owning service. Retain public adapters
+  needed by supported imports and CLI contracts, document that boundary, and
+  remove temporary wrappers once their remaining callers have migrated.
 - Favor composition over inheritance and keep inheritance trees shallow.
 - Constructors establish valid objects. Fallible I/O or complex parsing belongs
   in a named factory or boundary service.
@@ -374,10 +375,11 @@ Additional rules:
 - Comments for type/lint suppression MUST use the tool's error code, be scoped to
   the affected line, and carry the required owner/rationale/expiry suffix.
 
-While legacy documentation debt remains, do not enable Ruff `D` or `ANN` as a
-blanket global requirement. Enforce the audited scopes through the existing
-standards checker and its exact debt and exception records, then expand the
-active Ruff selection as debt is retired.
+Ruff `D` with the Google convention and `ANN401` are required across the complete
+Python scope, including tests and owned native stubs. The engineering-standards
+checker additionally enforces useful contract sections, import headings and
+reviewed function ownership. Its exact exception register retains ownership,
+rationale, expiry and source fingerprints; no legacy source-debt allowance remains.
 
 ## Testing
 

@@ -12,7 +12,7 @@ from fractions import Fraction
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from time import perf_counter
-from typing import TypedDict
+from typing import Protocol, TypedDict
 from uuid import UUID
 
 # third party library imports
@@ -20,6 +20,7 @@ import pytest
 import QuantLib as ql
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from hypothesis.strategies import SearchStrategy
 from pydantic import TypeAdapter, ValidationError
 
 # project library imports
@@ -66,6 +67,45 @@ CONTEXT = EvaluationContext(evaluation_date=date(2024, 1, 1), convention_revisio
 CONVENTION = RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.SIMPLE)
 FIXTURE = Path(__file__).parents[1] / "golden/financial_units/c03_units.json"
 _ROUNDING_MODES: st.SearchStrategy[Rounding] = st.sampled_from(tuple(Rounding))
+
+
+class _RoundingGiven(Protocol):
+    """Type the three-argument Hypothesis decorator used by rounding tests."""
+
+    def __call__(
+        self,
+        *,
+        raw: SearchStrategy[int],
+        step: SearchStrategy[int],
+        mode: SearchStrategy[Rounding],
+    ) -> Callable[[Callable[[int, int, Rounding], None]], Callable[[], None]]:
+        """Decorate a test callable with generated rounding inputs."""
+        ...
+
+
+class _FxConversionGiven(Protocol):
+    """Type the two-argument Hypothesis decorator used by FX tests."""
+
+    def __call__(
+        self, *, raw: SearchStrategy[int], rate: SearchStrategy[int]
+    ) -> Callable[[Callable[[int, int], None]], Callable[[], None]]:
+        """Decorate a test callable with generated money and rate values."""
+        ...
+
+
+class _Actual360Given(Protocol):
+    """Type the two-argument Hypothesis decorator used by day-count tests."""
+
+    def __call__(
+        self, *, first: SearchStrategy[int], second: SearchStrategy[int]
+    ) -> Callable[[Callable[[int, int], None]], Callable[[], None]]:
+        """Decorate a test callable with generated interval lengths."""
+        ...
+
+
+_given_rounding: _RoundingGiven = given
+_given_fx_conversion: _FxConversionGiven = given
+_given_actual360: _Actual360Given = given
 
 
 class _Tolerance(TypedDict):
@@ -308,10 +348,10 @@ class TestFinancialArithmeticContracts:
 
 
 @settings(max_examples=50, derandomize=True, database=None)
-@given(
-    st.integers(-100_000, 100_000),
-    st.integers(1, 100),
-    _ROUNDING_MODES,
+@_given_rounding(
+    raw=st.integers(-100_000, 100_000),
+    step=st.integers(1, 100),
+    mode=_ROUNDING_MODES,
 )
 def test_rounding_is_on_grid_idempotent_and_has_bounded_error(
     raw: int, step: int, mode: Rounding
@@ -343,7 +383,7 @@ def test_rounding_is_on_grid_idempotent_and_has_bounded_error(
 
 
 @settings(max_examples=50, derandomize=True, database=None)
-@given(st.integers(-1_000_000, 1_000_000), st.integers(1, 10000))
+@_given_fx_conversion(raw=st.integers(-1_000_000, 1_000_000), rate=st.integers(1, 10000))
 def test_fx_conversion_has_declared_currency_rounding_tolerance(raw: int, rate: int) -> None:
     """Bound conversion and round-trip error by the currency minor units."""
     money = Money(value=D(raw) / 100, currency=Currency.EUR)
@@ -822,7 +862,7 @@ class TestQuantLibValidationContracts:
 
 
 @settings(max_examples=50, derandomize=True, database=None)
-@given(st.integers(0, 365), st.integers(0, 365))
+@_given_actual360(first=st.integers(0, 365), second=st.integers(0, 365))
 def test_actual360_intervals_are_additive(first: int, second: int) -> None:
     """Bound additive interval error by the three declared year-fraction roundings."""
     adapter = QuantLibConventions()

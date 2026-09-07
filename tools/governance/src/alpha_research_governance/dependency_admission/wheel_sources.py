@@ -570,11 +570,10 @@ def _json_object(content: bytes) -> dict[str, object]:
             the behavior of ``json.loads``.
     """
     try:
-        return _object(
-            json.loads(
-                content, object_pairs_hook=_unique_object, parse_constant=_reject_json_constant
-            )
+        parsed_document: object = json.loads(
+            content, object_pairs_hook=_unique_object, parse_constant=_reject_json_constant
         )
+        return _object(parsed_document)
     except (UnicodeDecodeError, ValueError, RecursionError) as error:
         raise DependencyAdmissionError(["invalid provenance JSON"]) from error
 

@@ -9,7 +9,7 @@ import re
 import subprocess  # nosec B404  # [owner=platform; rationale=required shell-free governed tool boundary; expires=2027-02-28]
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import IO
+from typing import IO, Literal, Protocol, TypeGuard
 from urllib.parse import urlsplit
 
 # project library imports
@@ -34,6 +34,18 @@ from alpha_research_governance.ci_policy.selection import (
 _TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _EVENT_ID_TOKEN = re.compile(r"^[a-z0-9]+(?:[._:-][a-z0-9]+)*$")
 _REVISION = re.compile(r"^[0-9a-f]{40}$")
+
+
+class _JsonDumpModel(Protocol):
+    """Expose the JSON-mode model dump consumed by event serialization."""
+
+    def model_dump(self, *, mode: Literal["json"]) -> object:
+        """Return the model's JSON-compatible representation."""
+
+
+def _is_object_dict(value: object) -> TypeGuard[dict[object, object]]:
+    """Narrow a model serialization result to an object-valued dictionary."""
+    return isinstance(value, dict)
 
 
 def _run_command_and_capture_output(
@@ -587,19 +599,17 @@ class CIRunner:
             _require_clean_hosted_checkout(root, environment=environment)
             paths = tuple(sorted({item.path for item in changes}))
             _reject_generated_artifact_paths(paths, prefixes=policy.generated_artifact_prefixes)
-            _scan_paths_for_secrets(root, paths)
-            _check_schema_compatibility(
-                root,
+            self._scan_paths_for_secrets(paths)
+            self._check_schema_compatibility(
                 modules=_changed_schema_modules(paths, policy.schema_module_roots),
                 base=base,
             )
             if paths:
-                _run_pre_commit_without_mutation(root, ["--from-ref", base, "--to-ref", head])
+                self._run_pre_commit_without_mutation(["--from-ref", base, "--to-ref", head])
             selection = select_affected_targets(root, base_ref=base, head_ref=head)
             if selection.build_targets:
-                _run_timed_ci_phase(
+                self._run_timed_ci_phase(
                     (["bazel", "build", "--config=ci", *selection.build_targets],),
-                    root=root,
                     phase="build",
                     event_stream=events,
                     run_id=run_id,
@@ -609,9 +619,8 @@ class CIRunner:
                     target="fast",
                 )
             if selection.test_targets:
-                _run_timed_ci_phase(
+                self._run_timed_ci_phase(
                     (["bazel", "test", "--config=ci", *selection.test_targets],),
-                    root=root,
                     phase="test",
                     event_stream=events,
                     run_id=run_id,
@@ -701,12 +710,11 @@ class CIRunner:
             _require_clean_hosted_checkout(root, environment=environment)
             paths = _git_tracked_paths(root)
             _reject_generated_artifact_paths(paths, prefixes=policy.generated_artifact_prefixes)
-            _scan_paths_for_secrets(root, paths)
-            _check_schema_compatibility(root, modules=policy.schema_module_roots, base=base)
-            _run_pre_commit_without_mutation(root, ["--all-files"])
-            _run_timed_ci_phase(
+            self._scan_paths_for_secrets(paths)
+            self._check_schema_compatibility(modules=policy.schema_module_roots, base=base)
+            self._run_pre_commit_without_mutation(["--all-files"])
+            self._run_timed_ci_phase(
                 (["bazel", "build", "--config=ci", "//..."],),
-                root=root,
                 phase="build",
                 event_stream=events,
                 run_id=run_id,
@@ -715,12 +723,11 @@ class CIRunner:
                 environment=environment,
                 target="full",
             )
-            _run_timed_ci_phase(
+            self._run_timed_ci_phase(
                 (
                     ["bazel", "test", "--config=ci", "//..."],
                     ["make", "--no-print-directory", "rollback-check"],
                 ),
-                root=root,
                 phase="test",
                 event_stream=events,
                 run_id=run_id,
@@ -1107,37 +1114,6 @@ def _git_worktree_state(root: Path) -> bytes:
     )
 
 
-def _run_pre_commit_without_mutation(root: Path, arguments: list[str]) -> None:
-    """Run pre-commit and reject a changed Git status snapshot afterward.
-
-    The command sequence is a raw ``git status`` snapshot, the visible command
-    ``pre-commit run`` followed by the supplied argument tokens, and a second
-    raw ``git status`` snapshot. The two snapshots use Git's porcelain-v1,
-    NUL-delimited, all-untracked-files output and are compared as exact bytes.
-    This detects an observed Git status change; it is not a file-content hash,
-    does not inspect ignored files, and does not restore a mutation. A changed
-    status therefore remains in the worktree when the final
-    ``CIPolicyError`` is raised.
-
-    If the first status query or pre-commit command fails, the later steps are
-    not attempted. If pre-commit succeeds but the second status query fails,
-    that query's error propagates. An unchanged byte snapshot is accepted even
-    though the helper does not prove that every file-content or metadata state
-    is unchanged.
-
-    Args:
-        root: Repository working directory for Git and pre-commit.
-        arguments: Additional argument tokens appended after ``pre-commit run``;
-            they are passed unchanged and are not shell-parsed.
-
-    Raises:
-        CIPolicyError: If a command fails or the before/after status bytes differ.
-            A command-start failure retains its operating-system cause through
-            the command helper.
-    """
-    return CIRunner(root)._run_pre_commit_without_mutation(arguments)
-
-
 def _require_clean_hosted_checkout(root: Path, *, environment: str) -> None:
     """Require an empty raw Git status for every environment except ``local``.
 
@@ -1333,7 +1309,11 @@ def _serialize_ci_event(event: CIEvent) -> str:
         TypeError: If JSON serialization encounters a value it cannot encode.
         ValueError: If the model's serialization layer rejects a value.
     """
-    payload = event.model_dump(mode="json")
+    serializer: _JsonDumpModel = event
+    serialized = serializer.model_dump(mode="json")
+    if not _is_object_dict(serialized):
+        raise TypeError("CI event serializer did not return an object")
+    payload = dict(serialized)
     payload["window_start"] = event.window_start.isoformat().replace("+00:00", "Z")
     payload["window_end"] = event.window_end.isoformat().replace("+00:00", "Z")
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))

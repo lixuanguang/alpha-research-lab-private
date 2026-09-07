@@ -53,7 +53,10 @@ line-length = 100
 src = ["src", "tests", "tools/governance/src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "UP", "RUF"]
+select = ["E", "F", "I", "W", "UP", "RUF", "D", "ANN401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.isort]
 known-first-party = ["alpha_research", "alpha_research_governance"]
@@ -70,25 +73,11 @@ strict = true
 plugins = ["pydantic.mypy"]
 disallow_any_explicit = true
 disallow_any_unimported = true
+disallow_any_decorated = true
+disallow_any_expr = true
 packages = ["alpha_research", "alpha_research_governance"]
 mypy_path = ["src", "tools/governance/src", "tools/typing/stubs"]
 warn_unused_configs = true
-
-[[tool.mypy.overrides]]
-module = ["alpha_research.*", "alpha_research_governance.*"]
-disallow_any_decorated = true
-
-[[tool.mypy.overrides]]
-module = [
-    "alpha_research.financial_units.conventions",
-    "alpha_research_governance._models",
-    "alpha_research_governance.change_risk.models",
-    "alpha_research_governance.ci_policy.policy",
-    "alpha_research_governance.engineering_standards.python_typing",
-    "alpha_research_governance.operating_model",
-    "test_python_typing",
-]
-disallow_any_expr = true
 
 [tool.pydantic-mypy]
 init_typed = true

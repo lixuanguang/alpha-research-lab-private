@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta, tzinfo
 from pathlib import Path
-from typing import NotRequired, TypedDict
+from typing import NotRequired, Protocol, TypedDict
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -19,6 +19,7 @@ import pytest
 from exchange_calendars.errors import CalendarError, NoSessionsError
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from hypothesis.strategies import SearchStrategy
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 # project library imports
@@ -58,6 +59,30 @@ from alpha_research.venue_calendar.models import _VenueCalendarModel
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 FIXTURE_PATH = REPOSITORY_ROOT / "tests" / "golden" / "venue_calendar" / "c02_calendars.json"
+
+
+class _MarketStateGiven(Protocol):
+    """Type the keyword Hypothesis decorator for generated boundary offsets."""
+
+    def __call__(
+        self, *, offset_seconds: SearchStrategy[int]
+    ) -> Callable[[Callable[[int], None]], Callable[[], None]]:
+        """Decorate a test callable with a generated session offset."""
+        ...
+
+
+class _VenueTimezoneGiven(Protocol):
+    """Type the keyword Hypothesis decorator for generated UTC instants."""
+
+    def __call__(
+        self, *, instant: SearchStrategy[datetime]
+    ) -> Callable[[Callable[[datetime], None]], Callable[[], None]]:
+        """Decorate a test callable with a generated UTC instant."""
+        ...
+
+
+_given_market_state: _MarketStateGiven = given
+_given_venue_timezone: _VenueTimezoneGiven = given
 
 
 class _ExpectedSession(TypedDict):
@@ -1208,7 +1233,7 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
 
 
 @settings(max_examples=50, derandomize=True, database=None)
-@given(offset_seconds=st.integers(min_value=-1, max_value=23_401))
+@_given_market_state(offset_seconds=st.integers(min_value=-1, max_value=23_401))
 def test_market_state_projection_is_deterministic_for_every_boundary_offset(
     offset_seconds: int,
 ) -> None:
@@ -1237,7 +1262,7 @@ def test_market_state_projection_is_deterministic_for_every_boundary_offset(
 
 
 @settings(max_examples=50, derandomize=True, database=None)
-@given(
+@_given_venue_timezone(
     instant=st.datetimes(
         min_value=datetime(2024, 1, 1),
         max_value=datetime(2025, 12, 31, 23, 59, 59),
@@ -1402,3 +1427,21 @@ class TestCalendarStubConformance:
                 else:
                     assert isinstance(stamp, datetime) and stamp.tzinfo is not None
         assert issubclass(NoSessionsError, CalendarError)
+
+
+if __name__ == "__main__":
+    raise SystemExit(
+        pytest.main(
+            [
+                __file__,
+                "-q",
+                "-W",
+                "error",
+                "--strict-markers",
+                "-o",
+                "markers=performance: local diagnostic timing",
+                "-m",
+                "not performance",
+            ]
+        )
+    )

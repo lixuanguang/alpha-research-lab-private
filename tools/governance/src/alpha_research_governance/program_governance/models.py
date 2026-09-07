@@ -110,7 +110,13 @@ class PackageNode(ImmutableModel):
             dependencies, groups = self.dependency_requirements(purpose)
             values.extend(dependencies)
             values.extend(item for group in groups for item in group)
-        return tuple(dict.fromkeys(values))
+        unique_values: list[str] = []
+        seen_values: set[str] = set()
+        for value in values:
+            if value not in seen_values:
+                seen_values.add(value)
+                unique_values.append(value)
+        return tuple(unique_values)
 
     def as_json(self) -> dict[str, object]:
         """Return the stable dashboard representation of dependency requirements.

@@ -208,9 +208,14 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         for mapping in current_projection_mappings:
             mappings_by_identifier.setdefault(mapping.external_identifier, []).append(mapping)
         for external_identifier, identifier_mappings in mappings_by_identifier.items():
+
+            def mapping_order(mapping: SymbologyMapping) -> tuple[datetime, str]:
+                """Order current mappings by valid-from instant and mapping ID."""
+                return mapping.valid_from, str(mapping.mapping_id)
+
             chronologically_ordered_mappings = sorted(
                 identifier_mappings,
-                key=lambda mapping: (mapping.valid_from, str(mapping.mapping_id)),
+                key=mapping_order,
             )
             previous_mapping: SymbologyMapping | None = None
             for mapping in chronologically_ordered_mappings:
@@ -243,6 +248,24 @@ class SymbologyCatalog(_InstrumentIdentityModel):
             The retained ``mappings`` tuple is unchanged.
         """
         superseded_mapping_ids = self._superseded_mapping_ids()
+
+        def mapping_order(mapping: SymbologyMapping) -> tuple[str, str, str, datetime, str]:
+            """Build a stable key for one current mapping assertion.
+
+            Args:
+                mapping: Mapping assertion to order within the current projection.
+
+            Returns:
+                Scheme, namespace, identifier, valid-from instant, and mapping ID.
+            """
+            return (
+                mapping.external_identifier.scheme.value,
+                mapping.external_identifier.namespace or "",
+                mapping.external_identifier.value,
+                mapping.valid_from,
+                str(mapping.mapping_id),
+            )
+
         return tuple(
             sorted(
                 (
@@ -250,13 +273,7 @@ class SymbologyCatalog(_InstrumentIdentityModel):
                     for mapping in self.mappings
                     if mapping.mapping_id not in superseded_mapping_ids
                 ),
-                key=lambda mapping: (
-                    mapping.external_identifier.scheme.value,
-                    mapping.external_identifier.namespace or "",
-                    mapping.external_identifier.value,
-                    mapping.valid_from,
-                    str(mapping.mapping_id),
-                ),
+                key=mapping_order,
             )
         )
 
@@ -399,6 +416,21 @@ class SymbologyCatalog(_InstrumentIdentityModel):
                 current_mapping = mappings_by_mapping_id[current_mapping.supersedes_mapping_id]
             return correction_depth
 
+        def mapping_order(mapping: SymbologyMapping) -> tuple[datetime, int, str]:
+            """Build a stable key for one mapping-history assertion.
+
+            Args:
+                mapping: Mapping assertion to order within the retained history.
+
+            Returns:
+                Valid-from instant, correction depth, and mapping ID.
+            """
+            return (
+                mapping.valid_from,
+                correction_depth_for_mapping(mapping),
+                str(mapping.mapping_id),
+            )
+
         return tuple(
             sorted(
                 (
@@ -406,10 +438,6 @@ class SymbologyCatalog(_InstrumentIdentityModel):
                     for mapping in self.mappings
                     if mapping.external_identifier == external_identifier
                 ),
-                key=lambda mapping: (
-                    mapping.valid_from,
-                    correction_depth_for_mapping(mapping),
-                    str(mapping.mapping_id),
-                ),
+                key=mapping_order,
             )
         )

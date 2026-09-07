@@ -753,13 +753,15 @@ def validate_suppression_line(
     if metadata is None:
         return ("suppression requires [owner=...; rationale=...; expires=YYYY-MM-DD]",)
     findings: list[str] = []
-    owner = metadata.group("owner")
-    if owner not in owner_roles:
+    groups: dict[str, str | None] = metadata.groupdict()
+    owner = groups.get("owner")
+    if owner is None or owner not in owner_roles:
         findings.append(f"suppression owner {owner!r} is not a governed role")
-    rationale = metadata.group("rationale").strip()
+    rationale = groups.get("rationale") or ""
+    rationale = rationale.strip()
     if len(rationale) < minimum_rationale_characters:
         findings.append("suppression rationale is too short")
-    expiry = _iso_date(metadata.group("expires"), context="suppression expiry")
+    expiry = _iso_date(groups.get("expires"), context="suppression expiry")
     if expiry < validation_date:
         findings.append("suppression is expired")
     if expiry > validation_date + timedelta(days=maximum_lifetime_days):
@@ -790,7 +792,8 @@ def _owner_roles(path: Path) -> frozenset[str]:
         UnicodeDecodeError: If the ownership file is not valid UTF-8.
         tomllib.TOMLDecodeError: If the ownership file is malformed TOML.
     """
-    document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
+    parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+    document = _table(parsed_document, context=str(path))
     roles: set[str] = set()
     for domain in _tables(document.get("domains"), context="domains"):
         for key in (
@@ -834,7 +837,8 @@ def _locked_packages(path: Path) -> dict[str, tuple[str, str, tuple[str, ...]]]:
         UnicodeDecodeError: If the lockfile is not valid UTF-8.
         tomllib.TOMLDecodeError: If the lockfile is malformed TOML.
     """
-    document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
+    parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+    document = _table(parsed_document, context=str(path))
     result: dict[str, tuple[str, str, tuple[str, ...]]] = {}
     for package in _tables(document.get("package"), context="package"):
         name = package.get("name")
@@ -848,11 +852,14 @@ def _locked_packages(path: Path) -> dict[str, tuple[str, str, tuple[str, ...]]]:
             and isinstance(dependencies, list)
         ):
             digest = sdist.get("hash")
-            dependency_names = tuple(
-                item["name"]
-                for item in dependencies
-                if isinstance(item, dict) and isinstance(item.get("name"), str)
-            )
+            dependency_names_list: list[str] = []
+            for item in dependencies:
+                if not isinstance(item, dict):
+                    continue
+                dependency_name = item.get("name")
+                if isinstance(dependency_name, str):
+                    dependency_names_list.append(dependency_name)
+            dependency_names = tuple(dependency_names_list)
             if isinstance(digest, str):
                 result[name] = (version, digest, dependency_names)
     return result
@@ -1192,6 +1199,98 @@ class _EngineeringStandardsRepositoryValidator:
                 findings.append(f"Hypothesis {key} must be populated")
         return findings
 
+    @staticmethod
+    def _python_tooling_findings(pyproject_document: object) -> list[str]:
+        """Return findings for weakened or incomplete Python tool configuration.
+
+        The complete repository validator calls this projection before source scanning;
+        keeping the configuration contract isolated also makes negative policy tests
+        independent of repository evidence and source fingerprints.
+
+        Args:
+            pyproject_document: Parsed ``pyproject.toml`` document to inspect.
+
+        Returns:
+            Configuration findings, empty when all required enforcement is active.
+        """
+        findings: list[str] = []
+        pyproject = _table(pyproject_document, context="pyproject.toml")
+        tool_configuration = _table(pyproject.get("tool"), context="pyproject.toml.tool")
+        mypy_configuration = _table(
+            tool_configuration.get("mypy"), context="pyproject.toml.tool.mypy"
+        )
+        if mypy_configuration.get("strict") is not True:
+            findings.append("Python migration must retain strict mypy checking")
+        for flag in ("disallow_any_explicit", "disallow_any_unimported"):
+            if mypy_configuration.get(flag) is not True:
+                findings.append(f"Python boundary typing must retain {flag}")
+        if mypy_configuration.get("plugins") != ["pydantic.mypy"]:
+            findings.append("Python boundary typing requires the pinned Pydantic mypy plugin")
+        plugin_configuration = _table(
+            tool_configuration.get("pydantic-mypy"),
+            context="pyproject.toml.tool.pydantic-mypy",
+        )
+        for flag in (
+            "init_typed",
+            "init_forbid_extra",
+            "warn_required_dynamic_aliases",
+        ):
+            if plugin_configuration.get(flag) is not True:
+                findings.append(f"Pydantic typing must retain {flag}")
+        for flag in ("disallow_any_decorated", "disallow_any_expr"):
+            if mypy_configuration.get(flag) is not True:
+                findings.append(f"Python boundary typing must retain global {flag}")
+        if "overrides" in mypy_configuration:
+            findings.append("Python boundary typing must not narrow global enforcement scopes")
+        for key in (
+            "exclude",
+            "exclude_gitignore",
+            "follow_imports",
+            "disable_error_code",
+            "ignore_errors",
+            "per_module_options",
+        ):
+            if key in mypy_configuration:
+                findings.append(f"Python boundary typing must not bypass checks with mypy {key}")
+        if mypy_configuration.get("mypy_path") != [
+            "src",
+            "tools/governance/src",
+            "tools/typing/stubs",
+        ]:
+            findings.append("Python boundary typing must resolve owned native stubs")
+        ruff_configuration = _table(
+            tool_configuration.get("ruff"), context="pyproject.toml.tool.ruff"
+        )
+        ruff_lint = _table(ruff_configuration.get("lint"), context="pyproject.toml.tool.ruff.lint")
+        selected_ruff_rules = _strings(ruff_lint.get("select"), context="Ruff selected rules")
+        if "I" not in selected_ruff_rules:
+            findings.append("Python migration must retain Ruff import sorting")
+        if "D" not in selected_ruff_rules:
+            findings.append("Python migration must retain Ruff Google documentation checks")
+        if "ANN401" not in selected_ruff_rules:
+            findings.append("Python migration must retain Ruff dynamic-typing checks")
+        pydocstyle = _table(
+            ruff_lint.get("pydocstyle"), context="pyproject.toml.tool.ruff.lint.pydocstyle"
+        )
+        if pydocstyle.get("convention") != "google":
+            findings.append("Python migration must use Ruff's Google documentation convention")
+        for configuration_name, configuration in (
+            ("ruff", ruff_configuration),
+            ("ruff.lint", ruff_lint),
+        ):
+            for key in (
+                "exclude",
+                "extend-exclude",
+                "extend-ignore",
+                "ignore",
+                "per-file-ignores",
+            ):
+                if key in configuration:
+                    findings.append(
+                        f"Python migration must not bypass checks with {configuration_name} {key}"
+                    )
+        return findings
+
     def _validate(self) -> EngineeringStandards:
         """Validate the resolved repository against standards and local evidence.
 
@@ -1242,61 +1341,9 @@ class _EngineeringStandardsRepositoryValidator:
         pyproject_document: object = tomllib.loads(
             (root / "pyproject.toml").read_text(encoding="utf-8")
         )
+        findings.extend(self._python_tooling_findings(pyproject_document))
         pyproject = _table(pyproject_document, context="pyproject.toml")
         tool_configuration = _table(pyproject.get("tool"), context="pyproject.toml.tool")
-        mypy_configuration = _table(
-            tool_configuration.get("mypy"), context="pyproject.toml.tool.mypy"
-        )
-        if mypy_configuration.get("strict") is not True:
-            findings.append("Python migration must retain strict mypy checking")
-        for flag in ("disallow_any_explicit", "disallow_any_unimported"):
-            if mypy_configuration.get(flag) is not True:
-                findings.append(f"Python boundary typing must retain {flag}")
-        if mypy_configuration.get("plugins") != ["pydantic.mypy"]:
-            findings.append("Python boundary typing requires the pinned Pydantic mypy plugin")
-        plugin_configuration = _table(
-            tool_configuration.get("pydantic-mypy"),
-            context="pyproject.toml.tool.pydantic-mypy",
-        )
-        for flag in (
-            "init_typed",
-            "init_forbid_extra",
-            "warn_required_dynamic_aliases",
-        ):
-            if plugin_configuration.get(flag) is not True:
-                findings.append(f"Pydantic typing must retain {flag}")
-        expected_typing_scopes: list[dict[str, object]] = [
-            {
-                "module": ["alpha_research.*", "alpha_research_governance.*"],
-                "disallow_any_decorated": True,
-            },
-            {
-                "module": [
-                    "alpha_research.financial_units.conventions",
-                    "alpha_research_governance._models",
-                    "alpha_research_governance.change_risk.models",
-                    "alpha_research_governance.ci_policy.policy",
-                    "alpha_research_governance.engineering_standards.python_typing",
-                    "alpha_research_governance.operating_model",
-                    "test_python_typing",
-                ],
-                "disallow_any_expr": True,
-            },
-        ]
-        if mypy_configuration.get("overrides") != expected_typing_scopes:
-            findings.append("Python boundary typing enforcement scopes drifted")
-        if mypy_configuration.get("mypy_path") != [
-            "src",
-            "tools/governance/src",
-            "tools/typing/stubs",
-        ]:
-            findings.append("Python boundary typing must resolve owned native stubs")
-        ruff_configuration = _table(
-            tool_configuration.get("ruff"), context="pyproject.toml.tool.ruff"
-        )
-        ruff_lint = _table(ruff_configuration.get("lint"), context="pyproject.toml.tool.ruff.lint")
-        if "I" not in _strings(ruff_lint.get("select"), context="Ruff selected rules"):
-            findings.append("Python migration must retain Ruff import sorting")
         pytest_config = _table(
             tool_configuration.get("pytest"), context="pyproject.toml.tool.pytest"
         )
@@ -1356,29 +1403,3 @@ class _EngineeringStandardsRepositoryValidator:
         if findings:
             raise EngineeringStandardsError(findings)
         return standards
-
-
-def _validate_dependency_record(
-    repository_root: Path, locked: dict[str, tuple[str, str, tuple[str, ...]]]
-) -> list[str]:
-    """Validate the dependency record through the repository validator service.
-
-    This compatibility adapter retains the historical private helper used by focused
-    governance checks while keeping repository-bound I/O in the owning validator.
-
-    Args:
-        repository_root: Repository root containing the dependency record.
-        locked: Package projections from the repository lockfile for cross-checks.
-
-    Returns:
-        Finding messages, empty when the dependency record matches the lock contract.
-
-    Raises:
-        EngineeringStandardsError: If the parsed dependency record has an invalid shape.
-        OSError: If the dependency record cannot be read.
-        UnicodeDecodeError: If the dependency record is not valid UTF-8.
-        tomllib.TOMLDecodeError: If the dependency record is malformed TOML.
-    """
-    return _EngineeringStandardsRepositoryValidator(
-        repository_root, None
-    )._validate_dependency_record(repository_root, locked)

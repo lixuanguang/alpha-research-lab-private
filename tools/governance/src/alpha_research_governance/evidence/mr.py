@@ -63,9 +63,11 @@ def _without_fenced_code(text: str) -> str:
     for line in text.splitlines(keepends=True):
         match = _FENCE.match(line)
         if match and not fence:
-            fence = match[1]
-        elif match and fence and match[1][0] == fence[0] and len(match[1]) >= len(fence):
-            fence = ""
+            fence = match.groups(default="")[0]
+        elif match and fence:
+            marker = match.groups(default="")[0]
+            if marker[0] == fence[0] and len(marker) >= len(fence):
+                fence = ""
         elif not fence:
             lines.append(line)
     return "".join(lines)
@@ -735,7 +737,7 @@ def _context(text: str) -> MrContext:
             comment exists, or the declaration is not valid context JSON/model data.
     """
     text = _without_fenced_code(text)
-    declarations = _CONTEXT.findall(text)
+    declarations = tuple(match.groups(default="")[0] for match in _CONTEXT.finditer(text))
     if not declarations:
         if "evidence-context:" in text:
             raise EvidenceGovernanceError(["malformed evidence-context comment"])
