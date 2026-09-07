@@ -127,7 +127,18 @@ class TestInventoryGovernance:
         )
         assert len(inventory.items) == 16
         assert {item.kind for item in inventory.items} == {"control"}
-        assert all(item.status == "provisional" for item in inventory.items)
+        retired_ids = {
+            "inv.control.governance.b02_hermetic_build_graph",
+            "inv.control.governance.b03_clean_machine_environment",
+            "inv.control.governance.b06_remote_execution",
+        }
+        assert {
+            item.inventory_id for item in inventory.items if item.status == "retired"
+        } == retired_ids
+        assert all(
+            item.status == ("retired" if item.inventory_id in retired_ids else "provisional")
+            for item in inventory.items
+        )
         repository_topology_control = next(
             item
             for item in inventory.items
@@ -157,8 +168,8 @@ class TestInventoryGovernance:
         assert environment_control.dependencies == (
             "inv.control.governance.a04_change_risk",
             "inv.control.governance.a05_merge_evidence",
-            "inv.control.governance.b02_hermetic_build_graph",
         )
+        assert environment_control.deployment_status == "retired"
         engineering_standards_control = next(
             item
             for item in inventory.items
@@ -167,8 +178,6 @@ class TestInventoryGovernance:
         assert engineering_standards_control.dependencies == (
             "inv.control.governance.a04_change_risk",
             "inv.control.governance.a05_merge_evidence",
-            "inv.control.governance.b02_hermetic_build_graph",
-            "inv.control.governance.b03_clean_machine_environment",
         )
         ci_policy_control = next(
             item
@@ -177,8 +186,6 @@ class TestInventoryGovernance:
         )
         assert ci_policy_control.dependencies == (
             "inv.control.governance.b01_repository_topology",
-            "inv.control.governance.b02_hermetic_build_graph",
-            "inv.control.governance.b03_clean_machine_environment",
             "inv.control.governance.b04_engineering_standards",
         )
         remote_execution_control = next(
@@ -186,19 +193,17 @@ class TestInventoryGovernance:
             for item in inventory.items
             if item.inventory_id == "inv.control.governance.b06_remote_execution"
         )
-        assert remote_execution_control.dependencies == ("inv.control.governance.b05_ci_policy",)
-        assert remote_execution_control.deployment_status == "not_deployable"
+        assert remote_execution_control.dependencies == ()
+        assert remote_execution_control.status == "retired"
+        assert remote_execution_control.deployment_status == "retired"
         dependency_admission_control = next(
             item
             for item in inventory.items
             if item.inventory_id == "inv.control.governance.b07_dependency_admission"
         )
         assert dependency_admission_control.dependencies == (
-            "inv.control.governance.b02_hermetic_build_graph",
-            "inv.control.governance.b03_clean_machine_environment",
             "inv.control.governance.b04_engineering_standards",
             "inv.control.governance.b05_ci_policy",
-            "inv.control.governance.b06_remote_execution",
         )
         assert dependency_admission_control.deployment_status == "not_deployable"
         artifact_supply_chain_control = next(

@@ -53,9 +53,9 @@ revoked_signer_identities = []
 maximum_artifact_bytes = 1073741824
 maximum_archive_members = 100000
 
-[toolchain]
-path = "environments/dev/toolchain.toml"
-sha256 = "16bd96c8f8515f4db6af17a48e9edac243902397f1fd22d5f71f953278be342c"
+[project]
+path = "pyproject.toml"
+sha256 = "d1f906f08eb793e0d43c4ad6eea69e2314839f7c17472b97c210a620c2ddfe2b"
 
 [tools.syft]
 command = "syft"
@@ -64,18 +64,6 @@ version = "1.51.1"
 [tools.cosign]
 command = "cosign"
 version = "3.1.3"
-
-[[locks]]
-path = "MODULE.bazel.lock"
-sha256 = "d071e04040e390f9353b240cc26c5d3c0fdfb6a432d3d60f147e781110efce4b"
-
-[[locks]]
-path = "flake.lock"
-sha256 = "59dcd10f73b4392d83afb7ad11ce635f7c23ab529e21065fc073fbd2a30661e5"
-
-[[locks]]
-path = "requirements.bazel.txt"
-sha256 = "8a7343e01d500cd5ab23de1a13ace07a2630f3c2724f6ae233529b0eb17a79e4"
 
 [[locks]]
 path = "uv.lock"

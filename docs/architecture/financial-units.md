@@ -171,7 +171,7 @@ verification results; none is an independent approval.
 This is an additive API with no existing consumer or persisted state to migrate.
 The requested migration replaces every C03 dataclass with Pydantic and replaces
 internal `dataclasses.replace` calls with validated `model_copy`. Pydantic is
-already exactly pinned; only its direct Bazel dependency edges are added. Msgspec
+already exactly pinned; only its direct lock and admission records are maintained. Msgspec
 is not introduced because C03 has no codec requirement or measured serialization
 need. QuantLib remains exactly 1.43.
 Rollout is repository-local full-lane validation, golden replay and consumer impact

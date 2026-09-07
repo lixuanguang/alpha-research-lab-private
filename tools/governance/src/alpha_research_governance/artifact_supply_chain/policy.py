@@ -71,7 +71,7 @@ _POLICY_ROOT_KEYS = {
     "successor_package",
     "supported_artifact_kinds",
     "native_library_markers",
-    "toolchain",
+    "project",
     "tools",
 }
 _POLICY_TABLE_KEYS = {
@@ -85,7 +85,7 @@ _POLICY_TABLE_KEYS = {
         "signer_identity",
         "trusted_context",
     },
-    "toolchain": {"path", "sha256"},
+    "project": {"path", "sha256"},
 }
 _POLICY_FINDING_KEYS = {
     "closure_condition",
@@ -327,7 +327,7 @@ class ArtifactPolicyService:
         The file is read as UTF-8 TOML. Admission requires the exact root and nested
         table schemas, B08 metadata and ordered gate/artifact/finding values, the
         protected-main signing environment, the locked Syft ``1.51.1`` and Cosign
-        ``3.1.3`` identities, the four ordered build locks, lowercase digests, lexically safe
+        ``3.1.3`` identities, the uv lock, lowercase digests, lexically safe
         repository-relative paths, expected SPDX/SLSA and builder identities, and
         date values where ``review_due_on`` follows ``as_of_date``. The loader does
         not compare dates with the current date or verify referenced file contents.
@@ -460,14 +460,9 @@ class ArtifactPolicyService:
             if _LOWERCASE_SHA256_PATTERN.fullmatch(lock_digest) is None:
                 raise ArtifactSupplyChainError([f"locks[{index}].sha256 must be lowercase SHA-256"])
             lock_identities.append(LockIdentity(path=lock_path, sha256=lock_digest))
-        expected_lock_paths = (
-            "MODULE.bazel.lock",
-            "flake.lock",
-            "requirements.bazel.txt",
-            "uv.lock",
-        )
+        expected_lock_paths = ("uv.lock",)
         if tuple(lock_identity.path for lock_identity in lock_identities) != expected_lock_paths:
-            raise ArtifactSupplyChainError(["locks must contain the exact sorted build lock set"])
+            raise ArtifactSupplyChainError(["locks must contain exactly uv.lock"])
 
         signing_policy = policy_tables["signing"]
         signing_environment = _require_unique_string_tuple(
@@ -494,16 +489,16 @@ class ArtifactPolicyService:
             context="signing.revoked_signer_identities",
             allow_empty=True,
         )
-        toolchain_policy = policy_tables["toolchain"]
-        toolchain_path = _require_safe_repository_relative_path(
-            _require_nonempty_string_field(toolchain_policy, "path", context="toolchain"),
-            context="toolchain.path",
+        project_policy = policy_tables["project"]
+        project_path = _require_safe_repository_relative_path(
+            _require_nonempty_string_field(project_policy, "path", context="project"),
+            context="project.path",
         )
-        toolchain_digest = _require_nonempty_string_field(
-            toolchain_policy, "sha256", context="toolchain"
-        )
-        if _LOWERCASE_SHA256_PATTERN.fullmatch(toolchain_digest) is None:
-            raise ArtifactSupplyChainError(["toolchain.sha256 must be lowercase SHA-256"])
+        project_digest = _require_nonempty_string_field(project_policy, "sha256", context="project")
+        if project_path != "pyproject.toml":
+            raise ArtifactSupplyChainError(["project.path must be exactly pyproject.toml"])
+        if _LOWERCASE_SHA256_PATTERN.fullmatch(project_digest) is None:
+            raise ArtifactSupplyChainError(["project.sha256 must be lowercase SHA-256"])
         artifact_formats = policy_tables["formats"]
         build_identity = policy_tables["identity"]
         resource_limits = policy_tables["limits"]
@@ -601,8 +596,8 @@ class ArtifactPolicyService:
             ),
             signing_environment=tuple(parsed_signing_environment),
             revoked_signer_identities=revoked_signer_identities,
-            toolchain_path=toolchain_path,
-            toolchain_sha256=toolchain_digest,
+            project_path=project_path,
+            project_sha256=project_digest,
             locks=tuple(lock_identities),
             syft=syft,
             cosign=cosign,
@@ -615,13 +610,13 @@ class ArtifactPolicyService:
     def validate_repository(self) -> ArtifactSupplyChainPolicy:
         """Validate the repository against its admitted B08 policy and evidence.
 
-        The resolved root supplies the policy, four lockfiles, toolchain registry,
+        The resolved root supplies the policy, uv lock and project manifest,
         integration files, change-risk policy, and local evidence manifest. Validation
-        checks lock and toolchain digests, admitted Syft/Cosign versions, required
+        checks lock and project digests, admitted Syft/Cosign versions, required
         integration fragments, signer revocation, the manifest's expected commit and
         change-risk binding, package evidence, and the exact additional ``QG15`` gate.
         Lock-file absence or digest drift is accumulated with other findings; an
-        unsafe or missing toolchain file fails when its digest is computed.
+        unsafe or missing project manifest fails when its digest is computed.
 
         Args:
             The repository root is bound by the service constructor.
@@ -631,14 +626,13 @@ class ArtifactPolicyService:
 
         Raises:
             ArtifactSupplyChainError: If the policy is invalid, repository identities or
-                integration fragments drift, findings are accumulated, toolchain parsing
-                fails, the signer is revoked, or evidence validation fails. Evidence
-                and toolchain-registry failures are translated and chained. An
+                integration fragments drift, findings are accumulated, the signer is revoked,
+                or evidence validation fails. Evidence failures are translated and chained. An
                 ``ArtifactSupplyChainError`` from a lock-file digest check is accumulated
                 in the final findings; digest-check I/O errors propagate.
-            OSError: If the policy, lockfile, toolchain file, or integration files cannot
-                be inspected or read. Toolchain-registry and evidence read failures are
-                translated where this function catches them.
+            OSError: If the policy, lockfile, project manifest, or integration files cannot
+                be inspected or read. Evidence read failures are translated where this function
+                catches them.
             UnicodeDecodeError: If an uncaught repository text file is not UTF-8.
             TypeError: If the initial policy loader cannot compare its parsed date values.
             pydantic.ValidationError: If the initial policy loader's immutable model rejects
@@ -661,46 +655,16 @@ class ArtifactPolicyService:
                 validation_findings.append(f"{lock_identity.path} digest drifted from B08 policy")
         if (
             compute_regular_file_sha256(
-                resolved_repository_root / artifact_supply_chain_policy.toolchain_path
+                resolved_repository_root / artifact_supply_chain_policy.project_path
             )
-            != artifact_supply_chain_policy.toolchain_sha256
+            != artifact_supply_chain_policy.project_sha256
         ):
             validation_findings.append(
-                f"{artifact_supply_chain_policy.toolchain_path} digest drifted from B08 policy"
+                f"{artifact_supply_chain_policy.project_path} digest drifted from B08 policy"
             )
-        try:
-            toolchain_registry: dict[str, object] = tomllib.loads(
-                (resolved_repository_root / artifact_supply_chain_policy.toolchain_path).read_text(
-                    encoding="utf-8"
-                )
-            )
-            admitted_tool_versions = {
-                item.get("tool_id"): item.get("version")
-                for item in _require_toml_table_array(
-                    toolchain_registry.get("tools", []), context="toolchain.tools"
-                )
-            }
-        except (OSError, tomllib.TOMLDecodeError, TypeError) as error:
-            raise ArtifactSupplyChainError([f"invalid toolchain registry: {error}"]) from error
-        if (
-            admitted_tool_versions.get("developer_environment.syft")
-            != artifact_supply_chain_policy.syft.version
-        ):
-            validation_findings.append("Syft version is not admitted by the developer toolchain")
-        if (
-            admitted_tool_versions.get("developer_environment.cosign")
-            != artifact_supply_chain_policy.cosign.version
-        ):
-            validation_findings.append("Cosign version is not admitted by the developer toolchain")
         required_integration_fragments = {
             "Makefile": ("artifact-supply-chain-check:", "alpha-governance-artifacts"),
-            ".pre-commit-config.yaml": ("id: artifact-supply-chain", "alpha-governance-artifacts"),
-            "flake.nix": ("pkgs.syft", "pkgs.cosign"),
-            "docs/architecture/decisions/0001-build-and-developer-tooling.md": (
-                "B08",
-                "Syft",
-                "Cosign",
-            ),
+            ".github/workflows/ci.yml": ("make wheel-smoke",),
         }
         for repository_relative_path, required_fragments in required_integration_fragments.items():
             integration_content = (resolved_repository_root / repository_relative_path).read_text(
@@ -773,13 +737,13 @@ def load_policy(policy_path: Path) -> ArtifactSupplyChainPolicy:
 def validate_repository(repository_root: Path) -> ArtifactSupplyChainPolicy:
     """Validate the repository against its admitted B08 policy and evidence.
 
-    The resolved root supplies the policy, four lockfiles, toolchain registry,
+    The resolved root supplies the policy, uv lock and project manifest,
     integration files, change-risk policy, and local evidence manifest. Validation
-    checks lock and toolchain digests, admitted Syft/Cosign versions, required
+    checks lock and project digests, admitted Syft/Cosign versions, required
     integration fragments, signer revocation, the manifest's expected commit and
     change-risk binding, package evidence, and the exact additional ``QG15`` gate.
     Lock-file absence or digest drift is accumulated with other findings; an
-    unsafe or missing toolchain file fails when its digest is computed.
+    unsafe or missing project manifest fails when its digest is computed.
 
     Args:
         repository_root: Repository root whose B08 files and evidence are checked.
@@ -789,14 +753,13 @@ def validate_repository(repository_root: Path) -> ArtifactSupplyChainPolicy:
 
     Raises:
         ArtifactSupplyChainError: If the policy is invalid, repository identities or
-            integration fragments drift, findings are accumulated, toolchain parsing
-            fails, the signer is revoked, or evidence validation fails. Evidence
-            and toolchain-registry failures are translated and chained. An
+            integration fragments drift, findings are accumulated, the signer is revoked,
+            or evidence validation fails. Evidence failures are translated and chained. An
             ``ArtifactSupplyChainError`` from a lock-file digest check is accumulated
             in the final findings; digest-check I/O errors propagate.
-        OSError: If the policy, lockfile, toolchain file, or integration files cannot
-            be inspected or read. Toolchain-registry and evidence read failures are
-            translated where this function catches them.
+        OSError: If the policy, lockfile, project manifest, or integration files cannot
+            be inspected or read. Evidence read failures are translated where this function
+            catches them.
         UnicodeDecodeError: If an uncaught repository text file is not UTF-8.
         TypeError: If the initial policy loader cannot compare its parsed date values.
         pydantic.ValidationError: If the initial policy loader's immutable model rejects

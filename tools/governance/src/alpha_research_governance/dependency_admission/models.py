@@ -235,7 +235,6 @@ class DependencyAdmission(ImmutableModel):
         approved_python_indexes: Python package index URLs permitted in the lock.
         lock_paths: Ordered repository-relative lock surfaces requiring digest binding.
         lock_digests: Path/digest pairs in the same order as ``lock_paths``.
-        migrated_record_paths: Ordered predecessor dependency records retained for validation.
         runtime_scan_roots: Repository-relative roots scanned for runtime installation calls.
         packages: Exact admitted external Python packages and their license decisions.
         vulnerability_decisions: Owned, expiring dispositions for scanner findings.
@@ -261,7 +260,6 @@ class DependencyAdmission(ImmutableModel):
     approved_python_indexes: tuple[str, ...]
     lock_paths: tuple[str, ...]
     lock_digests: tuple[tuple[str, str], ...]
-    migrated_record_paths: tuple[str, ...]
     runtime_scan_roots: tuple[str, ...]
     packages: tuple[PythonPackageAdmission, ...]
     vulnerability_decisions: tuple[VulnerabilityDecision, ...]

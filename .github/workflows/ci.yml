@@ -11,16 +11,14 @@ permissions:
   contents: read
 
 jobs:
-  fast:
-    name: Affected-target fast lane
-    if: github.event_name == 'pull_request'
+  source-validation:
+    name: Source validation
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install pinned uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -38,33 +36,79 @@ jobs:
         with:
           cosign-release: "v3.1.3"
 
-      - name: Install pinned Bazel launcher
-        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
-        with:
-          bazelisk-version: "1.29.0"
-
-      - name: Run affected owners and reverse dependencies
-        run: >-
-          make ci-fast
-          CI_BASE_REF="${{ github.event.pull_request.base.sha }}"
-          CI_HEAD_REF="${{ github.event.pull_request.head.sha }}"
-          CI_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-fast"
-          CI_ENVIRONMENT="github_pr_head"
-          CI_EVIDENCE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          CI_EVENT_LOG="build/ci/fast-events.jsonl"
-
-      - name: Retain revision-bound fast-lane events
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ci-events-fast-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/ci/fast-events.jsonl
-          if-no-files-found: warn
-          retention-days: 30
+      - name: Run source validation
+        run: make source-check
 
   merged-result:
     name: Authoritative merged-result full lane
+    needs: [source-validation, macos-wheel-smoke]
+    if: always()
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Require source and platform smoke jobs
+        if: needs.source-validation.result != 'success' || needs.macos-wheel-smoke.result != 'success'
+        run: |
+          echo "source validation or macOS wheel smoke failed" >&2
+          exit 1
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.7"
+
+      - name: Install pinned Python
+        run: uv python install
+
+      - name: Install locked environment
+        run: uv sync --frozen
+
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v3.1.3"
+
+      - name: Verify pull-request merged-result identity
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          expected_base="$(git rev-parse --verify --end-of-options "${BASE_SHA}^{commit}")"
+          expected_head="$(git rev-parse --verify --end-of-options "${HEAD_SHA}^{commit}")"
+          merged_commit="$(git rev-parse --verify --end-of-options "${MERGED_SHA}^{commit}")"
+          actual_commit="$(git rev-parse --verify HEAD)"
+          if [[ "$actual_commit" != "$merged_commit" ]]; then
+            echo "checked-out commit does not match the merged result" >&2
+            exit 1
+          fi
+          read -r -a parents <<< "$(git rev-list --parents -n 1 "$merged_commit" --)"
+          if [[ "${#parents[@]}" -ne 3 ]]; then
+            echo "merged result must have exactly two parents" >&2
+            exit 1
+          fi
+          if [[ "${parents[1]}" != "$expected_base" || "${parents[2]}" != "$expected_head" ]]; then
+            echo "merged result parents do not match the pull-request base and head" >&2
+            exit 1
+          fi
+
+      - name: Lint short pull-request evidence
+        if: github.event_name == 'pull_request'
+        run: uv run --frozen alpha-governance-evidence --github-event "$GITHUB_EVENT_PATH"
+
+      - name: Build and install wheel smoke
+        run: make wheel-smoke
+
+  macos-wheel-smoke:
+    name: macOS wheel smoke
+    needs: source-validation
+    runs-on: macos-14
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -79,99 +123,5 @@ jobs:
       - name: Install pinned Python
         run: uv python install
 
-      - name: Verify dependency lock
-        run: uv lock --check
-
-      - name: Install locked environment
-        run: uv sync --frozen
-
-      - name: Install pinned Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: "v3.1.3"
-
-      - name: Audit admitted Python dependencies
-        run: make dependency-audit
-
-      - name: Install pinned Bazel launcher
-        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
-        with:
-          bazelisk-version: "1.29.0"
-
-      - name: Verify pull-request merged-result identity
-        if: github.event_name == 'pull_request'
-        run: >-
-          uv run --frozen alpha-governance-ci verify-merged-result
-          --base-ref "${{ github.event.pull_request.base.sha }}"
-          --head-ref "${{ github.event.pull_request.head.sha }}"
-          --revision "$GITHUB_SHA"
-
-      - name: Lint pull-request evidence and generate classification metadata
-        if: github.event_name == 'pull_request'
-        run: uv run --frozen alpha-governance-evidence --github-event "$GITHUB_EVENT_PATH"
-
-      - name: Run authoritative full graph
-        run: >-
-          make ci-full
-          CI_BASE_REF="${{ github.event.pull_request.base.sha || github.event.before }}"
-          CI_RUN_ID="${{ github.run_id }}-${{ github.run_attempt }}-full"
-          CI_ENVIRONMENT="github_merged_result"
-          CI_EVIDENCE_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          CI_EVENT_LOG="build/ci/full-events.jsonl"
-
-      - name: Retain revision-bound full-lane events
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ci-events-full-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/ci/full-events.jsonl
-          if-no-files-found: warn
-          retention-days: 30
-
-  remote-execution:
-    name: Remote execution shard ${{ matrix.shard }}
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.REMOTE_EXECUTION_ENABLED == 'true'
-    needs: merged-result
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1]
-    env:
-      BUILDBUDDY_API_KEY: ${{ secrets.BUILDBUDDY_API_KEY }}
-
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 0
-
-      - name: Install pinned uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.12.7"
-
-      - name: Install pinned Python and locked environment
-        run: |
-          uv python install
-          uv sync --frozen
-
-      - name: Install pinned Bazel launcher
-        uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # v0.19.0
-        with:
-          bazelisk-version: "1.29.0"
-
-      - name: Validate repository-owned remote policy
-        run: make remote-execution-policy-check
-
-      - name: Populate authenticated remote build cache
-        run: make remote-build REMOTE_CONTEXT=github_main_push
-
-      - name: Run deterministic remote test shard
-        run: >-
-          make remote-test
-          REMOTE_CONTEXT=github_main_push
-          REMOTE_SHARD_INDEX="${{ matrix.shard }}"
-
-      - name: Run diagnostic quarantine repeats
-        if: matrix.shard == 0
-        run: make remote-quarantine REMOTE_CONTEXT=github_main_push
+      - name: Build and install wheel smoke
+        run: make wheel-smoke

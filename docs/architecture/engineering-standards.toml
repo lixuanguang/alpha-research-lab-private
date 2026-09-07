@@ -150,4 +150,4 @@ closure_condition = "Protected CI runs the exact reviewed merged result on x86_6
 finding_id = "B04-F03"
 owner_role = "security"
 unavailable_evidence = "Qualified final source, license, vulnerability, exploitability, maintenance, and transitive dependency admission for Hypothesis is B07-owned."
-closure_condition = "B07 admits or replaces Hypothesis and sortedcontainers without weakening property/state-machine coverage, determinism, the Bazel graph, or rollback."
+closure_condition = "B07 admits or replaces Hypothesis and sortedcontainers without weakening property/state-machine coverage, determinism, the pinned uv environment, or rollback."

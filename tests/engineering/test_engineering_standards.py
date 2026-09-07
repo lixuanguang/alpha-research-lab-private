@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # standard library imports
-import os
 import tomllib
 from collections.abc import Callable
 from datetime import date
@@ -36,7 +35,6 @@ POLICY_PATH = REPOSITORY_ROOT / "docs/architecture/engineering-standards.toml"
 PYPROJECT_PATH = REPOSITORY_ROOT / "pyproject.toml"
 VALIDATION_DATE = date(2026, 9, 2)
 OWNER_ROLES = frozenset({"platform", "security"})
-UNDER_BAZEL = bool(os.environ.get("TEST_SRCDIR"))
 VALID_SUPPRESSION = (
     "value = call()  # noqa: RUF100 - retained compatibility "
     "[owner=platform; rationale=preserve public behavior; expires=2026-12-31]"
@@ -191,7 +189,6 @@ class TestEngineeringStandardsContracts:
         document["tool"] = tool
         return document
 
-    @pytest.mark.skipif(UNDER_BAZEL, reason="repository evidence rejects Bazel runfile symlinks")
     def test_repository_standards_bind_exact_tools_languages_and_baselines(self) -> None:
         """Validate exact tool, language, baseline, and open-finding policy bindings."""
         standards = validate_repository(REPOSITORY_ROOT, validation_date=VALIDATION_DATE)
@@ -422,9 +419,8 @@ class TestEngineeringStandardsContracts:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Return success, usage-error, and missing-repository statuses with matching output."""
-        if not UNDER_BAZEL:
-            assert main([str(REPOSITORY_ROOT)]) == 0
-            assert "package status is partial" in capsys.readouterr().out
+        assert main([str(REPOSITORY_ROOT)]) == 0
+        assert "package status is partial" in capsys.readouterr().out
         assert main(["one", "two"]) == 2
         assert "usage:" in capsys.readouterr().err
         assert main([str(REPOSITORY_ROOT / "missing")]) == 1

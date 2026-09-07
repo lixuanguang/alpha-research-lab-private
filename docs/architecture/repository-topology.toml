@@ -22,7 +22,6 @@ applicable_gate_ids = [
 ]
 source_roots = [
   "src/alpha_research",
-  "tests/build",
   "tests/engineering",
   "tests/unit",
   "tools/governance/src/alpha_research_governance",
@@ -72,7 +71,7 @@ layer = "compatibility"
 owner_role = "platform"
 supported_platforms = ["any"]
 dependencies = ["tool.governance.ci_policy"]
-visibility = ["test.engineering"]
+visibility = []
 sources = [
   "src/alpha_research/ci_policy/__init__.py",
   "src/alpha_research/ci_policy/__main__.py",
@@ -213,28 +212,6 @@ sources = [
 ]
 
 [[units]]
-unit_id = "test.build"
-kind = "test"
-layer = "verification"
-owner_role = "platform"
-supported_platforms = ["any"]
-dependencies = []
-visibility = []
-sources = [
-  "tests/build/build_graph_test.py",
-  "tests/build/developer_environment_test.py",
-  "tests/build/fixtures/proto/buf_compatibility_test.py",
-  "tests/build/fixtures/proto/buf_toolchain_test.py",
-  "tests/build/fixtures/proto/test_buf_contracts.py",
-  "tests/build/fixtures/sql/generated_sql_test.py",
-  "tests/build/fixtures/sql/test_generated_sql_contracts.py",
-  "tests/build/sandbox_test.py",
-  "tests/build/test_build_graph_contracts.py",
-  "tests/build/test_developer_environment_contracts.py",
-  "tests/build/test_sandbox_contracts.py",
-]
-
-[[units]]
 unit_id = "test.engineering"
 kind = "test"
 layer = "verification"
@@ -243,7 +220,6 @@ supported_platforms = ["any"]
 dependencies = [
   "compatibility.alpha_research.architecture_governance",
   "compatibility.alpha_research.change_risk",
-  "compatibility.alpha_research.ci_policy",
   "compatibility.alpha_research.evidence",
   "compatibility.alpha_research.foundation",
   "compatibility.alpha_research.inventory",
@@ -262,7 +238,6 @@ dependencies = [
   "tool.governance.inventory",
   "tool.governance.ownership_governance",
   "tool.governance.program_governance",
-  "tool.governance.remote_execution",
   "tool.governance.repository_topology",
   "tool.governance.security_controls",
 ]
@@ -272,7 +247,6 @@ sources = [
   "tests/engineering/test_artifact_supply_chain.py",
   "tests/engineering/test_change_risk.py",
   "tests/engineering/test_ci_policy.py",
-  "tests/engineering/test_ci_runner.py",
   "tests/engineering/test_dependency_admission.py",
   "tests/engineering/test_engineering_standards.py",
   "tests/engineering/test_evidence_governance.py",
@@ -287,7 +261,6 @@ sources = [
   "tests/engineering/test_python_source_standards.py",
   "tests/engineering/test_python_standards.py",
   "tests/engineering/test_python_typing.py",
-  "tests/engineering/test_remote_execution.py",
   "tests/engineering/test_repository_governance.py",
   "tests/engineering/test_repository_topology.py",
   "tests/engineering/test_root_commands.py",
@@ -370,13 +343,11 @@ visibility = [
   "compatibility.alpha_research.change_risk",
   "test.engineering",
   "tool.governance.artifact_supply_chain",
-  "tool.governance.ci_policy",
   "tool.governance.dependency_admission",
   "tool.governance.engineering_standards",
   "tool.governance.evidence",
   "tool.governance.inventory",
   "tool.governance.program_governance",
-  "tool.governance.remote_execution",
   "tool.governance.repository_topology",
   "tool.governance.security_controls",
 ]
@@ -396,23 +367,12 @@ kind = "tool"
 layer = "catalog"
 owner_role = "platform"
 supported_platforms = ["any"]
-dependencies = [
-  "tool.governance.change_risk",
-  "tool.governance.evidence",
-  "tool.governance.foundation",
-]
-visibility = [
-  "compatibility.alpha_research.ci_policy",
-  "test.engineering",
-]
+dependencies = []
+visibility = ["compatibility.alpha_research.ci_policy", "test.engineering"]
 sources = [
   "tools/governance/src/alpha_research_governance/ci_policy/__init__.py",
   "tools/governance/src/alpha_research_governance/ci_policy/__main__.py",
-  "tools/governance/src/alpha_research_governance/ci_policy/models.py",
-  "tools/governance/src/alpha_research_governance/ci_policy/policy.py",
-  "tools/governance/src/alpha_research_governance/ci_policy/runner.py",
   "tools/governance/src/alpha_research_governance/ci_policy/secrets.py",
-  "tools/governance/src/alpha_research_governance/ci_policy/selection.py",
 ]
 
 [[units]]
@@ -471,12 +431,10 @@ visibility = [
   "compatibility.alpha_research.evidence",
   "test.engineering",
   "tool.governance.artifact_supply_chain",
-  "tool.governance.ci_policy",
   "tool.governance.dependency_admission",
   "tool.governance.engineering_standards",
   "tool.governance.inventory",
   "tool.governance.program_governance",
-  "tool.governance.remote_execution",
   "tool.governance.repository_topology",
   "tool.governance.security_controls",
 ]
@@ -503,14 +461,12 @@ visibility = [
   "tool.governance.architecture_governance",
   "tool.governance.artifact_supply_chain",
   "tool.governance.change_risk",
-  "tool.governance.ci_policy",
   "tool.governance.dependency_admission",
   "tool.governance.engineering_standards",
   "tool.governance.evidence",
   "tool.governance.inventory",
   "tool.governance.ownership_governance",
   "tool.governance.program_governance",
-  "tool.governance.remote_execution",
   "tool.governance.repository_topology",
   "tool.governance.security_controls",
 ]
@@ -581,27 +537,6 @@ sources = [
 ]
 
 [[units]]
-unit_id = "tool.governance.remote_execution"
-kind = "tool"
-layer = "catalog"
-owner_role = "platform"
-supported_platforms = ["any"]
-dependencies = [
-  "tool.governance.change_risk",
-  "tool.governance.evidence",
-  "tool.governance.foundation",
-]
-visibility = ["test.engineering"]
-sources = [
-  "tools/governance/src/alpha_research_governance/remote_execution/__init__.py",
-  "tools/governance/src/alpha_research_governance/remote_execution/__main__.py",
-  "tools/governance/src/alpha_research_governance/remote_execution/models.py",
-  "tools/governance/src/alpha_research_governance/remote_execution/policy.py",
-  "tools/governance/src/alpha_research_governance/remote_execution/runner.py",
-  "tools/governance/src/alpha_research_governance/remote_execution/sharding.py",
-]
-
-[[units]]
 unit_id = "tool.governance.repository_topology"
 kind = "tool"
 layer = "catalog"
@@ -644,6 +579,16 @@ sources = [
   "tools/governance/src/alpha_research_governance/security_controls/models.py",
   "tools/governance/src/alpha_research_governance/security_controls/registry.py",
 ]
+
+[[units]]
+unit_id = "tool.governance.wheel_smoke"
+kind = "tool"
+layer = "verification"
+owner_role = "platform_ci"
+supported_platforms = ["any"]
+dependencies = []
+visibility = []
+sources = ["tools/governance/src/alpha_research_governance/wheel_smoke.py"]
 
 [[findings]]
 finding_id = "B01-F01"

@@ -22,27 +22,25 @@ belong in one linked contract and, where needed, its adjacent TOML policy.
 3. Use the four-section [PR template](../../.github/pull_request_template.md). Add
    migration, benchmark or operational sections only when their trigger applies.
    Ordinary changes do not create package evidence manifests or prose report packs.
-4. Run focused checks during development, selected from the changed contract and
-   build graph. Before merge, run `make check` with the default Bazel backend
-   (`make ci-full`); this is the authoritative complete lane. The
-   [root command map](../README.md#development-environment) lists focused checks.
-   Documentation changes require `make architecture-check` for local links and
-   anchors; coding-standard changes also require `make engineering-standards-check`.
-   `make governance-check` runs all shared policy readers, including both, without
-   the build/test graph. Changes to global lint or typing enforcement require
-   checking the complete configured static scope.
+4. Run `make check` before merge. It is the one required source, policy, test, and
+   package validation command. During development, focused commands from the
+   [root command map](../README.md#development-environment) are optional and may
+   shorten feedback for a narrow change. Documentation, coding-standard, or
+   governance changes still need the corresponding focused checker when useful,
+   but a focused result does not replace `make check`. Changes to global lint or
+   typing enforcement require checking the complete configured static scope.
 5. When demonstrated implementation state changes, edit only
    `program-governance.toml`, run `make program-status`, and commit both files. The
    checker rejects a stale or hand-edited status page.
 
-Local pre-commit hooks select checks from affected paths. Hosted pull requests run
-the affected lane and the authoritative merged-result lane. CI event JSONL stays
-under ignored `build/ci/` locally; hosted runs retain it as a 30-day artifact whose
-events include the exact revision, run ID and evidence URL.
+Local hooks and hosted CI invoke the same source-validation commands. The hosted
+workflow also runs the installed wheel smoke on macOS and Linux. Retired affected
+target selection, custom scheduler, and CI event-log obligations are historical
+records rather than current workflow prerequisites.
 
 Record commands, scope and results in the PR's Validation result, including failed,
-skipped or unexecuted checks. Scoped pytest, selected Bazel targets, static checks
-or policy readers establish only their own results. If the complete lane has not
+skipped or unexecuted checks. Scoped pytest, static checks, or policy readers
+establish only their own results. If the complete lane has not
 run, report it as pending; do not describe focused validation as a complete-lane
 pass or merge readiness. Historical migration results are not evidence for the
 current revision.

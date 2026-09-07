@@ -53,21 +53,7 @@ _APPLICABLE_GATES = (
     "QG14",
 )
 _DEPENDENCY_ADMISSION_OPEN_FINDING_IDS = ("B07-F01", "B07-F02", "B07-F03")
-_PREDECESSOR_DEPENDENCY_PACKAGE_IDS = ("B02", "B03", "B04", "B05", "B06")
-_EXPECTED_LOCK_PATHS = (
-    "uv.lock",
-    "requirements.bazel.txt",
-    "MODULE.bazel.lock",
-    "flake.lock",
-    ".github/workflows/ci.yml",
-)
-_EXPECTED_MIGRATED_PATHS = (
-    "docs/architecture/build-tool-dependencies.toml",
-    "environments/dev/toolchain.toml",
-    "docs/architecture/engineering-tool-dependencies.toml",
-    "docs/architecture/ci-tool-dependencies.toml",
-    "docs/architecture/remote-execution.toml",
-)
+_EXPECTED_LOCK_PATHS = ("uv.lock",)
 _ROOT_KEYS = {
     "accountable_owner_role",
     "applicable_gate_ids",
@@ -82,7 +68,6 @@ _ROOT_KEYS = {
     "lock_paths",
     "lock_digests",
     "maximum_signal_age_days",
-    "migrated_records",
     "native_python_packages",
     "open_finding_ids",
     "operating_track",
@@ -112,9 +97,7 @@ _INSTALL_COMMAND = re.compile(
 _WORKFLOW_USE = re.compile(r"(?m)^\s*-?\s*uses:\s*([^\s@]+)@([^\s#]+)")
 _ACTION_PINS = {
     "actions/checkout": "34e114876b0b11c390a56381ad16ebd13914f8d5",
-    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
     "astral-sh/setup-uv": "c771a70e6277c0a99b617c7a806ffedaca235ff9",
-    "bazel-contrib/setup-bazel": "c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86",
     "sigstore/cosign-installer": "6f9f17788090df1f26f669e9d70d6ae9567deba6",
 }
 _APPROVED_PYTHON_LICENSES = {
@@ -478,7 +461,7 @@ class DependencyPolicyLoader:
 
         Read ``path`` as UTF-8 TOML and enforce the fixed B07 metadata, root and nested
         schemas, policy dates and bounds, quality gates, supported platforms and index,
-        lock surfaces and digests, migrated predecessor records, package/license/native
+        lock surfaces and digests, package/license/native
         admissions, scanner and Scorecard pins, findings, decisions, overrides, and
         optional wheel-admission profiles. The wheel parsers validate claims only: this
         function does not read referenced evidence, hash artifacts, inspect lock files,
@@ -573,17 +556,6 @@ class DependencyPolicyLoader:
         )
         if runtime_scan_roots != ("src", "tools"):
             raise DependencyAdmissionError(["runtime install scanning must cover src and tools"])
-
-        migrated = _tables(document.get("migrated_records"), context="migrated_records")
-        if (
-            tuple(item.get("roadmap_package") for item in migrated)
-            != _PREDECESSOR_DEPENDENCY_PACKAGE_IDS
-            or tuple(item.get("path") for item in migrated) != _EXPECTED_MIGRATED_PATHS
-            or any(set(item) != {"path", "roadmap_package"} for item in migrated)
-        ):
-            raise DependencyAdmissionError(
-                ["B02-B06 migrated dependency records are incomplete or reordered"]
-            )
 
         native_names = set(
             _strings(
@@ -714,7 +686,6 @@ class DependencyPolicyLoader:
                 approved_python_indexes=indexes,
                 lock_paths=lock_paths,
                 lock_digests=tuple((path, cast(str, lock_digests[path])) for path in lock_paths),
-                migrated_record_paths=_EXPECTED_MIGRATED_PATHS,
                 runtime_scan_roots=runtime_scan_roots,
                 packages=tuple(packages),
                 vulnerability_decisions=decisions,
@@ -1041,9 +1012,7 @@ class DependencyRepositoryValidator:
         Cosign subprocess with no shell, a ``PATH``-only environment, and no offline
         flag, so this function does not establish network-free execution. This gate
         is narrower than ``validate_repository``: it hashes every admitted lock path
-        but does not parse non-Python lock contents or run their semantic surface
-        checks, and it does not inspect migrated records, runtime-install scans, or
-        external audit signals.
+        but does not run runtime-install scans or external audit signals.
 
         The repository root is bound by the service constructor.
 
@@ -1086,8 +1055,7 @@ class DependencyRepositoryValidator:
         or ``date.today()`` for bootstrap-wheel effectiveness, review freshness, and
         emergency-override expiry. A review deadline or override expiry equal to the
         chosen date remains valid because the checks flag only dates before it. Collect
-        findings in order from the Python lock graph, retained B02-B06 records,
-        non-Python lock surfaces, and configured ``src``/``tools``
+        findings in order from the Python lock graph and configured ``src``/``tools``
         runtime-install scans. Then check policy-listed lock digests, the exact
         ``pip-audit==2.10.1`` development dependency, and required integration fragments.
         A non-empty finding list is raised together. When those checks pass, validate the
@@ -1122,11 +1090,10 @@ class DependencyRepositoryValidator:
                 lock-digest, temporary-resource, or integration-file operation fails.
             RuntimeError: If repository or evidence-bundle path resolution encounters a
                 symlink loop.
-            UnicodeDecodeError: If an uncaught repository, policy, lock, migration,
+            UnicodeDecodeError: If an uncaught repository, policy, lock,
                 integration, source, or evidence text file is not valid UTF-8.
-            json.JSONDecodeError: If a non-Python lock surface is not valid JSON.
             tomllib.TOMLDecodeError: If an uncaught repository TOML document, including
-                a lock, migration record, or ``pyproject.toml``, is malformed. Policy,
+                a lock or ``pyproject.toml``, is malformed. Policy,
                 change-risk, and evidence-manifest TOML syntax is translated by its
                 respective loader.
             ValueError: If URL parsing or another helper operation raises an untranslated
@@ -1141,7 +1108,6 @@ class DependencyRepositoryValidator:
         inspector = DependencyRepositoryInspector(root, policy)
         findings = (
             inspector._python_lock_findings(validation_date=today)
-            + inspector._migrated_record_findings()
             + inspector._lock_surface_findings()
             + inspector._runtime_install_findings()
         )
@@ -1167,11 +1133,7 @@ class DependencyRepositoryValidator:
                 "dependency-audit:",
                 "alpha-governance-dependencies",
             ),
-            ".pre-commit-config.yaml": (
-                "id: dependency-admission",
-                "alpha-governance-dependencies",
-            ),
-            ".github/workflows/ci.yml": ("make dependency-audit",),
+            ".github/workflows/ci.yml": ("make source-check",),
             "tools/governance/pyproject.toml": ("alpha-governance-dependencies",),
         }
         for relative, fragments in integrations.items():
@@ -1195,7 +1157,7 @@ def load_policy(path: Path) -> DependencyAdmission:
 
     Read ``path`` as UTF-8 TOML and enforce the fixed B07 metadata, root and nested
     schemas, policy dates and bounds, quality gates, supported platforms and index,
-    lock surfaces and digests, migrated predecessor records, package/license/native
+    lock surfaces and digests, package/license/native
     admissions, scanner and Scorecard pins, findings, decisions, overrides, and
     optional wheel-admission profiles. The wheel parsers validate claims only: this
     function does not read referenced evidence, hash artifacts, inspect lock files,
@@ -1305,7 +1267,7 @@ def _wheel_platform_findings(
 
 
 class DependencyRepositoryInspector:
-    """Own repository lock, migration, and installation-scan workflows."""
+    """Own repository lock and installation-scan workflows."""
 
     def __init__(self, repository_root: Path, policy: DependencyAdmission | None = None) -> None:
         """Bind DependencyRepositoryInspector collaborators without filesystem or process I/O.
@@ -1416,158 +1378,23 @@ class DependencyRepositoryInspector:
                     findings.append(f"{package.name} has an unresolved transitive dependency")
         return findings
 
-    def _migrated_record_findings(self) -> list[str]:
-        """Collect findings for predecessor dependency records retained after migration.
-
-        Returns:
-            Findings ordered by predecessor package and path, then by each record's ``dependencies``
-            and ``tools`` collections and their field checks. The checks cover expected roadmap
-            ownership, runtime-installation prohibition for B02 through B05, required non-empty
-            strings, HTTPS source URLs, embedded immutable digests, non-empty platform lists, and
-            transitive/native dependency lists. Inputs are read only and never mutated; URL policy
-            failures become findings.
-
-        Raises:
-            DependencyAdmissionError: If a parsed document or collection is not a TOML table or
-                table array, respectively.
-            OSError: If a migrated record cannot be read.
-            UnicodeDecodeError: If a migrated record is not valid UTF-8.
-            tomllib.TOMLDecodeError: If a migrated record is not valid TOML.
-            ValueError: If the ordered path count fails ``zip``'s strict check or URL parsing
-                rejects malformed source URL authority syntax.
-        """
-        root = self.repository_root
-        policy = self.policy
-        if policy is None:
-            raise ValueError("dependency repository inspector requires an admitted policy")
-        findings: list[str] = []
-        for expected_package, relative in zip(
-            _PREDECESSOR_DEPENDENCY_PACKAGE_IDS,
-            policy.migrated_record_paths,
-            strict=True,
-        ):
-            raw_document: object = cast(
-                object, tomllib.loads((root / relative).read_text(encoding="utf-8"))
-            )
-            document = _table(raw_document, context=relative)
-            if document.get("roadmap_package") != expected_package:
-                findings.append(f"{relative} is not the {expected_package} migration source")
-            if expected_package != "B06":
-                if document.get("admission_owner_package") != "B07":
-                    findings.append(f"{relative} does not retain B07 admission ownership")
-                if document.get("runtime_installation_allowed") is not False:
-                    findings.append(f"{relative} permits runtime dependency installation")
-            for collection in ("dependencies", "tools"):
-                for item in _tables(
-                    document.get(collection, []), context=f"{relative}.{collection}"
-                ):
-                    required = (
-                        "license",
-                        "maintenance_review",
-                        "purpose",
-                        "rollback",
-                        "source_digest",
-                        "source_url",
-                        "version",
-                        "vulnerability_review",
-                    )
-                    if any(
-                        not isinstance(item.get(key), str) or not item.get(key) for key in required
-                    ):
-                        findings.append(
-                            f"{relative} has an incomplete migrated {collection} record"
-                        )
-                        continue
-                    source_url = cast(str, item["source_url"])
-                    source_digest = cast(str, item["source_digest"])
-                    try:
-                        _https_url(source_url, context=f"{relative}.{collection}.source_url")
-                    except DependencyAdmissionError:
-                        findings.append(f"{relative} has an unapproved migrated source URL")
-                    if re.search(r"(?:[0-9a-f]{64}|[0-9a-f]{40})", source_digest) is None:
-                        findings.append(f"{relative} has no immutable migrated source digest")
-                    platform_key = (
-                        "supported_systems" if collection == "tools" else "supported_platforms"
-                    )
-                    if not isinstance(item.get(platform_key), list) or not item.get(platform_key):
-                        findings.append(f"{relative} has no migrated platform declaration")
-                    if not isinstance(item.get("transitive_native_dependencies"), list):
-                        findings.append(f"{relative} has no migrated transitive/native declaration")
-        return findings
-
     def _lock_surface_findings(self) -> list[str]:
-        """Collect findings from the repository's non-Python lock surfaces.
+        """Validate immutable GitHub Action revisions used by the uv workflow.
+
+        The Python dependency graph and its single ``uv.lock`` digest are checked by
+        ``_python_lock_findings`` and the caller. This method only validates workflow action
+        references, keeping CI provenance useful without making a second build system a policy
+        prerequisite.
 
         Returns:
-            Findings in surface order: ``MODULE.bazel.lock``, ``flake.lock``, the exact
-            ``requirements.bazel.txt`` subset relation to ``uv.lock``, and regex-matched GitHub
-            Actions in ``ci.yml``. The checks require BCR registry URLs with lowercase 64-character
-            SHA-256 strings, and require each non-root Nix node to expose string ``rev`` and
-            ``narHash`` values without checking their content or immutability. Requirements are
-            compared only by names before the first ``==`` on non-comment, non-empty lines;
-            versions, digests, formatting, and complete uv equality are not checked. The workflow
-            check scans only matching ``uses: action@revision`` lines rather than parsing YAML, then
-            compares the
-            observed action/revision sets with the admitted map and flags non-commit revisions.
-            Malformed values within those surfaces are reported as findings. No input is mutated and
-            no network request is made.
+            Findings in workflow order for mutable or unexpected action revisions.
 
         Raises:
-            DependencyAdmissionError: If a JSON lock root is not a table, or the nested uv lock
-                parser rejects its shape, schema, or duplicate package names.
-            OSError: If a lock, requirements, or workflow file cannot be read.
-            UnicodeDecodeError: If a text input is not valid UTF-8.
-            json.JSONDecodeError: If ``MODULE.bazel.lock`` or ``flake.lock`` is not valid JSON.
-            tomllib.TOMLDecodeError: If the nested ``uv.lock`` is not valid TOML.
+            OSError: If the workflow cannot be read.
+            UnicodeDecodeError: If the workflow is not valid UTF-8.
         """
         root = self.repository_root
         findings: list[str] = []
-        raw_module_lock: object = json.loads(
-            (root / "MODULE.bazel.lock").read_text(encoding="utf-8")
-        )
-        module_lock = _table(raw_module_lock, context="MODULE.bazel.lock")
-        hashes = module_lock.get("registryFileHashes")
-        if (
-            not isinstance(hashes, dict)
-            or not hashes
-            or any(
-                not isinstance(url, str)
-                or not url.startswith("https://bcr.bazel.build/")
-                or not isinstance(digest, str)
-                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-                for url, digest in hashes.items()
-            )
-        ):
-            findings.append("MODULE.bazel.lock contains an unapproved or unhashed registry input")
-        raw_flake_lock: object = json.loads((root / "flake.lock").read_text(encoding="utf-8"))
-        flake_lock = _table(raw_flake_lock, context="flake.lock")
-        nodes = flake_lock.get("nodes")
-        if not isinstance(nodes, dict):
-            findings.append("flake.lock nodes are malformed")
-        else:
-            typed_nodes = cast(dict[str, object], nodes)
-            for name, node in typed_nodes.items():
-                if name == "root":
-                    continue
-                node_object = cast(dict[str, object], node) if isinstance(node, dict) else None
-                locked = node_object.get("locked") if node_object is not None else None
-                if (
-                    not isinstance(locked, dict)
-                    or not isinstance(locked.get("narHash"), str)
-                    or not isinstance(locked.get("rev"), str)
-                ):
-                    findings.append(
-                        f"flake.lock node {name!r} lacks immutable revision and NAR hash"
-                    )
-        requirements = (root / "requirements.bazel.txt").read_text(encoding="utf-8").splitlines()
-        requirement_names = {
-            line.partition("==")[0]
-            for line in requirements
-            if line and not line.startswith("#") and "==" in line
-        }
-        uv_names = set(_locked_python_packages(root / "uv.lock"))
-        if not requirement_names or not requirement_names <= uv_names:
-            findings.append("requirements.bazel.txt is not an exact uv.lock subset")
         workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         observed_actions: dict[str, set[str]] = {}
         workflow_uses = cast(list[tuple[str, str]], _WORKFLOW_USE.findall(workflow))
@@ -1645,9 +1472,7 @@ def require_release_admission(repository_root: Path) -> None:
     Cosign subprocess with no shell, a ``PATH``-only environment, and no offline
     flag, so this function does not establish network-free execution. This gate
     is narrower than ``validate_repository``: it hashes every admitted lock path
-    but does not parse non-Python lock contents or run their semantic surface
-    checks, and it does not inspect migrated records, runtime-install scans, or
-    external audit signals.
+    but does not inspect runtime-install scans or external audit signals.
 
     Args:
         repository_root: Existing repository directory whose policy, lock, evidence,
@@ -1855,8 +1680,7 @@ def validate_repository(
     or ``date.today()`` for bootstrap-wheel effectiveness, review freshness, and
     emergency-override expiry. A review deadline or override expiry equal to the
     chosen date remains valid because the checks flag only dates before it. Collect
-    findings in order from the Python lock graph, retained B02-B06 records,
-    non-Python lock surfaces, and configured ``src``/``tools``
+    findings in order from the Python lock graph and configured ``src``/``tools``
     runtime-install scans. Then check policy-listed lock digests, the exact
     ``pip-audit==2.10.1`` development dependency, and required integration fragments.
     A non-empty finding list is raised together. When those checks pass, validate the
@@ -1871,8 +1695,8 @@ def validate_repository(
     or install packages, and its Cosign path does not guarantee network-free execution.
 
     Args:
-        repository_root: Existing repository directory whose policy, locks, migrated
-            records, integrations, source roots, and local evidence are checked.
+        repository_root: Existing repository directory whose policy, lock, integrations,
+            source roots, and local evidence are checked.
         validation_date: Date used for bootstrap validity, review freshness, and
             override expiry; defaults to ``date.today()`` when omitted.
 
@@ -1893,11 +1717,10 @@ def validate_repository(
             lock-digest, temporary-resource, or integration-file operation fails.
         RuntimeError: If repository or evidence-bundle path resolution encounters a
             symlink loop.
-        UnicodeDecodeError: If an uncaught repository, policy, lock, migration,
+        UnicodeDecodeError: If an uncaught repository, policy, lock,
             integration, source, or evidence text file is not valid UTF-8.
-        json.JSONDecodeError: If a non-Python lock surface is not valid JSON.
         tomllib.TOMLDecodeError: If an uncaught repository TOML document, including
-            a lock, migration record, or ``pyproject.toml``, is malformed. Policy,
+            a lock or ``pyproject.toml``, is malformed. Policy,
             change-risk, and evidence-manifest TOML syntax is translated by its
             respective loader.
         ValueError: If URL parsing or another helper operation raises an untranslated

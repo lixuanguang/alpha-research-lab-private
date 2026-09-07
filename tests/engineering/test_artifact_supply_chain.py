@@ -187,14 +187,14 @@ def _create_test_artifact_and_evidence(tmp_path: Path) -> tuple[Path, Path]:
 class ArtifactRepositoryFixture:
     """Materialize policy-declared repository inputs as regular temporary files.
 
-    Bazel exposes repository inputs through runfiles symlinks, while artifact policy
+    Repository checkouts may expose inputs through symlinks, while artifact policy
     validation deliberately rejects symlinks before hashing them. This service copies
-    the exact policy, lock, toolchain, integration, change-risk and evidence files to
+    the exact policy, lock, project, integration, change-risk and evidence files to
     a temporary repository tree so lifecycle tests exercise the production checks with
     the same bytes and regular-file shape used by a checked-out repository.
 
     Attributes:
-        source_root: Repository or Bazel runfiles tree containing the source inputs.
+        source_root: Repository tree containing the source inputs.
         policy: Artifact policy whose declared paths define the materialized inputs.
     """
 
@@ -203,7 +203,7 @@ class ArtifactRepositoryFixture:
 
         Args:
             source_root: Repository tree from which declared files are copied.
-            policy: Loaded policy defining lock, toolchain and evidence paths.
+            policy: Loaded policy defining lock, project and evidence paths.
         """
         self.source_root = source_root
         self.policy = policy
@@ -226,9 +226,8 @@ class ArtifactRepositoryFixture:
             Path("docs/architecture/artifact-supply-chain.toml"),
             Path("docs/governance/change-risk-policy.toml"),
             Path("Makefile"),
-            Path(".pre-commit-config.yaml"),
-            Path("flake.nix"),
-            Path("docs/architecture/decisions/0001-build-and-developer-tooling.md"),
+            Path(".github/workflows/ci.yml"),
+            Path("pyproject.toml"),
             Path(
                 "docs/governance/evidence/examples/b08-r2-partial/reports/"
                 "artifact-sbom-provenance.txt"
@@ -245,7 +244,7 @@ class ArtifactRepositoryFixture:
                 "docs/governance/evidence/examples/b08-r2-partial/reports/"
                 "signing-publication-consumption.txt"
             ),
-            Path(self.policy.toolchain_path),
+            Path(self.policy.project_path),
             Path(self.policy.local_evidence_manifest_path),
             *(Path(lock.path) for lock in self.policy.locks),
         }
@@ -301,7 +300,7 @@ class ArtifactFixtureService:
         created_bundle = create_bundle(
             test_artifact_path,
             artifact_kind="binary",
-            build_target="//platform/service:release",
+            build_command="uv build --no-build-isolation --wheel --no-sources",
             source_commit=SOURCE_COMMIT_SHA,
             test_evidence_paths=(test_evidence_path,),
             output_path=bundle_path,
@@ -383,7 +382,7 @@ def artifact_fixture_service(
 class TestArtifactPolicy:
     """Validate closed artifact policy metadata and tool identities."""
 
-    def test_policy_is_closed_and_binds_tools_locks_and_blueprint_gate(
+    def test_policy_is_closed_and_binds_tools_uv_lock_and_artifact_gate(
         self,
         artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
         artifact_repository_root: Path,
@@ -394,12 +393,7 @@ class TestArtifactPolicy:
         assert artifact_supply_chain_policy.successor_package == "C01"
         assert artifact_supply_chain_policy.syft.version == "1.51.1"
         assert artifact_supply_chain_policy.cosign.version == "3.1.3"
-        assert tuple(lock.path for lock in artifact_supply_chain_policy.locks) == (
-            "MODULE.bazel.lock",
-            "flake.lock",
-            "requirements.bazel.txt",
-            "uv.lock",
-        )
+        assert tuple(lock.path for lock in artifact_supply_chain_policy.locks) == ("uv.lock",)
         assert artifact_supply_chain_policy.applicable_gate_ids[-1] == "QG15"
         assert artifact_supply_chain_policy.open_finding_ids == (
             "B08-F01",
@@ -440,7 +434,7 @@ class TestArtifactBundleLifecycle:
         artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
         artifact_fixture_service: ArtifactFixtureService,
     ) -> None:
-        """Match repeated metadata and retain artifact, toolchain and evidence bindings."""
+        """Match repeated metadata and retain artifact, project and evidence bindings."""
         first_bundle_path, first_artifact_digest = artifact_fixture_service.create_bundle(
             tmp_path,
             DeterministicArtifactToolRunner(),
@@ -468,14 +462,15 @@ class TestArtifactBundleLifecycle:
         artifact_section = raw_manifest["artifact"]
         assert _is_string_mapping(artifact_section)
         assert artifact_section["sha256"] == first_artifact_digest.removeprefix("sha256:")
-        toolchain_section = raw_manifest["toolchain"]
-        assert _is_string_mapping(toolchain_section)
-        assert toolchain_section == {
-            "cosign": "3.1.3",
-            "path": "environments/dev/toolchain.toml",
-            "sha256": "16bd96c8f8515f4db6af17a48e9edac243902397f1fd22d5f71f953278be342c",
-            "syft": "1.51.1",
+        project_section = raw_manifest["project"]
+        assert _is_string_mapping(project_section)
+        assert project_section == {
+            "path": "pyproject.toml",
+            "sha256": "d1f906f08eb793e0d43c4ad6eea69e2314839f7c17472b97c210a620c2ddfe2b",
         }
+        tools_section = raw_manifest["tools"]
+        assert _is_string_mapping(tools_section)
+        assert tools_section == {"cosign": "3.1.3", "syft": "1.51.1"}
         evidence_section = raw_manifest["testEvidence"]
         assert _is_object_list(evidence_section)
         assert all(_is_string_mapping(item) for item in evidence_section)
@@ -512,7 +507,7 @@ class TestArtifactBundleLifecycle:
         create_bundle(
             test_artifact_path,
             artifact_kind="binary",
-            build_target="//platform/service:release",
+            build_command="uv build --no-build-isolation --wheel --no-sources",
             source_commit=SOURCE_COMMIT_SHA,
             test_evidence_paths=(test_evidence_path,),
             output_path=tmp_path / "resolved-root-candidate",
@@ -757,7 +752,7 @@ class TestArtifactBundleLifecycle:
             create_bundle(
                 test_artifact_path,
                 artifact_kind="unknown",
-                build_target="//platform/service:release",
+                build_command="uv build --no-build-isolation --wheel --no-sources",
                 source_commit=SOURCE_COMMIT_SHA,
                 test_evidence_paths=(test_evidence_path,),
                 output_path=tmp_path / "candidate",
@@ -769,18 +764,18 @@ class TestArtifactBundleLifecycle:
         assert main(["unknown"]) == 2
         assert "usage:" in capsys.readouterr().err
 
-    def test_root_package_bazel_label_is_accepted(
+    def test_canonical_uv_build_command_is_recorded(
         self,
         tmp_path: Path,
         artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
         artifact_repository_root: Path,
     ) -> None:
-        """Preserve an explicit root-package Bazel label in the created bundle identity."""
+        """Preserve the canonical uv build command in the created bundle identity."""
         test_artifact_path, test_evidence_path = _create_test_artifact_and_evidence(tmp_path)
         created_bundle = create_bundle(
             test_artifact_path,
             artifact_kind="binary",
-            build_target="//:docs_bundle",
+            build_command="uv build --no-build-isolation --wheel --no-sources",
             source_commit=SOURCE_COMMIT_SHA,
             test_evidence_paths=(test_evidence_path,),
             output_path=tmp_path / "root-label",
@@ -789,7 +784,7 @@ class TestArtifactBundleLifecycle:
             runner=DeterministicArtifactToolRunner(),
             build_platform="darwin-arm64",
         )
-        assert created_bundle.build_target == "//:docs_bundle"
+        assert created_bundle.build_command == "uv build --no-build-isolation --wheel --no-sources"
 
     @pytest.mark.parametrize("operation", ["create", "sign", "verify", "publish"])
     def test_bootstrap_dependency_denial_blocks_every_artifact_boundary_before_tools(

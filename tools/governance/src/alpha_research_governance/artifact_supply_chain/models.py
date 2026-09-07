@@ -78,8 +78,8 @@ class ArtifactSupplyChainPolicy(ImmutableModel):
         trusted_signing_context: CI context permitted to request signing.
         signing_environment: Ordered environment-variable names and required values.
         revoked_signer_identities: Signer identities rejected even if otherwise trusted.
-        toolchain_path: Repository-relative toolchain declaration path.
-        toolchain_sha256: Expected SHA-256 digest of the toolchain declaration.
+        project_path: Repository-relative project manifest path used by the uv build.
+        project_sha256: Expected SHA-256 digest of the project manifest.
         locks: Ordered lockfile identities bound into provenance.
         syft: Executable and version used to generate the SBOM.
         cosign: Executable and version used for signing and verification.
@@ -108,8 +108,8 @@ class ArtifactSupplyChainPolicy(ImmutableModel):
     trusted_signing_context: str
     signing_environment: tuple[tuple[str, str], ...]
     revoked_signer_identities: tuple[str, ...]
-    toolchain_path: str
-    toolchain_sha256: str
+    project_path: str
+    project_sha256: str
     locks: tuple[LockIdentity, ...]
     syft: ArtifactTool
     cosign: ArtifactTool
@@ -130,7 +130,7 @@ class ArtifactBundle(ImmutableModel):
         artifact_kind: Supported archive format, such as a wheel or source archive.
         artifact_sha256: SHA-256 digest of the complete artifact file.
         source_commit: Source revision bound into the bundle's build identity.
-        build_target: Explicit Bazel target identifying the build output.
+        build_command: Canonical uv build command recorded for the artifact.
         build_platform: Declared platform on which the artifact was built.
         manifest_sha256: SHA-256 digest of the bundle manifest bytes.
     """
@@ -139,6 +139,6 @@ class ArtifactBundle(ImmutableModel):
     artifact_kind: str
     artifact_sha256: str
     source_commit: str
-    build_target: str
+    build_command: str
     build_platform: str
     manifest_sha256: str

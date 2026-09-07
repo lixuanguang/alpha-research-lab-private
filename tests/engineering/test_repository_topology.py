@@ -116,18 +116,14 @@ class TestRepositoryTopologyCore:
         assert topology.slice_status == "provisionally_implemented"
         assert topology.remaining_slices == ()
         assert topology.validation_workload_budget_ms == 1_000
-        assert len(topology.units) == 32
+        assert len(topology.units) == 31
         assert topology.unit("library.alpha_research.instrument_identity").kind == "library"
         assert topology.unit("library.alpha_research.venue_calendar").kind == "library"
-        assert topology.unit("test.build").kind == "test"
         assert topology.unit("test.engineering").kind == "test"
         assert topology.unit("tool.governance.repository_topology").kind == "tool"
         assert topology.unit("tool.governance.artifact_supply_chain").kind == "tool"
         assert topology.unit("tool.governance.engineering_standards").kind == "tool"
-        assert topology.unit("tool.governance.ci_policy").kind == "tool"
         assert topology.unit("tool.governance.dependency_admission").kind == "tool"
-        assert topology.unit("tool.governance.remote_execution").kind == "tool"
-        assert topology.unit("compatibility.alpha_research.ci_policy").kind == "compatibility"
         assert topology.unit("compatibility.alpha_research.repository_topology").kind == (
             "compatibility"
         )
@@ -170,7 +166,7 @@ class TestRepositoryTopologyCore:
         )
 
         assert completed_process.returncode == 0, completed_process.stderr
-        assert "32 owned targets; B01 status is partial" in completed_process.stdout
+        assert "31 owned targets; B01 status is partial" in completed_process.stdout
 
 
 class TestRepositoryTopologyAdversarial:
@@ -320,7 +316,7 @@ class TestRepositoryTopologyAdversarial:
         fixture_repository_root, register = TOPOLOGY_FIXTURE.materialize(tmp_path)
         _replace_topology_fixture_text(
             register,
-            'source_roots = [\n  "src/alpha_research",\n  "tests/build",\n  "tests/engineering",\n'
+            'source_roots = [\n  "src/alpha_research",\n  "tests/engineering",\n'
             '  "tests/unit",\n'
             '  "tools/governance/src/alpha_research_governance",\n]',
             'source_roots = ["src/alpha_research"]',

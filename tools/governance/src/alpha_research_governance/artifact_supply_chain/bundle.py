@@ -31,7 +31,6 @@ ProcessRunner = Callable[[list[str], Path, Mapping[str, str]], subprocess.Comple
 
 _LOWERCASE_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _LOWERCASE_GIT_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-_EXPLICIT_BAZEL_TARGET_PATTERN = re.compile(r"^//(?:[^\s:]+(?::[^\s:]+)?|:[^\s:]+)$")
 _SAFE_BUNDLE_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,254}$")
 _BUILD_PLATFORM_IDENTITY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{1,127}$")
 _MAXIMUM_JSON_DOCUMENT_BYTES = 100 * 1024 * 1024
@@ -45,12 +44,15 @@ _ARTIFACT_MANIFEST_KEYS = {
     "provenance",
     "sbom",
     "testEvidence",
-    "toolchain",
+    "tools",
+    "project",
 }
 _ARTIFACT_IDENTITY_KEYS = {"kind", "name", "path", "sha256", "size"}
 _DIGESTED_FILE_RECORD_KEYS = {"path", "sha256", "size"}
-_BUILD_IDENTITY_KEYS = {"platform", "sourceCommit", "target"}
-_TOOLCHAIN_IDENTITY_KEYS = {"cosign", "path", "sha256", "syft"}
+_BUILD_IDENTITY_KEYS = {"command", "platform", "sourceCommit"}
+_PROJECT_IDENTITY_KEYS = {"path", "sha256"}
+_UV_BUILD_COMMAND = "uv build --no-build-isolation --wheel --no-sources"
+_TOOLS_IDENTITY_KEYS = {"cosign", "syft"}
 
 
 def _is_object_dict(value: object) -> TypeGuard[dict[object, object]]:
@@ -576,7 +578,7 @@ class ArtifactBundleService:
     def _verify_current_repository_identities(self, repository_root: Path) -> None:
         """Verify policy-bound repository identities and release admission.
 
-        Hash each admitted lockfile and the toolchain file under the resolved repository root,
+        Hash the admitted uv lock and project manifest under the resolved repository root,
         then use the module-level release-admission seam so callers retain its existing patchable
         integration point.
 
@@ -597,10 +599,10 @@ class ArtifactBundleService:
                     [f"repository lock identity drifted: {lock_identity.path}"]
                 )
         if (
-            compute_regular_file_sha256(repository_root / self.policy.toolchain_path)
-            != self.policy.toolchain_sha256
+            compute_regular_file_sha256(repository_root / self.policy.project_path)
+            != self.policy.project_sha256
         ):
-            raise ArtifactSupplyChainError(["repository toolchain identity drifted"])
+            raise ArtifactSupplyChainError(["repository project identity drifted"])
         self._require_release_dependencies(repository_root)
 
     def _require_release_dependencies(self, repository_root: Path) -> None:
@@ -633,7 +635,7 @@ class ArtifactBundleService:
         artifact_path: Path,
         *,
         artifact_kind: str,
-        build_target: str,
+        build_command: str,
         source_commit: str,
         test_evidence_paths: tuple[Path, ...],
         output_path: Path,
@@ -642,7 +644,7 @@ class ArtifactBundleService:
         """Create an unsigned candidate bundle with normalized local metadata.
 
         Resolve ``repository_root`` before checking every policy-declared lock and the
-        toolchain file, then require release dependency admission before invoking Syft.
+        project manifest, then require release dependency admission before invoking Syft.
         Validate the artifact and evidence inputs and the destination, then run the admitted
         Syft version check with the resolved repository as its working directory. Create a
         sibling temporary staging directory and copy the complete artifact into it. Run Syft
@@ -651,7 +653,7 @@ class ArtifactBundleService:
         Copy the opaque evidence files in basename order and write canonical bundle metadata.
         The candidate is exposed at ``output_path`` only after the staging directory is
         renamed there. The source commit
-        and Bazel target are syntax checked and recorded; this function does not build the
+        and exact uv build command are checked and recorded; this function does not build the
         artifact or inspect Git state.
 
         The admission, file checks, hashing, and copies are separate filesystem observations
@@ -670,9 +672,11 @@ class ArtifactBundleService:
             artifact_kind: Artifact kind that must occur in
                 ``policy.supported_artifact_kinds``. It is recorded in the manifest and
                 provenance.
-            build_target: Explicit Bazel label, such as ``//pkg:target`` or ``//:target``,
-                recorded in the build identity and provenance. No Bazel command or
-                target-output check is performed.
+            build_command: Normalized backend command identity recorded in the build identity
+                and provenance. It must be ``uv build --no-build-isolation --wheel --no-sources``;
+                wrappers may add frozen-environment, project, and output-directory arguments.
+                This function inventories and verifies the supplied output but does not invoke
+                the build.
             source_commit: Lowercase 40-character Git SHA recorded in the build identity,
                 provenance source URI, and returned summary. The spelling is checked, but
                 the repository ``HEAD`` and the commit's existence are not queried.
@@ -696,7 +700,7 @@ class ArtifactBundleService:
 
         Returns:
             An ``ArtifactBundle`` containing the artifact basename, kind, complete-file
-            SHA-256 digest, source commit, build target, derived or supplied platform
+            SHA-256 digest, source commit, build command, derived or supplied platform
             identity, and manifest SHA-256 digest. The record describes preparation only and
             does not indicate that the candidate is signed or verified.
 
@@ -723,8 +727,8 @@ class ArtifactBundleService:
         self._verify_current_repository_identities(resolved_repository_root)
         if artifact_kind not in policy.supported_artifact_kinds:
             raise ArtifactSupplyChainError([f"unsupported artifact kind: {artifact_kind!r}"])
-        if _EXPLICIT_BAZEL_TARGET_PATTERN.fullmatch(build_target) is None:
-            raise ArtifactSupplyChainError(["build target must be an explicit Bazel label"])
+        if build_command != _UV_BUILD_COMMAND:
+            raise ArtifactSupplyChainError([f"build command must be exactly {_UV_BUILD_COMMAND!r}"])
         if _LOWERCASE_GIT_COMMIT_SHA_PATTERN.fullmatch(source_commit) is None:
             raise ArtifactSupplyChainError(
                 ["source commit must be a lowercase 40-character Git SHA"]
@@ -832,7 +836,7 @@ class ArtifactBundleService:
                         stored_test_evidence, f"tests/{test_evidence_path.name}"
                     )
                 )
-            toolchain_path = resolved_repository_root / policy.toolchain_path
+            project_path = resolved_repository_root / policy.project_path
             build_platform_identity = build_platform or (
                 platform.system().lower() + "-" + platform.machine().lower()
             )
@@ -848,7 +852,7 @@ class ArtifactBundleService:
                         "externalParameters": {
                             "artifactKind": artifact_kind,
                             "buildPlatform": build_platform_identity,
-                            "buildTarget": build_target,
+                            "buildCommand": build_command,
                             "sourceCommit": source_commit,
                         },
                         "internalParameters": {},
@@ -865,8 +869,8 @@ class ArtifactBundleService:
                                 for lock_identity in policy.locks
                             ],
                             {
-                                "uri": policy.toolchain_path,
-                                "digest": {"sha256": policy.toolchain_sha256},
+                                "uri": policy.project_path,
+                                "digest": {"sha256": policy.project_sha256},
                             },
                         ],
                     },
@@ -877,7 +881,7 @@ class ArtifactBundleService:
             _write_canonical_json(provenance_path, provenance_statement)
             policy_path = resolved_repository_root / "docs/architecture/artifact-supply-chain.toml"
             artifact_manifest = {
-                "bundleVersion": 1,
+                "bundleVersion": 2,
                 "artifact": {
                     "kind": artifact_kind,
                     "name": artifact_path.name,
@@ -888,7 +892,7 @@ class ArtifactBundleService:
                 "build": {
                     "platform": build_platform_identity,
                     "sourceCommit": source_commit,
-                    "target": build_target,
+                    "command": build_command,
                 },
                 "locks": [
                     {"path": lock_identity.path, "sha256": lock_identity.sha256}
@@ -901,12 +905,11 @@ class ArtifactBundleService:
                 "provenance": _build_file_digest_record(provenance_path, "provenance.intoto.json"),
                 "sbom": _build_file_digest_record(sbom_path, "sbom.spdx.json"),
                 "testEvidence": test_evidence_digest_records,
-                "toolchain": {
-                    "path": policy.toolchain_path,
-                    "sha256": compute_regular_file_sha256(toolchain_path),
-                    "syft": policy.syft.version,
-                    "cosign": policy.cosign.version,
+                "project": {
+                    "path": policy.project_path,
+                    "sha256": compute_regular_file_sha256(project_path),
                 },
+                "tools": {"syft": policy.syft.version, "cosign": policy.cosign.version},
             }
             manifest_path = bundle_staging_path / "manifest.json"
             _write_canonical_json(manifest_path, artifact_manifest)
@@ -917,7 +920,7 @@ class ArtifactBundleService:
                 artifact_kind=artifact_kind,
                 artifact_sha256=artifact_digest,
                 source_commit=source_commit,
-                build_target=build_target,
+                build_command=build_command,
                 build_platform=cast(
                     str,
                     cast(dict[str, object], artifact_manifest["build"])["platform"],
@@ -939,7 +942,7 @@ class ArtifactBundleService:
 
         Require ``expected_artifact_digest`` to be ``sha256:<64 lowercase hex>``, reject a
         symlink or non-directory bundle, and resolve ``repository_root`` before checking its
-        policy-declared lock and toolchain digests and release-dependency admission. Reject
+        policy-declared uv lock and project digests and release-dependency admission. Reject
         symlinks discovered below ``bundle_path``, read the bounded manifest, enforce its
         selected schemas and identities, hash the artifact and every manifest-recorded file,
         and require the expected regular-file set. Check selected in-toto provenance
@@ -986,7 +989,7 @@ class ArtifactBundleService:
 
         Returns:
             An ``ArtifactBundle`` summary containing the verified artifact name, permitted
-            kind, artifact SHA-256 digest, source commit, Bazel target, declared build
+            kind, artifact SHA-256 digest, source commit, uv build command, declared build
             platform, and the SHA-256 digest of the manifest bytes observed at return.
 
         Raises:
@@ -1035,12 +1038,13 @@ class ArtifactBundleService:
         artifact_manifest = _read_bounded_json_object(manifest_path)
         if (
             set(artifact_manifest) != _ARTIFACT_MANIFEST_KEYS
-            or artifact_manifest.get("bundleVersion") != 1
+            or artifact_manifest.get("bundleVersion") != 2
         ):
             raise ArtifactSupplyChainError(["manifest has missing, unknown, or unsupported fields"])
         artifact_identity = artifact_manifest.get("artifact")
         build_identity = artifact_manifest.get("build")
-        toolchain_identity = artifact_manifest.get("toolchain")
+        project_identity = artifact_manifest.get("project")
+        tools_identity = artifact_manifest.get("tools")
         if not isinstance(artifact_identity, dict):
             raise ArtifactSupplyChainError(["manifest artifact has missing or unknown fields"])
         artifact_identity = cast(dict[str, object], artifact_identity)
@@ -1051,11 +1055,16 @@ class ArtifactBundleService:
         build_identity = cast(dict[str, object], build_identity)
         if set(build_identity) != _BUILD_IDENTITY_KEYS:
             raise ArtifactSupplyChainError(["manifest build has missing or unknown fields"])
-        if not isinstance(toolchain_identity, dict):
-            raise ArtifactSupplyChainError(["manifest toolchain has missing or unknown fields"])
-        toolchain_identity = cast(dict[str, object], toolchain_identity)
-        if set(toolchain_identity) != _TOOLCHAIN_IDENTITY_KEYS:
-            raise ArtifactSupplyChainError(["manifest toolchain has missing or unknown fields"])
+        if not isinstance(project_identity, dict):
+            raise ArtifactSupplyChainError(["manifest project has missing or unknown fields"])
+        project_identity = cast(dict[str, object], project_identity)
+        if set(project_identity) != _PROJECT_IDENTITY_KEYS:
+            raise ArtifactSupplyChainError(["manifest project has missing or unknown fields"])
+        if not isinstance(tools_identity, dict):
+            raise ArtifactSupplyChainError(["manifest tools have missing or unknown fields"])
+        tools_identity = cast(dict[str, object], tools_identity)
+        if set(tools_identity) != _TOOLS_IDENTITY_KEYS:
+            raise ArtifactSupplyChainError(["manifest tools have missing or unknown fields"])
         artifact_path = _parse_safe_bundle_relative_path(
             artifact_identity.get("path"), context="artifact.path"
         )
@@ -1092,20 +1101,17 @@ class ArtifactBundleService:
             is None
         ):
             raise ArtifactSupplyChainError(["source commit is invalid"])
-        if (
-            not isinstance(build_identity.get("target"), str)
-            or _EXPLICIT_BAZEL_TARGET_PATTERN.fullmatch(cast(str, build_identity["target"])) is None
-        ):
-            raise ArtifactSupplyChainError(["build target is invalid"])
+        if build_identity.get("command") != _UV_BUILD_COMMAND:
+            raise ArtifactSupplyChainError(["build command is invalid"])
         if not isinstance(build_identity.get("platform"), str) or not build_identity["platform"]:
             raise ArtifactSupplyChainError(["build platform is invalid"])
-        if toolchain_identity != {
-            "path": policy.toolchain_path,
-            "sha256": policy.toolchain_sha256,
-            "syft": policy.syft.version,
-            "cosign": policy.cosign.version,
+        if project_identity != {
+            "path": policy.project_path,
+            "sha256": policy.project_sha256,
         }:
-            raise ArtifactSupplyChainError(["toolchain identity does not match policy"])
+            raise ArtifactSupplyChainError(["project identity does not match policy"])
+        if tools_identity != {"syft": policy.syft.version, "cosign": policy.cosign.version}:
+            raise ArtifactSupplyChainError(["artifact tool identities do not match policy"])
         expected_lock_identities = [
             {"path": lock_identity.path, "sha256": lock_identity.sha256}
             for lock_identity in policy.locks
@@ -1172,7 +1178,7 @@ class ArtifactBundleService:
         expected_external_parameters = {
             "artifactKind": artifact_kind,
             "buildPlatform": build_identity["platform"],
-            "buildTarget": build_identity["target"],
+            "buildCommand": build_identity["command"],
             "sourceCommit": build_identity["sourceCommit"],
         }
         try:
@@ -1210,7 +1216,7 @@ class ArtifactBundleService:
                 "digest": {"gitCommit": build_identity["sourceCommit"]},
             },
             *[{"uri": lock.path, "digest": {"sha256": lock.sha256}} for lock in policy.locks],
-            {"uri": policy.toolchain_path, "digest": {"sha256": policy.toolchain_sha256}},
+            {"uri": policy.project_path, "digest": {"sha256": policy.project_sha256}},
         ]
         if build_definition.get("resolvedDependencies") != expected_dependencies:
             raise ArtifactSupplyChainError(["provenance dependencies do not match policy"])
@@ -1261,7 +1267,7 @@ class ArtifactBundleService:
             artifact_kind=artifact_kind,
             artifact_sha256=artifact_digest,
             source_commit=cast(str, build_identity["sourceCommit"]),
-            build_target=cast(str, build_identity["target"]),
+            build_command=cast(str, build_identity["command"]),
             build_platform=cast(str, build_identity["platform"]),
             manifest_sha256=compute_regular_file_sha256(manifest_path),
         )
@@ -1537,7 +1543,7 @@ def create_bundle(
     artifact_path: Path,
     *,
     artifact_kind: str,
-    build_target: str,
+    build_command: str,
     source_commit: str,
     test_evidence_paths: tuple[Path, ...],
     output_path: Path,
@@ -1549,7 +1555,7 @@ def create_bundle(
     """Create an unsigned candidate bundle with normalized local metadata.
 
     Resolve ``repository_root`` before checking every policy-declared lock and the
-    toolchain file, then require release dependency admission before invoking Syft.
+    project manifest, then require release dependency admission before invoking Syft.
     Validate the artifact and evidence inputs and the destination, then run the admitted
     Syft version check with the resolved repository as its working directory. Create a
     sibling temporary staging directory and copy the complete artifact into it. Run Syft
@@ -1558,7 +1564,7 @@ def create_bundle(
     Copy the opaque evidence files in basename order and write canonical bundle metadata.
     The candidate is exposed at ``output_path`` only after the staging directory is
     renamed there. The source commit
-    and Bazel target are syntax checked and recorded; this function does not build the
+    and the exact uv build command are checked and recorded; this function does not build the
     artifact or inspect Git state.
 
     The admission, file checks, hashing, and copies are separate filesystem observations
@@ -1577,9 +1583,11 @@ def create_bundle(
         artifact_kind: Artifact kind that must occur in
             ``policy.supported_artifact_kinds``. It is recorded in the manifest and
             provenance.
-        build_target: Explicit Bazel label, such as ``//pkg:target`` or ``//:target``,
-            recorded in the build identity and provenance. No Bazel command or
-            target-output check is performed.
+        build_command: Normalized backend command identity recorded in the build identity and
+            provenance. It must be ``uv build --no-build-isolation --wheel --no-sources``;
+            wrappers may add frozen-environment, project, and output-directory arguments. The
+            supplied artifact is expected to be its output; this function does not invoke the
+            build.
         source_commit: Lowercase 40-character Git SHA recorded in the build identity,
             provenance source URI, and returned summary. The spelling is checked, but
             the repository ``HEAD`` and the commit's existence are not queried.
@@ -1595,13 +1603,13 @@ def create_bundle(
             and are not interpreted relative to ``repository_root``. Its parent is
             created as needed; staging uses a temporary sibling beneath that parent and
             the completed staging directory is renamed to this path.
-        repository_root: Repository root used after resolution for lock and toolchain
+        repository_root: Repository root used after resolution for lock and project manifest
             hashing, release dependency admission, the Syft working directory, and
             policy file hashing. The path need not be the process current directory.
             Delegated dependency admission may run its own local verifier and temporary
             trust-root handling; those operations do not use ``runner``.
         policy: Loaded artifact-supply-chain policy supplying permitted kinds and
-            limits, expected lock and toolchain identities, provenance and SPDX
+            limits, expected lock and project identities, provenance and SPDX
             settings, and admitted Syft and Cosign versions.
         runner: Process callback for Syft version and scan invocations. The default is
             ``_run_subprocess``; it receives the argv list, the resolved repository
@@ -1618,7 +1626,7 @@ def create_bundle(
 
     Returns:
         An ``ArtifactBundle`` containing the artifact basename, kind, complete-file
-        SHA-256 digest, source commit, build target, derived or supplied platform
+        SHA-256 digest, source commit, build command, derived or supplied platform
         identity, and manifest SHA-256 digest. The record describes preparation only and
         does not indicate that the candidate is signed or verified.
 
@@ -1640,7 +1648,7 @@ def create_bundle(
     return ArtifactBundleService(policy, repository_root, runner).create_bundle(
         artifact_path,
         artifact_kind=artifact_kind,
-        build_target=build_target,
+        build_command=build_command,
         source_commit=source_commit,
         test_evidence_paths=test_evidence_paths,
         output_path=output_path,
@@ -1794,7 +1802,7 @@ def verify_bundle(
 
     Require ``expected_artifact_digest`` to be ``sha256:<64 lowercase hex>``, reject a
     symlink or non-directory bundle, and resolve ``repository_root`` before checking its
-    policy-declared lock and toolchain digests and release-dependency admission. Reject
+    policy-declared uv lock and project digests and release-dependency admission. Reject
     symlinks discovered below ``bundle_path``, read the bounded manifest, enforce its
     selected schemas and identities, hash the artifact and every manifest-recorded file,
     and require the expected regular-file set. Check selected in-toto provenance
@@ -1833,7 +1841,7 @@ def verify_bundle(
         expected_artifact_digest: Immutable consumer reference that must exactly match
             ``sha256:`` followed by 64 lowercase hexadecimal characters and the manifest
             artifact digest.
-        repository_root: Repository root used for current lock, toolchain, policy, and
+        repository_root: Repository root used for current lock, project manifest, policy, and
             release-dependency checks. It is resolved before those checks; relative
             input is based on the process current working directory.
         policy: Loaded artifact-supply-chain policy supplying permitted artifact kinds,
@@ -1852,7 +1860,7 @@ def verify_bundle(
 
     Returns:
         An ``ArtifactBundle`` summary containing the verified artifact name, permitted
-        kind, artifact SHA-256 digest, source commit, Bazel target, declared build
+        kind, artifact SHA-256 digest, source commit, uv build command, declared build
         platform, and the SHA-256 digest of the manifest bytes observed at return.
 
     Raises:
@@ -1930,7 +1938,7 @@ def publish_bundle(
             ``registry_root/sha256/<artifact_digest>``; no repository containment check
             is performed.
         repository_root: Repository root forwarded to ``verify_bundle`` for resolved
-            policy, lock, toolchain, policy-file, and release-dependency checks.
+            policy, uv lock, project manifest, policy-file, and release-dependency checks.
         policy: Loaded artifact-supply-chain policy forwarded to ``verify_bundle``.
         runner: Process callback forwarded to ``verify_bundle`` for Cosign version and
             verification calls. Defaults to ``_run_subprocess``; its working directory

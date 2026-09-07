@@ -1,16 +1,23 @@
-# B06 remote cache, execution, sharding, and flake control
+# B06 remote cache, execution, sharding, and flake control (Retired)
+
+This page records the retired B06 proposal and its original trust and evidence
+contract. It remains reachable so historical provenance is not rewritten. The
+repository no longer runs a remote cache, remote executor, deterministic shard
+lane, or remote governance command; local `make check` is the active validation
+path.
 
 ## Status and boundary
 
-B06 is **partial** under the `solo_bootstrap` track. It selects BuildBuddy Cloud
-through proposed [ADR 0009](decisions/0009-remote-execution-service.md) and implements
+B06 was **partial** under the `solo_bootstrap` track. It selected BuildBuddy Cloud
+through proposed [ADR 0009](decisions/0009-remote-execution-service.md) and described
 the repository-owned client, policy, sharding, flake, budget, local-fallback, and CI
 boundaries. No account, credential, quota, remote namespace, deployment, or service
-admission is asserted. Those external facts remain open, and B07 owns final dependency
-admission.
+admission was asserted. Those external facts remain historical open findings; the
+proposal was retired before provisioning.
 
-The machine-readable source of truth is [remote-execution.toml](remote-execution.toml).
-`alpha-governance-remote-execution` validates it fail closed before any remote command.
+The former machine-readable source was `remote-execution.toml`; that retired
+configuration is removed from the active checkout. The former
+`alpha-governance-remote-execution` command no longer runs in the active path.
 
 ## Trust and cache integrity
 
@@ -52,38 +59,34 @@ four CPUs, and 4,096 MiB.
 
 | Command | Behavior |
 | --- | --- |
-| `make remote-execution-policy-check` | Offline validation of policy, integrations, evidence, and trust invariants |
-| `make remote-build REMOTE_CONTEXT=github_main_push` | Authenticated remote build after clean-main trust checks |
-| `make remote-test REMOTE_CONTEXT=github_main_push REMOTE_SHARD_INDEX=0` | One deterministic remote test shard |
-| `make remote-quarantine REMOTE_CONTEXT=github_main_push` | Diagnostic repeat lane for active quarantines only |
-| `make remote-local-fallback-check` | Complete explicitly remote-disabled local build and test |
+| Former `make remote-execution-policy-check` | Historical offline validation of the retired policy |
+| Former `make remote-build` / `make remote-test` | Historical authenticated remote lanes; retired |
+| Former `make remote-quarantine` | Historical diagnostic repeat lane; retired |
+| `make check` | Active local source, policy, test, and package validation |
 
-The existing B05 full merged-result lane remains authoritative. The optional B06 lane is
-enabled only on a main push when repository variable `REMOTE_EXECUTION_ENABLED` is
-exactly `true`; protected CI must supply the key. It cannot run for pull-request code.
+The former B05 full merged-result lane and optional B06 lane are retired. No repository
+variable or protected key enables remote work.
 
 ## Evidence and governance
 
-Exact classification, gate state and finding closure conditions live in
-[remote-execution.toml](remote-execution.toml). Gate definitions live in the
+Exact classification, gate state and finding closure conditions were recorded in
+the retired `remote-execution.toml` file. Gate definitions live in the
 [quality-gate catalog](operations.md#quality-gate-catalog); current state and
 finding IDs are rendered in the [program status](../governance/program-status.md).
 
 ## Migration, rollback, monitoring, and evidence
 
-Migration is opt-in: provision the protected organization/key and quotas, validate the
-namespace and retention settings, enable the repository variable, then compare both
-shards with the same-revision local B05 full lane. Roll back by disabling that variable;
-`make remote-local-fallback-check` is the preserved path. Do not switch B05 authority
-until findings B06-F01 through B06-F03 close.
+Migration was opt-in: it would have provisioned a protected organization/key and quotas,
+validated namespace and retention settings, and compared both shards with the same-revision
+local B05 lane. The proposal was retired instead; its local `make check` replacement is
+the active path and findings B06-F01 through B06-F03 remain historical.
 
 Hosted evidence must retain revision, run, namespace, shard, seed, target set, cache-hit
 and execution result, duration, retries, quarantine result, and local-equivalence links.
-Alert on authentication denial, namespace mismatch, download verification failure,
-unexpected fallback, exhausted RPC retries, missing targets, shard disagreement, flake,
-quarantine expiry, resource-budget breach, or local/remote mismatch. On any such signal,
-disable the remote lane, run the local fallback, preserve logs without secrets, rotate
-or revoke credentials if applicable, and escalate to Platform CI and Security.
+The retired lane would have alerted on authentication denial, namespace mismatch, download
+verification failure, unexpected fallback, exhausted RPC retries, missing targets, shard
+disagreement, flake, quarantine expiry, resource-budget breach, or local/remote mismatch.
+Those remote signals are no longer active repository obligations.
 
 The [development workflow](../governance/workflow.md) owns daily evidence. This
 package creates no release, deployment, activation, runtime-service, credential,

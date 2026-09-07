@@ -21,6 +21,8 @@ complete current-source registry and B01b's owned `tools/governance` targets and
 compatibility facades, then makes the repository root, pre-commit, hosted CI,
 A06 inventory, and A08 program dashboard consume and enforce those canonical
 targets.
+Retired build, environment, remote-execution, and custom scheduler surfaces
+remain historical records and are not current topology requirements.
 
 The root `alpha-research-lab` distribution declares exact
 `alpha-research-governance==0.1.0` and `pydantic==2.13.5` runtime dependencies. The canonical
@@ -30,33 +32,31 @@ callers and rollback, but no B01c enforcement consumer uses an ambient
 `PYTHONPATH` or a compatibility module command.
 
 B01c did not create the target domain skeleton or introduce a build, domain, or
-external dependency. B02 owns the separately reviewed hermetic Bazel graph and may remove the
-compatibility facades only through a separately reviewed compatibility change.
-B05 owns affected-target and authoritative merged-result build policy; B06 owns
-the separately governed remote-execution client and policy.
+external dependency. The active source and policy graph is checked through the
+pinned uv environment and the single required `make check` command. The
+compatibility facades remain available for existing callers and rollback until a
+separately reviewed compatibility change retires them.
 
 ## Canonical targets and enforced consumers
 
-The tool distribution now owns thirteen executable entry points, including the
-B05-B08 package controls added after B01:
+The tool distribution owns the active governance entry points, including the
+B05, B07, and B08 package controls added after B01:
 
 ```text
 alpha-governance-architecture
 alpha-governance-artifacts
 alpha-governance-change-risk
-alpha-governance-ci
 alpha-governance-dependencies
 alpha-governance-engineering-standards
 alpha-governance-evidence
 alpha-governance-inventory
 alpha-governance-ownership
 alpha-governance-program
-alpha-governance-remote-execution
 alpha-governance-security
 alpha-governance-topology
 ```
 
-Make delegates each governance target directly to its installed executable.
+Make delegates each active governance target directly to its installed executable.
 `make topology-check` is a blocking dependency of `make check`. Root formatting,
 lint, strict typing, and Bandit coverage include `tools/governance/src` as well as
 the compatibility source and engineering tests. Tests and smoke imports use uv's
@@ -75,8 +75,9 @@ A06 initially inventoried nine provisional controls: A01-A08 and B01. The A02-A0
 records use canonical implementation paths and increment their record versions;
 the new B01 record links the registry, validator, root, hook, workflow, tests,
 and B01c evidence. A08 records B01 as `partial` with passing repository-local
-evidence and the exact B01 findings. It therefore derives B02, not B01, as the
-next solo-provisionally ready package while institutional readiness remains empty.
+evidence and the exact B01 findings. The active queue is derived from the current
+technical graph; retired B02, B03, and B06 records remain in the program for
+historical provenance, while institutional readiness remains empty.
 
 Unknown arguments, missing repositories, invalid topology, stale inventory
 lineage, unsupported program state, and canonical command failures return a
@@ -92,10 +93,10 @@ canonical tools never depend back on compatibility code. Engineering tests are
 the only current reverse consumer of both surfaces.
 
 The registry now assigns every Python implementation, facade, typing marker,
-engineering-test source, C01-C02 unit-test source, and B02-B03 build-test source under
+engineering-test source, and C01-C02 unit-test source under
 `tools/governance/src/alpha_research_governance/`, `src/alpha_research/`,
-`tests/engineering/`, `tests/unit/`, and `tests/build/` to exactly one of 30 owned
-targets. Each target declares kind, layer, accountable owner, supported platform,
+`tests/engineering/`, and `tests/unit/` to exactly one of 28 owned targets. Each
+target declares kind, layer, accountable owner, supported platform,
 direct dependencies, exact reverse visibility, and exact source paths. The
 validator derives direct imports for both namespaces with deterministic AST
 parsing and rejects missing or stale declarations.
@@ -120,13 +121,13 @@ bundle. Validation fails closed when:
 
 The scan remains capped at 1,000 source files and the focused full-validation
 budget remains 1,000 ms. Raising either bound requires reviewed workload evidence;
-B05 still owns scaled affected/full enforcement.
+B05 owns the current source-validation and installed wheel-smoke checks.
 
 No target-domain placeholder directory is created. B01's only populated target
 addition is `tools/governance`. B01 did not create `schemas/`, `data/`,
 `research/`, `simulation/`, `portfolio/`, `risk/`, `trading/`, `platform/`,
-`assets/`, or `strategies/` source trees; B03 now owns the separately governed
-`environments/dev` bootstrap files.
+`assets/`, or `strategies/` source trees. The historical B03 environment files
+are retired and no longer belong to the current source registry.
 
 ## Packaging and compatibility contract
 

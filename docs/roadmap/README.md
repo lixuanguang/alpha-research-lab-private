@@ -69,12 +69,12 @@ model, and non-vanity program metrics.
 | ID | Objective / delivery | Library/tool to use or incorporate | Incorporation boundary / restriction | Depends on |
 | --- | --- | --- | --- | --- |
 | B01 | Governed repository topology: registry and graph checks (`B01a`); owned governance-tool targets and compatibility entry points (`B01b`); root, pre-commit, hosted-CI, resource-inventory, and program-governance enforcement (`B01c`) | Repository-owned Python tooling | Complete current source coverage; no empty placeholders or new build/domain dependencies | A02-A05 |
-| B02 | Pinned hermetic graph for Python, justified native languages, schemas, SQL, and docs; sandbox and undeclared-input tests; tested Make rollback | Bazel, `rules_python` 2.2, uv, Buf | uv lock is transitional resolution input; Make delegates; native languages require justification | B01 |
-| B03 | Clean-machine declarative bootstrap with exact host-tool and supported-platform evidence | Nix or equivalent | No workstation state; prove Bazel equivalence and rollback | B02 |
-| B04 | Language, sanitizer, numerical, generated-code, and property/state-machine standards | Hypothesis 6.167; admitted language sanitizers | The existing-tool refresh is complete; add new tools through provisional B07-compatible records; no domain behavior | B02-B03 |
-| B05 | Fast affected/reverse-dependency CI plus full merged-result lane, hygiene, secrets, schema compatibility, drift checks, and evidence events | Bazel affected targets, Buf, pre-commit, admitted secret scanner | Full merged result remains authoritative; root/Bazel/local/hosted interfaces must agree | B01-B04 |
-| B06 | Authenticated remote cache/execution, deterministic sharding, flake controls, and resource budgets | Bazel remote cache/execution service selected by ADR | Isolate namespaces and trust; pass poisoning tests; retain verified local fallback | B05 |
-| B07 | Dependency admission covering source, digest, lock, license, vulnerabilities, exploitability, maintenance, platforms, wheels/native code, registry, patch/EOL, and runtime-install prohibition | pip-audit 2.10.1; OpenSSF Scorecard | Signals only; migrate provisional B02-B06 records; repository owns admission and exploitability decision | implementation: B02-B05; operation/release: B06 |
+| B02 | Historical pinned hermetic graph for Python, justified native languages, schemas, SQL, and docs; retired after the uv path became authoritative | Bazel, `rules_python` 2.2, uv, Buf | Historical provenance only; no active build or test prerequisite | B01 |
+| B03 | Historical clean-machine declarative bootstrap; retired after the pinned Python/uv setup became authoritative | Nix or equivalent | Historical provenance only; no active workstation prerequisite | B02 |
+| B04 | Language, sanitizer, numerical, generated-code, and property/state-machine standards | Hypothesis 6.167; admitted language sanitizers | The existing-tool refresh is complete; add new tools through provisional B07-compatible records; no domain behavior | B01 |
+| B05 | Source validation, package installation smoke checks, hygiene, secrets, and required CI result | uv, pre-commit, admitted secret scanner | One `make check` path is authoritative; focused checks remain optional | B01, B04 |
+| B06 | Historical authenticated remote cache/execution, deterministic sharding, flake controls, and resource budgets; retired before provisioning | Bazel remote cache/execution service selected by ADR | Historical provenance only; no active remote requirement | B05 |
+| B07 | Dependency admission covering source, digest, lock, license, vulnerabilities, exploitability, maintenance, platforms, wheels/native code, registry, patch/EOL, and runtime-install prohibition | pip-audit 2.10.1; OpenSSF Scorecard | Repository owns current lock/source decisions and QuantLib's unresolved restriction; historical B02/B03/B06 records are not prerequisites | implementation: B01, B04, B05; operation/release: - |
 | B08 | Whole-artifact SBOM, provenance, signatures, attestations, immutable publication, and consumer verification | Syft; Cosign | Include native/shared libraries, toolchain and lock identity; verify digest and policy at consumption | B07, A07 |
 
 **Wave evidence:** clean sandboxed local/CI builds have identical digests,
@@ -86,7 +86,7 @@ rejected.
 
 | ID | Objective / delivery | Library/tool to use or incorporate | Incorporation boundary / restriction | Depends on |
 | --- | --- | --- | --- | --- |
-| C01 | Stable instrument identity and temporal symbology mappings with retained auditable fixtures | Hypothesis 6.167 | Provider symbols terminate at adapters; canonical IDs and invariants are owned | B01-B05 |
+| C01 | Stable instrument identity and temporal symbology mappings with retained auditable fixtures | Hypothesis 6.167 | Provider symbols terminate at adapters; canonical IDs and invariants are owned | B01, B04, B05 |
 | C02 | Venue, session, calendar, market-status, and timezone contracts | `exchange_calendars` 4.13.2 | Versioned source/override adapter and pinned fixtures; never live authority | C01 |
 | C03 | Typed units, currencies, prices, quantities, and conventions | QuantLib 1.43 | Explicit day-count/convention adapters and evaluation context; no ambient global state | C01-C02 |
 | C04 | Event, receipt, ingestion, knowledge, valid-time, sequence, and bitemporal model | — | Repository-owned thin-waist contract | C01-C03 |
@@ -127,7 +127,7 @@ digests, entitlement propagation, and idempotent impact-aware correction.
 | E04 | Time-series splits, purging, embargo, walk-forward, nested selection, final-OOS lock, and leakage attacks | Hypothesis 6.167; scikit-learn 1.9; skfolio 1.0.1 reference-only | Repository owns split/leakage semantics; skfolio requires conformance before bounded use | E03 |
 | E05 | Baseline, model, calibration, ensemble, serialization, and inference adapters | scikit-learn 1.9; statsmodels 0.15 | Use admitted formats; library registry stages are not approval | E03-E04 |
 | E06 | Robustness, ablation, DSR/PBO/FDR, and multiple-testing controls | statsmodels 0.15; arch 8.0; skfolio reference-only | Repository owns formulas, dependence assumptions, trial counts, and conclusions | E02-E05 |
-| E07 | Reproducible local/cluster/cloud-HPC runner with quotas, resume, cache, and cost | Dagster 1.13.20; Optuna 4.9 | Committed suggestions/seeds and trial ledger remain authoritative | E01-E06, B06 |
+| E07 | Reproducible local/cluster/cloud-HPC runner with quotas, resume, cache, and cost | Dagster 1.13.20; Optuna 4.9 | Committed suggestions/seeds and trial ledger remain authoritative; remote execution is not a prerequisite | E01-E06 |
 | E08 | Model registry, immutable report, promotion card, and independent validation | MLflow 3.15.2; Evidently 0.7.21 | Adapter/UI and advisory reports only; no promotion, capital, limit, or kill authority | E02-E07, B08 |
 
 **Wave evidence:** notebook, batch, and CI semantics agree; trial deletion is
@@ -318,14 +318,14 @@ admission record, and evidence bundle. Release candidates stay outside
 certification and production paths unless a separately reviewed compatibility lane
 exercises them.
 
-The hermetic-build through remote-execution packages (`B02` through `B06`)
-necessarily bootstrap machinery that dependency admission (`B07`) later enforces.
-Each new build/CI tool introduced before dependency admission must therefore carry
-a provisional dependency record with its intended admission owner, purpose, exact
+The historical build, clean-machine, affected-target CI, and remote-execution
+records (`B02`, `B03`, `B05`, and `B06`) remain in this 96-package roadmap for
+provenance. They no longer bootstrap the repository or add active prerequisites.
+The current path uses the pinned uv environment, one `make check`, retained secret
+scanning, and the B07 dependency-admission record. New tools still require a
+provisional dependency record with its intended admission owner, purpose, exact
 source and digest, license, vulnerability review, supported platforms,
-transitive/native dependencies, and rollback. Dependency admission validates and
-migrates those records into the final admission control; it does not retroactively
-excuse an undocumented bootstrap dependency.
+transitive/native dependencies, and rollback.
 
 The platform owns the thin waist even when a library supplies an implementation:
 

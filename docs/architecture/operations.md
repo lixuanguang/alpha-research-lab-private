@@ -33,7 +33,7 @@ criticality, dependencies, and evidence-retention class.
 
 | Class | Typical change | Required review and rollout |
 | --- | --- | --- |
-| R0 | Documentation or non-functional metadata | One Code Owner; automated checks; fast lane |
+| R0 | Documentation or non-functional metadata | One Code Owner; automated checks |
 | R1 | Research-only code with no shared-data or production dependency | Research owner plus peer; reproducible batch test; no production promotion |
 | R2 | Shared library, schema, dataset, feature, or model candidate | Code Owner plus independent domain/data/model reviewer; merged-result, compatibility, replay, and impact evidence |
 | R3 | Paper/shadow runtime, deployment tooling, non-capital production service | Code Owner plus platform/SRE and security as applicable; staging, failure injection, shadow or synthetic validation |

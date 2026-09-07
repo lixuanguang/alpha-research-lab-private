@@ -1033,8 +1033,8 @@ def validate_repository(
 
     The repository root is resolved before paths are formed. The function loads
     the engineering policy, checks locked tool versions and the exact Python,
-    Ruff, pytest, dependency-pin, Bazel-requirement, and interpreter-baseline
-    settings, then runs the Python source and ownership-aware source-tree checks and
+    Ruff, pytest, dependency-pin, and interpreter-baseline settings, then runs the
+    Python source and ownership-aware source-tree checks and
     validates the engineering-tool dependency record. A missing
     ``validation_date`` defaults to ``date.today()``; the selected date is passed
     to source-tree checks for suppression expiry decisions; Python source findings
@@ -1296,8 +1296,8 @@ class _EngineeringStandardsRepositoryValidator:
 
         The repository root is resolved before paths are formed. The function loads
         the engineering policy, checks locked tool versions and the exact Python,
-        Ruff, pytest, dependency-pin, Bazel-requirement, and interpreter-baseline
-        settings, then runs the Python source and ownership-aware source-tree checks and
+        Ruff, pytest, dependency-pin, and interpreter-baseline settings, then runs the
+        Python source and ownership-aware source-tree checks and
         validates the engineering-tool dependency record. A missing
         ``validation_date`` defaults to ``date.today()``; the selected date is passed
         to source-tree checks for suppression expiry decisions; Python source findings
@@ -1365,10 +1365,6 @@ class _EngineeringStandardsRepositoryValidator:
                 findings.append(
                     f"development requirements are missing exact tool pin {requirement}"
                 )
-        requirements = (root / "requirements.bazel.txt").read_text(encoding="utf-8").splitlines()
-        for requirement in ("hypothesis==6.167.1", "sortedcontainers==2.4.0"):
-            if requirement not in requirements:
-                findings.append(f"Bazel requirements are missing {requirement}")
         if (root / ".python-version").read_text(encoding="utf-8").strip() != "3.12.14":
             findings.append("Python language baseline must remain 3.12.14")
 

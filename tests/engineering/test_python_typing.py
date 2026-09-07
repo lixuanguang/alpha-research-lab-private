@@ -10,8 +10,6 @@ from pathlib import Path
 import pytest
 
 # project library imports
-from alpha_research_governance.dependency_admission.models import DependencyAdmissionError
-from alpha_research_governance.dependency_admission.policy import _lock_surface_findings
 from alpha_research_governance.engineering_standards.python_typing import TypingChecker
 from alpha_research_governance.operating_model import OperatingModelError, load_operating_model
 
@@ -107,22 +105,7 @@ class TestTypingChecker:
 
 
 class TestParsedBoundaries:
-    """Reject malformed lock and ownership tables before nested access."""
-
-    @pytest.mark.parametrize("payload", ["null", "[]", '"text"', "42"])
-    def test_module_lock_root_is_validated(self, tmp_path: Path, payload: str) -> None:
-        """Turn non-object Bazel locks into the existing domain error."""
-        (tmp_path / "MODULE.bazel.lock").write_text(payload, encoding="utf-8")
-        with pytest.raises(DependencyAdmissionError, match=r"MODULE\.bazel\.lock"):
-            _lock_surface_findings(tmp_path)
-
-    @pytest.mark.parametrize("payload", ["null", "[]", '"text"', "42"])
-    def test_flake_lock_root_is_validated(self, tmp_path: Path, payload: str) -> None:
-        """Turn non-object Nix locks into the existing domain error."""
-        (tmp_path / "MODULE.bazel.lock").write_text("{}", encoding="utf-8")
-        (tmp_path / "flake.lock").write_text(payload, encoding="utf-8")
-        with pytest.raises(DependencyAdmissionError, match=r"flake\.lock"):
-            _lock_surface_findings(tmp_path)
+    """Reject malformed ownership tables before nested access."""
 
     @pytest.mark.parametrize(
         "settings",

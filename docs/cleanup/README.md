@@ -1,7 +1,8 @@
 # Repository cleanup plan for a solo quant founder
 
 Audit date: 2026-09-07. Baseline: `97775789cfc21425abf4afcbb0498dd5ec69ea89`.
-Status: step 1 implemented and validated; steps 2–6 remain planned. The measured
+Status: steps 1 and 2 implemented and locally validated; step 2 hosted CI
+validation remains pending. Steps 3–6 remain planned. The measured
 baseline and audit findings below describe the repository before cleanup. The
 working tree was clean at the start of the audit.
 
@@ -92,9 +93,9 @@ verify an actual capability without unrelated organizational prerequisites.
 | Finding | Evidence and concrete maintenance trigger | Recommended decision |
 | --- | --- | --- |
 | Function policy creates ongoing administrative work | At the audit baseline, the Python policy required individual exceptions for module-level functions. `docs/architecture/python-standards-exceptions.toml` bound symbols to owner, expiry, and AST fingerprint, so editing a legitimate function could require a policy-record update. | Step 1 removes `PYC001` and its exception system. The [current Python policy](../coding_standards/python.md#classes-and-object-design) permits functions and ordinary test functions without registration, keeps cohesive classes, and preserves typing, import-style and docstring rules. |
-| Governance is a runtime dependency | [Root project, line 13](../../pyproject.toml#L13) requires the governance distribution; [root Bazel library, line 21](../../src/alpha_research/BUILD.bazel#L21) also depends on it. [Compatibility exports](../../src/alpha_research/program_governance/registry.py#L1) and governance tests retain the old namespace. | Move surviving tooling to development-only use. Remove governance facades and `alpha-research-ci` after updating repository callers. Keep the deployable package independent of docs and policy registries. |
+| Governance is a runtime dependency | [Root project, line 13](../../pyproject.toml#L13) requires the governance distribution; the baseline `src/alpha_research/BUILD.bazel:21` also depended on it. [Compatibility exports](../../src/alpha_research/program_governance/registry.py#L1) and governance tests retain the old namespace. | Move surviving tooling to development-only use. Remove governance facades and `alpha-research-ci` after updating repository callers. Keep the deployable package independent of docs and policy registries. |
 | Multiple call layers preserve the old API without adding domain behavior | [Public program loader, line 2096](../../tools/governance/src/alpha_research_governance/program_governance/registry.py#L2096) calls a private compatibility function, then a service method, then another private loader. The public and service methods both translate the same error types. | Retire this subsystem where possible; otherwise keep one entry point, one implementation, and one error-translation boundary. Remove test-only compatibility seams with their callers. |
-| CI repeatedly checks the same source through different routes | [Full runner, line 715](../../tools/governance/src/alpha_research_governance/ci_policy/runner.py#L715) runs all pre-commit hooks, Bazel build/test, then `rollback-check`. [Makefile](../../Makefile) makes rollback rerun lint, format, typing, governance, and pytest. [Hosted CI](../../.github/workflows/ci.yml) also runs separate affected and full jobs. | Use one required source-validation job and one build/install smoke check. Remove the custom affected-target scheduler and permanent second build backend after proving replacement coverage. |
+| CI repeatedly checks the same source through different routes | The baseline `tools/governance/src/alpha_research_governance/ci_policy/runner.py:715` ran all pre-commit hooks, Bazel build/test, then `rollback-check`. [Makefile](../../Makefile) makes rollback rerun lint, format, typing, governance, and pytest. [Hosted CI](../../.github/workflows/ci.yml) also runs separate affected and full jobs. | Use one required source-validation job and one build/install smoke check. Remove the custom affected-target scheduler and permanent second build backend after proving replacement coverage. |
 | Tests freeze repository shape and historical status | [Root command test, line 56](../../tests/engineering/test_root_commands.py#L56) asserts an exact command sequence; [package test, line 92](../../tests/engineering/test_package_definition.py#L92) freezes the governance entry-point set; [C03 evidence test, line 90](../../tests/engineering/test_financial_units_evidence.py#L90) requires `partial` status and historical finding IDs. Routine simplification causes failures unrelated to numerical correctness. | Retire obsolete assertions with their contracts. Preserve small tests for real installed imports, command failures, integrity checks, and domain outcomes. |
 | Research remains subordinate to a large platform program | [Research program, line 5](../roadmap/research-program.md#purpose) is subordinate to 96 packages; its [enablement map](../roadmap/research-program.md#platform-enablement-map) requires large C–K capability groups. [Roadmap parser, line 924](../../tools/governance/src/alpha_research_governance/program_governance/registry.py#L924) requires all 96 IDs. Removing a speculative work package requires parser/policy/test changes. | Replace the executable roadmap with a short, human-maintained backlog for one data source, strategy, and operating target. Implement prerequisites for that workload as it needs them. |
 | Active documentation still contains historical execution instructions | [Topology contract, line 78](../architecture/repository-topology.md#canonical-targets-and-enforced-consumers) says the program derives B02 next, while [generated status](../governance/program-status.md) selects C04. Its source-target description also predates C03. | Remove historical delivery narratives from active contracts and eliminate duplicate status fields. Keep one current status/backlog page. |
@@ -291,7 +292,7 @@ Avoid a permanent compatibility layer or a second policy profile as the migratio
 | Order | Concrete changes | Exit evidence |
 | --- | --- | --- |
 | 1. Preserve clarity; remove exception bureaucracy — complete | Recorded the protected typing/import/docstring rules and their existing tests. Retained useful class organization; removed `PYC001`, its 486 function-exception records, reconciliation/fingerprint machinery and exclusive tests. | Strict typing, retained import/docstring fixtures and domain tests pass; ordinary functions need no expiry/fingerprint record. See [step 1 results](#step-1-results). |
-| 2. Establish the smaller CI/build path | Inventory existing Bazel tests by protected behavior. Make frozen uv checks and installed-wheel smoke validation authoritative. Keep secret/security checks. Update Make, workflow, hooks and exact-interface tests together. Then remove Bazel/remote execution and the duplicate bootstrap path. | Clean Mac/Linux setup and source checks pass; wheel imports outside the checkout; required failures propagate. Every retained Bazel-only guarantee has replacement evidence or an explicit retirement decision. |
+| 2. Establish the smaller CI/build path — implemented | Inventoried Bazel guarantees, made frozen uv source checks and installed-wheel smoke validation authoritative, retained security checks, and updated Make, workflow, hooks and affected tests together. Removed Bazel, remote execution, the custom scheduler and the Nix bootstrap path. | Fresh local macOS setup, focused affected-code checks, external wheel imports and failure propagation passed. Hosted macOS/Linux jobs are configured but have not run for this change. Every former Bazel-only guarantee has a replacement or explicit retirement decision. See [step 2 results](#step-2-results). |
 | 3. Retire policy frameworks and runtime coupling | Replace development, release and founder activation rules; remove program/ownership/topology/inventory/role and historical evidence machinery. Update all registries that still exist in that slice. Move surviving tools out of runtime dependencies, remove facades/entry points, regenerate the one lock. | Domain package installs without governance/docs; current tests and entry points use supported imports; no active check requires 96 IDs, legacy finding IDs or unavailable staff. QuantLib restriction remains enforced or is explicitly resolved/revised. |
 | 4. Consolidate docs and fixtures | Replace active overview/workflow/backlog pages, remove stale package narratives and synthetic packs, prune unused ADRs/blueprint references. Remove retired tests and their build/data declarations together. | Local links pass; retained goldens and real release/admission evidence remain reachable; all setup/operation instructions refer to actual commands or are clearly marked planned. |
 | 5. Reduce classes and finish the line budget | Remove forwarding wrappers, duplicate error translation and duplicate parser/report/model classes; retain useful classifications and cohesive services. Keep typing, import-style and docstring enforcement unchanged. Review optional native adapters without altering domain contracts implicitly. | Governance implementation is below 3,000 physical lines with fewer classes; clarity checks and domain invariants pass. Native checks and base/optional installs pass if changed. Show simpler callers and preserved explanations. |
@@ -300,8 +301,9 @@ Avoid a permanent compatibility layer or a second policy profile as the migratio
 During migration, remove a required check only when its requirement is retired or
 its replacement has passed. A check that remains required must not be disabled
 merely because the migration makes it fail. Keep policy changes and affected
-callers/tests coherent within each slice; run the then-current full required lane
-at integration boundaries. Preserve the hosted required-check name or update its
+callers/tests coherent within each slice. Hosted CI runs the full required lane;
+local validation for step 2 runs only affected tests, as requested by the founder.
+Preserve the hosted required-check name or update its
 branch rule with the replacement job, where such a rule exists. Do not run obsolete
 and replacement stacks forever.
 
@@ -338,7 +340,87 @@ Validation used the existing pinned environment and current checkout code via
 
 No full pytest suite, full CI lane, performance suite, or native-stub conformance
 run was needed for this slice. Domain implementations, native boundaries,
-dependency pins and lockfiles are unchanged. Steps 2–6 remain separate work.
+dependency pins and lockfiles were unchanged. Step 2 is recorded below;
+steps 3–6 remain separate work.
+
+### Step 2 build-contract disposition
+
+The step 2 inventory distinguishes retained behavior from guarantees specific to
+the retired build system. The smaller path does not claim Bazel-equivalent
+hermeticity or a Nix-pinned operating system.
+
+| Previous consumer | Protected behavior and step 2 disposition |
+| --- | --- |
+| Bazel Python unit and engineering targets | Retain the applicable pytest cases and independent financial goldens. Invoke pytest directly in the frozen uv environment. Retire only tests for removed scheduling, sharding, bootstrap and build-probe contracts. |
+| Build-graph and developer-environment probes | Replace the dual-backend and Nix/Bazel version snapshots with frozen uv setup, locked dependencies, and installed-wheel validation. Python and uv remain pinned; the host OS and ordinary shell utilities are prerequisites rather than Nix-managed inputs. |
+| Bazel sandbox/runfiles probes | Retire the Bazel-specific guarantee that tests see only declared runfiles and a filtered host environment. Installed-wheel smoke checks instead verify package origins outside the checkout using isolated Python. These checks do not provide a general filesystem or process sandbox. |
+| Synthetic SQL template, substitution rejection and Buf schema probes | Retire these fixtures with their unused generation/toolchain capability. There is no production SQL generator or protobuf schema consumer to migrate. A future real generator or schema must supply its own compatibility tests. |
+| Affected-target scheduler, full/fast equivalence, event records | Replace custom selection and event emission with direct CI commands and ordinary CI logs. Preserve the existing authoritative hosted check name and nonzero failure propagation. |
+| Remote cache, deterministic shards, quarantine and local fallback | Retire the unused remote-execution capability, credentials, policy and exclusive tests. There is one local/hosted uv path; remote build claims and automatic retries are not retained. |
+| Secret scanning, security analysis, dependency admission and artifact integrity | Retain fail-closed scanning and existing security/admission/integrity checks. Removing Bazel/Nix lock surfaces does not resolve the QuantLib source-to-wheel uncertainty or authorize releases. |
+| Native type stubs and runtime imports | Retain the configured strict typing scope, native stubtest and public domain APIs. Verify distribution imports from an installed environment. Governance runtime decoupling remains step 3. |
+
+Source freshness is part of the new build contract. Both project manifests use
+explicit uv cache keys for their source files, following the
+[uv cache-key behavior](https://docs.astral.sh/uv/concepts/cache/). A disposable
+checkout created a fresh Python 3.12.14 environment with 75 locked packages. After
+a nested source-file edit in each local distribution, another frozen noneditable
+run rebuilt both packages; installed source-file SHA-256 digests matched the edits.
+This probe modified only temporary copies of the source.
+
+### Step 2 results
+
+Implemented on 2026-09-07 using three Luna subagents at extra-high reasoning,
+with integration review and affected-code validation. `make check` now composes
+one source-validation path and one installed-wheel smoke check. Hosted CI runs
+source validation once, then macOS/Linux wheel checks. The `macos-14` runner matches
+the admitted Apple Silicon platform in the
+[GitHub runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+The existing required-check
+name, `Authoritative merged-result full lane`, is preserved and explicitly fails
+if either upstream source validation or macOS smoke fails. Pull-request validation
+still checks the actual merged commit and its base/head parents.
+
+The local hook set shrank from 23 to 11, grouping the retained governance checks.
+Removed the custom affected-target scheduler, event-log machinery, remote execution,
+Bazel files and build probes, Nix files and bootstrap scripts, and their exclusive
+tests and policy records. Historical build decisions remain clearly marked until
+the documentation cleanup. Native stubs and typing/import/docstring enforcement
+keep their existing scope and strictness.
+
+Dependency admission now validates the single `uv.lock`. Artifact verification
+binds that lock and the root project manifest, retains Syft/Cosign identities and
+integrity checks, and records the normalized uv build command. Artifact manifests
+use schema v2; old v1 bundles require rebuilding under the new contract. Actual
+QuantLib admission still permits only bounded development/CI bootstrap and blocks
+artifact releases. No admission uncertainty was waived.
+
+Only relevant pytest files and cases were run. The validation groups below overlap
+where later focused runs verify integration fixes; they are not an additive suite
+count.
+
+| Validation | Result |
+| --- | --- |
+| Dependency-admission and artifact-supply-chain tests | 130 passed, preserving success, tamper, unsafe-path, identity, audit and rejection cases. |
+| Affected inventory, program, topology, ownership, CI, engineering-standards, package-definition and root-command tests | 136 passed; five integration/performance cases deselected by the default marker filter. |
+| Final focused CI, package-definition and root-command follow-up | 17 passed after the integration fixes. |
+| Python-typing tests after removing retired lock-parser cases | 10 passed. |
+| Ownership hook integration case | One passed after allowing dependency downloads for its temporary checkout. |
+| Standards repository and CLI cases after removing obsolete Bazel skips | Two passed. |
+| Native-stub conformance for the retained installed dependencies | `mypy.stubtest` passed for QuantLib, exchange_calendars and pandas: 1,548 modules checked. |
+| Fresh macOS frozen setup and source-cache refresh | Passed with Python 3.12.14; both installed distributions refreshed after nested source edits in a disposable checkout. |
+| Wheel build and isolated installation | Both wheels built with the locked backend, 22 external runtime packages installed with hashes and binary-only enforcement, and all 24 installed distributions passed dependency compatibility checks. Isolated imports and the installed CLI rejection case passed outside the checkout. |
+| Actual hosted merge-identity shell step | Accepted matching checkout/base/head identities and rejected a wrong PR head and a wrong checked-out merge commit. |
+| Retained validators | Architecture links, topology, inventory, ownership, program and engineering standards passed. Dependency admission and artifact policy CLIs passed with Cosign 3.1.3; QuantLib remained release-blocking. |
+| Static and configuration checks | Strict mypy, Ruff and focused Bandit checks passed on affected Python files. Frozen lock verification, pre-commit configuration validation, tracked-file secret scanning and scanning the new smoke module passed. |
+
+Hosted CI has not executed this change. Local macOS evidence establishes the
+replacement path here; Linux and hosted macOS validation remain pending in the
+configured jobs. No full local pytest suite, full CI lane, performance suite,
+or artifact signing/publishing lifecycle was run.
+Financial implementations, the three domain goldens, dependency pins, `uv.lock`
+and existing admission/evidence files are unchanged. Governance remains a runtime
+dependency until step 3.
 
 ## Success measures and stopping point
 
@@ -405,7 +487,8 @@ No cache deletion or Git-history rewrite is part of this audit; the approximatel
 ## Validation and limits
 
 The following records the original documentation audit; implementation validation
-is recorded in [step 1 results](#step-1-results). The audit used the local checkout
+is recorded in [step 1 results](#step-1-results) and [step 2 results](#step-2-results).
+The audit used the local checkout
 and existing Python environment:
 
 ```sh

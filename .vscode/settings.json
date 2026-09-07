@@ -1,28 +1,4 @@
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-  "python.terminal.activateEnvironment": false,
-  "terminal.integrated.defaultProfile.linux": "B03 Nix",
-  "terminal.integrated.defaultProfile.osx": "B03 Nix",
-  "terminal.integrated.profiles.linux": {
-    "B03 Nix": {
-      "args": [
-        "--extra-experimental-features",
-        "nix-command flakes",
-        "develop",
-        "--no-write-lock-file"
-      ],
-      "path": "/nix/var/nix/profiles/default/bin/nix"
-    }
-  },
-  "terminal.integrated.profiles.osx": {
-    "B03 Nix": {
-      "args": [
-        "--extra-experimental-features",
-        "nix-command flakes",
-        "develop",
-        "--no-write-lock-file"
-      ],
-      "path": "/nix/var/nix/profiles/default/bin/nix"
-    }
-  }
+  "python.terminal.activateEnvironment": false
 }

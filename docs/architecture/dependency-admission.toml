@@ -15,10 +15,6 @@ supported_platforms = ["darwin_arm64", "linux_x86_64"]
 approved_python_indexes = ["https://pypi.org/simple"]
 lock_paths = [
   "uv.lock",
-  "requirements.bazel.txt",
-  "MODULE.bazel.lock",
-  "flake.lock",
-  ".github/workflows/ci.yml",
 ]
 runtime_scan_roots = ["src", "tools"]
 applicable_gate_ids = [
@@ -59,10 +55,6 @@ emergency_overrides = []
 
 [lock_digests]
 "uv.lock" = "22f953c3cabb20af3d8203e188accb9a1011b4784b9674d77bc535930ffd31bd"
-"requirements.bazel.txt" = "8a7343e01d500cd5ab23de1a13ace07a2630f3c2724f6ae233529b0eb17a79e4"
-"MODULE.bazel.lock" = "d071e04040e390f9353b240cc26c5d3c0fdfb6a432d3d60f147e781110efce4b"
-"flake.lock" = "59dcd10f73b4392d83afb7ad11ce635f7c23ab529e21065fc073fbd2a30661e5"
-".github/workflows/ci.yml" = "ade5a20cfcd580769de0acd3c3f9f3d537e89919a78ca18a1e2a979785a56524"
 
 [pip_audit]
 version = "2.10.1"
@@ -200,26 +192,6 @@ packages = [
   "distlib==0.4.3",
   "typing-extensions==4.16.0",
 ]
-
-[[migrated_records]]
-roadmap_package = "B02"
-path = "docs/architecture/build-tool-dependencies.toml"
-
-[[migrated_records]]
-roadmap_package = "B03"
-path = "environments/dev/toolchain.toml"
-
-[[migrated_records]]
-roadmap_package = "B04"
-path = "docs/architecture/engineering-tool-dependencies.toml"
-
-[[migrated_records]]
-roadmap_package = "B05"
-path = "docs/architecture/ci-tool-dependencies.toml"
-
-[[migrated_records]]
-roadmap_package = "B06"
-path = "docs/architecture/remote-execution.toml"
 
 [[findings]]
 finding_id = "B07-F01"
