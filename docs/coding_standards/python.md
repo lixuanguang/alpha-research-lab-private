@@ -122,8 +122,9 @@ Additional rules:
 - Use syntax supported by the pinned minimum interpreter. Prefer built-in generics
   such as `list[str]`, union syntax such as `X | None`, and protocols from `typing`
   when that minimum version supports them; do not silently raise the runtime floor.
-- Prefer precise domain types, enums, `Literal`, `NewType`, or validated Pydantic
-  models over unstructured dictionaries and tuples.
+- Prefer precise domain types, enums, `Literal`, `NewType`, or validated
+  structured records over unstructured dictionaries and tuples. Choose a record
+  framework using the [model-selection rules](#classes-and-object-design).
 - Use `Protocol` for behavioral structural contracts. Use abstract base classes
   only when shared runtime behavior or nominal registration is required.
 - Owned source and tests MUST NOT use explicit `Any`, including aliases,
@@ -195,9 +196,29 @@ Additional rules:
 - Do not create `Manager`, `Helper`, or `Utils` classes as miscellaneous containers.
 - Properties MUST be inexpensive and unsurprising. I/O, blocking work, and
   material computation belong in methods.
-- Use strict Pydantic `BaseModel` records for new or migrated structured data
-  models. Do not introduce standard-library dataclasses or
-  `pydantic.dataclasses`. Prefer frozen models for value records.
+- Use strict Pydantic `BaseModel` records by default for new or migrated
+  structured data, especially validation-rich configuration and governance
+  boundaries. Do not introduce standard-library dataclasses or
+  `pydantic.dataclasses`; frozen records are preferred.
+- Evaluate [`msgspec.Struct`](https://msgspec.dev/structs) when allocation or
+  serialization costs affect a workload. Prefer it over Pydantic when it supports
+  the required features and representative end-to-end benchmarks improve with
+  the same schema, exceptions, serialization, and mutability contract.
+- Use msgspec only for its supported schemas and features. A `msgspec.Struct`
+  constructor and attribute assignment do not validate field types, so direct
+  construction and mutation are trusted, prevalidated operations. Retain
+  Pydantic when callers require constructor-time checks.
+- At an untrusted boundary, use [`msgspec.json.decode`](https://msgspec.dev/api#msgspec.json.decode)
+  with `type=..., strict=True` or [`msgspec.convert`](https://msgspec.dev/api#msgspec.convert)
+  with raw built-in data, `type=..., strict=True`; these APIs define the typed
+  conversion boundary. Set `forbid_unknown_fields=True` for closed schemas and
+  `frozen=True` for value records. Validate defaults, custom invariants, and
+  cross-field constraints there, preserving the existing exceptions,
+  serialization, and mutability behavior.
+- Do not assume msgspec `strict` has the same meaning as Pydantic strict mode or
+  that converting an existing `Struct` revalidates it. Add focused negative and
+  round-trip tests for the selected boundary. Do not require validation
+  scaffolding on every function when the owning boundary establishes the contract.
 - Keep workflow services as ordinary classes with explicit typed constructors
   and collaborators. Performing I/O does not make a service a data model.
 - Pydantic or equivalent validation belongs at configuration/serialization
@@ -266,6 +287,55 @@ Additional rules:
   deterministic seeds.
 - Point-in-time research code MUST never fit, normalize, select, or impute using
   future observations. Add future-perturbation tests for time-dependent features.
+
+## Numerical acceleration
+
+- Treat Numba as a complementary JIT layer for the pinned CPython runtime. Choose
+  a suitable numeric kernel after measuring it. A proven `@njit` implementation
+  is a first option before a C++ or Rust extension; unsupported algorithms,
+  proven tail-latency requirements, or ABI requirements can justify native code
+  immediately. Ordinary Python remains responsible for I/O, models, validation,
+  and orchestration. See the [Numba five-minute guide](https://numba.readthedocs.io/en/stable/user/5minguide.html).
+- NumPy, Polars, and Arrow vectorized operations already execute native code.
+  Compare a Numba kernel with a clear Python reference and the appropriate
+  vectorized operation. A benchmark MUST include cold start, each dtype
+  specialization, warm execution, end-to-end conversion, and memory behavior;
+  report measured speedups for representative workloads. See the [Numba
+  performance guidance](https://numba.readthedocs.io/en/stable/user/performance-tips.html).
+- Use `@njit` in nopython mode and keep object mode out of governed kernels.
+  Extract primitive arrays and scalars from Pydantic or msgspec models in the
+  Python wrapper, then state dtype, shape, layout, units, and scalar types at the
+  kernel boundary. Small module-level kernels are allowed under the existing
+  low-level function rationale when they have no hidden I/O or mutable globals.
+- Prefer sequential loops for path-dependent simulations. Do not parallelize
+  time dependence. Use parallel execution only for independent workloads, with
+  explicit thread, random-number, and reduction controls; bound thread pools to
+  avoid oversubscription. Numba `prange` requires independent iterations apart
+  from supported reductions. See the
+  [Numba parallel guide](https://numba.readthedocs.io/en/stable/user/parallel.html).
+- Compare kernel outputs with a clear reference using identical inputs and random
+  seeds, preserving time ordering and documenting numerical tolerances. Exercise
+  independent parallel workloads under the same comparison contract.
+- Check array lengths and index preconditions before entering a kernel. Test
+  boundary behavior with bounds checking enabled where supported, fixed-width
+  integer overflow, `NaN` and infinity, empty inputs, and justified numerical
+  tolerances. Never silently convert `Decimal` to float. Keep `fastmath=False`
+  and `parallel=False` by default; each exception requires correctness tests and
+  a measured reason. Numba's [Python semantic notes](https://numba.readthedocs.io/en/stable/reference/pysemantics.html)
+  document bounds-checking and fixed-width integer behavior.
+- Use `cache=True` only with a managed cache and a startup plan that records
+  source, compiler, platform, and specialization identity and invalidation. Do
+  not rely on imported-code changes invalidating cached code or on mutable globals
+  being observed; pass changing values as parameters. See Numba's
+  [caching limitations](https://numba.readthedocs.io/en/stable/developer/caching.html).
+  When latency matters, prewarm required signatures during controlled startup
+  and include first-call compilation in the startup budget.
+- Numba, msgspec, and any native dependency MUST pass the [existing dependency
+  admission](../architecture/dependency-admission.md), lock, runtime, and
+  native-compatibility checks before introduction.
+  Check Numba's [version support information](https://numba.readthedocs.io/en/stable/user/installing.html#version-support-information)
+  against the pinned CPython, NumPy, llvmlite, and LLVM environment. This
+  guidance does not install or imply admission of any dependency.
 
 ## Native extensions and cross-language behavior
 
@@ -340,6 +410,10 @@ active Ruff selection as debt is retired.
 - Public names and docstrings follow PEP 8/257 and domain vocabulary.
 - No mutable defaults, naive timestamps, uncontrolled randomness, or hidden I/O
   remain.
+- Structured-record choices retain boundary validation and mutability contracts;
+  msgspec use has representative end-to-end benchmark evidence.
+- Numeric acceleration has cold/warm, dtype, conversion, memory, and correctness
+  evidence, with dependency admission and cache identity handled explicitly.
 - Exceptions preserve causes and resources are managed by narrow context managers.
 - Native bindings have explicit ownership, GIL, error, and conformance evidence.
 - Tests cover behavior, boundaries, and regression/failure paths.
