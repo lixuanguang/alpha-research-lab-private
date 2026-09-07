@@ -1,8 +1,8 @@
 # Repository cleanup plan for a solo quant founder
 
 Audit date: 2026-09-07. Baseline: `97775789cfc21425abf4afcbb0498dd5ec69ea89`.
-Status: steps 1–3 implemented and locally validated; hosted CI validation for
-steps 2 and 3 remains pending. Steps 4–6 remain planned. The measured
+Status: steps 1–3 complete; hosted CI validation for steps 2 and 3 passed and was
+verified on 2026-09-07. Steps 4–6 remain planned. The measured
 baseline and audit findings below describe the repository before cleanup. The
 working tree was clean at the start of the audit.
 
@@ -292,7 +292,7 @@ Avoid a permanent compatibility layer or a second policy profile as the migratio
 | Order | Concrete changes | Exit evidence |
 | --- | --- | --- |
 | 1. Preserve clarity; remove exception bureaucracy — complete | Recorded the protected typing/import/docstring rules and their existing tests. Retained useful class organization; removed `PYC001`, its 486 function-exception records, reconciliation/fingerprint machinery and exclusive tests. | Strict typing, retained import/docstring fixtures and domain tests pass; ordinary functions need no expiry/fingerprint record. See [step 1 results](#step-1-results). |
-| 2. Establish the smaller CI/build path — implemented | Inventoried Bazel guarantees, made frozen uv source checks and installed-wheel smoke validation authoritative, retained security checks, and updated Make, workflow, hooks and affected tests together. Removed Bazel, remote execution, the custom scheduler and the Nix bootstrap path. | Fresh local macOS setup, focused affected-code checks, external wheel imports and failure propagation passed. Hosted macOS/Linux jobs are configured but have not run for this change. Every former Bazel-only guarantee has a replacement or explicit retirement decision. See [step 2 results](#step-2-results). |
+| 2. Establish the smaller CI/build path — complete | Inventoried Bazel guarantees, made frozen uv source checks and installed-wheel smoke validation authoritative, retained security checks, and updated Make, workflow, hooks and affected tests together. Removed Bazel, remote execution, the custom scheduler and the Nix bootstrap path. | Fresh local macOS setup, focused affected-code checks, external wheel imports and failure propagation passed. Hosted source validation, macOS wheel smoke and the authoritative Linux lane passed in runs #204 and #205. Every former Bazel-only guarantee has a replacement or explicit retirement decision. See [step 2 results](#step-2-results). |
 | 3. Retire policy frameworks and runtime coupling — complete | Replaced development, release and founder activation rules; removed program, ownership, topology, inventory, role and historical evidence machinery. Reduced retained dependency/artifact policies, moved tools to development dependencies, removed runtime facades and obsolete entry points, and regenerated the single lock. | Runtime wheel installs without governance or repository docs; retained commands and focused tests pass. No active check requires the package catalog, legacy finding IDs or staff registries. QuantLib remains release-blocking. See [step 3 results](#step-3-results). |
 | 4. Consolidate docs and fixtures | Replace active overview/workflow/backlog pages, remove stale package narratives and synthetic packs, prune unused ADRs/blueprint references. Remove retired tests and their build/data declarations together. | Local links pass; retained goldens and real release/admission evidence remain reachable; all setup/operation instructions refer to actual commands or are clearly marked planned. |
 | 5. Reduce classes and finish the line budget | Remove forwarding wrappers, duplicate error translation and duplicate parser/report/model classes; retain useful classifications and cohesive services. Keep typing, import-style and docstring enforcement unchanged. Review optional native adapters without altering domain contracts implicitly. | Governance implementation is below 3,000 physical lines with fewer classes; clarity checks and domain invariants pass. Native checks and base/optional installs pass if changed. Show simpler callers and preserved explanations. |
@@ -414,13 +414,44 @@ count.
 | Retained validators | Architecture links, topology, inventory, ownership, program and engineering standards passed. Dependency admission and artifact policy CLIs passed with Cosign 3.1.3; QuantLib remained release-blocking. |
 | Static and configuration checks | Strict mypy, Ruff and focused Bandit checks passed on affected Python files. Frozen lock verification, pre-commit configuration validation, tracked-file secret scanning and scanning the new smoke module passed. |
 
-Hosted CI has not executed this change. Local macOS evidence establishes the
-replacement path here; Linux and hosted macOS validation remain pending in the
-configured jobs. No full local pytest suite, full CI lane, performance suite,
-or artifact signing/publishing lifecycle was run.
+Hosted CI was pending when the implementation was recorded. The subsequent
+successful runs below close that validation gap. No full local pytest suite,
+full CI lane, performance suite, or artifact signing/publishing lifecycle was
+run during the implementation.
 Financial implementations, the three domain goldens, dependency pins, `uv.lock`
 and existing admission/evidence files are unchanged. Governance remains a runtime
 dependency until step 3.
+
+### Step 2 completion verification
+
+Verified on 2026-09-07 with two Luna subagents at extra-high reasoning auditing
+the CI/build commands and installed-wheel boundary. The remaining recorded gap
+was stale hosted-validation evidence, rather than a failed hosted run.
+
+| Hosted evidence | Commit | Result |
+| --- | --- | --- |
+| [CI #204](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/34112193493), the step 2 merge | `0f470af53543a744a187c62042e1f77fa4928a2a` | Source validation passed in 58s; macOS wheel smoke in 36s; `Authoritative merged-result full lane`, including Linux wheel smoke, in 23s. |
+| [CI #205](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/34115358275), the current baseline after step 3 | `82c26e4d9c8f424974ca5bf3aa3990cb2c0b3dbd` | Source validation passed in 43s; macOS wheel smoke in 22s; `Authoritative merged-result full lane`, including Linux wheel smoke, in 16s. |
+
+Both runs were triggered by pushes to `main`. Their success establishes the
+hosted source and platform checks; the pull-request-only merge-identity branch
+is covered by the local shell evidence recorded above. The required-check name
+remains unchanged. Existing hosted results were inspected without triggering
+another full run.
+
+The implementation audit found no reproducible gap in the retained CI commands
+or wheel-install boundary. This follow-up changes only this plan's status and
+evidence. Focused local verification used the current source and locked packages:
+
+| Validation | Result |
+| --- | --- |
+| `uv run --frozen --no-editable pytest -q tests/engineering/test_root_commands.py` | 5 passed. |
+| `uv run --frozen --no-editable pytest -q tests/engineering/test_ci_policy.py` | 9 passed. |
+| `UV_CACHE_DIR=.uv-cache uv run --offline --frozen --no-editable pytest -q tests/engineering/test_package_definition.py tests/engineering/test_root_commands.py` | 9 passed, including the same 5 root-command cases above: 18 distinct tests across all three files. |
+| `uv run --frozen python -m alpha_research_governance.wheel_smoke` | Passed after permitting the locked dependency downloads blocked by the sandbox. Built and installed the runtime wheel outside the checkout; all 16 installed distributions were compatible; isolated domain imports and governance-absence assertions passed. |
+| Focused Ruff/format checks, strict mypy on the wheel module and packaging tests, lock consistency, workflow/hook configuration validation, cleanup-plan links and `git diff --check` | Passed. |
+
+No full pytest suite, performance suite or hook suite ran during this follow-up.
 
 ### Step 3 results
 
@@ -474,8 +505,10 @@ test counts.
 Canonical governance Python fell from 26,096 physical lines at the step 2 commit
 to 7,342 lines in 23 files and 43 classes. This is an intermediate measurement;
 the below-3,000-line target remains step 5. Documentation/fixture consolidation
-remains step 4. No full local pytest suite, performance suite or hosted CI run was
-performed, and no real release was signed or published.
+remains step 4. No full local pytest suite or performance suite was performed,
+and no real release was signed or published. Hosted CI was pending when the
+implementation was recorded; [CI #205](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/34115358275)
+subsequently passed, as verified in the step 2 completion follow-up above.
 
 ## Success measures and stopping point
 
