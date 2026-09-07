@@ -109,6 +109,628 @@ def _run_command_with_visible_output(command: list[str], *, root: Path) -> None:
         )
 
 
+class CIRunner:
+    """Own CI revision, selection, and lane execution for one repository root."""
+
+    def __init__(self, repository_root: Path) -> None:
+        """Bind CIRunner collaborators without filesystem or process I/O.
+
+        Args:
+            repository_root: Repository root used by later service operations.
+        """
+        self.repository_root = repository_root
+
+    def _scan_paths_for_secrets(self, paths: tuple[str, ...]) -> None:
+        """Run policy-bound local and external secret scanners for changed paths.
+
+        Args:
+            paths: Candidate repository-relative paths to normalize and inspect.
+
+        Raises:
+            CIPolicyError: If policy validation, path normalization, local scanning,
+                or the configured external scanner fails.
+            OSError: If delegated filesystem operations fail without translation.
+            UnicodeError: If a delegated text boundary rejects repository content.
+        """
+        root = self.repository_root
+        policy = validate_continuous_integration_repository(root)
+        normalized = normalize_changed_paths(tuple(("M", path) for path in paths))
+        existing = tuple(item.path for item in normalized if (root / item.path).is_file())
+        scan_secret_paths(
+            root,
+            existing,
+            maximum_file_bytes=policy.secret_scan_maximum_file_bytes,
+        )
+        if existing:
+            environment = os.environ.copy()
+            environment.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
+            _run_command_and_capture_output(
+                [policy.secret_scanner_executable, "--", *existing],
+                root=root,
+                environment=environment,
+            )
+
+    def _check_schema_compatibility(self, *, modules: tuple[str, ...], base: str) -> None:
+        """Run ordered Buf compatibility checks under the bound repository root.
+
+        Args:
+            modules: Schema module identifiers to check in execution order.
+            base: Git revision inserted into each baseline query and comparison locator.
+
+        Raises:
+            CIPolicyError: If any lint, baseline query, or breaking command fails.
+        """
+        root = self.repository_root
+        for module in modules:
+            _run_command_with_visible_output(
+                [
+                    "bazel",
+                    "run",
+                    "--config=ci",
+                    "@rules_buf_toolchains//:buf",
+                    "--",
+                    "lint",
+                    module,
+                ],
+                root=root,
+            )
+            baseline = _run_command_and_capture_output(
+                ["git", "ls-tree", "-z", base, "--", f"{module}/buf.yaml"],
+                root=root,
+            )
+            if baseline:
+                _run_command_with_visible_output(
+                    [
+                        "bazel",
+                        "run",
+                        "--config=ci",
+                        "@rules_buf_toolchains//:buf",
+                        "--",
+                        "breaking",
+                        module,
+                        "--against",
+                        f".git#ref={base},subdir={module}",
+                    ],
+                    root=root,
+                )
+
+    def _run_pre_commit_without_mutation(self, arguments: list[str]) -> None:
+        """Run pre-commit and reject an observed worktree mutation.
+
+        Args:
+            arguments: Additional argument tokens passed unchanged to pre-commit.
+
+        Raises:
+            CIPolicyError: If a command fails or the before/after Git status differs.
+        """
+        root = self.repository_root
+        before = _git_worktree_state(root)
+        _run_command_with_visible_output(["pre-commit", "run", *arguments], root=root)
+        if _git_worktree_state(root) != before:
+            raise CIPolicyError(
+                ["pre-commit changed the worktree; commit the formatted result and rerun"]
+            )
+
+    def _run_timed_ci_phase(
+        self,
+        commands: tuple[list[str], ...],
+        *,
+        phase: str,
+        event_stream: IO[str],
+        run_id: str,
+        revision: str,
+        evidence_url: str,
+        environment: str,
+        target: str,
+    ) -> None:
+        """Run ordered phase commands and emit their bound CI duration event.
+
+        Args:
+            commands: Ordered non-shell argv vectors for the phase.
+            phase: Build or test phase recorded in the duration event.
+            event_stream: Caller-owned stream receiving one JSONL event.
+            run_id: Event identity used in the duration record.
+            revision: Commit digest measured by the phase.
+            evidence_url: Retained evidence URL, or empty for local execution.
+            environment: CI environment dimension.
+            target: CI lane dimension.
+
+        Raises:
+            CIPolicyError: If a command or event boundary fails.
+            OSError: If stream I/O fails after command execution.
+            TypeError: If event serialization or stream writing rejects a value.
+            ValueError: If event serialization or stream operations reject a value.
+        """
+        root = self.repository_root
+        started_at = datetime.now(UTC)
+        outcome = "passed"
+        try:
+            for command in commands:
+                _run_command_with_visible_output(command, root=root)
+        except CIPolicyError:
+            outcome = "failed"
+            raise
+        finally:
+            ended_at = max(datetime.now(UTC), started_at + timedelta(microseconds=1))
+            event_stream.write(
+                _serialize_ci_event(
+                    _build_ci_duration_event(
+                        phase=phase,
+                        run_id=run_id,
+                        revision=revision,
+                        evidence_url=evidence_url,
+                        environment=environment,
+                        outcome=outcome,
+                        target=target,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                    )
+                )
+                + "\n"
+            )
+            event_stream.flush()
+
+    def resolve_git_commit(self, revision: str) -> str:
+        """Resolve a Git revision expression to an exact commit SHA.
+
+        Reject an empty expression or one beginning with ``-`` before passing the
+        remaining expression as one argument to ``git rev-parse --verify
+        --end-of-options <revision>^{commit}``. Run that shell-free command with
+        ``root`` as its working directory. Git must emit one 40-character lowercase
+        hexadecimal SHA; successful output is decoded as strict ASCII and stripped
+        of surrounding whitespace. The command has no timeout.
+
+        Args:
+            revision: Non-empty Git revision expression that must not begin with
+                ``-``; Git resolves it and requires the result to name a commit.
+
+        Returns:
+            The resolved 40-character lowercase hexadecimal commit SHA.
+
+        Raises:
+            CIPolicyError: If ``revision`` is empty or option-shaped, Git cannot
+                start, Git exits unsuccessfully, or its successful output is not an
+                exact commit SHA. Command failures use the command helper's
+                translated diagnostics and preserve startup causes.
+            ValueError: If ``revision`` contains an embedded NUL character and
+                ``subprocess.run`` rejects the command argument before Git starts.
+            UnicodeDecodeError: If successful Git output is not valid ASCII.
+        """
+        root = self.repository_root
+        if not revision or revision.startswith("-"):
+            raise CIPolicyError(["revision must be a non-option Git ref"])
+        payload = _run_command_and_capture_output(
+            ["git", "rev-parse", "--verify", "--end-of-options", f"{revision}^{{commit}}"],
+            root=root,
+        )
+        resolved = payload.decode("ascii", errors="strict").strip()
+        if _REVISION.fullmatch(resolved) is None:
+            raise CIPolicyError([f"Git resolved an invalid commit identity for {revision}"])
+        return resolved
+
+    def git_changed_paths_between(
+        self, base_ref: str, head_ref: str
+    ) -> tuple[str, str, tuple[ChangedPath, ...]]:
+        """Return resolved commits and sorted paths changed between two revisions.
+
+        Validate the repository CI policy, resolve ``base_ref`` and ``head_ref``
+        with ``resolve_git_commit``, then run the shell-free command ``git diff
+        --name-status -z --diff-filter=ACDMRTUXB <base> <head> --`` with ``root``
+        as its working directory. The command has no timeout. Parse Git's
+        NUL-delimited UTF-8 output with the policy's inclusive
+        ``maximum_changed_files`` limit, counting expanded path records before
+        normalization and deduplication; each rename or copy contributes two.
+        Rename and copy records contribute both source and destination paths;
+        deletion records retain their deleted path. Normalization validates
+        repository-relative paths, removes duplicate ``(status, path)`` records,
+        and sorts the remaining records lexically by status and then path.
+
+        Args:
+            base_ref: Git revision expression for the comparison base. It must be
+                non-empty, must not begin with ``-``, and must resolve to a commit.
+            head_ref: Git revision expression for the comparison head. It must be
+                non-empty, must not begin with ``-``, and must resolve to a commit.
+
+        Returns:
+            A three-tuple containing the resolved base SHA, resolved head SHA, and
+            unique ``ChangedPath`` records sorted by ``(status, path)``. The path
+            tuple is empty when the resolved commits have no selected changes.
+
+        Raises:
+            CIPolicyError: If CI policy findings, revision resolution, the Git diff,
+                the changed-file limit, status parsing, or path normalization rejects
+                the operation. Git startup and nonzero exit failures are translated
+                by the command helper.
+            ChangeRiskPolicyError: If repository policy validation rejects the
+                referenced change-risk policy.
+            EvidenceGovernanceError: If repository policy validation rejects the
+                retained CI evidence.
+            ValidationError: If repository policy validation reaches an uncovered
+                policy-model type failure.
+            OSError: If repository policy validation encounters an unhandled
+                filesystem or process-startup failure.
+            UnicodeError: If repository policy validation encounters an unhandled
+                text-decoding failure.
+            UnicodeDecodeError: If Git's name-status output is not valid UTF-8, or
+                a resolved revision command emits non-ASCII output.
+            ValueError: If either revision contains an embedded NUL and
+                ``subprocess.run`` rejects the command argument, or if Git emits a
+                bare copy status with two paths and the existing status normalizer
+                attempts to parse its missing score.
+        """
+        root = self.repository_root
+        policy = validate_continuous_integration_repository(root)
+        base = resolve_git_commit(root, base_ref)
+        head = resolve_git_commit(root, head_ref)
+        payload = _run_command_and_capture_output(
+            [
+                "git",
+                "diff",
+                "--name-status",
+                "-z",
+                "--diff-filter=ACDMRTUXB",
+                base,
+                head,
+                "--",
+            ],
+            root=root,
+        )
+        return (
+            base,
+            head,
+            parse_git_name_status(payload, maximum_changed_files=policy.maximum_changed_files),
+        )
+
+    def verify_git_merge_parents(self, *, base_ref: str, head_ref: str, revision: str) -> str:
+        """Verify that a revision has exactly the declared base and head parents.
+
+        Resolve ``base_ref``, ``head_ref``, and ``revision`` with
+        ``resolve_git_commit``, then run the shell-free command ``git show -s
+        --format=%P <merged>`` with ``root`` as its working directory. The command
+        has no timeout. Decode successful parent output as strict ASCII, strip
+        surrounding whitespace, split on whitespace, and require the resulting
+        sequence to equal ``(base_sha, head_sha)`` exactly. This enforces exactly
+        two parents in the declared order. The command helper captures output and
+        translates startup and nonzero-exit failures.
+
+        Args:
+            base_ref: Git revision expression for the expected first parent. It
+                must be non-empty, must not begin with ``-``, and must resolve to a
+                commit.
+            head_ref: Git revision expression for the expected second parent. It
+                must be non-empty, must not begin with ``-``, and must resolve to a
+                commit.
+            revision: Git revision expression for the merge result. It must be
+                non-empty, must not begin with ``-``, and must resolve to a commit.
+
+        Returns:
+            The resolved 40-character lowercase hexadecimal merge-result SHA when
+            its parent sequence is exactly ``(base_sha, head_sha)``.
+
+        Raises:
+            CIPolicyError: If any revision is empty or option-shaped, cannot be
+                resolved, Git cannot start or exits unsuccessfully, or the observed
+                parent sequence is not exactly the declared two-parent sequence.
+            ValueError: If any revision contains an embedded NUL and
+                ``subprocess.run`` rejects the command argument before Git starts.
+            UnicodeDecodeError: If successful revision or parent output is not
+                valid ASCII.
+        """
+        root = self.repository_root
+        base = resolve_git_commit(root, base_ref)
+        head = resolve_git_commit(root, head_ref)
+        merged = resolve_git_commit(root, revision)
+        parents = _run_command_and_capture_output(
+            ["git", "show", "-s", "--format=%P", merged], root=root
+        )
+        observed = tuple(parents.decode("ascii", errors="strict").strip().split())
+        if observed != (base, head):
+            raise CIPolicyError(
+                [f"merged-result parents do not match declared base/head: observed={observed}"]
+            )
+        return merged
+
+    def select_affected_targets(self, *, base_ref: str, head_ref: str) -> AffectedSelection:
+        """Select Bazel owners and reverse dependencies for changed paths.
+
+        The repository CI policy is validated before the Git comparison. The
+        comparison resolves ``base_ref`` and ``head_ref`` to commits and returns
+        normalized changed paths. The function then always queries ``//...`` as
+        Bazel XML, decodes that output as UTF-8, and derives the direct source
+        owners. A foundational or unresolved path produces the policy's full-graph
+        selection. Whenever selection is marked full or has no owner targets, the
+        function returns without reverse-dependency queries; a non-full ownerless
+        selection therefore retains its empty target tuples. Otherwise, the
+        function queries reverse dependencies for build and test targets, validates
+        the returned labels, and attaches sorted unique results. Git and Bazel
+        commands run without a shell and their output is captured. The function
+        performs no direct repository-file writes; invoked tools may have incidental
+        cache effects.
+
+        Args:
+            base_ref: Non-empty Git revision expression for the comparison base;
+                it must not begin with ``-`` and must resolve to a commit.
+            head_ref: Non-empty Git revision expression for the comparison head;
+                it must not begin with ``-`` and must resolve to a commit.
+
+        Returns:
+            An ``AffectedSelection`` containing sorted changed paths, direct owner
+            labels, and either attached reverse-dependency targets or the full
+            ``//...`` fallback. Empty changes produce no targets and
+            ``reason="no_changed_paths"``.
+
+        Raises:
+            CIPolicyError: If repository policy, Git comparison, Bazel XML/query
+                output, owner selection, or reverse-dependency labels are invalid.
+                Git and Bazel startup or nonzero-exit failures are translated by
+                the command boundary.
+            ChangeRiskPolicyError: If the referenced change-risk policy is invalid.
+            EvidenceGovernanceError: If retained repository evidence is invalid.
+            ValidationError: If policy model construction rejects a value not
+                covered by explicit policy checks.
+            OSError: If policy validation or an unhandled filesystem/process
+                operation fails.
+            UnicodeError: If policy validation or a delegated strict text boundary,
+                including Git or Bazel output decoding, encounters invalid text.
+            ValueError: If a revision contains an embedded NUL or Git emits a
+                bare copy status that reaches the existing score conversion.
+        """
+        root = self.repository_root
+        policy = validate_continuous_integration_repository(root)
+        _, _, changes = git_changed_paths_between(root, base_ref, head_ref)
+        xml = _run_command_and_capture_output(
+            ["bazel", "query", "//...", "--output=xml"], root=root
+        ).decode("utf-8")
+        selection = select_bazel_owners_for_changes(
+            changes, bazel_source_owners_from_query_xml(xml), policy
+        )
+        if selection.force_full or not selection.owner_targets:
+            return selection
+        target_set = " ".join(selection.owner_targets)
+        reverse_dependencies = f"rdeps(//..., set({target_set}))"
+        build_targets = _query_bazel_labels(root, f'kind(".* rule", {reverse_dependencies})')
+        test_targets = _query_bazel_labels(root, f"tests({reverse_dependencies})")
+        return attach_bazel_reverse_dependencies(
+            selection,
+            build_targets=build_targets,
+            test_targets=test_targets,
+        )
+
+    def run_affected_ci_lane(
+        self,
+        *,
+        base_ref: str,
+        head_ref: str,
+        event_log: Path,
+        run_id: str,
+        evidence_url: str,
+        environment: str,
+    ) -> AffectedSelection:
+        """Run fast-lane preflight and the selected Bazel build/test commands.
+
+        The repository policy is validated first, then ``event_log`` is resolved
+        under the policy's event-log directory. Relative paths are rooted at
+        ``root``; parent directories are created and the UTF-8 log is opened in
+        ``"w"`` mode, so an existing log is truncated before revision or event
+        validation. The log is closed when the lane exits its context.
+
+        The lane resolves the base and head refs and requires the resolved head to
+        equal the checked-out ``HEAD``. It validates the fast-lane event context,
+        requires a clean Git status for every environment other than the exact
+        ``"local"`` value, and runs preflight in this order: generated-artifact
+        rejection, secret scanning, changed-schema compatibility, and conditional
+        pre-commit (only when paths changed). Pre-commit status is compared before
+        and after execution; a detected mutation is rejected and left in place.
+        Target selection is then performed with the resolved commits. Build and
+        test phases run only when their target tuples are non-empty. A force-full
+        selection still runs the ``fast`` lane's ``//...`` build and test phases
+        and does not add the full lane's rollback check. Each executed phase uses
+        the ``fast`` event target and attempts one JSONL duration event, flushing
+        the stream in its ``finally`` path. A command failure stops later commands
+        and phases; finalization or log I/O errors can leave a partial or empty log
+        and can mask the command failure.
+
+        Args:
+            base_ref: Non-empty Git revision expression for the comparison base;
+                it must not begin with ``-`` and must resolve to a commit.
+            head_ref: Non-empty Git revision expression for the comparison head;
+                it must not begin with ``-`` and must resolve to the checked-out
+                commit.
+            event_log: Event-log path, relative to ``root`` unless absolute. Its
+                resolved path must equal or descend from the policy event-log
+                directory.
+            run_id: Lowercase event identifier used for phase duration records.
+            evidence_url: Credential-free HTTPS evidence URL, or empty only when
+                ``environment`` is exactly ``"local"``.
+            environment: Bounded CI environment token. ``"local"`` permits a
+                dirty checkout and an empty evidence URL; other values require
+                both a clean checkout and an evidence URL.
+
+        Returns:
+            The affected selection used for the lane, including its changed paths,
+            owner labels, build/test targets, full-fallback flag, and reason.
+
+        Raises:
+            CIPolicyError: If policy, revision identity, event context, path
+                preflight, schema checks, pre-commit, target selection, phase
+                commands, event emission, or event-log containment fails. A phase
+                finalization failure can mask a command failure.
+            ChangeRiskPolicyError: If the referenced change-risk policy is invalid.
+            EvidenceGovernanceError: If retained repository evidence is invalid.
+            ValidationError: If policy model construction rejects an uncovered value.
+            OSError: If policy validation, event-log I/O, or an unhandled delegated
+                filesystem/process operation fails.
+            UnicodeError: If policy or delegated strict text boundaries, including
+                Git or Bazel output decoding, encounter invalid text.
+            RuntimeError: If event-log path resolution encounters a symlink loop.
+            TypeError: If delegated event serialization or stream writing rejects
+                a value.
+            ValueError: If a revision contains an embedded NUL, Git emits a bare
+                copy status that reaches score conversion, or delegated event/log
+                serialization rejects a value.
+        """
+        root = self.repository_root
+        policy = validate_continuous_integration_repository(root)
+        with _open_ci_event_log(
+            root, event_log, event_log_directory=policy.event_log_directory
+        ) as events:
+            base, head, changes = git_changed_paths_between(root, base_ref, head_ref)
+            if resolve_git_commit(root, "HEAD") != head:
+                raise CIPolicyError(["fast lane head ref must be the checked-out revision"])
+            _validate_ci_event_context(
+                run_id=run_id,
+                revision=head,
+                evidence_url=evidence_url,
+                environment=environment,
+                target="fast",
+            )
+            _require_clean_hosted_checkout(root, environment=environment)
+            paths = tuple(sorted({item.path for item in changes}))
+            _reject_generated_artifact_paths(paths, prefixes=policy.generated_artifact_prefixes)
+            _scan_paths_for_secrets(root, paths)
+            _check_schema_compatibility(
+                root,
+                modules=_changed_schema_modules(paths, policy.schema_module_roots),
+                base=base,
+            )
+            if paths:
+                _run_pre_commit_without_mutation(root, ["--from-ref", base, "--to-ref", head])
+            selection = select_affected_targets(root, base_ref=base, head_ref=head)
+            if selection.build_targets:
+                _run_timed_ci_phase(
+                    (["bazel", "build", "--config=ci", *selection.build_targets],),
+                    root=root,
+                    phase="build",
+                    event_stream=events,
+                    run_id=run_id,
+                    revision=head,
+                    evidence_url=evidence_url,
+                    environment=environment,
+                    target="fast",
+                )
+            if selection.test_targets:
+                _run_timed_ci_phase(
+                    (["bazel", "test", "--config=ci", *selection.test_targets],),
+                    root=root,
+                    phase="test",
+                    event_stream=events,
+                    run_id=run_id,
+                    revision=head,
+                    evidence_url=evidence_url,
+                    environment=environment,
+                    target="fast",
+                )
+        return selection
+
+    def run_authoritative_full_ci_lane(
+        self,
+        *,
+        base_ref: str,
+        event_log: Path,
+        run_id: str,
+        evidence_url: str,
+        environment: str,
+    ) -> None:
+        """Run the authoritative full graph, rollback check, and CI preflight.
+
+        The repository policy is validated first, then ``event_log`` is resolved
+        under the policy's event-log directory. Relative paths are rooted at
+        ``root``; parent directories are created and the UTF-8 log is opened in
+        ``"w"`` mode, truncating an existing file before revision or event
+        validation. The log is closed when the lane exits its context.
+
+        The lane resolves ``base_ref`` and the checked-out ``HEAD``, validates a
+        ``full`` event context, and requires a clean Git status outside the exact
+        ``"local"`` environment. It rejects generated artifact prefixes among all
+        tracked paths, scans those paths, checks every configured schema module,
+        and runs pre-commit with ``--all-files``. It then runs a build phase for
+        ``bazel build --config=ci //...`` and a test phase containing the ordered
+        commands ``bazel test --config=ci //...`` followed by
+        ``make --no-print-directory rollback-check``. Each command uses visible
+        output. Each entered phase attempts one JSONL duration event, flushing the
+        stream in its ``finally`` path. A failure stops subsequent commands or
+        phases; the log may be empty or partial, and event finalization can mask a
+        command failure.
+
+        Args:
+            base_ref: Non-empty Git revision expression used as the schema
+                comparison baseline; it must not begin with ``-`` and must resolve
+                to a commit.
+            event_log: Event-log path, relative to ``root`` unless absolute. Its
+                resolved path must equal or descend from the policy event-log
+                directory.
+            run_id: Lowercase event identifier used for phase duration records.
+            evidence_url: Credential-free HTTPS evidence URL, or empty only when
+                ``environment`` is exactly ``"local"``.
+            environment: Bounded CI environment token. ``"local"`` permits a
+                dirty checkout and an empty evidence URL; other values require
+                both a clean checkout and an evidence URL.
+
+        Raises:
+            CIPolicyError: If policy, revision or event context, path preflight,
+                schema checks, pre-commit, phase commands, event emission, or
+                event-log containment fails. A phase finalization failure can mask
+                a command failure.
+            ChangeRiskPolicyError: If the referenced change-risk policy is invalid.
+            EvidenceGovernanceError: If retained repository evidence is invalid.
+            ValidationError: If policy model construction rejects an uncovered value.
+            OSError: If policy validation, event-log I/O, or an unhandled delegated
+                filesystem/process operation fails.
+            UnicodeError: If policy or delegated strict text boundaries, including
+                Git output decoding, encounter invalid text.
+            RuntimeError: If event-log path resolution encounters a symlink loop.
+            TypeError: If delegated event serialization or stream writing rejects
+                a value.
+            ValueError: If ``base_ref`` contains an embedded NUL or delegated
+                event/log serialization rejects a value.
+        """
+        root = self.repository_root
+        policy = validate_continuous_integration_repository(root)
+        with _open_ci_event_log(
+            root, event_log, event_log_directory=policy.event_log_directory
+        ) as events:
+            base = resolve_git_commit(root, base_ref)
+            revision = resolve_git_commit(root, "HEAD")
+            _validate_ci_event_context(
+                run_id=run_id,
+                revision=revision,
+                evidence_url=evidence_url,
+                environment=environment,
+                target="full",
+            )
+            _require_clean_hosted_checkout(root, environment=environment)
+            paths = _git_tracked_paths(root)
+            _reject_generated_artifact_paths(paths, prefixes=policy.generated_artifact_prefixes)
+            _scan_paths_for_secrets(root, paths)
+            _check_schema_compatibility(root, modules=policy.schema_module_roots, base=base)
+            _run_pre_commit_without_mutation(root, ["--all-files"])
+            _run_timed_ci_phase(
+                (["bazel", "build", "--config=ci", "//..."],),
+                root=root,
+                phase="build",
+                event_stream=events,
+                run_id=run_id,
+                revision=revision,
+                evidence_url=evidence_url,
+                environment=environment,
+                target="full",
+            )
+            _run_timed_ci_phase(
+                (
+                    ["bazel", "test", "--config=ci", "//..."],
+                    ["make", "--no-print-directory", "rollback-check"],
+                ),
+                root=root,
+                phase="test",
+                event_stream=events,
+                run_id=run_id,
+                revision=revision,
+                evidence_url=evidence_url,
+                environment=environment,
+                target="full",
+            )
+
+
 def resolve_git_commit(root: Path, revision: str) -> str:
     """Resolve a Git revision expression to an exact commit SHA.
 
@@ -136,16 +758,7 @@ def resolve_git_commit(root: Path, revision: str) -> str:
             ``subprocess.run`` rejects the command argument before Git starts.
         UnicodeDecodeError: If successful Git output is not valid ASCII.
     """
-    if not revision or revision.startswith("-"):
-        raise CIPolicyError(["revision must be a non-option Git ref"])
-    payload = _run_command_and_capture_output(
-        ["git", "rev-parse", "--verify", "--end-of-options", f"{revision}^{{commit}}"],
-        root=root,
-    )
-    resolved = payload.decode("ascii", errors="strict").strip()
-    if _REVISION.fullmatch(resolved) is None:
-        raise CIPolicyError([f"Git resolved an invalid commit identity for {revision}"])
-    return resolved
+    return CIRunner(root).resolve_git_commit(revision)
 
 
 def git_changed_paths_between(
@@ -200,27 +813,7 @@ def git_changed_paths_between(
             bare copy status with two paths and the existing status normalizer
             attempts to parse its missing score.
     """
-    policy = validate_continuous_integration_repository(root)
-    base = resolve_git_commit(root, base_ref)
-    head = resolve_git_commit(root, head_ref)
-    payload = _run_command_and_capture_output(
-        [
-            "git",
-            "diff",
-            "--name-status",
-            "-z",
-            "--diff-filter=ACDMRTUXB",
-            base,
-            head,
-            "--",
-        ],
-        root=root,
-    )
-    return (
-        base,
-        head,
-        parse_git_name_status(payload, maximum_changed_files=policy.maximum_changed_files),
-    )
+    return CIRunner(root).git_changed_paths_between(base_ref, head_ref)
 
 
 def _git_tracked_paths(root: Path) -> tuple[str, ...]:
@@ -307,22 +900,7 @@ def _scan_paths_for_secrets(root: Path, paths: tuple[str, ...]) -> None:
             boundary encounters invalid encoding; local byte scanning and the
             captured-output command helper do not strictly decode their payloads.
     """
-    policy = validate_continuous_integration_repository(root)
-    normalized = normalize_changed_paths(tuple(("M", path) for path in paths))
-    existing = tuple(item.path for item in normalized if (root / item.path).is_file())
-    scan_secret_paths(
-        root,
-        existing,
-        maximum_file_bytes=policy.secret_scan_maximum_file_bytes,
-    )
-    if existing:
-        environment = os.environ.copy()
-        environment.update({"LC_ALL": "C.UTF-8", "TZ": "UTC"})
-        _run_command_and_capture_output(
-            [policy.secret_scanner_executable, "--", *existing],
-            root=root,
-            environment=environment,
-        )
+    return CIRunner(root)._scan_paths_for_secrets(paths)
 
 
 def verify_git_merge_parents(root: Path, *, base_ref: str, head_ref: str, revision: str) -> str:
@@ -361,18 +939,9 @@ def verify_git_merge_parents(root: Path, *, base_ref: str, head_ref: str, revisi
         UnicodeDecodeError: If successful revision or parent output is not
             valid ASCII.
     """
-    base = resolve_git_commit(root, base_ref)
-    head = resolve_git_commit(root, head_ref)
-    merged = resolve_git_commit(root, revision)
-    parents = _run_command_and_capture_output(
-        ["git", "show", "-s", "--format=%P", merged], root=root
+    return CIRunner(root).verify_git_merge_parents(
+        base_ref=base_ref, head_ref=head_ref, revision=revision
     )
-    observed = tuple(parents.decode("ascii", errors="strict").strip().split())
-    if observed != (base, head):
-        raise CIPolicyError(
-            [f"merged-result parents do not match declared base/head: observed={observed}"]
-        )
-    return merged
 
 
 def _query_bazel_labels(root: Path, expression: str) -> tuple[str, ...]:
@@ -450,25 +1019,7 @@ def select_affected_targets(root: Path, *, base_ref: str, head_ref: str) -> Affe
         ValueError: If a revision contains an embedded NUL or Git emits a
             bare copy status that reaches the existing score conversion.
     """
-    policy = validate_continuous_integration_repository(root)
-    _, _, changes = git_changed_paths_between(root, base_ref, head_ref)
-    xml = _run_command_and_capture_output(
-        ["bazel", "query", "//...", "--output=xml"], root=root
-    ).decode("utf-8")
-    selection = select_bazel_owners_for_changes(
-        changes, bazel_source_owners_from_query_xml(xml), policy
-    )
-    if selection.force_full or not selection.owner_targets:
-        return selection
-    target_set = " ".join(selection.owner_targets)
-    reverse_dependencies = f"rdeps(//..., set({target_set}))"
-    build_targets = _query_bazel_labels(root, f'kind(".* rule", {reverse_dependencies})')
-    test_targets = _query_bazel_labels(root, f"tests({reverse_dependencies})")
-    return attach_bazel_reverse_dependencies(
-        selection,
-        build_targets=build_targets,
-        test_targets=test_targets,
-    )
+    return CIRunner(root).select_affected_targets(base_ref=base_ref, head_ref=head_ref)
 
 
 def _changed_schema_modules(paths: tuple[str, ...], modules: tuple[str, ...]) -> tuple[str, ...]:
@@ -525,38 +1076,7 @@ def _check_schema_compatibility(root: Path, *, modules: tuple[str, ...], base: s
         CIPolicyError: If any command cannot start or exits unsuccessfully; the
             command helpers translate those failures and preserve startup causes.
     """
-    for module in modules:
-        _run_command_with_visible_output(
-            [
-                "bazel",
-                "run",
-                "--config=ci",
-                "@rules_buf_toolchains//:buf",
-                "--",
-                "lint",
-                module,
-            ],
-            root=root,
-        )
-        baseline = _run_command_and_capture_output(
-            ["git", "ls-tree", "-z", base, "--", f"{module}/buf.yaml"],
-            root=root,
-        )
-        if baseline:
-            _run_command_with_visible_output(
-                [
-                    "bazel",
-                    "run",
-                    "--config=ci",
-                    "@rules_buf_toolchains//:buf",
-                    "--",
-                    "breaking",
-                    module,
-                    "--against",
-                    f".git#ref={base},subdir={module}",
-                ],
-                root=root,
-            )
+    return CIRunner(root)._check_schema_compatibility(modules=modules, base=base)
 
 
 def _git_worktree_state(root: Path) -> bytes:
@@ -615,12 +1135,7 @@ def _run_pre_commit_without_mutation(root: Path, arguments: list[str]) -> None:
             A command-start failure retains its operating-system cause through
             the command helper.
     """
-    before = _git_worktree_state(root)
-    _run_command_with_visible_output(["pre-commit", "run", *arguments], root=root)
-    if _git_worktree_state(root) != before:
-        raise CIPolicyError(
-            ["pre-commit changed the worktree; commit the formatted result and rerun"]
-        )
+    return CIRunner(root)._run_pre_commit_without_mutation(arguments)
 
 
 def _require_clean_hosted_checkout(root: Path, *, environment: str) -> None:
@@ -883,33 +1398,16 @@ def _run_timed_ci_phase(
         ValueError: If writing or flushing a closed stream fails, or another
             serializer/stream boundary rejects its value.
     """
-    started_at = datetime.now(UTC)
-    outcome = "passed"
-    try:
-        for command in commands:
-            _run_command_with_visible_output(command, root=root)
-    except CIPolicyError:
-        outcome = "failed"
-        raise
-    finally:
-        ended_at = max(datetime.now(UTC), started_at + timedelta(microseconds=1))
-        event_stream.write(
-            _serialize_ci_event(
-                _build_ci_duration_event(
-                    phase=phase,
-                    run_id=run_id,
-                    revision=revision,
-                    evidence_url=evidence_url,
-                    environment=environment,
-                    outcome=outcome,
-                    target=target,
-                    started_at=started_at,
-                    ended_at=ended_at,
-                )
-            )
-            + "\n"
-        )
-        event_stream.flush()
+    return CIRunner(root)._run_timed_ci_phase(
+        commands,
+        phase=phase,
+        event_stream=event_stream,
+        run_id=run_id,
+        revision=revision,
+        evidence_url=evidence_url,
+        environment=environment,
+        target=target,
+    )
 
 
 def _open_ci_event_log(root: Path, path: Path, *, event_log_directory: str = "build/ci") -> IO[str]:
@@ -1033,57 +1531,14 @@ def run_affected_ci_lane(
             copy status that reaches score conversion, or delegated event/log
             serialization rejects a value.
     """
-    policy = validate_continuous_integration_repository(root)
-    with _open_ci_event_log(
-        root, event_log, event_log_directory=policy.event_log_directory
-    ) as events:
-        base, head, changes = git_changed_paths_between(root, base_ref, head_ref)
-        if resolve_git_commit(root, "HEAD") != head:
-            raise CIPolicyError(["fast lane head ref must be the checked-out revision"])
-        _validate_ci_event_context(
-            run_id=run_id,
-            revision=head,
-            evidence_url=evidence_url,
-            environment=environment,
-            target="fast",
-        )
-        _require_clean_hosted_checkout(root, environment=environment)
-        paths = tuple(sorted({item.path for item in changes}))
-        _reject_generated_artifact_paths(paths, prefixes=policy.generated_artifact_prefixes)
-        _scan_paths_for_secrets(root, paths)
-        _check_schema_compatibility(
-            root,
-            modules=_changed_schema_modules(paths, policy.schema_module_roots),
-            base=base,
-        )
-        if paths:
-            _run_pre_commit_without_mutation(root, ["--from-ref", base, "--to-ref", head])
-        selection = select_affected_targets(root, base_ref=base, head_ref=head)
-        if selection.build_targets:
-            _run_timed_ci_phase(
-                (["bazel", "build", "--config=ci", *selection.build_targets],),
-                root=root,
-                phase="build",
-                event_stream=events,
-                run_id=run_id,
-                revision=head,
-                evidence_url=evidence_url,
-                environment=environment,
-                target="fast",
-            )
-        if selection.test_targets:
-            _run_timed_ci_phase(
-                (["bazel", "test", "--config=ci", *selection.test_targets],),
-                root=root,
-                phase="test",
-                event_stream=events,
-                run_id=run_id,
-                revision=head,
-                evidence_url=evidence_url,
-                environment=environment,
-                target="fast",
-            )
-    return selection
+    return CIRunner(root).run_affected_ci_lane(
+        base_ref=base_ref,
+        head_ref=head_ref,
+        event_log=event_log,
+        run_id=run_id,
+        evidence_url=evidence_url,
+        environment=environment,
+    )
 
 
 def run_authoritative_full_ci_lane(
@@ -1132,6 +1587,9 @@ def run_authoritative_full_ci_lane(
             dirty checkout and an empty evidence URL; other values require
             both a clean checkout and an evidence URL.
 
+    Returns:
+        ``None`` after the authoritative CI lane completes.
+
     Raises:
         CIPolicyError: If policy, revision or event context, path preflight,
             schema checks, pre-commit, phase commands, event emission, or
@@ -1150,47 +1608,10 @@ def run_authoritative_full_ci_lane(
         ValueError: If ``base_ref`` contains an embedded NUL or delegated
             event/log serialization rejects a value.
     """
-    policy = validate_continuous_integration_repository(root)
-    with _open_ci_event_log(
-        root, event_log, event_log_directory=policy.event_log_directory
-    ) as events:
-        base = resolve_git_commit(root, base_ref)
-        revision = resolve_git_commit(root, "HEAD")
-        _validate_ci_event_context(
-            run_id=run_id,
-            revision=revision,
-            evidence_url=evidence_url,
-            environment=environment,
-            target="full",
-        )
-        _require_clean_hosted_checkout(root, environment=environment)
-        paths = _git_tracked_paths(root)
-        _reject_generated_artifact_paths(paths, prefixes=policy.generated_artifact_prefixes)
-        _scan_paths_for_secrets(root, paths)
-        _check_schema_compatibility(root, modules=policy.schema_module_roots, base=base)
-        _run_pre_commit_without_mutation(root, ["--all-files"])
-        _run_timed_ci_phase(
-            (["bazel", "build", "--config=ci", "//..."],),
-            root=root,
-            phase="build",
-            event_stream=events,
-            run_id=run_id,
-            revision=revision,
-            evidence_url=evidence_url,
-            environment=environment,
-            target="full",
-        )
-        _run_timed_ci_phase(
-            (
-                ["bazel", "test", "--config=ci", "//..."],
-                ["make", "--no-print-directory", "rollback-check"],
-            ),
-            root=root,
-            phase="test",
-            event_stream=events,
-            run_id=run_id,
-            revision=revision,
-            evidence_url=evidence_url,
-            environment=environment,
-            target="full",
-        )
+    return CIRunner(root).run_authoritative_full_ci_lane(
+        base_ref=base_ref,
+        event_log=event_log,
+        run_id=run_id,
+        evidence_url=evidence_url,
+        environment=environment,
+    )

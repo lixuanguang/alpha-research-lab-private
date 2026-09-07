@@ -8,6 +8,7 @@ import re
 import tomllib
 from datetime import date
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlsplit
 
 # third party library imports
@@ -697,254 +698,273 @@ def _resolve_artifact_path(bundle_root: Path, relative_text: str) -> Path:
     return resolved
 
 
-def _verify_artifacts(path: Path, artifacts: tuple[ArtifactEvidence, ...]) -> None:
-    """Read each declared artifact and compare its SHA-256 digest.
+class _ManifestValidator:
+    """Parse and verify one SHA-bound manifest and its declared artifacts."""
 
-    The manifest's parent directory is resolved as the bundle root, then artifacts
-    are resolved and read in tuple order. Path safety is delegated to
-    ``_resolve_artifact_path`` and digest mismatches identify both the evidence ID
-    and source path. An empty file is valid when its claimed digest matches.
+    def __init__(
+        self,
+        path: Path,
+        expected_commit_sha: str,
+        change_policy: ChangeRiskPolicy,
+        operating_model: OperatingModel | None,
+        operation: Operation,
+    ) -> None:
+        """Bind manifest inputs without reading from disk."""
+        self._path = path
+        self._expected_commit_sha = expected_commit_sha
+        self._change_policy = change_policy
+        self._operating_model = operating_model
+        self._operation = operation
 
-    Verification reads ordinary filesystem bytes and therefore is not an atomic
-    snapshot: a file may change after resolution or while it is being read. The
-    function does not retry, lock, or retain bytes, and it does not catch unrelated
-    filesystem I/O failures.
+    def _verify_artifacts(self, artifacts: tuple[ArtifactEvidence, ...]) -> None:
+        """Read declared artifacts and compare their SHA-256 digests.
 
-    Args:
-        path: Manifest path whose parent directory contains the bundle.
-        artifacts: Parsed artifact claims with validated lowercase SHA-256 values.
+        The manifest's parent directory is resolved as the bundle root, then artifacts
+        are resolved and read in tuple order. Path safety is delegated to the pure
+        containment primitive ``_resolve_artifact_path``. Verification uses ordinary
+        filesystem reads and does not retry, lock, or retain artifact bytes.
 
-    Raises:
-        EvidenceGovernanceError: An artifact path violates containment/file rules or
-            the bytes' digest differs from the claim.
-        OSError: Resolving the bundle root, inspecting metadata, or reading an
-            artifact fails for an unrelated filesystem reason.
-        RuntimeError: Path resolution encounters a symlink loop that is not rejected
-            by the component checks.
-    """
-    bundle_root = path.parent.resolve()
-    for artifact in artifacts:
-        artifact_path = _resolve_artifact_path(bundle_root, artifact.path)
-        actual = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
-        if actual != artifact.sha256:
-            raise EvidenceGovernanceError(
-                [f"artifact {artifact.evidence_id!r} SHA-256 mismatch: {artifact.path}"]
-            )
+        Args:
+            artifacts: Parsed artifact claims with validated lowercase SHA-256 values.
 
+        Raises:
+            EvidenceGovernanceError: If an artifact path violates containment/file
+                rules or its bytes differ from the claimed digest.
+            OSError: If resolving, inspecting, or reading an artifact fails for an
+                unrelated filesystem reason.
+            RuntimeError: If path resolution encounters an unhandled symlink loop.
+        """
+        bundle_root = self._path.parent.resolve()
+        for artifact in artifacts:
+            artifact_path = _resolve_artifact_path(bundle_root, artifact.path)
+            actual = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+            if actual != artifact.sha256:
+                raise EvidenceGovernanceError(
+                    [(f"artifact {artifact.evidence_id!r} SHA-256 mismatch: {artifact.path}")]
+                )
 
-def _validate_manifest(
-    path: Path,
-    *,
-    expected_commit_sha: str,
-    change_policy: ChangeRiskPolicy,
-    operating_model: OperatingModel | None,
-    operation: Operation,
-) -> EvidenceManifest:
-    """Validate a manifest, change-risk binding, artifact digests, and acceptance."""
-    if _COMMIT_SHA.fullmatch(expected_commit_sha) is None:
-        raise EvidenceGovernanceError(["expected_commit_sha must be a full lowercase SHA"])
-    if path.is_symlink():
-        raise EvidenceGovernanceError([f"{path}: manifest may not be a symlink"])
-    try:
-        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as error:
-        raise EvidenceGovernanceError([f"{path}: invalid TOML: {error}"]) from error
-    try:
-        input_model = (
-            _ImplementationManifestInput
-            if isinstance(parsed_document, dict) and parsed_document.get("schema_version") == 2
-            else _EvidenceManifestInput
-        )
-        manifest_document = input_model.model_validate(parsed_document)
-    except ValidationError as error:
-        raise _manifest_input_error(path, error) from error
-    if manifest_document.schema_version not in {1, 2}:
-        raise EvidenceGovernanceError([f"{path}: schema_version must be 1 or 2"])
-
-    bundle_id = _validated_string(manifest_document.bundle_id, context=f"{path}.bundle_id")
-    roadmap_id = _validated_string(manifest_document.roadmap_id, context=f"{path}.roadmap_id")
-    commit_sha = _validated_string(manifest_document.commit_sha, context=f"{path}.commit_sha")
-    owner_role = _validated_string(manifest_document.owner_role, context=f"{path}.owner_role")
-    risk_class = _validated_string(manifest_document.risk_class, context=f"{path}.risk_class")
-    retention = _validated_string(
-        manifest_document.evidence_retention_class,
-        context=f"{path}.evidence_retention_class",
-    )
-    bundle_status = _validated_string(
-        manifest_document.bundle_status, context=f"{path}.bundle_status"
-    )
-    if _BUNDLE_ID.fullmatch(bundle_id) is None:
-        raise EvidenceGovernanceError([f"{path}: bundle_id must be lower-kebab-case"])
-    if _ROADMAP_ID.fullmatch(roadmap_id) is None:
-        raise EvidenceGovernanceError([f"{path}: roadmap_id must be A01-L08"])
-    if commit_sha != expected_commit_sha:
-        raise EvidenceGovernanceError([f"{path}: commit_sha does not match expected commit"])
-    if _ROLE.fullmatch(owner_role) is None:
-        raise EvidenceGovernanceError([f"{path}: owner_role must be lower_snake_case"])
-    implementation = isinstance(manifest_document, _ImplementationManifestInput)
-    if implementation and bundle_status != "implementation_accepted":
-        raise EvidenceGovernanceError(["schema_version 2 requires implementation_accepted status"])
-    if not implementation and bundle_status not in _BUNDLE_STATUSES:
-        raise EvidenceGovernanceError([f"{path}: bundle_status must be partial or accepted"])
-
-    change = _parse_change(manifest_document.change)
-    try:
-        decision = classify_change(change, change_policy)
-    except ValueError as error:
-        raise EvidenceGovernanceError([str(error)]) from error
-    if risk_class != decision.risk_class.value:
-        raise EvidenceGovernanceError([f"{path}: risk_class does not match A04 classification"])
-    if retention != decision.evidence_retention_class:
-        raise EvidenceGovernanceError(
-            [f"{path}: evidence_retention_class does not match A04 classification"]
-        )
-
-    additional_gates = _validated_strings(
-        manifest_document.additional_required_gates,
-        context="additional_required_gates",
-        allow_empty=True,
-    )
-    if any(_GATE.fullmatch(gate) is None for gate in additional_gates):
-        raise EvidenceGovernanceError(["additional_required_gates must use QG01-QG15"])
-    gates = _parse_gates(manifest_document.gates)
-    artifacts = _parse_artifacts(manifest_document.artifacts)
-    approvals = _parse_approvals(manifest_document.approvals, commit_sha=commit_sha)
-    finding_ids = _parse_findings(manifest_document.findings)
-    open_finding_ids = _validated_strings(
-        manifest_document.open_finding_ids,
-        context="open_finding_ids",
-        allow_empty=True,
-    )
-    if open_finding_ids != finding_ids:
-        raise EvidenceGovernanceError(["open_finding_ids must exactly match findings"])
-    waived_controls = _validated_strings(
-        manifest_document.waived_controls,
-        context="waived_controls",
-        allow_empty=True,
-    )
-
-    gates_by_id = {gate.gate_id: gate for gate in gates}
-    required_gates = set(decision.mandatory_gates) | set(additional_gates)
-    missing_gates = required_gates - set(gates_by_id)
-    if missing_gates:
-        raise EvidenceGovernanceError([f"required gates are missing: {sorted(missing_gates)}"])
-    invalid_required = sorted(
-        gate_id for gate_id in required_gates if gates_by_id[gate_id].status == "not_applicable"
-    )
-    if invalid_required:
-        raise EvidenceGovernanceError(
-            [f"required gates cannot be not_applicable: {invalid_required}"]
-        )
-    evidence_ids = {artifact.evidence_id for artifact in artifacts}
-    unknown_evidence = sorted(
-        {
-            evidence_id
-            for gate in gates
-            for evidence_id in gate.evidence_ids
-            if evidence_id not in evidence_ids
-        }
-    )
-    if unknown_evidence:
-        raise EvidenceGovernanceError([f"gates reference unknown evidence: {unknown_evidence}"])
-    _verify_artifacts(path, artifacts)
-
-    class_policy = change_policy.class_policy(decision.risk_class)
-    prohibited_waivers = class_policy.risk_class is RiskClass.R4 and (
-        change_policy.hard_controls & set(waived_controls)
-    )
-    if prohibited_waivers:
-        raise EvidenceGovernanceError(["R4 manifest cannot waive a non-waivable hard control"])
-
-    accepted_on: date | None = None
-    if isinstance(manifest_document, _ImplementationManifestInput):
-        if operating_model is None:
-            raise EvidenceGovernanceError(
-                ["implementation acceptance requires the operating model"]
-            )
-        if operation != "implementation":
-            raise EvidenceGovernanceError(
-                ["implementation evidence cannot authorize institutional operations"]
-            )
-        if manifest_document.accepted_by != operating_model.founder_principal:
-            raise EvidenceGovernanceError(
-                ["implementation acceptance requires the recorded founder"]
-            )
-        if approvals or waived_controls:
-            raise EvidenceGovernanceError(
-                ["implementation evidence cannot contain institutional approvals or waivers"]
-            )
-        incomplete_implementation = tuple(
-            gate.gate_id
-            for gate in gates
-            if (gate.gate_id in required_gates and gate.status != "passed")
-            or gate.status in {"failed", "deferred"}
-        )
+    def _validate(self) -> EvidenceManifest:
+        """Validate a manifest, change-risk binding, artifact digests, and acceptance."""
+        path = self._path
+        expected_commit_sha = self._expected_commit_sha
+        change_policy = self._change_policy
+        operating_model = self._operating_model
+        operation = self._operation
+        if _COMMIT_SHA.fullmatch(expected_commit_sha) is None:
+            raise EvidenceGovernanceError(["expected_commit_sha must be a full lowercase SHA"])
+        if path.is_symlink():
+            raise EvidenceGovernanceError([f"{path}: manifest may not be a symlink"])
         try:
-            accepted_on = date.fromisoformat(manifest_document.accepted_on)
-            rules = operating_model.resolve(
-                domain_id=manifest_document.operating_domain,
-                operation=operation,
-                on_date=accepted_on,
+            parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as error:
+            raise EvidenceGovernanceError([f"{path}: invalid TOML: {error}"]) from error
+        try:
+            parsed_table = (
+                cast(dict[str, object], parsed_document)
+                if isinstance(parsed_document, dict)
+                else {}
             )
-            rules.require_local_completion(
-                repository_local_status="failed" if incomplete_implementation else "passed",
-                technical_finding_ids=open_finding_ids,
+            input_model = (
+                _ImplementationManifestInput
+                if parsed_table.get("schema_version") == 2
+                else _EvidenceManifestInput
             )
+            manifest_document = input_model.model_validate(parsed_document)
+        except ValidationError as error:
+            raise _manifest_input_error(path, error) from error
+        if manifest_document.schema_version not in {1, 2}:
+            raise EvidenceGovernanceError([f"{path}: schema_version must be 1 or 2"])
+
+        bundle_id = _validated_string(manifest_document.bundle_id, context=f"{path}.bundle_id")
+        roadmap_id = _validated_string(manifest_document.roadmap_id, context=f"{path}.roadmap_id")
+        commit_sha = _validated_string(manifest_document.commit_sha, context=f"{path}.commit_sha")
+        owner_role = _validated_string(manifest_document.owner_role, context=f"{path}.owner_role")
+        risk_class = _validated_string(manifest_document.risk_class, context=f"{path}.risk_class")
+        retention = _validated_string(
+            manifest_document.evidence_retention_class,
+            context=f"{path}.evidence_retention_class",
+        )
+        bundle_status = _validated_string(
+            manifest_document.bundle_status, context=f"{path}.bundle_status"
+        )
+        if _BUNDLE_ID.fullmatch(bundle_id) is None:
+            raise EvidenceGovernanceError([f"{path}: bundle_id must be lower-kebab-case"])
+        if _ROADMAP_ID.fullmatch(roadmap_id) is None:
+            raise EvidenceGovernanceError([f"{path}: roadmap_id must be A01-L08"])
+        if commit_sha != expected_commit_sha:
+            raise EvidenceGovernanceError([f"{path}: commit_sha does not match expected commit"])
+        if _ROLE.fullmatch(owner_role) is None:
+            raise EvidenceGovernanceError([f"{path}: owner_role must be lower_snake_case"])
+        implementation = isinstance(manifest_document, _ImplementationManifestInput)
+        if implementation and bundle_status != "implementation_accepted":
+            raise EvidenceGovernanceError(
+                ["schema_version 2 requires implementation_accepted status"]
+            )
+        if not implementation and bundle_status not in _BUNDLE_STATUSES:
+            raise EvidenceGovernanceError([f"{path}: bundle_status must be partial or accepted"])
+
+        change = _parse_change(manifest_document.change)
+        try:
+            decision = classify_change(change, change_policy)
         except ValueError as error:
             raise EvidenceGovernanceError([str(error)]) from error
-    elif bundle_status == "partial":
-        if not open_finding_ids:
-            raise EvidenceGovernanceError(["partial bundle requires at least one open finding"])
-    else:
-        incomplete = sorted(
-            gate_id for gate_id in required_gates if gates_by_id[gate_id].status != "passed"
-        )
-        if incomplete:
-            raise EvidenceGovernanceError([f"accepted bundle has incomplete gates: {incomplete}"])
-        if open_finding_ids:
-            raise EvidenceGovernanceError(["accepted bundle cannot retain open findings"])
-        if any(approval.status != "approved" for approval in approvals):
-            raise EvidenceGovernanceError(["accepted bundle cannot retain non-approved reviews"])
-        review_approvals = tuple(approval.as_review_approval() for approval in approvals)
-        try:
-            validate_merge_approvals(
-                decision,
-                review_approvals,
-                change=change,
-                waived_controls=waived_controls,
-                policy=change_policy,
+        if risk_class != decision.risk_class.value:
+            raise EvidenceGovernanceError([f"{path}: risk_class does not match A04 classification"])
+        if retention != decision.evidence_retention_class:
+            raise EvidenceGovernanceError(
+                [f"{path}: evidence_retention_class does not match A04 classification"]
             )
-        except ValueError as error:
-            raise EvidenceGovernanceError([str(error)]) from error
 
-    return EvidenceManifest(
-        bundle_id=bundle_id,
-        roadmap_id=roadmap_id,
-        commit_sha=commit_sha,
-        owner_role=owner_role,
-        risk_class=risk_class,
-        evidence_retention_class=retention,
-        additional_required_gates=additional_gates,
-        bundle_status=bundle_status,
-        waived_controls=waived_controls,
-        open_finding_ids=open_finding_ids,
-        change=change,
-        gates=gates,
-        artifacts=artifacts,
-        approvals=approvals,
-        schema_version=2 if implementation else 1,
-        operating_domain=(
-            manifest_document.operating_domain
-            if isinstance(manifest_document, _ImplementationManifestInput)
-            else None
-        ),
-        accepted_by=(
-            manifest_document.accepted_by
-            if isinstance(manifest_document, _ImplementationManifestInput)
-            else None
-        ),
-        accepted_on=accepted_on,
-    )
+        additional_gates = _validated_strings(
+            manifest_document.additional_required_gates,
+            context="additional_required_gates",
+            allow_empty=True,
+        )
+        if any(_GATE.fullmatch(gate) is None for gate in additional_gates):
+            raise EvidenceGovernanceError(["additional_required_gates must use QG01-QG15"])
+        gates = _parse_gates(manifest_document.gates)
+        artifacts = _parse_artifacts(manifest_document.artifacts)
+        approvals = _parse_approvals(manifest_document.approvals, commit_sha=commit_sha)
+        finding_ids = _parse_findings(manifest_document.findings)
+        open_finding_ids = _validated_strings(
+            manifest_document.open_finding_ids,
+            context="open_finding_ids",
+            allow_empty=True,
+        )
+        if open_finding_ids != finding_ids:
+            raise EvidenceGovernanceError(["open_finding_ids must exactly match findings"])
+        waived_controls = _validated_strings(
+            manifest_document.waived_controls,
+            context="waived_controls",
+            allow_empty=True,
+        )
+
+        gates_by_id = {gate.gate_id: gate for gate in gates}
+        required_gates = set(decision.mandatory_gates) | set(additional_gates)
+        missing_gates = required_gates - set(gates_by_id)
+        if missing_gates:
+            raise EvidenceGovernanceError([f"required gates are missing: {sorted(missing_gates)}"])
+        invalid_required = sorted(
+            gate_id for gate_id in required_gates if gates_by_id[gate_id].status == "not_applicable"
+        )
+        if invalid_required:
+            raise EvidenceGovernanceError(
+                [f"required gates cannot be not_applicable: {invalid_required}"]
+            )
+        evidence_ids = {artifact.evidence_id for artifact in artifacts}
+        unknown_evidence = sorted(
+            {
+                evidence_id
+                for gate in gates
+                for evidence_id in gate.evidence_ids
+                if evidence_id not in evidence_ids
+            }
+        )
+        if unknown_evidence:
+            raise EvidenceGovernanceError([f"gates reference unknown evidence: {unknown_evidence}"])
+        self._verify_artifacts(artifacts)
+
+        class_policy = change_policy.class_policy(decision.risk_class)
+        prohibited_waivers = class_policy.risk_class is RiskClass.R4 and (
+            change_policy.hard_controls & set(waived_controls)
+        )
+        if prohibited_waivers:
+            raise EvidenceGovernanceError(["R4 manifest cannot waive a non-waivable hard control"])
+
+        accepted_on: date | None = None
+        if isinstance(manifest_document, _ImplementationManifestInput):
+            if operating_model is None:
+                raise EvidenceGovernanceError(
+                    ["implementation acceptance requires the operating model"]
+                )
+            if operation != "implementation":
+                raise EvidenceGovernanceError(
+                    ["implementation evidence cannot authorize institutional operations"]
+                )
+            if manifest_document.accepted_by != operating_model.founder_principal:
+                raise EvidenceGovernanceError(
+                    ["implementation acceptance requires the recorded founder"]
+                )
+            if approvals or waived_controls:
+                raise EvidenceGovernanceError(
+                    ["implementation evidence cannot contain institutional approvals or waivers"]
+                )
+            incomplete_implementation = tuple(
+                gate.gate_id
+                for gate in gates
+                if (gate.gate_id in required_gates and gate.status != "passed")
+                or gate.status in {"failed", "deferred"}
+            )
+            try:
+                accepted_on = date.fromisoformat(manifest_document.accepted_on)
+                rules = operating_model.resolve(
+                    domain_id=manifest_document.operating_domain,
+                    operation=operation,
+                    on_date=accepted_on,
+                )
+                rules.require_local_completion(
+                    repository_local_status="failed" if incomplete_implementation else "passed",
+                    technical_finding_ids=open_finding_ids,
+                )
+            except ValueError as error:
+                raise EvidenceGovernanceError([str(error)]) from error
+        elif bundle_status == "partial":
+            if not open_finding_ids:
+                raise EvidenceGovernanceError(["partial bundle requires at least one open finding"])
+        else:
+            incomplete = sorted(
+                gate_id for gate_id in required_gates if gates_by_id[gate_id].status != "passed"
+            )
+            if incomplete:
+                raise EvidenceGovernanceError(
+                    [f"accepted bundle has incomplete gates: {incomplete}"]
+                )
+            if open_finding_ids:
+                raise EvidenceGovernanceError(["accepted bundle cannot retain open findings"])
+            if any(approval.status != "approved" for approval in approvals):
+                raise EvidenceGovernanceError(
+                    ["accepted bundle cannot retain non-approved reviews"]
+                )
+            review_approvals = tuple(approval.as_review_approval() for approval in approvals)
+            try:
+                validate_merge_approvals(
+                    decision,
+                    review_approvals,
+                    change=change,
+                    waived_controls=waived_controls,
+                    policy=change_policy,
+                )
+            except ValueError as error:
+                raise EvidenceGovernanceError([str(error)]) from error
+
+        return EvidenceManifest(
+            bundle_id=bundle_id,
+            roadmap_id=roadmap_id,
+            commit_sha=commit_sha,
+            owner_role=owner_role,
+            risk_class=risk_class,
+            evidence_retention_class=retention,
+            additional_required_gates=additional_gates,
+            bundle_status=bundle_status,
+            waived_controls=waived_controls,
+            open_finding_ids=open_finding_ids,
+            change=change,
+            gates=gates,
+            artifacts=artifacts,
+            approvals=approvals,
+            schema_version=2 if implementation else 1,
+            operating_domain=(
+                manifest_document.operating_domain
+                if isinstance(manifest_document, _ImplementationManifestInput)
+                else None
+            ),
+            accepted_by=(
+                manifest_document.accepted_by
+                if isinstance(manifest_document, _ImplementationManifestInput)
+                else None
+            ),
+            accepted_on=accepted_on,
+        )
 
 
 def validate_manifest(
@@ -1017,12 +1037,8 @@ def validate_manifest(
             symlink loop not rejected by the component checks.
     """
     try:
-        return _validate_manifest(
-            path,
-            expected_commit_sha=expected_commit_sha,
-            change_policy=change_policy,
-            operating_model=operating_model,
-            operation=operation,
-        )
+        return _ManifestValidator(
+            path, expected_commit_sha, change_policy, operating_model, operation
+        )._validate()
     except ValidationError as error:
         raise EvidenceGovernanceError([f"{path}: manifest model validation failed"]) from error

@@ -17,14 +17,20 @@ from alpha_research_governance.remote_execution.models import (
     RemoteExecutionPolicy,
     TestShard,
 )
-from alpha_research_governance.remote_execution.policy import load_policy, validate_repository
+from alpha_research_governance.remote_execution.policy import (
+    load_policy,
+    validate_repository,
+)
 from alpha_research_governance.remote_execution.runner import (
     run_quarantine_diagnostics,
     run_remote_build,
     run_remote_test_shard,
     validate_trusted_context,
 )
-from alpha_research_governance.remote_execution.sharding import select_shard, shard_targets
+from alpha_research_governance.remote_execution.sharding import (
+    select_shard,
+    shard_targets,
+)
 
 __all__ = [
     "RemoteExecutionError",

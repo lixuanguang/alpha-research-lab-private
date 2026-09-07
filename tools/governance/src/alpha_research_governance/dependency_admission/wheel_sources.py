@@ -90,6 +90,193 @@ def _relative_path(value: str) -> None:
         raise DependencyAdmissionError(["source evidence path must be canonical and relative"])
 
 
+class WheelEvidenceService:
+    """Own wheel evidence verification for one repository root."""
+
+    def __init__(self, repository_root: Path) -> None:
+        """Bind WheelEvidenceService collaborators without filesystem or process I/O.
+
+        Args:
+            repository_root: Repository root used by later verification operations.
+        """
+        self.repository_root = repository_root
+
+    def _verify_wheel_evidence(
+        self, locked: dict[str, object], record: WheelEvidenceAdmission
+    ) -> None:
+        """Verify shared lock coverage, attestation claims, and Cosign signatures.
+
+        The lock must omit ``sdist`` and contain wheel URLs hosted on ``files.pythonhosted.org``
+        with unique filenames. Its exact filename-to-digest mapping must equal the
+        supplied ``record.wheels`` mapping; the supplied digests are compared and
+        passed to Cosign rather than recomputed from downloaded wheel bytes. After the
+        lock checks, the trust-root evidence is read, the PATH-discovered Cosign executable is
+        resolved, the trust root is copied into a private temporary directory, and the
+        reported Cosign version is checked. Only then is each bundle read in wheel
+        order, its statement claims checked, and its private copy sent to the signature
+        call.
+
+        Args:
+            locked: Parsed package-lock object expected to contain a wheel list.
+            record: Parser-admitted, model-validated wheel admission whose expected
+                digests and identities are compared with the lock and attestation claims.
+
+        Raises:
+            DependencyAdmissionError: If the lock is not wheel-only, its wheel set or
+                wheel artifact host is unapproved, local evidence is invalid, Cosign
+                is unavailable or unpinned, statements mismatch, or any signature
+                fails. Helper-level process and evidence failures are translated and
+                chained.
+            OSError: If temporary staging writes or other uncaught filesystem operations
+                fail outside those helper boundaries.
+            ValueError: If URL parsing rejects malformed authority syntax in the lock.
+        """
+        root = self.repository_root
+        if "sdist" in locked:
+            raise DependencyAdmissionError(
+                ["wheel-only admission cannot replace an existing sdist"]
+            )
+        wheels = locked.get("wheels")
+        if not isinstance(wheels, list):
+            raise DependencyAdmissionError(["wheel-only admission requires locked wheels"])
+        observed: dict[str, str] = {}
+        for wheel in wheels:
+            item = _object(wheel)
+            url, digest = item.get("url"), item.get("hash")
+            if not isinstance(url, str) or not isinstance(digest, str):
+                raise DependencyAdmissionError(["wheel lock requires URL and digest"])
+            _https(url)
+            if urlsplit(url).hostname != "files.pythonhosted.org":
+                raise DependencyAdmissionError(["wheel artifact uses an unapproved source"])
+            filename = urlsplit(url).path.rsplit("/", 1)[-1]
+            if filename in observed:
+                raise DependencyAdmissionError(["duplicate locked wheel identity"])
+            observed[filename] = digest
+        expected = {wheel.filename: f"sha256:{wheel.sha256}" for wheel in record.wheels}
+        if observed != expected:
+            raise DependencyAdmissionError(["provenance must cover the exact locked wheel set"])
+        trust = _read_evidence(root, record.trusted_root)
+        executable = shutil.which("cosign")
+        if executable is None:
+            raise DependencyAdmissionError(
+                ["Cosign verification unavailable: executable not found"]
+            )
+        try:
+            executable = str(Path(executable).resolve(strict=True))
+        except (OSError, RuntimeError) as error:
+            raise DependencyAdmissionError(["Cosign executable cannot be resolved"]) from error
+        # Private copies prevent a caller from swapping a file after semantic validation.
+        with tempfile.TemporaryDirectory(prefix="wheel-source-verification-") as temporary:
+            directory = Path(temporary)
+            trust_path = directory / "trusted-root.json"
+            trust_path.write_bytes(trust)
+            if (
+                re.search(r"(?m)^\s*GitVersion:\s+v3\.1\.3\s*$", _cosign(["version"], executable))
+                is None
+            ):
+                raise DependencyAdmissionError([f"Cosign must be exactly {_COSIGN_VERSION}"])
+            for wheel in record.wheels:
+                bundle = _read_evidence(root, wheel.bundle)
+                _check_statement(_statement(bundle), record, wheel.filename, wheel.sha256)
+                bundle_path = directory / "bundle.json"
+                bundle_path.write_bytes(bundle)
+                _cosign(
+                    [
+                        "verify-blob-attestation",
+                        "--check-claims=true",
+                        "--trusted-root",
+                        str(trust_path),
+                        "--bundle",
+                        str(bundle_path),
+                        "--certificate-identity",
+                        record.certificate_identity,
+                        "--certificate-oidc-issuer",
+                        record.oidc_issuer,
+                        "--type",
+                        _PUBLICATION_TYPE
+                        if isinstance(record, BootstrapWheelAdmission)
+                        else _PREDICATE_TYPE,
+                        "--digest",
+                        wheel.sha256,
+                        "--digestAlg",
+                        "sha256",
+                    ],
+                    executable,
+                )
+
+    def verify_wheel_sources(self, locked: dict[str, object], record: WheelSourceAdmission) -> None:
+        """Verify a source-bound wheel admission against the complete locked wheel set.
+
+        The lock must omit ``sdist`` and contain wheels from ``files.pythonhosted.org`` with exactly
+        the filenames and supplied ``sha256:`` digests declared by ``record``. The
+        record must already have been admitted by ``parse_wheel_sources``; this
+        verifier does not repeat that parser's full cross-record validation. After
+        lock checks, it reads the retained trust root, resolves the PATH-discovered Cosign
+        executable, stages the private trust root, and checks the reported version
+        before reading any wheel bundle. Each bundle's in-toto/SLSA claims are checked
+        before its signature call. It authenticates the supplied wheel digest; this
+        function does not download or hash wheel or source-archive bytes. Cosign is
+        invoked without a shell and with a PATH-only environment, but no offline flag
+        is added by this module.
+
+        Args:
+            locked: Parsed lock record for one package, including its ``wheels`` list.
+            record: Admission previously returned by ``parse_wheel_sources``; the
+                verifier assumes its parser-level cross-record checks have passed.
+
+        Raises:
+            DependencyAdmissionError: If the lock, local evidence, attestation claims,
+                Cosign path/version, or signature verification fails. Evidence and
+                Cosign process failures are translated at their helper boundaries.
+            OSError: If temporary staging or other uncaught filesystem operations fail.
+            ValueError: If URL parsing rejects malformed authority syntax in the lock.
+        """
+        self._verify_wheel_evidence(locked, record)
+
+    def verify_bootstrap_wheels(
+        self,
+        locked: dict[str, object],
+        record: BootstrapWheelAdmission,
+        *,
+        validation_date: date,
+    ) -> None:
+        """Verify a bounded publication-only bootstrap admission in ordered stages.
+
+        The caller-supplied ``validation_date`` must be within the inclusive
+        ``reviewed_on`` through ``expires_on`` interval. Date checking runs first,
+        followed by non-empty digest-checked reads of the four review reports in their
+        fixed order; only then does the shared lock, publication-subject, and Cosign
+        verification run. The record must already have been admitted by
+        ``parse_bootstrap_wheels``; this verifier does not repeat that parser's full
+        cross-record validation. Bootstrap publication authentication does not prove
+        the missing source-to-wheel binding. This function authenticates supplied
+        wheel digests and does not download or hash wheel or source-archive bytes.
+
+        Args:
+            locked: Parsed lock record for one package, including its ``wheels`` list.
+            record: Admission previously returned by ``parse_bootstrap_wheels`` with
+                bounded review evidence; parser-level checks are assumed complete.
+            validation_date: Caller-supplied date evaluated inclusively against the
+                record's review and expiry dates.
+
+        Raises:
+            DependencyAdmissionError: If the review window, review evidence, lock,
+                publication statement, Cosign identity/version, or signature check
+                fails. Evidence and Cosign process failures are translated at their
+                helper boundaries.
+            OSError: If temporary staging or other uncaught filesystem operations fail.
+            ValueError: If URL parsing rejects malformed authority syntax in the lock.
+        """
+        if not record.reviewed_on <= validation_date <= record.expires_on:
+            raise DependencyAdmissionError(
+                [f"bootstrap finding {record.finding_id} is expired or not yet effective"]
+            )
+        for report in _bootstrap_reports(record):
+            if not _read_evidence(self.repository_root, report).strip():
+                raise DependencyAdmissionError(["bootstrap review report is empty"])
+        self._verify_wheel_evidence(locked, record)
+
+
 def parse_wheel_sources(
     value: object,
     packages: tuple[PythonPackageAdmission, ...],
@@ -587,6 +774,9 @@ def verify_wheel_sources(
         record: Admission previously returned by ``parse_wheel_sources``; the
             verifier assumes its parser-level cross-record checks have passed.
 
+    Returns:
+        ``None`` after the locked wheel evidence verifies.
+
     Raises:
         DependencyAdmissionError: If the lock, local evidence, attestation claims,
             Cosign path/version, or signature verification fails. Evidence and
@@ -594,7 +784,7 @@ def verify_wheel_sources(
         OSError: If temporary staging or other uncaught filesystem operations fail.
         ValueError: If URL parsing rejects malformed authority syntax in the lock.
     """
-    _verify_wheel_evidence(root, locked, record)
+    return WheelEvidenceService(root).verify_wheel_sources(locked, record)
 
 
 def verify_bootstrap_wheels(
@@ -624,6 +814,9 @@ def verify_bootstrap_wheels(
         validation_date: Caller-supplied date evaluated inclusively against the
             record's review and expiry dates.
 
+    Returns:
+        ``None`` after the bootstrap wheel evidence verifies.
+
     Raises:
         DependencyAdmissionError: If the review window, review evidence, lock,
             publication statement, Cosign identity/version, or signature check
@@ -632,111 +825,6 @@ def verify_bootstrap_wheels(
         OSError: If temporary staging or other uncaught filesystem operations fail.
         ValueError: If URL parsing rejects malformed authority syntax in the lock.
     """
-    if not record.reviewed_on <= validation_date <= record.expires_on:
-        raise DependencyAdmissionError(
-            [f"bootstrap finding {record.finding_id} is expired or not yet effective"]
-        )
-    for report in _bootstrap_reports(record):
-        if not _read_evidence(root, report).strip():
-            raise DependencyAdmissionError(["bootstrap review report is empty"])
-    _verify_wheel_evidence(root, locked, record)
-
-
-def _verify_wheel_evidence(
-    root: Path, locked: dict[str, object], record: WheelEvidenceAdmission
-) -> None:
-    """Verify shared lock coverage, attestation claims, and Cosign signatures.
-
-    The lock must omit ``sdist`` and contain wheel URLs hosted on ``files.pythonhosted.org``
-    with unique filenames. Its exact filename-to-digest mapping must equal the
-    supplied ``record.wheels`` mapping; the supplied digests are compared and
-    passed to Cosign rather than recomputed from downloaded wheel bytes. After the
-    lock checks, the trust-root evidence is read, the PATH-discovered Cosign executable is
-    resolved, the trust root is copied into a private temporary directory, and the
-    reported Cosign version is checked. Only then is each bundle read in wheel
-    order, its statement claims checked, and its private copy sent to the signature
-    call.
-
-    Args:
-        root: Repository or fixture root containing retained trust and bundle files.
-        locked: Parsed package-lock object expected to contain a wheel list.
-        record: Parser-admitted, model-validated wheel admission whose expected
-            digests and identities are compared with the lock and attestation claims.
-
-    Raises:
-        DependencyAdmissionError: If the lock is not wheel-only, its wheel set or
-            wheel artifact host is unapproved, local evidence is invalid, Cosign
-            is unavailable or unpinned, statements mismatch, or any signature
-            fails. Helper-level process and evidence failures are translated and
-            chained.
-        OSError: If temporary staging writes or other uncaught filesystem operations
-            fail outside those helper boundaries.
-        ValueError: If URL parsing rejects malformed authority syntax in the lock.
-    """
-    if "sdist" in locked:
-        raise DependencyAdmissionError(["wheel-only admission cannot replace an existing sdist"])
-    wheels = locked.get("wheels")
-    if not isinstance(wheels, list):
-        raise DependencyAdmissionError(["wheel-only admission requires locked wheels"])
-    observed: dict[str, str] = {}
-    for wheel in wheels:
-        item = _object(wheel)
-        url, digest = item.get("url"), item.get("hash")
-        if not isinstance(url, str) or not isinstance(digest, str):
-            raise DependencyAdmissionError(["wheel lock requires URL and digest"])
-        _https(url)
-        if urlsplit(url).hostname != "files.pythonhosted.org":
-            raise DependencyAdmissionError(["wheel artifact uses an unapproved source"])
-        filename = urlsplit(url).path.rsplit("/", 1)[-1]
-        if filename in observed:
-            raise DependencyAdmissionError(["duplicate locked wheel identity"])
-        observed[filename] = digest
-    expected = {wheel.filename: f"sha256:{wheel.sha256}" for wheel in record.wheels}
-    if observed != expected:
-        raise DependencyAdmissionError(["provenance must cover the exact locked wheel set"])
-    trust = _read_evidence(root, record.trusted_root)
-    executable = shutil.which("cosign")
-    if executable is None:
-        raise DependencyAdmissionError(["Cosign verification unavailable: executable not found"])
-    try:
-        executable = str(Path(executable).resolve(strict=True))
-    except (OSError, RuntimeError) as error:
-        raise DependencyAdmissionError(["Cosign executable cannot be resolved"]) from error
-    # Private copies prevent a caller from swapping a file after semantic validation.
-    with tempfile.TemporaryDirectory(prefix="wheel-source-verification-") as temporary:
-        directory = Path(temporary)
-        trust_path = directory / "trusted-root.json"
-        trust_path.write_bytes(trust)
-        if (
-            re.search(r"(?m)^\s*GitVersion:\s+v3\.1\.3\s*$", _cosign(["version"], executable))
-            is None
-        ):
-            raise DependencyAdmissionError([f"Cosign must be exactly {_COSIGN_VERSION}"])
-        for wheel in record.wheels:
-            bundle = _read_evidence(root, wheel.bundle)
-            _check_statement(_statement(bundle), record, wheel.filename, wheel.sha256)
-            bundle_path = directory / "bundle.json"
-            bundle_path.write_bytes(bundle)
-            _cosign(
-                [
-                    "verify-blob-attestation",
-                    "--check-claims=true",
-                    "--trusted-root",
-                    str(trust_path),
-                    "--bundle",
-                    str(bundle_path),
-                    "--certificate-identity",
-                    record.certificate_identity,
-                    "--certificate-oidc-issuer",
-                    record.oidc_issuer,
-                    "--type",
-                    _PUBLICATION_TYPE
-                    if isinstance(record, BootstrapWheelAdmission)
-                    else _PREDICATE_TYPE,
-                    "--digest",
-                    wheel.sha256,
-                    "--digestAlg",
-                    "sha256",
-                ],
-                executable,
-            )
+    return WheelEvidenceService(root).verify_bootstrap_wheels(
+        locked, record, validation_date=validation_date
+    )

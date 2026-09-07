@@ -19,7 +19,7 @@ from alpha_research.inventory import (
     main,
     validate_repository,
 )
-from alpha_research_governance.inventory.registry import _find_dependency_cycles
+from alpha_research_governance.inventory.registry import InventoryLoader, _find_dependency_cycles
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 CATALOG_PATH = REPOSITORY_ROOT / "docs" / "governance" / "resource-inventory.toml"
@@ -91,6 +91,21 @@ def _validate_inventory_fixture(path: Path) -> None:
 
 class TestInventoryGovernance:
     """Exercise inventory schema, ownership, lineage, and dependency contracts."""
+
+    def test_loader_reuses_context_after_a_failed_load(self, tmp_path: Path) -> None:
+        """Keep one loader usable after a failed invocation without stale findings."""
+        path = _catalog_fixture(tmp_path)
+        original = path.read_text(encoding="utf-8")
+        path.write_text(
+            original.replace("schema_version = 1", "schema_version = 9", 1), encoding="utf-8"
+        )
+        loader = InventoryLoader(REPOSITORY_ROOT)
+
+        with pytest.raises(InventoryGovernanceError, match="schema_version"):
+            loader.load(path)
+
+        path.write_text(original, encoding="utf-8")
+        assert loader.load(path) == load_inventory(path, repository_root=REPOSITORY_ROOT)
 
     def test_repository_inventory_is_versioned_partial_and_complete_for_current_scope(
         self,

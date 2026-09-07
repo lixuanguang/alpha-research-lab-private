@@ -61,28 +61,7 @@ def validate_trusted_context(
         OSError: If Git cannot be started or ``repository_root`` is invalid.
         UnicodeDecodeError: If captured Git output cannot be decoded as text.
     """
-    findings: list[str] = []
-    if context not in policy.trust.trusted_contexts:
-        findings.append(f"remote execution is not permitted in context {context!r}")
-    expected = {
-        "CI": "true",
-        "GITHUB_EVENT_NAME": "push",
-        "GITHUB_REF": "refs/heads/main",
-    }
-    for key, value in expected.items():
-        if environment.get(key) != value:
-            findings.append(f"{key} must equal {value!r} for trusted remote execution")
-    credential = environment.get(policy.provider.credential_environment_variable, "")
-    if _CREDENTIAL.fullmatch(credential) is None:
-        findings.append("the remote credential must use the safe API-key character set")
-
-    head = _run_git_command(repository_root, "rev-parse", "HEAD")
-    if environment.get("GITHUB_SHA") != head:
-        findings.append("GITHUB_SHA must identify the checked-out HEAD")
-    if _run_git_command(repository_root, "status", "--porcelain"):
-        findings.append("trusted remote execution requires a clean checkout")
-    if findings:
-        raise RemoteExecutionError(findings)
+    _RemoteExecutionRunner(policy, repository_root)._validate_trusted_context(context, environment)
 
 
 def query_test_targets(repository_root: Path) -> tuple[str, ...]:
@@ -123,6 +102,243 @@ def query_test_targets(repository_root: Path) -> tuple[str, ...]:
     if not targets:
         raise RemoteExecutionError(["Bazel test query returned no targets"])
     return targets
+
+
+class _RemoteExecutionRunner:
+    """Own authenticated remote-lane orchestration and checkout configuration."""
+
+    def __init__(self, policy: RemoteExecutionPolicy, repository_root: Path) -> None:
+        """Bind validated policy and checkout root without starting processes."""
+        self._policy = policy
+        self._repository_root = repository_root
+
+    def _validate_trusted_context(self, context: str, environment: Mapping[str, str]) -> None:
+        """Validate the CI and checkout boundary for authenticated remote execution.
+
+        The supplied environment is read as-is; this function neither merges it with
+        the current process environment nor changes it. Validation requires an
+        admitted trusted context, ``CI`` equal to ``"true"``,
+        ``GITHUB_EVENT_NAME`` equal to ``"push"``, ``GITHUB_REF`` equal to
+        ``"refs/heads/main"``, a credential of between 16 and 512 ASCII letters, digits, or
+        ``. _ ~ -`` characters, a ``GITHUB_SHA`` matching ``git rev-parse HEAD``,
+        and an empty ``git status --porcelain``. It starts those two Git commands
+        through the host ``PATH`` with ``repository_root`` as their working
+        directory; Git inherits the host process environment, while the validation
+        comparisons inspect only the supplied mapping. The checks do not authenticate
+        the credential, verify a commit signature, inspect remote configuration, or
+        validate the policy beyond the fields they read. Environment findings are
+        accumulated and reported after both Git commands; a Git failure propagates
+        immediately and can supersede earlier environment findings.
+
+        Args:
+            context: CI execution-context identifier to compare with the policy's
+                trusted-context list.
+            environment: Environment values to inspect. Missing expected values fail
+                validation; the mapping is not modified or supplemented.
+
+        Raises:
+            RemoteExecutionError: If a trust or checkout condition fails, if the
+                credential fails its character-set or length check, or if Git cannot
+                be resolved or exits unsuccessfully.
+            OSError: If Git cannot be started or ``repository_root`` is invalid.
+            UnicodeDecodeError: If captured Git output cannot be decoded as text.
+        """
+        policy = self._policy
+        repository_root = self._repository_root
+        findings: list[str] = []
+        if context not in policy.trust.trusted_contexts:
+            findings.append(f"remote execution is not permitted in context {context!r}")
+        expected = {
+            "CI": "true",
+            "GITHUB_EVENT_NAME": "push",
+            "GITHUB_REF": "refs/heads/main",
+        }
+        for key, value in expected.items():
+            if environment.get(key) != value:
+                findings.append(f"{key} must equal {value!r} for trusted remote execution")
+        credential = environment.get(policy.provider.credential_environment_variable, "")
+        if _CREDENTIAL.fullmatch(credential) is None:
+            findings.append("the remote credential must use the safe API-key character set")
+
+        head = _run_git_command(repository_root, "rev-parse", "HEAD")
+        if environment.get("GITHUB_SHA") != head:
+            findings.append("GITHUB_SHA must identify the checked-out HEAD")
+        if _run_git_command(repository_root, "status", "--porcelain"):
+            findings.append("trusted remote execution requires a clean checkout")
+        if findings:
+            raise RemoteExecutionError(findings)
+
+    def _build(self, *, context: str, environment: Mapping[str, str] | None = None) -> int:
+        """Run the governed build targets through authenticated remote Bazel.
+
+        Copy ``environment`` into an execution snapshot, using the current process
+        environment when it is ``None``, and validate that snapshot together with
+        the Git checkout before starting Bazel. Trust comparisons inspect the copied
+        snapshot, while the Git commands inherit the host process environment. The
+        trust check uses ``repository_root`` for ``HEAD`` and clean-checkout checks;
+        the authenticated build uses the same path as Bazel's working directory.
+        Authentication reads the policy-configured credential from the snapshot,
+        writes it to a temporary mode-0600 Bazel rc file, and removes that variable
+        from the child environment. The build receives
+        ``policy.local_fallback.build_targets`` as its target set. A nonzero Bazel
+        status is returned unchanged; this entry point does not try a local fallback
+        or retry the build, and it does not mutate the caller's mapping or the
+        process environment.
+
+        Args:
+            context: CI execution-context identifier that must be trusted by ``policy``.
+            environment: Environment values to validate and copy for Bazel. ``None``
+                snapshots the current process environment; the configured credential
+                variable must be present and satisfy the trust policy.
+
+        Returns:
+            The authenticated Bazel build process status, including a nonzero status
+            for a failed remote build.
+
+        Raises:
+            RemoteExecutionError: If the context, required CI values, credential,
+                checkout revision, or checkout cleanliness fails; if Git exits
+                unsuccessfully or cannot be resolved; or if Bazel cannot be resolved
+                through the host ``PATH``.
+            OSError: If Git or Bazel cannot be started, if ``repository_root`` is
+                invalid, or if the temporary credential directory/file cannot be
+                created, written, permissioned, or removed.
+            UnicodeDecodeError: If captured Git output cannot be decoded as text.
+        """
+        policy = self._policy
+        repository_root = self._repository_root
+        active_environment = dict(os.environ if environment is None else environment)
+        validate_trusted_context(policy, context, active_environment, repository_root)
+        return _run_authenticated_bazel(
+            policy,
+            repository_root=repository_root,
+            environment=active_environment,
+            command="build",
+            targets=policy.local_fallback.build_targets,
+        )
+
+    def _test(
+        self,
+        *,
+        context: str,
+        shard_index: int,
+        environment: Mapping[str, str] | None = None,
+    ) -> int:
+        """Run one deterministic test shard through authenticated remote Bazel.
+
+        Copy ``environment`` into an execution snapshot, using the current process
+        environment when it is ``None``, and validate that snapshot and the Git
+        checkout before querying the complete test graph. Trust comparisons inspect
+        the copied snapshot, while the Git commands inherit the host process
+        environment. The graph query resolves Bazel through the host ``PATH``, uses
+        ``repository_root`` as its working directory, and inherits that host
+        environment (which may include credential variables); it does not use the
+        supplied snapshot or the runner's temporary credential rc file. Select the
+        requested shard with the policy's seeded partition settings. An empty
+        selected shard returns ``0`` after trust validation and graph querying
+        without creating a credential file or invoking authenticated remote Bazel.
+        For a non-empty shard, run exactly one authenticated Bazel ``test`` command
+        with its labels. The authenticated helper uses a temporary mode-0600 rc file,
+        removes the credential variable from the child environment, and returns
+        Bazel's status unchanged. No local fallback or whole-test retry is attempted,
+        and caller or process environments are not mutated.
+
+        Args:
+            context: CI execution-context identifier that must be trusted by ``policy``.
+            shard_index: Zero-based index of the shard to execute in the policy's
+                complete partition.
+            environment: Environment values to validate and copy for authenticated
+                execution. ``None`` snapshots the current process environment; the
+                graph query still inherits the process environment independently.
+
+        Returns:
+            ``0`` when the selected shard is empty, otherwise the authenticated Bazel
+            test process status, including a nonzero status for a failed shard.
+
+        Raises:
+            RemoteExecutionError: If trust validation, graph querying, shard-index or
+                target-set validation, or Bazel executable resolution fails.
+            OSError: If Git, the graph-query process, or Bazel cannot be started, if
+                ``repository_root`` is invalid, or if temporary credential
+                directory/file operations fail.
+            UnicodeDecodeError: If captured Git or graph-query output cannot be decoded
+                as text.
+        """
+        policy = self._policy
+        repository_root = self._repository_root
+        active_environment = dict(os.environ if environment is None else environment)
+        validate_trusted_context(policy, context, active_environment, repository_root)
+        shard = select_shard(
+            query_test_targets(repository_root),
+            shard_index=shard_index,
+            shard_count=policy.sharding.shard_count,
+            seed=policy.sharding.seed,
+            maximum_targets=policy.sharding.maximum_targets,
+        )
+        if not shard.targets:
+            return 0
+        return _run_authenticated_bazel(
+            policy,
+            repository_root=repository_root,
+            environment=active_environment,
+            command="test",
+            targets=shard.targets,
+        )
+
+    def _quarantine(self, *, context: str, environment: Mapping[str, str] | None = None) -> int:
+        """Run policy quarantine targets through the diagnostic Bazel lane.
+
+        Read quarantine targets from ``policy.flakes.quarantines`` in their stored
+        order and pass them unchanged to one authenticated Bazel ``test`` invocation
+        with ``--config=remote-quarantine-diagnostics``. The selected Bazel profile
+        supplies repetition behavior; this function does not read or enforce
+        ``quarantine_repeat_count`` directly, query the test graph, alter normal
+        shards, or perform a local fallback. When no quarantine entries exist, return
+        ``0`` immediately without copying the environment, checking trust, reading
+        the credential, touching Git, or starting Bazel. With active entries, copy
+        ``environment`` (or snapshot the current process environment when it is
+        ``None``), compare the copied values during trust validation, and validate
+        the Git checkout using ``repository_root``; those Git commands inherit the
+        host process environment. Then authenticate through a temporary mode-0600 rc
+        file while removing the credential variable from the child environment. The
+        caller's mapping and process environment are never mutated.
+
+        Args:
+            context: CI execution-context identifier that must be trusted by ``policy``
+                when quarantine entries are active.
+            environment: Environment values to validate and copy for authenticated
+                execution. ``None`` snapshots the current process environment; it is
+                not read when the quarantine list is empty.
+
+        Returns:
+            ``0`` when no quarantine targets are configured; otherwise the
+            authenticated Bazel diagnostic-test process status, including nonzero
+            statuses from failed repetitions.
+
+        Raises:
+            RemoteExecutionError: If active-entry trust validation fails, if Git
+                exits unsuccessfully or cannot be resolved, or if Bazel cannot be
+                resolved through the host ``PATH``.
+            OSError: If Git or Bazel cannot be started, if ``repository_root`` is
+                invalid, or if the temporary credential directory/file cannot be
+                created, written, permissioned, or removed.
+            UnicodeDecodeError: If captured Git output cannot be decoded as text.
+        """
+        policy = self._policy
+        repository_root = self._repository_root
+        targets = tuple(entry.target for entry in policy.flakes.quarantines)
+        if not targets:
+            return 0
+        active_environment = dict(os.environ if environment is None else environment)
+        validate_trusted_context(policy, context, active_environment, repository_root)
+        return _run_authenticated_bazel(
+            policy,
+            repository_root=repository_root,
+            environment=active_environment,
+            command="test",
+            targets=targets,
+            extra_arguments=("--config=remote-quarantine-diagnostics",),
+        )
 
 
 def run_remote_build(
@@ -171,14 +387,8 @@ def run_remote_build(
             created, written, permissioned, or removed.
         UnicodeDecodeError: If captured Git output cannot be decoded as text.
     """
-    active_environment = dict(os.environ if environment is None else environment)
-    validate_trusted_context(policy, context, active_environment, repository_root)
-    return _run_authenticated_bazel(
-        policy,
-        repository_root=repository_root,
-        environment=active_environment,
-        command="build",
-        targets=policy.local_fallback.build_targets,
+    return _RemoteExecutionRunner(policy, repository_root)._build(
+        context=context, environment=environment
     )
 
 
@@ -233,23 +443,8 @@ def run_remote_test_shard(
         UnicodeDecodeError: If captured Git or graph-query output cannot be decoded
             as text.
     """
-    active_environment = dict(os.environ if environment is None else environment)
-    validate_trusted_context(policy, context, active_environment, repository_root)
-    shard = select_shard(
-        query_test_targets(repository_root),
-        shard_index=shard_index,
-        shard_count=policy.sharding.shard_count,
-        seed=policy.sharding.seed,
-        maximum_targets=policy.sharding.maximum_targets,
-    )
-    if not shard.targets:
-        return 0
-    return _run_authenticated_bazel(
-        policy,
-        repository_root=repository_root,
-        environment=active_environment,
-        command="test",
-        targets=shard.targets,
+    return _RemoteExecutionRunner(policy, repository_root)._test(
+        context=context, shard_index=shard_index, environment=environment
     )
 
 
@@ -301,18 +496,8 @@ def run_quarantine_diagnostics(
             created, written, permissioned, or removed.
         UnicodeDecodeError: If captured Git output cannot be decoded as text.
     """
-    targets = tuple(entry.target for entry in policy.flakes.quarantines)
-    if not targets:
-        return 0
-    active_environment = dict(os.environ if environment is None else environment)
-    validate_trusted_context(policy, context, active_environment, repository_root)
-    return _run_authenticated_bazel(
-        policy,
-        repository_root=repository_root,
-        environment=active_environment,
-        command="test",
-        targets=targets,
-        extra_arguments=("--config=remote-quarantine-diagnostics",),
+    return _RemoteExecutionRunner(policy, repository_root)._quarantine(
+        context=context, environment=environment
     )
 
 

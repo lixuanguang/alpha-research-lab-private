@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
+from typing import cast
 
 # third party library imports
 from pydantic import ValidationError
@@ -256,177 +257,211 @@ def _repository_relative_path(value: str, *, context: str) -> Path:
     return path
 
 
-def _load_policy(path: Path) -> EvidencePolicy:
-    """Parse, semantically validate, and project the authoritative evidence policy.
+class _EvidencePolicyLoader:
+    """Load and project one evidence-policy TOML path into immutable policy data."""
 
-    The TOML is read as UTF-8. A root whose parsed ``schema_version`` compares equal to
-    ``2`` selects the version-two input model; every other parsed root selects the base
-    model, after which strict field validation and the loader admit only integer versions 1
-    and 2. Input models require all declared fields, use strict types, and reject unknown
-    fields. The loader then requires the A05
-    scalar contract, valid QG01-QG15 gates, mandatory gates ``QG01``, ``QG13`` and ``QG15``,
-    unique ordered MR fields, and the ordered findings ``A05-F01``, ``A05-F02``. Version 2
-    additionally requires the four founder fields in order, one each of the three impact
-    triggers, independently unique institutional and founder/conditional field groups, and
-    a lexically relative founder-example path.
+    def __init__(self, path: Path) -> None:
+        """Bind the policy path without performing I/O."""
+        self._path = path
 
-    Lists retain input order when projected into tuples. The output normalizes paths to host
-    ``Path`` values and keeps only finding identifiers; it verifies and discards the input
-    roadmap, track, status, owner, risk, and finding-detail fields, then sets
-    ``package_status`` to ``"partial"``. Version-one output uses empty institutional and
-    conditional tuples and ``None`` for the founder path. Paths are not resolved or checked
-    for existence here; repository callers perform those checks.
+    def _load(self) -> EvidencePolicy:
+        """Parse, semantically validate, and project the authoritative evidence policy.
 
-    Args:
-        path: Evidence-policy TOML file to read as UTF-8.
+        The TOML is read as UTF-8. A root whose parsed ``schema_version`` compares equal to
+        ``2`` selects the version-two input model; every other parsed root selects the base
+        model, after which strict field validation and the loader admit only integer versions 1
+        and 2. Input models require all declared fields, use strict types, and reject unknown
+        fields. The loader then requires the A05
+        scalar contract, valid QG01-QG15 gates, mandatory gates ``QG01``, ``QG13`` and ``QG15``,
+        unique ordered MR fields, and the ordered findings ``A05-F01``, ``A05-F02``. Version 2
+        additionally requires the four founder fields in order, one each of the three impact
+        triggers, independently unique institutional and founder/conditional field groups, and
+        a lexically relative founder-example path.
 
-    Returns:
-        The normalized immutable ``EvidencePolicy`` with ordered gates, fields, findings,
-        and version-specific MR profiles.
+        Lists retain input order when projected into tuples. The output normalizes paths to host
+        ``Path`` values and keeps only finding identifiers; it verifies and discards the input
+        roadmap, track, status, owner, risk, and finding-detail fields, then sets
+        ``package_status`` to ``"partial"``. Version-one output uses empty institutional and
+        conditional tuples and ``None`` for the founder path. Paths are not resolved or checked
+        for existence here; repository callers perform those checks.
 
-    Raises:
-        EvidenceGovernanceError: If TOML syntax, input shape, scalar contract, gate set,
-            path syntax, field/finding semantics, or version-specific rules fail. TOML and
-            initial input-model failures are translated here with their causes.
-        ValidationError: If later conditional-field or output-model construction fails;
-            the public ``load_policy`` wrapper translates this failure.
-        OSError: If the file cannot be read; the read error propagates.
-        UnicodeDecodeError: If the file is not valid UTF-8; the decoding error propagates.
-    """
-    try:
-        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as error:
-        raise EvidenceGovernanceError([f"{path}: invalid TOML: {error}"]) from error
-    try:
-        input_model = (
-            _EvidencePolicyV2Input
-            if isinstance(parsed_document, dict) and parsed_document.get("schema_version") == 2
-            else _EvidencePolicyInput
+        Returns:
+            The normalized immutable ``EvidencePolicy`` with ordered gates, fields, findings,
+            and version-specific MR profiles.
+
+        Raises:
+            EvidenceGovernanceError: If TOML syntax, input shape, scalar contract, gate set,
+                path syntax, field/finding semantics, or version-specific rules fail. TOML and
+                initial input-model failures are translated here with their causes.
+            ValidationError: If later conditional-field or output-model construction fails;
+                the public ``load_policy`` wrapper translates this failure.
+            OSError: If the file cannot be read; the read error propagates.
+            UnicodeDecodeError: If the file is not valid UTF-8; the decoding error propagates.
+        """
+        path = self._path
+        try:
+            parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        except tomllib.TOMLDecodeError as error:
+            raise EvidenceGovernanceError([f"{path}: invalid TOML: {error}"]) from error
+        try:
+            parsed_table = (
+                cast(dict[str, object], parsed_document)
+                if isinstance(parsed_document, dict)
+                else {}
+            )
+            input_model = (
+                _EvidencePolicyV2Input
+                if parsed_table.get("schema_version") == 2
+                else _EvidencePolicyInput
+            )
+            policy_document = input_model.model_validate(parsed_document)
+        except ValidationError as error:
+            raise _policy_input_error(path, error) from error
+
+        actual_scalars: dict[str, object] = {
+            "roadmap_package": policy_document.roadmap_package,
+            "operating_track": policy_document.operating_track,
+            "package_status": policy_document.package_status,
+            "accountable_owner_role": policy_document.accountable_owner_role,
+            "risk_class": policy_document.risk_class,
+        }
+        for key, expected in _EXPECTED_SCALARS.items():
+            if actual_scalars[key] != expected:
+                raise EvidenceGovernanceError([f"{path}: {key} must be {expected!r}"])
+        if policy_document.schema_version not in {1, 2}:
+            raise EvidenceGovernanceError([f"{path}: schema_version must be 1 or 2"])
+
+        applicable_gates = _validated_strings(
+            policy_document.applicable_gates, context="applicable_gates"
         )
-        policy_document = input_model.model_validate(parsed_document)
-    except ValidationError as error:
-        raise _policy_input_error(path, error) from error
-
-    for key, expected in _EXPECTED_SCALARS.items():
-        if getattr(policy_document, key) != expected:
-            raise EvidenceGovernanceError([f"{path}: {key} must be {expected!r}"])
-    if policy_document.schema_version not in {1, 2}:
-        raise EvidenceGovernanceError([f"{path}: schema_version must be 1 or 2"])
-
-    applicable_gates = _validated_strings(
-        policy_document.applicable_gates, context="applicable_gates"
-    )
-    mandatory_gates = _validated_strings(
-        policy_document.mandatory_package_gates, context="mandatory_package_gates"
-    )
-    if any(_GATE.fullmatch(gate) is None for gate in applicable_gates + mandatory_gates):
-        raise EvidenceGovernanceError([f"{path}: quality gates must use QG01-QG15"])
-    if set(mandatory_gates) != {"QG01", "QG13", "QG15"}:
-        raise EvidenceGovernanceError([f"{path}: A05 requires QG01, QG13, and QG15"])
-    if not set(mandatory_gates) <= set(applicable_gates):
-        raise EvidenceGovernanceError([f"{path}: mandatory gates must be applicable"])
-
-    fields: list[MrField] = []
-    for index, item in enumerate(policy_document.mr_fields, 1):
-        if _FIELD_KEY.fullmatch(item.key) is None:
-            raise EvidenceGovernanceError([f"mr_fields[{index}].key must be lower_snake_case"])
-        if not item.heading.strip():
-            raise EvidenceGovernanceError([f"mr_fields[{index}].heading must not be empty"])
-        fields.append(MrField(key=item.key, heading=item.heading))
-    if not fields:
-        raise EvidenceGovernanceError([f"{path}: mr_fields must not be empty"])
-    if len({field.key for field in fields}) != len(fields):
-        raise EvidenceGovernanceError([f"{path}: MR field keys must be unique"])
-    if len({field.heading for field in fields}) != len(fields):
-        raise EvidenceGovernanceError([f"{path}: MR field headings must be unique"])
-
-    institutional_fields: tuple[MrField, ...] = ()
-    conditional_fields: tuple[ConditionalMrField, ...] = ()
-    founder_example_path: Path | None = None
-    if isinstance(policy_document, _EvidencePolicyV2Input):
-        if tuple(field.key for field in fields) != (
-            "problem_change",
-            "affected_scope",
-            "validation_result",
-            "risks_reversal",
-        ):
-            raise EvidenceGovernanceError(["version-2 policy requires the four founder fields"])
-        institutional_fields = tuple(
-            MrField(key=field.key, heading=field.heading)
-            for field in policy_document.institutional_mr_fields
+        mandatory_gates = _validated_strings(
+            policy_document.mandatory_package_gates, context="mandatory_package_gates"
         )
-        conditional_fields = tuple(
-            ConditionalMrField.model_validate(field.model_dump())
-            for field in policy_document.conditional_mr_fields
-        )
-        if {field.trigger for field in conditional_fields} != {
-            "migration",
-            "benchmark",
-            "operational",
-        } or len(conditional_fields) != 3:
-            raise EvidenceGovernanceError(["conditional fields require each impact trigger once"])
-        for group in (institutional_fields, (*fields, *conditional_fields)):
-            if (
-                not group
-                or len({field.key for field in group}) != len(group)
-                or len({field.heading for field in group}) != len(group)
-                or any(
-                    not field.heading.strip() or not _FIELD_KEY.fullmatch(field.key)
-                    for field in group
+        if any(_GATE.fullmatch(gate) is None for gate in applicable_gates + mandatory_gates):
+            raise EvidenceGovernanceError([f"{path}: quality gates must use QG01-QG15"])
+        if set(mandatory_gates) != {"QG01", "QG13", "QG15"}:
+            raise EvidenceGovernanceError([f"{path}: A05 requires QG01, QG13, and QG15"])
+        if not set(mandatory_gates) <= set(applicable_gates):
+            raise EvidenceGovernanceError([f"{path}: mandatory gates must be applicable"])
+
+        fields: list[MrField] = []
+        for index, item in enumerate(policy_document.mr_fields, 1):
+            if _FIELD_KEY.fullmatch(item.key) is None:
+                raise EvidenceGovernanceError([f"mr_fields[{index}].key must be lower_snake_case"])
+            if not item.heading.strip():
+                raise EvidenceGovernanceError([f"mr_fields[{index}].heading must not be empty"])
+            fields.append(MrField(key=item.key, heading=item.heading))
+        if not fields:
+            raise EvidenceGovernanceError([f"{path}: mr_fields must not be empty"])
+        if len({field.key for field in fields}) != len(fields):
+            raise EvidenceGovernanceError([f"{path}: MR field keys must be unique"])
+        if len({field.heading for field in fields}) != len(fields):
+            raise EvidenceGovernanceError([f"{path}: MR field headings must be unique"])
+
+        institutional_fields: tuple[MrField, ...] = ()
+        conditional_fields: tuple[ConditionalMrField, ...] = ()
+        founder_example_path: Path | None = None
+        if isinstance(policy_document, _EvidencePolicyV2Input):
+            if tuple(field.key for field in fields) != (
+                "problem_change",
+                "affected_scope",
+                "validation_result",
+                "risks_reversal",
+            ):
+                raise EvidenceGovernanceError(["version-2 policy requires the four founder fields"])
+            institutional_fields = tuple(
+                MrField(key=field.key, heading=field.heading)
+                for field in policy_document.institutional_mr_fields
+            )
+            conditional_field_values: list[ConditionalMrField] = []
+            for field in policy_document.conditional_mr_fields:
+                conditional_input: dict[str, str] = {
+                    "key": field.key,
+                    "heading": field.heading,
+                    "trigger": field.trigger,
+                }
+                conditional_field_values.append(
+                    ConditionalMrField.model_validate(conditional_input)
+                )
+            conditional_fields = tuple(conditional_field_values)
+            if {field.trigger for field in conditional_fields} != {
+                "migration",
+                "benchmark",
+                "operational",
+            } or len(conditional_fields) != 3:
+                raise EvidenceGovernanceError(
+                    ["conditional fields require each impact trigger once"]
+                )
+            for group in (institutional_fields, (*fields, *conditional_fields)):
+                if (
+                    not group
+                    or len({field.key for field in group}) != len(group)
+                    or len({field.heading for field in group}) != len(group)
+                    or any(
+                        not field.heading.strip() or not _FIELD_KEY.fullmatch(field.key)
+                        for field in group
+                    )
+                ):
+                    raise EvidenceGovernanceError(
+                        ["MR fields require unique, non-empty keys/headings"]
+                    )
+            founder_example_path = _repository_relative_path(
+                policy_document.founder_example_mr_body_path,
+                context="founder_example_mr_body_path",
+            )
+
+        finding_ids: list[str] = []
+        for index, finding in enumerate(policy_document.findings, 1):
+            if not all(
+                (
+                    finding.closure_condition,
+                    finding.finding_id,
+                    finding.owner_role,
+                    finding.unavailable_evidence,
                 )
             ):
-                raise EvidenceGovernanceError(["MR fields require unique, non-empty keys/headings"])
-        founder_example_path = _repository_relative_path(
-            policy_document.founder_example_mr_body_path, context="founder_example_mr_body_path"
-        )
-
-    finding_ids: list[str] = []
-    for index, finding in enumerate(policy_document.findings, 1):
-        if not all(
-            (
-                finding.closure_condition,
-                finding.finding_id,
-                finding.owner_role,
-                finding.unavailable_evidence,
+                raise EvidenceGovernanceError([f"findings[{index}] has missing or unknown fields"])
+            finding_ids.append(finding.finding_id)
+        if tuple(finding_ids) != _MERGE_EVIDENCE_OPEN_FINDING_IDS:
+            raise EvidenceGovernanceError(
+                [
+                    f"{path}: partial status requires findings "
+                    f"{list(_MERGE_EVIDENCE_OPEN_FINDING_IDS)!r}"
+                ]
             )
-        ):
-            raise EvidenceGovernanceError([f"findings[{index}] has missing or unknown fields"])
-        finding_ids.append(finding.finding_id)
-    if tuple(finding_ids) != _MERGE_EVIDENCE_OPEN_FINDING_IDS:
-        raise EvidenceGovernanceError(
-            [f"{path}: partial status requires findings {list(_MERGE_EVIDENCE_OPEN_FINDING_IDS)!r}"]
-        )
 
-    commit_sha = policy_document.example_commit_sha
-    if _COMMIT_SHA.fullmatch(commit_sha) is None:
-        raise EvidenceGovernanceError([f"{path}: example_commit_sha must be a full lowercase SHA"])
-    return EvidencePolicy(
-        template_path=_repository_relative_path(
-            policy_document.template_path, context="template_path"
-        ),
-        example_mr_body_path=_repository_relative_path(
-            policy_document.example_mr_body_path, context="example_mr_body_path"
-        ),
-        example_manifest_path=_repository_relative_path(
-            policy_document.example_manifest_path, context="example_manifest_path"
-        ),
-        example_commit_sha=commit_sha,
-        applicable_gates=applicable_gates,
-        mandatory_package_gates=mandatory_gates,
-        fields=tuple(fields),
-        package_status="partial",
-        finding_ids=tuple(finding_ids),
-        schema_version=2 if isinstance(policy_document, _EvidencePolicyV2Input) else 1,
-        institutional_fields=institutional_fields,
-        conditional_fields=conditional_fields,
-        founder_example_mr_body_path=founder_example_path,
-    )
+        commit_sha = policy_document.example_commit_sha
+        if _COMMIT_SHA.fullmatch(commit_sha) is None:
+            raise EvidenceGovernanceError(
+                [f"{path}: example_commit_sha must be a full lowercase SHA"]
+            )
+        return EvidencePolicy(
+            template_path=_repository_relative_path(
+                policy_document.template_path, context="template_path"
+            ),
+            example_mr_body_path=_repository_relative_path(
+                policy_document.example_mr_body_path, context="example_mr_body_path"
+            ),
+            example_manifest_path=_repository_relative_path(
+                policy_document.example_manifest_path, context="example_manifest_path"
+            ),
+            example_commit_sha=commit_sha,
+            applicable_gates=applicable_gates,
+            mandatory_package_gates=mandatory_gates,
+            fields=tuple(fields),
+            package_status="partial",
+            finding_ids=tuple(finding_ids),
+            schema_version=2 if isinstance(policy_document, _EvidencePolicyV2Input) else 1,
+            institutional_fields=institutional_fields,
+            conditional_fields=conditional_fields,
+            founder_example_mr_body_path=founder_example_path,
+        )
 
 
 def load_policy(path: Path) -> EvidencePolicy:
     """Load evidence policy while preserving its public domain-error contract.
 
-    Delegates parsing and semantic checks to ``_load_policy``. Domain findings raised there
+    Delegates parsing and semantic checks to the policy loader service. Domain findings raised there
     retain their order and propagate unchanged; Pydantic failures from later projection
     stages are translated to one ``EvidenceGovernanceError`` with the original cause.
     Version-one output carries empty version-two field groups and no founder path, while
@@ -436,7 +471,7 @@ def load_policy(path: Path) -> EvidencePolicy:
         path: Evidence-policy TOML file to read as UTF-8.
 
     Returns:
-        The normalized immutable policy returned by ``_load_policy``.
+        The normalized immutable policy returned by the policy loader service.
 
     Raises:
         EvidenceGovernanceError: If policy parsing or semantic validation fails, or if a
@@ -445,6 +480,6 @@ def load_policy(path: Path) -> EvidencePolicy:
         UnicodeDecodeError: If ``path`` is not valid UTF-8; the decoding error propagates.
     """
     try:
-        return _load_policy(path)
+        return _EvidencePolicyLoader(path)._load()
     except ValidationError as error:
         raise EvidenceGovernanceError([f"{path}: policy model validation failed"]) from error

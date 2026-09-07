@@ -8,7 +8,10 @@ import re
 from collections.abc import Iterable
 
 # project library imports
-from alpha_research_governance.remote_execution.models import RemoteExecutionError, TestShard
+from alpha_research_governance.remote_execution.models import (
+    RemoteExecutionError,
+    TestShard,
+)
 
 _BAZEL_LABEL = re.compile(r"^//(?:[^\s:]+(?::[^\s:]+)?|:[^\s:]+)$")
 

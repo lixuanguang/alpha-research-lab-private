@@ -483,6 +483,47 @@ class TestArtifactBundleLifecycle:
             "tests/tests.json"
         ]
 
+    def test_creation_admits_the_resolved_repository_root(
+        self,
+        tmp_path: Path,
+        artifact_supply_chain_policy: ArtifactSupplyChainPolicy,
+        artifact_repository_root: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Pass the one resolved root snapshot to release admission and identity checks."""
+        resolved_roots: list[Path] = []
+
+        def record_release_admission(root: Path) -> None:
+            """Record the root supplied after the lifecycle resolves its repository context.
+
+            Args:
+                root: Resolved repository root passed to release admission.
+            """
+            resolved_roots.append(root)
+
+        monkeypatch.setattr(
+            "alpha_research_governance.artifact_supply_chain.bundle.require_release_admission",
+            record_release_admission,
+        )
+        symlink_root = tmp_path / "repository-link"
+        symlink_root.symlink_to(artifact_repository_root, target_is_directory=True)
+        test_artifact_path, test_evidence_path = _create_test_artifact_and_evidence(tmp_path)
+
+        create_bundle(
+            test_artifact_path,
+            artifact_kind="binary",
+            build_target="//platform/service:release",
+            source_commit=SOURCE_COMMIT_SHA,
+            test_evidence_paths=(test_evidence_path,),
+            output_path=tmp_path / "resolved-root-candidate",
+            repository_root=symlink_root,
+            policy=artifact_supply_chain_policy,
+            runner=DeterministicArtifactToolRunner(),
+            build_platform="darwin-arm64",
+        )
+
+        assert resolved_roots == [artifact_repository_root.resolve()]
+
     def test_signed_bundle_verifies_and_publishes_only_once_by_digest(
         self,
         tmp_path: Path,

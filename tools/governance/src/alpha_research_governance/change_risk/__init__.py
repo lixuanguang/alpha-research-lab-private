@@ -55,6 +55,31 @@ __all__ = [
 ]
 
 
+class _ChangeRiskRepositoryValidator:
+    """Validate change-risk policy integration and evidence at one repository root."""
+
+    def __init__(self, repository_root: Path) -> None:
+        """Bind the repository root without reading its policy."""
+        self._repository_root = repository_root
+
+    def _validate(self) -> ChangeRiskPolicy:
+        """Validate the repository's authoritative change-risk policy.
+
+        Returns:
+            The fully validated change-risk policy, including its retained sample changes.
+
+        Raises:
+            ChangeRiskPolicyError: If the policy is malformed, violates its schema, or fails
+                sample classification checks.
+            OSError: If the policy file cannot be resolved or read.
+            UnicodeDecodeError: If the policy file is not valid UTF-8.
+        """
+        repository_root = self._repository_root
+        return load_policy(
+            repository_root.resolve() / "docs" / "governance" / "change-risk-policy.toml"
+        )
+
+
 def validate_repository(repository_root: Path) -> ChangeRiskPolicy:
     """Validate the repository's authoritative change-risk policy.
 
@@ -71,9 +96,7 @@ def validate_repository(repository_root: Path) -> ChangeRiskPolicy:
         OSError: If the policy file cannot be resolved or read.
         UnicodeDecodeError: If the policy file is not valid UTF-8.
     """
-    return load_policy(
-        repository_root.resolve() / "docs" / "governance" / "change-risk-policy.toml"
-    )
+    return _ChangeRiskRepositoryValidator(repository_root)._validate()
 
 
 def main(arguments: Sequence[str] | None = None) -> int:

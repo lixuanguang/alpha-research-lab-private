@@ -23,7 +23,9 @@ from alpha_research_governance.engineering_standards.models import (
     LanguageStandard,
     ToolStandard,
 )
-from alpha_research_governance.engineering_standards.python_debt import PythonStandardsChecker
+from alpha_research_governance.engineering_standards.python_debt import (
+    PythonStandardsChecker,
+)
 from alpha_research_governance.evidence import (
     EvidenceGovernanceError,
     PackageEvidenceProfile,
@@ -393,7 +395,8 @@ def _parse_languages(value: object) -> tuple[LanguageStandard, ...]:
                 admission_status=cast(str, status),
                 version=cast(str, version),
                 source_extensions=_strings(
-                    entry.get("source_extensions"), context=f"languages[{index}].source_extensions"
+                    entry.get("source_extensions"),
+                    context=f"languages[{index}].source_extensions",
                 ),
                 warnings_policy=cast(str, warnings_policy),
                 sanitizers=_strings(
@@ -418,6 +421,262 @@ def _parse_languages(value: object) -> tuple[LanguageStandard, ...]:
     if observed_standards != _LANGUAGE_STANDARDS:
         raise EngineeringStandardsError(["language admission and quality policies drifted"])
     return tuple(languages)
+
+
+class _StandardsPolicyLoader:
+    """Load one engineering-standards TOML path into immutable policy data."""
+
+    def __init__(self, path: Path) -> None:
+        """Bind the standards policy path without performing I/O."""
+        self._path = path
+
+    def _load(self) -> EngineeringStandards:
+        """Load and validate one repository engineering-standards TOML policy.
+
+        The file is read as UTF-8 and parsed as a TOML table. Validation requires the
+        exact root schema and the admitted B04/R2 values, ordered gate and source-root
+        sequences, evidence identity and findings, suppression and generated-code
+        controls, numerical and property-testing policies, API surfaces, recorded baselines,
+        and tool/language records. The resulting ``EngineeringStandards`` model is
+        constructed only after those policy checks; this function does not scan the
+        repository, run quality tools, or execute the recorded workload.
+
+        Returns:
+            The validated immutable engineering-standards record represented by the file.
+
+        Raises:
+            EngineeringStandardsError: If the root shape, required values, nested
+                controls, parsed tool/language records, or model fields are invalid.
+                TOML syntax errors and the final Pydantic model-validation error are
+                translated to this error with their original cause; errors raised by
+                the structural and field helpers propagate as this error.
+            OSError: If the policy file cannot be opened or read.
+            UnicodeDecodeError: If the policy file is not valid UTF-8.
+        """
+        path = self._path
+        try:
+            parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+            document = _table(parsed_document, context=str(path))
+        except tomllib.TOMLDecodeError as error:
+            raise EngineeringStandardsError([f"{path}: invalid TOML: {error}"]) from error
+        if set(document) != _ROOT_KEYS:
+            raise EngineeringStandardsError([f"{path}: has missing or unknown fields"])
+        expected_scalars: dict[str, object] = {
+            "accountable_owner_role": "platform",
+            "operating_track": "solo_bootstrap",
+            "package_status": "partial",
+            "risk_class": "R2",
+            "roadmap_package": "B04",
+            "schema_version": 1,
+            "successor_package": "B05",
+        }
+        for key, expected in expected_scalars.items():
+            if document.get(key) != expected:
+                raise EngineeringStandardsError([f"{path}: {key} must be {expected!r}"])
+        if (
+            document.get("validation_workload_iterations") != 10_000
+            or document.get("validation_workload_budget_ms") != 1_000
+        ):
+            raise EngineeringStandardsError(
+                ["engineering-standards validation workload budget drifted"]
+            )
+        if (
+            _strings(document.get("applicable_gate_ids"), context="applicable_gate_ids")
+            != _APPLICABLE_GATES
+        ):
+            raise EngineeringStandardsError(
+                ["engineering standards must retain the exact R2 applicable gates"]
+            )
+        if _strings(document.get("source_roots"), context="source_roots") != _SOURCE_ROOTS:
+            raise EngineeringStandardsError(
+                ["source_roots must cover the exact current source areas"]
+            )
+        evidence_sha = document.get("local_evidence_commit_sha")
+        if not isinstance(evidence_sha, str) or _COMMIT_SHA.fullmatch(evidence_sha) is None:
+            raise EngineeringStandardsError(
+                ["local_evidence_commit_sha must be a full lowercase SHA"]
+            )
+        open_finding_ids = _strings(document.get("open_finding_ids"), context="open_finding_ids")
+        findings = _tables(document.get("findings"), context="findings")
+        if (
+            open_finding_ids != _ENGINEERING_STANDARDS_OPEN_FINDING_IDS
+            or tuple(item.get("finding_id") for item in findings)
+            != _ENGINEERING_STANDARDS_OPEN_FINDING_IDS
+        ):
+            raise EngineeringStandardsError(
+                ["partial engineering-standards status requires the exact open findings"]
+            )
+        for index, finding in enumerate(findings, 1):
+            if set(finding) != {
+                "closure_condition",
+                "finding_id",
+                "owner_role",
+                "unavailable_evidence",
+            }:
+                raise EngineeringStandardsError(
+                    [f"findings[{index}] has missing or unknown fields"]
+                )
+            if not all(isinstance(value, str) and value for value in finding.values()):
+                raise EngineeringStandardsError(
+                    [f"findings[{index}] fields must be populated strings"]
+                )
+        if tuple(item.get("owner_role") for item in findings) != _FINDING_OWNERS:
+            raise EngineeringStandardsError(["engineering-standards finding ownership drifted"])
+
+        suppressions = _table(document.get("suppressions"), context="suppressions")
+        if set(suppressions) != {
+            "maximum_lifetime_days",
+            "minimum_rationale_characters",
+            "required_metadata_order",
+        } or _strings(
+            suppressions.get("required_metadata_order"),
+            context="suppressions.required_metadata_order",
+        ) != ("owner", "rationale", "expires"):
+            raise EngineeringStandardsError(["suppression metadata contract drifted"])
+        maximum_lifetime = _positive_integer(
+            suppressions, "maximum_lifetime_days", context="suppressions"
+        )
+        minimum_rationale = _positive_integer(
+            suppressions, "minimum_rationale_characters", context="suppressions"
+        )
+        if maximum_lifetime != 180 or minimum_rationale != 12:
+            raise EngineeringStandardsError(
+                ["suppression lifetime or rationale minimum was weakened"]
+            )
+
+        generated = _table(document.get("generated_code"), context="generated_code")
+        if (
+            set(generated)
+            != {
+                "banner_prefix",
+                "manual_edits_allowed",
+                "required_metadata",
+                "source_roots",
+            }
+            or generated.get("manual_edits_allowed") is not False
+        ):
+            raise EngineeringStandardsError(["generated-code separation contract drifted"])
+        generated_roots = _strings(
+            generated.get("source_roots"),
+            context="generated_code.source_roots",
+            allow_empty=True,
+        )
+        if generated_roots:
+            raise EngineeringStandardsError(
+                ["no generated source root is admitted by the engineering standards"]
+            )
+        if generated.get("banner_prefix") != "@generated" or _strings(
+            generated.get("required_metadata"),
+            context="generated_code.required_metadata",
+        ) != ("generator", "generator_version", "input_sha256"):
+            raise EngineeringStandardsError(["generated-code provenance metadata drifted"])
+
+        numerical = _table(document.get("numerical"), context="numerical")
+        if numerical != {
+            "exact_arithmetic_types": ["integer", "decimal"],
+            "fast_math_requires_separate_review": True,
+            "floating_comparison_requires": [
+                "absolute_tolerance",
+                "relative_tolerance",
+                "scale_rationale",
+            ],
+            "global_epsilon_allowed": False,
+            "non_finite_default": "reject",
+        }:
+            raise EngineeringStandardsError(
+                ["numerical tolerance or non-finite policy was weakened"]
+            )
+
+        property_testing = _table(document.get("property_testing"), context="property_testing")
+        expected_property_testing = {
+            "database": "none",
+            "derandomize": True,
+            "maximum_examples": 50,
+            "state_machine_required_for_stateful_contracts": True,
+            "tool": "hypothesis",
+            "version": "6.167.1",
+        }
+        if property_testing != expected_property_testing:
+            raise EngineeringStandardsError(["property/state-machine test policy drifted"])
+
+        baselines = _table(document.get("baselines"), context="baselines")
+        if set(baselines) != {
+            "coverage_branch_measurement",
+            "coverage_scope",
+            "coverage_statement_percent",
+            "measurement_date",
+            "mutation_cases",
+            "mutation_cases_rejected",
+        }:
+            raise EngineeringStandardsError(["baseline fields drifted"])
+        mutation_cases = _positive_integer(baselines, "mutation_cases", context="baselines")
+        mutation_rejected = _positive_integer(
+            baselines, "mutation_cases_rejected", context="baselines"
+        )
+        if mutation_cases != 12 or mutation_rejected != mutation_cases:
+            raise EngineeringStandardsError(
+                ["all twelve representative mutations must be rejected"]
+            )
+        coverage_percent = _positive_integer(
+            baselines, "coverage_statement_percent", context="baselines"
+        )
+        if coverage_percent != 81 or baselines.get("coverage_branch_measurement") is not True:
+            raise EngineeringStandardsError(
+                ["coverage baseline must retain the measured 81% branch run"]
+            )
+        if _strings(baselines.get("coverage_scope"), context="baselines.coverage_scope") != (
+            "alpha_research",
+            "alpha_research_governance",
+        ):
+            raise EngineeringStandardsError(["coverage baseline scope drifted"])
+
+        api_surfaces = _tables(document.get("api_surfaces"), context="api_surfaces")
+        observed_api_surfaces = tuple(
+            (
+                item.get("surface"),
+                item.get("stability"),
+                item.get("breaking_change_policy"),
+            )
+            for item in api_surfaces
+        )
+        if observed_api_surfaces != _API_SURFACES or any(
+            set(item) != {"breaking_change_policy", "stability", "surface"} for item in api_surfaces
+        ):
+            raise EngineeringStandardsError(["API stability surfaces or policies drifted"])
+
+        tools = _parse_tools(document.get("tools"))
+        languages = _parse_languages(document.get("languages"))
+        try:
+            return EngineeringStandards(
+                package_status=cast(str, document["package_status"]),
+                successor_package=cast(str, document["successor_package"]),
+                validation_workload_iterations=_positive_integer(
+                    document, "validation_workload_iterations", context=str(path)
+                ),
+                validation_workload_budget_ms=_positive_integer(
+                    document, "validation_workload_budget_ms", context=str(path)
+                ),
+                applicable_gate_ids=_APPLICABLE_GATES,
+                source_roots=_SOURCE_ROOTS,
+                suppression_maximum_lifetime_days=maximum_lifetime,
+                suppression_minimum_rationale_characters=minimum_rationale,
+                generated_source_roots=generated_roots,
+                hypothesis_version=cast(str, property_testing["version"]),
+                hypothesis_maximum_examples=cast(int, property_testing["maximum_examples"]),
+                coverage_statement_percent=coverage_percent,
+                mutation_cases=mutation_cases,
+                mutation_cases_rejected=mutation_rejected,
+                measurement_date=_iso_date(
+                    baselines.get("measurement_date"), context="measurement_date"
+                ),
+                tools=tools,
+                languages=languages,
+                local_evidence_manifest_path=cast(str, document["local_evidence_manifest_path"]),
+                local_evidence_commit_sha=evidence_sha,
+                open_finding_ids=open_finding_ids,
+            )
+        except ValidationError as error:
+            raise EngineeringStandardsError([f"{path}: model validation failed"]) from error
 
 
 def load_standards(path: Path) -> EngineeringStandards:
@@ -446,204 +705,7 @@ def load_standards(path: Path) -> EngineeringStandards:
         OSError: If the policy file cannot be opened or read.
         UnicodeDecodeError: If the policy file is not valid UTF-8.
     """
-    try:
-        document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
-    except tomllib.TOMLDecodeError as error:
-        raise EngineeringStandardsError([f"{path}: invalid TOML: {error}"]) from error
-    if set(document) != _ROOT_KEYS:
-        raise EngineeringStandardsError([f"{path}: has missing or unknown fields"])
-    expected_scalars: dict[str, object] = {
-        "accountable_owner_role": "platform",
-        "operating_track": "solo_bootstrap",
-        "package_status": "partial",
-        "risk_class": "R2",
-        "roadmap_package": "B04",
-        "schema_version": 1,
-        "successor_package": "B05",
-    }
-    for key, expected in expected_scalars.items():
-        if document.get(key) != expected:
-            raise EngineeringStandardsError([f"{path}: {key} must be {expected!r}"])
-    if (
-        document.get("validation_workload_iterations") != 10_000
-        or document.get("validation_workload_budget_ms") != 1_000
-    ):
-        raise EngineeringStandardsError(
-            ["engineering-standards validation workload budget drifted"]
-        )
-    if (
-        _strings(document.get("applicable_gate_ids"), context="applicable_gate_ids")
-        != _APPLICABLE_GATES
-    ):
-        raise EngineeringStandardsError(
-            ["engineering standards must retain the exact R2 applicable gates"]
-        )
-    if _strings(document.get("source_roots"), context="source_roots") != _SOURCE_ROOTS:
-        raise EngineeringStandardsError(["source_roots must cover the exact current source areas"])
-    evidence_sha = document.get("local_evidence_commit_sha")
-    if not isinstance(evidence_sha, str) or _COMMIT_SHA.fullmatch(evidence_sha) is None:
-        raise EngineeringStandardsError(["local_evidence_commit_sha must be a full lowercase SHA"])
-    open_finding_ids = _strings(document.get("open_finding_ids"), context="open_finding_ids")
-    findings = _tables(document.get("findings"), context="findings")
-    if (
-        open_finding_ids != _ENGINEERING_STANDARDS_OPEN_FINDING_IDS
-        or tuple(item.get("finding_id") for item in findings)
-        != _ENGINEERING_STANDARDS_OPEN_FINDING_IDS
-    ):
-        raise EngineeringStandardsError(
-            ["partial engineering-standards status requires the exact open findings"]
-        )
-    for index, finding in enumerate(findings, 1):
-        if set(finding) != {
-            "closure_condition",
-            "finding_id",
-            "owner_role",
-            "unavailable_evidence",
-        }:
-            raise EngineeringStandardsError([f"findings[{index}] has missing or unknown fields"])
-        if not all(isinstance(value, str) and value for value in finding.values()):
-            raise EngineeringStandardsError([f"findings[{index}] fields must be populated strings"])
-    if tuple(item.get("owner_role") for item in findings) != _FINDING_OWNERS:
-        raise EngineeringStandardsError(["engineering-standards finding ownership drifted"])
-
-    suppressions = _table(document.get("suppressions"), context="suppressions")
-    if set(suppressions) != {
-        "maximum_lifetime_days",
-        "minimum_rationale_characters",
-        "required_metadata_order",
-    } or _strings(
-        suppressions.get("required_metadata_order"), context="suppressions.required_metadata_order"
-    ) != ("owner", "rationale", "expires"):
-        raise EngineeringStandardsError(["suppression metadata contract drifted"])
-    maximum_lifetime = _positive_integer(
-        suppressions, "maximum_lifetime_days", context="suppressions"
-    )
-    minimum_rationale = _positive_integer(
-        suppressions, "minimum_rationale_characters", context="suppressions"
-    )
-    if maximum_lifetime != 180 or minimum_rationale != 12:
-        raise EngineeringStandardsError(["suppression lifetime or rationale minimum was weakened"])
-
-    generated = _table(document.get("generated_code"), context="generated_code")
-    if (
-        set(generated)
-        != {
-            "banner_prefix",
-            "manual_edits_allowed",
-            "required_metadata",
-            "source_roots",
-        }
-        or generated.get("manual_edits_allowed") is not False
-    ):
-        raise EngineeringStandardsError(["generated-code separation contract drifted"])
-    generated_roots = _strings(
-        generated.get("source_roots"), context="generated_code.source_roots", allow_empty=True
-    )
-    if generated_roots:
-        raise EngineeringStandardsError(
-            ["no generated source root is admitted by the engineering standards"]
-        )
-    if generated.get("banner_prefix") != "@generated" or _strings(
-        generated.get("required_metadata"), context="generated_code.required_metadata"
-    ) != ("generator", "generator_version", "input_sha256"):
-        raise EngineeringStandardsError(["generated-code provenance metadata drifted"])
-
-    numerical = _table(document.get("numerical"), context="numerical")
-    if numerical != {
-        "exact_arithmetic_types": ["integer", "decimal"],
-        "fast_math_requires_separate_review": True,
-        "floating_comparison_requires": [
-            "absolute_tolerance",
-            "relative_tolerance",
-            "scale_rationale",
-        ],
-        "global_epsilon_allowed": False,
-        "non_finite_default": "reject",
-    }:
-        raise EngineeringStandardsError(["numerical tolerance or non-finite policy was weakened"])
-
-    property_testing = _table(document.get("property_testing"), context="property_testing")
-    expected_property_testing = {
-        "database": "none",
-        "derandomize": True,
-        "maximum_examples": 50,
-        "state_machine_required_for_stateful_contracts": True,
-        "tool": "hypothesis",
-        "version": "6.167.1",
-    }
-    if property_testing != expected_property_testing:
-        raise EngineeringStandardsError(["property/state-machine test policy drifted"])
-
-    baselines = _table(document.get("baselines"), context="baselines")
-    if set(baselines) != {
-        "coverage_branch_measurement",
-        "coverage_scope",
-        "coverage_statement_percent",
-        "measurement_date",
-        "mutation_cases",
-        "mutation_cases_rejected",
-    }:
-        raise EngineeringStandardsError(["baseline fields drifted"])
-    mutation_cases = _positive_integer(baselines, "mutation_cases", context="baselines")
-    mutation_rejected = _positive_integer(baselines, "mutation_cases_rejected", context="baselines")
-    if mutation_cases != 12 or mutation_rejected != mutation_cases:
-        raise EngineeringStandardsError(["all twelve representative mutations must be rejected"])
-    coverage_percent = _positive_integer(
-        baselines, "coverage_statement_percent", context="baselines"
-    )
-    if coverage_percent != 81 or baselines.get("coverage_branch_measurement") is not True:
-        raise EngineeringStandardsError(
-            ["coverage baseline must retain the measured 81% branch run"]
-        )
-    if _strings(baselines.get("coverage_scope"), context="baselines.coverage_scope") != (
-        "alpha_research",
-        "alpha_research_governance",
-    ):
-        raise EngineeringStandardsError(["coverage baseline scope drifted"])
-
-    api_surfaces = _tables(document.get("api_surfaces"), context="api_surfaces")
-    observed_api_surfaces = tuple(
-        (item.get("surface"), item.get("stability"), item.get("breaking_change_policy"))
-        for item in api_surfaces
-    )
-    if observed_api_surfaces != _API_SURFACES or any(
-        set(item) != {"breaking_change_policy", "stability", "surface"} for item in api_surfaces
-    ):
-        raise EngineeringStandardsError(["API stability surfaces or policies drifted"])
-
-    tools = _parse_tools(document.get("tools"))
-    languages = _parse_languages(document.get("languages"))
-    try:
-        return EngineeringStandards(
-            package_status=cast(str, document["package_status"]),
-            successor_package=cast(str, document["successor_package"]),
-            validation_workload_iterations=_positive_integer(
-                document, "validation_workload_iterations", context=str(path)
-            ),
-            validation_workload_budget_ms=_positive_integer(
-                document, "validation_workload_budget_ms", context=str(path)
-            ),
-            applicable_gate_ids=_APPLICABLE_GATES,
-            source_roots=_SOURCE_ROOTS,
-            suppression_maximum_lifetime_days=maximum_lifetime,
-            suppression_minimum_rationale_characters=minimum_rationale,
-            generated_source_roots=generated_roots,
-            hypothesis_version=cast(str, property_testing["version"]),
-            hypothesis_maximum_examples=cast(int, property_testing["maximum_examples"]),
-            coverage_statement_percent=coverage_percent,
-            mutation_cases=mutation_cases,
-            mutation_cases_rejected=mutation_rejected,
-            measurement_date=_iso_date(
-                baselines.get("measurement_date"), context="measurement_date"
-            ),
-            tools=tools,
-            languages=languages,
-            local_evidence_manifest_path=cast(str, document["local_evidence_manifest_path"]),
-            local_evidence_commit_sha=evidence_sha,
-            open_finding_ids=open_finding_ids,
-        )
-    except ValidationError as error:
-        raise EngineeringStandardsError([f"{path}: model validation failed"]) from error
+    return _StandardsPolicyLoader(path)._load()
 
 
 def validate_suppression_line(
@@ -796,109 +858,111 @@ def _locked_packages(path: Path) -> dict[str, tuple[str, str, tuple[str, ...]]]:
     return result
 
 
-def _validate_dependency_record(
-    repository_root: Path, locked: dict[str, tuple[str, str, tuple[str, ...]]]
-) -> list[str]:
-    """Validate the checked-in Hypothesis dependency record against the lock.
+class _SourceTreeScanner:
+    """Own the repository workflow and its typed configuration."""
 
-    Read ``docs/architecture/engineering-tool-dependencies.toml`` below
-    ``repository_root`` and report drift in its exact root fields, package record,
-    Hypothesis identity, source, license, supported platforms, native-artifact
-    declarations, and ``sortedcontainers`` transitive binding. Return findings in
-    validation order; this function does not modify the record or lock mapping.
+    def __init__(
+        self,
+        repository_root: Path,
+        standards: EngineeringStandards,
+        owner_roles: frozenset[str],
+        validation_date: date,
+    ) -> None:
+        """Bind scan inputs without traversing the repository."""
+        self._repository_root = repository_root
+        self._standards = standards
+        self._owner_roles = owner_roles
+        self._validation_date = validation_date
 
-    Args:
-        repository_root: Repository root containing the dependency record.
-        locked: Package projections from the repository lockfile for cross-checks.
+    def _scan(self) -> tuple[str, ...]:
+        """Scan declared source roots for dormant-language and suppression findings.
 
-    Returns:
-        Finding messages, empty when the dependency record matches the lock contract.
+        Roots are formed as ``repository_root / source_root`` in the model's order;
+        a missing or non-directory root adds one finding and scanning continues.
+        Existing entries are traversed recursively in sorted order. A file whose own
+        name starts with ``.`` is skipped, while visible files below hidden
+        directories are scanned. Native suffixes ``.c``, ``.cc``, ``.cpp``, ``.h``,
+        ``.hpp`` and ``.rs`` add a dormant-language finding; only exact lowercase
+        ``.py`` and ``.pyi`` suffixes are tokenized. File symlinks encountered during
+        traversal are followed by ``is_file``/``read_text``; symlink directories
+        encountered during traversal are not recursively followed by Python 3.12's
+        ``rglob``, while a declared source-root symlink is scanned. This helper uses
+        lexical paths and does not enforce root containment or reject symlink escapes.
+        It does not consult ``standards.generated_source_roots``.
 
-    Raises:
-        EngineeringStandardsError: If the parsed root or dependency array has an
-            invalid TOML table shape.
-        OSError: If the dependency record cannot be read.
-        UnicodeDecodeError: If the dependency record is not valid UTF-8.
-        tomllib.TOMLDecodeError: If the dependency record is malformed TOML.
-    """
-    path = repository_root / "docs/architecture/engineering-tool-dependencies.toml"
-    document = _table(tomllib.loads(path.read_text(encoding="utf-8")), context=str(path))
-    findings: list[str] = []
-    if set(document) != {
-        "accountable_owner_role",
-        "admission_owner_package",
-        "as_of_date",
-        "dependencies",
-        "operating_track",
-        "package_status",
-        "roadmap_package",
-        "runtime_installation_allowed",
-        "schema_version",
-    }:
-        return ["engineering-tool dependency record has missing or unknown fields"]
-    expected = {
-        "accountable_owner_role": "platform",
-        "admission_owner_package": "B07",
-        "operating_track": "solo_bootstrap",
-        "package_status": "partial",
-        "roadmap_package": "B04",
-        "runtime_installation_allowed": False,
-        "schema_version": 1,
-    }
-    for key, value in expected.items():
-        if document.get(key) != value:
-            findings.append(f"dependency record {key} must be {value!r}")
-    if document.get("as_of_date") != "2026-09-02":
-        findings.append("dependency record as_of_date must be '2026-09-02'")
-    dependencies = _tables(document.get("dependencies"), context="dependencies")
-    if len(dependencies) != 1:
-        return [
-            *findings,
-            "engineering-tool dependency record must contain exactly Hypothesis",
-        ]
-    dependency = dependencies[0]
-    required_fields = {
-        "dependency_id",
-        "license",
-        "maintenance_review",
-        "name",
-        "purpose",
-        "rollback",
-        "source_digest",
-        "source_url",
-        "supported_platforms",
-        "transitive_native_dependencies",
-        "version",
-        "vulnerability_review",
-    }
-    if set(dependency) != required_fields:
-        return [*findings, "Hypothesis dependency record fields drifted"]
-    hypothesis = locked.get("hypothesis")
-    if hypothesis != ("6.167.1", dependency.get("source_digest"), ("sortedcontainers",)):
-        findings.append("Hypothesis version, digest, or transitive lock binding drifted")
-    if (
-        dependency.get("dependency_id") != "b04.hypothesis"
-        or dependency.get("name") != "Hypothesis"
-        or dependency.get("version") != "6.167.1"
-        or dependency.get("license") != "MPL-2.0"
-        or dependency.get("source_url") != "https://pypi.org/project/hypothesis/6.167.1/"
-    ):
-        findings.append("Hypothesis dependency identity, version, source, or license drifted")
-    if dependency.get("supported_platforms") != ["darwin_arm64", "linux_x86_64"]:
-        findings.append("Hypothesis supported platforms drifted")
-    if (
-        dependency.get("transitive_native_dependencies")
-        != [
-            "hypothesis==6.167.1 platform wheels contain upstream native extension artifacts",
-            "sortedcontainers==2.4.0 (pure Python)",
-        ]
-        or locked.get("sortedcontainers", (None,))[0] != "2.4.0"
-    ):
-        findings.append("Hypothesis transitive dependency record drifted")
-    for key in ("maintenance_review", "purpose", "rollback", "source_url", "vulnerability_review"):
-        if not isinstance(dependency.get(key), str) or not dependency[key]:
-            findings.append(f"Hypothesis {key} must be populated")
-    return findings
+        Python text is read as UTF-8. Tokenization catches ``IndentationError`` and
+        ``tokenize.TokenError`` as findings and skips the rest of that file, so an
+        earlier generated marker or suppression is discarded when tokenization fails.
+        Successful tokenization only identifies comments; it does not establish full
+        Python syntax validity. A comment containing ``@generated`` on lines 1-5 adds a finding;
+        marker text in strings, comments on line 6 or later, and uppercase suffixes
+        do not. Each comment is then passed to ``validate_suppression_line`` with the
+        supplied roles, date, and limits. Findings preserve root and path order. Each
+        file's generated-source finding precedes its suppression findings, which follow
+        token and helper-check order. The function performs no writes or network access.
+
+        Returns:
+            A tuple of findings in scan order. An empty tuple means no source-tree
+            finding was produced.
+
+        Raises:
+            EngineeringStandardsError: If a recognized suppression has an invalid
+                expiry date; this propagated helper error stops the scan.
+            OSError: If an uncaught filesystem operation or file read fails.
+            UnicodeDecodeError: If a scanned Python file is not valid UTF-8.
+        """
+        repository_root = self._repository_root
+        standards = self._standards
+        owner_roles = self._owner_roles
+        validation_date = self._validation_date
+        findings: list[str] = []
+        for source_root in standards.source_roots:
+            root = repository_root / source_root
+            if not root.is_dir():
+                findings.append(f"missing standards source root: {source_root}")
+                continue
+            for path in sorted(root.rglob("*")):
+                if not path.is_file() or path.name.startswith("."):
+                    continue
+                if path.suffix in _NATIVE_EXTENSIONS:
+                    findings.append(
+                        "dormant native language source is not admitted: "
+                        f"{path.relative_to(repository_root)}"
+                    )
+                if path.suffix not in {".py", ".pyi"}:
+                    continue
+                text = path.read_text(encoding="utf-8")
+                try:
+                    comments = tuple(
+                        token
+                        for token in tokenize.generate_tokens(StringIO(text).readline)
+                        if token.type == tokenize.COMMENT
+                    )
+                except (IndentationError, tokenize.TokenError) as error:
+                    error_args = cast(tuple[object, ...], error.args)
+                    error_detail = error_args[0] if error_args else ""
+                    findings.append(
+                        f"{path.relative_to(repository_root)}: cannot tokenize Python source: "
+                        f"{error_detail}"
+                    )
+                    continue
+                if any("@generated" in token.string and token.start[0] <= 5 for token in comments):
+                    findings.append(
+                        "generated source is outside an admitted generated root: "
+                        f"{path.relative_to(repository_root)}"
+                    )
+                for comment in comments:
+                    for issue in validate_suppression_line(
+                        comment.string,
+                        owner_roles=owner_roles,
+                        validation_date=validation_date,
+                        maximum_lifetime_days=standards.suppression_maximum_lifetime_days,
+                        minimum_rationale_characters=standards.suppression_minimum_rationale_characters,
+                    ):
+                        findings.append(
+                            f"{path.relative_to(repository_root)}:{comment.start[0]}: {issue}"
+                        )
+        return tuple(findings)
 
 
 def source_tree_findings(
@@ -952,52 +1016,7 @@ def source_tree_findings(
         OSError: If an uncaught filesystem operation or file read fails.
         UnicodeDecodeError: If a scanned Python file is not valid UTF-8.
     """
-    findings: list[str] = []
-    for source_root in standards.source_roots:
-        root = repository_root / source_root
-        if not root.is_dir():
-            findings.append(f"missing standards source root: {source_root}")
-            continue
-        for path in sorted(root.rglob("*")):
-            if not path.is_file() or path.name.startswith("."):
-                continue
-            if path.suffix in _NATIVE_EXTENSIONS:
-                findings.append(
-                    "dormant native language source is not admitted: "
-                    f"{path.relative_to(repository_root)}"
-                )
-            if path.suffix not in {".py", ".pyi"}:
-                continue
-            text = path.read_text(encoding="utf-8")
-            try:
-                comments = tuple(
-                    token
-                    for token in tokenize.generate_tokens(StringIO(text).readline)
-                    if token.type == tokenize.COMMENT
-                )
-            except (IndentationError, tokenize.TokenError) as error:
-                findings.append(
-                    f"{path.relative_to(repository_root)}: cannot tokenize Python source: "
-                    f"{error.args[0]}"
-                )
-                continue
-            if any("@generated" in token.string and token.start[0] <= 5 for token in comments):
-                findings.append(
-                    "generated source is outside an admitted generated root: "
-                    f"{path.relative_to(repository_root)}"
-                )
-            for comment in comments:
-                for issue in validate_suppression_line(
-                    comment.string,
-                    owner_roles=owner_roles,
-                    validation_date=validation_date,
-                    maximum_lifetime_days=standards.suppression_maximum_lifetime_days,
-                    minimum_rationale_characters=standards.suppression_minimum_rationale_characters,
-                ):
-                    findings.append(
-                        f"{path.relative_to(repository_root)}:{comment.start[0]}: {issue}"
-                    )
-    return tuple(findings)
+    return _SourceTreeScanner(repository_root, standards, owner_roles, validation_date)._scan()
 
 
 def validate_repository(
@@ -1045,108 +1064,321 @@ def validate_repository(
         tomllib.TOMLDecodeError: If an uncaught pre-evidence TOML file is malformed;
             TOML errors raised inside the final evidence block are aggregated.
     """
-    root = repository_root.resolve()
-    standards = load_standards(root / "docs/architecture/engineering-standards.toml")
-    today = date.today() if validation_date is None else validation_date
-    findings: list[str] = []
-    locked = _locked_packages(root / "uv.lock")
-    for tool in standards.tools:
-        locked_tool = locked.get(tool.tool_id)
-        if locked_tool is None or locked_tool[0] != tool.version:
-            findings.append(f"tool {tool.tool_id!r} is not locked at {tool.version}")
-    pyproject = _table(
-        tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8")),
-        context="pyproject.toml",
-    )
-    tool_configuration = _table(pyproject.get("tool"), context="pyproject.toml.tool")
-    mypy_configuration = _table(tool_configuration.get("mypy"), context="pyproject.toml.tool.mypy")
-    if mypy_configuration.get("strict") is not True:
-        findings.append("Python migration must retain strict mypy checking")
-    for flag in ("disallow_any_explicit", "disallow_any_unimported"):
-        if mypy_configuration.get(flag) is not True:
-            findings.append(f"Python boundary typing must retain {flag}")
-    if mypy_configuration.get("plugins") != ["pydantic.mypy"]:
-        findings.append("Python boundary typing requires the pinned Pydantic mypy plugin")
-    plugin_configuration = _table(
-        tool_configuration.get("pydantic-mypy"), context="pyproject.toml.tool.pydantic-mypy"
-    )
-    for flag in ("init_typed", "init_forbid_extra", "warn_required_dynamic_aliases"):
-        if plugin_configuration.get(flag) is not True:
-            findings.append(f"Pydantic typing must retain {flag}")
-    expected_typing_scopes: list[dict[str, object]] = [
-        {
-            "module": ["alpha_research.*", "alpha_research_governance.*"],
-            "disallow_any_decorated": True,
-        },
-        {
-            "module": [
-                "alpha_research.financial_units.conventions",
-                "alpha_research_governance._models",
-                "alpha_research_governance.change_risk.models",
-                "alpha_research_governance.ci_policy.policy",
-                "alpha_research_governance.engineering_standards.python_typing",
-                "alpha_research_governance.operating_model",
-                "test_python_typing",
-            ],
-            "disallow_any_expr": True,
-        },
-    ]
-    if mypy_configuration.get("overrides") != expected_typing_scopes:
-        findings.append("Python boundary typing enforcement scopes drifted")
-    if mypy_configuration.get("mypy_path") != ["src", "tools/governance/src", "tools/typing/stubs"]:
-        findings.append("Python boundary typing must resolve owned native stubs")
-    ruff_configuration = _table(tool_configuration.get("ruff"), context="pyproject.toml.tool.ruff")
-    ruff_lint = _table(ruff_configuration.get("lint"), context="pyproject.toml.tool.ruff.lint")
-    if "I" not in _strings(ruff_lint.get("select"), context="Ruff selected rules"):
-        findings.append("Python migration must retain Ruff import sorting")
-    pytest_config = _table(tool_configuration.get("pytest"), context="pyproject.toml.tool.pytest")
-    pytest_options = _table(
-        pytest_config.get("ini_options"), context="pyproject.toml.tool.pytest.ini_options"
-    )
-    if pytest_options.get("filterwarnings") != ["error"]:
-        findings.append("pytest warnings must fail as errors")
-    dependency_groups = _table(
-        pyproject.get("dependency-groups"), context="pyproject.toml.dependency-groups"
-    )
-    development_requirements = _strings(
-        dependency_groups.get("dev"), context="pyproject.toml.dependency-groups.dev"
-    )
-    for requirement in _DIRECT_TOOL_REQUIREMENTS:
-        if requirement not in development_requirements:
-            findings.append(f"development requirements are missing exact tool pin {requirement}")
-    requirements = (root / "requirements.bazel.txt").read_text(encoding="utf-8").splitlines()
-    for requirement in ("hypothesis==6.167.1", "sortedcontainers==2.4.0"):
-        if requirement not in requirements:
-            findings.append(f"Bazel requirements are missing {requirement}")
-    if (root / ".python-version").read_text(encoding="utf-8").strip() != "3.12.14":
-        findings.append("Python language baseline must remain 3.12.14")
+    return _EngineeringStandardsRepositoryValidator(repository_root, validation_date)._validate()
 
-    owner_roles = _owner_roles(root / "docs/governance/domain-ownership.toml")
-    findings.extend(
-        PythonStandardsChecker(
-            source_roots=standards.source_roots,
-            owner_roles=owner_roles,
-            validation_date=today,
-        ).findings(root)
-    )
-    findings.extend(
-        source_tree_findings(
-            root,
-            standards,
-            owner_roles=owner_roles,
-            validation_date=today,
+
+class _EngineeringStandardsRepositoryValidator:
+    """Own repository-wide standards validation and its root/date inputs."""
+
+    def __init__(self, repository_root: Path, validation_date: date | None) -> None:
+        """Bind repository validation inputs without performing I/O."""
+        self._repository_root = repository_root
+        self._validation_date = validation_date
+
+    def _validate_dependency_record(
+        self,
+        repository_root: Path,
+        locked: dict[str, tuple[str, str, tuple[str, ...]]],
+    ) -> list[str]:
+        """Validate the checked-in Hypothesis dependency record against the lock.
+
+        Read ``docs/architecture/engineering-tool-dependencies.toml`` below
+        ``repository_root`` and report drift in its exact root fields, package record,
+        Hypothesis identity, source, license, supported platforms, native-artifact
+        declarations, and ``sortedcontainers`` transitive binding. Return findings in
+        validation order; this function does not modify the record or lock mapping.
+
+        Args:
+            repository_root: Resolved repository root containing the dependency record.
+            locked: Package projections from the repository lockfile for cross-checks.
+
+        Returns:
+            Finding messages, empty when the dependency record matches the lock contract.
+
+        Raises:
+            EngineeringStandardsError: If the parsed root or dependency array has an
+                invalid TOML table shape.
+            OSError: If the dependency record cannot be read.
+            UnicodeDecodeError: If the dependency record is not valid UTF-8.
+            tomllib.TOMLDecodeError: If the dependency record is malformed TOML.
+        """
+        path = repository_root / "docs/architecture/engineering-tool-dependencies.toml"
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        document = _table(parsed_document, context=str(path))
+        findings: list[str] = []
+        if set(document) != {
+            "accountable_owner_role",
+            "admission_owner_package",
+            "as_of_date",
+            "dependencies",
+            "operating_track",
+            "package_status",
+            "roadmap_package",
+            "runtime_installation_allowed",
+            "schema_version",
+        }:
+            return ["engineering-tool dependency record has missing or unknown fields"]
+        expected = {
+            "accountable_owner_role": "platform",
+            "admission_owner_package": "B07",
+            "operating_track": "solo_bootstrap",
+            "package_status": "partial",
+            "roadmap_package": "B04",
+            "runtime_installation_allowed": False,
+            "schema_version": 1,
+        }
+        for key, value in expected.items():
+            if document.get(key) != value:
+                findings.append(f"dependency record {key} must be {value!r}")
+        if document.get("as_of_date") != "2026-09-02":
+            findings.append("dependency record as_of_date must be '2026-09-02'")
+        dependencies = _tables(document.get("dependencies"), context="dependencies")
+        if len(dependencies) != 1:
+            return [
+                *findings,
+                "engineering-tool dependency record must contain exactly Hypothesis",
+            ]
+        dependency = dependencies[0]
+        required_fields = {
+            "dependency_id",
+            "license",
+            "maintenance_review",
+            "name",
+            "purpose",
+            "rollback",
+            "source_digest",
+            "source_url",
+            "supported_platforms",
+            "transitive_native_dependencies",
+            "version",
+            "vulnerability_review",
+        }
+        if set(dependency) != required_fields:
+            return [*findings, "Hypothesis dependency record fields drifted"]
+        hypothesis = locked.get("hypothesis")
+        if hypothesis != (
+            "6.167.1",
+            dependency.get("source_digest"),
+            ("sortedcontainers",),
+        ):
+            findings.append("Hypothesis version, digest, or transitive lock binding drifted")
+        if (
+            dependency.get("dependency_id") != "b04.hypothesis"
+            or dependency.get("name") != "Hypothesis"
+            or dependency.get("version") != "6.167.1"
+            or dependency.get("license") != "MPL-2.0"
+            or dependency.get("source_url") != "https://pypi.org/project/hypothesis/6.167.1/"
+        ):
+            findings.append("Hypothesis dependency identity, version, source, or license drifted")
+        if dependency.get("supported_platforms") != ["darwin_arm64", "linux_x86_64"]:
+            findings.append("Hypothesis supported platforms drifted")
+        if (
+            dependency.get("transitive_native_dependencies")
+            != [
+                "hypothesis==6.167.1 platform wheels contain upstream native extension artifacts",
+                "sortedcontainers==2.4.0 (pure Python)",
+            ]
+            or locked.get("sortedcontainers", (None,))[0] != "2.4.0"
+        ):
+            findings.append("Hypothesis transitive dependency record drifted")
+        for key in (
+            "maintenance_review",
+            "purpose",
+            "rollback",
+            "source_url",
+            "vulnerability_review",
+        ):
+            if not isinstance(dependency.get(key), str) or not dependency[key]:
+                findings.append(f"Hypothesis {key} must be populated")
+        return findings
+
+    def _validate(self) -> EngineeringStandards:
+        """Validate the resolved repository against standards and local evidence.
+
+        The repository root is resolved before paths are formed. The function loads
+        the engineering policy, checks locked tool versions and the exact Python,
+        Ruff, pytest, dependency-pin, Bazel-requirement, and interpreter-baseline
+        settings, then runs the ownership-aware Python and source-tree checks and
+        validates the engineering-tool dependency record. A missing
+        ``validation_date`` defaults to ``date.today()``; the selected date is passed
+        to the source and Python standards checks for suppression and exception
+        expiry decisions. The final evidence block validates the manifest and the
+        fixed local package profile. Collected findings are raised together after
+        that block; a successful call returns the loaded engineering policy. It
+        reads local files and runs repository scanners, but does not invoke the
+        configured quality tools.
+
+        Errors from the final evidence block are deliberately handled at this
+        boundary: ``EvidenceGovernanceError``, ``OSError``, and ``ValueError`` are
+        converted to one finding. Earlier policy, lock, configuration, ownership,
+        source, and dependency reads and helper failures are not caught here.
+
+        Returns:
+            The validated ``EngineeringStandards`` policy when no findings remain.
+
+        Raises:
+            EngineeringStandardsError: If any standards, configuration, source,
+                dependency, or accumulated evidence finding is present. Evidence
+                failures caught by the final block are included in this error.
+            OSError: If root resolution or a repository file read fails before the
+                final evidence block; evidence-block filesystem failures are
+                translated into ``EngineeringStandardsError``.
+            UnicodeDecodeError: If an uncaught pre-evidence repository text file is
+                not UTF-8; evidence-block decoding failures are aggregated instead.
+            tomllib.TOMLDecodeError: If an uncaught pre-evidence TOML file is malformed;
+                TOML errors raised inside the final evidence block are aggregated.
+        """
+        repository_root = self._repository_root
+        validation_date = self._validation_date
+        root = repository_root.resolve()
+        standards = load_standards(root / "docs/architecture/engineering-standards.toml")
+        today = date.today() if validation_date is None else validation_date
+        findings: list[str] = []
+        locked = _locked_packages(root / "uv.lock")
+        for tool in standards.tools:
+            locked_tool = locked.get(tool.tool_id)
+            if locked_tool is None or locked_tool[0] != tool.version:
+                findings.append(f"tool {tool.tool_id!r} is not locked at {tool.version}")
+        pyproject_document: object = tomllib.loads(
+            (root / "pyproject.toml").read_text(encoding="utf-8")
         )
-    )
-    findings.extend(_validate_dependency_record(root, locked))
-    try:
-        manifest = validate_manifest(
-            root / standards.local_evidence_manifest_path,
-            expected_commit_sha=standards.local_evidence_commit_sha,
-            change_policy=load_change_risk_policy(root / "docs/governance/change-risk-policy.toml"),
+        pyproject = _table(pyproject_document, context="pyproject.toml")
+        tool_configuration = _table(pyproject.get("tool"), context="pyproject.toml.tool")
+        mypy_configuration = _table(
+            tool_configuration.get("mypy"), context="pyproject.toml.tool.mypy"
         )
-        validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
-    except (EvidenceGovernanceError, OSError, ValueError) as error:
-        findings.append(f"engineering-standards evidence bundle: {error}")
-    if findings:
-        raise EngineeringStandardsError(findings)
-    return standards
+        if mypy_configuration.get("strict") is not True:
+            findings.append("Python migration must retain strict mypy checking")
+        for flag in ("disallow_any_explicit", "disallow_any_unimported"):
+            if mypy_configuration.get(flag) is not True:
+                findings.append(f"Python boundary typing must retain {flag}")
+        if mypy_configuration.get("plugins") != ["pydantic.mypy"]:
+            findings.append("Python boundary typing requires the pinned Pydantic mypy plugin")
+        plugin_configuration = _table(
+            tool_configuration.get("pydantic-mypy"),
+            context="pyproject.toml.tool.pydantic-mypy",
+        )
+        for flag in (
+            "init_typed",
+            "init_forbid_extra",
+            "warn_required_dynamic_aliases",
+        ):
+            if plugin_configuration.get(flag) is not True:
+                findings.append(f"Pydantic typing must retain {flag}")
+        expected_typing_scopes: list[dict[str, object]] = [
+            {
+                "module": ["alpha_research.*", "alpha_research_governance.*"],
+                "disallow_any_decorated": True,
+            },
+            {
+                "module": [
+                    "alpha_research.financial_units.conventions",
+                    "alpha_research_governance._models",
+                    "alpha_research_governance.change_risk.models",
+                    "alpha_research_governance.ci_policy.policy",
+                    "alpha_research_governance.engineering_standards.python_typing",
+                    "alpha_research_governance.operating_model",
+                    "test_python_typing",
+                ],
+                "disallow_any_expr": True,
+            },
+        ]
+        if mypy_configuration.get("overrides") != expected_typing_scopes:
+            findings.append("Python boundary typing enforcement scopes drifted")
+        if mypy_configuration.get("mypy_path") != [
+            "src",
+            "tools/governance/src",
+            "tools/typing/stubs",
+        ]:
+            findings.append("Python boundary typing must resolve owned native stubs")
+        ruff_configuration = _table(
+            tool_configuration.get("ruff"), context="pyproject.toml.tool.ruff"
+        )
+        ruff_lint = _table(ruff_configuration.get("lint"), context="pyproject.toml.tool.ruff.lint")
+        if "I" not in _strings(ruff_lint.get("select"), context="Ruff selected rules"):
+            findings.append("Python migration must retain Ruff import sorting")
+        pytest_config = _table(
+            tool_configuration.get("pytest"), context="pyproject.toml.tool.pytest"
+        )
+        pytest_options = _table(
+            pytest_config.get("ini_options"),
+            context="pyproject.toml.tool.pytest.ini_options",
+        )
+        if pytest_options.get("filterwarnings") != ["error"]:
+            findings.append("pytest warnings must fail as errors")
+        dependency_groups = _table(
+            pyproject.get("dependency-groups"),
+            context="pyproject.toml.dependency-groups",
+        )
+        development_requirements = _strings(
+            dependency_groups.get("dev"), context="pyproject.toml.dependency-groups.dev"
+        )
+        for requirement in _DIRECT_TOOL_REQUIREMENTS:
+            if requirement not in development_requirements:
+                findings.append(
+                    f"development requirements are missing exact tool pin {requirement}"
+                )
+        requirements = (root / "requirements.bazel.txt").read_text(encoding="utf-8").splitlines()
+        for requirement in ("hypothesis==6.167.1", "sortedcontainers==2.4.0"):
+            if requirement not in requirements:
+                findings.append(f"Bazel requirements are missing {requirement}")
+        if (root / ".python-version").read_text(encoding="utf-8").strip() != "3.12.14":
+            findings.append("Python language baseline must remain 3.12.14")
+
+        owner_roles = _owner_roles(root / "docs/governance/domain-ownership.toml")
+        findings.extend(
+            PythonStandardsChecker(
+                source_roots=standards.source_roots,
+                owner_roles=owner_roles,
+                validation_date=today,
+            ).findings(root)
+        )
+        findings.extend(
+            source_tree_findings(
+                root,
+                standards,
+                owner_roles=owner_roles,
+                validation_date=today,
+            )
+        )
+        findings.extend(self._validate_dependency_record(root, locked))
+        try:
+            manifest = validate_manifest(
+                root / standards.local_evidence_manifest_path,
+                expected_commit_sha=standards.local_evidence_commit_sha,
+                change_policy=load_change_risk_policy(
+                    root / "docs/governance/change-risk-policy.toml"
+                ),
+            )
+            validate_package_evidence(manifest, _LOCAL_EVIDENCE_PROFILE)
+        except (EvidenceGovernanceError, OSError, ValueError) as error:
+            findings.append(f"engineering-standards evidence bundle: {error}")
+        if findings:
+            raise EngineeringStandardsError(findings)
+        return standards
+
+
+def _validate_dependency_record(
+    repository_root: Path, locked: dict[str, tuple[str, str, tuple[str, ...]]]
+) -> list[str]:
+    """Validate the dependency record through the repository validator service.
+
+    This compatibility adapter retains the historical private helper used by focused
+    governance checks while keeping repository-bound I/O in the owning validator.
+
+    Args:
+        repository_root: Repository root containing the dependency record.
+        locked: Package projections from the repository lockfile for cross-checks.
+
+    Returns:
+        Finding messages, empty when the dependency record matches the lock contract.
+
+    Raises:
+        EngineeringStandardsError: If the parsed dependency record has an invalid shape.
+        OSError: If the dependency record cannot be read.
+        UnicodeDecodeError: If the dependency record is not valid UTF-8.
+        tomllib.TOMLDecodeError: If the dependency record is malformed TOML.
+    """
+    return _EngineeringStandardsRepositoryValidator(
+        repository_root, None
+    )._validate_dependency_record(repository_root, locked)

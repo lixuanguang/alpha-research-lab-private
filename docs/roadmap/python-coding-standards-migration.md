@@ -3,35 +3,20 @@
 Audit date: 2026-09-05. Original audit baseline revision:
 `d3a40ca98d71208426c8501d8d4a1aaaa049768d`.
 
-Status: steps 1–5 are implemented; step 6 remains in progress and step 7 remains
-planned. Step 5 closed the existing-source documentation queue in 31 slices on
-2026-09-06; its completion snapshot recorded 798 `PYC001` dispositions across
-73 files, no `PYD001` or `PYD002`, and 686 inferred-typing diagnostics. The
-current Step-6 slice leaves 324 `PYC001` dispositions across 36 files and 229
-inferred-typing diagnostics.
-Step 6 has completed the change-risk pilot and the program loading/status service
-extraction, including the residual package-state and local-evidence workflows.
-Queue item 2 is complete, and queue item 3 has completed security-control map
-loading and validation. Inventory loading is next. Remaining helper dispositions
-stay in queue item 8. The financial settlement-convention service in queue item 7
-is also implemented, with the remaining CLI and policy work still open.
-The earlier CLI slice preserves 12
-Typer callback docstrings as help contracts, and documentation for moved workflows
-remains combined with their step-6 service slices.
-The financial-model boundary and associated unit-test slice in queue item 8 is
-also implemented; its remaining Hypothesis decorator typing is explicitly tracked.
-The instrument-identity model and associated unit-test slice in queue item 8 is
-also implemented, with six existing Hypothesis decorator diagnostics retained.
-The venue-calendar adapter, models and associated unit/evidence-test slice is
-also implemented, with its six existing Hypothesis decorator diagnostics retained.
-The `tests/build` workflows and associated contract tests in queue item 8 are
-also implemented, with no remaining source or inferred-typing debt in that scope.
-The `tests/engineering` slice is also implemented: its test contracts and fixture
-workflows have explicit class ownership, and all source and inferred-typing debt
-in that directory is retired. Retained fixture entry points and small helpers
-have individual reviewed dispositions.
-The nine residual dataclasses in the Python source scanner and security-control
-map loader now use Pydantic models, preserving mutable invocation state where needed.
+Status: steps 1–6 are implemented; step 7 remains planned. Step 6 closed the
+remaining **324 PYC001 obligations across 36 governance files** on 2026-09-07.
+The source standards debt inventory is empty. Policy loaders, repository
+validators, evidence and artifact operations, and CI/remote execution workflows
+now have explicit class ownership. Retained parsers, CLI callbacks and
+compatibility adapters have individual reviewed, expiring dispositions.
+
+The final slice also retires **57 inferred-typing diagnostics**, leaving **172**
+in the separate typing inventory. No new or relocated diagnostic is allowed.
+Step 7 still covers caller adoption, reduction of temporary adapters, remaining
+inferred typing, unconditional rule activation and removal of the empty source
+inventory mechanism. Existing public functions, CLI contracts, schemas and
+validation behavior remain supported. Historical completion snapshots below keep
+the counts measured at each earlier slice.
 
 See the [consolidated step-5 validation record](#step-5-validation-record-consolidated-completion-2026-09-06)
 for evidence recorded at completion.
@@ -317,8 +302,8 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
 | 5. Document existing contracts — implemented | Closed the existing-source documentation queue in 31 doc-only slices across domain, governance, test, policy, helper, loader, runner and artifact contracts. Moved workflows remain step 6; global rule activation remains deferred. | Final scan: zero `PYD001`/`PYD002`; 798 `PYC001` dispositions across 73 files; inferred typing remains at 686 diagnostics. See the consolidated Step-5 validation record below. |
-| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and approval evaluator, program loading/status services, residual program workflows, security-control map loader and financial settlement conventions while retaining the public function APIs. Queue items 1 and 2 are complete; inventory loading is next in queue item 3. The settlement responsibility in queue item 7 and financial-model/test, instrument-identity-model/test, venue-calendar source/test, `tests/build` and `tests/engineering` portions of queue item 8 are complete. Depends on steps 2–4 for the owning package. | The completed slices preserve schemas, serialized results, ordered findings, exception boundaries, evidence and CLI contracts. See the step-6 records below. |
-| 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
+| 6. Refactor workflows into classes — implemented | Completed class ownership for policy loading, repository validation, evidence/artifact operations and CI/remote workflows, alongside the earlier domain and test slices. Retained helpers and adapters have individual dispositions. | Zero source-standard debt; exact public signatures, ordered findings, error boundaries, evidence and CLI contracts preserved. The final slice retires 57 inferred-typing diagnostics without relocation. See the final step-6 validation record. |
+| 7. Finish adoption and make checks unconditional — planned | Migrate callers, reduce temporary wrappers, retire remaining inferred typing, activate the final rules and remove the empty source-inventory mechanism. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and supported compatibility facades remain explicitly documented. |
 
 For gradual enforcement, use exact rule plus module/qualified-symbol identities,
 not a global numerical allowance or blanket module ignore. Reject additions and
@@ -795,12 +780,12 @@ prefixed with `src/`. Names are proposed responsibilities, not mandatory new fil
 | --- | --- | --- |
 | 1. `change_risk/classification.py`, then `approvals.py` — implemented | `ChangeRiskClassifier(policy)` and `ChangeRiskApprovalEvaluator(policy)`, with invocation-local state. | Highest-dimension rule, downgrade rejection, gate ordering, founder/team rules and exact errors preserved; existing classification/approval functions delegate temporarily. |
 | 2. `program_governance/registry.py`, `status.py` — implemented | `ProgramRepository` for loading and local-evidence validation with explicit root/ownership context; distinct roadmap parsing, observation reading, status rendering and private package-state parsing responsibilities. Remaining helper dispositions belong to queue item 8. | Schema versions 1–4, dependency purposes/cycles, finding mapping, deterministic status text and existing exported loaders. |
-| 3. `security_controls/registry.py`, `inventory/registry.py` — in progress (security loader implemented) | `SecurityControlMapLoader` owns security-map and local-evidence validation with explicit repository context. `InventoryLoader` is next; pure field/ID parsing stays small. | Error categories, complete references, source identity, ownership and deterministic findings. |
-| 4. `repository_topology/registry.py`, `engineering_standards/policy.py`, `dependency_admission/policy.py`, `ownership_governance.py`, `architecture_governance.py` | Domain-specific loaders/validators with explicit repository context. Share only proven identical parsing primitives. | Exact accepted schema and policy values, expiry/version checks, local link safety, exception translation and root commands. |
-| 5. `evidence/manifest.py`, `mr.py`, `package.py`, `artifact_supply_chain/bundle.py` | Separate evidence validation, bundle creation and bundle verification services. | Digest/path validation, operation and revision binding, malformed-input rejection, file write boundaries and signature behavior. |
-| 6. `ci_policy/runner.py`, `selection.py`, `remote_execution/runner.py` | `CIRunner` and `RemoteExecutionRunner`; use a typed command-execution collaborator where injection is useful. | Fast/full selection, exact argv/environment, trust/secret checks, exit codes, event contents/order and safe fallback. |
-| 7. Remaining CLI modules, policies and `src/alpha_research/financial_units/conventions.py` — settlement service implemented | Thin CLI callbacks delegating to services remain; `SettlementConventions(calendar)` now owns settlement adjustment and lag operations. | Console scripts, `python -m` entry points and facade imports; settlement date/coverage errors; keep arithmetic and conversion kernels small. |
-| 8. `tests/` and residual source helpers — `tests/build` and `tests/engineering` slices implemented | Contract-oriented test classes and a completed function-disposition inventory in both directories. Build/environment/fixture workflows now have explicit service ownership; remaining test and source-helper scopes stay open. | Pytest/Bazel collection, parametrization, fixtures, markers, external selectors and meaningful failures. |
+| 3. `security_controls/registry.py`, `inventory/registry.py` — implemented | `SecurityControlMapLoader` and `InventoryLoader` own loading and local-evidence validation with explicit repository context. Pure field/ID parsers retain reviewed dispositions. | Error categories, complete references, source identity, ownership and deterministic findings; one loader remains usable after a failed invocation. |
+| 4. `repository_topology/registry.py`, `engineering_standards/policy.py`, `dependency_admission/policy.py`, `ownership_governance.py`, `architecture_governance.py` — implemented | Domain-specific loaders, inspectors and validators bind their repository, policy or path dependencies. | Exact accepted schema and policy values, expiry/version checks, local link safety, exception translation and resolved-root propagation. |
+| 5. `evidence/manifest.py`, `mr.py`, `package.py`, `artifact_supply_chain/bundle.py` — implemented | Evidence validators own their policy/profile context; artifact lifecycle and signing services own policy, repository and process collaborators. | Digest/path validation, operation and revision binding, malformed-input rejection, file write boundaries and signature behavior. |
+| 6. `ci_policy/runner.py`, `selection.py`, `remote_execution/runner.py` — implemented | `CIRunner` and `_RemoteExecutionRunner` bind repository/policy context; deterministic selection primitives retain reviewed function dispositions. | Fast/full selection, exact argv/environment, trust/secret checks, exit codes, event contents/order, injection seams and safe fallback. |
+| 7. Remaining CLI modules, policies and `src/alpha_research/financial_units/conventions.py` — implemented | Policy loaders own their input context; thin CLI callbacks remain framework adapters. `SettlementConventions(calendar)` owns settlement adjustment and lag operations. | Console scripts, `python -m` entry points and facade imports; settlement date/coverage errors; small arithmetic and conversion kernels. |
+| 8. `tests/` and residual source helpers — implemented | Contract-oriented test classes and the residual source function-disposition review are complete. Build/environment/fixture workflows have explicit service ownership. | Pytest/Bazel collection, parametrization, fixtures, markers and meaningful failures; existing error-translation tests target the newly owned internal boundaries. |
 
 ## Validation, compatibility and rollback
 
@@ -1408,3 +1393,69 @@ The stronger probe used `--strict --follow-imports=silent
 --no-warn-unused-configs --disallow-any-expr --disallow-any-decorated --output=json`
 on `tests/engineering` only. No full-repository pytest/Bazel suite or stronger
 typing probe was run. Step 6 remains open outside this completed engineering slice.
+
+### Step 6 validation record — remaining governance workflows completed (2026-09-07)
+
+Three Luna subagents at extra-high reasoning implemented the policy/evidence,
+artifact/dependency/CI and registry/governance scopes. The parent reviewed the
+combined code, constructor dependencies, module APIs, exception translation,
+ordered findings, path resolution, typing identities and test contracts before
+running final validation.
+
+The final slice retires all **324 PYC001 obligations across 36 files**. The source
+inventory retains its original baseline metadata and an empty `entries` mapping;
+its checksum changes with the inventory. There are **308 new individually reviewed
+dispositions**: 212 bounded low-level helpers, 34 CLI/framework adapters and 62
+compatibility adapters. Each carries a platform owner, specific rationale,
+2027-03-01 expiry and an AST fingerprint. All 173 pre-existing exception records
+remain unchanged. No new migration allowance or suppression was introduced.
+
+Workflow classes bind repository roots, policies, paths, evidence profiles or
+process collaborators without constructor I/O. The audit corrected resolved-root
+propagation, policy read/error order, loader error translation and incomplete
+class ownership. Existing public function signatures remain unchanged. Internal
+error-injection tests now target the owning methods while preserving all calls,
+expected domain errors, exact exception causes and sensitive-detail assertions.
+Two regressions check loader reuse after failure and artifact admission through a
+symlinked repository root. All existing cases and behavioral assertions remain;
+the obsolete debt assertions now require an empty inventory.
+
+The stronger probe retires **57 diagnostics across 35 exact identities**. The
+remaining inventory contains **172 diagnostics across 109 identities**, with
+unchanged baseline/task metadata. Moved diagnostics were fixed at their parsing,
+reflection, callback and collection boundaries; none were rebaselined under new
+class symbols. The final probe covered the original 36 source files, all 22
+associated test modules and both checksum-bearing checker modules: **60 files**.
+Its 110 remaining diagnostics match existing identities exactly; 62 diagnostics
+outside the checked scope remain unchanged in the inventory. This completes the
+source-standard migration queue, while remaining inferred typing stays open.
+
+| Check | Observed result |
+| --- | --- |
+| Collection and focused behavior | All **531** existing relevant cases remain collected; two new regressions bring the total to **533**. The 22 explicitly named affected test files pass **527** default cases, with the six marked cases run separately. |
+| Marked cases | All **5** affected performance cases and the **1** ownership pre-commit integration case pass. The integration retry required access to the existing local uv cache after sandbox denial; it exercised the real hook in a temporary repository. Artifact/dependency checks used real pinned Cosign 3.1.3. |
+| Owning Bazel targets | All **10** explicitly selected targets pass under `--config=ci`: artifact supply chain, CI runner, dependency admission, engineering standards, Python standards, Python typing, remote execution and the three domain-evidence consumers. |
+| Source standards | The engineering-standards command passes, including empty-debt reconciliation, existing suppression policy and all exception fingerprints. Both source and typing checksum pins match. |
+| Scoped static checks | Configured Ruff lint, Google-docstring/`ANN401`, formatting and strict mypy pass for all **60** affected/associated files. The stronger probe reports **zero new, moved or multiplied diagnostics**. |
+| Parent audit | Public signatures, retained test nodes, meaningful assertions, operation-local state, error boundaries and read ordering are preserved; all identified regressions were corrected before final validation. `git diff --check` passes. |
+
+The default pytest run explicitly selected these files under `tests/engineering`:
+`test_architecture_governance.py`, `test_artifact_supply_chain.py`,
+`test_change_risk.py`, `test_ci_policy.py`, `test_ci_runner.py`,
+`test_dependency_admission.py`, `test_engineering_standards.py`,
+`test_evidence_governance.py`, `test_financial_units_evidence.py`,
+`test_instrument_identity_evidence.py`, `test_inventory_governance.py`,
+`test_ownership_governance.py`, `test_package_evidence.py`,
+`test_program_governance.py`, `test_pydantic_models.py`, `test_python_debt.py`,
+`test_python_source_standards.py`, `test_python_typing.py`,
+`test_remote_execution.py`, `test_repository_topology.py`,
+`test_security_controls.py` and `test_venue_calendar_evidence.py`.
+
+Checks used the pinned virtual environment with
+`PYTHONPATH=src:tools/governance/src` and absolute virtual-environment/Cosign
+locations on PATH. The stronger mypy arguments were `--strict
+--follow-imports=silent --no-warn-unused-configs --disallow-any-expr
+--disallow-any-decorated --output=json` over those explicit source/test paths.
+No full-repository test suite, full CI lane or full-scope stronger typing probe
+was run, as requested. Step 7 remains planned for adoption, residual inferred
+typing and final enforcement cleanup.
