@@ -5,16 +5,16 @@ from __future__ import annotations
 # standard library imports
 import re
 import tomllib
-from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
 # third party library imports
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 # project library imports
+from alpha_research_governance._models import ImmutableModel
 from alpha_research_governance.change_risk import ChangeRiskInput, RiskClass
 from alpha_research_governance.change_risk import load_policy as load_change_risk_policy
 from alpha_research_governance.evidence import (
@@ -913,8 +913,7 @@ def _parse_regulatory_mappings(value: object) -> tuple[RegulatoryMapping, ...]:
     )
 
 
-@dataclass(frozen=True)
-class _MapMetadata:
+class _MapMetadata(ImmutableModel):
     """Retain fixed metadata parsed before the control-map collections."""
 
     schema_version: int
@@ -926,8 +925,7 @@ class _MapMetadata:
     applicable_gate_ids: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class _MapCollections:
+class _MapCollections(ImmutableModel):
     """Retain the ordered records parsed from one control-map document."""
 
     assets: tuple[ProtectedAsset, ...]
@@ -940,9 +938,15 @@ class _MapCollections:
     regulatory_mappings: tuple[RegulatoryMapping, ...]
 
 
-@dataclass
-class _MapValidationContext:
+class _MapValidationContext(BaseModel):
     """Own per-invocation records, indexes, roles, and ordered findings."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        validate_assignment=True,
+        validate_default=True,
+    )
 
     path: Path
     repository_root: Path
@@ -951,21 +955,21 @@ class _MapValidationContext:
     metadata: _MapMetadata
     collections: _MapCollections
     as_of_date: date
-    findings: list[str] = field(default_factory=list)
-    used_roles: set[str] = field(default_factory=set)
-    asset_ids: frozenset[str] = frozenset()
-    boundary_ids: frozenset[str] = frozenset()
-    control_ids: frozenset[str] = frozenset()
-    evidence_ids: frozenset[str] = frozenset()
-    source_ids: frozenset[str] = frozenset()
-    jurisdiction_ids: tuple[str, ...] = ()
-    jurisdiction_id_set: frozenset[str] = frozenset()
-    evidence_status_by_id: dict[str, str] = field(default_factory=dict)
-    sources_by_jurisdiction: dict[str, set[str]] = field(default_factory=dict)
-    status_by_jurisdiction: dict[str, str] = field(default_factory=dict)
-    legal_owner_by_jurisdiction: dict[str, str] = field(default_factory=dict)
-    mapped_source_ids: set[str] = field(default_factory=set)
-    mapped_control_ids: set[str] = field(default_factory=set)
+    findings: list[str] = Field(default_factory=list)
+    used_roles: set[str] = Field(default_factory=set)
+    asset_ids: frozenset[str] = Field(default_factory=frozenset)
+    boundary_ids: frozenset[str] = Field(default_factory=frozenset)
+    control_ids: frozenset[str] = Field(default_factory=frozenset)
+    evidence_ids: frozenset[str] = Field(default_factory=frozenset)
+    source_ids: frozenset[str] = Field(default_factory=frozenset)
+    jurisdiction_ids: tuple[str, ...] = Field(default_factory=tuple)
+    jurisdiction_id_set: frozenset[str] = Field(default_factory=frozenset)
+    evidence_status_by_id: dict[str, str] = Field(default_factory=dict)
+    sources_by_jurisdiction: dict[str, set[str]] = Field(default_factory=dict)
+    status_by_jurisdiction: dict[str, str] = Field(default_factory=dict)
+    legal_owner_by_jurisdiction: dict[str, str] = Field(default_factory=dict)
+    mapped_source_ids: set[str] = Field(default_factory=set)
+    mapped_control_ids: set[str] = Field(default_factory=set)
 
 
 class SecurityControlMapLoader:

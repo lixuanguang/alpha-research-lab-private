@@ -9,12 +9,16 @@ import io
 import re
 import sys
 import tokenize
-from dataclasses import dataclass, field
 from typing import ClassVar, cast
 
+# third party library imports
+from pydantic import BaseModel, ConfigDict, Field
 
-@dataclass(frozen=True, slots=True)
-class PythonFinding:
+# project library imports
+from alpha_research_governance._models import ImmutableModel
+
+
+class PythonFinding(ImmutableModel):
     """Represent one deterministic Python source standards finding."""
 
     path: str
@@ -33,14 +37,27 @@ class PythonFinding:
         return (self.path, self.symbol, self.rule, self.detail)
 
 
-@dataclass
-class _Scope:
-    """Track typing aliases and lexical bindings for one Python scope."""
+class _Scope(BaseModel):
+    """Track typing aliases and lexical bindings for one Python scope.
+
+    ``revalidate_instances="never"`` preserves the identity of ``parent`` so
+    lexical lookup observes live bindings as the enclosing scope changes.
+    """
+
+    model_config = ConfigDict(
+        allow_inf_nan=False,
+        extra="forbid",
+        frozen=False,
+        revalidate_instances="never",
+        strict=True,
+        validate_assignment=True,
+        validate_default=True,
+    )
 
     symbol: str
     parent: _Scope | None
-    aliases: dict[str, str] = field(default_factory=dict)
-    bindings: set[str] = field(default_factory=set)
+    aliases: dict[str, str] = Field(default_factory=dict)
+    bindings: set[str] = Field(default_factory=set)
 
     def bind_alias(self, name: str, alias: str) -> None:
         """Bind one name to a recognized typing alias."""
@@ -63,17 +80,17 @@ class _Scope:
         return self.parent.resolve(name)
 
 
-@dataclass(frozen=True, slots=True)
-class _ImportRecord:
+class _ImportRecord(ImmutableModel):
     """Describe one direct import statement in an import block."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     node: ast.Import | ast.ImportFrom
     category: str
     line: int
 
 
-@dataclass(frozen=True, slots=True)
-class _ImportGroup:
+class _ImportGroup(ImmutableModel):
     """Describe one contiguous category segment in an import block."""
 
     category: str
@@ -81,16 +98,14 @@ class _ImportGroup:
     ordinal: int
 
 
-@dataclass(frozen=True, slots=True)
-class _GoogleSection:
+class _GoogleSection(ImmutableModel):
     """Hold one parsed Google-style docstring section."""
 
     name: str
     body: tuple[str, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class _FunctionFacts:
+class _FunctionFacts(ImmutableModel):
     """Summarize return, yield, and raise statements in one function body."""
 
     has_value_return: bool
@@ -209,7 +224,11 @@ class _ImportChecker:
         self._block_counters[counter_key] = block_number
         block = f"{context}:block:{block_number}"
         records = tuple(
-            _ImportRecord(statement, self._category(statement), statement.lineno)
+            _ImportRecord(
+                node=statement,
+                category=self._category(statement),
+                line=statement.lineno,
+            )
             for statement in statements
         )
         for record in records:
@@ -328,11 +347,19 @@ class _ImportChecker:
             if record.category == "future":
                 continue
             if not groups or groups[-1].category != record.category:
-                groups.append(_ImportGroup(record.category, (record,), len(groups) + 1))
+                groups.append(
+                    _ImportGroup(
+                        category=record.category,
+                        records=(record,),
+                        ordinal=len(groups) + 1,
+                    )
+                )
             else:
                 previous = groups[-1]
                 groups[-1] = _ImportGroup(
-                    previous.category, (*previous.records, record), previous.ordinal
+                    category=previous.category,
+                    records=(*previous.records, record),
+                    ordinal=previous.ordinal,
                 )
         return tuple(groups)
 
@@ -394,7 +421,15 @@ class _ImportChecker:
 
     def _add(self, symbol: str, rule: str, detail: str, line: int) -> None:
         """Append one import finding."""
-        self._findings.append(PythonFinding(self._path, symbol, rule, detail, max(line, 1)))
+        self._findings.append(
+            PythonFinding(
+                path=self._path,
+                symbol=symbol,
+                rule=rule,
+                detail=detail,
+                line=max(line, 1),
+            )
+        )
 
 
 class _AnyChecker:
@@ -413,7 +448,7 @@ class _AnyChecker:
 
     def check(self, module: ast.Module) -> None:
         """Find explicit Any occurrences in the module."""
-        scope = _Scope("<module>", None)
+        scope = _Scope(symbol="<module>", parent=None)
         self._visit_statements(module.body, scope)
 
     def _visit_statements(self, statements: list[ast.stmt], scope: _Scope) -> None:
@@ -428,21 +463,21 @@ class _AnyChecker:
             return
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
             symbol = self._qualified_symbol(scope.symbol, statement.name)
-            signature_scope = _Scope(symbol, scope)
+            signature_scope = _Scope(symbol=symbol, parent=scope)
             self._scan_type_parameters(statement.type_params, signature_scope)
             self._scan_function_signature(statement, signature_scope)
             self._scan_type_comment(
                 statement.type_comment, signature_scope, "type-comment", statement.lineno
             )
             scope.bind_name(statement.name)
-            child_scope = _Scope(symbol, signature_scope)
+            child_scope = _Scope(symbol=symbol, parent=signature_scope)
             for argument in self._arguments(statement.args):
                 child_scope.bind_name(argument.arg)
             self._visit_statements(statement.body, child_scope)
             return
         if isinstance(statement, ast.ClassDef):
             symbol = self._qualified_symbol(scope.symbol, statement.name)
-            class_scope = _Scope(symbol, scope)
+            class_scope = _Scope(symbol=symbol, parent=scope)
             self._scan_type_parameters(statement.type_params, class_scope)
             for decorator in statement.decorator_list:
                 self._scan_expression(decorator, class_scope, "expression")
@@ -796,7 +831,15 @@ class _AnyChecker:
 
     def _add(self, symbol: str, rule: str, detail: str, line: int) -> None:
         """Append one Any finding."""
-        self._findings.append(PythonFinding(self._path, symbol, rule, detail, max(line, 1)))
+        self._findings.append(
+            PythonFinding(
+                path=self._path,
+                symbol=symbol,
+                rule=rule,
+                detail=detail,
+                line=max(line, 1),
+            )
+        )
 
 
 class _FunctionFactsVisitor:
@@ -812,7 +855,11 @@ class _FunctionFactsVisitor:
         """Collect return, yield, and raise facts from one function body."""
         for statement in statements:
             self._visit(statement)
-        return _FunctionFacts(self.has_value_return, self.has_yield, self.has_raise)
+        return _FunctionFacts(
+            has_value_return=self.has_value_return,
+            has_yield=self.has_yield,
+            has_raise=self.has_raise,
+        )
 
     def _visit(self, node: ast.AST) -> None:
         """Visit one node while stopping at nested definitions."""
@@ -975,18 +1022,18 @@ class _DocumentationChecker:
                 (" ", "\t")
             ):
                 if current is not None:
-                    sections[current] = _GoogleSection(current, tuple(body))
+                    sections[current] = _GoogleSection(name=current, body=tuple(body))
                 current = stripped[:-1]
                 body = []
             elif current is not None:
                 if stripped and not line.startswith((" ", "\t")):
-                    sections[current] = _GoogleSection(current, tuple(body))
+                    sections[current] = _GoogleSection(name=current, body=tuple(body))
                     current = None
                     body = []
                 else:
                     body.append(line)
         if current is not None:
-            sections[current] = _GoogleSection(current, tuple(body))
+            sections[current] = _GoogleSection(name=current, body=tuple(body))
         return sections
 
     def _described_arguments(self, lines: tuple[str, ...]) -> set[str]:
@@ -1026,7 +1073,15 @@ class _DocumentationChecker:
 
     def _add(self, symbol: str, rule: str, detail: str, line: int) -> None:
         """Append one documentation finding."""
-        self._findings.append(PythonFinding(self._path, symbol, rule, detail, max(line, 1)))
+        self._findings.append(
+            PythonFinding(
+                path=self._path,
+                symbol=symbol,
+                rule=rule,
+                detail=detail,
+                line=max(line, 1),
+            )
+        )
 
 
 class PythonSourceChecker:
@@ -1050,7 +1105,15 @@ class PythonSourceChecker:
             line = self._error_line()
             if isinstance(error, SyntaxError) and error.lineno is not None:
                 line = max(error.lineno, 1)
-            findings.append(PythonFinding(path, "<module>", "PYS001", "tokenization", line))
+            findings.append(
+                PythonFinding(
+                    path=path,
+                    symbol="<module>",
+                    rule="PYS001",
+                    detail="tokenization",
+                    line=line,
+                )
+            )
             return tuple(sorted(findings, key=lambda finding: (*finding.key, finding.line)))
         try:
             module = ast.parse(source, filename=path, type_comments=True)
@@ -1058,7 +1121,15 @@ class PythonSourceChecker:
             line = self._error_line()
             if isinstance(error, SyntaxError) and error.lineno is not None:
                 line = max(error.lineno, 1)
-            findings.append(PythonFinding(path, "<module>", "PYS001", "syntax", line))
+            findings.append(
+                PythonFinding(
+                    path=path,
+                    symbol="<module>",
+                    rule="PYS001",
+                    detail="syntax",
+                    line=line,
+                )
+            )
             return tuple(sorted(findings, key=lambda finding: (*finding.key, finding.line)))
         _ImportChecker(path, source_lines, findings).check(module)
         _AnyChecker(path, findings).check(module)

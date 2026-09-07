@@ -3,13 +3,83 @@
 from __future__ import annotations
 
 # standard library imports
+import ast
 from textwrap import dedent
+
+# third party library imports
+import pytest
+from pydantic import ValidationError
 
 # project library imports
 from alpha_research_governance.engineering_standards.python_source import (
     PythonFinding,
     PythonSourceChecker,
+    _ImportRecord,
+    _Scope,
 )
+
+
+class TestPythonSourceRecords:
+    """Exercise strict value records and mutable lexical-scope state."""
+
+    def test_finding_is_strict_frozen_and_has_stable_key(self) -> None:
+        """Reject coercion and mutation while preserving finding identity."""
+        finding = PythonFinding(
+            path="src/a.py",
+            symbol="parse",
+            rule="PYC001",
+            detail="standalone",
+            line=3,
+        )
+
+        assert finding.key == ("src/a.py", "parse", "PYC001", "standalone")
+        invalid_line: object = {
+            "path": "src/a.py",
+            "symbol": "parse",
+            "rule": "PYC001",
+            "detail": "standalone",
+            "line": "3",
+        }
+        with pytest.raises(ValidationError, match="valid integer"):
+            PythonFinding.model_validate(invalid_line)
+        unknown_field: object = {
+            "path": "src/a.py",
+            "symbol": "parse",
+            "rule": "PYC001",
+            "detail": "standalone",
+            "line": 3,
+            "unexpected": "synthetic",
+        }
+        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+            PythonFinding.model_validate(unknown_field)
+        with pytest.raises(ValidationError, match="Instance is frozen"):
+            setattr(finding, "line", 4)
+
+    def test_scope_preserves_parent_identity_and_independent_defaults(self) -> None:
+        """Keep live parent lookup while isolating each scope's mutable bindings."""
+        parent = _Scope(symbol="<module>", parent=None)
+        first = _Scope(symbol="first", parent=parent)
+        second = _Scope(symbol="second", parent=parent)
+
+        assert first.parent is parent
+        first.bind_alias("Alias", "typing-any")
+        assert first.aliases == {"Alias": "typing-any"}
+        assert second.aliases == {}
+        assert second.bindings == set()
+        parent.bind_alias("Shared", "typing-module")
+        assert first.resolve("Shared") == "typing-module"
+        first.bind_name("Shared")
+        assert first.resolve("Shared") is None
+        assert parent.resolve("Shared") == "typing-module"
+
+    def test_import_record_preserves_ast_identity(self) -> None:
+        """Keep the arbitrary AST node object unchanged at the import boundary."""
+        statement = ast.parse("import os\n").body[0]
+        assert isinstance(statement, ast.Import)
+
+        record = _ImportRecord(node=statement, category="standard", line=1)
+
+        assert record.node is statement
 
 
 class TestPythonSourceChecker:

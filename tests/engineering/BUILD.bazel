@@ -109,6 +109,7 @@ py_test(
     env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
     deps = [
         "//tools/governance/src/alpha_research_governance",
+        requirement("pydantic"),
         requirement("pytest"),
     ],
 )
