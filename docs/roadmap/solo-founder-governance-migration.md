@@ -223,5 +223,6 @@ the affected focused checks pass.
 The migration is complete when everyday work has one concise change record,
 technically complete packages show complete, the next task follows real technical
 dependencies, and organizational completion appears only in the hiring-triggered
-handover queue. The separate Python coding-standards migration remains unchanged;
-coordinate overlapping module edits without making it a new governance blocker.
+handover queue. Python implementation follows the
+[Python coding standards](../coding_standards/python.md) and their existing
+technical checks; staffing does not change those requirements.

@@ -13,8 +13,10 @@ The blueprint's invariants, R0-R4 change classes, QG01-QG15 gates, independent
 approvals, and non-waivable controls cannot be weakened by local style guidance.
 
 The standards apply to new code and to code materially changed by a patch. They
-do not require unrelated legacy code to be rewritten. When a touched area cannot
-meet a rule, keep the exception narrow and document the reason and follow-up.
+do not require unrelated legacy code to be rewritten. Repository-wide automated
+checks still apply to their complete configured scope. When a touched area cannot
+meet a rule, use its owning policy's exception process where one exists; a prose
+rationale alone does not waive a blocking check.
 
 Standards apply at the build-target boundary. The repository is organized by
 economic or platform responsibility first and implementation language second;
@@ -60,32 +62,42 @@ defect. Surface irreconcilable conflicts instead of guessing.
 
 ## Required workflow for coding agents
 
-Before editing, read the request, nearest repository instructions, and relevant
-language guide. Inspect affected code, tests, public interfaces, build targets,
-owners, reverse dependencies, generated inputs, and working-tree changes. Resolve
-facts from the repository and state assumptions that materially affect behavior.
+Follow the [development workflow](../governance/workflow.md) for implementation,
+validation and acceptance. Before editing, read the request, nearest repository
+instructions, relevant language guide and owning capability contract. Inspect
+affected code, tests, public interfaces, build targets, owners, reverse
+dependencies, generated inputs, and working-tree changes. Resolve facts from the
+repository and state assumptions that materially affect behavior.
 
-Use the [change-risk policy](../governance/change-risk-classification.md) to assign
-R0-R4 gates, reviewers, rollout, and retention; use the
-[MR evidence contract](../governance/merge-evidence.md) for readiness and completion.
-Apply the [solo-bootstrap overlay](../roadmap/README.md#solo-bootstrap-execution-overlay)
-when independent reviewers or target environments are unavailable. Prefer one
-logical change near or below 400 non-generated lines; otherwise record a split
-plan or indivisible-migration rationale.
+Use the [change-risk policy](../governance/change-risk-classification.md) and
+[PR evidence contract](../governance/merge-evidence.md) for the requested operation.
+The [current operating policy](../governance/domain-ownership.md#current-operating-policy)
+separates founder implementation acceptance from team handover and release or
+activation authority. Unavailable reviewers do not waive technical checks or
+required target-environment evidence. Prefer one logical change near or below
+400 non-generated lines; otherwise record a split plan or indivisible-migration
+rationale.
 
 Preserve unrelated changes and dependency boundaries. Use owning generators for
 generated files. Update behavior documentation, tests, compatibility, migration,
-and rollback evidence with the affected contract. Report unresolved conflicts
-that depend on unavailable domain knowledge or authorization.
+and rollback evidence with the affected contract. For a refactor, identify the
+supported imports, signatures, CLI behavior, errors, serialized results and
+numerical contracts before moving code; preserve them unless the change explicitly
+includes a contract migration. Update callers, build ownership, packaging, imports
+and CI selection together when modules move. Reverse service and caller changes
+together if compatibility fails. Report unresolved conflicts that depend on
+unavailable domain knowledge or authorization.
 
 Before completion, review the diff for scope, secrets, debug/dead code, and
 accidental artifacts. Run the narrowest affected targets through the root
 interface and applicable formatting, lint, type/static checks. Broaden validation
 for shared contracts, build/toolchain, serialization, persistence, concurrency,
-numerics, or security changes. Verify deployable provenance excludes undeclared
-host state and secrets. Report checks run, checks unavailable, and outstanding
-gates; automated success does not replace domain review or grant release or
-activation authority.
+numerics, or security changes. Changes to global static enforcement require the
+complete configured static scope. Use the development workflow's complete lane
+before merge; affected checks do not establish a full-lane pass. Verify deployable
+provenance excludes undeclared host state and secrets. Report checks run, checks
+unavailable, and outstanding gates; automated success does not replace domain
+review or grant release or activation authority.
 
 ## Core design principles
 
@@ -272,3 +284,10 @@ Language-specific casing is defined in each guide. In every language:
   invariants, state machines, and other broad input spaces.
 - A test MUST fail for the reason it claims to verify; avoid weak assertions and
   broad exception matches.
+- Refactors MUST retain behavioral coverage, including repeated calls, failure
+  recovery, malformed inputs, deterministic results, exact errors where contractual,
+  and existing goldens. Preserve property-test cases and settings unless the
+  contract change justifies an explicit revision. Do not replace behavioral tests
+  with class-existence checks or bypass the entry point under test. If test
+  organization changes, compare collection before and after and account for every
+  removed or renamed case.
