@@ -827,6 +827,19 @@ class TestPythonSourceChecker:
         assert first and all(finding.path == "first.py" for finding in first)
         assert all(finding.path == "second.py" for finding in second)
 
+    def test_scan_releases_invocation_state_after_success_and_failure(self) -> None:
+        """Release source context after both ordinary and malformed scans."""
+        checker = PythonSourceChecker()
+        checker.scan("valid.py", '"""Valid module."""\n')
+        assert checker._path == ""
+        assert checker._lines == ()
+        assert checker._findings == []
+
+        checker.scan("broken.py", "def broken(:\n")
+        assert checker._path == ""
+        assert checker._lines == ()
+        assert checker._findings == []
+
     def test_malformed_syntax_returns_a_syntax_finding(self) -> None:
         """Return a PYS001 finding instead of raising for malformed source."""
         findings = self._scan(

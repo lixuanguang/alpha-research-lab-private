@@ -11,9 +11,9 @@ dynamic types are prohibited throughout the checked scope, including tests.
 The four `disallow_any_*` flags are global in `pyproject.toml`; there are no
 module allowances or migration inventories.
 
-The historical `python -m alpha_research_governance.engineering_standards.python_typing`
-entry point remains available and now fails directly on diagnostics. The root
-command runs mypy once; it no longer invokes a second inventory probe.
+The root command runs mypy directly once. The historical governance typing
+CLI and its extra subprocess wrapper are retired; the same strict flags,
+source/test/stub scope and diagnostics remain enforced by `make typecheck`.
 
 ## Native stubs
 

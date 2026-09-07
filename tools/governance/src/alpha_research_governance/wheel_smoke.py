@@ -14,94 +14,13 @@ _RUNTIME_WHEEL_PREFIX = "alpha_research_lab-"
 
 
 def _run(command: Sequence[str], *, cwd: Path) -> None:
-    """Run one checked command from the repository or temporary smoke root.
+    """Run shell-free argv from ``cwd`` and require a successful exit.
 
-    Args:
-        command: Executable and arguments passed without a shell.
-        cwd: Working directory for the child process.
-
-    Raises:
-        OSError: The executable cannot be started.
-        subprocess.CalledProcessError: The command exits unsuccessfully.
+    Propagate ``OSError`` when startup fails and ``CalledProcessError`` when
+    the command exits unsuccessfully.
     """
     subprocess.run(  # nosec B603  # [owner=platform; rationale=constant smoke argv without shell; expires=2027-03-01]
         command, cwd=cwd, check=True
-    )
-
-
-def _single_wheel(directory: Path, *, prefix: str) -> Path:
-    """Return the one newly built wheel with the expected package prefix.
-
-    Args:
-        directory: Temporary directory containing only this smoke run's artifacts.
-        prefix: Normalized package and version prefix expected in the filename.
-
-    Returns:
-        The exact wheel path selected for installation.
-
-    Raises:
-        RuntimeError: No wheel or more than one matching wheel was produced.
-    """
-    candidates = tuple(sorted(directory.glob(f"{prefix}*.whl")))
-    if len(candidates) != 1:
-        names = ", ".join(path.name for path in candidates) or "none"
-        raise RuntimeError(f"expected one {prefix}wheel, found {names}")
-    return candidates[0]
-
-
-def _build_wheel(repository_root: Path, wheel_directory: Path) -> Path:
-    """Build the runtime wheel into a fresh temporary directory.
-
-    Args:
-        repository_root: Checkout containing the runtime PEP 517 project.
-        wheel_directory: Empty temporary directory receiving the wheel artifact.
-
-    Returns:
-        The newly built runtime wheel.
-    """
-    _run(
-        [
-            "uv",
-            "run",
-            "--frozen",
-            "--no-editable",
-            "uv",
-            "build",
-            "--no-build-isolation",
-            "--python",
-            sys.executable,
-            "--wheel",
-            "--no-sources",
-            ".",
-            "--out-dir",
-            str(wheel_directory),
-        ],
-        cwd=repository_root,
-    )
-    return _single_wheel(wheel_directory, prefix=_RUNTIME_WHEEL_PREFIX)
-
-
-def _export_runtime_requirements(repository_root: Path, destination: Path) -> None:
-    """Export locked runtime dependencies while omitting local project wheels.
-
-    Args:
-        repository_root: Checkout whose frozen ``uv.lock`` is authoritative.
-        destination: Requirements file written outside the checkout.
-    """
-    _run(
-        [
-            "uv",
-            "export",
-            "--quiet",
-            "--frozen",
-            "--no-dev",
-            "--no-emit-project",
-            "--no-emit-workspace",
-            "--no-emit-local",
-            "--output-file",
-            str(destination),
-        ],
-        cwd=repository_root,
     )
 
 
@@ -129,7 +48,21 @@ def _install_and_import(
     )
     python = virtual_environment / "bin" / "python"
     requirements = smoke_root / "runtime-requirements.txt"
-    _export_runtime_requirements(repository_root, requirements)
+    _run(
+        [
+            "uv",
+            "export",
+            "--quiet",
+            "--frozen",
+            "--no-dev",
+            "--no-emit-project",
+            "--no-emit-workspace",
+            "--no-emit-local",
+            "--output-file",
+            str(requirements),
+        ],
+        cwd=repository_root,
+    )
     _run(
         [
             "uv",
@@ -229,7 +162,30 @@ def main(repository_root: Path | None = None) -> int:
         smoke_root = Path(temporary)
         wheel_directory = smoke_root / "wheels"
         wheel_directory.mkdir()
-        runtime_wheel = _build_wheel(root, wheel_directory)
+        _run(
+            [
+                "uv",
+                "run",
+                "--frozen",
+                "--no-editable",
+                "uv",
+                "build",
+                "--no-build-isolation",
+                "--python",
+                sys.executable,
+                "--wheel",
+                "--no-sources",
+                ".",
+                "--out-dir",
+                str(wheel_directory),
+            ],
+            cwd=root,
+        )
+        candidates = tuple(sorted(wheel_directory.glob(f"{_RUNTIME_WHEEL_PREFIX}*.whl")))
+        if len(candidates) != 1:
+            names = ", ".join(path.name for path in candidates) or "none"
+            raise RuntimeError(f"expected one {_RUNTIME_WHEEL_PREFIX}wheel, found {names}")
+        runtime_wheel = candidates[0]
         _install_and_import(
             root,
             smoke_root,

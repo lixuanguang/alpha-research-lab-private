@@ -6,25 +6,32 @@ QuantLib evidence links to its stable headings, while the adjacent
 `dependency-admission.toml` is the machine-readable policy consumed by the
 checker.
 
-The policy binds `pyproject.toml` and the frozen `uv.lock` to exact package
-versions, artifact hashes and URLs, source indexes, platform wheels, dependency
-edges, licenses, and vulnerability coverage. It rejects missing, duplicate,
-mutable, unsafe, or unverifiable identities. Development tools remain outside
-the runtime package. `pip-audit` must cover the complete admitted package set.
+Schema version 3 binds the frozen `uv.lock` to exact package versions, artifact
+hashes and URLs, the reviewed PyPI simple index, Darwin arm64 and Linux x86_64
+wheel coverage, dependency edges, licenses, and vulnerability coverage. The
+checker fixes the lock path and `src`/`tools` runtime scan roots directly;
+unused configurable copies of those boundaries were retired. `uv lock --check`
+separately ties that lock to the project manifest. The admission checker rejects
+missing, duplicate, mutable, unsafe, or unverifiable identities. Development
+tools remain outside the runtime package. `pip-audit` must cover the complete
+admitted package set, and every finding blocks admission because no vulnerability
+waivers are retained.
 
 ## Wheel-only source evidence
 
-The ordinary profile requires a hashed source distribution. A source-bound
-wheel profile is an explicit alternative for a package without a PyPI source
-distribution. It requires an authenticated, complete SLSA build claim:
-exact builder and parameters, ordered source materials, source and wheel
-digests, trusted signer and issuer, and Cosign verification. The checker never
-falls back to this profile to rescue malformed source metadata; the matching
-package admission must select it explicitly. It cannot bypass the release boundary.
+The former source-bound SLSA wheel profile is retired: it was empty and had no
+current consumer. Advisory Scorecard reports, vulnerability-waiver records, and
+general emergency-override records are retired for the same reason. Their
+parsers, model types, CLI routes, and exclusive tests were removed together.
+An ordinary package must continue to provide a digest-bound source distribution;
+no alternate profile silently rescues malformed source metadata.
+The former `audit-report` command, `PipAuditRunner`/`run_pip_audit` forwarding
+API, and package `__main__` forwarding module were also unused and retired;
+`audit` remains the canonical scanner command.
 
 ## Bounded solo bootstrap publication evidence
 
-The bounded bootstrap profile is separate from source-bound admission. It may
+The bounded bootstrap profile is the retained native exception. It may
 accept publication-only evidence with an explicitly unverified source-to-wheel
 binding only for isolated development and CI, with an expiry and an enforced
 release block. The old institutional evidence packs are retired. Retained native

@@ -30,23 +30,23 @@ def test_secret_scan_rejects_unsafe_and_oversized_paths(tmp_path: Path) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_bytes(b"api_key=" + b"A" * 24)
     with pytest.raises(secrets.CIPolicyError, match="secret pattern"):
-        secrets.scan_secret_paths(tmp_path, ("secret.txt",), maximum_file_bytes=100)
+        secrets.scan_repository_paths(tmp_path, ("secret.txt",), maximum_file_bytes=100)
 
     oversized = tmp_path / "oversized.txt"
     oversized.write_bytes(b"x" * 101)
     with pytest.raises(secrets.CIPolicyError, match="exceeds 100 bytes"):
-        secrets.scan_secret_paths(tmp_path, ("oversized.txt",), maximum_file_bytes=100)
+        secrets.scan_repository_paths(tmp_path, ("oversized.txt",), maximum_file_bytes=100)
 
     link = tmp_path / "linked.txt"
     link.symlink_to(secret)
     with pytest.raises(secrets.CIPolicyError, match="non-regular path"):
-        secrets.scan_secret_paths(tmp_path, ("linked.txt",), maximum_file_bytes=100)
+        secrets.scan_repository_paths(tmp_path, ("linked.txt",), maximum_file_bytes=100)
     broken_link = tmp_path / "broken.txt"
     broken_link.symlink_to(tmp_path / "missing.txt")
     with pytest.raises(secrets.CIPolicyError, match="non-regular path"):
-        secrets.scan_secret_paths(tmp_path, ("broken.txt",), maximum_file_bytes=100)
+        secrets.scan_repository_paths(tmp_path, ("broken.txt",), maximum_file_bytes=100)
     with pytest.raises(secrets.CIPolicyError, match="repository-relative"):
-        secrets.scan_secret_paths(tmp_path, ("../outside.txt",), maximum_file_bytes=100)
+        secrets.scan_repository_paths(tmp_path, ("../outside.txt",), maximum_file_bytes=100)
 
 
 def test_external_scanner_failure_is_propagated(
@@ -198,3 +198,35 @@ def test_cli_smoke_module_has_no_scheduler_or_event_log_api() -> None:
     assert not hasattr(ci_policy, "run_affected_ci_lane")
     assert not hasattr(ci_policy, "run_authoritative_full_ci_lane")
     assert not hasattr(ci_policy, "CIEvent")
+
+
+def test_repository_scan_passes_only_existing_normalized_files_to_external_scanner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Scan each surviving file once and skip deletions before invoking the tool."""
+    (tmp_path / "tracked.txt").write_text("safe content\n", encoding="utf-8")
+    calls: list[tuple[Path, tuple[str, ...]]] = []
+
+    def record_scan(root: Path, paths: tuple[str, ...]) -> None:
+        """Record the external scan's validated scope.
+
+        Args:
+            root: Resolved repository bounding the files.
+            paths: Sorted existing paths selected for scanning.
+        """
+        calls.append((root, paths))
+
+    monkeypatch.setattr(secrets, "run_external_secret_scanner", record_scan)
+    secrets.scan_repository_paths(tmp_path, ("tracked.txt", "deleted.txt", "tracked.txt"))
+
+    assert calls == [(tmp_path.resolve(), ("tracked.txt",))]
+
+
+def test_cli_reports_git_failure_from_one_error_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fail closed when tracked paths cannot be obtained from Git."""
+    monkeypatch.chdir(tmp_path)
+
+    assert ci_policy.main(["scan-secrets", "--all"]) == 1
+    assert "CI secret scan failed" in capsys.readouterr().err

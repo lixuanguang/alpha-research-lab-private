@@ -2,39 +2,47 @@
 
 ## Build contract
 
-This boundary verifies a built artifact before a release consumer can use it.
-The consolidated [architecture guide](README.md#dependency-and-release-boundaries)
-describes when this boundary applies; this page and the adjacent TOML remain the
-stable artifact identity and verification reference consumed by the tooling.
-The policy binds the root project manifest and `uv.lock`, accepted artifact
-kinds, archive member limits, native-library markers, in-toto/SLSA identities,
-and the protected-main Cosign identity. `alpha-governance-artifacts` does not
-maintain package status, review gates, role catalogs, or evidence packs.
+This boundary records the release requirements that a future trusted artifact
+consumer must implement. It does not build, sign, publish, or verify artifacts
+today. The former bundle lifecycle and its machine-readable policy were retired
+because this repository has no release consumer that could use their output.
 
-Bundle creation hashes the complete artifact and test records, records the
-source commit, normalized build command and platform, emits a deterministic
-SPDX inventory, and writes in-toto provenance. Verification rejects changed
-artifact bytes, changed manifest or provenance identities, unsafe paths,
-unknown fields, incomplete native-library coverage, revoked signers, and
-mutable digest references. Cosign receives fixed argv and a pinned executable;
-the lifecycle never downloads or silently rebuilds an artifact.
+`alpha-governance-artifacts release-check` delegates to dependency admission
+and then fails closed with a no-consumer finding. The former no-argument check
+only repeated dependency-policy parsing and input existence checks after the
+artifact framework was removed; that redundant source-check phase is retired.
+`make governance-check` retains the actual clarity, dependency and local-link
+checks. Passing development checks does not authorize release or deployment.
 
-Publishing verifies a staged copy and writes exactly one content-addressed
-directory at `registry/sha256/<artifact-digest>`. Consumers should retain the
-digest returned by verification and the matching source commit. The dependency
-admission gate runs before each lifecycle operation. QuantLib's current
-source-to-wheel binding is unresolved, so release creation, signing,
-verification, and publication remain blocked until the exception is resolved.
+The current dependency gate rejects release use while QuantLib's source-to-wheel
+binding remains unresolved. If that admission is later resolved, the explicit
+no-consumer rejection remains until a real release consumer owns the artifact
+format, verification inputs, and operational record. There is no bypass for
+either condition.
 
-The policy is intentionally local and declarative. It is not a release approval
-workflow or a claim of hosted signing, registry retention, signer rotation, or
-live deployment readiness. Those controls require a concrete release consumer
-and should be added with that consumer's tests.
+When a consumer exists, its build contract should bind the source commit,
+dependency lock, target platform, configuration and model/data references to
+the complete artifact digest. It should build once and promote those same bytes.
+The consumer must verify a trusted origin and builder identity, exact digest
+references, provenance and inventory identities, archive member safety, and
+tamper detection before installation. Its tests should cover changed bytes,
+unexpected origins, unsafe paths, unknown or missing records, and mismatched
+source or dependency identities. Signing, key or identity rotation, registry
+retention, state compatibility, rollback and deployment activation belong to
+that consumer's runbook and evidence.
+
+The future consumer should retain one release record containing the source
+commit, artifact digest, dependency lock, build command, environment,
+configuration/model/data references, operating limits, rollback artifact and
+state-compatibility result. Activation remains a separate explicit decision;
+building or verifying an artifact never grants trading authority.
 
 ## Commands
 
 ```sh
-uv run --frozen alpha-governance-artifacts
-uv run --frozen alpha-governance-artifacts create ARTIFACT KIND BUILD SOURCE_COMMIT TESTS OUTPUT
-uv run --frozen alpha-governance-artifacts verify BUNDLE SHA256
+uv run --frozen alpha-governance-artifacts release-check
 ```
+
+This diagnostic is expected to fail until both dependency admission and a
+trusted release consumer exist. No-argument and retired lifecycle invocations
+return usage failures and produce no artifacts.

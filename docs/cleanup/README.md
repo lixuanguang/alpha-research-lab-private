@@ -1,10 +1,9 @@
 # Repository cleanup plan for a solo quant founder
 
 Audit date: 2026-09-07. Baseline: `97775789cfc21425abf4afcbb0498dd5ec69ea89`.
-Status: steps 1–4 complete; hosted CI validation for steps 2 and 3 passed and was
-verified on 2026-09-07. Step 4 passed focused local validation; steps 5–6 remain
-planned. The measured
-baseline and audit findings below describe the repository before cleanup. The
+Status: steps 1–5 complete; hosted CI validation for steps 2 and 3 passed and was
+verified on 2026-09-07. Steps 4 and 5 passed focused local validation; step 6
+remains planned. The measured baseline and audit findings below describe the repository before cleanup. The
 working tree was clean at the start of the audit.
 
 **Recommendation: keep the financial domain code, replace most of the custom
@@ -325,7 +324,7 @@ Avoid a permanent compatibility layer or a second policy profile as the migratio
 | 2. Establish the smaller CI/build path — complete | Inventoried Bazel guarantees, made frozen uv source checks and installed-wheel smoke validation authoritative, retained security checks, and updated Make, workflow, hooks and affected tests together. Removed Bazel, remote execution, the custom scheduler and the Nix bootstrap path. | Fresh local macOS setup, focused affected-code checks, external wheel imports and failure propagation passed. Hosted source validation, macOS wheel smoke and the authoritative Linux lane passed in runs #204 and #205. Every former Bazel-only guarantee has a replacement or explicit retirement decision. See [step 2 results](#step-2-results). |
 | 3. Retire policy frameworks and runtime coupling — complete | Replaced development, release and founder activation rules; removed program, ownership, topology, inventory, role and historical evidence machinery. Reduced retained dependency/artifact policies, moved tools to development dependencies, removed runtime facades and obsolete entry points, and regenerated the single lock. | Runtime wheel installs without governance or repository docs; retained commands and focused tests pass. No active check requires the package catalog, legacy finding IDs or staff registries. QuantLib remains release-blocking. See [step 3 results](#step-3-results). |
 | 4. Consolidate docs and fixtures — complete | Consolidated current guides and backlog, removed stale package narratives, synthetic packs, unused fixture trees, obsolete ADRs and the blueprint; preserved native evidence at explicit paths. | The initial consolidation passed local-link validation and 31 focused tests; the scope refinement below adds the detailed platform design; three goldens and 23 native evidence files retain their original bytes. Actual commands and planned capabilities are explicit. See [step 4 results](#step-4-results). |
-| 5. Reduce classes and finish the line budget | Remove forwarding wrappers, duplicate error translation and duplicate parser/report/model classes; retain useful classifications and cohesive services. Keep typing, import-style and docstring enforcement unchanged. Review optional native adapters without altering domain contracts implicitly. | Governance implementation is below 3,000 physical lines with fewer classes; clarity checks and domain invariants pass. Native checks and base/optional installs pass if changed. Show simpler callers and preserved explanations. |
+| 5. Reduce classes and finish the line budget — complete | Removed unused release and dependency profiles, duplicate representations, forwarding classes and alternate CLI shims. Consolidated clarity scanning and error boundaries while preserving strict enforcement. Retained the existing native adapter/install contract. | Governance is 2,995 physical lines in 15 files with 17 classes; 130 affected tests pass without skips or deselections. Strict static checks, native admission, live audit and isolated wheel installation pass. See [step 5 results](#step-5-results). |
 | 6. Resume platform and strategy delivery | Follow the detailed platform roadmap: first a data-to-net-report baseline, then reusable research, simulation/accounting and supervised production; expand assets, strategies, portfolio operation and infrastructure as their dependencies are exercised. Add safety tests with the behaviors they protect; team controls follow real onboarding. | A reproducible research result first; later, bounded paper/live operation with reconciliation, alerts, stop and recovery, followed by demonstrated multi-strategy reuse and reconciled portfolio operation. Each slice has executable evidence. |
 
 During migration, remove a required check only when its requirement is retired or
@@ -640,6 +639,118 @@ The final `uv run --frozen alpha-governance-architecture` check passed for all
 19 documents, and `git diff --check` passed. No full local test suite,
 runtime suite, performance suite or hosted CI run is part of this refinement.
 
+### Step 5 results
+
+Implemented on 2026-09-07 on `codex/cleanup-step-5` using three Luna subagents
+at extra-high reasoning, with integration review and only affected tests.
+The comparison below uses the step 4 checkout at `8ceaf7a` as its starting point.
+
+The general artifact bundle, signing, publication and consumer-verification
+framework is retired together with its unused policy and synthetic lifecycle
+tests. No deployed consumer uses those bundles. The retained artifact command
+provides only `release-check`, which rejects the
+unresolved QuantLib admission and, even after admission is resolved, rejects the
+absence of a trusted release consumer. Former lifecycle commands fail without
+producing artifacts. The stable [build contract](../architecture/artifact-supply-chain.md#build-contract)
+preserves the future consumer's digest, trusted-origin, provenance, path/tamper,
+state-compatibility and rollback requirements. Development builds do not grant
+release or trading authority.
+
+Local documentation callers use `ArchitectureGovernanceService` directly;
+redundant forwarding functions are removed. Its findings and heading cache stay
+local to each invocation. Secret scanning has one path-normalization and file
+inspection path before the external private-key scanner, and the CLI translates
+Git failures once. Unsafe, oversized and secret-bearing inputs still fail closed;
+deleted tracked files are skipped and diagnostics do not expose matched secrets.
+
+The Python source checker consolidates the import, explicit-`Any` and docstring
+visitors into one per-scan context, releases that context after success or
+failure, and shares repository traversal with suppression inspection. It keeps
+lexical alias/shadowing behavior, relative and guarded imports, private/test
+summary rules and public structured documentation. Ordinary internal scope and
+import records use dataclasses; validated public findings and dependency records
+retain their strict immutable boundary. A direct comparison of 47 fixture
+snippets in runtime, test and stub contexts gives **141 comparisons with no
+finding differences**. The former standalone typing wrapper is retired; strict
+mypy and native-stub checking remain in the canonical Make command.
+
+Dependency policy schema 3 removes empty source-bound wheel admissions,
+Scorecard, emergency overrides and vulnerability waivers. Every vulnerability
+finding now blocks admission; complete exact-package report coverage remains
+required. Fixed PyPI, platform, lock and runtime-source requirements are enforced
+directly instead of being duplicated in policy records. The retained package,
+license, lock-digest, native evidence and review-window values are unchanged.
+The canonical console commands replace unused `python -m` shims; wheel smoke
+keeps its consumed module entry point.
+
+The artifact phase is removed from `make governance-check` because no artifact
+consumer remains and its temporary replacement repeated dependency parsing.
+Clarity, actual dependency admission and local links remain required. The
+separate release diagnostic cannot succeed or write an artifact. The wheel
+smoke retains build, exact-one-wheel selection, frozen hash-checked dependencies,
+isolated native imports, compatibility checks and governance absence with fewer
+one-caller helpers. Private helper documentation consolidates repeated parameter
+and error sections into prose while preserving its explanatory contract.
+
+The optional-native-adapter review retains QuantLib as a required dependency.
+The existing public financial-convention API consumes it, and this slice provides
+no new consumer that would justify changing eager imports, extras or base-install
+behavior. Runtime source, native stubs, domain tests and goldens, dependency pins
+and lock, and retained native evidence remain unchanged. The separate domain
+validation/copy contracts and exact Decimal/Fraction arithmetic are preserved.
+
+| Measurement | Before step 5 | After step 5 |
+| --- | ---: | ---: |
+| Governance implementation files | 23 | 15 |
+| Governance physical lines, including comments, blanks and docstrings | 7,342 | **2,995** |
+| Governance classes, including records and exceptions | 43 | **17** |
+| Engineering test files / physical lines | 12 / 3,144 | 10 / 2,464 |
+
+No governance code was moved into another directory, configuration, or stub to
+meet the budget. The five unchanged native stubs are domain adapter contracts
+(271 lines), reported separately from the governance implementation on the same
+basis as the audit. Byte comparisons confirm 50 runtime, native-stub, domain
+test/golden and evidence files are unchanged, along with the root and tooling
+manifests, dependency lock and hosted workflow. The detailed platform and research
+plans remain intact; broad cleanup is complete and step 6 is the next delivery work.
+
+The final affected pytest invocation was:
+
+```sh
+PATH=/private/tmp/step6_final:$PATH PYTHONPATH=src:tools/governance/src .venv/bin/python -m pytest -q -m 'not performance' -p no:cacheprovider \
+  tests/engineering/test_architecture_governance.py \
+  tests/engineering/test_artifact_supply_chain.py \
+  tests/engineering/test_ci_policy.py \
+  tests/engineering/test_dependency_admission.py \
+  tests/engineering/test_engineering_standards.py \
+  tests/engineering/test_package_definition.py \
+  tests/engineering/test_python_source_standards.py \
+  tests/engineering/test_python_standards.py \
+  tests/engineering/test_root_commands.py \
+  tests/engineering/test_wheel_sources.py
+```
+
+`/private/tmp/step6_final` supplies the previously verified Cosign 3.1.3 executable;
+an ordinary installation of that version on `PATH` is equivalent.
+
+| Validation | Final result |
+| --- | --- |
+| Affected pytest invocation above | **130 passed in 2.60 seconds; no skips or deselections.** Includes real Cosign verification and the previously deferred repository-wide source-validation case. Earlier subagent runs are not additive counts. |
+| Ruff check and format over governance source and engineering tests | Passed; 25 files already formatted. |
+| Strict mypy over governance source and the ten affected test files | Passed for 25 files with the existing global strict/explicit-`Any` settings. |
+| `PATH=/private/tmp/step6_final:$PATH uv run --frozen alpha-governance-dependencies audit` | Live pip-audit passed all 71 external locked packages with no unresolved vulnerabilities or coverage gaps; native admission verification also passed. |
+| `uv run --frozen python -m alpha_research_governance.wheel_smoke` | Passed: fresh wheel, hash-checked installation of 15 runtime dependencies, 16 compatible installed distributions, isolated native imports and governance absence. |
+
+The installed clarity check passed across runtime, tooling, tests and native
+stubs; the link command passed all 19 documents; the frozen lock check resolved
+73 packages; and the secret/private-key scan passed the 34 changed files.
+Bandit passed over the affected governance source after replacing an unnecessary
+link-parser assertion with its guaranteed regex capture. The seven affected link
+tests and their strict static checks passed again; these reruns are not additive
+test counts. Hook YAML parsing and `git diff --check` also passed. No full local pytest suite, performance suite,
+full hook run, hosted CI run, release, signing or publication is part of this
+slice. No cache deletion, dependency upgrade or Git-history rewrite occurred.
+
 ## Success measures and stopping point
 
 The governance implementation limit is **strictly below 3,000 physical source
@@ -708,7 +819,8 @@ No cache deletion or Git-history rewrite is part of this audit; the approximatel
 
 The following records the original documentation audit; implementation validation
 is recorded in [step 1 results](#step-1-results), [step 2 results](#step-2-results),
-[step 3 results](#step-3-results), and [step 4 results](#step-4-results).
+[step 3 results](#step-3-results), [step 4 results](#step-4-results), and
+[step 5 results](#step-5-results).
 The audit used the local checkout
 and existing Python environment:
 

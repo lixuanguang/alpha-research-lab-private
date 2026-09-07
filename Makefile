@@ -5,7 +5,7 @@ PYTHON_PATHS := src tests tools/governance/src tools/typing/stubs
 
 .PHONY: sync lock-check format format-check lint typecheck governance-check \
 	engineering-standards-check dependency-admission-check \
-	dependency-audit artifact-supply-chain-check architecture-check \
+	dependency-audit architecture-check \
 	ci-secrets-check security \
 	source-check integration-test performance-test test build wheel-smoke smoke \
 	ci-full check
@@ -29,7 +29,7 @@ typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
 	$(UV) run --frozen python -m mypy.stubtest --mypy-config-file=tools/typing/stubtest.toml --ignore-missing-stub QuantLib exchange_calendars pandas
 
-governance-check: engineering-standards-check dependency-admission-check artifact-supply-chain-check architecture-check
+governance-check: engineering-standards-check dependency-admission-check architecture-check
 
 engineering-standards-check:
 	$(UV) run --frozen alpha-governance-engineering-standards
@@ -39,9 +39,6 @@ dependency-admission-check:
 
 dependency-audit:
 	$(UV) run --frozen alpha-governance-dependencies audit
-
-artifact-supply-chain-check:
-	$(UV) run --frozen alpha-governance-artifacts
 
 architecture-check:
 	$(UV) run --frozen alpha-governance-architecture

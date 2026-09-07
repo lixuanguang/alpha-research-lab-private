@@ -60,6 +60,7 @@ def test_authoritative_check_has_one_direct_uv_source_path_and_wheel_smoke() -> 
             "alpha-governance-inventory",
             "alpha-governance-topology",
             "alpha-governance-security",
+            "alpha-governance-artifacts",
         )
     )
 

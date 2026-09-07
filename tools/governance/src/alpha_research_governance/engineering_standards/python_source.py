@@ -1,4 +1,4 @@
-"""Check the source-level Python coding standards migration contract."""
+"""Check Python source for the repository's retained clarity rules."""
 
 from __future__ import annotations
 
@@ -9,10 +9,8 @@ import io
 import re
 import sys
 import tokenize
-from typing import ClassVar, cast
-
-# third party library imports
-from pydantic import BaseModel, ConfigDict, Field
+from dataclasses import dataclass, field
+from typing import ClassVar
 
 # project library imports
 from alpha_research_governance._models import ImmutableModel
@@ -29,48 +27,35 @@ class PythonFinding(ImmutableModel):
 
     @property
     def key(self) -> tuple[str, str, str, str]:
-        """Return the line-independent identity used by source enforcement.
+        """Return the line-independent identity of this finding.
 
         Returns:
             The source path, symbol, rule, and stable detail key.
         """
-        return (self.path, self.symbol, self.rule, self.detail)
+        return self.path, self.symbol, self.rule, self.detail
 
 
 def _finding_sort_key(finding: PythonFinding) -> tuple[str, str, str, str, int]:
-    """Return the deterministic ordering key for one source finding."""
+    """Return the deterministic ordering key for one finding."""
     return (*finding.key, finding.line)
 
 
-class _Scope(BaseModel):
-    """Track typing aliases and lexical bindings for one Python scope.
-
-    ``revalidate_instances="never"`` preserves the identity of ``parent`` so
-    lexical lookup observes live bindings as the enclosing scope changes.
-    """
-
-    model_config = ConfigDict(
-        allow_inf_nan=False,
-        extra="forbid",
-        frozen=False,
-        revalidate_instances="never",
-        strict=True,
-        validate_assignment=True,
-        validate_default=True,
-    )
+@dataclass
+class _Scope:
+    """Track typing aliases and lexical bindings for one Python scope."""
 
     symbol: str
     parent: _Scope | None
-    aliases: dict[str, str] = Field(default_factory=dict)
-    bindings: set[str] = Field(default_factory=set)
+    aliases: dict[str, str] = field(default_factory=dict)
+    bindings: set[str] = field(default_factory=set)
 
     def bind_alias(self, name: str, alias: str) -> None:
-        """Bind one name to a recognized typing alias."""
+        """Bind a name to a recognized typing alias."""
         self.aliases[name] = alias
         self.bindings.add(name)
 
     def bind_name(self, name: str) -> None:
-        """Record a local binding that shadows any outer alias."""
+        """Record a local binding that shadows an outer alias."""
         self.aliases.pop(name, None)
         self.bindings.add(name)
 
@@ -78,566 +63,464 @@ class _Scope(BaseModel):
         """Resolve a name through the lexical scope chain."""
         if name in self.aliases:
             return self.aliases[name]
-        if name in self.bindings:
-            return None
-        if self.parent is None:
+        if name in self.bindings or self.parent is None:
             return None
         return self.parent.resolve(name)
 
 
-class _ImportRecord(ImmutableModel):
+@dataclass(frozen=True)
+class _ImportRecord:
     """Describe one direct import statement in an import block."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     node: ast.Import | ast.ImportFrom
     category: str
     line: int
 
 
-class _ImportGroup(ImmutableModel):
-    """Describe one contiguous category segment in an import block."""
+class PythonSourceChecker:
+    """Check one Python source string against the retained clarity contract."""
 
-    category: str
-    records: tuple[_ImportRecord, ...]
-    ordinal: int
-
-
-class _GoogleSection(ImmutableModel):
-    """Hold one parsed Google-style docstring section."""
-
-    name: str
-    body: tuple[str, ...]
-
-
-class _FunctionFacts(ImmutableModel):
-    """Summarize return, yield, and raise statements in one function body."""
-
-    has_value_return: bool
-    has_yield: bool
-    has_raise: bool
-
-
-class _ImportChecker:
-    """Check headings, grouping, and order for direct import blocks."""
+    _path: str
+    _lines: tuple[str, ...]
+    _findings: list[PythonFinding]
 
     _HEADINGS: ClassVar[dict[str, str]] = {
         "standard": "# standard library imports",
         "third-party": "# third party library imports",
         "project": "# project library imports",
     }
-    _CATEGORY_RANK: ClassVar[dict[str, int]] = {
-        "standard": 0,
-        "third-party": 1,
-        "project": 2,
-    }
+    _CATEGORY_RANK: ClassVar[dict[str, int]] = {"standard": 0, "third-party": 1, "project": 2}
     _PROJECT_ROOTS: ClassVar[tuple[str, ...]] = (
         "alpha_research",
         "alpha_research_governance",
     )
+    _TYPING_MODULES: ClassVar[frozenset[str]] = frozenset({"typing", "typing_extensions"})
+    _SECTION_NAMES: ClassVar[tuple[str, ...]] = ("Args", "Returns", "Yields", "Raises")
+    _ARGUMENT_ENTRY: ClassVar[re.Pattern[str]] = re.compile(
+        r"^\s{2,}(?P<name>\*{0,2}[A-Za-z_]\w*)(?:\s*\([^)]*\))?\s*:\s*"
+        r"(?P<description>.*)$"
+    )
 
-    def __init__(
-        self, path: str, source_lines: tuple[str, ...], findings: list[PythonFinding]
-    ) -> None:
-        """Initialize an import checker for one source invocation."""
+    def scan(self, path: str, source: str) -> tuple[PythonFinding, ...]:
+        """Parse source and return stable import, typing, and documentation findings.
+
+        Args:
+            path: Repository-relative or display path for the source unit.
+            source: UTF-8 decoded Python source text.
+
+        Returns:
+            Findings sorted by stable identity and then source line.
+        """
         self._path = path
-        self._lines = source_lines
-        self._findings = findings
-        self._block_counters: dict[tuple[str, str], int] = {}
+        self._lines = tuple(source.splitlines())
+        self._findings = []
+        self._import_counters.clear()
+        try:
+            list(tokenize.generate_tokens(io.StringIO(source).readline))
+            module = ast.parse(source, filename=path, type_comments=True)
+        except (IndentationError, SyntaxError, tokenize.TokenError) as error:
+            line = 1
+            if isinstance(error, tokenize.TokenError):
+                raw_args: tuple[object, ...] = error.args
+                if (
+                    len(raw_args) > 1
+                    and isinstance(raw_args[1], tuple)
+                    and isinstance(raw_args[1][0], int)
+                ):
+                    line = max(raw_args[1][0], 1)
+            if isinstance(error, SyntaxError) and error.lineno is not None:
+                line = max(error.lineno, 1)
+            detail = "tokenization" if isinstance(error, tokenize.TokenError) else "syntax"
+            self._add("<module>", "PYS001", detail, line)
+            result = tuple(sorted(self._findings, key=_finding_sort_key))
+            self._clear()
+            return result
+        try:
+            self._check_imports(module)
+            self._check_any(module)
+            self._check_docs(module)
+            return tuple(sorted(self._findings, key=_finding_sort_key))
+        finally:
+            self._clear()
 
-    def check(self, module: ast.Module) -> None:
-        """Check every import block reachable from the module."""
-        self._visit_statement_list(module.body, "<module>", "module")
-        self._check_future_layout(module)
+    def _clear(self) -> None:
+        """Release invocation state after a successful or failed scan."""
+        self._path = ""
+        self._lines = ()
+        self._findings = []
+        self._import_counters.clear()
 
-    def _visit_statement_list(
-        self,
-        statements: list[ast.stmt],
-        symbol: str,
-        context: str,
-    ) -> None:
-        """Visit one statement list and recurse into nested statement blocks."""
+    def _add(self, symbol: str, rule: str, detail: str, line: int) -> None:
+        """Append one finding using the current scan context."""
+        line = max(line, 1)
+        self._findings.append(
+            PythonFinding(path=self._path, symbol=symbol, rule=rule, detail=detail, line=line)
+        )
+
+    def _check_imports(self, module: ast.Module) -> None:
+        """Check every import block, including nested and guarded blocks."""
+        self._import_statements(module.body, "<module>", "module")
+        top_level = [item for item in module.body if isinstance(item, (ast.Import, ast.ImportFrom))]
+        futures = [
+            item
+            for item in top_level
+            if isinstance(item, ast.ImportFrom) and item.module == "__future__"
+        ]
+        if not futures:
+            return
+        first = futures[0]
+        docstring: ast.Constant | None = None
+        if module.body and isinstance(module.body[0], ast.Expr):
+            value = module.body[0].value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                docstring = value
+        position = 1 if docstring is not None else 0
+        if module.body[position : position + len(futures)] != futures:
+            self._add("<module>", "PYI001", "future-position", first.lineno)
+        if (
+            docstring is not None
+            and self._blank_lines(docstring.end_lineno or docstring.lineno, first.lineno) == 0
+        ):
+            self._add("<module>", "PYI001", "future-separation:docstring", first.lineno)
+        last_line = futures[-1].end_lineno or futures[-1].lineno
+        later = [item for item in top_level if item.lineno > last_line]
+        if later and self._blank_lines(last_line, later[0].lineno) == 0:
+            self._add("<module>", "PYI001", "future-separation:imports", later[0].lineno)
+
+    def _import_statements(self, statements: list[ast.stmt], symbol: str, context: str) -> None:
+        """Visit direct import runs and recurse through nested statement blocks."""
         index = 0
         while index < len(statements):
             statement = statements[index]
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
                 run: list[ast.Import | ast.ImportFrom] = []
-                while index < len(statements) and isinstance(
-                    statements[index], (ast.Import, ast.ImportFrom)
-                ):
-                    run.append(cast(ast.Import | ast.ImportFrom, statements[index]))
+                while index < len(statements):
+                    candidate = statements[index]
+                    if not isinstance(candidate, (ast.Import, ast.ImportFrom)):
+                        break
+                    run.append(candidate)
                     index += 1
-                self._check_block(run, symbol, context)
+                key = (symbol, context)
+                number = self._import_counters.get(key, 0) + 1
+                self._import_counters[key] = number
+                self._import_block(run, symbol, f"{context}:block:{number}")
                 continue
-            self._visit_nested_statement(statement, symbol, context)
+            self._import_nested(statement, symbol, context)
             index += 1
 
-    def _visit_nested_statement(self, statement: ast.stmt, symbol: str, context: str) -> None:
-        """Visit statement lists nested under control flow or definitions."""
-        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            child_symbol = self._qualified_symbol(symbol, statement.name)
-            self._visit_statement_list(statement.body, child_symbol, "function")
-            return
-        if isinstance(statement, ast.ClassDef):
-            child_symbol = self._qualified_symbol(symbol, statement.name)
-            self._visit_statement_list(statement.body, child_symbol, "class")
-            return
-        if isinstance(statement, ast.If):
+    def _import_nested(self, statement: ast.stmt, symbol: str, context: str) -> None:
+        """Recurse into definitions and control-flow blocks containing imports."""
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            child = statement.name if symbol == "<module>" else f"{symbol}.{statement.name}"
+            kind = "class" if isinstance(statement, ast.ClassDef) else "function"
+            self._import_statements(statement.body, child, kind)
+        elif isinstance(statement, ast.If):
             test = self._expression_fingerprint(statement.test)
-            self._visit_statement_list(statement.body, symbol, f"{context}:if:{test}:body")
-            self._visit_statement_list(statement.orelse, symbol, f"{context}:if:{test}:else")
-            return
-        if isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
+            self._import_statements(statement.body, symbol, f"{context}:if:{test}:body")
+            self._import_statements(statement.orelse, symbol, f"{context}:if:{test}:else")
+        elif isinstance(statement, (ast.For, ast.AsyncFor, ast.While)):
             test_node = (
                 statement.iter if isinstance(statement, (ast.For, ast.AsyncFor)) else statement.test
             )
             test = self._expression_fingerprint(test_node)
-            self._visit_statement_list(statement.body, symbol, f"{context}:loop:{test}:body")
-            self._visit_statement_list(statement.orelse, symbol, f"{context}:loop:{test}:else")
-            return
-        if isinstance(statement, (ast.With, ast.AsyncWith)):
+            self._import_statements(statement.body, symbol, f"{context}:loop:{test}:body")
+            self._import_statements(statement.orelse, symbol, f"{context}:loop:{test}:else")
+        elif isinstance(statement, (ast.With, ast.AsyncWith)):
             test = self._expression_fingerprint(statement.items[0].context_expr)
-            self._visit_statement_list(statement.body, symbol, f"{context}:with:{test}")
-            return
-        if isinstance(statement, (ast.Try, ast.TryStar)):
-            self._visit_statement_list(statement.body, symbol, f"{context}:try")
+            self._import_statements(statement.body, symbol, f"{context}:with:{test}")
+        elif isinstance(statement, (ast.Try, ast.TryStar)):
+            self._import_statements(statement.body, symbol, f"{context}:try")
             for handler in statement.handlers:
-                handler_name = (
-                    self._expression_fingerprint(handler.type) if handler.type else "bare"
-                )
-                self._visit_statement_list(handler.body, symbol, f"{context}:except:{handler_name}")
-            self._visit_statement_list(statement.orelse, symbol, f"{context}:try-else")
-            self._visit_statement_list(statement.finalbody, symbol, f"{context}:finally")
-            return
-        if isinstance(statement, ast.Match):
+                kind = self._expression_fingerprint(handler.type) if handler.type else "bare"
+                self._import_statements(handler.body, symbol, f"{context}:except:{kind}")
+            self._import_statements(statement.orelse, symbol, f"{context}:try-else")
+            self._import_statements(statement.finalbody, symbol, f"{context}:finally")
+        elif isinstance(statement, ast.Match):
             subject = self._expression_fingerprint(statement.subject)
             for ordinal, case in enumerate(statement.cases, 1):
-                self._visit_statement_list(
+                self._import_statements(
                     case.body, symbol, f"{context}:match:{subject}:case:{ordinal}"
                 )
-            return
 
-    def _check_block(
-        self,
-        statements: list[ast.Import | ast.ImportFrom],
-        symbol: str,
-        context: str,
+    def _import_block(
+        self, statements: list[ast.Import | ast.ImportFrom], symbol: str, block: str
     ) -> None:
-        """Check one direct run of import statements."""
-        counter_key = (symbol, context)
-        block_number = self._block_counters.get(counter_key, 0) + 1
-        self._block_counters[counter_key] = block_number
-        block = f"{context}:block:{block_number}"
+        """Check headings, separation, ordering, and future-import placement."""
         records = tuple(
-            _ImportRecord(
-                node=statement,
-                category=self._category(statement),
-                line=statement.lineno,
-            )
-            for statement in statements
+            _ImportRecord(node=item, category=self._category(item), line=item.lineno)
+            for item in statements
         )
         for record in records:
             if record.category == "mixed":
+                self._add(symbol, "PYI001", f"mixed-category:block={block}", record.line)
+        if symbol == "<module>" and any(item.category == "future" for item in records):
+            positions = [index for index, item in enumerate(records) if item.category == "future"]
+            if positions != list(range(len(positions))):
                 self._add(
-                    symbol,
-                    "PYI001",
-                    f"mixed-category:block={block}",
-                    record.line,
+                    "<module>", "PYI001", f"future-order:block={block}", records[positions[0]].line
                 )
-        if symbol == "<module>" and any(record.category == "future" for record in records):
-            self._check_future_group(records, block)
-        non_future = tuple(
-            record for record in records if record.category not in {"future", "mixed"}
-        )
-        if not non_future:
-            return
-        groups = self._groups(non_future)
-        previous: _ImportGroup | None = None
-        for group in groups:
-            heading = self._HEADINGS[group.category]
-            first = group.records[0]
-            if not self._has_heading(first.line, heading, first.node.col_offset):
+        ordinary = tuple(item for item in records if item.category not in {"future", "mixed"})
+        groups: list[tuple[str, list[_ImportRecord]]] = []
+        for record in ordinary:
+            if not groups or groups[-1][0] != record.category:
+                groups.append((record.category, [record]))
+            else:
+                groups[-1][1].append(record)
+        previous: tuple[str, list[_ImportRecord]] | None = None
+        for ordinal, group in enumerate(groups, 1):
+            category, grouped = group
+            first = grouped[0]
+            if not self._has_heading(first.line, self._HEADINGS[category], first.node.col_offset):
                 self._add(
                     symbol,
                     "PYI001",
-                    f"heading:{group.category}:block={block}:group={group.ordinal}",
+                    f"heading:{category}:block={block}:group={ordinal}",
                     first.line,
                 )
             if previous is not None:
-                previous_last = previous.records[-1].node.end_lineno or previous.records[-1].line
-                if self._blank_lines_between(previous_last, first.line) == 0:
+                prior_category, prior_records = previous
+                prior_line = prior_records[-1].node.end_lineno or prior_records[-1].line
+                if self._blank_lines(prior_line, first.line) == 0:
                     self._add(
                         symbol,
                         "PYI001",
-                        f"separation:{previous.category}-{group.category}:block={block}:group={group.ordinal}",
+                        f"separation:{prior_category}-{category}:block={block}:group={ordinal}",
                         first.line,
                     )
-                if self._CATEGORY_RANK[group.category] < self._CATEGORY_RANK[previous.category]:
+                if self._CATEGORY_RANK[category] < self._CATEGORY_RANK[prior_category]:
                     self._add(
                         symbol,
                         "PYI001",
-                        f"order:{previous.category}>{group.category}:block={block}:group={group.ordinal}",
+                        f"order:{prior_category}>{category}:block={block}:group={ordinal}",
                         first.line,
                     )
             previous = group
 
-    def _check_future_group(self, records: tuple[_ImportRecord, ...], block: str) -> None:
-        """Check that future imports form the dedicated first import group."""
-        future_positions = [
-            index for index, record in enumerate(records) if record.category == "future"
-        ]
-        if not future_positions:
-            return
-        first_future = future_positions[0]
-        contiguous = future_positions == list(range(len(future_positions)))
-        if first_future != 0 or not contiguous:
-            self._add(
-                "<module>", "PYI001", f"future-order:block={block}", records[first_future].line
-            )
-
-    def _check_future_layout(self, module: ast.Module) -> None:
-        """Require blank separation around module future imports and docstrings."""
-        top_level = [
-            statement
-            for statement in module.body
-            if isinstance(statement, (ast.Import, ast.ImportFrom))
-        ]
-        futures = [
-            statement
-            for statement in top_level
-            if isinstance(statement, ast.ImportFrom) and statement.module == "__future__"
-        ]
-        if not futures:
-            return
-        first_future = futures[0]
-        docstring = self._module_docstring_node(module)
-        first_position = 1 if docstring is not None else 0
-        if module.body[first_position : first_position + len(futures)] != futures:
-            self._add("<module>", "PYI001", "future-position", first_future.lineno)
-        if (
-            docstring is not None
-            and self._blank_lines_between(
-                docstring.end_lineno or docstring.lineno, first_future.lineno
-            )
-            == 0
-        ):
-            self._add("<module>", "PYI001", "future-separation:docstring", first_future.lineno)
-        later = [
-            statement
-            for statement in top_level
-            if statement.lineno > (futures[-1].end_lineno or futures[-1].lineno)
-        ]
-        if (
-            later
-            and self._blank_lines_between(
-                futures[-1].end_lineno or futures[-1].lineno, later[0].lineno
-            )
-            == 0
-        ):
-            self._add("<module>", "PYI001", "future-separation:imports", later[0].lineno)
-
-    def _module_docstring_node(self, module: ast.Module) -> ast.Constant | None:
-        """Return the module docstring expression when present."""
-        if not module.body or not isinstance(module.body[0], ast.Expr):
-            return None
-        value = module.body[0].value
-        if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            return value
-        return None
-
-    def _groups(self, records: tuple[_ImportRecord, ...]) -> tuple[_ImportGroup, ...]:
-        """Split records into contiguous category groups."""
-        groups: list[_ImportGroup] = []
-        for record in records:
-            if record.category == "future":
-                continue
-            if not groups or groups[-1].category != record.category:
-                groups.append(
-                    _ImportGroup(
-                        category=record.category,
-                        records=(record,),
-                        ordinal=len(groups) + 1,
-                    )
-                )
-            else:
-                previous = groups[-1]
-                groups[-1] = _ImportGroup(
-                    category=previous.category,
-                    records=(*previous.records, record),
-                    ordinal=previous.ordinal,
-                )
-        return tuple(groups)
-
     def _category(self, statement: ast.Import | ast.ImportFrom) -> str:
-        """Classify an import as standard, third-party, project, or future."""
+        """Classify one import by package root, including relative imports."""
         if isinstance(statement, ast.ImportFrom):
             if statement.module == "__future__":
                 return "future"
             if statement.level:
                 return "project"
-            module = statement.module or ""
+            root = (statement.module or "").split(".", 1)[0]
         else:
-            categories = {
-                self._module_category(alias.name.split(".", 1)[0]) for alias in statement.names
-            }
-            if len(categories) > 1:
-                return "mixed"
-            return categories.pop()
-        return self._module_category(module.split(".", 1)[0])
+            roots = {alias.name.split(".", 1)[0] for alias in statement.names}
+            categories = {self._module_category(root) for root in roots}
+            return "mixed" if len(categories) > 1 else categories.pop()
+        return self._module_category(root)
 
     def _module_category(self, root: str) -> str:
         """Classify one absolute import root."""
         if root in sys.stdlib_module_names:
             return "standard"
-        if root == "" or root in self._PROJECT_ROOTS:
-            return "project"
-        return "third-party"
+        return "project" if not root or root in self._PROJECT_ROOTS else "third-party"
 
-    def _qualified_symbol(self, parent: str, name: str) -> str:
-        """Build the agreed qualified symbol identity for a definition."""
-        return name if parent == "<module>" else f"{parent}.{name}"
-
-    def _has_heading(self, line_number: int, heading: str, indentation: int) -> bool:
+    def _has_heading(self, line: int, heading: str, indentation: int) -> bool:
         """Return whether the nearest preceding nonblank line is the exact heading."""
-        index = line_number - 2
+        index = line - 2
         while index >= 0 and not self._lines[index].strip():
             index -= 1
         if index < 0:
             return False
-        line = self._lines[index]
-        prefix = line[: len(line) - len(line.lstrip(" \t"))]
-        return (
-            len(prefix.expandtabs(8)) == indentation
-            and line.lstrip().startswith("#")
-            and line.strip() == heading
-        )
+        source_line = self._lines[index]
+        prefix = source_line[: len(source_line) - len(source_line.lstrip(" \t"))]
+        return len(prefix.expandtabs(8)) == indentation and source_line.strip() == heading
 
-    def _blank_lines_between(self, first_line: int, second_line: int) -> int:
+    def _blank_lines(self, first: int, second: int) -> int:
         """Count blank physical lines strictly between two source lines."""
-        if second_line <= first_line + 1:
-            return 0
-        return sum(1 for line in self._lines[first_line : second_line - 1] if not line.strip())
+        return sum(1 for line in self._lines[first : second - 1] if not line.strip())
 
-    def _expression_fingerprint(self, node: ast.AST | None) -> str:
-        """Return a compact, line-independent AST fingerprint."""
-        if node is None:
-            return "none"
-        return ast.dump(node, annotate_fields=True, include_attributes=False)
-
-    def _add(self, symbol: str, rule: str, detail: str, line: int) -> None:
-        """Append one import finding."""
-        self._findings.append(
-            PythonFinding(
-                path=self._path,
-                symbol=symbol,
-                rule=rule,
-                detail=detail,
-                line=max(line, 1),
-            )
+    @staticmethod
+    def _expression_fingerprint(node: ast.AST | None) -> str:
+        """Return a compact line-independent AST fingerprint."""
+        return (
+            "none"
+            if node is None
+            else ast.dump(node, annotate_fields=True, include_attributes=False)
         )
 
+    def _check_any(self, module: ast.Module) -> None:
+        """Find explicit typing.Any uses while respecting lexical aliases."""
+        self._any_statements(module.body, _Scope(symbol="<module>", parent=None))
 
-class _AnyChecker:
-    """Find explicit typing Any uses while respecting lexical aliases."""
-
-    _ANY = "typing-any"
-    _TYPING_MODULE = "typing-module"
-    _LITERAL = "typing-literal"
-    _ANNOTATED = "typing-annotated"
-    _TYPING_MODULES: ClassVar[frozenset[str]] = frozenset({"typing", "typing_extensions"})
-
-    def __init__(self, path: str, findings: list[PythonFinding]) -> None:
-        """Initialize an Any checker for one source invocation."""
-        self._path = path
-        self._findings = findings
-
-    def check(self, module: ast.Module) -> None:
-        """Find explicit Any occurrences in the module."""
-        scope = _Scope(symbol="<module>", parent=None)
-        self._visit_statements(module.body, scope)
-
-    def _visit_statements(self, statements: list[ast.stmt], scope: _Scope) -> None:
-        """Visit one lexical statement list without leaking child bindings."""
+    def _any_statements(self, statements: list[ast.stmt], scope: _Scope) -> None:
+        """Visit statements while keeping child bindings in child scopes."""
         for statement in statements:
-            self._visit_statement(statement, scope)
+            self._any_statement(statement, scope)
 
-    def _visit_statement(self, statement: ast.stmt, scope: _Scope) -> None:
-        """Visit one statement and all relevant child scopes."""
+    def _any_statement(self, statement: ast.stmt, scope: _Scope) -> None:
+        """Scan one statement and its relevant expressions or child scopes."""
         if isinstance(statement, (ast.Import, ast.ImportFrom)):
-            self._visit_import(statement, scope)
-            return
-        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            symbol = self._qualified_symbol(scope.symbol, statement.name)
-            signature_scope = _Scope(symbol=symbol, parent=scope)
-            self._scan_type_parameters(statement.type_params, signature_scope)
-            self._scan_function_signature(statement, signature_scope)
-            self._scan_type_comment(
-                statement.type_comment, signature_scope, "type-comment", statement.lineno
+            self._any_import(statement, scope)
+        elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            symbol = (
+                statement.name if scope.symbol == "<module>" else f"{scope.symbol}.{statement.name}"
+            )
+            signature = _Scope(symbol=symbol, parent=scope)
+            self._any_type_parameters(statement.type_params, signature)
+            self._any_function_signature(statement, signature)
+            self._any_type_comment(
+                statement.type_comment, signature, "type-comment", statement.lineno
             )
             scope.bind_name(statement.name)
-            child_scope = _Scope(symbol=symbol, parent=signature_scope)
+            child = _Scope(symbol=symbol, parent=signature)
             for argument in self._arguments(statement.args):
-                child_scope.bind_name(argument.arg)
-            self._visit_statements(statement.body, child_scope)
-            return
-        if isinstance(statement, ast.ClassDef):
-            symbol = self._qualified_symbol(scope.symbol, statement.name)
-            class_scope = _Scope(symbol=symbol, parent=scope)
-            self._scan_type_parameters(statement.type_params, class_scope)
+                child.bind_name(argument.arg)
+            self._any_statements(statement.body, child)
+        elif isinstance(statement, ast.ClassDef):
+            symbol = (
+                statement.name if scope.symbol == "<module>" else f"{scope.symbol}.{statement.name}"
+            )
+            child = _Scope(symbol=symbol, parent=scope)
+            self._any_type_parameters(statement.type_params, child)
             for decorator in statement.decorator_list:
-                self._scan_expression(decorator, class_scope, "expression")
+                self._any_expression(decorator, child, "expression")
             for base in statement.bases:
-                self._scan_expression(base, class_scope, "base")
-            for keyword_node in statement.keywords:
-                self._scan_expression(keyword_node.value, class_scope, "base")
+                self._any_expression(base, child, "base")
+            for keyword in statement.keywords:
+                self._any_expression(keyword.value, child, "base")
             scope.bind_name(statement.name)
-            self._visit_statements(statement.body, class_scope)
-            return
-        if isinstance(statement, ast.Assign):
+            self._any_statements(statement.body, child)
+        elif isinstance(statement, ast.Assign):
             for target in statement.targets:
-                self._scan_assignment_target(target, scope)
-            detail = self._assignment_detail(statement.targets)
-            if self._alias_for_expression(statement.value, scope) == self._ANY:
-                self._bind_assignment_alias(statement.targets, statement.value, scope)
-            else:
-                self._scan_expression(statement.value, scope, detail)
-                self._bind_assignment_alias(statement.targets, statement.value, scope)
-            self._scan_type_comment(statement.type_comment, scope, detail, statement.lineno)
-            return
-        if isinstance(statement, ast.AnnAssign):
-            target_name = self._target_name(statement.target)
-            detail = f"variable:{target_name}" if target_name else "variable"
-            self._scan_annotation(statement.annotation, scope, detail)
+                self._any_target(target, scope)
+            detail = "assignment:" + ",".join(
+                target.id if isinstance(target, ast.Name) else "expression"
+                for target in statement.targets
+            )
+            if self._alias_expression(statement.value, scope) != "typing-any":
+                self._any_expression(statement.value, scope, detail)
+            self._bind_aliases(statement.targets, statement.value, scope)
+            self._any_type_comment(statement.type_comment, scope, detail, statement.lineno)
+        elif isinstance(statement, ast.AnnAssign):
+            name = statement.target.id if isinstance(statement.target, ast.Name) else None
+            detail = f"variable:{name}" if name else "variable"
+            self._any_expression(statement.annotation, scope, detail, annotation=True)
             if statement.value is not None:
-                if self._alias_for_expression(statement.value, scope) == self._ANY:
-                    self._bind_assignment_alias((statement.target,), statement.value, scope)
-                else:
-                    self._scan_expression(
-                        statement.value, scope, f"assignment:{target_name or 'expression'}"
+                if self._alias_expression(statement.value, scope) != "typing-any":
+                    self._any_expression(
+                        statement.value, scope, f"assignment:{name or 'expression'}"
                     )
-                    self._bind_assignment_alias((statement.target,), statement.value, scope)
+                self._bind_aliases((statement.target,), statement.value, scope)
             else:
-                self._scan_assignment_target(statement.target, scope)
-            return
-        if isinstance(statement, ast.TypeAlias):
-            target = statement.name
-            self._scan_type_parameters(statement.type_params, scope)
-            if self._alias_for_expression(statement.value, scope) == self._ANY:
-                self._bind_alias_expression(target.id, statement.value, scope)
+                self._any_target(statement.target, scope)
+        elif isinstance(statement, ast.TypeAlias):
+            target_node = statement.name
+            if not isinstance(target_node, ast.Name):
+                return
+            alias_name = target_node.id
+            self._any_type_parameters(statement.type_params, scope)
+            if self._alias_expression(statement.value, scope) == "typing-any":
+                self._bind_alias_expression(alias_name, statement.value, scope)
             else:
-                self._scan_annotation(statement.value, scope, f"alias:{target.id}")
-                scope.bind_name(target.id)
-                self._bind_alias_expression(target.id, statement.value, scope)
-            return
-        if isinstance(statement, ast.If):
-            self._scan_expression(statement.test, scope, "expression")
-            self._visit_statements(statement.body, scope)
-            self._visit_statements(statement.orelse, scope)
-            return
-        if isinstance(statement, (ast.For, ast.AsyncFor)):
-            self._scan_expression(statement.iter, scope, "expression")
-            self._scan_type_comment(statement.type_comment, scope, "type-comment", statement.lineno)
-            self._scan_assignment_target(statement.target, scope)
-            self._visit_statements(statement.body, scope)
-            self._visit_statements(statement.orelse, scope)
-            return
-        if isinstance(statement, ast.While):
-            self._scan_expression(statement.test, scope, "expression")
-            self._visit_statements(statement.body, scope)
-            self._visit_statements(statement.orelse, scope)
-            return
-        if isinstance(statement, (ast.With, ast.AsyncWith)):
+                self._any_expression(statement.value, scope, f"alias:{alias_name}", annotation=True)
+                scope.bind_name(alias_name)
+                self._bind_alias_expression(alias_name, statement.value, scope)
+        elif isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+            if isinstance(statement, (ast.For, ast.AsyncFor)):
+                self._any_expression(statement.iter, scope, "expression")
+                self._any_type_comment(
+                    statement.type_comment, scope, "type-comment", statement.lineno
+                )
+                self._any_target(statement.target, scope)
+            else:
+                self._any_expression(statement.test, scope, "expression")
+            self._any_statements(statement.body, scope)
+            self._any_statements(statement.orelse, scope)
+        elif isinstance(statement, (ast.With, ast.AsyncWith)):
             for item in statement.items:
-                self._scan_expression(item.context_expr, scope, "expression")
+                self._any_expression(item.context_expr, scope, "expression")
                 if item.optional_vars is not None:
-                    self._scan_assignment_target(item.optional_vars, scope)
-            self._visit_statements(statement.body, scope)
-            return
-        if isinstance(statement, (ast.Try, ast.TryStar)):
-            self._visit_statements(statement.body, scope)
+                    self._any_target(item.optional_vars, scope)
+            self._any_statements(statement.body, scope)
+        elif isinstance(statement, (ast.Try, ast.TryStar)):
+            self._any_statements(statement.body, scope)
             for handler in statement.handlers:
                 if handler.type is not None:
-                    self._scan_expression(handler.type, scope, "expression")
+                    self._any_expression(handler.type, scope, "expression")
                 if handler.name:
                     scope.bind_name(handler.name)
-                self._visit_statements(handler.body, scope)
-            self._visit_statements(statement.orelse, scope)
-            self._visit_statements(statement.finalbody, scope)
-            return
-        if isinstance(statement, ast.Match):
-            self._scan_expression(statement.subject, scope, "expression")
+                self._any_statements(handler.body, scope)
+            self._any_statements(statement.orelse, scope)
+            self._any_statements(statement.finalbody, scope)
+        elif isinstance(statement, ast.Match):
+            self._any_expression(statement.subject, scope, "expression")
             for case in statement.cases:
                 if case.guard is not None:
-                    self._scan_expression(case.guard, scope, "expression")
-                self._visit_statements(case.body, scope)
-            return
-        for child_node in ast.iter_child_nodes(statement):
-            if isinstance(child_node, ast.expr):
-                self._scan_expression(child_node, scope, "expression")
+                    self._any_expression(case.guard, scope, "expression")
+                self._any_statements(case.body, scope)
+        else:
+            for child_node in ast.iter_child_nodes(statement):
+                if isinstance(child_node, ast.expr):
+                    self._any_expression(child_node, scope, "expression")
 
-    def _visit_import(self, statement: ast.Import | ast.ImportFrom, scope: _Scope) -> None:
-        """Record typing imports and their aliases."""
+    def _any_import(self, statement: ast.Import | ast.ImportFrom, scope: _Scope) -> None:
+        """Record typing aliases and report direct Any imports."""
         if isinstance(statement, ast.Import):
-            for alias in statement.names:
-                bound_name = alias.asname or alias.name.split(".", 1)[0]
-                scope.bind_name(bound_name)
-                if alias.name in self._TYPING_MODULES:
-                    scope.bind_alias(bound_name, self._TYPING_MODULE)
+            for item in statement.names:
+                name = item.asname or item.name.split(".", 1)[0]
+                scope.bind_name(name)
+                if item.name in self._TYPING_MODULES:
+                    scope.bind_alias(name, "typing-module")
             return
         module = statement.module or ""
-        for alias in statement.names:
-            bound_name = alias.asname or alias.name
-            if module in self._TYPING_MODULES and alias.name == "Any":
-                self._add(scope.symbol, "PYT001", f"import:Any:{bound_name}", statement.lineno)
-                scope.bind_alias(bound_name, self._ANY)
-            elif module in self._TYPING_MODULES and alias.name in {"Literal", "Annotated"}:
+        for item in statement.names:
+            name = item.asname or item.name
+            if module in self._TYPING_MODULES and item.name == "Any":
+                self._add(scope.symbol, "PYT001", f"import:Any:{name}", statement.lineno)
+                scope.bind_alias(name, "typing-any")
+            elif module in self._TYPING_MODULES and item.name in {"Literal", "Annotated"}:
                 scope.bind_alias(
-                    bound_name, self._LITERAL if alias.name == "Literal" else self._ANNOTATED
+                    name, "typing-literal" if item.name == "Literal" else "typing-annotated"
                 )
             else:
-                scope.bind_name(bound_name)
+                scope.bind_name(name)
 
-    def _scan_function_signature(
-        self,
-        function: ast.FunctionDef | ast.AsyncFunctionDef,
-        scope: _Scope,
+    def _any_function_signature(
+        self, function: ast.FunctionDef | ast.AsyncFunctionDef, scope: _Scope
     ) -> None:
-        """Scan decorators, defaults, parameter annotations, and return annotation."""
+        """Scan decorators, defaults, parameter annotations, and return annotations."""
         for decorator in function.decorator_list:
-            self._scan_expression(decorator, scope, "expression")
-        positional = list(function.args.posonlyargs) + list(function.args.args)
+            self._any_expression(decorator, scope, "expression")
+        positional = [*function.args.posonlyargs, *function.args.args]
         for argument, default in zip(
             positional[-len(function.args.defaults) :], function.args.defaults
         ):
-            self._scan_expression(default, scope, f"default:{argument.arg}")
+            self._any_expression(default, scope, f"default:{argument.arg}")
         for argument, kw_default in zip(function.args.kwonlyargs, function.args.kw_defaults):
             if kw_default is not None:
-                self._scan_expression(kw_default, scope, f"default:{argument.arg}")
+                self._any_expression(kw_default, scope, f"default:{argument.arg}")
         for argument in self._arguments(function.args):
             if argument.annotation is not None:
-                self._scan_annotation(
-                    argument.annotation, scope, f"parameter:{argument.arg}", argument.lineno
+                self._any_expression(
+                    argument.annotation,
+                    scope,
+                    f"parameter:{argument.arg}",
+                    annotation=True,
+                    line=argument.lineno,
                 )
             if argument.type_comment:
-                self._scan_quoted_annotation(
+                self._any_quoted(
                     argument.type_comment, scope, f"parameter:{argument.arg}", argument.lineno
                 )
         if function.returns is not None:
-            self._scan_annotation(function.returns, scope, "Returns", function.lineno)
+            self._any_expression(
+                function.returns, scope, "Returns", annotation=True, line=function.lineno
+            )
 
-    def _qualified_symbol(self, parent: str, name: str) -> str:
-        """Build the agreed qualified symbol identity for a definition."""
-        return name if parent == "<module>" else f"{parent}.{name}"
-
-    def _scan_type_parameters(self, parameters: list[ast.type_param], scope: _Scope) -> None:
-        """Inspect Python 3.12 generic bounds for explicit dynamic types."""
+    def _any_type_parameters(self, parameters: list[ast.type_param], scope: _Scope) -> None:
+        """Inspect generic bounds for explicit dynamic types."""
         for parameter in parameters:
             if isinstance(parameter, ast.TypeVar) and parameter.bound is not None:
-                self._scan_annotation(parameter.bound, scope, f"type-bound:{parameter.name}")
+                self._any_expression(
+                    parameter.bound, scope, f"type-bound:{parameter.name}", annotation=True
+                )
 
-    def _arguments(self, arguments: ast.arguments) -> tuple[ast.arg, ...]:
+    @staticmethod
+    def _arguments(arguments: ast.arguments) -> tuple[ast.arg, ...]:
         """Return all declared arguments in source-signature order."""
-        values: list[ast.arg] = [*arguments.posonlyargs, *arguments.args]
+        values = [*arguments.posonlyargs, *arguments.args]
         if arguments.vararg is not None:
             values.append(arguments.vararg)
         values.extend(arguments.kwonlyargs)
@@ -645,105 +528,57 @@ class _AnyChecker:
             values.append(arguments.kwarg)
         return tuple(values)
 
-    def _scan_assignment_target(self, target: ast.expr, scope: _Scope) -> None:
+    def _any_target(self, target: ast.expr, scope: _Scope) -> None:
         """Record names bound by an assignment target."""
         if isinstance(target, ast.Name):
             scope.bind_name(target.id)
-            return
-        for child in ast.iter_child_nodes(target):
-            if isinstance(child, ast.expr):
-                self._scan_assignment_target(child, scope)
+        else:
+            for child in ast.iter_child_nodes(target):
+                if isinstance(child, ast.expr):
+                    self._any_target(child, scope)
 
-    def _bind_assignment_alias(
-        self,
-        targets: tuple[ast.expr, ...] | list[ast.expr],
-        value: ast.expr,
-        scope: _Scope,
+    def _bind_aliases(
+        self, targets: tuple[ast.expr, ...] | list[ast.expr], value: ast.expr, scope: _Scope
     ) -> None:
-        """Preserve a typing.Any assignment alias within the current scope."""
-        alias = self._alias_for_expression(value, scope)
+        """Preserve recognized aliases for each simple assignment target."""
+        alias = self._alias_expression(value, scope)
         for target in targets:
             if isinstance(target, ast.Name):
-                if alias is None:
-                    scope.bind_name(target.id)
-                else:
+                if alias == "typing-any":
                     self._bind_alias_expression(target.id, value, scope)
+                elif alias == "typing-module":
+                    scope.bind_alias(target.id, alias)
+                else:
+                    scope.bind_name(target.id)
 
     def _bind_alias_expression(self, name: str, value: ast.expr, scope: _Scope) -> None:
-        """Bind a target to a recognized alias and emit its assignment finding."""
-        alias = self._alias_for_expression(value, scope)
-        if alias == self._ANY:
+        """Bind a target to a recognized alias and report dynamic aliases."""
+        alias = self._alias_expression(value, scope)
+        if alias == "typing-any":
             self._add(scope.symbol, "PYT001", f"alias:{name}", value.lineno)
-            scope.bind_alias(name, self._ANY)
-        elif alias == self._TYPING_MODULE:
-            scope.bind_alias(name, self._TYPING_MODULE)
+            scope.bind_alias(name, alias)
+        elif alias == "typing-module":
+            scope.bind_alias(name, alias)
         else:
             scope.bind_name(name)
 
-    def _alias_for_expression(self, node: ast.expr, scope: _Scope) -> str | None:
-        """Resolve a simple alias expression."""
+    def _alias_expression(self, node: ast.expr, scope: _Scope) -> str | None:
+        """Resolve a simple typing alias expression."""
         if isinstance(node, ast.Name):
             return scope.resolve(node.id)
         if isinstance(node, ast.Attribute) and node.attr == "Any":
-            return self._attribute_alias(node, scope)
+            return "typing-any" if self._attribute_alias(node, scope) == "typing-any" else None
         return None
 
-    def _scan_annotation(
-        self, node: ast.expr, scope: _Scope, detail: str, line: int | None = None
-    ) -> None:
-        """Scan an annotation, including quoted forward references."""
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            self._scan_quoted_annotation(node.value, scope, detail, line)
-            return
-        self._scan_annotation_tree(node, scope, detail, literal_context=False, line=line)
-
-    def _scan_annotation_tree(
-        self,
-        node: ast.AST,
-        scope: _Scope,
-        detail: str,
-        literal_context: bool,
-        line: int | None = None,
-    ) -> None:
-        """Scan annotation syntax while excluding Literal string values."""
-        if isinstance(node, ast.Constant):
-            if isinstance(node.value, str) and not literal_context:
-                self._scan_quoted_annotation(node.value, scope, detail, line)
-            return
-        if isinstance(node, ast.Attribute) and node.attr == "Any":
-            if self._attribute_alias(node, scope) == self._ANY:
-                self._add(scope.symbol, "PYT001", detail, line or node.lineno)
-            self._scan_annotation_tree(node.value, scope, detail, literal_context, line)
-            return
-        if isinstance(node, ast.Name):
-            if scope.resolve(node.id) == self._ANY:
-                self._add(scope.symbol, "PYT001", detail, line or node.lineno)
-            return
-        is_literal = isinstance(node, ast.Subscript) and self._is_literal_expression(
-            node.value, scope
-        )
-        if isinstance(node, ast.Subscript) and self._is_annotated_expression(node.value, scope):
-            # Annotated's first element is a type; remaining elements are ordinary metadata.
-            elements = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
-            if elements:
-                self._scan_annotation_tree(elements[0], scope, detail, literal_context, line)
-            for metadata in elements[1:]:
-                self._scan_expression(metadata, scope, detail)
-            return
-        for child in ast.iter_child_nodes(node):
-            self._scan_annotation_tree(child, scope, detail, literal_context or is_literal, line)
-
-    def _scan_quoted_annotation(
-        self, value: str, scope: _Scope, detail: str, line: int | None = None
-    ) -> None:
-        """Parse and scan one quoted forward annotation."""
+    def _any_quoted(self, value: str, scope: _Scope, detail: str, line: int | None = None) -> None:
+        """Parse and scan one quoted forward annotation or type comment."""
         try:
             expression = ast.parse(value, mode="eval").body
         except (SyntaxError, ValueError):
             return
-        self._scan_annotation_tree(expression, scope, detail, literal_context=False, line=line)
+        self._any_expression(expression, scope, detail, annotation=True, line=line)
 
-    def _scan_type_comment(self, value: str | None, scope: _Scope, detail: str, line: int) -> None:
+    def _any_type_comment(self, value: str | None, scope: _Scope, detail: str, line: int) -> None:
         """Scan a recognized type comment while ignoring ordinary comments."""
         if not value:
             return
@@ -751,297 +586,218 @@ class _AnyChecker:
         if "->" in value:
             arguments, _, result = value.partition("->")
             expressions = [arguments.strip(" ()"), result.strip()]
-        for expression_text in expressions:
-            if not expression_text:
-                continue
-            try:
-                expression = ast.parse(expression_text, mode="eval").body
-            except (SyntaxError, ValueError):
-                continue
-            if isinstance(expression, ast.expr):
-                self._scan_annotation_tree(
-                    expression, scope, detail, literal_context=False, line=line
-                )
+        for expression in expressions:
+            if expression:
+                self._any_quoted(expression, scope, detail, line)
 
-    def _scan_expression(self, node: ast.AST, scope: _Scope, detail: str) -> None:
-        """Scan an ordinary expression while ignoring string constants."""
+    def _any_expression(
+        self,
+        node: ast.AST,
+        scope: _Scope,
+        detail: str,
+        *,
+        annotation: bool = False,
+        literal: bool = False,
+        line: int | None = None,
+    ) -> None:
+        """Scan expressions and annotations for qualified or aliased Any references."""
         if isinstance(node, ast.Constant):
+            if annotation and isinstance(node.value, str) and not literal:
+                self._any_quoted(node.value, scope, detail, line)
             return
         if isinstance(node, ast.Attribute) and node.attr == "Any":
-            if self._attribute_alias(node, scope) == self._ANY:
-                self._add(
-                    scope.symbol, "PYT001", self._expression_detail(detail, node), node.lineno
-                )
-            self._scan_expression(node.value, scope, detail)
+            if self._attribute_alias(node, scope) == "typing-any":
+                if not annotation:
+                    detail = self._expression_detail(detail, node)
+                self._add(scope.symbol, "PYT001", detail, line or node.lineno)
+            self._any_expression(
+                node.value, scope, detail, annotation=annotation, literal=literal, line=line
+            )
             return
         if isinstance(node, ast.Name):
-            if scope.resolve(node.id) == self._ANY:
-                self._add(
-                    scope.symbol, "PYT001", self._expression_detail(detail, node), node.lineno
+            if scope.resolve(node.id) == "typing-any":
+                detail = detail if annotation else self._expression_detail(detail, node)
+                self._add(scope.symbol, "PYT001", detail, line or node.lineno)
+            return
+        is_literal = (
+            annotation
+            and isinstance(node, ast.Subscript)
+            and self._is_typing(node.value, scope, "Literal")
+        )
+        if (
+            annotation
+            and isinstance(node, ast.Subscript)
+            and self._is_typing(node.value, scope, "Annotated")
+        ):
+            elements = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            if elements:
+                self._any_expression(
+                    elements[0], scope, detail, annotation=True, literal=literal, line=line
                 )
+            for metadata in elements[1:]:
+                self._any_expression(metadata, scope, detail)
             return
         for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.AST):
-                self._scan_expression(child, scope, detail)
+            self._any_expression(
+                child,
+                scope,
+                detail,
+                annotation=annotation,
+                literal=literal or is_literal,
+                line=line,
+            )
 
     def _attribute_alias(self, node: ast.Attribute, scope: _Scope) -> str | None:
-        """Resolve a qualified typing.Any attribute."""
-        if isinstance(node.value, ast.Name):
-            module_alias = scope.resolve(node.value.id)
-            return self._ANY if module_alias == self._TYPING_MODULE else None
+        """Resolve a qualified typing attribute alias."""
+        if isinstance(node.value, ast.Name) and scope.resolve(node.value.id) == "typing-module":
+            return "typing-any" if node.attr == "Any" else None
         return None
 
-    def _is_literal_expression(self, node: ast.expr, scope: _Scope) -> bool:
-        """Return whether a subscript expression is typing.Literal."""
+    def _is_typing(self, node: ast.expr, scope: _Scope, name: str) -> bool:
+        """Return whether an expression names a recognized typing wrapper."""
+        aliases = {"Literal": "typing-literal", "Annotated": "typing-annotated"}
         if isinstance(node, ast.Name):
-            return scope.resolve(node.id) == self._LITERAL
-        if isinstance(node, ast.Attribute):
-            return (
-                node.attr == "Literal"
-                and self._attribute_module(node, scope) in self._TYPING_MODULES
-            )
-        return False
-
-    def _is_annotated_expression(self, node: ast.expr, scope: _Scope) -> bool:
-        """Recognize the typing metadata wrapper through imports and qualified aliases."""
-        if isinstance(node, ast.Name):
-            return scope.resolve(node.id) == self._ANNOTATED
+            return scope.resolve(node.id) == aliases[name]
         return (
             isinstance(node, ast.Attribute)
-            and node.attr == "Annotated"
-            and self._attribute_module(node, scope) in self._TYPING_MODULES
+            and node.attr == name
+            and isinstance(node.value, ast.Name)
+            and scope.resolve(node.value.id) == "typing-module"
         )
 
-    def _attribute_module(self, node: ast.Attribute, scope: _Scope) -> str | None:
-        """Resolve the module name behind a qualified typing attribute."""
-        if isinstance(node.value, ast.Name) and scope.resolve(node.value.id) == self._TYPING_MODULE:
-            return "typing"
-        return None
-
-    def _assignment_detail(self, targets: list[ast.expr]) -> str:
-        """Return a stable assignment detail key."""
-        names = tuple(self._target_name(target) or "expression" for target in targets)
-        return f"assignment:{','.join(names)}"
-
-    def _target_name(self, target: ast.expr) -> str | None:
-        """Return a simple target name when available."""
-        return target.id if isinstance(target, ast.Name) else None
-
-    def _expression_detail(self, detail: str, node: ast.AST) -> str:
-        """Add a stable expression fingerprint to an ordinary expression detail."""
+    @staticmethod
+    def _expression_detail(detail: str, node: ast.AST) -> str:
+        """Add an AST fingerprint to generic expression findings."""
         if detail in {"expression", "base"}:
             return f"{detail}:{ast.dump(node, annotate_fields=True, include_attributes=False)}"
         return detail
 
-    def _add(self, symbol: str, rule: str, detail: str, line: int) -> None:
-        """Append one Any finding."""
-        self._findings.append(
-            PythonFinding(
-                path=self._path,
-                symbol=symbol,
-                rule=rule,
-                detail=detail,
-                line=max(line, 1),
-            )
-        )
+    def _check_docs(self, module: ast.Module) -> None:
+        """Check module, class, and named-function documentation contracts."""
+        self._definition_doc(module, "<module>")
+        self._doc_statements(module.body, "<module>")
 
-
-class _FunctionFactsVisitor:
-    """Collect function-body facts without entering nested definitions."""
-
-    def __init__(self) -> None:
-        """Initialize empty function facts."""
-        self.has_value_return = False
-        self.has_yield = False
-        self.has_raise = False
-
-    def collect(self, statements: list[ast.stmt]) -> _FunctionFacts:
-        """Collect return, yield, and raise facts from one function body."""
+    def _doc_statements(self, statements: list[ast.stmt], parent: str) -> None:
+        """Visit definitions nested in statements and control-flow blocks."""
         for statement in statements:
-            self._visit(statement)
-        return _FunctionFacts(
-            has_value_return=self.has_value_return,
-            has_yield=self.has_yield,
-            has_raise=self.has_raise,
-        )
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                symbol = statement.name if parent == "<module>" else f"{parent}.{statement.name}"
+                self._function_doc(statement, symbol)
+                self._doc_statements(statement.body, symbol)
+            elif isinstance(statement, ast.ClassDef):
+                symbol = statement.name if parent == "<module>" else f"{parent}.{statement.name}"
+                self._definition_doc(statement, symbol)
+                self._doc_statements(statement.body, symbol)
+            elif isinstance(
+                statement, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)
+            ):
+                self._doc_statements(statement.body, parent)
+                if isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+                    self._doc_statements(statement.orelse, parent)
+            elif isinstance(statement, (ast.Try, ast.TryStar)):
+                self._doc_statements(statement.body, parent)
+                for handler in statement.handlers:
+                    self._doc_statements(handler.body, parent)
+                self._doc_statements(statement.orelse, parent)
+                self._doc_statements(statement.finalbody, parent)
+            elif isinstance(statement, ast.Match):
+                for case in statement.cases:
+                    self._doc_statements(case.body, parent)
 
-    def _visit(self, node: ast.AST) -> None:
-        """Visit one node while stopping at nested definitions."""
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
-            return
-        if isinstance(node, ast.Return) and node.value is not None:
-            self.has_value_return = True
-        elif isinstance(node, (ast.Yield, ast.YieldFrom)):
-            self.has_yield = True
-        elif isinstance(node, ast.Raise):
-            self.has_raise = True
-        for child in ast.iter_child_nodes(node):
-            self._visit(child)
-
-
-class _DocumentationChecker:
-    """Check docstrings and structured Google-style API contracts."""
-
-    _SECTION_NAMES: ClassVar[tuple[str, ...]] = ("Args", "Returns", "Yields", "Raises")
-    _ARGUMENT_ENTRY = re.compile(
-        r"^\s{2,}(?P<name>\*{0,2}[A-Za-z_]\w*)(?:\s*\([^)]*\))?\s*:\s*"
-        r"(?P<description>.*)$"
-    )
-
-    def __init__(self, path: str, findings: list[PythonFinding]) -> None:
-        """Initialize a documentation checker for one source invocation."""
-        self._path = path
-        self._findings = findings
-
-    def check(self, module: ast.Module) -> None:
-        """Check module, class, and named-function documentation."""
-        self._check_definition_doc(module, "<module>")
-        self._visit_statements(module.body, "<module>")
-
-    def _visit_statements(self, statements: list[ast.stmt], parent: str) -> None:
-        """Visit definitions in one statement list."""
-        for statement in statements:
-            self._visit_statement(statement, parent)
-
-    def _visit_statement(self, statement: ast.stmt, parent: str) -> None:
-        """Visit one definition and nested control-flow definitions."""
-        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            symbol = statement.name if parent == "<module>" else f"{parent}.{statement.name}"
-            self._check_function(statement, symbol)
-            self._visit_statements(statement.body, symbol)
-            return
-        if isinstance(statement, ast.ClassDef):
-            symbol = statement.name if parent == "<module>" else f"{parent}.{statement.name}"
-            self._check_definition_doc(statement, symbol)
-            self._visit_statements(statement.body, symbol)
-            return
-        if isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While)):
-            self._visit_statements(statement.body, parent)
-            self._visit_statements(statement.orelse, parent)
-            return
-        if isinstance(statement, (ast.With, ast.AsyncWith)):
-            self._visit_statements(statement.body, parent)
-            return
-        if isinstance(statement, (ast.Try, ast.TryStar)):
-            self._visit_statements(statement.body, parent)
-            for handler in statement.handlers:
-                self._visit_statements(handler.body, parent)
-            self._visit_statements(statement.orelse, parent)
-            self._visit_statements(statement.finalbody, parent)
-            return
-        if isinstance(statement, ast.Match):
-            for case in statement.cases:
-                self._visit_statements(case.body, parent)
-
-    def _check_definition_doc(
+    def _definition_doc(
         self, node: ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef, symbol: str
     ) -> str | None:
-        """Check one module, class, or function summary docstring."""
+        """Check and return one definition's summary docstring."""
         value = self._docstring(node)
         if value is None or not value.strip():
-            line = node.lineno if not isinstance(node, ast.Module) else 1
-            self._add(symbol, "PYD001", "summary", line)
+            self._add(
+                symbol, "PYD001", "summary", node.lineno if not isinstance(node, ast.Module) else 1
+            )
             return None
         return value
 
-    def _check_function(
-        self,
-        function: ast.FunctionDef | ast.AsyncFunctionDef,
-        symbol: str,
-    ) -> None:
-        """Check one function summary and its required structured sections."""
-        value = self._check_definition_doc(function, symbol)
-        if not self._is_public_api(function.name, symbol):
+    def _function_doc(self, function: ast.FunctionDef | ast.AsyncFunctionDef, symbol: str) -> None:
+        """Check summary and required Google-style sections for one function."""
+        value = self._definition_doc(function, symbol)
+        if self._path.startswith("tests/") and function.name.startswith("test_"):
+            return
+        if function.name.startswith("_") and function.name != "__init__":
+            return
+        if any(owner.startswith("_") for owner in symbol.split(".")[:-1]):
             return
         sections = self._sections(value or "")
-        expected_arguments = self._expected_arguments(function.args)
-        if expected_arguments:
-            args_section = sections.get("Args")
-            if args_section is None or not self._has_nonblank(args_section.body):
-                self._add(symbol, "PYD002", "Args", function.lineno)
-                for name in expected_arguments:
-                    self._add(symbol, "PYD002", f"parameter:{name}", function.lineno)
-            else:
-                described = self._described_arguments(args_section.body)
-                for name in expected_arguments:
-                    if name not in described:
-                        self._add(symbol, "PYD002", f"parameter:{name}", function.lineno)
-        facts = _FunctionFactsVisitor().collect(function.body)
-        required_section = (
-            "Yields"
-            if facts.has_yield
-            else "Returns"
-            if self._needs_returns(function, facts)
-            else None
+        arguments = tuple(
+            item.arg for item in self._arguments(function.args) if item.arg not in {"self", "cls"}
         )
-        if required_section is not None:
-            section = sections.get(required_section)
-            if section is None or not self._has_nonblank(section.body):
-                self._add(symbol, "PYD002", required_section, function.lineno)
-        if facts.has_raise:
-            section = sections.get("Raises")
-            if section is None or not self._has_nonblank(section.body):
-                self._add(symbol, "PYD002", "Raises", function.lineno)
+        args_section = sections.get("Args")
+        if arguments and (args_section is None or not any(line.strip() for line in args_section)):
+            self._add(symbol, "PYD002", "Args", function.lineno)
+            for name in arguments:
+                self._add(symbol, "PYD002", f"parameter:{name}", function.lineno)
+        elif args_section is not None:
+            described = self._described_arguments(args_section)
+            for name in arguments:
+                if name not in described:
+                    self._add(symbol, "PYD002", f"parameter:{name}", function.lineno)
+        has_return, has_yield, has_raise = self._function_facts(function.body)
+        annotated_return = function.returns is not None and not (
+            isinstance(function.returns, ast.Constant) and function.returns.value in {None, "None"}
+        )
+        required = "Yields" if has_yield else "Returns" if has_return or annotated_return else None
+        if required is not None and not any(line.strip() for line in sections.get(required, ())):
+            self._add(symbol, "PYD002", required, function.lineno)
+        if has_raise and not any(line.strip() for line in sections.get("Raises", ())):
+            self._add(symbol, "PYD002", "Raises", function.lineno)
 
-    def _is_public_api(self, name: str, symbol: str) -> bool:
-        """Return whether a function requires structured public API docs."""
-        if self._path.startswith("tests/") and name.startswith("test_"):
-            return False
-        if name.startswith("_") and name != "__init__":
-            return False
-        owners = symbol.split(".")[:-1]
-        return not any(owner.startswith("_") for owner in owners)
+    def _function_facts(self, statements: list[ast.stmt]) -> tuple[bool, bool, bool]:
+        """Collect value-return, yield, and raise facts without nested definitions."""
+        values = [False, False, False]
 
-    def _needs_returns(
-        self, function: ast.FunctionDef | ast.AsyncFunctionDef, facts: _FunctionFacts
-    ) -> bool:
-        """Return whether a function has a documented return contract."""
-        if facts.has_value_return:
-            return True
-        if function.returns is None:
-            return False
-        if isinstance(function.returns, ast.Constant):
-            return function.returns.value not in {None, "None"}
-        return True
+        def visit(node: ast.AST) -> None:
+            """Visit one function-body node without entering nested definitions."""
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                return
+            if isinstance(node, ast.Return) and node.value is not None:
+                values[0] = True
+            elif isinstance(node, (ast.Yield, ast.YieldFrom)):
+                values[1] = True
+            elif isinstance(node, ast.Raise):
+                values[2] = True
+            for child in ast.iter_child_nodes(node):
+                visit(child)
 
-    def _expected_arguments(self, arguments: ast.arguments) -> tuple[str, ...]:
-        """Return documented parameter names excluding implicit receivers."""
-        values = [argument.arg for argument in [*arguments.posonlyargs, *arguments.args]]
-        if arguments.vararg is not None:
-            values.append(arguments.vararg.arg)
-        values.extend(argument.arg for argument in arguments.kwonlyargs)
-        if arguments.kwarg is not None:
-            values.append(arguments.kwarg.arg)
-        return tuple(name for name in values if name not in {"self", "cls"})
+        for statement in statements:
+            visit(statement)
+        return values[0], values[1], values[2]
 
-    def _sections(self, docstring: str) -> dict[str, _GoogleSection]:
+    def _sections(self, docstring: str) -> dict[str, tuple[str, ...]]:
         """Parse top-level Google section headers and their indented bodies."""
-        lines = inspect.cleandoc(docstring).splitlines()
-        sections: dict[str, _GoogleSection] = {}
+        sections: dict[str, tuple[str, ...]] = {}
         current: str | None = None
         body: list[str] = []
-        for line in lines:
+        for line in inspect.cleandoc(docstring).splitlines():
             stripped = line.strip()
-            if stripped in {f"{name}:" for name in self._SECTION_NAMES} and not line.startswith(
-                (" ", "\t")
-            ):
+            header = (
+                stripped[:-1]
+                if stripped.endswith(":") and stripped[:-1] in self._SECTION_NAMES
+                else None
+            )
+            if header is not None and not line.startswith((" ", "\t")):
                 if current is not None:
-                    sections[current] = _GoogleSection(name=current, body=tuple(body))
-                current = stripped[:-1]
-                body = []
+                    sections[current] = tuple(body)
+                current, body = header, []
             elif current is not None:
                 if stripped and not line.startswith((" ", "\t")):
-                    sections[current] = _GoogleSection(name=current, body=tuple(body))
-                    current = None
-                    body = []
+                    sections[current] = tuple(body)
+                    current, body = None, []
                 else:
                     body.append(line)
         if current is not None:
-            sections[current] = _GoogleSection(name=current, body=tuple(body))
+            sections[current] = tuple(body)
         return sections
 
     def _described_arguments(self, lines: tuple[str, ...]) -> set[str]:
-        """Return parameter names with a nonempty Google description."""
+        """Return parameter names with nonempty Google descriptions."""
         described: set[str] = set()
         current: str | None = None
         has_text = False
@@ -1059,105 +815,20 @@ class _DocumentationChecker:
             described.add(current)
         return described
 
-    def _has_nonblank(self, lines: tuple[str, ...]) -> bool:
-        """Return whether a section contains prose or a structured entry."""
-        return any(line.strip() for line in lines)
-
+    @staticmethod
     def _docstring(
-        self,
         node: ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
     ) -> str | None:
         """Return the raw first string expression used as a docstring."""
-        body = node.body
-        if not body or not isinstance(body[0], ast.Expr):
-            return None
-        value = body[0].value
-        if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            return value.value
+        if node.body and isinstance(node.body[0], ast.Expr):
+            value = node.body[0].value
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                return value.value
         return None
 
-    def _add(self, symbol: str, rule: str, detail: str, line: int) -> None:
-        """Append one documentation finding."""
-        self._findings.append(
-            PythonFinding(
-                path=self._path,
-                symbol=symbol,
-                rule=rule,
-                detail=detail,
-                line=max(line, 1),
-            )
-        )
-
-
-class PythonSourceChecker:
-    """Check one Python source string against the migration standards."""
-
-    def scan(self, path: str, source: str) -> tuple[PythonFinding, ...]:
-        """Scan source and return deterministic line-aware findings.
-
-        Args:
-            path: Repository-relative or display path for the source unit.
-            source: UTF-8 decoded Python source text.
-
-        Returns:
-            Findings sorted by stable identity and then source line.
-        """
-        findings: list[PythonFinding] = []
-        source_lines = tuple(source.splitlines())
-        try:
-            self._tokenize(source)
-        except (IndentationError, SyntaxError, tokenize.TokenError) as error:
-            line = self._error_line()
-            if isinstance(error, SyntaxError) and error.lineno is not None:
-                line = max(error.lineno, 1)
-            findings.append(
-                PythonFinding(
-                    path=path,
-                    symbol="<module>",
-                    rule="PYS001",
-                    detail="tokenization",
-                    line=line,
-                )
-            )
-            return tuple(sorted(findings, key=_finding_sort_key))
-        try:
-            module = ast.parse(source, filename=path, type_comments=True)
-        except (IndentationError, SyntaxError) as error:
-            line = self._error_line()
-            if isinstance(error, SyntaxError) and error.lineno is not None:
-                line = max(error.lineno, 1)
-            findings.append(
-                PythonFinding(
-                    path=path,
-                    symbol="<module>",
-                    rule="PYS001",
-                    detail="syntax",
-                    line=line,
-                )
-            )
-            return tuple(sorted(findings, key=_finding_sort_key))
-        _ImportChecker(path, source_lines, findings).check(module)
-        _AnyChecker(path, findings).check(module)
-        _DocumentationChecker(path, findings).check(module)
-        return tuple(sorted(findings, key=_finding_sort_key))
-
     def __init__(self) -> None:
-        """Initialize a stateless reusable source checker."""
-        self._last_error_line = 1
-
-    def _tokenize(self, source: str) -> None:
-        """Tokenize source and retain an error line for fail-closed findings."""
-        self._last_error_line = 1
-        try:
-            list(tokenize.generate_tokens(io.StringIO(source).readline))
-        except tokenize.TokenError as error:
-            raw_args: tuple[object, ...] = error.args
-            if len(raw_args) > 1:
-                location: object = raw_args[1]
-                if isinstance(location, tuple) and location and isinstance(location[0], int):
-                    self._last_error_line = max(location[0], 1)
-            raise
-
-    def _error_line(self) -> int:
-        """Return the latest parser/tokenizer error line."""
-        return max(self._last_error_line, 1)
+        """Initialize reusable per-scan state."""
+        self._import_counters: dict[tuple[str, str], int] = {}
+        self._path = ""
+        self._lines = ()
+        self._findings = []

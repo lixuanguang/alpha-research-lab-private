@@ -118,7 +118,7 @@ class TestEngineeringStandards:
         with pytest.raises(EngineeringStandardsError) as error:
             validate_repository(root)
 
-        assert any("PYT001" in finding for finding in error.value.findings)
+        assert "PYT001" in str(error.value)
 
     @pytest.mark.parametrize(
         ("line", "expected"),

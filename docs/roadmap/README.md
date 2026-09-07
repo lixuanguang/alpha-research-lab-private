@@ -39,7 +39,7 @@ an asset-specific lifecycle belongs with the first strategy that needs it.
 
 | Priority | Outcome | Current status | Depends on | Completion evidence |
 | --- | --- | --- | --- | --- |
-| P0 | Typed domain foundations and reproducible development | Three domain libraries and uv/CI implemented; bounded cleanup remains | Existing checkout | Existing contract tests, strict checks and isolated installed imports |
+| P0 | Typed domain foundations and reproducible development | Three domain libraries and uv/CI implemented; bounded cleanup complete | Existing checkout | Existing contract tests, strict checks and isolated installed imports |
 | P1 | One causal raw-data-to-net-report baseline | Planned; next delivery | P0 and a permitted source | Saved inputs reproduce a hand-reconciled costed result without future information |
 | P2 | Reusable research and multiple candidate strategies | Planned | P1 data, experiment and accounting interfaces | Two independently configured strategies share infrastructure without sharing mutable state; comparison is reproducible |
 | P3 | Faithful simulation, asset accounting and replay | Planned | P1 accounting and the strategy's required market data; P2 interfaces where used | Deterministic order/fill/state traces, checkpoint parity, realistic costs and reconciled lifecycle events |
@@ -247,9 +247,8 @@ Introduce a control with its concrete trigger, owner, enforcement point and test
 
 ## How to execute and maintain the plan
 
-Finish the remaining bounded [cleanup](../cleanup/README.md) without deleting
-technical design to reach a size target. Then select the first P1 source and
-hypothesis. For each implementation slice, record the input/output contract,
+The bounded [cleanup](../cleanup/README.md#step-5-results) is complete. Select
+the first P1 source and hypothesis while preserving the detailed platform design. For each implementation slice, record the input/output contract,
 affected modules and consumers, persisted identities, critical failure behavior,
 selected tests and a working command or artifact. Update its status here when
 that evidence exists. Keep future work explicitly planned.

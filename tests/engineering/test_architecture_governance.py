@@ -11,8 +11,8 @@ import pytest
 # project library imports
 from alpha_research_governance.architecture_governance import (
     ArchitectureGovernanceError,
-    validate_local_links,
-    validate_repository,
+    ArchitectureGovernanceService,
+    main,
 )
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
@@ -20,7 +20,8 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 
 def test_repository_documentation_links_are_valid() -> None:
     """Validate all current documentation links and heading fragments."""
-    documents = validate_repository(REPOSITORY_ROOT)
+    documents = tuple(sorted((REPOSITORY_ROOT / "docs").rglob("*.md")))
+    ArchitectureGovernanceService(REPOSITORY_ROOT).validate_local_links(documents)
 
     assert documents
     assert all(path.suffix == ".md" for path in documents)
@@ -44,7 +45,7 @@ def test_local_links_reject_invalid_targets(tmp_path: Path, destination: str, me
     source.write_text(f"[target]({destination})\n", encoding="utf-8")
 
     with pytest.raises(ArchitectureGovernanceError, match=message):
-        validate_local_links(root, (source,))
+        ArchitectureGovernanceService(root).validate_local_links((source,))
 
 
 def test_local_links_ignore_external_urls_and_fenced_examples(tmp_path: Path) -> None:
@@ -58,4 +59,28 @@ def test_local_links_ignore_external_urls_and_fenced_examples(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    validate_local_links(root, (source,))
+    ArchitectureGovernanceService(root).validate_local_links((source,))
+
+
+def test_cli_reports_invalid_document_encoding(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Return a controlled failure for unreadable Markdown source encoding."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "invalid.md").write_bytes(b"\xff")
+
+    assert main([str(tmp_path)]) == 1
+    assert "decode" in capsys.readouterr().err
+
+
+def test_link_service_does_not_retain_findings_between_calls(tmp_path: Path) -> None:
+    """Allow correction after failure using the same repository-bound service."""
+    source = tmp_path / "source.md"
+    source.write_text("[missing](missing.md)\n", encoding="utf-8")
+    service = ArchitectureGovernanceService(tmp_path)
+    with pytest.raises(ArchitectureGovernanceError, match="target does not exist"):
+        service.validate_local_links((source,))
+    source.write_text("# Heading\n# Heading\n[self](#heading-1)\n", encoding="utf-8")
+
+    service.validate_local_links((source,))
