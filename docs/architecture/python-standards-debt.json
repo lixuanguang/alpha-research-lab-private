@@ -30,24 +30,6 @@
     }
   },
   "entries": {
-    "src/alpha_research/venue_calendar/adapter.py": [
-      ["_adapt_session", "PYC001", "module-level-function"],
-      ["_apply_overrides", "PYC001", "module-level-function"],
-      ["_as_date", "PYC001", "module-level-function"],
-      ["_as_utc_datetime", "PYC001", "module-level-function"],
-      ["_calendar_library_version", "PYC001", "module-level-function"],
-      ["_load_exchange_calendar", "PYC001", "module-level-function"],
-      ["_required_utc_datetime", "PYC001", "module-level-function"]
-    ],
-    "src/alpha_research/venue_calendar/models.py": [
-      ["_require_bounded_text", "PYC001", "module-level-function"],
-      ["_require_date", "PYC001", "module-level-function"],
-      ["_require_non_nil_uuid", "PYC001", "module-level-function"],
-      ["_require_stable_token", "PYC001", "module-level-function"],
-      ["_require_timezone_name", "PYC001", "module-level-function"],
-      ["_validation_error_message", "PYC001", "module-level-function"],
-      ["require_utc_datetime", "PYC001", "module-level-function"]
-    ],
     "tests/build/build_graph_test.py": [
       ["_dependency_record_errors", "PYC001", "module-level-function"],
       ["_evidence_errors", "PYC001", "module-level-function"],
@@ -443,44 +425,6 @@
       ["test_source_profile_consistency_and_review_dates_fail_closed", "PYC001", "module-level-function"],
       ["test_trust_boundary_must_change_zones", "PYC001", "module-level-function"],
       ["test_unknown_reference_and_missing_category_fail_closed", "PYC001", "module-level-function"]
-    ],
-    "tests/engineering/test_venue_calendar_evidence.py": [
-      ["test_venue_calendar_manifest_matches_partial_r2_profile_and_golden_digest", "PYC001", "module-level-function"]
-    ],
-    "tests/unit/test_venue_calendar.py": [
-      ["_instant", "PYC001", "module-level-function"],
-      ["_load_fixture", "PYC001", "module-level-function"],
-      ["_session", "PYC001", "module-level-function"],
-      ["_venue", "PYC001", "module-level-function"],
-      ["_version", "PYC001", "module-level-function"],
-      ["test_adapter_does_not_depend_on_host_local_timezone", "PYC001", "module-level-function"],
-      ["test_adapter_matches_pinned_cross_timezone_dst_half_day_and_break_fixture", "PYC001", "module-level-function"],
-      ["test_adapter_rejects_mislabeled_source_revision_and_duplicate_source_sessions", "PYC001", "module-level-function"],
-      ["test_auction_windows_allow_repeated_kinds_but_reject_overlap", "PYC001", "module-level-function"],
-      ["test_closure_only_adapter_ranges_preserve_exact_empty_coverage", "PYC001", "module-level-function"],
-      ["test_direct_snapshot_rejects_override_records_that_disagree_with_sessions", "PYC001", "module-level-function"],
-      ["test_explicit_timezone_conversion_preserves_dst_gap_and_fold", "PYC001", "module-level-function"],
-      ["test_explicit_venue_timezone_round_trip_preserves_instant", "PYC001", "module-level-function"],
-      ["test_halt_takes_precedence_over_auction_and_break", "PYC001", "module-level-function"],
-      ["test_incompatible_calendar_library_version_fails_before_source_use", "PYC001", "module-level-function"],
-      ["test_invalid_mic_fails_without_normalization", "PYC001", "module-level-function"],
-      ["test_invalid_optional_source_instant_is_not_treated_as_an_absent_break", "PYC001", "module-level-function"],
-      ["test_invalid_override_target_fails_closed", "PYC001", "module-level-function"],
-      ["test_invalid_time_and_interval_state_fails_closed", "PYC001", "module-level-function"],
-      ["test_market_state_precedence_and_half_open_boundaries", "PYC001", "module-level-function"],
-      ["test_market_state_projection_is_deterministic_for_every_boundary_offset", "PYC001", "module-level-function"],
-      ["test_market_state_projection_stays_within_local_diagnostic_budget", "PYC001", "module-level-function"],
-      ["test_market_state_rejects_incoherent_phase_metadata", "PYC001", "module-level-function"],
-      ["test_market_windows_reject_unsafe_graphs", "PYC001", "module-level-function"],
-      ["test_named_holiday_closure_is_attributed_and_cannot_be_a_session", "PYC001", "module-level-function"],
-      ["test_non_normal_limit_state_is_independent_of_continuous_phase", "PYC001", "module-level-function"],
-      ["test_settlement_calendar_is_bounded_and_does_not_infer_conventions", "PYC001", "module-level-function"],
-      ["test_snapshot_session_graph_rejects_invalid_state", "PYC001", "module-level-function"],
-      ["test_source_session_query_failure_is_translated", "PYC001", "module-level-function"],
-      ["test_unknown_calendar_timezone_mismatch_and_unversioned_override_reject", "PYC001", "module-level-function"],
-      ["test_venue_calendar_models_are_strict_frozen_pydantic_boundaries", "PYC001", "module-level-function"],
-      ["test_venue_identity_and_calendar_version_reject_invalid_state", "PYC001", "module-level-function"],
-      ["test_versioned_override_add_replace_and_remove_actions_are_exact", "PYC001", "module-level-function"]
     ],
     "tools/governance/src/alpha_research_governance/_cli.py": [
       ["run_typer", "PYC001", "module-level-function"]

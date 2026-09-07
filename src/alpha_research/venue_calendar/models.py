@@ -8,11 +8,19 @@ import unicodedata
 from bisect import bisect_right
 from datetime import date, datetime, timedelta
 from enum import StrEnum
+from typing import NotRequired, Protocol, TypedDict
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # third party library imports
-from pydantic import BaseModel, ConfigDict, ValidationError, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    TypeAdapter,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+)
 
 
 class VenueCalendarError(ValueError):
@@ -35,19 +43,35 @@ class CalendarCoverageError(VenueCalendarError):
     """Report a query that lies outside explicit snapshot coverage."""
 
 
-def _validation_error_message(error: ValidationError) -> str:
-    """Join validation messages in field order, retaining translated domain causes."""
-    messages: list[str] = []
-    for detail in error.errors(include_input=False, include_url=False):
-        context = detail.get("ctx")
-        cause = context.get("error") if isinstance(context, dict) else None
-        if isinstance(cause, VenueCalendarValidationError):
-            messages.append(str(cause))
-            continue
-        location = ".".join(str(component) for component in detail["loc"])
-        message = str(detail["msg"]).removeprefix("Value error, ")
-        messages.append(f"{location}: {message}" if location else message)
-    return "\n".join(messages)
+class _ValidationErrorReader(Protocol):
+    """Expose Pydantic error details as an unchecked boundary object."""
+
+    def errors(
+        self,
+        *,
+        include_url: bool = True,
+        include_context: bool = True,
+        include_input: bool = True,
+    ) -> object:
+        """Read error details for immediate validation into the owned record shape."""
+        ...
+
+
+class _ValidationErrorContext(TypedDict, total=False):
+    """Capture optional context while retaining the original exception object."""
+
+    error: object
+
+
+class _ValidationErrorDetail(TypedDict):
+    """Capture the Pydantic fields used in calendar error messages."""
+
+    loc: tuple[int | str, ...]
+    msg: str
+    ctx: NotRequired[_ValidationErrorContext]
+
+
+_VALIDATION_ERROR_DETAILS = TypeAdapter(list[_ValidationErrorDetail])
 
 
 class _VenueCalendarModel(BaseModel):
@@ -69,6 +93,26 @@ class _VenueCalendarModel(BaseModel):
         validate_default=True,
     )
 
+    @staticmethod
+    def _validation_error_message(error: ValidationError) -> str:
+        """Join validation messages in field order, retaining translated domain causes."""
+        messages: list[str] = []
+        error_reader: _ValidationErrorReader = error
+        details = _VALIDATION_ERROR_DETAILS.validate_python(
+            error_reader.errors(include_input=False, include_url=False),
+            strict=True,
+        )
+        for detail in details:
+            context = detail.get("ctx")
+            cause = context.get("error") if context is not None else None
+            if isinstance(cause, VenueCalendarValidationError):
+                messages.append(str(cause))
+                continue
+            location = ".".join(str(component) for component in detail["loc"])
+            message = detail["msg"].removeprefix("Value error, ")
+            messages.append(f"{location}: {message}" if location else message)
+        return "\n".join(messages)
+
     def __init__(self, **data: object) -> None:
         """Validate supplied fields and translate framework validation failures.
 
@@ -81,7 +125,7 @@ class _VenueCalendarModel(BaseModel):
         try:
             super().__init__(**data)
         except ValidationError as error:
-            raise VenueCalendarValidationError(_validation_error_message(error)) from error
+            raise VenueCalendarValidationError(self._validation_error_message(error)) from error
 
 
 _STABLE_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}$")
@@ -1059,6 +1103,16 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
     price_limits: tuple[PriceLimitWindow, ...] = ()
     settlement_calendar: SettlementCalendar | None = None
 
+    @staticmethod
+    def _session_sort_key(session: TradingSession) -> tuple[datetime, date]:
+        """Return the explicit ordering key for one owned trading session."""
+        return session.opens_at, session.session_label
+
+    @staticmethod
+    def _session_opening_time(session: TradingSession) -> datetime:
+        """Return one owned session's UTC opening instant for indexed lookup."""
+        return session.opens_at
+
     @field_validator("venue", "version", "settlement_calendar", mode="before")
     @classmethod
     def typed_snapshot_values(cls, value: object, info: ValidationInfo[object]) -> object:
@@ -1161,7 +1215,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
             raise VenueCalendarValidationError(
                 "sessions must be an immutable tuple of TradingSession values"
             )
-        ordered = tuple(sorted(self.sessions, key=lambda item: (item.opens_at, item.session_label)))
+        ordered = tuple(sorted(self.sessions, key=self._session_sort_key))
         if ordered != self.sessions:
             raise VenueCalendarValidationError("sessions must be ordered by opening instant")
         labels = tuple(session.session_label for session in self.sessions)
@@ -1348,7 +1402,7 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
                 outside coverage.
         """
         checked = require_utc_datetime(instant, field_name="instant")
-        session_index = bisect_right(self.sessions, checked, key=lambda item: item.opens_at) - 1
+        session_index = bisect_right(self.sessions, checked, key=self._session_opening_time) - 1
         session = self.sessions[session_index] if session_index >= 0 else None
         if session is None or not session.contains(checked):
             local_date = checked.astimezone(ZoneInfo(self.venue.timezone_name)).date()
