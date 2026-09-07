@@ -45,121 +45,125 @@ def _run_make(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_uv_backend_preserves_the_legacy_rollback_path() -> None:
-    """Verify the uv dry-run check sequence remains available without Bazel commands."""
-    rollback_dry_run = _run_make("-n", "BUILD_BACKEND=uv", "check")
+class TestRootCommandContracts:
+    """Exercise rollback, automation and authoritative CI root commands."""
 
-    assert rollback_dry_run.returncode == 0, rollback_dry_run.stderr
-    assert "bazel " not in rollback_dry_run.stdout
-    assert rollback_dry_run.stdout.splitlines() == [
-        "uv lock --check",
-        "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs",
-        "uv run --frozen ruff format --check src tests tools/governance/src tools/typing/stubs",
-        "uv run --frozen mypy --strict src tests tools/governance/src tools/typing/stubs",
-        "uv run --frozen python -m alpha_research_governance.engineering_standards.python_typing",
-        "uv run --frozen python -m mypy.stubtest "
-        "--mypy-config-file=tools/typing/stubtest.toml "
-        "--ignore-missing-stub QuantLib exchange_calendars pandas",
-        "uv run --frozen alpha-governance-engineering-standards",
-        "uv run --frozen alpha-governance-dependencies",
-        "uv run --frozen alpha-governance-artifacts",
-        "uv run --frozen alpha-governance-architecture",
-        "uv run --frozen alpha-governance-ownership",
-        "uv run --frozen alpha-governance-change-risk",
-        "uv run --frozen alpha-governance-evidence",
-        "uv run --frozen alpha-governance-topology",
-        "uv run --frozen alpha-governance-inventory",
-        "uv run --frozen alpha-governance-security",
-        "uv run --frozen alpha-governance-program",
-        "uv run --frozen alpha-governance-ci",
-        "uv run --frozen alpha-governance-remote-execution",
-        "uv run --frozen bandit -q -c pyproject.toml -r src tools/governance/src",
-        "uv run --frozen --no-editable pytest -q",
-        "uv run --frozen --no-editable pytest -q -m integration",
-        'uv run --frozen --no-editable python -c "import alpha_research"',
-        "uv build --no-sources",
-    ]
+    def test_uv_backend_preserves_the_legacy_rollback_path(self) -> None:
+        """Verify the uv dry-run check sequence remains available without Bazel commands."""
+        rollback_dry_run = _run_make("-n", "BUILD_BACKEND=uv", "check")
 
+        assert rollback_dry_run.returncode == 0, rollback_dry_run.stderr
+        assert "bazel " not in rollback_dry_run.stdout
+        assert rollback_dry_run.stdout.splitlines() == [
+            "uv lock --check",
+            "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs",
+            "uv run --frozen ruff format --check src tests tools/governance/src tools/typing/stubs",
+            "uv run --frozen mypy --strict src tests tools/governance/src tools/typing/stubs",
+            "uv run --frozen python -m "
+            "alpha_research_governance.engineering_standards.python_typing",
+            "uv run --frozen python -m mypy.stubtest "
+            "--mypy-config-file=tools/typing/stubtest.toml "
+            "--ignore-missing-stub QuantLib exchange_calendars pandas",
+            "uv run --frozen alpha-governance-engineering-standards",
+            "uv run --frozen alpha-governance-dependencies",
+            "uv run --frozen alpha-governance-artifacts",
+            "uv run --frozen alpha-governance-architecture",
+            "uv run --frozen alpha-governance-ownership",
+            "uv run --frozen alpha-governance-change-risk",
+            "uv run --frozen alpha-governance-evidence",
+            "uv run --frozen alpha-governance-topology",
+            "uv run --frozen alpha-governance-inventory",
+            "uv run --frozen alpha-governance-security",
+            "uv run --frozen alpha-governance-program",
+            "uv run --frozen alpha-governance-ci",
+            "uv run --frozen alpha-governance-remote-execution",
+            "uv run --frozen bandit -q -c pyproject.toml -r src tools/governance/src",
+            "uv run --frozen --no-editable pytest -q",
+            "uv run --frozen --no-editable pytest -q -m integration",
+            'uv run --frozen --no-editable python -c "import alpha_research"',
+            "uv build --no-sources",
+        ]
 
-def test_repository_automation_wires_current_toolchain_and_governance_checks() -> None:
-    """Verify Make, pre-commit and CI reference the current toolchain and governance commands."""
-    makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
-    pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    continuous_integration = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(
-        encoding="utf-8"
-    )
-    documentation = (REPOSITORY_ROOT / "docs/README.md").read_text(encoding="utf-8")
-
-    for canonical_command in GOVERNANCE_COMMANDS:
-        assert canonical_command in makefile
-        assert canonical_command in pre_commit
-    assert "make ci-full" in continuous_integration
-    assert "make ci-fast" in continuous_integration
-    assert "make dependency-audit" in continuous_integration
-    assert "make remote-build" in continuous_integration
-    assert "make remote-test" in continuous_integration
-    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in (
-        continuous_integration
-    )
-    assert "build/ci/fast-events.jsonl" in continuous_integration
-    assert "build/ci/full-events.jsonl" in continuous_integration
-    assert "retention-days: 30" in continuous_integration
-    assert "github.event_name == 'push'" in continuous_integration
-
-    assert "tools/governance/src/alpha_research_governance/change_risk/[a-z_]+\\.py" in (pre_commit)
-    assert "--github-event" in continuous_integration
-    for command_suffix in ("ownership", "change-risk", "evidence"):
-        assert f"uv run --frozen alpha-governance-{command_suffix}" in pre_commit
-    assert "id: repository-topology" in pre_commit
-    assert "id: dependency-admission" in pre_commit
-    assert "always_run: true" in pre_commit
-
-    automation_configuration = makefile + pre_commit + continuous_integration
-    assert "python -m alpha_research." not in automation_configuration
-    assert "PYTHONPATH=src" not in automation_configuration
-    assert all(
-        fragment not in automation_configuration
-        for fragment in (
-            "alpha_core",
-            "apps/",
-            "duckdb",
-            "libs/core",
-            "research-smoke",
-            'python-version: ["3.11"]',
-            ".[dev,research]",
+    def test_repository_automation_wires_current_toolchain_and_governance_checks(self) -> None:
+        """Verify Make, pre-commit and CI reference current toolchain commands."""
+        makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
+        pre_commit = (REPOSITORY_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        continuous_integration = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
         )
-    )
+        documentation = (REPOSITORY_ROOT / "docs/README.md").read_text(encoding="utf-8")
 
-    assert "uv sync --frozen" in continuous_integration
-    assert "rollback-check" in makefile
-    assert 'version: "0.12.7"' in continuous_integration
-    assert "repo: local" in pre_commit
-    assert "uv lock --check" in pre_commit
-    for make_target in (
-        "ci-policy-check",
-        "ci-secrets-check",
-        "ci-schema-check",
-        "dependency-admission-check",
-        "dependency-audit",
-        "artifact-supply-chain-check",
-        "engineering-standards-check",
-        "inventory-check",
-        "program-governance-check",
-        "security-controls-check",
-    ):
-        assert f"make {make_target}" in documentation
-    assert "program-status:" in makefile
-    assert "governance-check:" in makefile
+        for canonical_command in GOVERNANCE_COMMANDS:
+            assert canonical_command in makefile
+            assert canonical_command in pre_commit
+        assert "make ci-full" in continuous_integration
+        assert "make ci-fast" in continuous_integration
+        assert "make dependency-audit" in continuous_integration
+        assert "make remote-build" in continuous_integration
+        assert "make remote-test" in continuous_integration
+        assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in (
+            continuous_integration
+        )
+        assert "build/ci/fast-events.jsonl" in continuous_integration
+        assert "build/ci/full-events.jsonl" in continuous_integration
+        assert "retention-days: 30" in continuous_integration
+        assert "github.event_name == 'push'" in continuous_integration
 
+        assert "tools/governance/src/alpha_research_governance/change_risk/[a-z_]+\\.py" in (
+            pre_commit
+        )
+        assert "--github-event" in continuous_integration
+        for command_suffix in ("ownership", "change-risk", "evidence"):
+            assert f"uv run --frozen alpha-governance-{command_suffix}" in pre_commit
+        assert "id: repository-topology" in pre_commit
+        assert "id: dependency-admission" in pre_commit
+        assert "always_run: true" in pre_commit
 
-def test_affected_and_authoritative_full_ci_root_interfaces_are_explicit() -> None:
-    """Verify dry-run fast and full CI commands include their required revision boundaries."""
-    fast = _run_make("-n", "ci-fast", "CI_BASE_REF=HEAD", "CI_HEAD_REF=HEAD")
-    full = _run_make("-n", "ci-full", "CI_BASE_REF=HEAD")
+        automation_configuration = makefile + pre_commit + continuous_integration
+        assert "python -m alpha_research." not in automation_configuration
+        assert "PYTHONPATH=src" not in automation_configuration
+        assert all(
+            fragment not in automation_configuration
+            for fragment in (
+                "alpha_core",
+                "apps/",
+                "duckdb",
+                "libs/core",
+                "research-smoke",
+                'python-version: ["3.11"]',
+                ".[dev,research]",
+            )
+        )
 
-    assert fast.returncode == 0, fast.stderr
-    assert "alpha-governance-ci fast" in fast.stdout
-    assert "--base-ref HEAD --head-ref HEAD" in fast.stdout
-    assert full.returncode == 0, full.stderr
-    assert "alpha-governance-ci full" in full.stdout
-    assert "--base-ref HEAD" in full.stdout
+        assert "uv sync --frozen" in continuous_integration
+        assert "rollback-check" in makefile
+        assert 'version: "0.12.7"' in continuous_integration
+        assert "repo: local" in pre_commit
+        assert "uv lock --check" in pre_commit
+        for make_target in (
+            "ci-policy-check",
+            "ci-secrets-check",
+            "ci-schema-check",
+            "dependency-admission-check",
+            "dependency-audit",
+            "artifact-supply-chain-check",
+            "engineering-standards-check",
+            "inventory-check",
+            "program-governance-check",
+            "security-controls-check",
+        ):
+            assert f"make {make_target}" in documentation
+        assert "program-status:" in makefile
+        assert "governance-check:" in makefile
+
+    def test_affected_and_authoritative_full_ci_root_interfaces_are_explicit(self) -> None:
+        """Verify dry-run fast and full CI commands include their required revision boundaries."""
+        fast = _run_make("-n", "ci-fast", "CI_BASE_REF=HEAD", "CI_HEAD_REF=HEAD")
+        full = _run_make("-n", "ci-full", "CI_BASE_REF=HEAD")
+
+        assert fast.returncode == 0, fast.stderr
+        assert "alpha-governance-ci fast" in fast.stdout
+        assert "--base-ref HEAD --head-ref HEAD" in fast.stdout
+        assert full.returncode == 0, full.stderr
+        assert "alpha-governance-ci full" in full.stdout
+        assert "--base-ref HEAD" in full.stdout

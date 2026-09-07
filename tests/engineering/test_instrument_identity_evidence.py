@@ -4,7 +4,11 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import shutil
 from pathlib import Path
+
+# third party library imports
+import pytest
 
 # project library imports
 from alpha_research_governance.change_risk import (
@@ -49,52 +53,68 @@ INSTRUMENT_IDENTITY_APPLICABLE_QUALITY_GATES = (
 )
 
 
-def test_instrument_identity_manifest_matches_partial_r2_profile_and_golden_digest() -> None:
-    """Bind the partial C01 risk profile, findings and golden digest to retained evidence."""
-    instrument_identity_evidence_manifest = validate_manifest(
-        INSTRUMENT_IDENTITY_EVIDENCE_MANIFEST_PATH,
-        expected_commit_sha="c" * 40,
-        change_policy=load_change_risk_policy(CHANGE_RISK_POLICY_PATH),
-    )
-    expected_instrument_identity_evidence_profile = PackageEvidenceProfile(
-        roadmap_package_id=INSTRUMENT_IDENTITY_ROADMAP_PACKAGE_ID,
-        accountable_owner_role="domain_architecture",
-        risk_class=RiskClass.R2,
-        classification_facts=ChangeRiskInput(
-            capital_at_risk=False,
-            blast_radius="shared_domain",
-            data_model_materiality="shared_or_candidate",
-            security_privilege="none",
-            reversibility="compatibility_window",
-            computationally_material=False,
-            economically_or_risk_relevant=False,
-            model_or_trading_relevant=False,
-            declared_class=RiskClass.R2,
-        ),
-        gate_requirements=tuple(
-            PackageGateRequirement(gate_id=gate_id, status="passed")
-            for gate_id in INSTRUMENT_IDENTITY_APPLICABLE_QUALITY_GATES
-        ),
-        expected_package_status="partial",
-        expected_finding_ids=("C01-F01", "C01-F02", "C01-F03"),
-        approvals_permitted=False,
-        waivers_permitted=False,
-        additional_required_gates_permitted=False,
-    )
+class TestInstrumentIdentityEvidence:
+    """Exercise the C01 instrument-identity evidence contract."""
 
-    validate_package_evidence(
-        instrument_identity_evidence_manifest,
-        expected_instrument_identity_evidence_profile,
-    )
+    def test_instrument_identity_manifest_matches_partial_r2_profile_and_golden_digest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Bind the partial C01 risk profile, findings and golden digest to retained evidence."""
+        # Bazel supplies symlinked runfiles. Materialize fixture bytes; keep the
+        # production validator's rejection of symlinked manifests/artifacts intact.
+        fixture_root = shutil.copytree(
+            INSTRUMENT_IDENTITY_EVIDENCE_MANIFEST_PATH.parent,
+            tmp_path / "c01-r2-partial",
+        )
+        instrument_identity_evidence_manifest = validate_manifest(
+            fixture_root / "manifest.toml",
+            expected_commit_sha="c" * 40,
+            change_policy=load_change_risk_policy(CHANGE_RISK_POLICY_PATH),
+        )
+        expected_instrument_identity_evidence_profile = PackageEvidenceProfile(
+            roadmap_package_id=INSTRUMENT_IDENTITY_ROADMAP_PACKAGE_ID,
+            accountable_owner_role="domain_architecture",
+            risk_class=RiskClass.R2,
+            classification_facts=ChangeRiskInput(
+                capital_at_risk=False,
+                blast_radius="shared_domain",
+                data_model_materiality="shared_or_candidate",
+                security_privilege="none",
+                reversibility="compatibility_window",
+                computationally_material=False,
+                economically_or_risk_relevant=False,
+                model_or_trading_relevant=False,
+                declared_class=RiskClass.R2,
+            ),
+            gate_requirements=tuple(
+                PackageGateRequirement(gate_id=gate_id, status="passed")
+                for gate_id in INSTRUMENT_IDENTITY_APPLICABLE_QUALITY_GATES
+            ),
+            expected_package_status="partial",
+            expected_finding_ids=("C01-F01", "C01-F02", "C01-F03"),
+            approvals_permitted=False,
+            waivers_permitted=False,
+            additional_required_gates_permitted=False,
+        )
 
-    actual_golden_fixture_sha256 = hashlib.sha256(
-        INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_PATH.read_bytes()
-    ).hexdigest()
-    assert actual_golden_fixture_sha256 == INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_SHA256
-    contract_and_goldens_report = (
-        INSTRUMENT_IDENTITY_EVIDENCE_MANIFEST_PATH.parent / "reports/contract-and-goldens.txt"
-    ).read_text(encoding="utf-8")
-    assert (
-        f"Fixture SHA-256: {INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_SHA256}."
-        in contract_and_goldens_report
-    )
+        validate_package_evidence(
+            instrument_identity_evidence_manifest,
+            expected_instrument_identity_evidence_profile,
+        )
+
+        actual_golden_fixture_sha256 = hashlib.sha256(
+            INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_PATH.read_bytes()
+        ).hexdigest()
+        assert actual_golden_fixture_sha256 == INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_SHA256
+        contract_and_goldens_report = (
+            INSTRUMENT_IDENTITY_EVIDENCE_MANIFEST_PATH.parent / "reports/contract-and-goldens.txt"
+        ).read_text(encoding="utf-8")
+        assert (
+            f"Fixture SHA-256: {INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_SHA256}."
+            in contract_and_goldens_report
+        )
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q", "-W", "error"]))

@@ -101,76 +101,6 @@ def _profile(manifest: EvidenceManifest) -> PackageEvidenceProfile:
     )
 
 
-def test_build_graph_manifest_matches_its_exact_partial_r2_profile() -> None:
-    """Validate that the B02 synthetic partial-R2 manifest matches its exact profile."""
-    manifest = validate_manifest(
-        BUILD_GRAPH_MANIFEST_PATH,
-        expected_commit_sha="8" * 40,
-        change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
-    )
-    profile = PackageEvidenceProfile(
-        roadmap_package_id="B02",
-        accountable_owner_role="platform",
-        risk_class=RiskClass.R2,
-        classification_facts=ChangeRiskInput(
-            capital_at_risk=False,
-            blast_radius="shared_domain",
-            data_model_materiality="shared_or_candidate",
-            security_privilege="none",
-            reversibility="compatibility_window",
-            computationally_material=True,
-            economically_or_risk_relevant=False,
-            model_or_trading_relevant=False,
-            declared_class=RiskClass.R2,
-        ),
-        gate_requirements=tuple(
-            PackageGateRequirement(gate_id=gate.gate_id, status="passed") for gate in manifest.gates
-        ),
-        expected_package_status="partial",
-        expected_finding_ids=("B02-F01", "B02-F02", "B02-F03"),
-        approvals_permitted=False,
-        waivers_permitted=False,
-        additional_required_gates_permitted=False,
-    )
-
-    validate_package_evidence(manifest, profile)
-
-
-def test_developer_environment_manifest_matches_its_exact_partial_r2_profile() -> None:
-    """Validate that the B03 synthetic partial-R2 manifest matches its exact profile."""
-    manifest = validate_manifest(
-        DEVELOPER_ENVIRONMENT_MANIFEST_PATH,
-        expected_commit_sha="9" * 40,
-        change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
-    )
-    profile = PackageEvidenceProfile(
-        roadmap_package_id="B03",
-        accountable_owner_role="platform",
-        risk_class=RiskClass.R2,
-        classification_facts=ChangeRiskInput(
-            capital_at_risk=False,
-            blast_radius="shared_domain",
-            data_model_materiality="shared_or_candidate",
-            security_privilege="none",
-            reversibility="compatibility_window",
-            computationally_material=True,
-            economically_or_risk_relevant=False,
-            model_or_trading_relevant=False,
-            declared_class=RiskClass.R2,
-        ),
-        gate_requirements=tuple(
-            PackageGateRequirement(gate_id=gate.gate_id, status="passed") for gate in manifest.gates
-        ),
-        expected_package_status="partial",
-        expected_finding_ids=("B03-F01", "B03-F02", "B03-F03"),
-        approvals_permitted=False,
-        waivers_permitted=False,
-        additional_required_gates_permitted=False,
-    )
-
-    validate_package_evidence(manifest, profile)
-
-
 def _copy_manifest_with_updates(manifest: EvidenceManifest, **updates: object) -> EvidenceManifest:
     """Return a schema-valid immutable manifest copy with selected fields replaced.
 
@@ -186,7 +116,28 @@ def _copy_manifest_with_updates(manifest: EvidenceManifest, **updates: object) -
     Raises:
         pydantic.ValidationError: An update does not satisfy the manifest model contract.
     """
-    return EvidenceManifest.model_validate({**manifest.model_dump(round_trip=True), **updates})
+    payload: dict[str, object] = {
+        "bundle_id": manifest.bundle_id,
+        "roadmap_id": manifest.roadmap_id,
+        "commit_sha": manifest.commit_sha,
+        "owner_role": manifest.owner_role,
+        "risk_class": manifest.risk_class,
+        "evidence_retention_class": manifest.evidence_retention_class,
+        "additional_required_gates": manifest.additional_required_gates,
+        "bundle_status": manifest.bundle_status,
+        "waived_controls": manifest.waived_controls,
+        "open_finding_ids": manifest.open_finding_ids,
+        "change": manifest.change,
+        "gates": manifest.gates,
+        "artifacts": manifest.artifacts,
+        "approvals": manifest.approvals,
+        "schema_version": manifest.schema_version,
+        "operating_domain": manifest.operating_domain,
+        "accepted_by": manifest.accepted_by,
+        "accepted_on": manifest.accepted_on,
+    }
+    payload.update(updates)
+    return EvidenceManifest.model_validate(payload)
 
 
 def _wrong_owner(manifest: EvidenceManifest) -> EvidenceManifest:
@@ -211,8 +162,16 @@ def _changed_risk_fact(manifest: EvidenceManifest) -> EvidenceManifest:
         A schema-valid manifest whose security privilege is ``shared_sensitive`` and therefore
         differs from the A06 profile's declared risk facts.
     """
-    changed = ChangeRiskInput.model_validate(
-        {**manifest.change.model_dump(), "security_privilege": "shared_sensitive"}
+    changed = ChangeRiskInput(
+        capital_at_risk=manifest.change.capital_at_risk,
+        blast_radius=manifest.change.blast_radius,
+        data_model_materiality=manifest.change.data_model_materiality,
+        security_privilege="shared_sensitive",
+        reversibility=manifest.change.reversibility,
+        computationally_material=manifest.change.computationally_material,
+        economically_or_risk_relevant=manifest.change.economically_or_risk_relevant,
+        model_or_trading_relevant=manifest.change.model_or_trading_relevant,
+        declared_class=manifest.change.declared_class,
     )
     return _copy_manifest_with_updates(manifest, change=changed)
 
@@ -260,8 +219,12 @@ def _changed_gate_status(manifest: EvidenceManifest) -> EvidenceManifest:
     Returns:
         A schema-valid manifest whose first gate status disagrees with the A06 profile.
     """
-    failed_gate = GateEvidence.model_validate(
-        {**manifest.gates[0].model_dump(), "status": "failed"}
+    first_gate = manifest.gates[0]
+    failed_gate = GateEvidence(
+        gate_id=first_gate.gate_id,
+        status="failed",
+        rationale=first_gate.rationale,
+        evidence_ids=first_gate.evidence_ids,
     )
     return _copy_manifest_with_updates(manifest, gates=(failed_gate, *manifest.gates[1:]))
 
@@ -341,26 +304,101 @@ def _wrong_roadmap(manifest: EvidenceManifest) -> EvidenceManifest:
     return _copy_manifest_with_updates(manifest, roadmap_id="A07")
 
 
-@pytest.mark.parametrize(
-    ("mutation", "message"),
-    [
-        (_wrong_owner, "owner must match"),
-        (_changed_risk_fact, "change.security_privilege"),
-        (_missing_gate, "missing=\\['QG14'\\]"),
-        (_additional_gate, "additional=\\['QG15'\\]"),
-        (_changed_gate_status, "required gate statuses"),
-        (_unexpected_approval, "cannot contain approvals"),
-        (_waiver, "cannot contain control waivers"),
-        (_caller_additional_gate, "cannot redefine applicable gates"),
-        (_wrong_findings, "expected findings exactly"),
-        (_wrong_roadmap, "roadmap ID must be A06"),
-    ],
-)
-def test_package_profile_rejects_manifest_drift(
-    mutation: Callable[[EvidenceManifest], EvidenceManifest], message: str
-) -> None:
-    """Reject each adversarial manifest mutation with its expected profile diagnostic."""
-    manifest = _manifest()
+class TestPackageEvidenceProfiles:
+    """Exercise exact package-evidence profiles and adversarial manifest drift."""
 
-    with pytest.raises(EvidenceGovernanceError, match=message):
-        validate_package_evidence(mutation(manifest), _profile(manifest))
+    def test_build_graph_manifest_matches_its_exact_partial_r2_profile(self) -> None:
+        """Validate that the B02 synthetic partial-R2 manifest matches its exact profile."""
+        manifest = validate_manifest(
+            BUILD_GRAPH_MANIFEST_PATH,
+            expected_commit_sha="8" * 40,
+            change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
+        )
+        profile = PackageEvidenceProfile(
+            roadmap_package_id="B02",
+            accountable_owner_role="platform",
+            risk_class=RiskClass.R2,
+            classification_facts=ChangeRiskInput(
+                capital_at_risk=False,
+                blast_radius="shared_domain",
+                data_model_materiality="shared_or_candidate",
+                security_privilege="none",
+                reversibility="compatibility_window",
+                computationally_material=True,
+                economically_or_risk_relevant=False,
+                model_or_trading_relevant=False,
+                declared_class=RiskClass.R2,
+            ),
+            gate_requirements=tuple(
+                PackageGateRequirement(gate_id=gate.gate_id, status="passed")
+                for gate in manifest.gates
+            ),
+            expected_package_status="partial",
+            expected_finding_ids=("B02-F01", "B02-F02", "B02-F03"),
+            approvals_permitted=False,
+            waivers_permitted=False,
+            additional_required_gates_permitted=False,
+        )
+
+        validate_package_evidence(manifest, profile)
+
+    def test_developer_environment_manifest_matches_its_exact_partial_r2_profile(
+        self,
+    ) -> None:
+        """Validate that the B03 synthetic partial-R2 manifest matches its exact profile."""
+        manifest = validate_manifest(
+            DEVELOPER_ENVIRONMENT_MANIFEST_PATH,
+            expected_commit_sha="9" * 40,
+            change_policy=load_change_risk_policy(CHANGE_POLICY_PATH),
+        )
+        profile = PackageEvidenceProfile(
+            roadmap_package_id="B03",
+            accountable_owner_role="platform",
+            risk_class=RiskClass.R2,
+            classification_facts=ChangeRiskInput(
+                capital_at_risk=False,
+                blast_radius="shared_domain",
+                data_model_materiality="shared_or_candidate",
+                security_privilege="none",
+                reversibility="compatibility_window",
+                computationally_material=True,
+                economically_or_risk_relevant=False,
+                model_or_trading_relevant=False,
+                declared_class=RiskClass.R2,
+            ),
+            gate_requirements=tuple(
+                PackageGateRequirement(gate_id=gate.gate_id, status="passed")
+                for gate in manifest.gates
+            ),
+            expected_package_status="partial",
+            expected_finding_ids=("B03-F01", "B03-F02", "B03-F03"),
+            approvals_permitted=False,
+            waivers_permitted=False,
+            additional_required_gates_permitted=False,
+        )
+
+        validate_package_evidence(manifest, profile)
+
+    @pytest.mark.parametrize(
+        ("mutation", "message"),
+        [
+            (_wrong_owner, "owner must match"),
+            (_changed_risk_fact, "change.security_privilege"),
+            (_missing_gate, "missing=\\['QG14'\\]"),
+            (_additional_gate, "additional=\\['QG15'\\]"),
+            (_changed_gate_status, "required gate statuses"),
+            (_unexpected_approval, "cannot contain approvals"),
+            (_waiver, "cannot contain control waivers"),
+            (_caller_additional_gate, "cannot redefine applicable gates"),
+            (_wrong_findings, "expected findings exactly"),
+            (_wrong_roadmap, "roadmap ID must be A06"),
+        ],
+    )
+    def test_package_profile_rejects_manifest_drift(
+        self, mutation: Callable[[EvidenceManifest], EvidenceManifest], message: str
+    ) -> None:
+        """Reject each adversarial manifest mutation with its expected profile diagnostic."""
+        manifest = _manifest()
+
+        with pytest.raises(EvidenceGovernanceError, match=message):
+            validate_package_evidence(mutation(manifest), _profile(manifest))

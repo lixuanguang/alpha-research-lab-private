@@ -4,7 +4,11 @@ from __future__ import annotations
 
 # standard library imports
 import hashlib
+import shutil
 from pathlib import Path
+
+# third party library imports
+import pytest
 
 # project library imports
 from alpha_research_governance.change_risk import ChangeRiskInput, RiskClass
@@ -49,10 +53,16 @@ class TestVenueCalendarEvidence:
 
     def test_venue_calendar_manifest_matches_partial_r2_profile_and_golden_digest(
         self,
+        tmp_path: Path,
     ) -> None:
         """Bind the partial C02 risk profile, findings and golden digest to retained evidence."""
+        # Bazel supplies symlinked runfiles. Materialize fixture bytes; keep the
+        # production validator's rejection of symlinked manifests/artifacts intact.
+        fixture_root = shutil.copytree(
+            VENUE_CALENDAR_EVIDENCE_MANIFEST_PATH.parent, tmp_path / "c02-r2-partial"
+        )
         venue_calendar_evidence_manifest = validate_manifest(
-            VENUE_CALENDAR_EVIDENCE_MANIFEST_PATH,
+            fixture_root / "manifest.toml",
             expected_commit_sha="f" * 40,
             change_policy=load_change_risk_policy(CHANGE_RISK_POLICY_PATH),
         )
@@ -98,3 +108,7 @@ class TestVenueCalendarEvidence:
             f"Fixture SHA-256: {VENUE_CALENDAR_GOLDEN_FIXTURE_SHA256}."
             in contract_and_goldens_report
         )
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q", "-W", "error"]))

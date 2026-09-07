@@ -7,7 +7,7 @@ Status: steps 1–5 are implemented; step 6 remains in progress and step 7 remai
 planned. Step 5 closed the existing-source documentation queue in 31 slices on
 2026-09-06; its completion snapshot recorded 798 `PYC001` dispositions across
 73 files, no `PYD001` or `PYD002`, and 686 inferred-typing diagnostics. The
-current Step-6 slice leaves 647 `PYC001` dispositions across 57 files and 533
+current Step-6 slice leaves 324 `PYC001` dispositions across 36 files and 229
 inferred-typing diagnostics.
 Step 6 has completed the change-risk pilot and the program loading/status service
 extraction, including the residual package-state and local-evidence workflows.
@@ -26,6 +26,10 @@ The venue-calendar adapter, models and associated unit/evidence-test slice is
 also implemented, with its six existing Hypothesis decorator diagnostics retained.
 The `tests/build` workflows and associated contract tests in queue item 8 are
 also implemented, with no remaining source or inferred-typing debt in that scope.
+The `tests/engineering` slice is also implemented: its test contracts and fixture
+workflows have explicit class ownership, and all source and inferred-typing debt
+in that directory is retired. Retained fixture entry points and small helpers
+have individual reviewed dispositions.
 The nine residual dataclasses in the Python source scanner and security-control
 map loader now use Pydantic models, preserving mutable invocation state where needed.
 
@@ -313,7 +317,7 @@ Keep each slice passing; this plan does not activate unfinished rules globally.
 | 3. Remove explicit Any in tests — implemented | Replaced the two modules' escape hatches with validated fixture records, callable types and runtime narrowing; documented their helpers. Retired all 14 explicit-typing obligations. | Zero source-level `Any`; strict mypy and focused financial-unit/developer-environment tests pass; existing invalid-input entry points and parametrizations are preserved. See the step-3 validation record below. |
 | 4. Strengthen library and parsing boundaries — implemented | Activated the Pydantic plugin and stronger scoped flags; typed validation contexts and native stubs; narrowed parsed tables and rejected malformed lock roots. Added an exact, attributed inferred-debt inventory. | Full-scope strict checks and seven expression scopes pass; remaining diagnostics have causes and retirement tasks. Stubtest, native conformance, validation and existing goldens pass. See the step-4 records below. |
 | 5. Document existing contracts — implemented | Closed the existing-source documentation queue in 31 doc-only slices across domain, governance, test, policy, helper, loader, runner and artifact contracts. Moved workflows remain step 6; global rule activation remains deferred. | Final scan: zero `PYD001`/`PYD002`; 798 `PYC001` dispositions across 73 files; inferred typing remains at 686 diagnostics. See the consolidated Step-5 validation record below. |
-| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and approval evaluator, program loading/status services, residual program workflows, security-control map loader and financial settlement conventions while retaining the public function APIs. Queue items 1 and 2 are complete; inventory loading is next in queue item 3. The settlement responsibility in queue item 7 and financial-model/test, instrument-identity-model/test and venue-calendar source/test portions of queue item 8 are complete. Depends on steps 2–4 for the owning package. | The completed slices preserve schemas, serialized results, ordered findings, exception boundaries, evidence and CLI contracts. See the step-6 records below. |
+| 6. Refactor workflows into classes — in progress | Implemented the change-risk classifier and approval evaluator, program loading/status services, residual program workflows, security-control map loader and financial settlement conventions while retaining the public function APIs. Queue items 1 and 2 are complete; inventory loading is next in queue item 3. The settlement responsibility in queue item 7 and financial-model/test, instrument-identity-model/test, venue-calendar source/test, `tests/build` and `tests/engineering` portions of queue item 8 are complete. Depends on steps 2–4 for the owning package. | The completed slices preserve schemas, serialized results, ordered findings, exception boundaries, evidence and CLI contracts. See the step-6 records below. |
 | 7. Finish adoption and make checks unconditional | Migrate callers, audit remaining functions, reduce temporary wrappers, and eliminate the standards debt inventory. Depends on steps 3–6. | All completion criteria below pass, root/local/Bazel/hosted checks agree, and any supported compatibility facade is explicitly documented. |
 
 For gradual enforcement, use exact rule plus module/qualified-symbol identities,
@@ -749,6 +753,39 @@ the six entry points and their small parsing, path, runfiles and process helpers
 This completes the `tests/build` portion of queue item 8; step 6 remains in
 progress elsewhere.
 
+### Step 6 implementation — engineering test contracts
+
+The engineering tests now use classes grouped by policy, validation, CLI and
+execution contract. Artifact creation/signing, dependency and bootstrap-wheel
+fixtures, repository topology, security repositories and implementation bundles
+have explicit typed fixture services. Constructors bind their dependencies;
+materialization methods own filesystem effects. Small payload builders, parsing
+guards, mutation primitives and pytest entry points remain functions with
+individual fingerprinted dispositions.
+
+Raw JSON and invalid-model payloads retain the original validation entry points
+and assertions. Typed parsing boundaries and identity-preserving guards replace
+unsafe casts; copied nested values are assigned back before mutation. Exact
+generic Protocols describe the two consumed Hypothesis decorator signatures,
+including the receiver and removal of generated keyword arguments. They bind
+directly to `given`, preserving the original strategies and settings without
+new suppressions, runtime adapters or stub files.
+
+The audit found three Bazel entry points that exited without invoking pytest:
+artifact supply chain, instrument-identity evidence and venue-calendar evidence.
+Their module guards now execute the tests. Artifact repository inputs and C01/C02
+evidence are materialized as regular files from runfiles, following the existing
+C03 fixture pattern and preserving production symlink rejection. The C03 guard
+also follows all test definitions. The dependency-admission target declares its
+new direct Pydantic import dependency.
+
+All 323 source obligations and 304 inferred diagnostics across 136 identities
+retire from `tests/engineering`. Ninety-five retained entry points and small
+helpers have reviewed, attributed, expiring AST fingerprints. Test terminal names,
+parameter IDs, effective markers and all 539 collected cases are preserved;
+selectors for migrated tests now include their contract class. This completes
+the engineering-test portion of queue item 8; step 6 remains open elsewhere.
+
 ### Class migration queue
 
 Paths below are relative to `tools/governance/src/alpha_research_governance` unless
@@ -763,7 +800,7 @@ prefixed with `src/`. Names are proposed responsibilities, not mandatory new fil
 | 5. `evidence/manifest.py`, `mr.py`, `package.py`, `artifact_supply_chain/bundle.py` | Separate evidence validation, bundle creation and bundle verification services. | Digest/path validation, operation and revision binding, malformed-input rejection, file write boundaries and signature behavior. |
 | 6. `ci_policy/runner.py`, `selection.py`, `remote_execution/runner.py` | `CIRunner` and `RemoteExecutionRunner`; use a typed command-execution collaborator where injection is useful. | Fast/full selection, exact argv/environment, trust/secret checks, exit codes, event contents/order and safe fallback. |
 | 7. Remaining CLI modules, policies and `src/alpha_research/financial_units/conventions.py` — settlement service implemented | Thin CLI callbacks delegating to services remain; `SettlementConventions(calendar)` now owns settlement adjustment and lag operations. | Console scripts, `python -m` entry points and facade imports; settlement date/coverage errors; keep arithmetic and conversion kernels small. |
-| 8. `tests/` and residual source helpers — `tests/build` slice implemented | Contract-oriented test classes and a completed function-disposition inventory. Build/environment/fixture workflows now have explicit service ownership; remaining test and source-helper scopes stay open. | Pytest/Bazel collection, parametrization, fixtures, markers, external selectors and meaningful failures. |
+| 8. `tests/` and residual source helpers — `tests/build` and `tests/engineering` slices implemented | Contract-oriented test classes and a completed function-disposition inventory in both directories. Build/environment/fixture workflows now have explicit service ownership; remaining test and source-helper scopes stay open. | Pytest/Bazel collection, parametrization, fixtures, markers, external selectors and meaningful failures. |
 
 ## Validation, compatibility and rollback
 
@@ -1312,3 +1349,62 @@ no actionable findings remain. Validation was limited to affected checks:
   existing **37 diagnostics across 11 identities**, with no additions or retirements.
 - Source inventory reconciliation and exception fingerprints pass. Debt inventories
   and their checksum pins remain unchanged; step 6 remains open elsewhere.
+
+## Step 6 validation record — engineering test contracts, 2026-09-07
+
+Against baseline `a19d85018c8ce9c5cf4317969941594b7e7c4549`, three
+`gpt-5.6-luna` subagents at `xhigh` reasoning migrated the policy/dependency,
+runtime/artifact and governance/evidence responsibilities. The parent audited
+the result using the general software profile, risk tier 1, including normalized
+test-body comparisons, mutation propagation, exact serialization assertions,
+fixture isolation, decorator contracts and actual Bazel test execution. Audit
+findings were corrected; no actionable finding remains in this scope.
+
+The diff includes class indentation across 22 existing test modules. Reviews
+were partitioned by the three responsibilities; test leaf names, parameter IDs,
+effective markers and exception/assertion contracts were checked against HEAD.
+No external active selector required migration. Production behavior, retained
+evidence and goldens are unchanged; the only governance-code edits update the
+two debt checksum pins.
+
+| Check | Observed result |
+| --- | --- |
+| Collection and behavior | All **539** engineering cases remain collected: **533** default, **5** performance and **1** integration. The default run passed 532 cases and failed one because Cosign was absent from the shell PATH; that single case passed with the already-installed, repository-pinned Cosign 3.1.3 on PATH. No test was skipped to accommodate that environment issue. |
+| Additional affected markers | All **5** engineering performance tests passed. The one ownership pre-commit integration test passed with access to the local uv cache, invoking the real hook in a temporary repository. |
+| Bazel | All **10** owning engineering targets passed under `--config=ci`; test logs confirm pytest case execution. The four pre-existing runfiles-related skips remain, with those cases exercised by host pytest. |
+| Source standards | Repository source-inventory reconciliation and exception fingerprints pass. Exactly **323** obligations retire, leaving **324 PYC001** across **36** files elsewhere. Ninety-five individual helper dispositions have platform ownership, explicit rationale, expiry on 2027-03-01 and exact AST fingerprints. Engineering has no remaining source or documentation debt. |
+| Scoped inferred typing | The baseline matched **304** diagnostics across **136** identities. The final stronger probe over all **25** engineering Python files is empty. Only that scope retires, leaving **229** diagnostics across **144** identities elsewhere. Unrelated inventory entries, metadata and prior exceptions remain unchanged; both checksum pins match. |
+| Lint, documentation and types | Ruff lint, Google-docstring/`ANN401` checks, formatting and strict mypy pass for all **27** affected/associated Python files, including both checksum-bearing checker modules. |
+| Hypothesis contract | Independent direct-Protocol verification confirms receiver identity, `(self) -> None` runtime signatures and unchanged `max_examples=50`, `derandomize=True`, `deadline=None`. The open text domain executes 50 generated cases; the three-value missing-field domain exhausts all three values. |
+
+Focused pytest commands use the pinned virtual environment with
+`PYTHONPATH=src:tools/governance/src` and its `bin` directory on PATH:
+
+```text
+python -m pytest -q tests/engineering
+python -m pytest -q tests/engineering -m performance
+python -m pytest -q tests/engineering/test_ownership_governance.py -m integration
+```
+
+The environment-corrected retry selected only
+`test_dependency_admission.py::TestDependencyPolicyAndPipAudit::test_dependency_admission_contract_is_partial_and_bounds_sbom_successor`.
+The owning Bazel targets were run in focused batches:
+
+```text
+bazel test --config=ci \
+  //tests/engineering:artifact_supply_chain_test \
+  //tests/engineering:instrument_identity_evidence_test \
+  //tests/engineering:venue_calendar_evidence_test \
+  //tests/engineering:financial_units_evidence_test \
+  //tests/engineering:ci_runner_test \
+  //tests/engineering:dependency_admission_test \
+  //tests/engineering:engineering_standards_test \
+  //tests/engineering:python_standards_test \
+  //tests/engineering:remote_execution_test \
+  //tests/engineering:python_typing_test
+```
+
+The stronger probe used `--strict --follow-imports=silent
+--no-warn-unused-configs --disallow-any-expr --disallow-any-decorated --output=json`
+on `tests/engineering` only. No full-repository pytest/Bazel suite or stronger
+typing probe was run. Step 6 remains open outside this completed engineering slice.

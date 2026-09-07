@@ -50,61 +50,66 @@ FINANCIAL_UNITS_APPLICABLE_QUALITY_GATES = (
 )
 
 
-def test_financial_units_manifest_matches_partial_r2_profile_and_golden_digest(
-    tmp_path: Path,
-) -> None:
-    """Bind the partial C03 risk profile, findings and golden digest to materialized evidence."""
-    # Bazel supplies symlinked runfiles. Materialize fixture bytes; keep the
-    # production validator's rejection of symlinked manifests/artifacts intact.
-    fixture_root = shutil.copytree(
-        FINANCIAL_UNITS_EVIDENCE_MANIFEST_PATH.parent, tmp_path / "c03-r2-partial"
-    )
-    financial_units_evidence_manifest = validate_manifest(
-        fixture_root / "manifest.toml",
-        expected_commit_sha="3" * 40,
-        change_policy=load_change_risk_policy(CHANGE_RISK_POLICY_PATH),
-    )
-    expected_financial_units_evidence_profile = PackageEvidenceProfile(
-        roadmap_package_id=FINANCIAL_UNITS_ROADMAP_PACKAGE_ID,
-        accountable_owner_role="domain_architecture",
-        risk_class=RiskClass.R2,
-        classification_facts=ChangeRiskInput(
-            capital_at_risk=False,
-            blast_radius="shared_domain",
-            data_model_materiality="shared_or_candidate",
-            security_privilege="shared_sensitive",
-            reversibility="compatibility_window",
-            computationally_material=True,
-            economically_or_risk_relevant=True,
-            model_or_trading_relevant=False,
-            declared_class=RiskClass.R2,
-        ),
-        gate_requirements=tuple(
-            PackageGateRequirement(gate_id=gate_id, status="passed")
-            for gate_id in FINANCIAL_UNITS_APPLICABLE_QUALITY_GATES
-        ),
-        expected_package_status="partial",
-        expected_finding_ids=("C03-F01", "C03-F02", "C03-F03"),
-        approvals_permitted=False,
-        waivers_permitted=False,
-        additional_required_gates_permitted=False,
-    )
+class TestFinancialUnitsEvidence:
+    """Exercise the C03 financial-units evidence contract."""
 
-    validate_package_evidence(
-        financial_units_evidence_manifest,
-        expected_financial_units_evidence_profile,
-    )
+    def test_financial_units_manifest_matches_partial_r2_profile_and_golden_digest(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Bind the partial C03 profile and golden digest to materialized evidence."""
+        # Bazel supplies symlinked runfiles. Materialize fixture bytes; keep the
+        # production validator's rejection of symlinked manifests/artifacts intact.
+        fixture_root = shutil.copytree(
+            FINANCIAL_UNITS_EVIDENCE_MANIFEST_PATH.parent, tmp_path / "c03-r2-partial"
+        )
+        financial_units_evidence_manifest = validate_manifest(
+            fixture_root / "manifest.toml",
+            expected_commit_sha="3" * 40,
+            change_policy=load_change_risk_policy(CHANGE_RISK_POLICY_PATH),
+        )
+        expected_financial_units_evidence_profile = PackageEvidenceProfile(
+            roadmap_package_id=FINANCIAL_UNITS_ROADMAP_PACKAGE_ID,
+            accountable_owner_role="domain_architecture",
+            risk_class=RiskClass.R2,
+            classification_facts=ChangeRiskInput(
+                capital_at_risk=False,
+                blast_radius="shared_domain",
+                data_model_materiality="shared_or_candidate",
+                security_privilege="shared_sensitive",
+                reversibility="compatibility_window",
+                computationally_material=True,
+                economically_or_risk_relevant=True,
+                model_or_trading_relevant=False,
+                declared_class=RiskClass.R2,
+            ),
+            gate_requirements=tuple(
+                PackageGateRequirement(gate_id=gate_id, status="passed")
+                for gate_id in FINANCIAL_UNITS_APPLICABLE_QUALITY_GATES
+            ),
+            expected_package_status="partial",
+            expected_finding_ids=("C03-F01", "C03-F02", "C03-F03"),
+            approvals_permitted=False,
+            waivers_permitted=False,
+            additional_required_gates_permitted=False,
+        )
 
-    actual_golden_fixture_sha256 = hashlib.sha256(
-        FINANCIAL_UNITS_GOLDEN_FIXTURE_PATH.read_bytes()
-    ).hexdigest()
-    assert actual_golden_fixture_sha256 == FINANCIAL_UNITS_GOLDEN_FIXTURE_SHA256
-    contract_and_goldens_report = (
-        FINANCIAL_UNITS_EVIDENCE_MANIFEST_PATH.parent / "reports/contract-and-goldens.txt"
-    ).read_text(encoding="utf-8")
-    assert (
-        f"Fixture SHA-256: {FINANCIAL_UNITS_GOLDEN_FIXTURE_SHA256}." in contract_and_goldens_report
-    )
+        validate_package_evidence(
+            financial_units_evidence_manifest,
+            expected_financial_units_evidence_profile,
+        )
+
+        actual_golden_fixture_sha256 = hashlib.sha256(
+            FINANCIAL_UNITS_GOLDEN_FIXTURE_PATH.read_bytes()
+        ).hexdigest()
+        assert actual_golden_fixture_sha256 == FINANCIAL_UNITS_GOLDEN_FIXTURE_SHA256
+        contract_and_goldens_report = (
+            FINANCIAL_UNITS_EVIDENCE_MANIFEST_PATH.parent / "reports/contract-and-goldens.txt"
+        ).read_text(encoding="utf-8")
+        assert (
+            f"Fixture SHA-256: {FINANCIAL_UNITS_GOLDEN_FIXTURE_SHA256}."
+            in contract_and_goldens_report
+        )
 
 
 if __name__ == "__main__":
