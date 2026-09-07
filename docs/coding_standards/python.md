@@ -122,7 +122,7 @@ Additional rules:
 - Use syntax supported by the pinned minimum interpreter. Prefer built-in generics
   such as `list[str]`, union syntax such as `X | None`, and protocols from `typing`
   when that minimum version supports them; do not silently raise the runtime floor.
-- Prefer precise domain types, enums, `Literal`, `NewType`, dataclasses, or validated
+- Prefer precise domain types, enums, `Literal`, `NewType`, or validated Pydantic
   models over unstructured dictionaries and tuples.
 - Use `Protocol` for behavioral structural contracts. Use abstract base classes
   only when shared runtime behavior or nominal registration is required.
@@ -152,7 +152,7 @@ Additional rules:
 - Use `TypeGuard` or explicit validation for reusable narrowing logic.
 - Prefer immutable/frozen value objects for identifiers, specifications, money,
   timestamps, and configuration.
-- Use `default_factory` for mutable dataclass/model defaults. Never share a mutable
+- Use `default_factory` for mutable model defaults. Never share a mutable
   default argument.
 - Distinguish absent, empty, zero, and unknown values. Do not make a parameter
   optional merely for caller convenience when absence is invalid.
@@ -195,8 +195,11 @@ Additional rules:
 - Do not create `Manager`, `Helper`, or `Utils` classes as miscellaneous containers.
 - Properties MUST be inexpensive and unsurprising. I/O, blocking work, and
   material computation belong in methods.
-- Dataclasses are appropriate for transparent data carriers. Do not add behavior
-  to a dataclass that lets callers bypass its invariants.
+- Use strict Pydantic `BaseModel` records for new or migrated structured data
+  models. Do not introduce standard-library dataclasses or
+  `pydantic.dataclasses`. Prefer frozen models for value records.
+- Keep workflow services as ordinary classes with explicit typed constructors
+  and collaborators. Performing I/O does not make a service a data model.
 - Pydantic or equivalent validation belongs at configuration/serialization
   boundaries; domain code SHOULD not depend on a validation framework without a
   boundary-specific need.

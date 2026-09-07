@@ -640,3 +640,223 @@ owner_role = "domain_architecture"
 rationale = "Retain the existing standalone Hypothesis callback and exact unresolved decorator typing identity while property checks exercise generated market-state boundary offsets."
 expires = 2027-03-01
 source_sha256 = "affd146210553fdf5fa7deb62e6e35025110e1ce49e7b0c0353646873e7a9b9c"
+
+[[exceptions]]
+path = "tests/build/build_graph_test.py"
+symbol = "_repository_root"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Translate the Bazel TEST_SRCDIR and TEST_WORKSPACE contract into a workspace path; the owning validator receives the resulting root explicitly."
+expires = 2027-03-01
+source_sha256 = "936fb7392fdd89c8de096429128e6f3dec22412b5069c3891bcd77cc06a8b534"
+
+[[exceptions]]
+path = "tests/build/build_graph_test.py"
+symbol = "_table_from_object"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow a raw parser dictionary to a copied string-keyed boundary table before owned field checks; no repository context or workflow state is retained."
+expires = 2027-03-01
+source_sha256 = "6e033fc1a5cc8e3b3c8b3a866be983e136e83396834d8276ec51f2b57761938c"
+
+[[exceptions]]
+path = "tests/build/build_graph_test.py"
+symbol = "_list_from_object"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy one raw parser list into an object-valued boundary sequence for immediate element validation; no loading or orchestration is owned."
+expires = 2027-03-01
+source_sha256 = "b5cc4f23957b64feb84d9d282d4cdee8507dcea284265580119eb78cbba6811b"
+
+[[exceptions]]
+path = "tests/build/build_graph_test.py"
+symbol = "_load_toml_table"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Read and decode one TOML file and narrow its root table; the build-graph service owns selection, validation order and findings."
+expires = 2027-03-01
+source_sha256 = "73cd6d43637f39ed5cbaf09ffe923c3c8127d3e0ba1bb043b8a1fcdad05b9845"
+
+[[exceptions]]
+path = "tests/build/build_graph_test.py"
+symbol = "_load_json_document"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Decode one JSON string as an unknown boundary value so the service preserves the original order of root-shape and build-input checks."
+expires = 2027-03-01
+source_sha256 = "2e945fb281dc64d546db06ba736220ad8728a5ca532a74360eebde60c4afe596"
+
+[[exceptions]]
+path = "tests/build/build_graph_test.py"
+symbol = "_require_json_table"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow one decoded lock object at the original mapping-access boundary while retaining the existing malformed-root exception contract."
+expires = 2027-03-01
+source_sha256 = "3e29d6dc750e48a7f7aafb96e50dd84cd4d481940c258c4808cd956f75ad0eea"
+
+[[exceptions]]
+path = "tests/build/build_graph_test.py"
+symbol = "_report_artifact_path"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Apply a pure lexical POSIX path-confinement predicate without filesystem access; the evidence validator owns file and digest validation."
+expires = 2027-03-01
+source_sha256 = "bfd31b319b26ce753a4815cd0396e8c9a2e29d81ebbe348ea3d90e13bfc24099"
+
+[[exceptions]]
+path = "tests/build/build_graph_test.py"
+symbol = "main"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Preserve the Bazel script entry point, argument or runfiles contract, and exit behavior while BuildGraphValidator owns the workflow."
+expires = 2027-03-01
+source_sha256 = "5a678ebaefc87ab07152f09d5e808f8adcd45e807b8457b8bdd71b7b2d2e8503"
+
+[[exceptions]]
+path = "tests/build/developer_environment_test.py"
+symbol = "_object_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy one raw dictionary into an explicit unknown-key/value boundary mapping; callers immediately validate its consumed fields without inferred dynamic types."
+expires = 2027-03-01
+source_sha256 = "9bf7616a962a215feee5af8b40fd5132e618e48c1988ea0ad5ad1bac9b4417e5"
+
+[[exceptions]]
+path = "tests/build/developer_environment_test.py"
+symbol = "_string_mapping"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Validate string keys for a copied raw contract table before constructing deliberate mutation probes; no workflow state or I/O is retained."
+expires = 2027-03-01
+source_sha256 = "d9ee304e63cad4e31cffc785848bd4bb6759970ae91122a867f89b2f6f4eefbf"
+
+[[exceptions]]
+path = "tests/build/developer_environment_test.py"
+symbol = "_object_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Copy one raw list into an explicitly unknown-element boundary sequence before the owning checker validates or mutates selected records."
+expires = 2027-03-01
+source_sha256 = "8cdf1c6317610c34386b5a69a330c129e93adb9ba2f7547439c27e6968b4c361"
+
+[[exceptions]]
+path = "tests/build/developer_environment_test.py"
+symbol = "_roadmap_named_implementation_tokens"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Project source text into sorted distinct forbidden roadmap-name tokens with fixed regular expressions; no repository I/O or retained workflow state."
+expires = 2027-03-01
+source_sha256 = "b3836899ee38378eb0f555796cbaf0ee5d1c73bc9012f9b06899436d6d7a6641"
+
+[[exceptions]]
+path = "tests/build/developer_environment_test.py"
+symbol = "_repository_root"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Translate the Bazel TEST_SRCDIR and TEST_WORKSPACE contract into a workspace path; the owning validator receives the resulting root explicitly."
+expires = 2027-03-01
+source_sha256 = "7ef4b9a9553a4996366e308bf289b5ffa079d054c422120a0ffdb825d16bf05d"
+
+[[exceptions]]
+path = "tests/build/developer_environment_test.py"
+symbol = "_assert_script_failure"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Run one explicit bootstrap failure probe and assert its captured exit and diagnostic contract; the environment service owns probe selection and ordering."
+expires = 2027-03-01
+source_sha256 = "dffc15ea0de1dd5bf95a54ad8ef5156bc277666140c4a4858a7ca3ab8cde616d"
+
+[[exceptions]]
+path = "tests/build/developer_environment_test.py"
+symbol = "_report_artifact_path"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Apply a pure lexical POSIX path-confinement predicate without filesystem access; the evidence validator owns file and digest validation."
+expires = 2027-03-01
+source_sha256 = "68eb13805421f1af82f1214c674456e5ae40bac9b25b542064f1a3059edf39c6"
+
+[[exceptions]]
+path = "tests/build/developer_environment_test.py"
+symbol = "main"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Preserve the Bazel script entry point, argument or runfiles contract, and exit behavior while DeveloperEnvironmentContractChecker owns the workflow."
+expires = 2027-03-01
+source_sha256 = "f8197c35ff5e81a5fd41f6d5edd1f9320177c5e71e52907eb780c51a1022a415"
+
+[[exceptions]]
+path = "tests/build/fixtures/proto/buf_compatibility_test.py"
+symbol = "main"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Preserve the Bazel script entry point, argument or runfiles contract, and exit behavior while BufCompatibilityCheck owns the workflow."
+expires = 2027-03-01
+source_sha256 = "5489bb08d9d93b446b2d78fd16bc40b28334ccfd4022c9cd3376f7dbd496d930"
+
+[[exceptions]]
+path = "tests/build/fixtures/proto/buf_toolchain_test.py"
+symbol = "main"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Preserve the Bazel script entry point, argument or runfiles contract, and exit behavior while BufToolchainCheck owns the workflow."
+expires = 2027-03-01
+source_sha256 = "f57b24a9690ea5516ef64f738d5ca4c2be88f89f9a0b35af03ef57c0652f69a0"
+
+[[exceptions]]
+path = "tests/build/fixtures/sql/generated_sql_test.py"
+symbol = "main"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Preserve the Bazel script entry point, argument or runfiles contract, and exit behavior while GeneratedSqlCheck owns the workflow."
+expires = 2027-03-01
+source_sha256 = "d208f8244bac60a9f500e7fb90c5c51c0b728b5642f1b98c761389d2f917c27a"
+
+[[exceptions]]
+path = "tests/build/sandbox_test.py"
+symbol = "main"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Preserve the Bazel script entry point, argument or runfiles contract, and exit behavior while SandboxInputCheck owns the workflow."
+expires = 2027-03-01
+source_sha256 = "c883a0fb918ef72c70a81a9ab9150c2cfef836b5635eba7d06e04853a0df212b"

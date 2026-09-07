@@ -7,7 +7,7 @@ Status: steps 1–5 are implemented; step 6 remains in progress and step 7 remai
 planned. Step 5 closed the existing-source documentation queue in 31 slices on
 2026-09-06; its completion snapshot recorded 798 `PYC001` dispositions across
 73 files, no `PYD001` or `PYD002`, and 686 inferred-typing diagnostics. The
-current Step-6 slice leaves 666 `PYC001` dispositions across 63 files and 598
+current Step-6 slice leaves 647 `PYC001` dispositions across 57 files and 533
 inferred-typing diagnostics.
 Step 6 has completed the change-risk pilot and the program loading/status service
 extraction, including the residual package-state and local-evidence workflows.
@@ -24,6 +24,8 @@ The instrument-identity model and associated unit-test slice in queue item 8 is
 also implemented, with six existing Hypothesis decorator diagnostics retained.
 The venue-calendar adapter, models and associated unit/evidence-test slice is
 also implemented, with its six existing Hypothesis decorator diagnostics retained.
+The `tests/build` workflows and associated contract tests in queue item 8 are
+also implemented, with no remaining source or inferred-typing debt in that scope.
 
 See the [consolidated step-5 validation record](#step-5-validation-record-consolidated-completion-2026-09-06)
 for evidence recorded at completion.
@@ -34,7 +36,9 @@ enforcement.
 The requested target is segregated, commented import groups; stringent typing
 without `Any`; useful Google-style docstrings; and a preference for classes over
 standalone functions, with small low-level operations remaining functions.
-The last requirement reflects the user's clarification.
+The last requirement reflects the user's clarification. New or migrated data
+records use Pydantic `BaseModel`, not dataclasses; workflow services use ordinary
+classes with explicit typed constructors.
 
 The main work is strengthening enforcement and reorganizing governance workflows.
 Existing import sorting and signature annotations are already consistent. Public
@@ -704,6 +708,42 @@ explicitly tracked without changing their identities or multiplicities.
 This completes the venue-calendar source and associated unit/evidence-test portion
 of queue item 8. Step 6 remains in progress elsewhere.
 
+### Step 6 implementation — build checks and associated test contracts
+
+`BuildGraphValidator(root)` and `DeveloperEnvironmentContractChecker(root)` now
+own build, dependency, environment, lock and evidence validation. Constructors
+bind context without I/O; each invocation owns its findings. Dependency/tool
+field checks, environment-file checks, mutation probes and bootstrap checks have
+separate methods. Typed parser boundaries narrow raw values before field checks
+without casts or new suppressions.
+
+`BufCompatibilityCheck`, `BufToolchainCheck`, `GeneratedSqlCheck` and
+`SandboxInputCheck` own the fixture workflows. Their six existing `main()`
+entry points retain Bazel target identities, command arguments, runfiles,
+subprocess environments, error ordering and exit behavior. Five new contract-test
+modules cover recovery after failure, malformed gates, subprocess isolation and
+cleanup, and SQL/sandbox diagnostics, with explicit Bazel dependencies and suite
+membership. The sandbox probe keeps its original isolated runfiles.
+
+The build validation result is a strict, frozen Pydantic `BaseModel`, with direct
+Pydantic dependencies declared on its two Bazel targets. The four fixture
+services use explicit typed constructors without dataclasses. The Python guide
+records this model/service distinction and the Pydantic preference for future
+migration slices.
+
+The audit also closes a malformed-input gap in both evidence checks: an extra
+non-table gate now yields the existing applicable-gates finding instead of being
+ignored, and an unhashable gate ID yields that finding instead of `TypeError`.
+Missing or other invalid gate IDs continue to fail. These deliberately tightened
+cases have dedicated regression coverage; retained evidence and goldens are
+unchanged.
+
+All 19 source obligations and all 65 inferred diagnostics across 21 identities
+retire from `tests/build`. Twenty individual fingerprinted dispositions cover
+the six entry points and their small parsing, path, runfiles and process helpers.
+This completes the `tests/build` portion of queue item 8; step 6 remains in
+progress elsewhere.
+
 ### Class migration queue
 
 Paths below are relative to `tools/governance/src/alpha_research_governance` unless
@@ -718,7 +758,7 @@ prefixed with `src/`. Names are proposed responsibilities, not mandatory new fil
 | 5. `evidence/manifest.py`, `mr.py`, `package.py`, `artifact_supply_chain/bundle.py` | Separate evidence validation, bundle creation and bundle verification services. | Digest/path validation, operation and revision binding, malformed-input rejection, file write boundaries and signature behavior. |
 | 6. `ci_policy/runner.py`, `selection.py`, `remote_execution/runner.py` | `CIRunner` and `RemoteExecutionRunner`; use a typed command-execution collaborator where injection is useful. | Fast/full selection, exact argv/environment, trust/secret checks, exit codes, event contents/order and safe fallback. |
 | 7. Remaining CLI modules, policies and `src/alpha_research/financial_units/conventions.py` — settlement service implemented | Thin CLI callbacks delegating to services remain; `SettlementConventions(calendar)` now owns settlement adjustment and lag operations. | Console scripts, `python -m` entry points and facade imports; settlement date/coverage errors; keep arithmetic and conversion kernels small. |
-| 8. `tests/` and residual source helpers | Contract-oriented test classes and a completed function-disposition inventory. | Pytest/Bazel collection, parametrization, fixtures, markers, external selectors and meaningful failures. |
+| 8. `tests/` and residual source helpers — `tests/build` slice implemented | Contract-oriented test classes and a completed function-disposition inventory. Build/environment/fixture workflows now have explicit service ownership; remaining test and source-helper scopes stay open. | Pytest/Bazel collection, parametrization, fixtures, markers, external selectors and meaningful failures. |
 
 ## Validation, compatibility and rollback
 
@@ -1186,3 +1226,57 @@ The full repository test suite, full repository stronger typing probe and native
 stubtest were not run. The six framework diagnostics remain an explicit
 step-7 task; this record does not claim their retirement or completion of step 6
 outside the venue-calendar slice.
+
+## Step 6 validation record — build checks and contract tests, 2026-09-07
+
+The baseline was the clean checkout at
+`0bb6c0b0f295cf509b02e2c96189b443e662fd18`. Three `gpt-5.6-luna` subagents at
+`xhigh` reasoning implemented the build-graph, developer-environment and fixture
+scopes. The parent audited the combined source, regression tests, Bazel wiring
+and inventory retirement using the general software profile, risk tier 1.
+No actionable audit findings remain in this slice.
+
+| Check | Observed result |
+| --- | --- |
+| Differential validation | **1,091** retained outcomes match across dependency records, developer-environment contracts, flake locks and both evidence manifests. **30** build-graph and **15** environment CLI comparisons match, including ordered errors, exit codes, malformed roots and combined fail-fast conditions. |
+| Intentional malformed-input hardening | Both evidence validators reject extra non-table gates and return the existing applicable-gates finding for unhashable IDs. Tests distinguish those changes from the unchanged missing/scalar/unknown-ID failures and preserve valid gate/status behavior. |
+| Focused pytest | **25 passed**: 22 cases in the five new build contract-test modules and the three directly relevant source-inventory, repository-standards and CI-policy checks below. Recovery, child-process environment/failure/cleanup, SQL diagnostics and sandbox diagnostics are covered. |
+| Model representation | The validation report uses strict, frozen Pydantic fields; its regression test checks wrong primitive types, forbidden fields, list-to-tuple coercion rejection and frozen assignment. Four workflow services use explicit typed constructors. No dataclass reference remains in `tests/build`; Pydantic is declared directly on the two report-consuming Bazel targets, and the Python guide reflects this preference. |
+| Bazel | All **12** explicitly selected affected targets pass under `--config=ci`; ten executed and two were cached. This includes all six original Python entry targets, all five new regression targets and the existing SQL invalid-substitution target. New pytest entry guards, source inputs, imports and suite membership are present; the isolated sandbox target has no added data dependencies. |
+| Source standards | Full source-inventory reconciliation and exception fingerprints pass. Exactly **19** `PYC001` obligations retire, leaving **647** across **57** files. Twenty explicit dispositions cover retained entry points and low-level helpers; there is no remaining `tests/build` source debt or documentation finding. |
+| Scoped inferred typing | The baseline exactly matched **65** diagnostics across **21** identities. The final stronger probe over all **11** `tests/build` Python files is empty. Only those inventory entries retire, leaving **533** diagnostics across **280** identities elsewhere. Unrelated obligations, metadata and prior exceptions are unchanged; both checksum pins match. |
+| Lint, documentation and types | Ruff lint, Google-docstring/`ANN401` checks and formatting pass for `tests/build`. Lint/format and strict mypy also include the two checksum-bearing checker modules: **13** affected Python files pass. |
+
+Final focused pytest command:
+
+```sh
+PYTHONPATH=src:tools/governance/src .venv/bin/python -m pytest -q \
+  tests/build \
+  tests/engineering/test_python_debt.py::TestPythonDebt::test_reviewed_inventory_is_exact_and_attributed \
+  tests/engineering/test_engineering_standards.py::test_repository_standards_bind_exact_tools_languages_and_baselines \
+  tests/engineering/test_ci_policy.py::test_repository_ci_policy_is_complete_partial_and_fail_closed
+```
+
+Final Bazel selection:
+
+```sh
+bazel test --config=ci \
+  //tests/build:build_graph_test \
+  //tests/build:build_graph_contracts_test \
+  //tests/build:developer_environment_test \
+  //tests/build:developer_environment_contracts_test \
+  //tests/build:sandbox_test \
+  //tests/build:sandbox_contract_test \
+  //tests/build/fixtures/proto:buf_compatibility_test \
+  //tests/build/fixtures/proto:buf_toolchain_test \
+  //tests/build/fixtures/proto:buf_contract_test \
+  //tests/build/fixtures/sql:generated_sql_test \
+  //tests/build/fixtures/sql:generated_sql_contract_test \
+  //tests/build/fixtures/sql:invalid_substitution_test
+```
+
+Scoped mypy used `--strict --follow-imports=silent --no-warn-unused-configs`;
+the stronger build-only probe additionally used `--disallow-any-expr
+--disallow-any-decorated --output=json`. No full pytest/Bazel suite,
+full-repository stronger typing probe, native stubtest, or all-file pre-commit
+run was performed. Step 6 remains open outside this completed build/test slice.

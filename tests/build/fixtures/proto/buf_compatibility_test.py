@@ -10,41 +10,105 @@ import tempfile
 from pathlib import Path
 
 
-def _run(buf: Path, module: Path, baseline: Path) -> subprocess.CompletedProcess[str]:
-    """Run Buf breaking analysis against a baseline module and capture its result.
+class BufCompatibilityCheck:
+    """Check additive and breaking changes against a Buf baseline module."""
 
-    The child process receives cache and home paths under ``module.parent``, an
-    empty ``PATH``, the ``C.UTF-8`` locale, and the UTC timezone. Buf may write
-    cache or home data at those paths. A nonzero Buf exit status remains in the
-    returned result because the caller checks whether each compatibility case
-    has the expected status.
+    _buf: Path
+    _config: Path
+    _proto: Path
 
-    Args:
-        buf: Path to the Buf executable.
-        module: Candidate schema module directory to compare.
-        baseline: Baseline schema module directory for comparison.
+    def __init__(self, *, _buf: Path, _config: Path, _proto: Path) -> None:
+        """Initialize a compatibility check with explicit fixture paths.
 
-    Returns:
-        The completed Buf process with captured text output and exit status.
+        Args:
+            _buf: Path to the Buf executable.
+            _config: Path to the Buf configuration file.
+            _proto: Path to the Protobuf fixture file.
+        """
+        self._buf = _buf
+        self._config = _config
+        self._proto = _proto
 
-    Raises:
-        OSError: If the Buf process cannot be started.
-        UnicodeDecodeError: If captured Buf output cannot be decoded as text.
-    """
-    environment = {
-        "BUF_CACHE_DIR": str(module.parent / "cache"),
-        "HOME": str(module.parent / "home"),
-        "LC_ALL": "C.UTF-8",
-        "PATH": "",
-        "TZ": "UTC",
-    }
-    return subprocess.run(
-        [str(buf), "breaking", str(module), "--against", str(baseline)],
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    def _run(self, module: Path, baseline: Path) -> subprocess.CompletedProcess[str]:
+        """Run Buf breaking analysis against a baseline module.
+
+        Args:
+            module: Candidate schema module directory to compare.
+            baseline: Baseline schema module directory for comparison.
+
+        Returns:
+            The completed Buf process with captured text output and exit status.
+
+        Raises:
+            OSError: If the Buf process cannot be started.
+            UnicodeDecodeError: If captured Buf output cannot be decoded as text.
+        """
+        environment = {
+            "BUF_CACHE_DIR": str(module.parent / "cache"),
+            "HOME": str(module.parent / "home"),
+            "LC_ALL": "C.UTF-8",
+            "PATH": "",
+            "TZ": "UTC",
+        }
+        return subprocess.run(
+            [str(self._buf), "breaking", str(module), "--against", str(baseline)],
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def _copy_module(self, module: Path) -> Path:
+        """Create one temporary schema module and return its copied proto path."""
+        schema_directory = module / "alpha_research" / "build" / "v1"
+        schema_directory.mkdir(parents=True)
+        shutil.copyfile(self._config, module / "buf.yaml")
+        proto = schema_directory / self._proto.name
+        shutil.copyfile(self._proto, proto)
+        return proto
+
+    def run(self) -> int:
+        """Run additive and removal compatibility cases against Buf.
+
+        Returns:
+            ``0`` when the expected statuses are observed, or ``1`` when a case
+            has an unexpected status.
+
+        Raises:
+            OSError: If a fixture operation or Buf process cannot be accessed.
+            UnicodeDecodeError: If fixture source or Buf output is not valid UTF-8.
+        """
+        with tempfile.TemporaryDirectory(
+            prefix="continuous-integration-buf-compatibility-"
+        ) as temporary_directory:
+            temporary = Path(temporary_directory)
+            baseline = temporary / "baseline"
+            additive = temporary / "additive"
+            breaking = temporary / "breaking"
+            self._copy_module(baseline)
+            additive_proto = self._copy_module(additive)
+            breaking_proto = self._copy_module(breaking)
+
+            additive_text = additive_proto.read_text(encoding="utf-8")
+            additive_proto.write_text(
+                additive_text.replace("}\n", "  string additive_probe = 3;\n}\n"),
+                encoding="utf-8",
+            )
+            compatible = self._run(module=additive, baseline=baseline)
+            if compatible.returncode:
+                print(compatible.stdout + compatible.stderr, file=sys.stderr)
+                return 1
+
+            breaking_text = breaking_proto.read_text(encoding="utf-8")
+            breaking_proto.write_text(
+                breaking_text.replace("  string target = 1;\n", ""),
+                encoding="utf-8",
+            )
+            incompatible = self._run(module=breaking, baseline=baseline)
+            if incompatible.returncode == 0:
+                print("Buf accepted a removed schema field", file=sys.stderr)
+                return 1
+        return 0
 
 
 def main() -> int:
@@ -76,42 +140,7 @@ def main() -> int:
     buf = Path(sys.argv[1]).resolve(strict=True)
     config = Path(sys.argv[2]).resolve(strict=True)
     proto = Path(sys.argv[3]).resolve(strict=True)
-
-    with tempfile.TemporaryDirectory(
-        prefix="continuous-integration-buf-compatibility-"
-    ) as temporary_directory:
-        temporary = Path(temporary_directory)
-        baseline = temporary / "baseline"
-        additive = temporary / "additive"
-        breaking = temporary / "breaking"
-        for module in (baseline, additive, breaking):
-            schema_directory = module / "alpha_research" / "build" / "v1"
-            schema_directory.mkdir(parents=True)
-            shutil.copyfile(config, module / "buf.yaml")
-            shutil.copyfile(proto, schema_directory / proto.name)
-
-        additive_proto = additive / "alpha_research" / "build" / "v1" / proto.name
-        additive_text = additive_proto.read_text(encoding="utf-8")
-        additive_proto.write_text(
-            additive_text.replace("}\n", "  string additive_probe = 3;\n}\n"),
-            encoding="utf-8",
-        )
-        compatible = _run(buf, additive, baseline)
-        if compatible.returncode:
-            print(compatible.stdout + compatible.stderr, file=sys.stderr)
-            return 1
-
-        breaking_proto = breaking / "alpha_research" / "build" / "v1" / proto.name
-        breaking_text = breaking_proto.read_text(encoding="utf-8")
-        breaking_proto.write_text(
-            breaking_text.replace("  string target = 1;\n", ""),
-            encoding="utf-8",
-        )
-        incompatible = _run(buf, breaking, baseline)
-        if incompatible.returncode == 0:
-            print("Buf accepted a removed schema field", file=sys.stderr)
-            return 1
-    return 0
+    return BufCompatibilityCheck(_buf=buf, _config=config, _proto=proto).run()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+load("@alpha_research_pypi//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_test")
 
 package(default_visibility = ["//visibility:private"])
@@ -6,7 +7,24 @@ py_test(
     name = "build_graph_test",
     srcs = ["build_graph_test.py"],
     data = ["//:repository_governance_data"],
+    deps = [requirement("pydantic")],
     main = "build_graph_test.py",
+)
+
+py_test(
+    name = "build_graph_contracts_test",
+    srcs = [
+        "build_graph_test.py",
+        "test_build_graph_contracts.py",
+    ],
+    data = ["//:repository_governance_data"],
+    imports = ["."],
+    main = "test_build_graph_contracts.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [
+        requirement("pydantic"),
+        requirement("pytest"),
+    ],
 )
 
 py_test(
@@ -16,8 +34,33 @@ py_test(
 )
 
 py_test(
+    name = "sandbox_contract_test",
+    srcs = [
+        "sandbox_test.py",
+        "test_sandbox_contracts.py",
+    ],
+    imports = ["."],
+    main = "test_sandbox_contracts.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [requirement("pytest")],
+)
+
+py_test(
     name = "developer_environment_test",
     srcs = ["developer_environment_test.py"],
     data = ["//:repository_governance_data"],
     main = "developer_environment_test.py",
+)
+
+py_test(
+    name = "developer_environment_contracts_test",
+    srcs = [
+        "developer_environment_test.py",
+        "test_developer_environment_contracts.py",
+    ],
+    data = ["//:repository_governance_data"],
+    imports = ["."],
+    main = "test_developer_environment_contracts.py",
+    env = {"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"},
+    deps = [requirement("pytest")],
 )

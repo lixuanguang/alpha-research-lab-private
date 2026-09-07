@@ -10,33 +10,80 @@ import tempfile
 from pathlib import Path
 
 
-def _run(command: list[str], *, cwd: Path, environment: dict[str, str]) -> None:
-    """Run a Buf command and raise when the child exits unsuccessfully.
+class BufToolchainCheck:
+    """Check Buf linting and deterministic descriptor generation."""
 
-    The command runs in ``cwd`` with the supplied environment, and its standard
-    output and error streams are captured for a possible failure message.
+    _buf: Path
+    _package: Path
 
-    Args:
-        command: Executable and arguments to pass to the child process.
-        cwd: Working directory in which to run the command.
-        environment: Environment variables to provide to the child process.
+    def __init__(self, *, _buf: Path, _package: Path) -> None:
+        """Initialize a toolchain check with executable and package paths.
 
-    Raises:
-        OSError: If the child process cannot be started.
-        UnicodeDecodeError: If captured child output cannot be decoded as text.
-        RuntimeError: If the child exits with a nonzero status; its captured
-            output is included in the exception message.
-    """
-    completed = subprocess.run(
-        command,
-        cwd=cwd,
-        env=environment,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode:
-        raise RuntimeError(completed.stdout + completed.stderr)
+        Args:
+            _buf: Path to the Buf executable.
+            _package: Buf module working directory.
+        """
+        self._buf = _buf
+        self._package = _package
+
+    def _run(self, command: list[str], *, environment: dict[str, str]) -> None:
+        """Run a Buf command and raise when the child exits unsuccessfully.
+
+        Args:
+            command: Executable and arguments to pass to the child process.
+            environment: Environment variables to provide to the child process.
+
+        Raises:
+            OSError: If the child process cannot be started.
+            UnicodeDecodeError: If captured child output cannot be decoded as text.
+            RuntimeError: If the child exits with a nonzero status; its captured
+                output is included in the exception message.
+        """
+        completed = subprocess.run(
+            command,
+            cwd=self._package,
+            env=environment,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode:
+            raise RuntimeError(completed.stdout + completed.stderr)
+
+    def run(self) -> int:
+        """Lint the Buf module and compare two generated descriptor digests.
+
+        Returns:
+            ``0`` when lint and both builds succeed with matching digests, or
+            ``1`` when the generated digests differ.
+
+        Raises:
+            OSError: If a descriptor cannot be read or Buf cannot be started.
+            UnicodeDecodeError: If captured child output cannot be decoded as text.
+            RuntimeError: If lint or descriptor generation exits nonzero.
+        """
+        with tempfile.TemporaryDirectory(prefix="alpha-buf-toolchain-test-") as temporary_directory:
+            temporary = Path(temporary_directory)
+            environment = {
+                "BUF_CACHE_DIR": str(temporary / "cache"),
+                "HOME": str(temporary / "home"),
+                "LC_ALL": "C.UTF-8",
+                "PATH": "",
+                "TZ": "UTC",
+            }
+            self._run([str(self._buf), "lint", "."], environment=environment)
+            descriptor_digests: list[str] = []
+            for index in range(2):
+                descriptor = temporary / f"schema-{index}.binpb"
+                self._run(
+                    [str(self._buf), "build", ".", "--output", str(descriptor)],
+                    environment=environment,
+                )
+                descriptor_digests.append(hashlib.sha256(descriptor.read_bytes()).hexdigest())
+            if len(set(descriptor_digests)) != 1:
+                print("Buf descriptor generation is not deterministic", file=sys.stderr)
+                return 1
+        return 0
 
 
 def main() -> int:
@@ -67,30 +114,7 @@ def main() -> int:
         return 2
     buf = Path(sys.argv[1]).resolve(strict=True)
     package = Path(sys.argv[2]).resolve(strict=True).parent
-
-    with tempfile.TemporaryDirectory(prefix="alpha-buf-toolchain-test-") as temporary_directory:
-        temporary = Path(temporary_directory)
-        environment = {
-            "BUF_CACHE_DIR": str(temporary / "cache"),
-            "HOME": str(temporary / "home"),
-            "LC_ALL": "C.UTF-8",
-            "PATH": "",
-            "TZ": "UTC",
-        }
-        _run([str(buf), "lint", "."], cwd=package, environment=environment)
-        descriptor_digests: list[str] = []
-        for index in range(2):
-            descriptor = temporary / f"schema-{index}.binpb"
-            _run(
-                [str(buf), "build", ".", "--output", str(descriptor)],
-                cwd=package,
-                environment=environment,
-            )
-            descriptor_digests.append(hashlib.sha256(descriptor.read_bytes()).hexdigest())
-        if len(set(descriptor_digests)) != 1:
-            print("Buf descriptor generation is not deterministic", file=sys.stderr)
-            return 1
-    return 0
+    return BufToolchainCheck(_buf=buf, _package=package).run()
 
 
 if __name__ == "__main__":
