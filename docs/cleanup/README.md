@@ -6,7 +6,9 @@ been removed. The working tree was clean at the start of the audit.
 
 **Recommendation: keep the financial domain code, replace most of the custom
 governance platform with ordinary development tools, and organize delivery around
-one reproducible strategy progressing from research to monitored live operation.**
+one reproducible strategy progressing from research to monitored live operation.
+Bring governance implementation below 3,000 lines while retaining typing,
+import-style, and docstring enforcement and a smaller set of cohesive classes.**
 
 The largest opportunity is reducing the number of concepts and files that must
 change together. Deleting useful numerical tests would save little development
@@ -22,6 +24,30 @@ institutional operating model, including prerequisites for future solo go-live.
 Implementation must update the owning policies alongside their enforcement;
 this document alone does not supersede the current operating rules.
 
+## Clarity requirements to preserve
+
+The founder's refinement to this plan keeps function typing, import conventions,
+and explanatory docstrings as enforced engineering requirements. Preserve their
+current scope across runtime source, governance tooling, tests, and owned stubs,
+including the existing strict mypy settings. Do not introduce blanket typing
+exclusions, disable import rules, or remove required documentation to meet a size goal.
+
+Keep class-based organization where it identifies a meaningful concept, groups
+related behavior, owns state, or establishes an invariant. Reduce the number of
+classes by retiring unused capabilities, consolidating duplicate representations,
+and removing forwarding layers. A coherent stateless validator can still justify
+a class; state is not the only criterion. Low-level functions remain appropriate
+without an individual expiry/fingerprint record.
+
+Use Ruff and mypy for the rules they demonstrably cover. Keep a compact custom
+checker for remaining project-specific requirements, including import headings,
+explicit-`Any` forms, and applicable Google-style docstring sections. Before
+replacing an existing checker, establish the same accepted/rejected behavior on
+representative fixtures, including aliases, relative/`TYPE_CHECKING` imports and
+private/public documentation requirements. Do not assume similarly named tool
+rules provide equivalent coverage. Retain semantic review of whether docstrings
+actually explain the behavior.
+
 ## Measured baseline
 
 Inventory covers Git-tracked files under `docs/`, `src/`, `tools/`, `tests/`, and
@@ -32,7 +58,7 @@ MB/KB. Python line counts include comments, blanks, and docstrings.
 | --- | --- | --- |
 | Entire tracked checkout | 377 files; 4.47 MB | This is already a small download; maintenance is the larger problem. |
 | Documentation, including policy/evidence records | 171 files; 1.23 MB | Many files describe or validate process rather than the next research task. |
-| Canonical governance Python | 67 files; 31,309 lines | About 6.6 times the implemented financial domain code. |
+| Canonical governance Python | 67 files; 31,309 lines; 188 class definitions | About 6.6 times the implemented financial domain code; count includes models, exceptions and protocols. |
 | Financial units, instrument identity, venue calendars | 9 Python files; 4,759 lines | These are the three implemented domain capabilities. |
 | Engineering tests | 25 Python files; 13,288 lines | 536 collected cases, including parameterized cases and optional markers. |
 | Domain unit tests | 3 Python files; 3,396 lines | 187 collected cases; 184 run by the default marker selection. |
@@ -64,7 +90,7 @@ verify an actual capability without unrelated organizational prerequisites.
 
 | Finding | Evidence and concrete maintenance trigger | Recommended decision |
 | --- | --- | --- |
-| Function policy creates ongoing administrative work | [Python policy, line 199](../coding_standards/python.md#classes-and-object-design) requires individual exceptions for module-level functions. The [exception register](../architecture/python-standards-exceptions.toml) binds symbols to owner, expiry, and AST fingerprint. Editing a legitimate function can require a policy-record update. | Permit functions and ordinary test functions without registration. Delete `PYC001` and its exception system. Keep classes where they own useful state or invariants. |
+| Function policy creates ongoing administrative work | [Python policy, line 199](../coding_standards/python.md#classes-and-object-design) requires individual exceptions for module-level functions. The [exception register](../architecture/python-standards-exceptions.toml) binds symbols to owner, expiry, and AST fingerprint. Editing a legitimate function can require a policy-record update. | Permit functions and ordinary test functions without registration. Delete `PYC001` and its exception system. Keep cohesive classes that classify concepts or group related behavior, own state, or enforce invariants; reduce wrappers and duplicate classes. Preserve typing, import-style and docstring rules. |
 | Governance is a runtime dependency | [Root project, line 13](../../pyproject.toml#L13) requires the governance distribution; [root Bazel library, line 21](../../src/alpha_research/BUILD.bazel#L21) also depends on it. [Compatibility exports](../../src/alpha_research/program_governance/registry.py#L1) and governance tests retain the old namespace. | Move surviving tooling to development-only use. Remove governance facades and `alpha-research-ci` after updating repository callers. Keep the deployable package independent of docs and policy registries. |
 | Multiple call layers preserve the old API without adding domain behavior | [Public program loader, line 2096](../../tools/governance/src/alpha_research_governance/program_governance/registry.py#L2096) calls a private compatibility function, then a service method, then another private loader. The public and service methods both translate the same error types. | Retire this subsystem where possible; otherwise keep one entry point, one implementation, and one error-translation boundary. Remove test-only compatibility seams with their callers. |
 | CI repeatedly checks the same source through different routes | [Full runner, line 715](../../tools/governance/src/alpha_research_governance/ci_policy/runner.py#L715) runs all pre-commit hooks, Bazel build/test, then `rollback-check`. [Makefile](../../Makefile) makes rollback rerun lint, format, typing, governance, and pytest. [Hosted CI](../../.github/workflows/ci.yml) also runs separate affected and full jobs. | Use one required source-validation job and one build/install smoke check. Remove the custom affected-target scheduler and permanent second build backend after proving replacement coverage. |
@@ -96,7 +122,8 @@ versioned data + explicit availability times
     -> reconcile, monitor, stop, recover
 ```
 
-Keep shared strategy logic in ordinary functions. Use an adapter for an actual
+Keep shared strategy logic in a small number of cohesive classes with typed,
+documented methods and low-level functions where appropriate. Use an adapter for an actual
 data or broker boundary; introduce a protocol when a second implementation or a
 meaningful test boundary needs it. Keep risk enforcement outside strategy decision
 logic so the strategy cannot authorize itself. Research does not need a service
@@ -141,14 +168,14 @@ Here `tools/governance/.../` abbreviates
 | `tools/governance/.../{program_governance,inventory,repository_topology}/` | Retire active registries and their parsers. | One backlog; version references in actual research/release records; normal package imports. No source-file ownership registry for one owner. |
 | `tools/governance/.../{change_risk,evidence}/`, `operating_model.py`, `ownership_governance.py` | Replace the general framework with a short development/activation policy. | Retain the current short PR template as guidance. CI result plus commit identifies development validation; validate only the manifest that an actual release consumer relies on. |
 | `tools/governance/.../security_controls/` and associated inventory/control maps | Retire the institutional registry after extracting real controls. | One concise security/operations runbook: secrets, access, data rights, deployment privileges, dependency issues and response. Preserve enforceable runtime checks. |
-| `tools/governance/.../engineering_standards/` | Remove custom source-style AST enforcement and exception/debt machinery. | Ruff and ordinary strict mypy for production source. Keep project-specific numerical rules as short guidance and behavioral tests. |
+| `tools/governance/.../engineering_standards/` | Preserve typing, import-style and docstring enforcement in a compact checker; retire the surrounding policy/exception/debt framework. | Keep configured Ruff, strict mypy and their current checking scope. Retain custom rules where equivalent tool coverage is unproven. Remove `PYC001` registration independently of the protected clarity rules; retain numerical guidance and behavioral tests. |
 | `tools/governance/.../ci_policy/` | Retire scheduler, policy parser, and custom KPI/event framework. | Direct CI steps and retained CI logs. Keep secret detection and failure propagation through existing tools. |
 | `tools/governance/.../remote_execution/` | Retire now. | Remove remote job/sharding/cache-policy surfaces. Reconsider only after local/hosted build measurements demonstrate a need. |
 | `tools/governance/.../{dependency_admission,artifact_supply_chain}/` | Shrink substantially; preserve current restrictions until replaced explicitly. | Frozen dependencies, vulnerability checks, relevant license/source decisions, and build/install verification. For deployment, retain artifact identity and trusted-origin/integrity verification; use existing tool outputs instead of a general evidence framework. |
 | `architecture_governance.py` | Keep link validation; retire mandatory ADR schemas and approval parsing. | A small local-link check and a few short decisions explaining expensive-to-reverse choices. |
 | Bazel files, `requirements.bazel.txt`, `tools/build/`, SQL/proto build probes | Retire after uv path proves the retained capability set. | Frozen uv environment, pytest, and a wheel built and imported outside the checkout. Keep real compatibility tests if a production schema or generated artifact is later introduced. |
 | `flake.nix`, `flake.lock`, `.envrc`, `environments/dev/` | Remove the duplicate bootstrap path after one clean Mac/Linux bootstrap succeeds. | Document Python/uv prerequisites and the single setup command. Keeping Nix is reasonable if it is the founder's chosen environment; then it must replace, rather than duplicate, the maintained setup contract. |
-| `tools/typing/` and strict typing configuration | Simplify in a later slice. | Keep useful consumed native stubs. Remove repo-wide `disallow_any_expr`/`disallow_any_decorated` requirements from tests and dynamic library boundaries; retain precise domain APIs, normal strict source checking, and runtime input validation. |
+| `tools/typing/` and strict typing configuration | Preserve enforcement and consumed native contracts. | Keep current strict settings, including `disallow_any_expr` and `disallow_any_decorated`, across source, tests, tooling and stubs. Remove a stub only with its retired dependency or consumer. Simplify redundant type plumbing without weakening the checked contract or runtime validation. |
 
 QuantLib requires a separate, explicit decision. The [current admission, line 246](../architecture/dependency-admission.toml#L246)
 permits isolated development/CI through **2026-10-04**, records unverified
@@ -175,21 +202,27 @@ load_program(...)
 Retiring the program framework eliminates the path. If temporarily retained,
 call `ProgramRepository(root).load_program(path)` directly and translate boundary
 errors once. Similarly, [classify_change, line 102](../../tools/governance/src/alpha_research_governance/change_risk/classification.py#L102)
-only constructs a classifier and calls it: retain either a reusable policy-owning
-class or the simple function API according to real callers, without preserving both
-indefinitely. Re-export modules are import indirection, not extra runtime calls.
+only constructs a classifier and calls it: retain the reusable policy-owning
+class as the canonical API when classification remains a useful capability; remove
+its forwarding function after migrating callers. Retire the class itself if the
+whole policy capability is removed. Re-export modules are import indirection, not extra runtime calls.
 
 For retained code:
 
 - Inline a one-caller wrapper when it only forwards arguments or repeats an error
   translation. Keep helpers that name a real algorithm or isolate I/O.
-- Use functions for stateless transformations; use classes for catalogs, broker
-  sessions, persistence, and other real state. Do not enforce a call-depth quota.
+- Keep classes for meaningful concepts and related behavior, including catalogs,
+  broker sessions, persistence and cohesive validation. Consolidate classes only
+  when their responsibilities and lifetime agree. Remove one-method forwarding
+  classes and duplicate parser/report types before changing useful domain classes.
+  Keep low-level functions where clearer; do not enforce a call-depth quota.
 - Validate external data once at each trust boundary. Keep cross-field/domain
   invariants and validation of unsafe copied/constructed instances where callers
   can supply them. Do not replace Decimal/Fraction arithmetic with floats to save lines.
-- Reduce docstrings that repeat signatures and delegation. Retain units, time
-  semantics, mutability, side effects, error contracts and non-obvious rationale.
+- Preserve enforced Google-style docstrings and all applicable sections. Remove
+  redundant forwarding APIs together with their duplicated documentation. For
+  surviving APIs, explain intent, units, time semantics, mutability, side effects,
+  errors and non-obvious rationale; do not strip useful prose to reduce line count.
 - Avoid a generic shared model framework as a cleanup shortcut. C01/C02 currently
   permit trusted Pydantic copy behavior; C03 overrides `model_copy` to revalidate.
   Preserve or intentionally migrate those distinct contracts before consolidating.
@@ -211,7 +244,7 @@ is retired or a stronger boundary check covers it, not because they are numerous
 | `tests/unit/test_venue_calendar.py` | Keep: meaningful adapter/timezone and session-state behavior. | DST gap/fold, holidays, half-days/breaks, overrides, stale/invalid source data, market-state boundaries and version compatibility. |
 | `tests/unit/test_financial_units.py` | Keep: meaningful financial invariants and native boundary behavior. | Hand-calculated day counts, rounding/ticks/lots, currency mismatch, exact-context independence, settlement coverage, native failure and copy-validation cases. |
 | `tests/engineering/test_{instrument_identity,venue_calendar,financial_units}_evidence.py` | Retire after historical package profiles cease to be active contracts. These check synthetic partial-status/report bindings, not the calculation oracle. | Preserve the three golden datasets and their behavioral consumers. Retain digest verification where an actual runtime/release consumes a digest. |
-| `test_python_{debt,source_standards,typing}.py`, relevant `test_engineering_standards.py` cases | Retire tests of removed custom lint/exception enforcement. | Ordinary configured Ruff/mypy runs; a small native-stub conformance check when an adapter or dependency changes. |
+| `test_python_{debt,source_standards,typing}.py`, relevant `test_engineering_standards.py` cases | Keep coverage for typing, import style, docstrings and enforcement wiring. Retire tests only for removed exception/fingerprint/policy behavior or proven duplicate coverage. | Passing/failing fixtures for the retained standards, including alias/import/docstring edge cases; configured Ruff/mypy runs at unchanged strictness and scope; native-stub conformance for retained adapters. |
 | `test_root_commands.py`, `test_package_definition.py` | Replace exact command/dependency-list snapshots. | Build a wheel, install it in a clean environment without governance, import public runtime APIs, exercise one real CLI boundary, and ensure check failures fail CI. |
 | `test_{program,inventory,ownership,evidence}_governance.py`, `test_package_evidence.py`, `test_change_risk.py`, `test_repository_{governance,topology}.py`, `test_security_controls.py` | Retire with the removed registries/policies. | Tests for retained release parsing, path/integrity checks, and actual execution controls. Do not port historical finding IDs or reviewer matching to a new framework. |
 | `test_ci_policy.py`, `test_ci_runner.py`, `test_remote_execution.py` | Retire custom scheduling/sharding/policy tests with those features. | A real required CI job, checked artifact installation, secret scanning, and observable nonzero failure behavior. |
@@ -235,7 +268,7 @@ necessary fixtures/reference records. This is a planning target, not a CI quota.
 | --- | --- |
 | `docs/README.md` | Keep as the single entry point: current capabilities, setup, check, research, paper, deploy, stop and monitor commands as they become real. A root README can be a small pointer. |
 | Architecture overview, principles and broad contracts | One current architecture page. Keep the three domain-contract pages for units, identity and calendars. |
-| `docs/coding_standards/{README,python}.md` plus enforcement prose | One short engineering guide with formatting/types, boundary validation, financial/time invariants, and behavior-based tests. Retire unused C/C++ and Rust guides until those languages enter the project. |
+| `docs/coding_standards/{README,python}.md` plus enforcement prose | One concise engineering guide preserving enforced function typing, import organization, explanatory Google-style docstrings, cohesive class design, boundary validation, financial/time invariants and behavior-based tests. Retire unused C/C++ and Rust guides until those languages enter the project. |
 | Governance workflow, ownership, change classes, quality gates, threat/control maps | One workflow page and one operational runbook with concrete triggers; remove repeated role and gate catalogs. |
 | 96-package roadmap, generated program state, large research-stage framework | One prioritized backlog and one practical research protocol. Start with the smallest costed PIT baseline; preserve trial/holdout discipline without requiring all platform services. |
 | ADRs and completed migration diaries | Keep only decisions that still explain current constraints. Historical material is recoverable from this baseline commit; avoid a duplicate archive tree in the active checkout. |
@@ -256,11 +289,11 @@ Avoid a permanent compatibility layer or a second policy profile as the migratio
 
 | Order | Concrete changes | Exit evidence |
 | --- | --- | --- |
-| 1. Remove function bureaucracy | Update Python/engineering policy; allow module-level functions; remove `PYC001`, its 486 exception records, reconciliation/fingerprint machinery and exclusive tests. Remove redundant style/docstring enforcement already supplied by configured tools. | Ruff and retained strict type checks pass; domain suite still passes; no expiry/fingerprint record is required for an ordinary function edit. |
+| 1. Preserve clarity; remove exception bureaucracy | Record the protected typing/import/docstring rules and their existing tests. Retain useful class organization; remove `PYC001`, its 486 function-exception records, reconciliation/fingerprint machinery and exclusive tests. Consolidate overlapping checking only after proving equivalent enforcement. | Current strict typing scope and retained import/docstring acceptance/rejection cases pass; domain suite still passes; ordinary functions need no expiry/fingerprint record. No clarity rule is silently removed. |
 | 2. Establish the smaller CI/build path | Inventory existing Bazel tests by protected behavior. Make frozen uv checks and installed-wheel smoke validation authoritative. Keep secret/security checks. Update Make, workflow, hooks and exact-interface tests together. Then remove Bazel/remote execution and the duplicate bootstrap path. | Clean Mac/Linux setup and source checks pass; wheel imports outside the checkout; required failures propagate. Every retained Bazel-only guarantee has replacement evidence or an explicit retirement decision. |
 | 3. Retire policy frameworks and runtime coupling | Replace development, release and founder activation rules; remove program/ownership/topology/inventory/role and historical evidence machinery. Update all registries that still exist in that slice. Move surviving tools out of runtime dependencies, remove facades/entry points, regenerate the one lock. | Domain package installs without governance/docs; current tests and entry points use supported imports; no active check requires 96 IDs, legacy finding IDs or unavailable staff. QuantLib restriction remains enforced or is explicitly resolved/revised. |
 | 4. Consolidate docs and fixtures | Replace active overview/workflow/backlog pages, remove stale package narratives and synthetic packs, prune unused ADRs/blueprint references. Remove retired tests and their build/data declarations together. | Local links pass; retained goldens and real release/admission evidence remain reachable; all setup/operation instructions refer to actual commands or are clearly marked planned. |
-| 5. Simplify retained code selectively | Remove forwarding wrappers and duplicate error translation, reduce repetitive docstrings, relax excessive typing rules at tests/dynamic boundaries, and review optional native adapters. Preserve current domain contracts unless a deliberate migration is justified. | Existing domain invariants pass. Native adapter checks run if changed; base/optional package installs work if dependencies move. Show the actual caller simplification, not just a lower line count. |
+| 5. Reduce classes and finish the line budget | Remove forwarding wrappers, duplicate error translation and duplicate parser/report/model classes; retain useful classifications and cohesive services. Keep typing, import-style and docstring enforcement unchanged. Review optional native adapters without altering domain contracts implicitly. | Governance implementation is below 3,000 physical lines with fewer classes; clarity checks and domain invariants pass. Native checks and base/optional installs pass if changed. Show simpler callers and preserved explanations. |
 | 6. Resume strategy delivery | Build one data-to-net-report baseline, then paper/replay and the minimal deploy/activate/monitor path described above. Add missing safety tests as those behaviors appear. | A reproducible research result first; later, a bounded paper/canary run with reconciliation, alerts, stop and rollback evidence. Do not spend the next cycle building a replacement governance framework. |
 
 During migration, remove a required check only when its requirement is retired or
@@ -273,11 +306,41 @@ and replacement stacks forever.
 
 ## Success measures and stopping point
 
-These are proposed budgets to evaluate the cleanup, not measured savings or
-reasons to delete useful behavior:
+The governance implementation limit is **strictly below 3,000 physical source
+lines (at most 2,999)**, on the same counting basis as the 31,309-line audit
+baseline: include comments, blank lines and docstrings. Count all retained
+handwritten governance implementation, including shared helpers, compatibility
+code, owned stubs and scripts moved elsewhere. Moving code to another directory
+or embedding it in configuration does not remove it from the budget. Count
+third-party dependencies separately; do not vendor or relabel owned code to hide it.
+Governance tests and declarative configuration/docs are reported separately and
+reduced by retained behavior; the 3,000-line cap here concerns implementation.
 
-- Reduce governance implementation by roughly 80–90%, from 31,309 Python lines
-  toward 3,000–6,000 or less. Do not fill that allowance with replacement tooling.
+A starting allocation reserves room for explanatory code and docstrings:
+
+| Retained responsibility | Planning allowance in physical lines |
+| --- | ---: |
+| Typing/import/docstring enforcement beyond configured Ruff/mypy coverage | 1,400 |
+| Actual dependency/release identity and integrity checks | 600 |
+| Local documentation-link validation | 250 |
+| CLI/check orchestration and shared boundary records | 250 |
+| Unallocated headroom | 499 |
+| **Maximum combined implementation** | **2,999** |
+
+Allocations may move between responsibilities; the combined cap stays fixed.
+If retained correctness and clarity do not fit, remove more obsolete capability
+or use an equivalent existing tool. Do not compress statements, delete explanatory
+docstrings, weaken typing, or merge unrelated responsibilities just to pass the count.
+This budget is a design estimate, not evidence that a replacement already fits.
+
+Additional success measures:
+
+- Reduce governance classes substantially from the measured 188. Aim for roughly
+  15–25 remaining class definitions, including models, protocols and exceptions,
+  as a planning guide. Preserve distinct concepts when useful; avoid a hard class
+  quota that encourages oversized classes or erases important types.
+- Preserve enforced function typing, import style and explanatory docstrings at
+  the current strictness and scope throughout the cleanup.
 - Reduce active explanatory documentation to roughly 8–12 pages and retire the
   exception register. Keep small reference evidence where it still has a consumer.
 - Have one required CI validation route, a small local hook set, and no governance
@@ -291,7 +354,8 @@ reasons to delete useful behavior:
   count or replace policy bureaucracy with a permanent cleanup-metrics service.
 
 Stop the broad cleanup once the standard development path is simple, runtime code
-is isolated, and obsolete frameworks are gone. Defer deeper domain refactors until
+is isolated, obsolete frameworks are gone, governance implementation is below
+3,000 lines, and the retained clarity requirements pass. Defer deeper domain refactors until
 they make the next strategy task materially easier.
 
 For local disk reclamation, optionally clear reproducible `.mypy_cache`,
