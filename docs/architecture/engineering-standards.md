@@ -29,7 +29,7 @@ Python targets. It adds the `alpha-governance-engineering-standards` checker and
 sandboxed Bazel property/state-machine test target. The checker binds exact tool
 versions to the uv lock, validates warnings-as-errors configuration, rejects an
 unowned or expired suppression, prevents generated source outside an admitted
-root, enforces the staged Python standards contract, and blocks C, C++, or Rust
+root, enforces the Python standards contract, and blocks C, C++, or Rust
 source until an owned native target and sanitizer profile are admitted.
 
 B02 and B03 remain provisional dependencies. Their Bazel graph, exact Python
@@ -43,15 +43,13 @@ No economic, data, schema, research, model, strategy, risk, execution, runtime, 
 deployment behavior is introduced. Fast affected-target selection and authoritative
 merged-result policy remain B05-owned.
 
-The initial repository-internal checker kept contract parsing and repository
-cross-checks in one policy module because they shared one closed set of B04
-invariants and one consumer lifecycle. The Python standards migration introduces
-an independently testable Python-standard boundary for import headings, source
-typing, documentation, and class dispositions. Those checks may use a focused
-component while retaining the existing command and lifecycle. Keep unrelated
-contract parsing together until another admitted language or generated-source
-root creates a similarly independent boundary; an early abstraction must not let
-validation paths drift.
+The repository-internal checker separates Python source rules and exact design
+exceptions from policy parsing and repository cross-checks. Import headings,
+source typing, documentation and class dispositions have an independently
+testable boundary while retaining the existing command and lifecycle. Keep
+unrelated contract parsing together until another admitted language or
+generated-source root creates a similarly independent boundary; an early
+abstraction must not let validation paths drift.
 
 ## Language admission and warnings policy
 
@@ -102,8 +100,9 @@ Python rules alongside the configured Ruff and mypy checks:
 
 Ruff `D` uses the Google convention and `ANN401` rejects dynamically typed
 annotations. `make lint` and `make typecheck`, pre-commit and hosted CI share
-these controls. The completed migration's source and inferred-typing inventories
-have been retired; diagnostics cannot be admitted through a baseline.
+these controls. Source and inferred-typing diagnostics must pass directly or,
+for the eligible source rules below, match an exact reviewed design exception.
+Diagnostics cannot be admitted through a debt baseline or a reduced checking scope.
 
 Exact exceptions are separate in
 [`docs/architecture/python-standards-exceptions.toml`](python-standards-exceptions.toml).
@@ -133,7 +132,7 @@ Private helpers and `test_` functions under `tests/` may use summary-only docs.
 It inspects source-level type syntax, including quoted annotations and generic
 bounds; mypy remains responsible for inferred types and signature correctness.
 
-The final Ruff selection and global mypy flags are enforced by the repository
+The required Ruff selection and global mypy flags are enforced by the repository
 validator. Removing them, restricting their scope or adding configuration
 overrides fails the engineering-standards check.
 

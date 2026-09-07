@@ -19,22 +19,37 @@ style choice more specific. Do not hand-format code against `ruff format`.
 
 ## Required tooling
 
-The repository's root build/test interface and target graph are authoritative.
-For local iteration, run the configured equivalents below against affected Python
-targets and their reverse dependencies. The placeholders are illustrative, not
-literal repository paths:
+Run commands from the repository root using the pinned environment.
+[Makefile](../../Makefile), [pyproject.toml](../../pyproject.toml), and the owning
+Bazel targets define the executable scope; `mypy --strict` alone does not express
+the repository's additional dynamic-type restrictions.
 
-```text
-ruff check <affected-paths>
-ruff format --check <affected-paths>
-mypy --strict <affected-packages>
-pytest <affected-tests>
-bandit -q -c <config> -r <affected-source>  # when configured
-```
+| Command | Scope and purpose |
+| --- | --- |
+| `make lint`, `make format-check` | Configured Ruff checks across source, tests, governance tooling and owned native stubs |
+| `make typecheck` | Complete configured strict mypy scope, followed by native stubtest |
+| `make engineering-standards-check` | Source rules, exact design exceptions and static-tool configuration |
+| `make security` | Configured Bandit checks for runtime and governance source |
+| `make check` | Authoritative complete lane with the default Bazel backend; see the [development workflow](../governance/workflow.md) |
 
-During iteration, scoped commands are encouraged. Before completion, run every
-applicable repository check affected by the change. Run `pre-commit run --all-files`
-when hook behavior or multiple file types are involved.
+For local iteration, use `uv run --frozen ruff check <affected-paths>`,
+`uv run --frozen ruff format --check <affected-paths>` and
+`uv run --frozen mypy --strict <affected-paths>` with actual repository paths.
+Run focused tests with `uv run --frozen --no-editable pytest -q <test-paths>` and
+their owning targets with `bazel test --config=ci <target-labels>`. Resolve targets
+and relevant reverse dependencies from the checked-in build graph.
+
+The default pytest configuration excludes `integration` and `performance` cases.
+When affected, select them explicitly with `-m integration` or `-m performance`
+and the relevant test paths. Verify that pytest and Bazel actually execute the
+expected cases; an entry point that exits successfully without running tests is
+not validation. Report skips and deselections separately from passes.
+
+Before completion, run every applicable repository check affected by the change.
+Changes to global lint or typing enforcement require the complete configured
+static scope. Run `uv run --frozen pre-commit run --all-files` when hook behavior
+or multiple file types are involved. Focused checks and hooks do not replace the
+complete lane required before merge.
 
 Do not silence a tool globally to fix a local violation. A suppression MUST be as
 narrow as possible and use the exact B04 suffix
@@ -116,8 +131,9 @@ Additional rules:
 
 ## Types and data modeling
 
-- All public functions, methods, class attributes, and module-level variables MUST
-  be typed. Private functions SHOULD be fully typed; strict `mypy` is the default.
+- All functions and methods, including private helpers and tests, MUST have typed
+  parameters and explicit return types under the configured strict mypy checks.
+  Class attributes and module-level variables MUST be typed.
 - Annotate return types explicitly, including `-> None`.
 - Use syntax supported by the pinned minimum interpreter. Prefer built-in generics
   such as `list[str]`, union syntax such as `X | None`, and protocols from `typing`
@@ -186,7 +202,13 @@ Additional rules:
 - A low-level parser, arithmetic kernel, predicate, required framework or CLI
   callback, or supported compatibility wrapper MAY remain a module-level
   function only with an explicit low-level, framework, or compatibility
-  rationale recorded for the function. Do not enforce this preference with a
+  rationale recorded for the function in the
+  [design exception register](../architecture/python-standards-exceptions.toml).
+  Follow the [exception contract](../architecture/engineering-standards.md#python-standards-enforcement-contract)
+  for exact rule, symbol, owner, expiry and fingerprint fields. Reassess the
+  rationale when a definition changes, update only its affected records, and
+  remove records whose findings no longer exist. Do not bulk-renew fingerprints
+  or expiry dates merely to pass a check. Do not enforce this preference with a
   class-to-function ratio or a blanket class requirement.
 - New internal callers SHOULD use the owning service. Retain public adapters
   needed by supported imports and CLI contracts, document that boundary, and
@@ -194,6 +216,11 @@ Additional rules:
 - Favor composition over inheritance and keep inheritance trees shallow.
 - Constructors establish valid objects. Fallible I/O or complex parsing belongs
   in a named factory or boundary service.
+- Bind stable repository, policy, path and collaborator dependencies in the
+  owning service's typed constructor. Keep findings and intermediate results local
+  to each invocation. Reusing a service after success or failure MUST NOT retain
+  prior findings or partial results; any intentional cache needs an explicit
+  lifetime and invalidation contract.
 - Do not create `Manager`, `Helper`, or `Utils` classes as miscellaneous containers.
 - Properties MUST be inexpensive and unsurprising. I/O, blocking work, and
   material computation belong in methods.
@@ -365,11 +392,13 @@ Additional rules:
   `Args:`, `Returns:` or `Yields:`, and `Raises:` section; document units, time
   semantics, state changes, I/O, and failure conditions where they affect use.
   An inherited protocol contract is an exception only when recorded in the
-  standards exception inventory with its source fingerprint.
+  [design exception register](../architecture/python-standards-exceptions.toml)
+  with its source fingerprint.
 - Use an imperative one-line summary and Google section headings. A summary MUST
   describe semantics rather than repeat annotations. Reviewers remain responsible
   for the meaning and completeness of prose; metadata checks cannot prove that
-  justification.
+  justification. Document relevant failures propagated by collaborators as well
+  as exceptions raised directly by the function.
 - Non-obvious algorithms SHOULD cite a stable paper, specification, or issue and
   document deviations from it.
 - Comments for type/lint suppression MUST use the tool's error code, be scoped to
@@ -389,6 +418,11 @@ rationale, expiry and source fingerprints; no legacy source-debt allowance remai
   already clear.
 - Use fixtures for meaningful shared setup or lifecycle management, not to hide
   the values central to a test.
+- Follow the shared [behavioral coverage rules](README.md#testing-standards) when
+  reorganizing tests or moving workflows into classes. Type fixes MUST preserve
+  malformed inputs and reach the original runtime rejection path. Serialization
+  refactors MUST preserve the selected serializer, JSON options and golden output
+  unless a separately documented contract change requires otherwise.
 - Use parametrization for the same behavior across input/output cases. Split tests
   whose failure explanations or setup differ.
 - Assert specific exception types and meaningful message fragments with
