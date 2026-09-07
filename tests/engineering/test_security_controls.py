@@ -6,12 +6,15 @@ from __future__ import annotations
 import json
 import shutil
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 # third party library imports
 import pytest
+from pydantic import ValidationError
 
 # project library imports
+import alpha_research_governance.security_controls.registry as security_registry
 from alpha_research.security_controls import (
     APPLICABLE_GATE_IDS,
     JURISDICTION_IDS,
@@ -28,7 +31,7 @@ from alpha_research_governance.security_controls import (
     SecurityControlMapLoader as CanonicalSecurityControlMapLoader,
 )
 
-REPOSITORY_ROOT = Path(__file__).parents[2]
+REPOSITORY_ROOT: Path = Path(__file__).parents[2]
 MAP_PATH = REPOSITORY_ROOT / "docs" / "governance" / "security-control-map.toml"
 
 
@@ -146,6 +149,120 @@ def _validate_security_fixture(path: Path) -> None:
             violate a security-control invariant.
     """
     load_control_map(path, repository_root=REPOSITORY_ROOT)
+
+
+class TestSecurityControlMapRecordModels:
+    """Exercise strict immutable records and mutable validation context state."""
+
+    @staticmethod
+    def _context() -> security_registry._MapValidationContext:
+        """Build a minimal valid context for model-contract tests.
+
+        Returns:
+            A fresh validation context with empty parsed collections and indexes.
+        """
+        metadata = security_registry._MapMetadata(
+            schema_version=1,
+            roadmap_package="A07",
+            operating_track="solo_bootstrap",
+            accountable_owner_role="security",
+            risk_class="R2",
+            dependency_package_ids=("A02", "A06"),
+            applicable_gate_ids=("QG01",),
+        )
+        collections = security_registry._MapCollections(
+            assets=(),
+            boundaries=(),
+            threats=(),
+            controls=(),
+            evidence_sources=(),
+            authority_sources=(),
+            jurisdictions=(),
+            regulatory_mappings=(),
+        )
+        return security_registry._MapValidationContext(
+            path=Path("security-control-map.toml"),
+            repository_root=Path("."),
+            ownership_roles=frozenset(),
+            document={},
+            metadata=metadata,
+            collections=collections,
+            as_of_date=date(2026, 8, 30),
+        )
+
+    def test_metadata_and_collections_are_strict_frozen_models(self) -> None:
+        """Reject coercion, unknown fields, and assignment on immutable records."""
+        context = self._context()
+        metadata_values: dict[str, object] = {
+            "schema_version": 1,
+            "roadmap_package": "A07",
+            "operating_track": "solo_bootstrap",
+            "accountable_owner_role": "security",
+            "risk_class": "R2",
+            "dependency_package_ids": ("A02", "A06"),
+            "applicable_gate_ids": ("QG01",),
+        }
+        collection_values: dict[str, object] = {
+            "assets": (),
+            "boundaries": (),
+            "threats": (),
+            "controls": (),
+            "evidence_sources": (),
+            "authority_sources": (),
+            "jurisdictions": (),
+            "regulatory_mappings": (),
+        }
+        invalid_metadata_type = metadata_values.copy()
+        invalid_metadata_type["schema_version"] = "1"
+        invalid_collections_type = collection_values.copy()
+        invalid_collections_type["assets"] = []
+        invalid_metadata_field = metadata_values.copy()
+        invalid_metadata_field["unexpected"] = True
+
+        with pytest.raises(ValidationError):
+            security_registry._MapMetadata.model_validate(invalid_metadata_type)
+        with pytest.raises(ValidationError):
+            security_registry._MapCollections.model_validate(invalid_collections_type)
+        with pytest.raises(ValidationError):
+            security_registry._MapMetadata.model_validate(invalid_metadata_field)
+        with pytest.raises(ValidationError):
+            setattr(context.metadata, "schema_version", 2)
+        with pytest.raises(ValidationError):
+            setattr(context.collections, "assets", ())
+
+    def test_context_defaults_are_isolated_and_assignment_is_validated(self) -> None:
+        """Keep mutable defaults independent and reject invalid reassignment or extras."""
+        first = self._context()
+        second = self._context()
+
+        assert first.findings is not second.findings
+        assert first.used_roles is not second.used_roles
+        assert first.evidence_status_by_id is not second.evidence_status_by_id
+        assert first.sources_by_jurisdiction is not second.sources_by_jurisdiction
+        first.findings.append("finding")
+        first.used_roles.add("security")
+        first.evidence_status_by_id["A07-EV01"] = "available"
+        first.sources_by_jurisdiction["GB"] = {"A07-SRC-GB-01"}
+        assert second.findings == []
+        assert second.used_roles == set()
+        assert second.evidence_status_by_id == {}
+        assert second.sources_by_jurisdiction == {}
+
+        invalid_findings: list[object] = [1]
+        with pytest.raises(ValidationError):
+            setattr(first, "findings", invalid_findings)
+        invalid_context: dict[str, object] = {
+            "path": first.path,
+            "repository_root": first.repository_root,
+            "ownership_roles": first.ownership_roles,
+            "document": first.document,
+            "metadata": first.metadata,
+            "collections": first.collections,
+            "as_of_date": first.as_of_date,
+            "unexpected": True,
+        }
+        with pytest.raises(ValidationError):
+            security_registry._MapValidationContext.model_validate(invalid_context)
 
 
 def test_repository_map_is_versioned_partial_and_complete_for_current_scope() -> None:

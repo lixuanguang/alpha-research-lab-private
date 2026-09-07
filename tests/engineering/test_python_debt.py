@@ -89,8 +89,12 @@ class TestPythonDebt:
 
     def test_changed_inventory_requires_an_explicit_policy_change(self) -> None:
         """Refuse even valid extra entries when only the allowance file changes."""
-        first = PythonFinding("src/a.py", "old", "PYD001", "docstring", 2)
-        added = PythonFinding("src/a.py", "new", "PYD001", "docstring", 9)
+        first = PythonFinding(
+            path="src/a.py", symbol="old", rule="PYD001", detail="docstring", line=2
+        )
+        added = PythonFinding(
+            path="src/a.py", symbol="new", rule="PYD001", detail="docstring", line=9
+        )
         original = self._payload((first,))
         with pytest.raises(ValueError, match="checksum changed"):
             PythonDebtInventory.read(
@@ -102,7 +106,9 @@ class TestPythonDebt:
     @pytest.mark.parametrize("mutation", ["unknown_owner", "wrong_step", "unknown_rule", "syntax"])
     def test_invalid_attribution_and_unwaivable_rules_are_rejected(self, mutation: str) -> None:
         """Reject unsupported metadata even when the supplied checksum matches."""
-        payload = self._payload((PythonFinding("src/a.py", "f", "PYD001", "docstring", 1),))
+        payload = self._payload(
+            (PythonFinding(path="src/a.py", symbol="f", rule="PYD001", detail="docstring", line=1),)
+        )
         replacements = {
             "unknown_owner": (b'"platform"', b'"unknown"'),
             "wrong_step": (b'"migration_step": 2', b'"migration_step": 6'),
@@ -118,19 +124,25 @@ class TestPythonDebt:
 
     def test_line_changes_pass_but_new_symbols_and_moves_do_not(self) -> None:
         """Keep obligations stable under whitespace and scoped to the original definition."""
-        old = PythonFinding("src/a.py", "f", "PYD001", "docstring", 1)
+        old = PythonFinding(path="src/a.py", symbol="f", rule="PYD001", detail="docstring", line=1)
         inventory = self._inventory(old)
         exceptions = PythonExceptions(schema_version=1, exceptions=[])
-        moved_line = PythonFinding("src/a.py", "f", "PYD001", "docstring", 100)
+        moved_line = PythonFinding(
+            path="src/a.py", symbol="f", rule="PYD001", detail="docstring", line=100
+        )
         assert self._checker().reconcile(inventory, exceptions, (moved_line,), {}) == ()
-        moved_symbol = PythonFinding("src/b.py", "Other.f", "PYD001", "docstring", 1)
+        moved_symbol = PythonFinding(
+            path="src/b.py", symbol="Other.f", rule="PYD001", detail="docstring", line=1
+        )
         result = self._checker().reconcile(inventory, exceptions, (moved_symbol,), {})
         assert any("src/b.py:Other.f: new PYD001" in message for message in result)
         assert any("src/a.py:f: retire resolved debt" in message for message in result)
 
     def test_a_second_any_in_the_same_symbol_is_new_debt(self) -> None:
         """Preserve multiplicity instead of allowing a set-based escape hatch."""
-        item = PythonFinding("src/a.py", "f", "PYT001", "annotation:Any", 1)
+        item = PythonFinding(
+            path="src/a.py", symbol="f", rule="PYT001", detail="annotation:Any", line=1
+        )
         result = self._checker().reconcile(
             self._inventory(item),
             PythonExceptions(schema_version=1, exceptions=[]),
@@ -143,8 +155,8 @@ class TestPythonDebt:
 
     def test_resolution_requires_retirement_and_cannot_fund_another_rule(self) -> None:
         """Require pruning an old entry and reject a replacement violation independently."""
-        old = PythonFinding("src/a.py", "f", "PYD001", "docstring", 1)
-        new = PythonFinding("src/a.py", "f", "PYD002", "Args:x", 1)
+        old = PythonFinding(path="src/a.py", symbol="f", rule="PYD001", detail="docstring", line=1)
+        new = PythonFinding(path="src/a.py", symbol="f", rule="PYD002", detail="Args:x", line=1)
         result = self._checker().reconcile(
             self._inventory(old), PythonExceptions(schema_version=1, exceptions=[]), (new,), {}
         )
@@ -227,7 +239,11 @@ class TestPythonExceptions:
         inventory = TestPythonDebt._inventory()
         exception = self._exception()
         policy = PythonExceptions(schema_version=1, exceptions=[exception])
-        observed = (PythonFinding("src/a.py", "parse", "PYC001", "standalone", 1),)
+        observed = (
+            PythonFinding(
+                path="src/a.py", symbol="parse", rule="PYC001", detail="standalone", line=1
+            ),
+        )
         fingerprint = {("src/a.py", "parse"): "a" * 64}
         assert checker.reconcile(inventory, policy, observed, fingerprint) == ()
         assert any("fingerprint" in x for x in checker.reconcile(inventory, policy, observed, {}))

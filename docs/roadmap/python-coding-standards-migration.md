@@ -26,6 +26,8 @@ The venue-calendar adapter, models and associated unit/evidence-test slice is
 also implemented, with its six existing Hypothesis decorator diagnostics retained.
 The `tests/build` workflows and associated contract tests in queue item 8 are
 also implemented, with no remaining source or inferred-typing debt in that scope.
+The nine residual dataclasses in the Python source scanner and security-control
+map loader now use Pydantic models, preserving mutable invocation state where needed.
 
 See the [consolidated step-5 validation record](#step-5-validation-record-consolidated-completion-2026-09-06)
 for evidence recorded at completion.
@@ -1280,3 +1282,30 @@ the stronger build-only probe additionally used `--disallow-any-expr
 --disallow-any-decorated --output=json`. No full pytest/Bazel suite,
 full-repository stronger typing probe, native stubtest, or all-file pre-commit
 run was performed. Step 6 remains open outside this completed build/test slice.
+
+## Step 6 validation record — residual governance records, 2026-09-07
+
+Against baseline `04d1fea`, two `gpt-5.6-luna` subagents at `xhigh` reasoning
+migrated all nine dataclasses in `engineering_standards/python_source.py` and
+`security_controls/registry.py`. Seven records inherit the shared strict frozen
+`ImmutableModel`; lexical scopes and map-validation contexts remain mutable,
+with strict construction, assignment validation and independent collection defaults.
+Lexical scopes preserve live parent identity. Arbitrary-type support is limited
+to the import record's AST field. Finding constructors now use keyword arguments,
+and the source-standards Bazel target declares its direct Pydantic dependency.
+
+The parent audited the changes using the general software profile, risk tier 1;
+no actionable findings remain. Validation was limited to affected checks:
+
+- **85 pytest cases passed** across the source scanner, debt checker, security
+  controls, repository-standards binding and source-tree rejection checks.
+- `//tests/engineering:python_standards_test` passed under `--config=ci`.
+- Differential checks match the original scanner on **147 source inputs**
+  (**754 findings**, including exact order and line numbers) and the original
+  security loader on **26 cases**, including serialized maps, ordered errors,
+  malformed inputs and recovery using the same loader instance.
+- Ruff lint, Google-docstring checks, formatting and strict mypy passed for all
+  five affected Python files. The stronger scoped probe exactly matches the
+  existing **37 diagnostics across 11 identities**, with no additions or retirements.
+- Source inventory reconciliation and exception fingerprints pass. Debt inventories
+  and their checksum pins remain unchanged; step 6 remains open elsewhere.
