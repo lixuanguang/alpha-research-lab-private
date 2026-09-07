@@ -1,32 +1,6 @@
-schema_version = 1
-roadmap_package = "B08"
-operating_track = "solo_bootstrap"
-package_status = "partial"
-accountable_owner_role = "platform"
-risk_class = "R2"
-successor_package = "C01"
-as_of_date = 2026-09-03
-review_due_on = 2026-12-02
-applicable_gate_ids = [
-  "QG01",
-  "QG02",
-  "QG03",
-  "QG04",
-  "QG05",
-  "QG06",
-  "QG09",
-  "QG10",
-  "QG11",
-  "QG12",
-  "QG13",
-  "QG14",
-  "QG15",
-]
+schema_version = 2
 supported_artifact_kinds = ["binary", "configuration_bundle", "container", "model"]
 native_library_markers = [".dll", ".dylib", ".so", ".so."]
-local_evidence_manifest_path = "docs/governance/evidence/examples/b08-r2-partial/manifest.toml"
-local_evidence_commit_sha = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-open_finding_ids = ["B08-F01", "B08-F02", "B08-F03"]
 
 [formats]
 statement_type = "https://in-toto.io/Statement/v1"
@@ -55,7 +29,7 @@ maximum_archive_members = 100000
 
 [project]
 path = "pyproject.toml"
-sha256 = "d1f906f08eb793e0d43c4ad6eea69e2314839f7c17472b97c210a620c2ddfe2b"
+sha256 = "cc7e5970a89b584635e3cf3ea4a5dd1e5ac6623f4b4ed367b63728abb157ef1e"
 
 [tools.syft]
 command = "syft"
@@ -67,22 +41,4 @@ version = "3.1.3"
 
 [[locks]]
 path = "uv.lock"
-sha256 = "22f953c3cabb20af3d8203e188accb9a1011b4784b9674d77bc535930ffd31bd"
-
-[[findings]]
-finding_id = "B08-F01"
-owner_role = "domain_architecture"
-unavailable_evidence = "Independent Platform Code Owner, Security, SRE, and domain review of the B08 contract and exact commit is unavailable during solo bootstrap."
-closure_condition = "Named independent reviewers resolve findings and approve the exact policy, implementation, tests, rollback, and evidence commit."
-
-[[findings]]
-finding_id = "B08-F02"
-owner_role = "platform_ci"
-unavailable_evidence = "Protected hosted-build identity, two-platform reproducibility, keyless signing, transparency-log inclusion, immutable target registry publication, retention, and consumer admission evidence are unavailable locally."
-closure_condition = "Protected CI builds the same commit on every supported platform, signs with the constrained workload identity, publishes only the verified digest to the approved immutable registry, and retains consumer rejection exercises."
-
-[[findings]]
-finding_id = "B08-F03"
-owner_role = "security"
-unavailable_evidence = "Independent tamper, signer-compromise, revocation, rotation, recovery, and target-environment native/container SBOM completeness drills are unavailable locally."
-closure_condition = "Security revokes and rotates a test signer, proves old and forged bundles fail every consumer, verifies rebuilt artifacts and complete native/container inventory, and retains recovery evidence."
+sha256 = "4c07ddd8fa583a0aa3f88a5c4f3b320fbd436868d80d3c72f74e7d0f0f005bee"

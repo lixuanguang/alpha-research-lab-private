@@ -1,430 +1,169 @@
-"""Deterministic, property, and state-machine tests for engineering standards."""
+"""Test the compact engineering-standards boundary."""
 
 from __future__ import annotations
 
 # standard library imports
-import tomllib
-from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from time import perf_counter
-from typing import Protocol
 
 # third party library imports
 import pytest
-from hypothesis import given, settings, strategies
-from hypothesis.strategies import SearchStrategy
-from pydantic import TypeAdapter
 
 # project library imports
 from alpha_research_governance.engineering_standards import (
     EngineeringStandardsError,
-    load_standards,
     main,
     source_tree_findings,
+    tooling_configuration_findings,
     validate_repository,
     validate_suppression_line,
 )
-from alpha_research_governance.engineering_standards.policy import (
-    _EngineeringStandardsRepositoryValidator,
-    _locked_packages,
-)
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
-POLICY_PATH = REPOSITORY_ROOT / "docs/architecture/engineering-standards.toml"
-PYPROJECT_PATH = REPOSITORY_ROOT / "pyproject.toml"
-VALIDATION_DATE = date(2026, 9, 2)
-OWNER_ROLES = frozenset({"platform", "security"})
-VALID_SUPPRESSION = (
-    "value = call()  # noqa: RUF100 - retained compatibility "
-    "[owner=platform; rationale=preserve public behavior; expires=2026-12-31]"
-)
-REPRESENTATIVE_POLICY_MUTATIONS = (
-    ("schema_version = 1", "schema_version = 2"),
-    ('roadmap_package = "B04"', 'roadmap_package = "B05"'),
-    ('package_status = "partial"', 'package_status = "validated"'),
-    ('risk_class = "R2"', 'risk_class = "R1"'),
-    ('successor_package = "B05"', 'successor_package = "B06"'),
-    ("global_epsilon_allowed = false", "global_epsilon_allowed = true"),
-    ('non_finite_default = "reject"', 'non_finite_default = "allow"'),
-    ("maximum_examples = 50", "maximum_examples = 1"),
-    ("mutation_cases_rejected = 12", "mutation_cases_rejected = 11"),
-    (
-        'language_id = "c_cpp"\nadmission_status = "dormant"',
-        'language_id = "c_cpp"\nadmission_status = "admitted"',
-    ),
-    (
-        'sanitizers = ["address", "undefined_behavior", "thread_for_shared_memory"]',
-        'sanitizers = ["address"]',
-    ),
-    (
-        'open_finding_ids = ["B04-F01", "B04-F02", "B04-F03"]',
-        'open_finding_ids = ["B04-F01", "B04-F02"]',
-    ),
-)
+VALIDATION_DATE = date(2026, 9, 7)
 
 
-class SuppressionMetadataGiven(Protocol):
-    """Typed contract for the consumed Hypothesis keyword decorator."""
-
-    def __call__[T](
-        self,
-        *,
-        owner: SearchStrategy[str],
-        rationale: SearchStrategy[str],
-        days: SearchStrategy[int],
-    ) -> Callable[[Callable[[T, str, str, int], None]], Callable[[T], None]]:
-        """Decorate a test callable with typed generated suppression metadata."""
-        ...
+def _fixture_root(tmp_path: Path, source: str) -> Path:
+    """Create all owned source roots with one Python fixture."""
+    for source_root in ("src", "tests", "tools/governance/src", "tools/typing/stubs"):
+        (tmp_path / source_root).mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text(
+        (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "src/fixture.py").write_text(source, encoding="utf-8")
+    return tmp_path
 
 
-class MissingFieldGiven(Protocol):
-    """Typed contract for the one-field Hypothesis keyword decorator."""
+class TestEngineeringStandards:
+    """Exercise direct source validation and its command boundary."""
 
-    def __call__[T](
-        self, *, field: SearchStrategy[str]
-    ) -> Callable[[Callable[[T, str], None]], Callable[[T], None]]:
-        """Decorate a test callable with one typed generated field name."""
-        ...
+    def test_repository_source_passes_without_policy_or_evidence_files(self) -> None:
+        """Validate the retained source contract without repository policy records."""
+        assert validate_repository(REPOSITORY_ROOT) == ()
 
-
-_suppression_given: SuppressionMetadataGiven = given
-_missing_field_given: MissingFieldGiven = given
-_OWNER_STRATEGY: SearchStrategy[str] = strategies.sampled_from(sorted(OWNER_ROLES))
-_RATIONALE_STRATEGY: SearchStrategy[str] = strategies.text(
-    alphabet=strategies.characters(whitelist_categories=("Ll", "Lu", "Nd")),
-    min_size=12,
-    max_size=40,
-)
-_DAYS_STRATEGY: SearchStrategy[int] = strategies.integers(min_value=0, max_value=180)
-_MISSING_FIELD_STRATEGY: SearchStrategy[str] = strategies.sampled_from(
-    ("owner", "rationale", "expires")
-)
-
-
-def _policy_fixture(tmp_path: Path) -> Path:
-    """Copy and overwrite the repository policy in a temporary TOML fixture.
-
-    Args:
-        tmp_path: Pytest temporary directory for the current test case.
-
-    Returns:
-        Temporary policy path containing the repository's exact policy text.
-
-    Raises:
-        OSError: If reading the source policy or writing the fixture fails.
-    """
-    path = tmp_path / "engineering-standards.toml"
-    path.write_text(POLICY_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    return path
-
-
-class TestEngineeringStandardsContracts:
-    """Exercise repository policy bindings, source findings and suppression contracts."""
-
-    @staticmethod
-    def _toml_table(value: object, context: str) -> dict[str, object]:
-        """Return a parsed TOML table with a typed boundary for mutation tests.
-
-        Args:
-            value: Parsed TOML value expected to be a table.
-            context: Human-readable table name for the failure message.
-
-        Returns:
-            The value narrowed to a string-keyed TOML table.
-
-        Raises:
-            AssertionError: If ``value`` is not a TOML table.
-        """
-        try:
-            return TypeAdapter(dict[str, object]).validate_python(value)
-        except (TypeError, ValueError) as error:
-            raise AssertionError(f"{context} must be a TOML table") from error
-
-    @staticmethod
-    def _pyproject_fixture() -> dict[str, object]:
-        """Load the repository pyproject as a typed mutable TOML fixture."""
-        parsed: object = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
-        return TestEngineeringStandardsContracts._toml_table(parsed, "pyproject.toml")
-
-    @staticmethod
-    def _mutated_pyproject(mutation: str) -> dict[str, object]:
-        """Apply one enforcement weakening to a fresh pyproject fixture."""
-        document = TestEngineeringStandardsContracts._pyproject_fixture()
-        tool = TestEngineeringStandardsContracts._toml_table(
-            document["tool"], "pyproject.toml.tool"
+    def test_source_findings_include_untracked_fixture_diagnostics(self, tmp_path: Path) -> None:
+        """Report clarity findings from a newly created Python file."""
+        root = _fixture_root(
+            tmp_path,
+            '"""Fixture module."""\n\nfrom typing import Any\n\nvalue: Any\n',
         )
-        mypy = TestEngineeringStandardsContracts._toml_table(
-            tool["mypy"], "pyproject.toml.tool.mypy"
-        )
-        ruff = TestEngineeringStandardsContracts._toml_table(
-            tool["ruff"], "pyproject.toml.tool.ruff"
-        )
-        ruff_lint = TestEngineeringStandardsContracts._toml_table(
-            ruff["lint"], "pyproject.toml.tool.ruff.lint"
-        )
-        if mutation == "missing-google-docs":
-            ruff_lint["select"] = ["E", "F", "I", "W", "UP", "RUF", "ANN401"]
-        elif mutation == "missing-dynamic-typing":
-            ruff_lint["select"] = ["E", "F", "I", "W", "UP", "RUF", "D"]
-        elif mutation == "pep257":
-            ruff_lint["pydocstyle"] = {"convention": "pep257"}
-        elif mutation == "global-any-expr":
-            mypy["disallow_any_expr"] = False
-        elif mutation == "global-any-decorated":
-            mypy["disallow_any_decorated"] = False
-        elif mutation == "mypy-overrides":
-            mypy["overrides"] = [{"module": "tests.*", "ignore_errors": True}]
-        elif mutation == "mypy-exclude":
-            mypy["exclude"] = "tests"
-        elif mutation == "ruff-exclude":
-            ruff["exclude"] = ["tests"]
-        elif mutation == "ruff-per-file-ignores":
-            ruff_lint["per-file-ignores"] = {"tests/*": ["D"]}
-        else:
-            raise AssertionError(f"unknown pyproject mutation: {mutation}")
-        ruff["lint"] = ruff_lint
-        tool["mypy"] = mypy
-        tool["ruff"] = ruff
-        document["tool"] = tool
-        return document
 
-    def test_repository_standards_bind_exact_tools_languages_and_baselines(self) -> None:
-        """Validate exact tool, language, baseline, and open-finding policy bindings."""
-        standards = validate_repository(REPOSITORY_ROOT, validation_date=VALIDATION_DATE)
+        findings = source_tree_findings(root)
 
-        assert standards.package_status == "partial"
-        assert standards.successor_package == "B05"
-        assert standards.hypothesis_version == "6.167.1"
-        assert standards.hypothesis_maximum_examples == 50
-        assert standards.coverage_statement_percent == 81
-        assert (
-            standards.mutation_cases
-            == standards.mutation_cases_rejected
-            == len(REPRESENTATIVE_POLICY_MUTATIONS)
-        )
-        assert tuple(tool.tool_id for tool in standards.tools) == tuple(
-            sorted(tool.tool_id for tool in standards.tools)
-        )
-        assert tuple(language.language_id for language in standards.languages) == (
-            "python",
-            "c_cpp",
-            "rust",
-        )
-        assert standards.open_finding_ids == ("B04-F01", "B04-F02", "B04-F03")
+        assert any("src/fixture.py" in finding and "PYI001" in finding for finding in findings)
 
-    @pytest.mark.parametrize(("old", "new"), REPRESENTATIVE_POLICY_MUTATIONS)
-    def test_representative_policy_mutations_are_rejected(
-        self, tmp_path: Path, old: str, new: str
+    @pytest.mark.parametrize(
+        ("old", "new", "expected"),
+        [
+            ("strict = true", "strict = false", "strict"),
+            ("disallow_any_expr = true", "disallow_any_expr = false", "disallow_any_expr"),
+            ("init_typed = true", "init_typed = false", "init_typed"),
+            ("init_forbid_extra = true", "init_forbid_extra = false", "init_forbid_extra"),
+            (
+                "warn_required_dynamic_aliases = true",
+                "warn_required_dynamic_aliases = false",
+                "warn_required_dynamic_aliases",
+            ),
+            (
+                'select = ["E", "F", "I", "W", "UP", "RUF", "D", "ANN401"]',
+                'select = ["E", "F", "W", "UP", "RUF", "D", "ANN401"]',
+                "import sorting",
+            ),
+            ('convention = "google"', 'convention = "pep257"', "Google convention"),
+            (
+                'mypy_path = ["src", "tools/governance/src", "tools/typing/stubs"]',
+                'mypy_path = ["src"]',
+                "source and native-stub scope",
+            ),
+            ('filterwarnings = ["error"]', 'filterwarnings = ["default"]', "warnings"),
+            ("strict = true", 'strict = true\nexclude = "tests"', "bypass checks"),
+            (
+                "[tool.mypy]\n",
+                '[tool.mypy]\ndisable_error_code = ["misc"]\n',
+                "disable_error_code",
+            ),
+            (
+                "[tool.mypy]\n",
+                '[tool.mypy]\nper_module_options = { "tests.*" = { ignore_errors = true } }\n',
+                "per_module_options",
+            ),
+            (
+                'select = ["E", "F", "I", "W", "UP", "RUF", "D", "ANN401"]',
+                'select = "I"',
+                "Ruff selected rules must be a list of strings",
+            ),
+        ],
+    )
+    def test_tooling_configuration_preserves_strict_clarity_settings(
+        self, tmp_path: Path, old: str, new: str, expected: str
     ) -> None:
-        """Reject representative mutations that alter or weaken governed policy values."""
-        path = _policy_fixture(tmp_path)
-        content = path.read_text(encoding="utf-8")
+        """Reject weakened strict mypy, Ruff, and pytest clarity configuration."""
+        path = tmp_path / "pyproject.toml"
+        content = (REPOSITORY_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         assert old in content
         path.write_text(content.replace(old, new, 1), encoding="utf-8")
 
-        with pytest.raises(EngineeringStandardsError):
-            load_standards(path)
+        findings = tooling_configuration_findings(tmp_path)
 
-    def test_python_tooling_policy_rejects_enforcement_bypass_mutations(self) -> None:
-        """Reject weakened global checks, rule sets, exclusions, and module overrides."""
-        validator = _EngineeringStandardsRepositoryValidator(REPOSITORY_ROOT, None)
-        assert (
-            validator._python_tooling_findings(
-                TestEngineeringStandardsContracts._pyproject_fixture()
-            )
-            == []
+        assert any(expected in finding for finding in findings)
+
+    def test_validate_repository_raises_for_source_findings(self, tmp_path: Path) -> None:
+        """Turn direct findings into one controlled standards error."""
+        root = _fixture_root(
+            tmp_path,
+            '"""Fixture module."""\n\nfrom typing import Any\n\nvalue: Any\n',
         )
-        cases = (
-            ("missing-google-docs", "Ruff Google documentation checks"),
-            ("missing-dynamic-typing", "Ruff dynamic-typing checks"),
-            ("pep257", "Google documentation convention"),
-            ("global-any-expr", "global disallow_any_expr"),
-            ("global-any-decorated", "global disallow_any_decorated"),
-            ("mypy-overrides", "narrow global enforcement scopes"),
-            ("mypy-exclude", "mypy exclude"),
-            ("ruff-exclude", "ruff exclude"),
-            ("ruff-per-file-ignores", "ruff.lint per-file-ignores"),
-        )
-        for mutation, expected in cases:
-            findings = validator._python_tooling_findings(
-                TestEngineeringStandardsContracts._mutated_pyproject(mutation)
-            )
-            assert any(expected in finding for finding in findings), mutation
 
-    def test_unknown_field_and_malformed_toml_fail_closed(self, tmp_path: Path) -> None:
-        """Reject unknown policy fields and malformed TOML with controlled errors."""
-        unknown = _policy_fixture(tmp_path)
-        unknown.write_text(
-            unknown.read_text(encoding="utf-8") + "\nunknown = true\n", encoding="utf-8"
-        )
-        with pytest.raises(EngineeringStandardsError, match="missing or unknown fields"):
-            load_standards(unknown)
+        with pytest.raises(EngineeringStandardsError) as error:
+            validate_repository(root)
 
-        malformed = tmp_path / "malformed.toml"
-        malformed.write_text("schema_version = [\n", encoding="utf-8")
-        with pytest.raises(EngineeringStandardsError, match="invalid TOML"):
-            load_standards(malformed)
+        assert any("PYT001" in finding for finding in error.value.findings)
 
-    def test_dependency_record_version_and_native_artifact_drift_fail_closed(
-        self, tmp_path: Path
-    ) -> None:
-        """Reject dependency-version drift and removed native-artifact evidence."""
-        architecture = tmp_path / "docs/architecture"
-        architecture.mkdir(parents=True)
-        dependency_record = architecture / "engineering-tool-dependencies.toml"
-        source_record = REPOSITORY_ROOT / "docs/architecture/engineering-tool-dependencies.toml"
-        dependency_record.write_text(source_record.read_text(encoding="utf-8"), encoding="utf-8")
-        locked = _locked_packages(REPOSITORY_ROOT / "uv.lock")
-        validator = _EngineeringStandardsRepositoryValidator(tmp_path, None)
-        assert validator._validate_dependency_record(tmp_path, locked) == []
-
-        content = dependency_record.read_text(encoding="utf-8")
-        content = content.replace('version = "6.167.1"', 'version = "6.167.0"', 1)
-        content = content.replace(
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            ("value = call()  # noqa: RUF100", "requires"),
             (
-                '  "hypothesis==6.167.1 platform wheels contain upstream native '
-                'extension artifacts",\n'
-            ),
-            "",
-            1,
-        )
-        dependency_record.write_text(content, encoding="utf-8")
-
-        findings = validator._validate_dependency_record(tmp_path, locked)
-        assert any("identity, version, source, or license" in finding for finding in findings)
-        assert any("transitive dependency record" in finding for finding in findings)
-
-    @settings(max_examples=50, derandomize=True, deadline=None)
-    @_suppression_given(
-        owner=_OWNER_STRATEGY,
-        rationale=_RATIONALE_STRATEGY,
-        days=_DAYS_STRATEGY,
-    )
-    def test_suppression_metadata_accepts_governed_bounded_values(
-        self, owner: str, rationale: str, days: int
-    ) -> None:
-        """Accept governed suppression metadata with valid ownership and bounded expiry."""
-        expiry = date.fromordinal(VALIDATION_DATE.toordinal() + days)
-        line = (
-            "value = call()  # nosec B603 "
-            f"[owner={owner}; rationale={rationale}; expires={expiry.isoformat()}]"
-        )
-
-        assert (
-            validate_suppression_line(
-                line,
-                owner_roles=OWNER_ROLES,
-                validation_date=VALIDATION_DATE,
-                maximum_lifetime_days=180,
-                minimum_rationale_characters=12,
-            )
-            == ()
-        )
-
-    @settings(max_examples=50, derandomize=True, deadline=None)
-    @_missing_field_given(field=_MISSING_FIELD_STRATEGY)
-    def test_suppression_metadata_rejects_a_missing_required_field(self, field: str) -> None:
-        """Reject suppression metadata missing any required owner, rationale, or expiry field."""
-        metadata = {
-            "owner": "owner=platform",
-            "rationale": "rationale=preserve public behavior",
-            "expires": "expires=2026-12-31",
-        }
-        metadata.pop(field)
-        line = "value = call()  # noqa: RUF100 [" + "; ".join(metadata.values()) + "]"
-
-        assert validate_suppression_line(
-            line,
-            owner_roles=OWNER_ROLES,
-            validation_date=VALIDATION_DATE,
-            maximum_lifetime_days=180,
-            minimum_rationale_characters=12,
-        )
-
-    def test_expired_unknown_owner_and_excessive_lifetime_are_rejected(self) -> None:
-        """Report expired, ungoverned-owner, and overlong suppression metadata."""
-        cases = (
-            (
-                "[owner=platform; rationale=preserve behavior; expires=2026-09-01]",
+                "value = call()  # noqa: RUF100 [owner=platform; rationale=keep "
+                "behavior; expires=2026-09-06]",
                 "expired",
             ),
             (
-                "[owner=former_owner; rationale=preserve behavior; expires=2026-12-31]",
-                "not a governed role",
-            ),
-            (
-                "[owner=platform; rationale=preserve behavior; expires=2027-09-02]",
+                "value = call()  # noqa: RUF100 [owner=platform; rationale=keep "
+                "behavior; expires=2027-04-01]",
                 "maximum lifetime",
             ),
-        )
-        for metadata, message in cases:
-            findings = validate_suppression_line(
-                f"value = call()  # nosec B603 {metadata}",
-                owner_roles=OWNER_ROLES,
-                validation_date=VALIDATION_DATE,
-                maximum_lifetime_days=180,
-                minimum_rationale_characters=12,
-            )
-            assert any(message in finding for finding in findings)
+        ],
+    )
+    def test_suppression_annotations_fail_closed(self, line: str, expected: str) -> None:
+        """Require local owner, rationale, and bounded expiry metadata."""
+        findings = validate_suppression_line(line, validation_date=VALIDATION_DATE)
 
-    def test_source_scan_rejects_generated_and_unadmitted_native_source(
-        self, tmp_path: Path
+        assert any(expected in finding for finding in findings)
+
+    def test_suppression_annotation_accepts_local_owner_without_registry(self) -> None:
+        """Accept valid metadata without loading an ownership role table."""
+        line = (
+            "value = call()  # noqa: RUF100 [owner=founder; "
+            "rationale=keep behavior while boundary is simplified; expires=2026-12-01]"
+        )
+
+        assert validate_suppression_line(line, validation_date=VALIDATION_DATE) == ()
+
+    def test_cli_reports_success_usage_error_and_missing_root(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Report generated source, unadmitted native source, and malformed Python input."""
-        standards = load_standards(POLICY_PATH)
-        for source_root in standards.source_roots:
-            (tmp_path / source_root).mkdir(parents=True)
-        (tmp_path / "src/alpha_research/generated.py").write_text(
-            "# @generated\nvalue = 1\n", encoding="utf-8"
-        )
-        (tmp_path / "tools/governance/src/alpha_research_governance/native.rs").write_text(
-            "fn main() {}\n", encoding="utf-8"
-        )
-        (tmp_path / "tests/malformed.py").write_text("'''unterminated\n", encoding="utf-8")
+        """Keep command statuses and diagnostics stable at the CLI boundary."""
+        valid_root = _fixture_root(tmp_path / "valid", '"""Fixture module."""\n\nvalue: int = 1\n')
+        assert main([str(valid_root)]) == 0
+        assert "Python clarity standards passed" in capsys.readouterr().out
 
-        findings = source_tree_findings(
-            tmp_path,
-            standards,
-            owner_roles=OWNER_ROLES,
-            validation_date=VALIDATION_DATE,
-        )
-
-        assert any("generated source" in finding for finding in findings)
-        assert any("native language source" in finding for finding in findings)
-        assert any("cannot tokenize Python source" in finding for finding in findings)
-
-    @pytest.mark.performance
-    def test_suppression_validation_workload_stays_within_budget(self) -> None:
-        """Keep repeated suppression validation within the configured performance budget."""
-        standards = load_standards(POLICY_PATH)
-        started_at = perf_counter()
-        for _ in range(standards.validation_workload_iterations):
-            assert (
-                validate_suppression_line(
-                    VALID_SUPPRESSION,
-                    owner_roles=OWNER_ROLES,
-                    validation_date=VALIDATION_DATE,
-                    maximum_lifetime_days=standards.suppression_maximum_lifetime_days,
-                    minimum_rationale_characters=standards.suppression_minimum_rationale_characters,
-                )
-                == ()
-            )
-        elapsed_ms = (perf_counter() - started_at) * 1_000
-
-        assert elapsed_ms <= standards.validation_workload_budget_ms
-
-    def test_cli_reports_success_usage_error_and_missing_repository(
-        self,
-        capsys: pytest.CaptureFixture[str],
-    ) -> None:
-        """Return success, usage-error, and missing-repository statuses with matching output."""
-        assert main([str(REPOSITORY_ROOT)]) == 0
-        assert "package status is partial" in capsys.readouterr().out
         assert main(["one", "two"]) == 2
         assert "usage:" in capsys.readouterr().err
-        assert main([str(REPOSITORY_ROOT / "missing")]) == 1
-        assert "No such file" in capsys.readouterr().err
+
+        assert main([str(tmp_path / "missing")]) == 1
+        assert "missing Python standards source root" in capsys.readouterr().err
 
 
 if __name__ == "__main__":

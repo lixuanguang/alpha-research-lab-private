@@ -1,53 +1,31 @@
-# ADR NNNN: Decision title
-
-## Control metadata
-
-| Field | Value |
-| --- | --- |
-| Roadmap package | A02 or owning package |
-| Status | Proposed |
-| Decision owner | Accountable role |
-| Operating domain | Domain ID from the ownership register; required for Founder accepted |
-| Decision date | YYYY-MM-DD |
-| Review date | YYYY-MM-DD |
-| Supersedes | None or ADR link |
-| Approval evidence | Pending, `founder=@lixuanguang`, or institutional `commit=<40-or-64-hex>; approval=<HTTPS evidence URL>` |
+# Architecture decision: <short title>
 
 ## Context
 
-Describe the measured problem, affected systems and contracts, constraints,
-assumptions, and why a decision is required now.
+What problem or constraint requires a decision?
 
 ## Decision drivers
 
-- List safety, correctness, operational, compatibility, performance, cost, and
-  organizational drivers with thresholds where they exist.
+Which measured requirements, invariants, or operating assumptions matter?
 
-## Considered alternatives
+## Alternatives
 
-- **Alternative A:** Describe benefits, risks, and why it was or was not selected.
-- **Alternative B:** Describe benefits, risks, and why it was or was not selected.
+What credible alternatives were considered, and why were they rejected?
 
 ## Decision
 
-State the chosen behavior, boundaries, invariants, owner, and unsupported uses.
+State the selected approach and its scope.
 
 ## Consequences
 
-Record positive outcomes, costs, new risks, constraints, and follow-up work. Link
-owned findings rather than hiding uncertainty.
+Describe benefits, costs, new constraints, and follow-up work.
 
-## Migration and rollout
+## Migration and reversal
 
-Describe compatibility, sequencing, target environments, validation, monitoring,
-and the separation between deployment and activation.
+Describe affected consumers, rollout steps, compatibility, and the safe way to
+undo the decision.
 
-## Reversal plan
+## Review notes
 
-State the reversal trigger, compatible rollback target, state/data treatment,
-maximum decision latency, and evidence needed to prove recovery.
-
-## Review and evidence
-
-List required reviewers, tests, benchmarks, target-environment evidence, approval
-links, exceptions, and the next review trigger/date.
+Record later measurements, incidents, or a successor decision when the context
+changes. This template is guidance; fields are not machine-enforced.

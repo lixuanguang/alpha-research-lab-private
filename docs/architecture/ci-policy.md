@@ -1,60 +1,48 @@
-# Source Validation and CI
+# Source validation and CI
 
-## Control metadata
+The standard check is `make check`: frozen lock verification, Ruff formatting and
+linting, strict mypy and native-stub checks, the retained clarity/dependency/artifact
+and local-link checks, Bandit, dependency auditing, secret scanning, pytest, and an
+isolated installed-wheel smoke. Python 3.12.14 and uv 0.12.7 use the single
+[lockfile](../../uv.lock). Governance tooling belongs to the development group.
 
-| Field | Value |
-| --- | --- |
-| Roadmap package | B05 |
-| Objective | Run one reproducible source, policy, test, and package validation path |
-| Operating track | Solo bootstrap |
-| Package status | Partial |
-| Repository-local status | Provisionally implemented |
-| Accountable owner role | Platform |
-| Change risk | R2 shared source and security policy |
-| Evidence | [B05 partial evidence](../governance/evidence/examples/b05-r2-partial/manifest.toml) |
+Hosted CI runs source validation once on Linux, followed by runtime wheel smoke
+on Linux and macOS. The required check name, `Authoritative merged-result full
+lane`, stays stable and fails if either source validation or macOS smoke fails.
+Pull requests also verify the checked-out merge commit and its exact base/head
+parents. The four-section pull-request template is guidance; there is no evidence
+schema, reviewer-role parser, or classification service.
 
-## Current validation path
-
-The active repository check is `make check`. It runs the frozen lock check,
-configured Python formatting and linting, strict typing and stub checks,
-repository governance validators, security checks, the admitted dependency audit,
-tracked-source secret scanning, the default pytest suite, and the installed wheel
-smoke. The root command uses Python 3.12.14 and the non-editable package paths
-recorded in `uv.lock`; it does not depend on a caller `PYTHONPATH`.
-
-The hosted workflow installs the frozen environment and pinned Cosign 3.1.3,
-runs `make source-check` on Linux, and then runs the installed wheel smoke on
-Linux and macOS. A pull-request merged-result identity check remains an explicit
-hosted check. The workflow file is repository-local evidence; protected branch
-and exact-commit retention remain external findings.
+The smoke check builds the runtime wheel, installs its locked external dependencies
+with hashes and binary-only enforcement in an empty environment outside the
+checkout, and imports public domain APIs with Python isolation enabled. It verifies
+that governance and the retired runtime CLI are absent. This is development/CI
+installation evidence, not permission to release a QuantLib-containing artifact.
+The [dependency decision](dependency-admission.md) retains that restriction.
 
 ## Secret scanning
 
-`make ci-secrets-check` runs the retained `alpha-governance-ci scan-secrets
---all` command. The scanner uses bounded repository-owned patterns together with
-the locked `detect-private-key` hook. It reports only pattern identifiers and
-paths, never matching contents. Missing scanners, unsafe paths, unreadable files,
-oversized files, scanner failures, and detected credentials fail closed.
+`make ci-secrets-check` runs `alpha-governance-ci scan-secrets --all`. Bounded
+repository patterns and the locked `detect-private-key` hook reject credentials,
+unsafe paths, unreadable or oversized files, missing scanners and scanner failures.
+Diagnostics print pattern identifiers and paths, never matching contents.
 
-## Retired policy surfaces
+## Local validation
 
-The former affected-target selector, Bazel owner and reverse-dependency queries,
-fast/full custom scheduler, schema lane, and CI event-log retention were retired
-when the single frozen-uv source path became authoritative. Their implementation
-and configuration remain historical evidence where retained, but they add no
-current setup, topology, inventory, or merge prerequisite. The historical
-affected-target and remote-execution pages remain reachable from the architecture
-index for provenance.
+Run only the tests relevant to affected behavior while developing, together with
+applicable static and policy checks. For example:
 
-## Scope and evidence
+```sh
+uv run --frozen --no-editable pytest -q tests/engineering/test_package_definition.py
+```
 
-Focused commands such as `make topology-check`, `make inventory-check`, and
-`make engineering-standards-check` support local iteration. They do not replace
-`make check` before merge. Record the exact command, selected test paths, skips,
-and unavailable hosted observations in the validation result. Historical migration
-results and synthetic evidence packs do not claim current execution.
+Record the actual selected paths, results and unavailable hosted observations in
+the change description. Hosted CI owns the complete required lane. `make check`
+is available when a full local run is appropriate; focused local validation must
+not be reported as a full run.
 
-The [development workflow](../governance/workflow.md) owns daily validation and
-evidence shape. Current state and findings are generated in the
-[program status](../governance/program-status.md). B05 creates no deployment,
-activation, credential, executable-order, or capital authority.
+The former scheduler, event log, package readiness, topology, ownership, inventory,
+role approvals and historical evidence validators are retired. Bazel/Nix and
+remote-execution records are historical. The
+[development workflow](../governance/workflow.md) owns development and activation;
+passing CI grants no deployment, credential or trading authority.

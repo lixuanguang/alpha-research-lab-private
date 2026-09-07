@@ -4,6 +4,8 @@ from __future__ import annotations
 
 # standard library imports
 import importlib.metadata
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -78,14 +80,20 @@ class TestPackageDefinitionContracts:
             requirement.lower() for requirement in tool_dependencies
         }
 
-    def test_governance_path_target_and_owned_commands_are_explicit(self) -> None:
-        """Verify project TOML declares the compatibility path and retained commands."""
+    def test_governance_is_available_only_to_development_tools(self) -> None:
+        """Keep governance in development dependencies and reject runtime compatibility scripts."""
         configuration = _load_pyproject()
         tool_configuration = _load_pyproject("tools/governance/pyproject.toml")
         uv = _require_table(_require_table(configuration, "tool"), "uv")
         sources = _require_table(uv, "sources")
         scripts = _require_table(_require_table(tool_configuration, "project"), "scripts")
-        compatibility_scripts = _require_table(_require_table(configuration, "project"), "scripts")
+        runtime_project = _require_table(configuration, "project")
+        runtime_dependencies = TypeAdapter(list[str]).validate_python(
+            runtime_project["dependencies"]
+        )
+        development_dependencies = TypeAdapter(list[str]).validate_python(
+            _require_table(configuration, "dependency-groups")["dev"]
+        )
 
         governance_source = _require_table(sources, "alpha-research-governance")
         assert governance_source["path"] == "tools/governance"
@@ -94,7 +102,14 @@ class TestPackageDefinitionContracts:
         assert "numpy==2.4.6" in constraints
         assert scripts["alpha-governance-ci"] == "alpha_research_governance.ci_policy:main"
         assert "alpha-governance-remote-execution" not in scripts
-        assert compatibility_scripts["alpha-research-ci"] == "alpha_research.ci_policy:main"
+        assert not any("governance" in requirement for requirement in runtime_dependencies)
+        assert "alpha-research-governance==0.1.0" in development_dependencies
+        assert "scripts" not in runtime_project
+        installed_commands = {
+            entry.name
+            for entry in importlib.metadata.distribution("alpha-research-lab").entry_points
+        }
+        assert "alpha-research-ci" not in installed_commands
 
     def test_wheel_smoke_is_the_build_install_boundary(self) -> None:
         """Require the root interface to invoke the isolated installed-wheel smoke."""
@@ -110,8 +125,23 @@ class TestPackageDefinitionContracts:
 
         assert "wheel-smoke:" in makefile
         assert "python -m alpha_research_governance.wheel_smoke" in makefile
-        assert "alpha_research_governance-" in smoke
+        assert "find_spec('alpha_research_governance') is None" in smoke
+        assert "--no-dev" in smoke
         assert "alpha_research_lab-" in smoke
         assert "--require-hashes" in smoke
         assert '"-I"' in smoke
         assert "PYTHONPATH" in smoke
+
+    def test_installed_development_cli_rejects_an_empty_scan_scope(self) -> None:
+        """Exercise the installed tool boundary and preserve its nonzero failure status."""
+        command = Path(sys.executable).parent / "alpha-governance-ci"
+        result = subprocess.run(
+            [str(command), "scan-secrets"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert result.returncode == 1
+        assert "scan-secrets accepts" in result.stderr

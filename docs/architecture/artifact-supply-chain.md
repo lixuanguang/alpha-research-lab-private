@@ -1,63 +1,35 @@
 # Artifact supply chain
 
-The artifact boundary builds from one project contract: `pyproject.toml` with the
-frozen `uv.lock`. A release candidate is produced by the canonical uv wheel build,
-then inspected, signed, published under its content digest, and verified by the
-consumer. The workflow runs dependency admission before any artifact tool.
+This boundary verifies a built artifact before a release consumer can use it.
+The policy binds the root project manifest and `uv.lock`, accepted artifact
+kinds, archive member limits, native-library markers, in-toto/SLSA identities,
+and the protected-main Cosign identity. `alpha-governance-artifacts` does not
+maintain package status, review gates, role catalogs, or evidence packs.
 
-## Build contract
+Bundle creation hashes the complete artifact and test records, records the
+source commit, normalized build command and platform, emits a deterministic
+SPDX inventory, and writes in-toto provenance. Verification rejects changed
+artifact bytes, changed manifest or provenance identities, unsafe paths,
+unknown fields, incomplete native-library coverage, revoked signers, and
+mutable digest references. Cosign receives fixed argv and a pinned executable;
+the lifecycle never downloads or silently rebuilds an artifact.
 
-`alpha-governance-artifacts create` accepts an artifact produced by the canonical
-uv build invocation and records:
+Publishing verifies a staged copy and writes exactly one content-addressed
+directory at `registry/sha256/<artifact-digest>`. Consumers should retain the
+digest returned by verification and the matching source commit. The dependency
+admission gate runs before each lifecycle operation. QuantLib's current
+source-to-wheel binding is unresolved, so release creation, signing,
+verification, and publication remain blocked until the exception is resolved.
 
-- the complete artifact filename, kind, byte size, and SHA-256 digest;
-- the source commit and build platform;
-- the normalized backend command identity `uv build --no-build-isolation --wheel --no-sources`;
-- the SHA-256 identities of `pyproject.toml` and `uv.lock`;
-- normalized SPDX 2.3 output from the admitted Syft version; and
-- opaque test evidence files with their copied digest and size.
+The policy is intentionally local and declarative. It is not a release approval
+workflow or a claim of hosted signing, registry retention, signer rotation, or
+live deployment readiness. Those controls require a concrete release consumer
+and should be added with that consumer's tests.
 
-The bundle manifest is version 2. Version 1 manifests that refer to retired build
-targets or duplicate toolchain files are rejected and must be rebuilt. Syft and
-Cosign versions remain explicit in the manifest and in policy-bound tool
-invocations. The in-toto statement binds the source commit, project manifest, uv
-lock, build command, artifact digest, SPDX identity, and builder identity.
+## Commands
 
-The Make build wrapper runs this backend with the frozen environment and supplies
-the project and output directory. Those wrapper arguments are intentionally outside
-the normalized identity so local and hosted invocations bind the same build backend
-while the wrapper controls the checkout and output location.
-
-## Verification and publication
-
-Verification checks the expected immutable `sha256:<64 lowercase hex>` reference,
-regular-file and archive safety, every manifest digest and size, the exact bundle
-file set, provenance identity and dependencies, SPDX identity, native-library
-coverage, signer identity and issuer, and the Cosign signature. It rejects changed
-artifact bytes, changed evidence, unknown manifest fields, unsafe symlinks, revoked
-signers, malformed provenance, and mutable consumer references. Publication first
-verifies a staged copy and creates only one directory at
-`<registry>/sha256/<artifact-digest>`.
-
-Every lifecycle operation calls dependency release admission before external tools.
-QuantLib's current bootstrap-only, unverified source-to-wheel binding therefore
-blocks creation, signing, verification, and publication until its recorded review
-condition is resolved. This preserves the native dependency restriction while the
-repository moves to uv.
-
-## Tool and evidence boundaries
-
-Syft and Cosign are resolved as ordinary development tools and checked against the
-exact versions in the artifact policy. Their output is treated as untrusted input:
-JSON duplicate keys, oversized documents, missing native members, and unexpected
-tool failures fail closed. The default process runner passes argv without a shell;
-the lifecycle does not download or silently regenerate an artifact.
-
-The local B08 evidence remains partial. Protected CI signing, independent review,
-registry retention, signer rotation, and recovery exercises are still open findings
-and are not implied by a local injected runner.
-
-The retired Bazel label, module lock, Nix toolchain, and four-lock build graph were
-removed in cleanup step 2. Their former guarantees are explicitly retired. Clean
-`uv build`, installation outside the checkout, digest verification, and the retained
-provenance/tamper checks provide the supported replacement evidence.
+```sh
+uv run --frozen alpha-governance-artifacts
+uv run --frozen alpha-governance-artifacts create ARTIFACT KIND BUILD SOURCE_COMMIT TESTS OUTPUT
+uv run --frozen alpha-governance-artifacts verify BUNDLE SHA256
+```

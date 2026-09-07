@@ -106,10 +106,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     try:
         artifact_supply_chain_policy = validate_repository(repository_root)
         if not cli_arguments:
-            print(
-                "Artifact supply-chain policy passed; package status is "
-                f"{artifact_supply_chain_policy.package_status}."
-            )
+            print("Artifact supply-chain policy passed.")
             return 0
         lifecycle_command = cli_arguments.pop(0)
         if lifecycle_command == "create" and len(cli_arguments) == 6:

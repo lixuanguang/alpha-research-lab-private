@@ -152,10 +152,10 @@ and independent domain review are mandatory; Platform/SRE and Security assess th
 native dependency and inherited B07 obligations. No independent approval exists.
 
 Applicable gate definitions live in the
-[quality-gate catalog](operations.md#quality-gate-catalog). Exact dependency,
+[operations runbook](../governance/operations.md). Exact dependency,
 classification, artifact and finding state remains in the machine-readable
 admission and evidence records; current package state and finding IDs are rendered
-in the [program status](../governance/program-status.md).
+in the [development workflow](../governance/workflow.md).
 
 The [evidence example](../governance/evidence/examples/c03-r2-partial/manifest.toml)
 is a hash-bound partial A05 fixture with an explicitly synthetic SHA, not approval
@@ -198,5 +198,5 @@ Finding detail remains in the retained
 [C03 evidence manifest](../governance/evidence/examples/c03-r2-partial/manifest.toml)
 and [dependency admission](dependency-admission.toml), including `B07-DEP-001`.
 The [development workflow](../governance/workflow.md) owns daily evidence and the
-[program status](../governance/program-status.md) owns readiness. C03 grants no
+[development workflow](../governance/workflow.md) records implementation. C03 grants no
 release, deployment, activation, credential, market or capital authority.

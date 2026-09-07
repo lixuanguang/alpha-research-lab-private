@@ -40,7 +40,7 @@ domains with an active hire. Version-2 program records declare implementation
 status and technical findings; governance status is derived from staffing.
 Founder acceptance completes local engineering after applicable checks pass.
 Institutional evidence records, release and activation requirements retain their
-existing meaning. See the [operating policy](../../governance/domain-ownership.md#current-operating-policy).
+existing meaning. See the [development and release workflow](../../governance/workflow.md).
 
 ## Consequences
 

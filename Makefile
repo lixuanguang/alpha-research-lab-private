@@ -4,10 +4,9 @@ UV := uv
 PYTHON_PATHS := src tests tools/governance/src tools/typing/stubs
 
 .PHONY: sync lock-check format format-check lint typecheck governance-check \
-	program-status engineering-standards-check dependency-admission-check \
-	dependency-audit artifact-supply-chain-check architecture-check ownership-check \
-	change-risk-check evidence-check topology-check inventory-check \
-	security-controls-check program-governance-check ci-secrets-check security \
+	engineering-standards-check dependency-admission-check \
+	dependency-audit artifact-supply-chain-check architecture-check \
+	ci-secrets-check security \
 	source-check integration-test performance-test test build wheel-smoke smoke \
 	ci-full check
 
@@ -30,10 +29,7 @@ typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
 	$(UV) run --frozen python -m mypy.stubtest --mypy-config-file=tools/typing/stubtest.toml --ignore-missing-stub QuantLib exchange_calendars pandas
 
-governance-check: engineering-standards-check dependency-admission-check artifact-supply-chain-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check
-
-program-status:
-	$(UV) run --frozen alpha-governance-program --write-status
+governance-check: engineering-standards-check dependency-admission-check artifact-supply-chain-check architecture-check
 
 engineering-standards-check:
 	$(UV) run --frozen alpha-governance-engineering-standards
@@ -49,27 +45,6 @@ artifact-supply-chain-check:
 
 architecture-check:
 	$(UV) run --frozen alpha-governance-architecture
-
-ownership-check:
-	$(UV) run --frozen alpha-governance-ownership
-
-change-risk-check:
-	$(UV) run --frozen alpha-governance-change-risk
-
-evidence-check:
-	$(UV) run --frozen alpha-governance-evidence
-
-topology-check:
-	$(UV) run --frozen alpha-governance-topology
-
-inventory-check:
-	$(UV) run --frozen alpha-governance-inventory
-
-security-controls-check:
-	$(UV) run --frozen alpha-governance-security
-
-program-governance-check:
-	$(UV) run --frozen alpha-governance-program
 
 ci-secrets-check:
 	$(UV) run --frozen alpha-governance-ci scan-secrets --all
@@ -87,7 +62,6 @@ performance-test:
 	$(UV) run --frozen --no-editable pytest -q -m performance
 
 build:
-	$(UV) run --frozen --no-editable uv build --no-build-isolation --wheel tools/governance --out-dir dist
 	$(UV) run --frozen --no-editable uv build --no-build-isolation --wheel --no-sources . --out-dir dist
 
 wheel-smoke:

@@ -148,9 +148,9 @@ mappings, extra fields, coercion, mutation, and invalid nested instances.
 
 The C02 evidence manifest retains exact classification, gate, dependency and
 artifact state. Gate definitions live in the
-[quality-gate catalog](operations.md#quality-gate-catalog); current package state
+[operations runbook](../governance/operations.md); current package state
 and finding IDs are rendered in the
-[program status](../governance/program-status.md).
+[development workflow](../governance/workflow.md).
 
 The diagnostic workload uses the retained 185-session XNYS range, with lookups at
 session opens and closes. Session selection uses binary search over the validated
@@ -185,6 +185,6 @@ operator control.
 Finding detail remains in the retained
 [C02 evidence manifest](../governance/evidence/examples/c02-r2-partial/manifest.toml).
 The [development workflow](../governance/workflow.md) owns daily evidence and the
-[program status](../governance/program-status.md) owns readiness. C02 grants no
+[development workflow](../governance/workflow.md) records implementation. C02 grants no
 provider, credential, deployment, activation, executable-order or capital
 authority.

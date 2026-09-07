@@ -1,4 +1,4 @@
-"""Canonical language and static-quality standards API and command."""
+"""Compact Python clarity checker and command."""
 
 from __future__ import annotations
 
@@ -8,37 +8,26 @@ from collections.abc import Sequence
 from pathlib import Path
 
 # project library imports
-from alpha_research_governance.engineering_standards.models import (
-    EngineeringStandards,
+from alpha_research_governance.engineering_standards.checker import (
     EngineeringStandardsError,
-    LanguageStandard,
-    ToolStandard,
-)
-from alpha_research_governance.engineering_standards.policy import (
-    load_standards,
     source_tree_findings,
+    tooling_configuration_findings,
     validate_repository,
     validate_suppression_line,
 )
 
 __all__ = [
-    "EngineeringStandards",
     "EngineeringStandardsError",
-    "LanguageStandard",
-    "ToolStandard",
-    "load_standards",
     "main",
     "source_tree_findings",
+    "tooling_configuration_findings",
     "validate_repository",
     "validate_suppression_line",
 ]
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
-    """Run the engineering-standards checker from the command line.
-
-    Validation always uses the current calendar date for time-bounded standards because
-    this command does not expose an override for the validator's ``validation_date``.
+    """Run the compact Python clarity checker from the command line.
 
     Args:
         arguments: Optional command-line arguments. Omit this value to consume
@@ -62,12 +51,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
         return 2
     repository_root = Path(cli_arguments[0]) if cli_arguments else Path.cwd()
     try:
-        standards = validate_repository(repository_root)
+        validate_repository(repository_root)
     except (EngineeringStandardsError, OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
-    print(
-        f"Engineering standards passed for {len(standards.languages)} language policies and "
-        f"{len(standards.tools)} exact tools; package status is {standards.package_status}."
-    )
+    print("Python clarity standards passed for src, tests, governance, and native stubs")
     return 0

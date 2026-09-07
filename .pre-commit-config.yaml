@@ -28,7 +28,7 @@ repos:
         pass_filenames: false
 
       - id: governance
-        name: check retained repository governance
+        name: check clarity, dependency restrictions, artifacts and links
         entry: make governance-check
         language: system
         always_run: true

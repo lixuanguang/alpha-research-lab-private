@@ -434,8 +434,6 @@ def _validate_wheel_records(
         package = admitted.get(record.name)
         if package is None or record.version != package.version or not package.native_artifacts:
             raise DependencyAdmissionError(["wheel sources must match an exact native admission"])
-        if record.owner_role != "platform":
-            raise DependencyAdmissionError(["wheel source admission requires Platform ownership"])
         if not 1 <= len(record.sources) <= 100 or not 1 <= len(record.wheels) <= _MAX_WHEELS:
             raise DependencyAdmissionError(["wheel source and artifact counts are out of bounds"])
         urls: tuple[str, ...] = (record.certificate_identity, record.oidc_issuer)

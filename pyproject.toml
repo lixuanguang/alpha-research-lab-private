@@ -10,17 +10,14 @@ readme = "docs/README.md"
 requires-python = "==3.12.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
-    "alpha-research-governance==0.1.0",
     "exchange-calendars==4.13.2",
     "pydantic==2.13.5",
     "QuantLib==1.43",
 ]
 
-[project.scripts]
-alpha-research-ci = "alpha_research.ci_policy:main"
-
 [dependency-groups]
 dev = [
+    "alpha-research-governance==0.1.0",
     "bandit[toml]==1.9.4",
     "hatchling==1.32.0",
     "hypothesis==6.167.1",

@@ -1,78 +1,62 @@
 # Dependency admission
 
-This contract keeps the repository's Python dependency graph reproducible with one
-supported build path: the root `pyproject.toml` and its frozen `uv.lock`. The
-governance checker reads the lock, verifies every admitted package and dependency
-edge, and checks that the lock digest matches the policy. It does not install or
-modify packages.
+The dependency boundary has one source of truth: `pyproject.toml` plus the
+frozen `uv.lock`. `alpha-governance-dependencies` reads
+`docs/architecture/dependency-admission.toml`, verifies the lock's SHA-256
+identity, then checks every registry package, exact version, artifact hash,
+artifact URL, source index, platform wheel, and dependency edge. It does not
+install or modify packages.
 
-## Repository boundary
+The policy records the packages used by the current runtime and development
+environment, together with the reviewed license expressions. Development tools
+remain development dependencies. Source code and owned scripts are scanned for
+runtime `pip install`, `uv add`, and equivalent installation commands.
 
-`docs/architecture/dependency-admission.toml` is the machine-readable admission
-record. Its `lock_paths` contains exactly `uv.lock`; the corresponding
-`lock_digests` entry binds the complete file with SHA-256. Package names, exact
-versions, approved PyPI source, source and wheel digests, platform coverage, and
-license decisions are checked against the lock. Unknown packages, alternate
-registries, missing hashes, malformed dependency edges, and drifted lock bytes
-fail closed.
-
-Development tools remain development dependencies. Runtime source may not execute
-`pip install`, `uv add`, or an equivalent package installation. The repository
-validator scans owned source and shell roots for those commands and keeps this
-runtime boundary independent of the build backend.
-
-`pip-audit` is a required blocking signal over the exact locked graph. A report
-must cover every admitted package, bind vulnerability IDs to the package and
-version, and provide a current policy decision for each finding. Skips, unresolved
-findings, duplicate records, stale decisions, and incomplete coverage fail. The
-OpenSSF Scorecard report is an advisory signal and cannot turn a failing dependency
-admission into a pass.
+`pip-audit` remains a blocking check over the exact admitted package set. A
+report must cover each name and version once; skipped packages and unresolved
+vulnerability IDs fail. Scorecard is an advisory signal and cannot turn a
+failed dependency check into a pass.
 
 ## Wheel-only source evidence
 
-Wheel-only admissions retain their complete wheel set, approved registry, source
-archive identity, trusted root, in-toto/SLSA claim, and Cosign verification. The
-validator rejects unsafe evidence paths, symlinks, duplicate identities, unexpected
-sources, malformed wheel names, missing platform wheels, and claims whose subjects
-or digests differ from the frozen lock. It authenticates supplied evidence; it does
-not silently fetch or substitute artifacts.
+The retained source-bound profile, when a package has one, requires every
+locked wheel filename and digest, approved PyPI origin, source archive revision
+and digest, trusted root, attestation claim, and Cosign verification. It rejects
+unsafe paths, alternate origins, duplicate identities, missing hashes, and
+changed source or wheel claims. The current policy has no source-bound record;
+QuantLib remains on the bounded bootstrap profile below.
 
 ## Bounded solo bootstrap publication evidence
 
-The repository's local evidence package records the exact policy review, source and
-security reviews, native inventory, compatibility report, trusted root, and locked
-wheels used for the bounded QuantLib bootstrap. Each referenced file and wheel is
-bound by its recorded SHA-256 digest, and the package remains explicitly partial
-until independent review and complete source-to-wheel provenance are available.
+The old institutional evidence package is no longer an admission input. The
+small retained native records are ordinary digest-bound files consumed by the
+QuantLib exception and remain reachable at their existing paths.
 
-QuantLib 1.43 remains a deliberate bootstrap-only admission. Its source-to-wheel
-binding is recorded as `unverified`, with the source review, security review,
-native inventory, compatibility report, trusted root, and all locked wheels bound
-by digest. It is available for isolated development and CI while the review window
-is open. `require_release_admission` blocks every artifact lifecycle operation
-while this record exists, so removing the record without replacing its evidence
-cannot make an unprovenanced native wheel releasable. The record expires on
-2026-10-04 and must be resolved by authenticated complete source-to-wheel evidence
-or by removing/replacing QuantLib together with its declarations and lock entries.
+## QuantLib exception
 
-## Validation commands
+QuantLib 1.43 is retained for the existing financial convention adapter. Its
+source archives, locked wheel identities, native inventory, compatibility
+report, trust root, and attestation bundles remain reachable under
+`docs/governance/evidence/examples/c03-r2-partial/` and are checked by digest.
+The source-to-wheel binding is explicitly `unverified`. The exception permits
+isolated development and CI through **2026-10-04**; it expires after that date
+unless authenticated complete source-to-wheel evidence is recorded or QuantLib
+is removed with its imports, declarations, and lock entries.
 
-Run the policy check from the frozen uv environment:
+Every artifact lifecycle operation calls `require_release_admission`. While the
+exception exists, that gate blocks release creation, signing, verification, and
+publication, even when lock checks pass. This keeps the unresolved native
+uncertainty visible and prevents a development wheel from becoming a release
+artifact by deleting a policy record.
+
+## Commands
 
 ```sh
 uv run --frozen alpha-governance-dependencies
+uv run --frozen alpha-governance-dependencies audit
 uv run --frozen pip-audit --locked
 ```
 
-The first command checks policy, lock identity, package provenance, integration
-fragments, runtime installation scans, and retained evidence. The second command
-produces the vulnerability signal consumed by the policy workflow. Build and
-install verification uses `uv build` and a clean environment outside the checkout;
-the artifact policy records that project manifest and the same `uv.lock` identity.
-
-The former Bazel requirements subset, module lock, Nix lock, developer toolchain
-registry, and migrated build records were retired in cleanup step 2. Their prior
-hermetic graph, Nix bootstrap, and duplicate lock-surface checks are no longer
-release guarantees. The replacement is the frozen uv lock plus clean wheel build
-and installation smoke validation. No dependency restriction was removed to make
-the migration pass.
+Cosign 3.1.3 is required only for retained wheel-attestation verification. It is
+installed by the CI job that runs the dependency admission check. The local
+policy parser and lock checks do not fetch source or wheel bytes.

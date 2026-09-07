@@ -3,7 +3,7 @@
 Audit: 2026-09-04, revision `e3a0efd08fdc128c9a0a83dc314645da5996133f`.
 Status: steps 1-4 implemented on 2026-09-05; step 5 is inactive until its hiring
 trigger is met. Audit findings below describe the recorded baseline. The
-[current operating policy](../governance/domain-ownership.md#current-operating-policy)
+[current workflow](../governance/workflow.md)
 and [ADR 0014](../architecture/decisions/0014-founder-implementation-acceptance.md)
 document the implemented authority and completion rules.
 
@@ -51,10 +51,10 @@ they are not claims of production incidents.
 
 | Priority | Finding and evidence | Required change |
 | --- | --- | --- |
-| P2 | Solo completion is deliberately impossible. The [overlay](README.md#solo-bootstrap-execution-overlay) keeps work partial; the [program parser, line 515](../../tools/governance/src/alpha_research_governance/program_governance/registry.py#L515) rejects any other implemented status and requires deferred evidence and findings. All 17 registered packages remain partial, carrying 48 finding references. | Separate implementation completion from organizational acceptance. Missing hires must not be implementation defects. |
-| P2 | Every PR pays the institutional documentation cost. The [evidence policy](../governance/merge-evidence-policy.toml) defines 29 mandatory fields. The [linter, line 55](../../tools/governance/src/alpha_research_governance/evidence/mr.py#L55) requires each one; [hosted CI, line 88](../../.github/workflows/ci.yml#L88) invokes it. | Replace the default with a short founder template and conditional sections. |
-| P2 | A documentation-only policy change cannot work. [Risk policy parsing, line 364](../../tools/governance/src/alpha_research_governance/change_risk/policy.py#L364) hard-codes blueprint gates and reviewer groups. [Evidence acceptance, line 485](../../tools/governance/src/alpha_research_governance/evidence/manifest.py#L485) offers either partial-with-findings or accepted-with-approvals. | Migrate policy schemas, validators, tests and entry points together. |
-| P2 | The delivery graph mixes capability dependencies with organizational completion. B07 depends on remote-execution B06; D01 depends on artifact-release B08. The [state parser, line 555](../../tools/governance/src/alpha_research_governance/program_governance/registry.py#L555) additionally requires a contiguous A01-onward prefix. [Research stages](research-program.md#platform-enablement-map) also inherit independent-report prerequisites. | Use actual technical dependencies for development and separately triggered operational/review requirements. |
+| P2 | Solo completion was deliberately impossible. The historical [program parser](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/tools/governance/src/alpha_research_governance/program_governance/registry.py#L515) rejected other implemented states and required deferred evidence and findings. | Separate implementation completion from organizational acceptance. Missing hires must not be implementation defects. |
+| P2 | Every PR paid the institutional documentation cost. The historical [evidence policy](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/docs/governance/merge-evidence-policy.toml) defined mandatory fields, and its [linter](https://github.com/lixuanguang/alpha-research-lab-private/blob/97775789cfc21425abf4afcbb0498dd5ec69ea89/tools/governance/src/alpha_research_governance/evidence/mr.py#L55) enforced them. | Replace the default with a short founder template and conditional sections. |
+| P2 | A documentation-only policy change could not work. Historical risk and evidence modules hard-coded blueprint gates and reviewer groups. | Migrate policy schemas, validators, tests and entry points together. |
+| P2 | The delivery graph mixed capability dependencies with organizational completion. Historical program parsing also required a contiguous package prefix. [Research stages](research-program.md#platform-enablement-map) inherited independent-report prerequisites. | Use actual technical dependencies for development and separately triggered operational/review requirements. |
 | P2 | The dashboard is stale despite passing validation. The program CLI reports C02 and C03 as planned and recommends C02. Their contracts and bundles exist; the [C03 contract](../architecture/financial-units.md) identifies C04 as the next technical package. | Reconcile current implementation evidence before selecting the next package; stop duplicating status manually. |
 
 There are 114 files under `docs/governance/evidence`. Many are useful fixtures,

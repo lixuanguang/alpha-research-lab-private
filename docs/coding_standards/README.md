@@ -69,14 +69,10 @@ affected code, tests, public interfaces, build targets, owners, reverse
 dependencies, generated inputs, and working-tree changes. Resolve facts from the
 repository and state assumptions that materially affect behavior.
 
-Use the [change-risk policy](../governance/change-risk-classification.md) and
-[PR evidence contract](../governance/merge-evidence.md) for the requested operation.
-The [current operating policy](../governance/domain-ownership.md#current-operating-policy)
-separates founder implementation acceptance from team handover and release or
-activation authority. Unavailable reviewers do not waive technical checks or
-required target-environment evidence. Prefer one logical change near or below
-400 non-generated lines; otherwise record a split plan or indivisible-migration
-rationale.
+Use the [development and release workflow](../governance/workflow.md) for the
+requested operation and the [operations runbook](../governance/operations.md)
+for a real deployment or activation. Prefer one logical change; record a split
+plan when a change is too broad to review safely.
 
 Preserve unrelated changes and dependency boundaries. Use owning generators for
 generated files. Update behavior documentation, tests, compatibility, migration,
@@ -125,8 +121,8 @@ review or grant release or activation authority.
 
 A repository target owns dependency, visibility, platform, generated inputs,
 testing, and artifact boundaries; directory proximity does not make an API
-public. Follow [repository topology](../architecture/repository-topology.md) and
-run the pinned uv environment through `make check`. The former hermetic-build
+public. Follow the package boundaries and dependency direction and run the
+pinned uv environment through `make check`. The former hermetic-build
 contract is historical; it does not add an active build backend or validation
 requirement. Generated source identifies its generator and inputs; keep generated
 rewrites separate from unrelated semantic changes.
@@ -134,7 +130,7 @@ rewrites separate from unrelated semantic changes.
 Each deployable has its own immutable source/target/toolchain/dependency/schema/
 platform/build-mode identity. Build once and promote by digest under the
 [artifact contract](../architecture/artifact-supply-chain.md) and
-[release controls](../architecture/operations.md#deployment-activation-and-promotion).
+[operations runbook](../governance/operations.md).
 Version environment configuration separately. Source access, data entitlements,
 credentials, promotion, deployment, and capital permissions remain distinct;
 activation requires independent authorization.

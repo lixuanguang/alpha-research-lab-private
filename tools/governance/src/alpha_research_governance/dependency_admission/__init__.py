@@ -23,6 +23,7 @@ from alpha_research_governance.dependency_admission.policy import (
     assess_pip_audit_report,
     assess_scorecard_report,
     load_policy,
+    require_release_admission,
     validate_repository,
 )
 
@@ -36,6 +37,7 @@ __all__ = [
     "assess_scorecard_report",
     "load_policy",
     "main",
+    "require_release_admission",
     "run_pip_audit",
     "validate_repository",
 ]
@@ -213,15 +215,12 @@ def main(arguments: Sequence[str] | None = None) -> int:
     try:
         if not cli_arguments:
             policy = validate_repository(repository_root)
-            print(
-                f"Dependency admission passed for {len(policy.packages)} locked Python packages; "
-                f"package status is {policy.package_status}."
-            )
+            print(f"Dependency admission passed for {len(policy.packages)} locked Python packages.")
             for record in policy.bootstrap_wheel_admissions:
                 print(
                     f"BOOTSTRAP ONLY: {record.name}=={record.version}; "
                     f"source-to-wheel binding unverified; {record.finding_id}; "
-                    f"owner={record.owner_role}; expires={record.expires_on}; "
+                    f"expires={record.expires_on}; usage={record.usage}; "
                     "artifact release blocked."
                 )
             return 0
