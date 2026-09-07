@@ -43,10 +43,9 @@ No economic, data, schema, research, model, strategy, risk, execution, runtime, 
 deployment behavior is introduced. Fast affected-target selection and authoritative
 merged-result policy remain B05-owned.
 
-The repository-internal checker separates Python source rules and exact design
-exceptions from policy parsing and repository cross-checks. Import headings,
-source typing, documentation and class dispositions have an independently
-testable boundary while retaining the existing command and lifecycle. Keep
+The repository-internal checker separates Python source rules from policy parsing
+and repository cross-checks. Import headings, source typing and documentation
+have an independently testable boundary while retaining the existing command and lifecycle. Keep
 unrelated contract parsing together until another admitted language or
 generated-source root creates a similarly independent boundary; an early
 abstraction must not let validation paths drift.
@@ -94,36 +93,19 @@ Python rules alongside the configured Ruff and mypy checks:
   Google-style summary. Public APIs include every applicable `Args:`,
   `Returns:`/`Yields:`, and `Raises:` section. Reviewers check that the prose is
   meaningful; metadata checks cannot prove a prose justification.
-- High-level domain, policy, validation, loading, and orchestration operations
-  prefer cohesive classes. Low-level, framework, and compatibility functions
-  require an explicit rationale.
+
+Use cohesive classes for meaningful concepts, related behavior, state ownership,
+or invariants. Module-level functions and ordinary test functions are permitted
+without registration. Class design remains a semantic review responsibility;
+the scanner does not require a class disposition for each function.
 
 Ruff `D` uses the Google convention and `ANN401` rejects dynamically typed
 annotations. `make lint` and `make typecheck`, pre-commit and hosted CI share
-these controls. Source and inferred-typing diagnostics must pass directly or,
-for the eligible source rules below, match an exact reviewed design exception.
+these controls. Source and inferred-typing diagnostics must pass directly.
 Diagnostics cannot be admitted through a debt baseline or a reduced checking scope.
-
-Exact exceptions are separate in
-[`docs/architecture/python-standards-exceptions.toml`](python-standards-exceptions.toml).
-They are limited to low-level, framework, or compatibility functions and
-inherited-doc contracts. Each exception records an owner, rationale, expiry, and
-source fingerprint. Expired or unknown-owner entries, unsupported categories,
-fingerprint mismatches, and stale exceptions fail the command. Exceptions cannot
-waive the explicit-`Any`, import-heading, or syntax rules. The metadata check
-cannot establish whether a rationale is substantively justified; that remains a
-review responsibility.
-
-Exception records use the exact fields `path`, `symbol`, `rule`, `detail`, `kind`,
-`owner_role`, `rationale`, `expires`, and `source_sha256`. Use a native TOML date
-for `expires`, with at most 180 days remaining at validation time, and at least
-12 rationale characters after trimming surrounding whitespace. The fingerprint
-is SHA-256 of the definition's `ast.dump(node, include_attributes=False)` UTF-8 bytes under the
-pinned Python interpreter. Whitespace and line relocation do not change it;
-definition changes do. Duplicate qualified definitions cannot receive an
-ambiguous exception. `PYC001` permits `low_level`, `framework`, or `compatibility`;
-`PYD001`/`PYD002` permit only `inherited_contract`. Each record discharges exactly
-one finding; duplicate, moved or multiplied findings are rejected.
+The function-exception register, its expiry and definition-fingerprint checks,
+and the `PYC001` class-disposition rule were retired in cleanup step 1. There is
+no source-rule waiver mechanism, including for inherited documentation contracts.
 
 The scanner validates summaries and structured sections, including each public
 parameter. It checks `Raises:` for explicit raises in a function's own body;
@@ -135,6 +117,24 @@ bounds; mypy remains responsible for inferred types and signature correctness.
 The required Ruff selection and global mypy flags are enforced by the repository
 validator. Removing them, restricting their scope or adding configuration
 overrides fails the engineering-standards check.
+
+### Protected clarity checks
+
+Cleanup preserves the following executable boundaries. No custom clarity rule
+has been replaced on the assumption that a similarly named Ruff or mypy rule is
+equivalent.
+
+| Requirement | Enforcement and retained regression coverage |
+| --- | --- |
+| Complete function typing and strict inferred types | Configured strict mypy across `src`, `tests`, `tools/governance/src`, and `tools/typing/stubs`, including all four `disallow_any_*` settings; `test_python_typing.py` checks scope and failure propagation, and `test_engineering_standards.py` rejects configuration bypasses. |
+| No explicit `Any` | Source scanner plus Ruff `ANN401` and mypy; `test_python_source_standards.py` covers aliases, qualified names, quoted annotations, type comments, generic bounds, nested occurrences, and ordinary text that must remain accepted. |
+| Import headings and organization | Source scanner plus Ruff `I`; `test_python_source_standards.py` retains accepted and rejected grouping, spacing, future-import, relative-import, and `TYPE_CHECKING` cases. |
+| Explanatory Google-style documentation | Source scanner plus Ruff `D`; `test_python_source_standards.py` retains summaries for modules, classes and private functions, public parameter descriptions, `Returns:`, `Yields:` and `Raises:`, and the narrower test/private summary-only contract. Semantic review checks the prose. |
+| Every owned Python source remains checked | `test_python_standards.py` covers repository discovery and direct diagnostics without an exception file, including newly created source and owned stubs. Ordinary functions still receive all applicable clarity checks. |
+
+The test paths above are under `tests/engineering/`. The checked scope and strict
+configuration are unchanged; retiring function registration does not authorize
+blanket exclusions or undocumented APIs.
 
 ## Suppressions
 

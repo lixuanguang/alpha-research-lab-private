@@ -148,7 +148,6 @@ filegroup(
     srcs = [
         "docs/architecture/engineering-standards.toml",
         "docs/architecture/engineering-tool-dependencies.toml",
-        "docs/architecture/python-standards-exceptions.toml",
         "pyproject.toml",
         "uv.lock",
     ],

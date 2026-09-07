@@ -1,8 +1,9 @@
 # Repository cleanup plan for a solo quant founder
 
 Audit date: 2026-09-07. Baseline: `97775789cfc21425abf4afcbb0498dd5ec69ea89`.
-Status: proposed plan; no code, tests, dependencies, or operating controls have
-been removed. The working tree was clean at the start of the audit.
+Status: step 1 implemented and validated; steps 2–6 remain planned. The measured
+baseline and audit findings below describe the repository before cleanup. The
+working tree was clean at the start of the audit.
 
 **Recommendation: keep the financial domain code, replace most of the custom
 governance platform with ordinary development tools, and organize delivery around
@@ -90,7 +91,7 @@ verify an actual capability without unrelated organizational prerequisites.
 
 | Finding | Evidence and concrete maintenance trigger | Recommended decision |
 | --- | --- | --- |
-| Function policy creates ongoing administrative work | [Python policy, line 199](../coding_standards/python.md#classes-and-object-design) requires individual exceptions for module-level functions. The [exception register](../architecture/python-standards-exceptions.toml) binds symbols to owner, expiry, and AST fingerprint. Editing a legitimate function can require a policy-record update. | Permit functions and ordinary test functions without registration. Delete `PYC001` and its exception system. Keep cohesive classes that classify concepts or group related behavior, own state, or enforce invariants; reduce wrappers and duplicate classes. Preserve typing, import-style and docstring rules. |
+| Function policy creates ongoing administrative work | At the audit baseline, the Python policy required individual exceptions for module-level functions. `docs/architecture/python-standards-exceptions.toml` bound symbols to owner, expiry, and AST fingerprint, so editing a legitimate function could require a policy-record update. | Step 1 removes `PYC001` and its exception system. The [current Python policy](../coding_standards/python.md#classes-and-object-design) permits functions and ordinary test functions without registration, keeps cohesive classes, and preserves typing, import-style and docstring rules. |
 | Governance is a runtime dependency | [Root project, line 13](../../pyproject.toml#L13) requires the governance distribution; [root Bazel library, line 21](../../src/alpha_research/BUILD.bazel#L21) also depends on it. [Compatibility exports](../../src/alpha_research/program_governance/registry.py#L1) and governance tests retain the old namespace. | Move surviving tooling to development-only use. Remove governance facades and `alpha-research-ci` after updating repository callers. Keep the deployable package independent of docs and policy registries. |
 | Multiple call layers preserve the old API without adding domain behavior | [Public program loader, line 2096](../../tools/governance/src/alpha_research_governance/program_governance/registry.py#L2096) calls a private compatibility function, then a service method, then another private loader. The public and service methods both translate the same error types. | Retire this subsystem where possible; otherwise keep one entry point, one implementation, and one error-translation boundary. Remove test-only compatibility seams with their callers. |
 | CI repeatedly checks the same source through different routes | [Full runner, line 715](../../tools/governance/src/alpha_research_governance/ci_policy/runner.py#L715) runs all pre-commit hooks, Bazel build/test, then `rollback-check`. [Makefile](../../Makefile) makes rollback rerun lint, format, typing, governance, and pytest. [Hosted CI](../../.github/workflows/ci.yml) also runs separate affected and full jobs. | Use one required source-validation job and one build/install smoke check. Remove the custom affected-target scheduler and permanent second build backend after proving replacement coverage. |
@@ -289,7 +290,7 @@ Avoid a permanent compatibility layer or a second policy profile as the migratio
 
 | Order | Concrete changes | Exit evidence |
 | --- | --- | --- |
-| 1. Preserve clarity; remove exception bureaucracy | Record the protected typing/import/docstring rules and their existing tests. Retain useful class organization; remove `PYC001`, its 486 function-exception records, reconciliation/fingerprint machinery and exclusive tests. Consolidate overlapping checking only after proving equivalent enforcement. | Current strict typing scope and retained import/docstring acceptance/rejection cases pass; domain suite still passes; ordinary functions need no expiry/fingerprint record. No clarity rule is silently removed. |
+| 1. Preserve clarity; remove exception bureaucracy — complete | Recorded the protected typing/import/docstring rules and their existing tests. Retained useful class organization; removed `PYC001`, its 486 function-exception records, reconciliation/fingerprint machinery and exclusive tests. | Strict typing, retained import/docstring fixtures and domain tests pass; ordinary functions need no expiry/fingerprint record. See [step 1 results](#step-1-results). |
 | 2. Establish the smaller CI/build path | Inventory existing Bazel tests by protected behavior. Make frozen uv checks and installed-wheel smoke validation authoritative. Keep secret/security checks. Update Make, workflow, hooks and exact-interface tests together. Then remove Bazel/remote execution and the duplicate bootstrap path. | Clean Mac/Linux setup and source checks pass; wheel imports outside the checkout; required failures propagate. Every retained Bazel-only guarantee has replacement evidence or an explicit retirement decision. |
 | 3. Retire policy frameworks and runtime coupling | Replace development, release and founder activation rules; remove program/ownership/topology/inventory/role and historical evidence machinery. Update all registries that still exist in that slice. Move surviving tools out of runtime dependencies, remove facades/entry points, regenerate the one lock. | Domain package installs without governance/docs; current tests and entry points use supported imports; no active check requires 96 IDs, legacy finding IDs or unavailable staff. QuantLib restriction remains enforced or is explicitly resolved/revised. |
 | 4. Consolidate docs and fixtures | Replace active overview/workflow/backlog pages, remove stale package narratives and synthetic packs, prune unused ADRs/blueprint references. Remove retired tests and their build/data declarations together. | Local links pass; retained goldens and real release/admission evidence remain reachable; all setup/operation instructions refer to actual commands or are clearly marked planned. |
@@ -303,6 +304,41 @@ callers/tests coherent within each slice; run the then-current full required lan
 at integration boundaries. Preserve the hosted required-check name or update its
 branch rule with the replacement job, where such a rule exists. Do not run obsolete
 and replacement stacks forever.
+
+### Step 1 results
+
+Implemented on 2026-09-07 using two Luna subagents at extra-high reasoning, with
+integration review and focused validation. The
+[protected clarity checks](../architecture/engineering-standards.md#protected-clarity-checks)
+record the retained rules and their regression coverage. Python and engineering
+policies now permit ordinary functions without registration; typing, import
+organization and applicable Google-style docstrings remain enforced.
+
+Removed all 486 function exceptions and the 5,349-line register. Replaced
+`python_debt.py` with `python_standards.py`: the repository scanner shrank from
+258 to 66 physical lines and from four classes to one. It reports source findings
+directly, scans new `.py`/`.pyi` files, and fails on missing roots or unreadable
+source. The source checker no longer emits `PYC001`; retained diagnostic identities
+are unchanged. Build data, test entry points, topology ownership and hook selection
+were updated together. No clarity checker was replaced with an assumed equivalent.
+
+Validation used the existing pinned environment and current checkout code via
+`PYTHONPATH=src:tools/governance/src`. Only relevant tests were executed:
+
+| Validation | Result |
+| --- | --- |
+| `pytest -q tests/engineering/test_python_standards.py tests/engineering/test_python_source_standards.py tests/engineering/test_engineering_standards.py` | 64 passed; one performance case deselected. |
+| `pytest -q tests/engineering/test_python_typing.py tests/unit/test_instrument_identity.py tests/unit/test_venue_calendar.py tests/unit/test_financial_units.py` | 202 passed; three performance cases deselected. |
+| Bazel `//tests/engineering:python_standards_test` and `//tests/engineering:engineering_standards_test`, with `--config=ci` | Both passed; the renamed entry point ran all 43 scanner tests. The policy target ran 20 cases, skipped its existing repository-only case, and deselected one performance case; repository validation passed locally. |
+| `mypy --strict src tests tools/governance/src tools/typing/stubs` | Passed on all 141 current source files with the unchanged strict configuration. |
+| Ruff check and format check on the five changed Python files | Passed. |
+| Engineering-standards, repository-topology and architecture/link validators | Passed without the exception register. |
+| Pre-commit configuration and engineering-hook selection comparison | Valid; every retained tracked path and new Python/stub probe keeps its prior selection. Only the retired register drops out. |
+| Previous/current source-checker comparison | All retained findings matched across 46 existing snippets under runtime, test and stub paths: 138 comparisons. Only `PYC001` findings disappeared. |
+
+No full pytest suite, full CI lane, performance suite, or native-stub conformance
+run was needed for this slice. Domain implementations, native boundaries,
+dependency pins and lockfiles are unchanged. Steps 2–6 remain separate work.
 
 ## Success measures and stopping point
 
@@ -368,7 +404,9 @@ No cache deletion or Git-history rewrite is part of this audit; the approximatel
 
 ## Validation and limits
 
-Performed on the local checkout using the existing Python environment:
+The following records the original documentation audit; implementation validation
+is recorded in [step 1 results](#step-1-results). The audit used the local checkout
+and existing Python environment:
 
 ```sh
 git status --short
@@ -387,7 +425,7 @@ the same checker also passed after adding the plan and its index link. File, AST
 and TOML inventories supplied the footprint and exception counts above.
 
 Review profile: research/domain foundations, Tier 2 for retained financial and
-temporal contracts; this deliverable itself changes only documentation. The audit
+temporal contracts; the initial audit changed only documentation. The audit
 traced representative loader, adapter, model, test, build and policy paths. It is
 not an exhaustive correctness review of all 55,376 Python lines. Existing domain
 test evidence is useful and locally passing; policy-test removals are conditional

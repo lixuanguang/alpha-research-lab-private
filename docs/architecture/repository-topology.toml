@@ -284,8 +284,8 @@ sources = [
   "tests/engineering/test_package_evidence.py",
   "tests/engineering/test_program_governance.py",
   "tests/engineering/test_pydantic_models.py",
-  "tests/engineering/test_python_debt.py",
   "tests/engineering/test_python_source_standards.py",
+  "tests/engineering/test_python_standards.py",
   "tests/engineering/test_python_typing.py",
   "tests/engineering/test_remote_execution.py",
   "tests/engineering/test_repository_governance.py",
@@ -452,8 +452,8 @@ sources = [
   "tools/governance/src/alpha_research_governance/engineering_standards/__main__.py",
   "tools/governance/src/alpha_research_governance/engineering_standards/models.py",
   "tools/governance/src/alpha_research_governance/engineering_standards/policy.py",
-  "tools/governance/src/alpha_research_governance/engineering_standards/python_debt.py",
   "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py",
+  "tools/governance/src/alpha_research_governance/engineering_standards/python_standards.py",
   "tools/governance/src/alpha_research_governance/engineering_standards/python_typing.py",
 ]
 
