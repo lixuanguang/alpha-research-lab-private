@@ -8,11 +8,11 @@ import re
 import tomllib
 from datetime import date
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast
 from urllib.parse import urlsplit
 
 # third party library imports
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 # project library imports
 from alpha_research_governance._models import ImmutableModel
@@ -274,6 +274,16 @@ _TABLE_ARRAY_FIELDS = frozenset({"gates", "artifacts", "approvals", "findings"})
 _APPROVAL_BOOLEAN_FIELDS = frozenset({"independent", "is_author"})
 
 
+class _ManifestValidationErrorDetail(TypedDict):
+    """Capture the Pydantic error fields consumed by manifest diagnostics."""
+
+    loc: tuple[int | str, ...]
+    type: str
+
+
+_MANIFEST_VALIDATION_ERROR_DETAILS = TypeAdapter(list[_ManifestValidationErrorDetail])
+
+
 def _manifest_input_error(path: Path, error: ValidationError) -> EvidenceGovernanceError:
     """Translate structural Pydantic errors into stable manifest diagnostics.
 
@@ -293,7 +303,8 @@ def _manifest_input_error(path: Path, error: ValidationError) -> EvidenceGoverna
     Returns:
         An ``EvidenceGovernanceError`` containing the contract's stable message.
     """
-    details = error.errors(include_url=False, include_input=False)
+    raw_details: object = error.errors(include_url=False, include_input=False)
+    details = _MANIFEST_VALIDATION_ERROR_DETAILS.validate_python(raw_details, strict=True)
     if any(
         len(detail["loc"]) == 1 and detail["type"] in {"missing", "extra_forbidden"}
         for detail in details

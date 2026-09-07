@@ -11,7 +11,8 @@ class Date:
         Args:
             d: Day of the month.
             m: Calendar month from 1 through 12.
-            y: Calendar year."""
+            y: Calendar year.
+        """
         ...
 
 class DayCounter:
@@ -22,7 +23,8 @@ class DayCounter:
 
         Args:
             args: Native base-constructor arguments; direct construction is unsupported.
-            kwargs: Native constructor metadata."""
+            kwargs: Native constructor metadata.
+        """
         ...
 
     def yearFraction(self, d1: Date, d2: Date, /) -> float:
@@ -33,7 +35,8 @@ class DayCounter:
             d2: Interval end.
 
         Returns:
-            The native year fraction under this counter's convention."""
+            The native year fraction under this counter's convention.
+        """
         ...
 
 class Actual360(DayCounter):
@@ -43,7 +46,8 @@ class Actual360(DayCounter):
         """Initialize the native value using the documented constructor arguments.
 
         Args:
-            includeLastDay: Whether to include the final day in the count."""
+            includeLastDay: Whether to include the final day in the count.
+        """
         ...
 
 class Actual365Fixed(DayCounter):
@@ -53,7 +57,8 @@ class Actual365Fixed(DayCounter):
         """Initialize the native value using the documented constructor arguments.
 
         Args:
-            c: Native integer convention identifier."""
+            c: Native integer convention identifier.
+        """
         ...
 
 class ActualActual(DayCounter):
@@ -65,7 +70,8 @@ class ActualActual(DayCounter):
         """Initialize the native value using the documented constructor arguments.
 
         Args:
-            c: Native integer convention identifier."""
+            c: Native integer convention identifier.
+        """
         ...
 
 class Thirty360(DayCounter):
@@ -78,7 +84,8 @@ class Thirty360(DayCounter):
         """Initialize the native value using the documented constructor arguments.
 
         Args:
-            c: Native integer convention identifier."""
+            c: Native integer convention identifier.
+        """
         ...
 
 class Settings:

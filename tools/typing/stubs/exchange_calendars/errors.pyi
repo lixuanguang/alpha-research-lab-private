@@ -7,7 +7,8 @@ class CalendarError(Exception):
         """Initialize the native value using the documented constructor arguments.
 
         Args:
-            kwargs: Native constructor metadata."""
+            kwargs: Native constructor metadata.
+        """
         ...
 
 class NoSessionsError(CalendarError):

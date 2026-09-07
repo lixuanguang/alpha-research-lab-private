@@ -704,14 +704,22 @@ def _parse_dependency_expression(
         any_of_requirements: dict[str, tuple[tuple[str, ...], ...]] = {}
         for clause in expression.split(";"):
             clause_match = re.fullmatch(
-                r"(implementation|operation/release|team handover)( any of)?: (.+)",
+                r"(?P<purpose>implementation|operation/release|team handover)"
+                r"(?P<any_of> any of)?: (?P<dependencies>.+)",
                 clause.strip(),
             )
             if clause_match is None:
                 raise ProgramGovernanceError(
                     [f"roadmap dependency purpose is malformed: {clause.strip()}"]
                 )
-            raw_purpose, raw_any_of, raw_dependencies = clause_match.groups()
+            clause_groups = clause_match.groupdict()
+            raw_purpose = clause_groups.get("purpose")
+            raw_any_of = clause_groups.get("any_of")
+            raw_dependencies = clause_groups.get("dependencies")
+            if not isinstance(raw_purpose, str) or not isinstance(raw_dependencies, str):
+                raise ProgramGovernanceError(
+                    [f"roadmap dependency purpose is malformed: {clause.strip()}"]
+                )
             purpose = raw_purpose.replace("/", "_").replace(" ", "_")
             dependencies = _parse_dependency_list(raw_dependencies.strip())
             if raw_any_of is None:
@@ -749,7 +757,7 @@ def _parse_dependency_expression(
     if len(parts) > 2:
         raise ProgramGovernanceError([f"roadmap dependency expression is malformed: {expression}"])
     dependencies = _parse_dependency_list(parts[0].strip())
-    groups: tuple[tuple[str, ...], ...] = ()
+    any_of_groups: tuple[tuple[str, ...], ...] = ()
     if len(parts) == 2:
         conditional = parts[1].strip()
         prefix = "any of "
@@ -760,8 +768,8 @@ def _parse_dependency_expression(
             raise ProgramGovernanceError(
                 ["any-of dependency group must contain at least two packages"]
             )
-        groups = (group,)
-    return dependencies, groups, (), (), (), ()
+        any_of_groups = (group,)
+    return dependencies, any_of_groups, (), (), (), ()
 
 
 class RoadmapParser:

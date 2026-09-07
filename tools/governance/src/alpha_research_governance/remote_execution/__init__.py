@@ -5,13 +5,13 @@ from __future__ import annotations
 # standard library imports
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, NamedTuple
+from typing import Annotated, NamedTuple, Protocol, runtime_checkable
 
 # third party library imports
 import typer
 
 # project library imports
-from alpha_research_governance._cli import run_typer
+from alpha_research_governance._cli import _TypedTyper, run_typer
 from alpha_research_governance.remote_execution.models import (
     RemoteExecutionError,
     RemoteExecutionPolicy,
@@ -48,6 +48,13 @@ __all__ = [
 ]
 
 
+@runtime_checkable
+class _ContextWithObject(Protocol):
+    """Expose Typer's context object as an untrusted object boundary."""
+
+    obj: object
+
+
 class _RemoteExecutionCLIState(NamedTuple):
     """Store the repository root and validated policy for one remote CLI invocation.
 
@@ -60,9 +67,10 @@ class _RemoteExecutionCLIState(NamedTuple):
     policy: RemoteExecutionPolicy
 
 
+_CONTEXT_SETTINGS: dict[str, object] = {"help_option_names": ["-h", "--help"]}
 _APP = typer.Typer(
     add_completion=False,
-    context_settings={"help_option_names": ["-h", "--help"]},
+    context_settings=_CONTEXT_SETTINGS,
     invoke_without_command=True,
     no_args_is_help=False,
     pretty_exceptions_enable=False,
@@ -84,10 +92,16 @@ def _state(context: typer.Context) -> _RemoteExecutionCLIState:
     Raises:
         RuntimeError: The context does not contain the expected remote state.
     """
-    state = context.obj
+    if not isinstance(context, _ContextWithObject):
+        raise RuntimeError("remote-execution CLI context has no object storage")
+    typed_context: _ContextWithObject = context
+    state = typed_context.obj
     if not isinstance(state, _RemoteExecutionCLIState):
         raise RuntimeError("remote-execution CLI state is unavailable")
     return state
+
+
+_TYPED_APP: _TypedTyper = _APP
 
 
 def _print_validation_result(policy: RemoteExecutionPolicy) -> None:
@@ -102,7 +116,7 @@ def _print_validation_result(policy: RemoteExecutionPolicy) -> None:
     )
 
 
-@_APP.callback()
+@_TYPED_APP.callback()
 def _initialize_cli(
     context: typer.Context,
     repository_root: Annotated[
@@ -118,13 +132,13 @@ def _initialize_cli(
         _print_validation_result(policy)
 
 
-@_APP.command("validate")
+@_TYPED_APP.command("validate")
 def _validate(context: typer.Context) -> None:
     """Validate the remote-execution policy without running a lane."""
     _print_validation_result(_state(context).policy)
 
 
-@_APP.command("build")
+@_TYPED_APP.command("build")
 def _build(
     context: typer.Context,
     execution_context: Annotated[
@@ -141,7 +155,7 @@ def _build(
     )
 
 
-@_APP.command("test")
+@_TYPED_APP.command("test")
 def _test(
     context: typer.Context,
     execution_context: Annotated[
@@ -160,7 +174,7 @@ def _test(
     )
 
 
-@_APP.command("quarantine")
+@_TYPED_APP.command("quarantine")
 def _quarantine(
     context: typer.Context,
     execution_context: Annotated[

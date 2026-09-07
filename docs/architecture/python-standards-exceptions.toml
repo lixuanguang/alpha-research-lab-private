@@ -12,7 +12,7 @@ kind = "framework"
 owner_role = "domain_architecture"
 rationale = "Describe the consumed upstream factory under its actual module-level API; an owned class would misrepresent the native binding."
 expires = 2027-03-01
-source_sha256 = "569d3e435771abcec673d7c308bcb8ac1f6d97deb65d42050620ea00d320f87e"
+source_sha256 = "e65b9b09a01b5c99b7c2fcb41ef7ba73624f19656dbfcae3bea5eb3200e15264"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/change_risk/classification.py"
@@ -298,7 +298,7 @@ kind = "framework"
 owner_role = "platform"
 rationale = "Retain the existing Hypothesis callback and pytest node identity while its upstream decorator typing remains tracked separately; the test checks additive day-count behavior and has no service state."
 expires = 2027-03-01
-source_sha256 = "5bec629d0adf5c6d45cef654245f4f54c24244ca061f6ed34231171b99a0cddc"
+source_sha256 = "98285386153436cc5d123530915c337a96a0b61754c4f786644a63839e0ade96"
 
 [[exceptions]]
 path = "src/alpha_research/financial_units/models.py"
@@ -353,7 +353,7 @@ kind = "framework"
 owner_role = "platform"
 rationale = "Retain the Hypothesis callback and existing pytest node identity while its upstream decorator typing remains tracked separately; the property checks explicit currency-rounding error without service state."
 expires = 2027-03-01
-source_sha256 = "8526cbb1a7a075cd11acc6be1e43b92756fb7d49e2bf32f4dc94d3eea65b1d51"
+source_sha256 = "939ca8a04cbeb1744595f657fb390c420ee9cef40189966fc0b144974d5bd19c"
 
 [[exceptions]]
 path = "tests/unit/test_financial_units.py"
@@ -364,7 +364,7 @@ kind = "framework"
 owner_role = "platform"
 rationale = "Retain the Hypothesis callback and existing pytest node identity while its upstream decorator typing remains tracked separately; the property checks exact grid, idempotence and directional error invariants."
 expires = 2027-03-01
-source_sha256 = "1c4203e6e28e4cb38d26c3baedf7baea3a758d623f6e39564f3d2fc809efc974"
+source_sha256 = "64a99723d767e969d13557035ce33b587ef8b6105b081bd9a1a020df40a5a7f2"
 
 [[exceptions]]
 path = "src/alpha_research/instrument_identity/models.py"
@@ -496,7 +496,7 @@ kind = "framework"
 owner_role = "platform"
 rationale = "Retain the existing Hypothesis callback and pytest node identity while upstream decorator typing remains tracked separately; the property checks exact identifier round trips without service state."
 expires = 2027-03-01
-source_sha256 = "154d4ef85774ce87ea18e0d26636d5b12d042d881896844253fd0b3bb4a3eb40"
+source_sha256 = "264b21625fce0fec20dea372970dadf8ca135198766eac284bd2a20b6815895b"
 
 [[exceptions]]
 path = "tests/unit/test_instrument_identity.py"
@@ -507,7 +507,7 @@ kind = "framework"
 owner_role = "platform"
 rationale = "Retain the existing Hypothesis callback and pytest node identity while upstream decorator typing remains tracked separately; the property checks symbol reuse at the exclusive validity boundary."
 expires = 2027-03-01
-source_sha256 = "bd5fefd551a90f07518f7fb271569c06a59eb000d3b5756457097fc0198e0ab8"
+source_sha256 = "d0a901e2be33185e1117969e7ff66f1f288651960d207b37ee657ed3f6397f47"
 
 [[exceptions]]
 path = "src/alpha_research/venue_calendar/adapter.py"
@@ -628,7 +628,7 @@ kind = "framework"
 owner_role = "domain_architecture"
 rationale = "Retain the existing standalone Hypothesis callback and exact unresolved decorator typing identity while property checks exercise generated UTC round trips."
 expires = 2027-03-01
-source_sha256 = "d01f9c64a375f98e0356fbe9caaeb5ec585c700f5a5052a97283a66cc3358601"
+source_sha256 = "dff68d4929c94cfdaad1a5b43b0491c6c4b39cbd855bb39edb4c3ae9ab22b8ee"
 
 [[exceptions]]
 path = "tests/unit/test_venue_calendar.py"
@@ -639,7 +639,7 @@ kind = "framework"
 owner_role = "domain_architecture"
 rationale = "Retain the existing standalone Hypothesis callback and exact unresolved decorator typing identity while property checks exercise generated market-state boundary offsets."
 expires = 2027-03-01
-source_sha256 = "affd146210553fdf5fa7deb62e6e35025110e1ce49e7b0c0353646873e7a9b9c"
+source_sha256 = "34b19ea07e49f8595736dcd4badaf6648b29e51da6a7a4a8e60451bed4ef953c"
 
 [[exceptions]]
 path = "tests/build/build_graph_test.py"
@@ -1914,7 +1914,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "43f52a7c49b86578068a33b0fa767269008cd60fa61439860ed96782cbc56cc3"
+source_sha256 = "9150fdf4a75b73d673d52c645e702b3eaa3b02f340f0fd069310e55be08b50db"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
@@ -1925,7 +1925,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "29689c5020f64a8f6eeb4fbc9d776c8636bd0eb1c8b56561f5a5618cbd60c104"
+source_sha256 = "7bc79d7baea2079a4293c9fc9e18f1183521c5018d5124caa0a1d002dbce36ac"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
@@ -1947,7 +1947,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "be4b043fb7e20d88217dd2854471156295576402deb0f859291114d4208e9546"
+source_sha256 = "037b497e9ae31f3c48b378270e525ffdfcf872e75fa1dc5a1259aa42d10aacba"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
@@ -1980,7 +1980,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "12ea8f2c5935250c495542afafee0a6a5f6a7bfcff5099617922899a25232e73"
+source_sha256 = "669510ed6169dc5be02806401d94b642618f0110dd31c7b52221a9642b7e24e7"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
@@ -2057,7 +2057,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "6acddf04d35f1149cd06d0fed545c1e18fa9c52b1ff87bff1d8e31894156c5fb"
+source_sha256 = "4e161bf0486b8f0b6221a039eb38cc4ea6aeda4d7736df6d060a3b0ffe1b4054"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
@@ -2123,7 +2123,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "e50db3ba320ce3f46eeadf396b3af8c66989fa8fe3e8e94282469a03e024676f"
+source_sha256 = "a9817f29ada21a99d8e09f7e49fb210f94041cbba4eb60721de4888bc06c1fb1"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
@@ -2200,7 +2200,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "3c0f5c0cad820513cc93a5cb6dac4872fb0dba9753233c328b1c6d109714293b"
+source_sha256 = "d918ba4f14e2245562c3a6d23758e3827a9798b4ced4a6c0dc8b08ee899c40ac"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
@@ -2475,7 +2475,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "713ac606b3699972fa22410ff36481116868c575c47d72f893023e66addc7ab2"
+source_sha256 = "edde5a19f980111a72bb3448fa9638ac77f796a7762f0da2752b250433fe3f7a"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/change_risk/policy.py"
@@ -2563,7 +2563,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "d38f03d989421e8deb4ee266ddff1264a03bfacdf2b5b151c00c819b7e16bf98"
+source_sha256 = "2f358811ab8c673bb7041a613b867bf33278b965e617211cb26f06af4e76c8a2"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2574,7 +2574,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "502afb9170471c2a5b9c113707bdd8b8bf7e932818bbe4a7c68449fcd37eb6c4"
+source_sha256 = "5dc0205740896b297b3319ebd975be2378cd6233465f9f6670d7f7d6ef9f595a"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2585,7 +2585,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "50ad2ddaf45dbaef04fdc904985e7ff7c6ae6731711e494e2076f8b0ed82da4b"
+source_sha256 = "69c0cf9e2be6972ee6af0d6a3c15a89e607f98771a3ad523c70b32d6de11482d"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2607,7 +2607,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "972ec615ff5303e35442945398ee71449f16236b80a567247089667603d86dbe"
+source_sha256 = "f15c13e0d655baf30b0bd03656f404729bee9c0e9e86bc1562fa1bfaf70722c6"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2618,7 +2618,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "3d42e11194b10efb51e08a5b05d2af9fa77a2a56bad2bbf594b32deb8946bf9c"
+source_sha256 = "314112e97901bd74e60bf8464213f456267424f96dd24f0b642a6ef7e8fe0184"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2629,7 +2629,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "7a9d945a0f49df4d234f574b0e597f1c1aa841c31b35396426058d416d4e3809"
+source_sha256 = "142e4ff6cd1d6ef55b78d1575d2e5bdb129250504e553c520d356665c6943525"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2640,7 +2640,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "94e7a27bf416d6ef33bd8113a085eb0cf48f75ba9c8ca4de31396be63f52bf96"
+source_sha256 = "5de1fba4eaaf55a0ad485a2cf8899de2fee6df0521739131f6b5ff400e7a41ed"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2651,7 +2651,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "e0b08b1472f1d83b7c23a641895abd1d911a125d2799489c67bb774b3d66c5dc"
+source_sha256 = "85684cbbfbf69638fc20a764a84a5930b2908a0a7443450583915a9fe908a6b8"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2662,7 +2662,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "346ab359709249b1b55766b704d5df053297ebd30eacead37f74a1fa81039c39"
+source_sha256 = "d21c113f36211cf9648907102dd31ff698fcdf8b19ad84dafd22c8bc5bf01611"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/__init__.py"
@@ -2886,17 +2886,6 @@ source_sha256 = "082a85dcdb3374f58ce05c2b6082130217d870a6a7d3f41b5227cfd82e0d84a
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
-symbol = "_run_pre_commit_without_mutation"
-kind = "compatibility"
-rationale = "Preserve the _run_pre_commit_without_mutation adapter used by focused callers and injection seams while CIRunner._run_pre_commit_without_mutation owns the operation; review caller adoption in step 7."
-rule = "PYC001"
-detail = "module-level-function"
-owner_role = "platform"
-expires = 2027-03-01
-source_sha256 = "1dc8742ae9ccec132b42e568d89292e97dc4503fa272390c917681086217242d"
-
-[[exceptions]]
-path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
 symbol = "_run_timed_ci_phase"
 kind = "compatibility"
 rationale = "Preserve the _run_timed_ci_phase adapter used by focused callers and injection seams while CIRunner._run_timed_ci_phase owns the operation; review caller adoption in step 7."
@@ -2926,7 +2915,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "ebeeab8813e515ff0dfed7ebf701d4851abe524f9757e619b7997bdad5d2791d"
+source_sha256 = "0743a803c5e785eb25eb127bfcf2716cbdfe7ec8df93626558adbbe2c893149a"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
@@ -3058,7 +3047,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "30ca498ae7e572e16ac6da7e9007dd37bf912015838a5698f88cd7679df29b16"
+source_sha256 = "03a9c8f1113a2e3e92cec62577e64286893a87479e4f89d1f935283e50664a09"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/ci_policy/selection.py"
@@ -3113,7 +3102,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "0523c5d7a3b1285de352a58f723825bf1c420b31c1511aa9100c7c7b23812095"
+source_sha256 = "b9fa226937cc18f190995c77346da41a6c7e97801ee9ea607d519e646354b78c"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/dependency_admission/__init__.py"
@@ -3157,7 +3146,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "62892defa17ed93581f495bcfe3ad9ce3027a2311c1d7aaa4b35fd789a016209"
+source_sha256 = "e0304db027318b07c5c3cd70a8b6f05ca4483b0924d9989cb7728beff6aae064"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
@@ -3179,7 +3168,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "4ae7b74133d973d5493b5f2f58d66ba8d26145f15aa147dcf33a539568ea2327"
+source_sha256 = "efc901bef159d035d0cd22b80266e5421883710f61997f6b4d9a42995a33663b"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/dependency_admission/policy.py"
@@ -3388,7 +3377,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "5149141c46c7634ec42695dbfea4bb9b5295dc29f2fe7b5c666bf0fec074453a"
+source_sha256 = "8f59ded7d53a9bf2574e5d833c3eced1883a8d87b1572f51e02715515e922d36"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/dependency_admission/wheel_sources.py"
@@ -3542,7 +3531,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "860754cfcd98b6706bbe8af1045cebe98391b2997fcdf463f5cb1e484f790813"
+source_sha256 = "3d150eeb380bfbe5c00ab45860c398cdc82ae2d5b36f338087adc539d9c5b281"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
@@ -3553,7 +3542,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "c22790412fad9dc69b6b53b0dc3550cd1ce138ca685ab7000efa7c74ad79ca71"
+source_sha256 = "c111c1626d467521a2494782678345262bb94392683909f5a01800a9df7c05ec"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
@@ -3623,17 +3612,6 @@ source_sha256 = "3e1f1666e97fc86b54703002133676638aa4dae0b3a2ea226b8b0cafc831852
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
-symbol = "_validate_dependency_record"
-kind = "compatibility"
-rationale = "Preserve the _validate_dependency_record adapter used by focused callers and injection seams while _EngineeringStandardsRepositoryValidator._validate_dependency_record owns the operation; review caller adoption in step 7."
-rule = "PYC001"
-detail = "module-level-function"
-owner_role = "platform"
-expires = 2027-03-01
-source_sha256 = "7daa9f3ae61eadb498e8ae0a8aa4aaa21c95ce0ff8f9e302bcbd054ff3fa299d"
-
-[[exceptions]]
-path = "tools/governance/src/alpha_research_governance/engineering_standards/policy.py"
 symbol = "load_standards"
 kind = "compatibility"
 rationale = "Preserve the supported load_standards function signature and facade imports while _StandardsPolicyLoader._load owns the operation; review caller adoption in step 7."
@@ -3674,7 +3652,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "9ca1223901256dc55a352b2dbc153e6403d4bff461ac880df4ce18030e37feb9"
+source_sha256 = "402a034ec8a04707381549ae813cc16eb1f2b27ae466096e93fc8b417e33d647"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/evidence/__init__.py"
@@ -3740,7 +3718,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "c2a8390d9061a3f258d68958b4134ea96222e74a623f3cca838b617981079e7d"
+source_sha256 = "c779454b5fd7d81a97f3858509dc5237edcdcad63636667b23ace2335e2f3126"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/evidence/manifest.py"
@@ -3850,7 +3828,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "fc18f32267d23530fa2abd2dd64d3e5582c7ee804910ff8c3d451e0c5ac519e5"
+source_sha256 = "a42c0ed99a4f52fc1373738d88b1fa205eaebe471f7de25a57809e556f0dabb1"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
@@ -3883,7 +3861,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "d69b30d3fbd8dc60226ea405c4ff4b61a513c9d2b76d5406e172f0af9d3b1bb0"
+source_sha256 = "bcbe3a3565948a0eb99fa446fb7264c0b28b9521eb2eb0c4dd4fe249628bae1a"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/evidence/mr.py"
@@ -3971,7 +3949,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "1ae3d726e65cc9542d934054db0fe1423ecb374670a9a61d59b1db722abe5a33"
+source_sha256 = "e83083456944256d96a5f0c933834ef65bf8a251a2c8108807eaa39a9e20dabf"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/evidence/policy.py"
@@ -4037,7 +4015,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "6fff87b4e2bd5db2fe6e7592e1dc0dc0e68c1225434916af93a6dbf2562ea86d"
+source_sha256 = "54f93e495386b2587d0c33d26ad7f69c7d1c1c5234d206e9605a47d52ddd872b"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
@@ -4070,7 +4048,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "4ae8504dc154188ef1f3ac7027649db99cf1f386b076dd9c43114eb4152dc22e"
+source_sha256 = "cb59e294d10eb70bb6f25ecf46746981c47c9b56f7c8b8c68aa37daa08e71962"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/inventory/registry.py"
@@ -4411,7 +4389,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "ba4b0a5dad691a13f3019ac9be83c653ab30e428eee1a1226477c3f3f8d59d64"
+source_sha256 = "0ab372d7db224a692f5cca96c8f6fa7a4420eb54b99507aa763629740c8516a8"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/program_governance/registry.py"
@@ -4587,7 +4565,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "ab34d1172d7ef402430ee621829dbac8265cec0b03081b43544fa698914f5283"
+source_sha256 = "2db32867f2c720708ff4ca956965ba85e3a18384277f97ba387573fb91299f74"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
@@ -4598,7 +4576,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "6c2a0e567a422afaeee91e8ceab1a33362b264e89e135cff0ff768972fcd0bbc"
+source_sha256 = "d59a0b6da67c5b6ac697c80650fe0b04856aae1f81d953de961587353956d324"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
@@ -4620,7 +4598,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "02591b6eede8a40c2489e81bb4e8596ccc73b14603ec615a0c450d1a4e5e3ba4"
+source_sha256 = "3f5ff362dda1702102f0155c0d04a7582d51a03ddd4ca28f7904a88c355b631f"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
@@ -4631,7 +4609,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "5b6dba5b9e9522c95dd6dba2512914e5dc2bd0be20f0066445418fd51c07a06c"
+source_sha256 = "42b2e1a7ebb4b5e3b69cf37917ca46bd196948cc98d27adb4ba15ab18dd92395"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
@@ -4642,7 +4620,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "a28d9151b1880508a144bf5b935dc920d5bb7226b172b04e4101dc2e22c3b7cd"
+source_sha256 = "c55129b631ff053dc402456f8ba501c1158f51b708d9cca17d1ac20158e91c4c"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
@@ -4653,7 +4631,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "1892da10598f323e1ec6f3c85da45e3c59602d8fb277d2439f48f4fd28961a19"
+source_sha256 = "40591df19b55e2791386bb7fe08800bba8f0f0b544a9b3aefae27de034c54dc1"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/remote_execution/__init__.py"
@@ -4939,7 +4917,7 @@ rule = "PYC001"
 detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
-source_sha256 = "2c55a763b9f5335012510894e98fd5dcdc187488f1fe86f9b41ba2e16532ce02"
+source_sha256 = "31d469ca1a6330f3796bb9365f9f418bcd76345194d83e807d38484c6fb90ab8"
 
 [[exceptions]]
 path = "tools/governance/src/alpha_research_governance/repository_topology/registry.py"
@@ -5292,3 +5270,80 @@ detail = "module-level-function"
 owner_role = "platform"
 expires = 2027-03-01
 source_sha256 = "7acaad2e7445a68a6a9be5c907a846996462ffd13d798072878b510ada100851"
+
+[[exceptions]]
+path = "tests/engineering/test_python_typing.py"
+symbol = "_clean_probe"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "framework"
+owner_role = "platform"
+rationale = "Supply the deterministic empty diagnostic result at the typing checker process seam without invoking another mypy run."
+expires = 2027-03-01
+source_sha256 = "779311739c52a8f519b412a9159b0b62014bf9dafbac3ead0e48ae201de71bb4"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/architecture_governance.py"
+symbol = "_required_match_group"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Extract one required named regex capture as text; it has no repository state, I/O or validation workflow ownership."
+expires = 2027-03-01
+source_sha256 = "1d5cb28be5e4e3caadb0049a400e47f87f64189fb462bbbff6b52059b5c4b461"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/__init__.py"
+symbol = "_serialize_bundle_summary"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Apply the existing model serializer and sorted JSON encoding to one bundle summary without owning artifact lifecycle operations."
+expires = 2027-03-01
+source_sha256 = "4916e69405116c14b603362e25ffad8f1b859197d10bb1a8839a30a45e886430"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_is_object_dict"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow a runtime dictionary to object-valued entries without coercing keys or changing artifact admission semantics."
+expires = 2027-03-01
+source_sha256 = "e7e0941f41be136e2c090611c5dec0baf0e3ca3db8b23d3638da86f0615848cc"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/artifact_supply_chain/bundle.py"
+symbol = "_is_object_list"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow a runtime list for membership and canonical ordering while preserving its values and container identity."
+expires = 2027-03-01
+source_sha256 = "c0ab014a70aa746eeb77ec9c5001801d4c75aea057d126c9f2238a1f37a2ee64"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/ci_policy/runner.py"
+symbol = "_is_object_dict"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Narrow the model serializer result before updating event timestamps, preserving additional serialized fields and JSON settings."
+expires = 2027-03-01
+source_sha256 = "73d558841c6712b0d75ad521e962cc2a62bcca99861e6a3fac018b50a15bf24c"
+
+[[exceptions]]
+path = "tools/governance/src/alpha_research_governance/engineering_standards/python_source.py"
+symbol = "_finding_sort_key"
+rule = "PYC001"
+detail = "module-level-function"
+kind = "low_level"
+owner_role = "platform"
+rationale = "Project a source finding into its stable identity and line ordering key without owning scanning or exception reconciliation."
+expires = 2027-03-01
+source_sha256 = "4cd64bfa14894f106502e028a47e20fd4a8d1da17e8dd9ddcc4f64ea63acadf2"

@@ -6,10 +6,10 @@ from __future__ import annotations
 import re
 import tomllib
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast
 
 # third party library imports
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 # project library imports
 from alpha_research_governance._models import ImmutableModel
@@ -31,6 +31,16 @@ _EXPECTED_SCALARS: dict[str, object] = {
     "accountable_owner_role": "platform",
     "risk_class": "R0",
 }
+
+
+class _PolicyValidationErrorDetail(TypedDict):
+    """Capture the Pydantic error fields consumed by policy diagnostics."""
+
+    loc: tuple[int | str, ...]
+    type: str
+
+
+_POLICY_VALIDATION_ERROR_DETAILS = TypeAdapter(list[_PolicyValidationErrorDetail])
 
 
 class _MrFieldInput(ImmutableModel):
@@ -162,7 +172,9 @@ def _policy_input_error(path: Path, error: ValidationError) -> EvidenceGovernanc
     Returns:
         An ``EvidenceGovernanceError`` containing the selected domain-level finding.
     """
-    detail = error.errors(include_url=False, include_input=False)[0]
+    raw_details: object = error.errors(include_url=False, include_input=False)
+    details = _POLICY_VALIDATION_ERROR_DETAILS.validate_python(raw_details, strict=True)
+    detail = details[0]
     location = detail["loc"]
     error_type = detail["type"]
     if not location:

@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import tomllib
 from pathlib import Path
+from typing import TypedDict
 
 # third party library imports
 from pydantic import ConfigDict, TypeAdapter, ValidationError
@@ -46,6 +47,16 @@ _EXPECTED_SCALARS: dict[str, object] = {
     "author_may_satisfy_independent_review": False,
 }
 _SAMPLE_BOOLEAN_FIELDS = frozenset({"capital_at_risk", *APPLICABILITY_TRIGGERS})
+
+
+class _PolicyValidationErrorDetail(TypedDict):
+    """Capture the Pydantic error fields consumed by policy diagnostics."""
+
+    loc: tuple[int | str, ...]
+    type: str
+
+
+_POLICY_VALIDATION_ERROR_DETAILS = TypeAdapter(list[_PolicyValidationErrorDetail])
 
 
 class _ExtensibleInput(ImmutableModel):
@@ -463,7 +474,8 @@ def _policy_input_error(path: Path, error: ValidationError) -> ChangeRiskPolicyE
         The caller preserves ``error`` as the exception cause. This function
         does not validate policy semantics or raise the returned error.
     """
-    details = error.errors(include_url=False, include_input=False)
+    raw_details: object = error.errors(include_url=False, include_input=False)
+    details = _POLICY_VALIDATION_ERROR_DETAILS.validate_python(raw_details, strict=True)
     for root_field, expected_keys in (
         ("dimensions", _DIMENSION_KEYS),
         ("risk_classes", _RISK_CLASS_KEYS),

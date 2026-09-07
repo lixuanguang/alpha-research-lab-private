@@ -284,9 +284,8 @@ def attach_bazel_reverse_dependencies(
         raise CIPolicyError([f"invalid reverse-dependency target labels: {invalid}"])
     if not build_targets:
         raise CIPolicyError(["Bazel reverse-dependency query returned no build targets"])
-    return selection.model_copy(
-        update={
-            "build_targets": tuple(sorted(set(build_targets))),
-            "test_targets": tuple(sorted(set(test_targets))),
-        }
-    )
+    updates: dict[str, object] = {
+        "build_targets": tuple(sorted(set(build_targets))),
+        "test_targets": tuple(sorted(set(test_targets))),
+    }
+    return selection.model_copy(update=updates)

@@ -14,7 +14,7 @@ import tempfile
 import zipfile
 from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
-from typing import cast
+from typing import TypeGuard, cast
 
 # project library imports
 from alpha_research_governance.artifact_supply_chain.models import (
@@ -51,6 +51,16 @@ _ARTIFACT_IDENTITY_KEYS = {"kind", "name", "path", "sha256", "size"}
 _DIGESTED_FILE_RECORD_KEYS = {"path", "sha256", "size"}
 _BUILD_IDENTITY_KEYS = {"platform", "sourceCommit", "target"}
 _TOOLCHAIN_IDENTITY_KEYS = {"cosign", "path", "sha256", "syft"}
+
+
+def _is_object_dict(value: object) -> TypeGuard[dict[object, object]]:
+    """Narrow a runtime dictionary to object-valued entries."""
+    return isinstance(value, dict)
+
+
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
+    """Narrow a runtime list to object-valued entries."""
+    return isinstance(value, list)
 
 
 def _serialize_canonical_json(value: object) -> bytes:
@@ -440,13 +450,16 @@ def _normalize_spdx_document(
             limit.
     """
     creation_information = raw_spdx_document.get("creationInfo")
+    creators = (
+        creation_information.get("creators") if _is_object_dict(creation_information) else None
+    )
     if (
         raw_spdx_document.get("spdxVersion") != "SPDX-2.3"
         or raw_spdx_document.get("SPDXID") != "SPDXRef-DOCUMENT"
         or raw_spdx_document.get("dataLicense") != "CC0-1.0"
-        or not isinstance(creation_information, dict)
-        or not isinstance(creation_information.get("creators"), list)
-        or "Tool: syft-1.51.1" not in creation_information["creators"]
+        or not _is_object_dict(creation_information)
+        or not _is_object_list(creators)
+        or "Tool: syft-1.51.1" not in creators
     ):
         raise ArtifactSupplyChainError(["Syft output is not a complete SPDX-2.3 document"])
     normalized_spdx_document = dict(raw_spdx_document)
@@ -454,15 +467,13 @@ def _normalize_spdx_document(
     normalized_spdx_document["documentNamespace"] = (
         f"https://alpha-research.invalid/spdx/sha256/{artifact_digest}"
     )
-    normalized_creation_information = dict(cast(dict[str, object], creation_information))
+    normalized_creation_information = dict(creation_information)
     normalized_creation_information["created"] = "1970-01-01T00:00:01Z"
     normalized_spdx_document["creationInfo"] = normalized_creation_information
     for key in ("files", "packages", "relationships"):
         spdx_entries = normalized_spdx_document.get(key)
-        if isinstance(spdx_entries, list):
-            normalized_spdx_document[key] = sorted(
-                spdx_entries, key=lambda item: _serialize_canonical_json(item)
-            )
+        if _is_object_list(spdx_entries):
+            normalized_spdx_document[key] = sorted(spdx_entries, key=_serialize_canonical_json)
     return normalized_spdx_document
 
 
@@ -1749,7 +1760,7 @@ def _verify_file_digest_record(
             path is unsafe, the file is missing or unsafe, or content mismatches.
         OSError: If hashing or statting the target file fails.
     """
-    if not isinstance(value, dict) or set(value) != _DIGESTED_FILE_RECORD_KEYS:
+    if not _is_object_dict(value) or set(value) != _DIGESTED_FILE_RECORD_KEYS:
         raise ArtifactSupplyChainError([f"{context} has missing or unknown fields"])
     relative_path = _parse_safe_bundle_relative_path(value.get("path"), context=f"{context}.path")
     expected_digest = value.get("sha256")

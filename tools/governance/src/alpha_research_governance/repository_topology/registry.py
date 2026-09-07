@@ -282,9 +282,8 @@ def _ownership_roles(path: Path) -> frozenset[str]:
         UnicodeDecodeError: If the register is not valid UTF-8.
     """
     try:
-        ownership_document = _require_table(
-            tomllib.loads(path.read_text(encoding="utf-8")), context=str(path)
-        )
+        parsed_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
+        ownership_document = _require_table(parsed_document, context=str(path))
     except tomllib.TOMLDecodeError as error:
         raise RepositoryTopologyError([f"{path}: invalid TOML: {error}"]) from error
     roles: set[str] = set()

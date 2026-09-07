@@ -1,4 +1,4 @@
-"""Enforce exact Python migration debt and reviewed source exceptions."""
+"""Enforce Python source findings and reviewed design exceptions."""
 
 from __future__ import annotations
 
@@ -21,82 +21,8 @@ from alpha_research_governance.engineering_standards.python_source import (
     PythonSourceChecker,
 )
 
-DEBT_PATH = "docs/architecture/python-standards-debt.json"
 EXCEPTIONS_PATH = "docs/architecture/python-standards-exceptions.toml"
-# Updating this pin is an explicit policy change; normal migration only retires debt.
-DEBT_SHA256 = "284c31def7ca18acf6945d2d7e4349f46bd2eb3f3ebf6350aed2a871f2a7f0fc"
-_MIGRATION_STEPS = {"PYI001": 2, "PYT001": 3, "PYD001": 5, "PYD002": 5, "PYC001": 6}
 type FindingKey = tuple[str, str, str, str]
-
-
-class MigrationWork(ImmutableModel):
-    """Attribute an exact rule's legacy obligations to its migration step and owner."""
-
-    owner_role: str
-    rationale: str = Field(min_length=12)
-    migration_step: Literal[2, 3, 5, 6]
-
-
-class PythonDebtInventory(ImmutableModel):
-    """Retain the reviewed multiset of legacy obligations independently of line numbers."""
-
-    schema_version: Literal[1]
-    source_revision: str = Field(pattern=r"^[a-f0-9]{40}$")
-    recorded_on: date
-    work: dict[str, MigrationWork]
-    entries: dict[str, tuple[tuple[str, str, str], ...]]
-
-    @classmethod
-    def read(
-        cls, payload: bytes, *, expected_sha256: str, owner_roles: frozenset[str]
-    ) -> PythonDebtInventory:
-        """Validate the immutable inventory identity, schema and attribution.
-
-        Args:
-            payload: Exact UTF-8 JSON bytes from the inventory file.
-            expected_sha256: Reviewed SHA-256 pin supplied by the owning checker.
-            owner_roles: Roles admitted by the ownership policy.
-
-        Returns:
-            Validated inventory, preserving repeated obligations within a symbol.
-
-        Raises:
-            ValueError: The checksum, schema, rule or owner is invalid.
-        """
-        if hashlib.sha256(payload).hexdigest() != expected_sha256:
-            raise ValueError("Python debt inventory checksum changed; additions are not automatic")
-        inventory = cls.model_validate_json(payload)
-        if set(inventory.work) != set(_MIGRATION_STEPS):
-            raise ValueError("Python debt must attribute every supported migration rule exactly")
-        for rule, work in inventory.work.items():
-            if work.owner_role not in owner_roles or work.migration_step != _MIGRATION_STEPS[rule]:
-                raise ValueError(f"Python debt {rule} has an unknown owner or migration step")
-            if len(work.rationale.strip()) < 12:
-                raise ValueError(f"Python debt {rule} requires a concrete migration rationale")
-        for path, entries in inventory.entries.items():
-            if not entries or not SourceIdentity.valid_path(path):
-                raise ValueError(f"Python debt has an empty or invalid source entry: {path}")
-            if tuple(sorted(entries)) != entries:
-                raise ValueError(f"Python debt entries must be sorted: {path}")
-            for symbol, rule, detail in entries:
-                if rule not in inventory.work or not symbol.strip() or not detail.strip():
-                    raise ValueError(
-                        f"Python debt has an invalid obligation: {path}:{symbol}:{rule}"
-                    )
-        return inventory
-
-    @property
-    def obligations(self) -> Counter[FindingKey]:
-        """Expand the exact inventory without reducing duplicate occurrences to a set.
-
-        Returns:
-            Counts for each file, symbol, rule and semantic detail identity.
-        """
-        return Counter(
-            (path, symbol, rule, detail)
-            for path, entries in self.entries.items()
-            for symbol, rule, detail in entries
-        )
 
 
 class PythonException(ImmutableModel):
@@ -170,7 +96,7 @@ class SourceIdentity(ast.NodeVisitor):
         """Require a canonical repository-relative Python source path.
 
         Args:
-            path: Untrusted inventory or exception path.
+            path: Untrusted source or exception path.
 
         Returns:
             Whether the path is canonical, relative and identifies Python source.
@@ -220,7 +146,7 @@ class SourceIdentity(ast.NodeVisitor):
 
 
 class PythonStandardsChecker:
-    """Compare current source to exact legacy debt and scoped design exceptions."""
+    """Compare current source findings to scoped, reviewed design exceptions."""
 
     def __init__(
         self, *, source_roots: tuple[str, ...], owner_roles: frozenset[str], validation_date: date
@@ -246,45 +172,37 @@ class PythonStandardsChecker:
             Deterministic diagnostics; an empty tuple means the contract passed.
         """
         try:
-            inventory = PythonDebtInventory.read(
-                (repository_root / DEBT_PATH).read_bytes(),
-                expected_sha256=DEBT_SHA256,
-                owner_roles=self._owner_roles,
+            parsed_exceptions: object = tomllib.loads(
+                (repository_root / EXCEPTIONS_PATH).read_text(encoding="utf-8")
             )
-            exceptions = PythonExceptions.model_validate(
-                tomllib.loads((repository_root / EXCEPTIONS_PATH).read_text(encoding="utf-8"))
-            )
+            exceptions = PythonExceptions.model_validate(parsed_exceptions)
             observed, fingerprints = self._scan(repository_root)
-            return self.reconcile(inventory, exceptions, observed, fingerprints)
+            return self.reconcile(exceptions, observed, fingerprints)
+        except ValidationError as error:
+            details: object = error.errors(include_input=False)
+            return (f"Python standards policy: {details}",)
         except (OSError, ValueError) as error:
-            message = (
-                str(error.errors(include_input=False))
-                if isinstance(error, ValidationError)
-                else str(error)
-            )
+            message = str(error)
             return (f"Python standards policy: {message}",)
 
     def reconcile(
         self,
-        inventory: PythonDebtInventory,
         exceptions: PythonExceptions,
         observed: tuple[PythonFinding, ...],
         fingerprints: dict[tuple[str, str], str],
     ) -> tuple[str, ...]:
-        """Reject new, moved, multiplied or stale obligations and invalid exceptions.
+        """Return unwaived source findings and invalid exception diagnostics.
 
         Args:
-            inventory: Checksum-validated migration obligations.
             exceptions: Explicit design exceptions from the current policy.
             observed: Complete source-scanner diagnostics for the admitted roots.
             fingerprints: AST digests indexed by file and qualified definition.
 
         Returns:
-            Stable diagnostics naming new debt, required retirement or bad exceptions.
+            Stable diagnostics naming source findings or bad exceptions.
         """
         findings: list[str] = []
         actual = Counter(item.key for item in observed)
-        allowed = inventory.obligations
         exception_keys: set[FindingKey] = set()
         for exception in exceptions.exceptions:
             key = exception.key
@@ -298,21 +216,17 @@ class PythonStandardsChecker:
                 findings.append(f"Python exception {exception.path}:{exception.symbol}: {error}")
                 continue
             reason = None
-            if key in exception_keys or key in allowed:
-                reason = "duplicate exception or overlap with migration debt"
+            if key in exception_keys:
+                reason = "duplicate exception"
             elif actual[key] != 1:
-                reason = "stale or ambiguous exception; exactly one obligation is required"
+                reason = "stale or ambiguous exception; exactly one source finding is required"
             if reason is not None:
                 findings.append(f"Python exception {exception.path}:{exception.symbol}: {reason}")
                 continue
             exception_keys.add(key)
-            allowed[key] = 1
-        for key, count in sorted((actual - allowed).items()):
+        for key, count in sorted((actual - Counter(exception_keys)).items()):
             path, symbol, rule, detail = key
-            findings.append(f"{path}:{symbol}: new {rule} {detail} (occurrences: {count})")
-        for key, count in sorted((allowed - actual).items()):
-            path, symbol, rule, detail = key
-            findings.append(f"{path}:{symbol}: retire resolved debt {rule} {detail} ({count})")
+            findings.append(f"{path}:{symbol}: {rule} {detail} (occurrences: {count})")
         return tuple(findings)
 
     def _scan(

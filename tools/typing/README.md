@@ -1,18 +1,19 @@
 # Python boundary typing
 
 `make typecheck` checks runtime source, governance, tests and the local native
-stubs. It then reconciles the stronger mypy probe with the exact
-[remaining inventory](../../docs/architecture/python-typing-debt.json) and runs
-stubtest against the installed native libraries. Pre-commit and the full CI lane
-use the same command.
+stubs with strict mypy and then runs stubtest against the installed native
+libraries. Pre-commit and the full CI lane use the same command.
 
 The Pydantic 2.13.5 plugin uses typed constructors, forbids extra constructor
 keywords and rejects required dynamic aliases. Explicit and unfollowed-import
-dynamic types are prohibited throughout the checked scope. Decorated signatures
-are checked in both owned packages; the remaining test-framework signatures are
-listed in the inventory. The fully checked expression scopes are listed in
-`pyproject.toml`. These checks do not imply that all remaining expressions have
-precise types.
+dynamic types, dynamically typed decorated signatures and expressions containing
+dynamic types are prohibited throughout the checked scope, including tests.
+The four `disallow_any_*` flags are global in `pyproject.toml`; there are no
+module allowances or migration inventories.
+
+The historical `python -m alpha_research_governance.engineering_standards.python_typing`
+entry point remains available and now fails directly on diagnostics. The root
+command runs mypy once; it no longer invokes a second inventory probe.
 
 ## Native stubs
 
@@ -36,19 +37,17 @@ allowlist. The native conformance tests additionally check actual return types,
 day-count constants, calendar timestamps, break sentinels and both XNYS/XHKG
 schedules. Existing financial and calendar goldens verify the owned results.
 
-## Retiring inferred debt
+## Boundary changes
 
-The inventory has a checksum pinned in `engineering_standards/python_typing.py`.
-Each obligation identifies a source path, qualified symbol, diagnostic code and
-message, multiplicity and a concrete retirement task. Definition and decorator
-line shifts do not renew debt. New, moved, multiplied and resolved diagnostics
-fail reconciliation; missing tasks and duplicate identities also fail.
+Annotate sorting and substitution callbacks with their consumed argument and
+result types. Receive dynamic library results as `object` and narrow them before
+field access. Framework adapters must retain real command registration,
+dispatch, error rendering and exit statuses. A type annotation must not make
+malformed test inputs appear valid or replace the runtime rejection under test.
 
-Fix the named boundary, remove only the resolved obligations and update the
-checksum in the same review. Never regenerate allowances from the current tree.
-The probe itself never writes the inventory. Remaining tasks cover precise
-serialization and fixture records, framework callbacks, reflected values,
-validated collection narrowing, regex results and contextual callback inference.
-These are unresolved migration tasks, not source-standard exceptions or a claim
-that inferred dynamic typing has been eliminated. Complete them during the
-owning module's later migration slices and before step 7 closes adoption.
+For a changed boundary, run the affected strict typing checks and the owning
+tests, including malformed inputs and serialization or native goldens where
+applicable. Changes to global enforcement require checking the complete static
+scope. No baseline, test exclusion or blanket suppression may admit a new
+diagnostic. Reviewed source-function exceptions remain separately governed by
+the engineering-standards checker; they cannot waive typing errors.

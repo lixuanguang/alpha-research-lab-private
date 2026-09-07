@@ -7,6 +7,7 @@ import json
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal, Protocol
 
 # project library imports
 from alpha_research_governance.artifact_supply_chain.bundle import (
@@ -54,6 +55,19 @@ def _print_usage() -> None:
         "verify BUNDLE_PATH SHA256_DIGEST]",
         file=sys.stderr,
     )
+
+
+class _JsonDumpModel(Protocol):
+    """Expose the JSON-mode model dump consumed by the CLI."""
+
+    def model_dump(self, *, mode: Literal["json"]) -> object:
+        """Return the model's JSON-compatible representation."""
+
+
+def _serialize_bundle_summary(bundle: ArtifactBundle) -> str:
+    """Serialize a bundle summary with the command's stable JSON settings."""
+    serializer: _JsonDumpModel = bundle
+    return json.dumps(serializer.model_dump(mode="json"), sort_keys=True)
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -109,7 +123,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 repository_root=repository_root,
                 policy=artifact_supply_chain_policy,
             )
-            print(json.dumps(created_bundle.model_dump(mode="json"), sort_keys=True))
+            print(_serialize_bundle_summary(created_bundle))
             return 0
         if lifecycle_command == "sign" and len(cli_arguments) == 2:
             sign_bundle(
@@ -137,7 +151,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
                 repository_root=repository_root,
                 policy=artifact_supply_chain_policy,
             )
-            print(json.dumps(verified_bundle.model_dump(mode="json"), sort_keys=True))
+            print(_serialize_bundle_summary(verified_bundle))
             return 0
     except (ArtifactSupplyChainError, OSError, ValueError) as error:
         print(error, file=sys.stderr)

@@ -29,12 +29,17 @@ class PythonFinding(ImmutableModel):
 
     @property
     def key(self) -> tuple[str, str, str, str]:
-        """Return the line-independent identity used by migration baselines.
+        """Return the line-independent identity used by source enforcement.
 
         Returns:
             The source path, symbol, rule, and stable detail key.
         """
         return (self.path, self.symbol, self.rule, self.detail)
+
+
+def _finding_sort_key(finding: PythonFinding) -> tuple[str, str, str, str, int]:
+    """Return the deterministic ordering key for one source finding."""
+    return (*finding.key, finding.line)
 
 
 class _Scope(BaseModel):
@@ -514,9 +519,8 @@ class _AnyChecker:
             else:
                 self._scan_assignment_target(statement.target, scope)
             return
-        type_alias_type = getattr(ast, "TypeAlias", None)
-        if type_alias_type is not None and isinstance(statement, type_alias_type):
-            target = cast(ast.Name, statement.name)
+        if isinstance(statement, ast.TypeAlias):
+            target = statement.name
             self._scan_type_parameters(statement.type_params, scope)
             if self._alias_for_expression(statement.value, scope) == self._ANY:
                 self._bind_alias_expression(target.id, statement.value, scope)
@@ -669,7 +673,7 @@ class _AnyChecker:
         """Bind a target to a recognized alias and emit its assignment finding."""
         alias = self._alias_for_expression(value, scope)
         if alias == self._ANY:
-            self._add(scope.symbol, "PYT001", f"alias:{name}", getattr(value, "lineno", 1))
+            self._add(scope.symbol, "PYT001", f"alias:{name}", value.lineno)
             scope.bind_alias(name, self._ANY)
         elif alias == self._TYPING_MODULE:
             scope.bind_alias(name, self._TYPING_MODULE)
@@ -879,7 +883,10 @@ class _DocumentationChecker:
     """Check docstrings and structured Google-style API contracts."""
 
     _SECTION_NAMES: ClassVar[tuple[str, ...]] = ("Args", "Returns", "Yields", "Raises")
-    _ARGUMENT_ENTRY = re.compile(r"^\s{2,}(\*{0,2}[A-Za-z_]\w*)(?:\s*\([^)]*\))?\s*:\s*(.*)$")
+    _ARGUMENT_ENTRY = re.compile(
+        r"^\s{2,}(?P<name>\*{0,2}[A-Za-z_]\w*)(?:\s*\([^)]*\))?\s*:\s*"
+        r"(?P<description>.*)$"
+    )
 
     def __init__(self, path: str, findings: list[PythonFinding]) -> None:
         """Initialize a documentation checker for one source invocation."""
@@ -1046,8 +1053,9 @@ class _DocumentationChecker:
             if match is not None:
                 if current is not None and has_text:
                     described.add(current)
-                current = match.group(1).lstrip("*")
-                has_text = bool(match.group(2).strip())
+                groups: dict[str, str | None] = match.groupdict()
+                current = (groups.get("name") or "").lstrip("*")
+                has_text = bool((groups.get("description") or "").strip())
             elif current is not None and line.strip():
                 has_text = True
         if current is not None and has_text:
@@ -1114,7 +1122,7 @@ class PythonSourceChecker:
                     line=line,
                 )
             )
-            return tuple(sorted(findings, key=lambda finding: (*finding.key, finding.line)))
+            return tuple(sorted(findings, key=_finding_sort_key))
         try:
             module = ast.parse(source, filename=path, type_comments=True)
         except (IndentationError, SyntaxError) as error:
@@ -1130,11 +1138,11 @@ class PythonSourceChecker:
                     line=line,
                 )
             )
-            return tuple(sorted(findings, key=lambda finding: (*finding.key, finding.line)))
+            return tuple(sorted(findings, key=_finding_sort_key))
         _ImportChecker(path, source_lines, findings).check(module)
         _AnyChecker(path, findings).check(module)
         _DocumentationChecker(path, findings).check(module)
-        return tuple(sorted(findings, key=lambda finding: (*finding.key, finding.line)))
+        return tuple(sorted(findings, key=_finding_sort_key))
 
     def __init__(self) -> None:
         """Initialize a stateless reusable source checker."""
@@ -1146,9 +1154,11 @@ class PythonSourceChecker:
         try:
             list(tokenize.generate_tokens(io.StringIO(source).readline))
         except tokenize.TokenError as error:
-            location = error.args[1]
-            if isinstance(location, tuple) and location and isinstance(location[0], int):
-                self._last_error_line = max(location[0], 1)
+            raw_args: tuple[object, ...] = error.args
+            if len(raw_args) > 1:
+                location: object = raw_args[1]
+                if isinstance(location, tuple) and location and isinstance(location[0], int):
+                    self._last_error_line = max(location[0], 1)
             raise
 
     def _error_line(self) -> int:

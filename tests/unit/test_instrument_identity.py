@@ -7,12 +7,13 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from time import perf_counter
-from typing import NotRequired, TypedDict
+from typing import NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 # third party library imports
 import pytest
 from hypothesis import given, settings, strategies
+from hypothesis.strategies import SearchStrategy
 from pydantic import TypeAdapter, ValidationError
 
 # project library imports
@@ -33,6 +34,34 @@ from alpha_research.instrument_identity import (
 )
 from alpha_research.instrument_identity import models as instrument_identity_models
 from alpha_research.instrument_identity.models import _InstrumentIdentityModel
+
+
+class _ExactIdentifierGiven(Protocol):
+    """Type the keyword Hypothesis decorator for generated identifier fields."""
+
+    def __call__(
+        self,
+        *,
+        identifier_namespace: SearchStrategy[str],
+        identifier_value: SearchStrategy[str],
+        days_after_valid_from: SearchStrategy[int],
+    ) -> Callable[[Callable[[str, str, int], None]], Callable[[], None]]:
+        """Decorate a test callable with generated identifier values."""
+        ...
+
+
+class _SymbolReuseGiven(Protocol):
+    """Type the keyword Hypothesis decorator for generated reuse intervals."""
+
+    def __call__(
+        self, *, days_until_symbol_reuse: SearchStrategy[int]
+    ) -> Callable[[Callable[[int], None]], Callable[[], None]]:
+        """Decorate a test callable with a generated symbol reuse interval."""
+        ...
+
+
+_given_exact_identifier: _ExactIdentifierGiven = given
+_given_symbol_reuse: _SymbolReuseGiven = given
 
 INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_PATH = (
     Path(__file__).parents[1] / "golden/instrument_identity/c01_symbology.json"
@@ -675,7 +704,7 @@ class TestSymbologyCatalogValidationContracts:
 
 
 @settings(max_examples=50, derandomize=True, deadline=None, database=None)
-@given(
+@_given_exact_identifier(
     identifier_namespace=strategies.from_regex(r"[a-z][a-z0-9]{0,12}", fullmatch=True),
     identifier_value=strategies.from_regex(r"[A-Z0-9][A-Z0-9./_-]{0,31}", fullmatch=True),
     days_after_valid_from=strategies.integers(min_value=1, max_value=10_000),
@@ -717,7 +746,7 @@ def test_property_exact_identifier_round_trip_is_stable(
 
 
 @settings(max_examples=50, derandomize=True, deadline=None, database=None)
-@given(days_until_symbol_reuse=strategies.integers(min_value=1, max_value=20_000))
+@_given_symbol_reuse(days_until_symbol_reuse=strategies.integers(min_value=1, max_value=20_000))
 def test_property_symbol_reuse_obeys_half_open_boundaries(
     days_until_symbol_reuse: int,
 ) -> None:
@@ -773,4 +802,22 @@ def test_property_symbol_reuse_obeys_half_open_boundaries(
     assert (
         symbology_catalog.resolve_identifier_at(identifier_query, valid_at=symbol_reuse_boundary)
         == reused_symbol_mapping
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(
+        pytest.main(
+            [
+                __file__,
+                "-q",
+                "-W",
+                "error",
+                "--strict-markers",
+                "-o",
+                "markers=performance: local diagnostic timing",
+                "-m",
+                "not performance",
+            ]
+        )
     )

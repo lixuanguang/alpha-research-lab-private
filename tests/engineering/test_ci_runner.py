@@ -66,38 +66,40 @@ class TestAuthoritativeCILane:
             """
             calls.append(("generated", paths, prefixes))
 
-        def record_secret_scan(_root: Path, paths: tuple[str, ...]) -> None:
+        def record_secret_scan(_runner: ci_runner.CIRunner, paths: tuple[str, ...]) -> None:
             """Record secret-scan order and scope without reading file contents.
 
             Args:
-                _root: Repository path supplied by the runner; unused by this recorder.
+                _runner: Service instance supplying the repository root; unused by this recorder.
                 paths: Tracked paths submitted for scanning.
             """
             calls.append(("secrets", paths))
 
-        def record_schema_check(_root: Path, *, modules: tuple[str, ...], base: str) -> None:
+        def record_schema_check(
+            _runner: ci_runner.CIRunner, *, modules: tuple[str, ...], base: str
+        ) -> None:
             """Record schema-compatibility scope and its resolved comparison revision.
 
             Args:
-                _root: Repository path supplied by the runner; unused by this recorder.
+                _runner: Service instance supplying the repository root; unused by this recorder.
                 modules: Protobuf module roots selected for compatibility checks.
                 base: Resolved commit against which schemas would be compared.
             """
             calls.append(("schemas", modules, base))
 
-        def record_pre_commit(_root: Path, arguments: list[str]) -> None:
+        def record_pre_commit(_runner: ci_runner.CIRunner, arguments: list[str]) -> None:
             """Snapshot pre-commit arguments for the ordered full-lane assertion.
 
             Args:
-                _root: Repository path supplied by the runner; unused by this recorder.
+                _runner: Service instance supplying the repository root; unused by this recorder.
                 arguments: File-scope arguments passed to pre-commit.
             """
             calls.append(("pre-commit", tuple(arguments)))
 
         def record_timed_phase(
+            _runner: ci_runner.CIRunner,
             commands: tuple[list[str], ...],
             *,
-            root: Path,
             phase: str,
             event_stream: IO[str],
             run_id: str,
@@ -110,7 +112,7 @@ class TestAuthoritativeCILane:
 
             Args:
                 commands: Ordered argument vectors, copied to tuples for later comparison.
-                root: Execution directory recorded with the phase.
+                _runner: Service instance supplying the execution directory.
                 phase: Build or test phase identifier.
                 event_stream: Open log stream whose writability is recorded.
                 run_id: Run identity to which the phase would be attributed.
@@ -124,7 +126,7 @@ class TestAuthoritativeCILane:
                     "phase",
                     phase,
                     tuple(tuple(command) for command in commands),
-                    root,
+                    _runner.repository_root,
                     event_stream.writable(),
                     run_id,
                     revision,
@@ -160,10 +162,12 @@ class TestAuthoritativeCILane:
         monkeypatch.setattr(ci_runner, "resolve_git_commit", fake_resolve_git_commit)
         monkeypatch.setattr(ci_runner, "_git_tracked_paths", record_tracked_paths)
         monkeypatch.setattr(ci_runner, "_reject_generated_artifact_paths", record_generated_paths)
-        monkeypatch.setattr(ci_runner, "_scan_paths_for_secrets", record_secret_scan)
-        monkeypatch.setattr(ci_runner, "_check_schema_compatibility", record_schema_check)
-        monkeypatch.setattr(ci_runner, "_run_pre_commit_without_mutation", record_pre_commit)
-        monkeypatch.setattr(ci_runner, "_run_timed_ci_phase", record_timed_phase)
+        monkeypatch.setattr(ci_runner.CIRunner, "_scan_paths_for_secrets", record_secret_scan)
+        monkeypatch.setattr(ci_runner.CIRunner, "_check_schema_compatibility", record_schema_check)
+        monkeypatch.setattr(
+            ci_runner.CIRunner, "_run_pre_commit_without_mutation", record_pre_commit
+        )
+        monkeypatch.setattr(ci_runner.CIRunner, "_run_timed_ci_phase", record_timed_phase)
 
         ci_runner.run_authoritative_full_ci_lane(
             tmp_path,
@@ -255,11 +259,13 @@ class TestAffectedCILane:
             """
             calls.append(("generated", paths, prefixes))
 
-        def record_schema_check(_root: Path, *, modules: tuple[str, ...], base: str) -> None:
+        def record_schema_check(
+            _runner: ci_runner.CIRunner, *, modules: tuple[str, ...], base: str
+        ) -> None:
             """Record the affected schema roots and resolved comparison commit.
 
             Args:
-                _root: Repository path supplied by the runner; unused by this recorder.
+                _runner: Service instance supplying the repository root; unused by this recorder.
                 modules: Changed Protobuf module roots, empty for the foundational fixture.
                 base: Resolved comparison-base commit.
             """
@@ -280,9 +286,9 @@ class TestAffectedCILane:
             return selection
 
         def record_timed_phase(
+            _runner: ci_runner.CIRunner,
             commands: tuple[list[str], ...],
             *,
-            root: Path,
             phase: str,
             event_stream: IO[str],
             run_id: str,
@@ -295,7 +301,8 @@ class TestAffectedCILane:
 
             Args:
                 commands: Ordered argument vectors, copied to tuples for later comparison.
-                root: Execution directory supplied by the runner; unused by this recorder.
+                _runner: Service instance supplying the execution directory; unused by this
+                    recorder.
                 phase: Build or test phase identifier to record.
                 event_stream: Runner-owned event log; this recorder does not access it.
                 run_id: Run identity supplied for callback compatibility; unused here.
@@ -329,20 +336,20 @@ class TestAffectedCILane:
             """
             return head
 
-        def record_secrets(_root: Path, paths: tuple[str, ...]) -> None:
+        def record_secrets(_runner: ci_runner.CIRunner, paths: tuple[str, ...]) -> None:
             """Record affected paths submitted to the secret scan.
 
             Args:
-                _root: Repository path supplied by the runner; unused by this fake.
+                _runner: Service instance supplying the repository root; unused by this fake.
                 paths: Changed paths submitted for secret scanning.
             """
             calls.append(("secrets", paths))
 
-        def record_pre_commit(_root: Path, arguments: list[str]) -> None:
+        def record_pre_commit(_runner: ci_runner.CIRunner, arguments: list[str]) -> None:
             """Record pre-commit arguments without running hooks.
 
             Args:
-                _root: Repository path supplied by the runner; unused by this fake.
+                _runner: Service instance supplying the repository root; unused by this fake.
                 arguments: Hook arguments submitted by the affected lane.
             """
             calls.append(("pre-commit", tuple(arguments)))
@@ -351,11 +358,13 @@ class TestAffectedCILane:
         monkeypatch.setattr(ci_runner, "git_changed_paths_between", record_changed_paths)
         monkeypatch.setattr(ci_runner, "resolve_git_commit", record_head)
         monkeypatch.setattr(ci_runner, "_reject_generated_artifact_paths", record_generated_paths)
-        monkeypatch.setattr(ci_runner, "_scan_paths_for_secrets", record_secrets)
-        monkeypatch.setattr(ci_runner, "_check_schema_compatibility", record_schema_check)
-        monkeypatch.setattr(ci_runner, "_run_pre_commit_without_mutation", record_pre_commit)
+        monkeypatch.setattr(ci_runner.CIRunner, "_scan_paths_for_secrets", record_secrets)
+        monkeypatch.setattr(ci_runner.CIRunner, "_check_schema_compatibility", record_schema_check)
+        monkeypatch.setattr(
+            ci_runner.CIRunner, "_run_pre_commit_without_mutation", record_pre_commit
+        )
         monkeypatch.setattr(ci_runner, "select_affected_targets", record_selection)
-        monkeypatch.setattr(ci_runner, "_run_timed_ci_phase", record_timed_phase)
+        monkeypatch.setattr(ci_runner.CIRunner, "_run_timed_ci_phase", record_timed_phase)
 
         observed = ci_runner.run_affected_ci_lane(
             tmp_path,

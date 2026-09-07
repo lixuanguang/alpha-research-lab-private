@@ -31,7 +31,6 @@ lint:
 
 typecheck:
 	$(UV) run --frozen mypy --strict $(PYTHON_PATHS)
-	$(UV) run --frozen python -m alpha_research_governance.engineering_standards.python_typing
 	$(UV) run --frozen python -m mypy.stubtest --mypy-config-file=tools/typing/stubtest.toml --ignore-missing-stub QuantLib exchange_calendars pandas
 
 governance-check: engineering-standards-check dependency-admission-check artifact-supply-chain-check architecture-check ownership-check change-risk-check evidence-check topology-check inventory-check security-controls-check program-governance-check ci-policy-check remote-execution-policy-check

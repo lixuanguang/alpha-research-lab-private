@@ -6,13 +6,13 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, NamedTuple
+from typing import Annotated, Literal, NamedTuple, Protocol, runtime_checkable
 
 # third party library imports
 import typer
 
 # project library imports
-from alpha_research_governance._cli import run_typer
+from alpha_research_governance._cli import _TypedTyper, run_typer
 from alpha_research_governance.ci_policy.models import (
     AffectedSelection,
     ChangedPath,
@@ -71,6 +71,20 @@ __all__ = [
 ]
 
 
+@runtime_checkable
+class _ContextWithObject(Protocol):
+    """Expose Typer's context object as an untrusted object boundary."""
+
+    obj: object
+
+
+class _JsonDumpModel(Protocol):
+    """Expose the JSON-mode model dump consumed by the CLI."""
+
+    def model_dump(self, *, mode: Literal["json"]) -> object:
+        """Return the model's JSON-compatible representation."""
+
+
 def _serialize_affected_selection(selection: AffectedSelection) -> str:
     """Serialize an affected-target selection as compact canonical JSON.
 
@@ -80,7 +94,8 @@ def _serialize_affected_selection(selection: AffectedSelection) -> str:
     Returns:
         A sorted-key JSON string without insignificant whitespace.
     """
-    return json.dumps(selection.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    serializer: _JsonDumpModel = selection
+    return json.dumps(serializer.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
 
 
 class _CICLIState(NamedTuple):
@@ -96,9 +111,10 @@ class _CICLIState(NamedTuple):
 
 
 _DEFAULT_EVENT_LOG = Path("build/ci/continuous-integration-events.jsonl")
+_CONTEXT_SETTINGS: dict[str, object] = {"help_option_names": ["-h", "--help"]}
 _APP = typer.Typer(
     add_completion=False,
-    context_settings={"help_option_names": ["-h", "--help"]},
+    context_settings=_CONTEXT_SETTINGS,
     invoke_without_command=True,
     no_args_is_help=False,
     pretty_exceptions_enable=False,
@@ -119,10 +135,16 @@ def _state(context: typer.Context) -> _CICLIState:
     Raises:
         RuntimeError: The context does not contain the expected CI state.
     """
-    state = context.obj
+    if not isinstance(context, _ContextWithObject):
+        raise RuntimeError("continuous-integration CLI context has no object storage")
+    typed_context: _ContextWithObject = context
+    state = typed_context.obj
     if not isinstance(state, _CICLIState):
         raise RuntimeError("continuous-integration CLI state is unavailable")
     return state
+
+
+_TYPED_APP: _TypedTyper = _APP
 
 
 def _print_validation_result(policy: CIPolicy) -> None:
@@ -137,7 +159,7 @@ def _print_validation_result(policy: CIPolicy) -> None:
     )
 
 
-@_APP.callback()
+@_TYPED_APP.callback()
 def _initialize_cli(
     context: typer.Context,
     repository_root: Annotated[
@@ -153,7 +175,7 @@ def _initialize_cli(
         _print_validation_result(policy)
 
 
-@_APP.command("select")
+@_TYPED_APP.command("select")
 def _select(
     context: typer.Context,
     base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")],
@@ -168,7 +190,7 @@ def _select(
     )
 
 
-@_APP.command("scan-secrets")
+@_TYPED_APP.command("scan-secrets")
 def _scan_secrets(
     context: typer.Context,
     paths: Annotated[list[str] | None, typer.Argument(help="Repository-relative paths.")] = None,
@@ -197,7 +219,7 @@ def _scan_secrets(
     print(f"Secret scan passed for {len(selected_paths)} governed paths.")
 
 
-@_APP.command("schema-check")
+@_TYPED_APP.command("schema-check")
 def _schema_check(
     context: typer.Context,
     base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")] = "HEAD",
@@ -213,7 +235,7 @@ def _schema_check(
     print(f"Schema compatibility passed for {len(state.policy.schema_module_roots)} modules.")
 
 
-@_APP.command("verify-merged-result")
+@_TYPED_APP.command("verify-merged-result")
 def _verify_merged_result(
     context: typer.Context,
     base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")],
@@ -234,7 +256,7 @@ def _verify_merged_result(
     print(f"Merged-result identity passed for {merged}.")
 
 
-@_APP.command("fast")
+@_TYPED_APP.command("fast")
 def _fast(
     context: typer.Context,
     base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")],
@@ -267,7 +289,7 @@ def _fast(
     print(_serialize_affected_selection(selection))
 
 
-@_APP.command("full")
+@_TYPED_APP.command("full")
 def _full(
     context: typer.Context,
     base_ref: Annotated[str, typer.Option("--base-ref", help="Base Git reference.")],

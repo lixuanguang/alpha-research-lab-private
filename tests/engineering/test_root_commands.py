@@ -59,8 +59,6 @@ class TestRootCommandContracts:
             "uv run --frozen ruff check src tests tools/governance/src tools/typing/stubs",
             "uv run --frozen ruff format --check src tests tools/governance/src tools/typing/stubs",
             "uv run --frozen mypy --strict src tests tools/governance/src tools/typing/stubs",
-            "uv run --frozen python -m "
-            "alpha_research_governance.engineering_standards.python_typing",
             "uv run --frozen python -m mypy.stubtest "
             "--mypy-config-file=tools/typing/stubtest.toml "
             "--ignore-missing-stub QuantLib exchange_calendars pandas",
@@ -121,6 +119,8 @@ class TestRootCommandContracts:
 
         automation_configuration = makefile + pre_commit + continuous_integration
         assert "python -m alpha_research." not in automation_configuration
+        assert "python-typing-debt.json" not in automation_configuration
+        assert "python-standards-debt.json" not in automation_configuration
         assert "PYTHONPATH=src" not in automation_configuration
         assert all(
             fragment not in automation_configuration

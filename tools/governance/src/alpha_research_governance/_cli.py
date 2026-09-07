@@ -4,11 +4,31 @@ from __future__ import annotations
 
 # standard library imports
 import sys
-from collections.abc import Sequence
-from typing import Protocol, TextIO, runtime_checkable
+from collections.abc import Callable, Sequence
+from typing import ParamSpec, Protocol, TextIO, TypeVar, runtime_checkable
 
 # third party library imports
 import typer
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+class _CommandDecorator(Protocol):
+    """Expose the typed callable contract consumed from Typer decorators."""
+
+    def __call__(self, function: Callable[_P, _R]) -> Callable[_P, _R]:
+        """Register and return one CLI callback."""
+
+
+class _TypedTyper(Protocol):
+    """Expose the decorator methods needed by a Typer application."""
+
+    def callback(self) -> _CommandDecorator:
+        """Return the application callback decorator."""
+
+    def command(self, name: str) -> _CommandDecorator:
+        """Return a named command decorator."""
 
 
 @runtime_checkable
@@ -27,6 +47,19 @@ class _RenderableCLIError(Protocol):
         Args:
             file: Destination stream, or ``None`` for the renderer's default.
         """
+
+
+class _TyperCommand(Protocol):
+    """Expose the consumed, status-returning portion of a Typer command."""
+
+    def main(
+        self,
+        *,
+        args: Sequence[str],
+        prog_name: str,
+        standalone_mode: bool,
+    ) -> object:
+        """Dispatch one command and return its raw result."""
 
 
 def run_typer(
@@ -63,7 +96,8 @@ def run_typer(
             Typer parser error.
     """
     try:
-        result = typer.main.get_command(app).main(
+        command: _TyperCommand = typer.main.get_command(app)
+        result = command.main(
             args=list(sys.argv[1:] if arguments is None else arguments),
             prog_name=program_name,
             standalone_mode=False,

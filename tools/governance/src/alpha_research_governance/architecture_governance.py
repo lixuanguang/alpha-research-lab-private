@@ -31,6 +31,9 @@ _DECISION_LOG_ROW = re.compile(
     r"\|\s*(?P<owner>[^|]+?)\s*"
     r"\|\s*(?P<review_date>[^|]+?)\s*\|$"
 )
+_HEADING_PATTERN: re.Pattern[str] = re.compile(
+    r"^#{1,6}\s+(?P<heading>.+?)\s*#*$", flags=re.MULTILINE
+)
 _COMMIT_BOUND_APPROVAL = re.compile(
     r"^commit=(?P<commit>[0-9a-f]{40}|[0-9a-f]{64});\s*approval=(?P<url>\S+)$"
 )
@@ -148,12 +151,27 @@ def _section_body(text: str, heading: str) -> str | None:
         heading followed by a newline; an empty string represents a present but
         blank section.
     """
-    match = re.search(
+    section_pattern: re.Pattern[str] = re.compile(
         rf"^## {re.escape(heading)}\s*$\n(?P<body>.*?)(?=^## |\Z)",
-        text,
         flags=re.MULTILINE | re.DOTALL,
     )
-    return None if match is None else match.group("body").strip()
+    match = section_pattern.search(
+        text,
+    )
+    if match is None:
+        return None
+    body = match.groupdict().get("body")
+    if not isinstance(body, str):
+        raise ArchitectureGovernanceError(["section body regex did not capture text"])
+    return body.strip()
+
+
+def _required_match_group(match: re.Match[str], name: str) -> str:
+    """Read a required named regex group through a checked string boundary."""
+    value = match.groupdict().get(name)
+    if not isinstance(value, str):
+        raise ArchitectureGovernanceError([f"regex group {name!r} did not capture text"])
+    return value
 
 
 def _parse_date(value: str, *, field: str, path: Path, findings: list[str]) -> date | None:
@@ -237,12 +255,12 @@ def _decision_log_entries(
             continue
         entries.append(
             _DecisionLogEntry(
-                identifier=match.group("identifier"),
-                title=match.group("title").strip(),
-                filename=match.group("filename").strip(),
-                status=match.group("status").strip(),
-                owner=match.group("owner").strip(),
-                review_date=match.group("review_date").strip(),
+                identifier=_required_match_group(match, "identifier"),
+                title=_required_match_group(match, "title").strip(),
+                filename=_required_match_group(match, "filename").strip(),
+                status=_required_match_group(match, "status").strip(),
+                owner=_required_match_group(match, "owner").strip(),
+                review_date=_required_match_group(match, "review_date").strip(),
             )
         )
     return tuple(entries)
@@ -264,7 +282,8 @@ def _heading_anchors(text: str) -> set[str]:
     """
     anchors: set[str] = set()
     counts: dict[str, int] = {}
-    for heading in re.findall(r"^#{1,6}\s+(.+?)\s*#*$", text, flags=re.MULTILINE):
+    for match in _HEADING_PATTERN.finditer(text):
+        heading = _required_match_group(match, "heading")
         without_markup = re.sub(r"[`*_~]", "", heading)
         base = re.sub(r"[^\w\s-]", "", without_markup.casefold())
         base = re.sub(r"[\s-]+", "-", base).strip("-")
