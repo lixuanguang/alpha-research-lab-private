@@ -57,7 +57,7 @@ from alpha_research.venue_calendar import (
 )
 from alpha_research.venue_calendar.models import _VenueCalendarModel
 
-REPOSITORY_ROOT = Path(__file__).parents[2]
+REPOSITORY_ROOT = Path(__file__).parents[3]
 FIXTURE_PATH = REPOSITORY_ROOT / "tests" / "golden" / "venue_calendar" / "c02_calendars.json"
 
 

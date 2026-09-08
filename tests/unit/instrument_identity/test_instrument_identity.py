@@ -64,7 +64,7 @@ _given_exact_identifier: _ExactIdentifierGiven = given
 _given_symbol_reuse: _SymbolReuseGiven = given
 
 INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_PATH = (
-    Path(__file__).parents[1] / "golden/instrument_identity/c01_symbology.json"
+    Path(__file__).parents[2] / "golden/instrument_identity/c01_symbology.json"
 )
 
 
