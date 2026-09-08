@@ -188,8 +188,10 @@ not authorize a validation framework in economic or trading-domain code without
 a boundary-specific need. Latency-sensitive market-data and event records, plus
 quote, order-intent and execution records, MUST use frozen `msgspec.Struct`
 values with cached strict typed codecs for serialization and deserialization.
-Planned P1 records, configuration and reports will use this serialization
-boundary; this does not require a blanket foundation rewrite.
+This candidate uses the serialization boundary for exact financial values and
+bounded canonical Binance event records. Later quote, order-intent, execution,
+configuration and report records will use the same boundary when their planned
+consumers are introduced; this does not require a blanket foundation rewrite.
 
 `msgspec` annotations are not checked by direct constructors. Its records MUST
 therefore retain explicit constructor and custom invariant checks so invalid,
@@ -326,6 +328,15 @@ changed behavior covers success, meaningful boundaries, malformed or invalid
 inputs, and expected failures. Tests are deterministic, isolated, independent
 of execution order, and explicit about exception types, error details, units,
 time semantics, and numerical tolerances.
+
+The unit-test tree mirrors the `src` ownership boundary: component tests use
+their owning package directory, shared data tests live under `tests/unit/data/`,
+provider-specific data tests live under the matching
+`tests/unit/data/providers/<provider>/` directory, and venue-specific tests live
+under the matching
+`tests/unit/data/venues/<venue>/` directory. Documentation and active commands
+use these current paths; preserved historical evidence may retain the path used
+by its original run.
 
 Use fakes or injected clocks, seeds, files, and protocols at stable boundaries;
 avoid real networks, credentials, user directories, global random state, and

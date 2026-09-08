@@ -38,6 +38,7 @@ constraint-dependencies = ["numpy==2.4.6"]
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
     { file = "src/**/py.typed" },
     { file = "docs/README.md" },
 ]

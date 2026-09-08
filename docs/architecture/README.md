@@ -5,18 +5,20 @@ workspace. The long-term destination is an institutional-grade monorepo for
 multi-asset, multi-strategy research, productionization, and monitoring. The
 repository currently implements three domain foundations: [instrument
 identity](instrument-identity.md), [venue calendars](venue-calendar.md), and
-[financial units](financial-units.md). Data ingestion, point-in-time dataset
-construction, simulation, portfolio and risk enforcement, order execution,
-deployment, and live monitoring are planned capabilities; their absence is not
-hidden by the target model below. See the [platform design](platform-design.md)
-for the future module boundaries, lifecycles, runtime lanes, and scaling
-triggers.
+[financial units](financial-units.md), plus exact serialization, provenance,
+reference-catalog, and bounded Binance event/decoder foundations. Data
+acquisition, point-in-time dataset construction, simulation, portfolio and risk
+enforcement, order execution, deployment, and live monitoring are planned
+capabilities; their absence is not hidden by the target model below. See the
+[platform design](platform-design.md) for the future module boundaries,
+lifecycles, runtime lanes, and scaling triggers.
 
-The locked `msgspec` dependency supports the planned P1 serialization boundary
-for latency-sensitive market-data/events and quote, order-intent and execution
-records. Those consumers will use frozen `msgspec.Struct` values with cached
-strict typed codecs. This dependency-only candidate implements no P1 codecs or
-records; the established C01, C02 and C03 foundation contracts remain preserved.
+The locked `msgspec` dependency supports the exact serialization boundary for
+financial values and the bounded canonical Binance event records in this
+candidate. Those records use frozen `msgspec.Struct` values with cached strict
+typed codecs. Quote, order-intent, execution, configuration, report, acquisition,
+and replay consumers remain planned; the established C01, C02 and C03 foundation
+contracts remain preserved.
 
 The [platform roadmap](../roadmap/README.md) selects the next work. The retired
 blueprint and package catalog remain in Git history. The first planned delivery
@@ -71,16 +73,28 @@ The following rules govern new code and documentation:
    preserve the relevant numerical, temporal, integrity, security, and recovery
    behavior before the existing boundary is retired.
 
-Current imports point from financial units to identity and calendar contracts:
+Current and selected foundation-boundary imports are:
 
 ```text
 financial_units -> instrument_identity
 financial_units -> venue_calendar
+serialization -> financial_units, instrument_identity, msgspec
+core.events -> msgspec
+reference_data -> financial_units, instrument_identity, serialization
+data.events -> core.events, instrument_identity, msgspec
+data.decoders -> core.events, msgspec
+data.providers.tardis.decoder -> data.decoders, data.events
+data.venues.binance.events -> data.events
+data.venues.binance.codecs -> data.events, data.venues.binance.events, serialization, msgspec
+data.venues.binance.payloads -> data.decoders, data.events, data.venues.binance.codecs, data.venues.binance.events, instrument_identity, reference_data
+data.providers.tardis.binance -> data.providers.tardis.decoder, data.venues.binance.codecs, data.venues.binance.events, data.venues.binance.payloads, reference_data
 ```
 
 Foundational contracts do not depend on notebooks, research-only approximations,
 deployment composition roots, or workstation configuration. Provider details
-stay inside adapters. Portfolio construction emits targets; execution turns an
+stay inside adapters: Tardis framing owns capture and blank-line behavior, while
+the Binance venue decoder owns combined-stream `stream`/`data` payload
+interpretation. Portfolio construction emits targets; execution turns an
 intent into orders only after an independent risk boundary. Cross-process
 interfaces will use versioned schemas when such a boundary is introduced.
 
@@ -94,6 +108,7 @@ golden/property evidence.
 | C01 | [Instrument identity and temporal symbology](instrument-identity.md) | Stable canonical IDs, validity-dated mappings, correction history, and explicit UTC resolution |
 | C02 | [Venue calendars and market status](venue-calendar.md) | Versioned bounded snapshots, UTC half-open sessions, DST-safe state, and fail-closed overrides |
 | C03 | [Financial units and conventions](financial-units.md) | Dimension-safe exact arithmetic, explicit rounding, and an isolated date-based convention adapter |
+| Data foundation | [Market-data contracts](../data/contracts.md) | Exact authored instrument metadata, source provenance, immutable Binance event records, and strict capture decoding; acquisition remains planned |
 
 The contracts preserve strict external validation, immutable values, explicit
 time semantics, and independent hand-calculated or declared goldens. Their
@@ -190,7 +205,7 @@ evidence links to it:
 
 | Decision | Current constraint |
 | --- | --- |
-| Planned serialization boundary | P1 records will follow the [engineering serialization requirements](../coding_standards/README.md#classes-records-errors-and-resources); this candidate admits the dependency only. Pydantic remains available for cold administration and the C01/C02/C03 foundation APIs. |
+| Serialization boundary | Financial values and bounded canonical Binance event records use the [engineering serialization requirements](../coding_standards/README.md#classes-records-errors-and-resources); later configuration, reports, quote/order-intent and execution records remain planned. Pydantic remains available for cold administration and the C01/C02/C03 foundation APIs. |
 | Instrument identity models | C01 keeps strict immutable models while preserving its public constructors, temporal mappings, and graph invariants. |
 | Venue calendar adapter | C02 owns UTC/session semantics and uses `exchange_calendars` only behind a versioned adapter. |
 | [Wheel-only source admission](decisions/0012-wheel-only-source-admission.md) | Wheel-only native dependencies require explicit evidence and a release-blocking bootstrap profile. |

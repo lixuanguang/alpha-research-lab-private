@@ -1,0 +1,13 @@
+[
+  {"code": "USD", "minor_unit": "0.01"},
+  {"code": "EUR", "minor_unit": "0.01"},
+  {"code": "GBP", "minor_unit": "0.01"},
+  {"code": "JPY", "minor_unit": "1"},
+  {"code": "CHF", "minor_unit": "0.01"},
+  {"code": "SGD", "minor_unit": "0.01"},
+  {"code": "AUD", "minor_unit": "0.01"},
+  {"code": "CAD", "minor_unit": "0.01"},
+  {"code": "HKD", "minor_unit": "0.01"},
+  {"code": "CNY", "minor_unit": "0.01"},
+  {"code": "USDT", "minor_unit": "0.00000001"}
+]

@@ -65,7 +65,7 @@ SHARES = Dimension(instrument_id=InstrumentId(UUID(int=1)), kind=QuantityKind.SH
 CONTRACTS = Dimension(instrument_id=InstrumentId(UUID(int=2)), kind=QuantityKind.CONTRACT)
 CONTEXT = EvaluationContext(evaluation_date=date(2024, 1, 1), convention_revision="c03-v1")
 CONVENTION = RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.SIMPLE)
-FIXTURE = Path(__file__).parents[1] / "golden/financial_units/c03_units.json"
+FIXTURE = Path(__file__).parents[2] / "golden/financial_units/c03_units.json"
 _ROUNDING_MODES: st.SearchStrategy[Rounding] = st.sampled_from(tuple(Rounding))
 
 
@@ -239,9 +239,9 @@ class TestFinancialArithmeticContracts:
     def test_tick_and_lot_goldens_cover_sign_and_half_even_ties(self) -> None:
         """Match signed tick and lot rounding to exact decimal goldens."""
         for case in fixture()["rounding"]:
-            price = Price(value=D(case["value"]), currency=Currency.USD, per=SHARES)
+            price = Price(value=D(case["value"]), currency=Currency.from_code("USD"), per=SHARES)
             quantity = Quantity(value=price.value, dimension=SHARES)
-            tick = Tick(value=D(case["tick"]), currency=Currency.USD, per=SHARES)
+            tick = Tick(value=D(case["tick"]), currency=Currency.from_code("USD"), per=SHARES)
             lot = Lot(value=tick.value, dimension=SHARES)
             assert price.rounded(tick, mode=Rounding(case["mode"])).value == D(case["expected"])
             assert quantity.rounded(lot, mode=Rounding(case["mode"])).value == D(case["expected"])
@@ -252,38 +252,45 @@ class TestFinancialArithmeticContracts:
         multiplier = Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES)
         shares = multiplier.apply(quantity)
         assert shares == Quantity(value=D("-200"), dimension=SHARES)
-        amount = Price(value=D("-5.25"), currency=Currency.USD, per=SHARES).amount(shares)
-        assert amount == Money(value=D("1050"), currency=Currency.USD)
-        fx = FXRate(value=D("150"), base=Currency.USD, quote=Currency.JPY)
-        assert fx.convert(amount, target=Currency.JPY, mode=Rounding.HALF_EVEN).value == D("157500")
+        amount = Price(value=D("-5.25"), currency=Currency.from_code("USD"), per=SHARES).amount(
+            shares
+        )
+        assert amount == Money(value=D("1050"), currency=Currency.from_code("USD"))
+        fx = FXRate(value=D("150"), base=Currency.from_code("USD"), quote=Currency.from_code("JPY"))
+        assert fx.convert(
+            amount, target=Currency.from_code("JPY"), mode=Rounding.HALF_EVEN
+        ).value == D("157500")
         assert (amount + amount - amount) == amount
-        assert Money(value=D("-1.005"), currency=Currency.USD).rounded(
+        assert Money(value=D("-1.005"), currency=Currency.from_code("USD")).rounded(
             mode=Rounding.FLOOR
         ).value == D("-1.01")
 
     def test_magnitude_and_precision_boundaries_fail_closed(self) -> None:
         """Reject overflow and unrepresentable exact arithmetic while normalizing zero."""
-        valid = Money(value=D("999999999999999999.999999999999999999"), currency=Currency.USD)
+        valid = Money(
+            value=D("999999999999999999.999999999999999999"), currency=Currency.from_code("USD")
+        )
         with pytest.raises(UnitError, match="magnitude"):
-            valid + Money(value=D("0.000000000000000001"), currency=Currency.USD)
+            valid + Money(value=D("0.000000000000000001"), currency=Currency.from_code("USD"))
         with pytest.raises(UnitError, match="representable"):
-            Price(value=D("1e-18"), currency=Currency.USD, per=SHARES).amount(
+            Price(value=D("1e-18"), currency=Currency.from_code("USD"), per=SHARES).amount(
                 Quantity(value=D("0.1"), dimension=SHARES)
             )
-        assert Money(value=D("-0"), currency=Currency.USD).value == 0
+        assert Money(value=D("-0"), currency=Currency.from_code("USD")).value == 0
 
     def test_mismatched_arithmetic_rounding_fx_and_multiplier_reject(self) -> None:
         """Reject mismatched dimensions and unsupported operations at their public entry points."""
-        money = Money(value=D("1"), currency=Currency.USD)
-        price = Price(value=D("1"), currency=Currency.USD, per=SHARES)
+        money = Money(value=D("1"), currency=Currency.from_code("USD"))
+        price = Price(value=D("1"), currency=Currency.from_code("USD"), per=SHARES)
         quantity = Quantity(value=D("1"), dimension=CONTRACTS)
         with pytest.raises(UnitError):
-            money + money.model_copy(update={"currency": Currency.EUR})
+            money + money.model_copy(update={"currency": Currency.from_code("EUR")})
         with pytest.raises(UnitError):
             price.amount(quantity)
         with pytest.raises(UnitError):
             price.rounded(
-                Tick(value=D("0.1"), currency=Currency.EUR, per=SHARES), mode=Rounding.FLOOR
+                Tick(value=D("0.1"), currency=Currency.from_code("EUR"), per=SHARES),
+                mode=Rounding.FLOOR,
             )
         with pytest.raises(UnitError):
             quantity.rounded(Lot(value=D("1"), dimension=SHARES), mode=Rounding.FLOOR)
@@ -292,9 +299,9 @@ class TestFinancialArithmeticContracts:
                 quantity
             )
         with pytest.raises(UnitError):
-            FXRate(value=D("1.1"), base=Currency.EUR, quote=Currency.USD).convert(
-                money, target=Currency.JPY, mode=Rounding.HALF_EVEN
-            )
+            FXRate(
+                value=D("1.1"), base=Currency.from_code("EUR"), quote=Currency.from_code("USD")
+            ).convert(money, target=Currency.from_code("JPY"), mode=Rounding.HALF_EVEN)
         with pytest.raises(UnitError):
             money.rounded(mode="nearest")  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed rounding rejection; expires=2027-03-01]
         with pytest.raises(TypeError):
@@ -305,14 +312,16 @@ class TestFinancialArithmeticContracts:
         with localcontext() as context:
             context.prec = 2
             context.traps[Inexact] = True
-            money = Money(value=D("123.456"), currency=Currency.USD)
+            money = Money(value=D("123.456"), currency=Currency.from_code("USD"))
             assert (money + money).value == D("246.912")
             assert money.rounded(mode=Rounding.HALF_EVEN).value == D("123.46")
-            fx = FXRate(value=D("3"), base=Currency.EUR, quote=Currency.USD)
-            assert fx.convert(money, target=Currency.EUR, mode=Rounding.HALF_EVEN).value == D(
-                "41.15"
+            fx = FXRate(
+                value=D("3"), base=Currency.from_code("EUR"), quote=Currency.from_code("USD")
             )
-            assert Price(value=D("123.45"), currency=Currency.USD, per=SHARES).amount(
+            assert fx.convert(
+                money, target=Currency.from_code("EUR"), mode=Rounding.HALF_EVEN
+            ).value == D("41.15")
+            assert Price(value=D("123.45"), currency=Currency.from_code("USD"), per=SHARES).amount(
                 Quantity(value=D("3"), dimension=SHARES)
             ).value == D("370.35")
 
@@ -324,21 +333,23 @@ class TestFinancialArithmeticContracts:
 
             tag: str
 
-        left = TaggedMoney(value=D("1"), currency=Currency.USD, tag="spot")
-        right = TaggedMoney(value=D("2"), currency=Currency.USD, tag="spot")
+        left = TaggedMoney(value=D("1"), currency=Currency.from_code("USD"), tag="spot")
+        right = TaggedMoney(value=D("2"), currency=Currency.from_code("USD"), tag="spot")
         update: dict[str, object] = {"value": D("3")}
         copied = left.model_copy(update=update)
-        assert copied == TaggedMoney(value=D("3"), currency=Currency.USD, tag="spot")
+        assert copied == TaggedMoney(value=D("3"), currency=Currency.from_code("USD"), tag="spot")
         assert update == {"value": D("3")}
-        assert left + right == TaggedMoney(value=D("3"), currency=Currency.USD, tag="spot")
+        assert left + right == TaggedMoney(
+            value=D("3"), currency=Currency.from_code("USD"), tag="spot"
+        )
         with pytest.raises(UnitError, match="types and dimensions"):
-            left + TaggedMoney(value=D("2"), currency=Currency.USD, tag="close")
+            left + TaggedMoney(value=D("2"), currency=Currency.from_code("USD"), tag="close")
 
     @pytest.mark.performance
     def test_financial_rounding_local_diagnostic_budget(self) -> None:
         """Measure ten thousand exact tick roundings against the local two-second budget."""
-        price = Price(value=D("123.456"), currency=Currency.USD, per=SHARES)
-        tick = Tick(value=D("0.05"), currency=Currency.USD, per=SHARES)
+        price = Price(value=D("123.456"), currency=Currency.from_code("USD"), per=SHARES)
+        tick = Tick(value=D("0.05"), currency=Currency.from_code("USD"), per=SHARES)
         start = perf_counter()
         for _ in range(10_000):
             assert price.rounded(tick, mode=Rounding.HALF_EVEN).value == D("123.45")
@@ -359,9 +370,9 @@ def test_rounding_is_on_grid_idempotent_and_has_bounded_error(
     """Keep every rounding mode on its grid with bounded directional error."""
     value = D(raw) / 1000
     quantum = D(step) / 100
-    price = Price(value=value, currency=Currency.USD, per=SHARES)
+    price = Price(value=value, currency=Currency.from_code("USD"), per=SHARES)
     quantity = Quantity(value=value, dimension=SHARES)
-    tick = Tick(value=quantum, currency=Currency.USD, per=SHARES)
+    tick = Tick(value=quantum, currency=Currency.from_code("USD"), per=SHARES)
     lot = Lot(value=quantum, dimension=SHARES)
     rounded = price.rounded(tick, mode=mode)
     assert Fraction(rounded.value) / Fraction(quantum) == int(
@@ -386,12 +397,14 @@ def test_rounding_is_on_grid_idempotent_and_has_bounded_error(
 @_given_fx_conversion(raw=st.integers(-1_000_000, 1_000_000), rate=st.integers(1, 10000))
 def test_fx_conversion_has_declared_currency_rounding_tolerance(raw: int, rate: int) -> None:
     """Bound conversion and round-trip error by the currency minor units."""
-    money = Money(value=D(raw) / 100, currency=Currency.EUR)
-    fx = FXRate(value=D(rate) / 100, base=Currency.EUR, quote=Currency.USD)
-    converted = fx.convert(money, target=Currency.USD, mode=Rounding.HALF_EVEN)
+    money = Money(value=D(raw) / 100, currency=Currency.from_code("EUR"))
+    fx = FXRate(
+        value=D(rate) / 100, base=Currency.from_code("EUR"), quote=Currency.from_code("USD")
+    )
+    converted = fx.convert(money, target=Currency.from_code("USD"), mode=Rounding.HALF_EVEN)
     exact = Fraction(money.value) * Fraction(fx.value)
     assert abs(Fraction(converted.value) - exact) <= Fraction(1, 200)
-    restored = fx.convert(converted, target=Currency.EUR, mode=Rounding.HALF_EVEN)
+    restored = fx.convert(converted, target=Currency.from_code("EUR"), mode=Rounding.HALF_EVEN)
     # One half-minor-unit error in each currency, expressed back in base units.
     assert abs(Fraction(restored.value) - Fraction(money.value)) <= (
         Fraction(1, 200) / Fraction(fx.value) + Fraction(1, 200)
@@ -945,13 +958,13 @@ class TestFinancialModelContracts:
             SHARES,
             CONVENTION,
             CONTEXT,
-            Money(value=D("1.25"), currency=Currency.USD),
+            Money(value=D("1.25"), currency=Currency.from_code("USD")),
             Quantity(value=D("2"), dimension=SHARES),
-            Price(value=D("1.25"), currency=Currency.USD, per=SHARES),
-            Tick(value=D("0.05"), currency=Currency.USD, per=SHARES),
+            Price(value=D("1.25"), currency=Currency.from_code("USD"), per=SHARES),
+            Tick(value=D("0.05"), currency=Currency.from_code("USD"), per=SHARES),
             Lot(value=D("1"), dimension=SHARES),
             Multiplier(value=D("100"), input_dimension=CONTRACTS, output_dimension=SHARES),
-            FXRate(value=D("1.1"), base=Currency.EUR, quote=Currency.USD),
+            FXRate(value=D("1.1"), base=Currency.from_code("EUR"), quote=Currency.from_code("USD")),
             Rate(value=D("0.05"), convention=CONVENTION),
             Yield(value=D("0.05"), convention=CONVENTION),
             Volatility(value=D("0.2"), day_count=DayCount.ACTUAL_365_FIXED),
@@ -990,7 +1003,7 @@ class TestFinancialModelContracts:
     def test_invalid_decimal_values_fail_without_coercion(self, bad: object) -> None:
         """Reject malformed decimals through the public Money constructor."""
         with pytest.raises(UnitError):
-            Money(value=bad, currency=Currency.USD)  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor decimal rejection; expires=2027-03-01]
+            Money(value=bad, currency=Currency.from_code("USD"))  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor decimal rejection; expires=2027-03-01]
 
     @pytest.mark.parametrize(
         "operation",
@@ -999,7 +1012,7 @@ class TestFinancialModelContracts:
             lambda: Dimension(instrument_id=UUID(int=1), kind=QuantityKind.SHARE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor identifier rejection; expires=2027-03-01]
             lambda: Dimension(instrument_id=InstrumentId(UUID(int=1)), kind="share"),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor kind rejection; expires=2027-03-01]
             lambda: Quantity(value=D("1"), dimension={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
-            lambda: Price(value=D("1"), currency=Currency.USD, per={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
+            lambda: Price(value=D("1"), currency=Currency.from_code("USD"), per={}),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor dimension rejection; expires=2027-03-01]
             lambda: RateConvention(day_count="actual_360", compounding=Compounding.SIMPLE),  # type: ignore[arg-type]  # [owner=platform; rationale=exercise constructor day-count rejection; expires=2027-03-01]
             lambda: RateConvention(day_count=DayCount.ACTUAL_360, compounding=Compounding.PERIODIC),
             lambda: RateConvention(
@@ -1012,9 +1025,13 @@ class TestFinancialModelContracts:
                 evaluation_date=datetime(2024, 1, 1), convention_revision="v1"
             ),
             lambda: CONTEXT.model_copy(update={"convention_revision": " "}),
-            lambda: FXRate(value=D("1"), base=Currency.USD, quote=Currency.USD),
-            lambda: FXRate(value=D("0"), base=Currency.USD, quote=Currency.EUR),
-            lambda: Tick(value=D("0"), currency=Currency.USD, per=SHARES),
+            lambda: FXRate(
+                value=D("1"), base=Currency.from_code("USD"), quote=Currency.from_code("USD")
+            ),
+            lambda: FXRate(
+                value=D("0"), base=Currency.from_code("USD"), quote=Currency.from_code("EUR")
+            ),
+            lambda: Tick(value=D("0"), currency=Currency.from_code("USD"), per=SHARES),
             lambda: Lot(value=D("-1"), dimension=SHARES),
             lambda: Multiplier(value=D("0"), input_dimension=SHARES, output_dimension=SHARES),
         ],
@@ -1029,7 +1046,7 @@ class TestFinancialModelContracts:
         self, bad: object
     ) -> None:
         """Reject malformed decimal updates and preserve the original Money value."""
-        money = Money(value=D("1.25"), currency=Currency.USD)
+        money = Money(value=D("1.25"), currency=Currency.from_code("USD"))
         with pytest.raises(UnitError):
             money.model_copy(update={"value": bad})
         assert money.value == D("1.25")

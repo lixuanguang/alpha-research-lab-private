@@ -20,7 +20,7 @@ for the graph while this admission remains. No production use is permitted.
 
 | Interface | Meaning and invariant |
 | --- | --- |
-| `Currency` | Explicit supported USD/EUR/GBP/JPY/CHF/SGD/AUD/CAD/HKD/CNY unit; JPY quantum is 1 and other supported currency quanta are 0.01 |
+| `Currency` | Frozen `(code, minor_unit)` value with a valid uppercase ASCII code and positive finite exact accounting quantum; immutable configured defaults come from the packaged [`default_currencies.json`](../../src/alpha_research/financial_units/default_currencies.json) definitions and are selected by code |
 | `Dimension` | C01 instrument identity plus share, contract, base-unit or face-amount kind; different instruments never share a dimension implicitly |
 | `Money` | Signed Decimal amount and currency; `rounded(mode=...)` explicitly rounds to its accounting minor unit |
 | `Quantity` | Signed Decimal amount and native dimension; `rounded(lot, mode=...)` requires matching dimensions |
@@ -34,11 +34,26 @@ for the graph while this admission remains. No production use is permitted.
 | `Duration` | Nonnegative elapsed year fraction with day-count basis; no Macaulay/modified/effective bond sensitivity is computed |
 | `EvaluationContext` | Explicit evaluation date and bounded convention-revision token; no wall clock or process global |
 
-Currencies are a deliberately bounded unit vocabulary. They do not reconcile an
-ISO registry, currency lifecycle, cash-payment rounding rule, entitlement or venue.
-Unsupported currencies and variants must be added with owned source, compatibility
-and fixture evidence; raw strings or unknown values are rejected. An instrument
-reference does not certify that instrument or grant its use in trading.
+`Currency` is a value object rather than an ISO registry, currency lifecycle,
+cash-payment rounding rule, entitlement or venue authority. Its code and exact
+minor unit are both part of identity, so a custom value such as
+`Currency(code="GRID", minor_unit=Decimal("0.05"))` is valid without changing a
+global registry. A code with a different minor unit is a different currency
+dimension and cannot be mixed implicitly. The packaged JSON supplies only the
+retained compatibility definitions; `Currency.from_code("USD")` selects a
+known configured default, while authored values pass both `code` and
+`minor_unit` explicitly. Duplicate or invalid definitions fail package loading.
+Python constructors require complete `Currency` values, so raw strings and
+unknown values are rejected at this boundary. An instrument reference does not
+certify that instrument or grant its use in trading.
+
+The authored reference catalog carries a complete USDT `Currency` object as a
+distinct token unit. Its eight-decimal accounting quantum is an accounting
+convention for the bounded foundation metadata; the P1 quote-currency spot ledger
+and any baseline strategy remain planned. This does not identify USDT with USD,
+define blockchain transfer precision, or certify historical venue fee/settlement
+rules. New authored settings belong in the catalog and do not require changing
+packaged compatibility definitions.
 
 All numeric inputs must be finite `Decimal` objects with representation exponent
 between -18 and 18 and magnitude strictly below 1e18. Floats, strings, booleans,
@@ -124,12 +139,16 @@ forward/reverse error propagation. Monetary results are exact; nearest FX
 conversion permits at most half a target minor unit, and round-trip error permits
 that error translated back plus half a base minor unit.
 
-Tests also cover currency/instrument/convention mixing, type coercion, immutable
-values, non-finite/overflow/precision inputs, invalid native results, version and
-native failures, calendar limits, settlement lags, unchecked C01/C02 model copies,
-multi-year modified adjustments, and independence from Decimal
-context and QuantLib's evaluation date across concurrent calls. A bounded local
-performance check is diagnostic; it supplies no target latency/SLO certification.
+The requested Currency revision generalizes coverage to code/quantum identity,
+custom values and non-power-of-ten rounding grids, while retaining
+currency/instrument/convention mixing, type coercion, immutable values,
+non-finite/overflow/precision inputs, invalid native results, version and native
+failures, calendar limits, settlement lags, unchecked C01/C02 model copies,
+multi-year modified adjustments, and independence from Decimal context and
+QuantLib's evaluation date across concurrent calls. The observed revised checks
+are recorded in the [commit-02 Currency configuration revision](../roadmap/p1-commit-sequence.md#commit-02-currency-configuration-revision);
+a bounded local performance check is diagnostic and supplies no target latency/SLO
+certification.
 
 The direct [golden fixture](../../tests/golden/financial_units/c03_units.json)
 and focused tests are the behavioral evidence for this contract. Dependency and
@@ -139,18 +158,30 @@ and [artifact boundary](artifact-supply-chain.md).
 
 ## Migration, rollout, rollback and runbook
 
-This is an additive API with no external strategy or service consumer and no
-persisted state to migrate.
-The implementation uses strict Pydantic models and validated `model_copy` updates;
-Pydantic is already exactly pinned. Msgspec is not introduced because this package
-has no codec requirement or measured serialization need. QuantLib remains exactly
-1.43. Rollout uses focused domain tests, golden replay, and consumer impact review.
+`Currency` replaces enum semantics with a complete immutable value. Named class
+attributes have been removed: callers using `Currency.USD` must migrate to
+`Currency.from_code("USD")` for a known configured default, or construct the
+full `Currency(code=..., minor_unit=...)` value for an authored unit. Use
+`.code` for text and explicit `code`/`minor_unit` fields for authored units.
+Enum iteration and string equality are no longer supported.
+
+Currency remains a strict frozen Pydantic C03 value; this candidate's shared
+`msgspec` serialization boundary supplies its exact wire hooks alongside the
+canonical market-event codecs. Currency wire values persist both `code` and
+`minor_unit`; at currency, money, and price boundaries, known legacy preset
+strings resolve through the fixed packaged definitions and unknown bare codes
+are rejected. Market-event codecs preserve their closed tags and exact Decimal
+text. P1 configuration, quote/order-intent, execution, report, and run-loader
+schemas remain planned. The packaged JSON is an owned compatibility input;
+changing it changes package content and invalidates the corresponding uv cache
+key. QuantLib remains exactly 1.43. Later P1 consumers must add their own wire
+migration and evidence.
 No deployment or activation is introduced.
 
-Rollback reverts source, tests, dependency declarations, locks, admission, and
-documentation together, preserving diagnostic evidence. A later
-consumer migration must first account for dimensions, precision, convention
-revisions, and replay obligations.
+Rollback reverts Currency source, packaged definitions, shared serialization and
+market-event codecs, tests and documentation together, preserving historical
+candidate evidence. A later consumer migration must first account for dimensions,
+precision, convention revisions, wire compatibility and replay obligations.
 
 On `UnitError` or `ConventionError`, stop the affected calculation. Retain safe
 instrument/currency dimensions, explicit context and source/calendar revisions,

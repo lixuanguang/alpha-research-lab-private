@@ -10,9 +10,11 @@ from decimal import Decimal
 from enum import StrEnum
 from fractions import Fraction
 from functools import partial
+from importlib import resources
 from typing import Annotated, ClassVar, Protocol, Self, TypedDict
 
 # third party library imports
+import msgspec
 from pydantic import BaseModel, BeforeValidator, ConfigDict, TypeAdapter, ValidationError
 
 # project library imports
@@ -108,30 +110,6 @@ class _FinancialUnitModel(BaseModel):
         return type(self)(**values)
 
 
-class Currency(StrEnum):
-    """Enumerate supported currency units; this is not a currency registry or entitlement."""
-
-    USD = "USD"
-    EUR = "EUR"
-    GBP = "GBP"
-    JPY = "JPY"
-    CHF = "CHF"
-    SGD = "SGD"
-    AUD = "AUD"
-    CAD = "CAD"
-    HKD = "HKD"
-    CNY = "CNY"
-
-    @property
-    def minor_unit(self) -> Decimal:
-        """Return the supported currency's accounting quantum, not a cash-payment rule.
-
-        Returns:
-            One yen for JPY; 0.01 currency units for every other supported currency.
-        """
-        return Decimal("1") if self is Currency.JPY else Decimal("0.01")
-
-
 class QuantityKind(StrEnum):
     """Distinguish native quantity dimensions even for the same instrument."""
 
@@ -187,6 +165,23 @@ def require_type[T](value: object, expected: type[T], name: str) -> T:
     return value
 
 
+def require_currency(value: object) -> Currency:
+    """Require and revalidate one exact immutable currency value.
+
+    Args:
+        value: Candidate currency value received at a public boundary.
+
+    Returns:
+        The same validated currency instance.
+
+    Raises:
+        UnitError: The value is not an exact Currency or contains unsafe fields.
+    """
+    currency = require_type(value, Currency, "currency")
+    currency.validate_currency()
+    return currency
+
+
 def require_decimal(value: object) -> Decimal:
     """Require finite Decimal values on the 10^-18 grid with magnitude below 10^18.
 
@@ -211,6 +206,111 @@ def require_decimal(value: object) -> Decimal:
     if value.copy_abs() >= Decimal("1e18"):
         raise UnitError("value magnitude must be below 1e18")
     return value
+
+
+class Currency(_FinancialUnitModel):
+    """Identify one currency-like unit and its exact accounting quantum.
+
+    ``Currency`` is an immutable C03 value object.  Configured currencies are resolved
+    with :meth:`from_code`; callers may construct any valid authored unit directly.
+    """
+
+    code: str
+    minor_unit: Annotated[Decimal, BeforeValidator(require_decimal)]
+
+    def model_post_init(self, _context: object, /) -> None:
+        """Validate the bounded code and strictly positive accounting quantum.
+
+        Args:
+            _context: Pydantic validation context, unused by this invariant check.
+
+        Raises:
+            UnitError: The code or accounting quantum violates the C03 contract.
+        """
+        _validate_currency_code(self.code)
+        _validate_currency_quantum(self.minor_unit)
+
+    def validate_currency(self) -> Currency:
+        """Revalidate this value after a trusted boundary or unsafe operation.
+
+        Returns:
+            This unchanged currency value.
+
+        Raises:
+            UnitError: A field has an unsafe Python type or violates currency bounds.
+        """
+        _validate_currency_code(self.code)
+        _validate_currency_quantum(self.minor_unit)
+        return self
+
+    @staticmethod
+    def from_code(code: str) -> Currency:
+        """Resolve a configured currency code through immutable default presets.
+
+        Args:
+            code: Uppercase currency code whose quantum is defined by a packaged preset.
+
+        Returns:
+            The matching default currency value.
+
+        Raises:
+            TypeError: The currency code is not a string.
+            ValueError: The code is not a configured default currency.
+        """
+        if type(code) is not str:
+            raise TypeError("currency code must be a string")
+        for currency in _DEFAULT_CURRENCIES:
+            if currency.code == code:
+                return currency
+        raise ValueError("unknown currency code")
+
+
+_DEFAULT_CURRENCIES: tuple[Currency, ...]
+
+
+def _validate_currency_code(value: object) -> str:
+    """Require a bounded uppercase ASCII alphanumeric currency code."""
+    if (
+        type(value) is not str
+        or not 1 <= len(value) <= 16
+        or not value.isascii()
+        or not value.isalnum()
+        or value != value.upper()
+    ):
+        raise UnitError("currency code must be bounded uppercase ASCII alphanumeric text")
+    return value
+
+
+def _validate_currency_quantum(value: object) -> Decimal:
+    """Require a positive finite C03-bounded currency accounting quantum."""
+    quantum = require_decimal(value)
+    if quantum <= 0:
+        raise UnitError("currency minor_unit must be positive")
+    return quantum
+
+
+class _CurrencyDefinition(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Represent one packaged default currency definition."""
+
+    code: str
+    minor_unit: str
+
+
+def _load_default_currencies() -> tuple[Currency, ...]:
+    """Load and validate immutable compatibility presets from packaged JSON."""
+    payload = resources.files(__package__).joinpath("default_currencies.json").read_bytes()
+    definitions = msgspec.json.decode(
+        payload,
+        type=tuple[_CurrencyDefinition, ...],
+        strict=True,
+    )
+    currencies = tuple(
+        Currency(code=definition.code, minor_unit=Decimal(definition.minor_unit))
+        for definition in definitions
+    )
+    if len({currency.code for currency in currencies}) != len(currencies):
+        raise ValueError("default currency definitions contain duplicate codes")
+    return currencies
 
 
 def exact_decimal(value: Fraction) -> Decimal:
@@ -367,10 +467,10 @@ class _Value(_FinancialUnitModel):
 class Money(_Value):
     """Represent a signed currency amount; conversion and rounding are always explicit."""
 
-    currency: Currency
+    currency: Annotated[Currency, BeforeValidator(require_currency)]
 
     def model_post_init(self, _context: object, /) -> None:
-        """Validate the bounded amount and exact currency enum.
+        """Validate the bounded amount and explicit currency definition.
 
         Args:
             _context: Pydantic validation context; unused by this invariant check.
@@ -379,7 +479,7 @@ class Money(_Value):
             UnitError: The amount violates the Decimal bounds or the currency has the wrong type.
         """
         _Value.model_post_init(self, _context)
-        require_type(self.currency, Currency, "currency")
+        require_currency(self.currency)
 
     def rounded(self, *, mode: Rounding) -> Money:
         """Round once to this currency's accounting minor unit.
@@ -443,7 +543,7 @@ class Quantity(_Value):
 class Price(_Value):
     """Represent signed currency per native unit; negative prices remain representable."""
 
-    currency: Currency
+    currency: Annotated[Currency, BeforeValidator(require_currency)]
     per: Annotated[
         Dimension, BeforeValidator(partial(require_type, expected=Dimension, name="per"))
     ]
@@ -459,7 +559,7 @@ class Price(_Value):
                 has the wrong type.
         """
         _Value.model_post_init(self, _context)
-        require_type(self.currency, Currency, "currency")
+        require_currency(self.currency)
         require_type(self.per, Dimension, "price denominator")
 
     def rounded(self, tick: Tick, *, mode: Rounding) -> Price:
@@ -593,8 +693,8 @@ class Multiplier(_Value):
 class FXRate(_Value):
     """Quote positive units of quote currency for one unit of base currency."""
 
-    base: Currency
-    quote: Currency
+    base: Annotated[Currency, BeforeValidator(require_currency)]
+    quote: Annotated[Currency, BeforeValidator(require_currency)]
 
     def model_post_init(self, _context: object, /) -> None:
         """Require a positive bounded quote for two distinct currencies.
@@ -604,12 +704,12 @@ class FXRate(_Value):
 
         Raises:
             UnitError: The value is invalid or nonpositive, currencies have the wrong type,
-                or base and quote are equal.
+                or base and quote use the same currency code.
         """
         _Value.model_post_init(self, _context)
-        require_type(self.base, Currency, "base currency")
-        require_type(self.quote, Currency, "quote currency")
-        if self.base == self.quote or self.value <= 0:
+        require_currency(self.base)
+        require_currency(self.quote)
+        if self.base.code == self.quote.code or self.value <= 0:
             raise UnitError("FX requires distinct currencies and a positive rate")
 
     def convert(self, money: Money, *, target: Currency, mode: Rounding) -> Money:
@@ -629,7 +729,7 @@ class FXRate(_Value):
                 result exceeds the bounded Decimal representation.
         """
         require_type(money, Money, "money")
-        require_type(target, Currency, "target currency")
+        require_currency(target)
         if money.currency == self.base and target == self.quote:
             result = Fraction(money.value) * Fraction(self.value)
         elif money.currency == self.quote and target == self.base:
@@ -732,3 +832,6 @@ class EvaluationContext(_FinancialUnitModel):
             )
         ):
             raise UnitError("convention revision must be an explicit bounded ASCII token")
+
+
+_DEFAULT_CURRENCIES = _load_default_currencies()
