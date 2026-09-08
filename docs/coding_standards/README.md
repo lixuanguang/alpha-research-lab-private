@@ -182,20 +182,31 @@ types.
 
 ## Classes, records, errors, and resources
 
-Strict Pydantic boundary models are the default for new validation-rich
-configuration and serialized records. They do not authorize a validation
-framework in economic or trading-domain code without a boundary-specific need.
+Strict Pydantic boundary models remain permitted for cold administrative
+configuration and are retained by the C01, C02 and C03 foundation APIs. They do
+not authorize a validation framework in economic or trading-domain code without
+a boundary-specific need. Latency-sensitive market-data and event records, plus
+quote, order-intent and execution records, MUST use frozen `msgspec.Struct`
+values with cached strict typed codecs for serialization and deserialization.
+Planned P1 records, configuration and reports will use this serialization
+boundary; this does not require a blanket foundation rewrite.
+
+`msgspec` annotations are not checked by direct constructors. Its records MUST
+therefore retain explicit constructor and custom invariant checks so invalid,
+malformed, non-finite, wrong-unit or unsafely modified values fail. Records stay
+immutable, and serialized numeric values use exact Decimal strings or
+scale-documented integer units; binary floats MUST NOT replace exact arithmetic.
 Preserve the established strict immutable contracts for instrument identity,
-venue calendars, and financial units, including their distinct validation and
-copy behavior. If a different record implementation is considered for measured
-allocation or serialization costs, retain constructor checks, custom
-invariants, exceptions, serialization, and mutability behavior, and prove the
-choice with focused negative and round-trip tests.
+venue calendars and financial units, including their distinct validation and
+copy behavior. Prove any measured allocation or serialization choice with
+focused negative and round-trip tests.
 
 Validate untrusted data once at each trust boundary, then rely on documented
 invariants internally. Validate again when callers can supply unsafe copied or
-constructed instances. Do not replace `Decimal` or `Fraction` arithmetic with
-binary floats for line-count or speed reasons.
+constructed instances. On trusted event paths, reuse the cached codecs and
+avoid redundant per-event validation, dictionary creation or JSON round-trips.
+Do not replace `Decimal` or `Fraction` arithmetic with binary floats for
+line-count or speed reasons.
 
 Raise the most specific built-in or domain exception. Messages identify the
 operation and safe context without secrets. Translate at a boundary with
@@ -257,10 +268,13 @@ or serialized output.
 Optimize only after a correct reference exists and representative workloads are
 measured. An optimized array or numerical implementation must preserve the
 reference contract; benchmark cold start, warm execution, conversion, memory,
-and end-to-end behavior when those costs matter. Sequential path-dependent
-simulation must remain sequential. Parallel execution, caching, custom
-allocators, and latency-specific tuning require correctness evidence, a bounded
-failure policy, and measured need.
+and end-to-end behavior when those costs matter. For latency-sensitive codecs,
+measure serialization, deserialization, allocation and end-to-end replay with
+the cached implementation. External vendor benchmarks are not local latency
+evidence, and performance measurements do not establish live readiness.
+Sequential path-dependent simulation must remain sequential. Parallel execution,
+caching, custom allocators and latency-specific tuning require correctness
+evidence, a bounded failure policy and measured need.
 
 ## Documentation
 

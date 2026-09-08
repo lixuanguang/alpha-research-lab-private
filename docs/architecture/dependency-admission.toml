@@ -8,6 +8,7 @@ native_python_packages = [
   "hypothesis",
   "librt",
   "msgpack",
+  "msgspec",
   "mypy",
   "numpy",
   "pandas",
@@ -19,7 +20,7 @@ native_python_packages = [
 ]
 
 [lock_digests]
-"uv.lock" = "4c07ddd8fa583a0aa3f88a5c4f3b320fbd436868d80d3c72f74e7d0f0f005bee"
+"uv.lock" = "6841091812d681df9b49af3741940224d358d6643512e2f6418404619323db46"
 
 [pip_audit]
 version = "2.10.1"
@@ -67,6 +68,7 @@ disposition = "approved"
 packages = [
   "colorama==0.4.6",
   "idna==3.19",
+  "msgspec==0.21.1",
   "nodeenv==1.10.0",
   "pandas==3.0.5",
   "quantlib==1.43",

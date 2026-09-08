@@ -12,6 +12,12 @@ hidden by the target model below. See the [platform design](platform-design.md)
 for the future module boundaries, lifecycles, runtime lanes, and scaling
 triggers.
 
+The locked `msgspec` dependency supports the planned P1 serialization boundary
+for latency-sensitive market-data/events and quote, order-intent and execution
+records. Those consumers will use frozen `msgspec.Struct` values with cached
+strict typed codecs. This dependency-only candidate implements no P1 codecs or
+records; the established C01, C02 and C03 foundation contracts remain preserved.
+
 The [platform roadmap](../roadmap/README.md) selects the next work. The retired
 blueprint and package catalog remain in Git history. The first planned delivery
 is one reproducible, costed strategy baseline that can later use the same
@@ -184,7 +190,7 @@ evidence links to it:
 
 | Decision | Current constraint |
 | --- | --- |
-| Pydantic boundary models | Strict Pydantic validation is explicit at retained configuration, tooling, serialization, and domain boundaries; it is not a blanket economic-kernel requirement. |
+| Planned serialization boundary | P1 records will follow the [engineering serialization requirements](../coding_standards/README.md#classes-records-errors-and-resources); this candidate admits the dependency only. Pydantic remains available for cold administration and the C01/C02/C03 foundation APIs. |
 | Instrument identity models | C01 keeps strict immutable models while preserving its public constructors, temporal mappings, and graph invariants. |
 | Venue calendar adapter | C02 owns UTC/session semantics and uses `exchange_calendars` only behind a versioned adapter. |
 | [Wheel-only source admission](decisions/0012-wheel-only-source-admission.md) | Wheel-only native dependencies require explicit evidence and a release-blocking bootstrap profile. |
