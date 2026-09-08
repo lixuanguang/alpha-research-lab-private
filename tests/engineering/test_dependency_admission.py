@@ -51,7 +51,7 @@ def test_repository_validation_checks_lock_and_native_evidence() -> None:
     if shutil.which("cosign") is None:
         pytest.skip("focused native verification binary is unavailable")
     policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 9, 7))
-    assert len(policy.packages) == 71
+    assert len(policy.packages) == 72
 
 
 def test_release_admission_remains_blocked_by_unverified_quantlib() -> None:

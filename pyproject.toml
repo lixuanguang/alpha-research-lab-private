@@ -11,6 +11,7 @@ requires-python = "==3.12.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "exchange-calendars==4.13.2",
+    "msgspec==0.21.1",
     "pydantic==2.13.5",
     "QuantLib==1.43",
 ]
