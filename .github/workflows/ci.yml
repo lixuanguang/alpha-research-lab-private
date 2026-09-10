@@ -31,6 +31,24 @@ jobs:
       - name: Install locked environment
         run: uv sync --frozen
 
+      - name: Verify supported Python runtime
+        run: |
+          uv run --frozen --no-editable python - <<'PY'
+          """Verify the pinned interpreter and supported platform."""
+
+          # standard library imports
+          import platform
+          import sys
+          import sysconfig
+          from pathlib import Path
+
+          print(sys.version, platform.platform(), platform.machine())
+          assert platform.python_implementation() == "CPython"
+          assert platform.python_version() == Path(".python-version").read_text().strip()
+          assert sys._is_gil_enabled() and not sysconfig.get_config_var("Py_GIL_DISABLED")
+          assert platform.machine() == "x86_64"
+          PY
+
       - name: Install pinned Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
@@ -66,6 +84,24 @@ jobs:
 
       - name: Install locked environment
         run: uv sync --frozen
+
+      - name: Verify supported Python runtime
+        run: |
+          uv run --frozen --no-editable python - <<'PY'
+          """Verify the pinned interpreter and supported platform."""
+
+          # standard library imports
+          import platform
+          import sys
+          import sysconfig
+          from pathlib import Path
+
+          print(sys.version, platform.platform(), platform.machine())
+          assert platform.python_implementation() == "CPython"
+          assert platform.python_version() == Path(".python-version").read_text().strip()
+          assert sys._is_gil_enabled() and not sysconfig.get_config_var("Py_GIL_DISABLED")
+          assert platform.machine() == "x86_64"
+          PY
 
       - name: Verify pull-request merged-result identity
         if: github.event_name == 'pull_request'
@@ -113,6 +149,24 @@ jobs:
 
       - name: Install pinned Python
         run: uv python install
+
+      - name: Verify supported Python runtime
+        run: |
+          uv run --frozen --no-editable python - <<'PY'
+          """Verify the pinned interpreter and supported platform."""
+
+          # standard library imports
+          import platform
+          import sys
+          import sysconfig
+          from pathlib import Path
+
+          print(sys.version, platform.platform(), platform.machine())
+          assert platform.python_implementation() == "CPython"
+          assert platform.python_version() == Path(".python-version").read_text().strip()
+          assert sys._is_gil_enabled() and not sysconfig.get_config_var("Py_GIL_DISABLED")
+          assert platform.machine() == "arm64"
+          PY
 
       - name: Build and install wheel smoke
         run: make wheel-smoke

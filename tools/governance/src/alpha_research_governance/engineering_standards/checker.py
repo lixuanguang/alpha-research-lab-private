@@ -66,7 +66,7 @@ def tooling_configuration_findings(repository_root: Path) -> tuple[str, ...]:
         pydocstyle = _table(ruff_lint.get("pydocstyle"), "pyproject.toml.tool.ruff.lint.pydocstyle")
         pytest = _table(tool.get("pytest"), "pyproject.toml.tool.pytest")
         pytest_options = _table(pytest.get("ini_options"), "pyproject.toml.tool.pytest.ini_options")
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError, ValueError) as error:
+    except (OSError, ValueError) as error:
         return (f"Python tooling configuration: {error}",)
 
     findings: list[str] = []

@@ -7,7 +7,7 @@ name = "alpha-research-lab"
 version = "0.1.0"
 description = "Institutional multi-asset quantitative research platform"
 readme = "docs/README.md"
-requires-python = "==3.12.*"
+requires-python = "==3.14.*"
 classifiers = ["Private :: Do Not Upload"]
 dependencies = [
     "exchange-calendars==4.13.2",
@@ -53,7 +53,7 @@ alpha-research-governance = { path = "tools/governance", editable = false }
 packages = ["src/alpha_research"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 line-length = 100
 src = ["src", "tests", "tools/governance/src"]
 
@@ -73,7 +73,7 @@ first-party = "project library imports"
 local-folder = "project library imports"
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 strict = true
 plugins = ["pydantic.mypy"]
 disallow_any_explicit = true

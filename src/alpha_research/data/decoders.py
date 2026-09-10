@@ -5,7 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Protocol, TypeVar, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 # third party library imports
 import msgspec
@@ -119,14 +119,11 @@ class DecodeContext(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
         )
 
 
-T_co = TypeVar("T_co", covariant=True)
-
-
 @runtime_checkable
-class PayloadDecoder(Protocol[T_co]):
+class PayloadDecoder[DecodedT](Protocol):
     """Define the payload-decoding contract supplied to a line decoder."""
 
-    def decode_payload(self, payload: str, context: DecodeContext) -> T_co:
+    def decode_payload(self, payload: str, context: DecodeContext) -> DecodedT:
         """Decode one complete source payload using neutral line context.
 
         Args:

@@ -3,6 +3,8 @@
 `make check` checks runtime source, governance, tests and the local native stubs
 with strict mypy and runs stubtest against the installed native libraries.
 `make typecheck` remains an optional focused command while developing.
+Both mypy configurations target Python 3.14; the supported runtime is standard
+GIL-enabled CPython 3.14.7.
 
 The Pydantic 2.13.5 plugin uses typed constructors, forbids extra constructor
 keywords and rejects required dynamic aliases. Explicit and unfollowed-import
@@ -28,7 +30,7 @@ results, including deliberately malformed test doubles.
 The root mypy path and stubtest configuration resolve these declarations. The
 source distribution includes `tools/typing`. The stubs are development
 inputs and are not injected into the runtime wheel or dependency resolution.
-No dependency pin or lockfile changes for this slice.
+These package versions and stub signatures are validated on CPython 3.14.7.
 
 Stubtest uses `--ignore-missing-stub` because the declarations intentionally cover
 only the consumed surface. It checks declared names and signatures without an
