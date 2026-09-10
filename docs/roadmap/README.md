@@ -8,11 +8,13 @@ The founder implements it incrementally. One reproducible strategy is the first
 end-to-end delivery and a test of the shared foundations; it is not the ceiling
 of the platform's ambition.
 
-Today the runtime contains only instrument identity, venue calendars and financial
-units. The frozen uv build, strict source checks, CI and runtime wheel installation
-exist. Data ingestion, strategy runners, accounting, simulation, execution,
-deployment and monitoring are planned. The current native dependency restriction
-is recorded in the [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
+Today the runtime contains instrument identity, venue calendars, financial units,
+exact serialization, event provenance, an authored reference catalog and bounded
+Tardis/Binance event decoding. The frozen uv build, strict source checks, CI and
+runtime wheel installation exist. Data acquisition, versioned datasets, strategy
+runners, accounting, simulation, execution, deployment and monitoring are planned.
+The current native dependency restriction is recorded in the
+[architecture guide](../architecture/README.md#dependency-and-release-boundaries).
 
 This roadmap owns priority, deliverables and capability status. The
 [platform design](../architecture/platform-design.md) owns intended module
@@ -40,7 +42,7 @@ an asset-specific lifecycle belongs with the first strategy that needs it.
 | Priority | Outcome | Current status | Depends on | Completion evidence |
 | --- | --- | --- | --- | --- |
 | P0 | Typed domain foundations and reproducible development | Three domain libraries and uv/CI implemented; bounded cleanup complete | Existing checkout | Existing contract tests, strict checks and isolated installed imports |
-| P1 | One causal raw-data-to-net-report baseline | Planned; next delivery | P0 and a permitted source | Saved inputs reproduce a hand-reconciled costed result without future information |
+| P1 | One causal raw-data-to-net-report baseline | Data foundations partially implemented; end-to-end delivery planned | P0 and a permitted source | Saved inputs reproduce a hand-reconciled costed result without future information |
 | P2 | Reusable research and multiple candidate strategies | Planned | P1 data, experiment and accounting interfaces | Two independently configured strategies share infrastructure without sharing mutable state; comparison is reproducible |
 | P3 | Faithful simulation, asset accounting and replay | Planned | P1 accounting and the strategy's required market data; P2 interfaces where used | Deterministic order/fill/state traces, checkpoint parity, realistic costs and reconciled lifecycle events |
 | P4 | One supervised paper-to-live production path with monitoring | Planned | Required P3 behavior, a venue adapter and release-admissible dependencies | Paper/shadow, restart, limits, alerts, stop and rollback exercised before bounded founder activation |
@@ -56,6 +58,11 @@ independent approvals, formal model-risk review, access-review programs and audi
 workflows. It does not create imaginary approvers for a one-person company.
 
 ## P1: first causal baseline
+
+The [P1 implementation roadmap](p1-implementation-roadmap.md) maps the current
+`main` foundations to ordered, small merge requests with temporary notebook
+checkpoints, review-size estimates and acceptance evidence. It records the
+inspected base revision and separates existing code from planned consumers.
 
 Choose one data source, universe, asset class, horizon and transparent hypothesis.
 No venue or broker has been selected by this roadmap. The earlier digital-asset

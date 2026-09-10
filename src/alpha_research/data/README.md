@@ -91,6 +91,7 @@ Focused coverage is in
 [`test_binance_decoder.py`](../../../tests/unit/data/venues/binance/test_binance_decoder.py), and
 [`test_serialization.py`](../../../tests/unit/test_serialization.py), alongside
 the financial-unit tests that exercise exact Currency values. These references
-describe coverage; candidate-specific validation results belong in the
-[current roadmap revision record](../../../docs/roadmap/p1-commit-sequence.md#commit-02-currency-configuration-revision)
-after the final assembled boundary is checked.
+describe coverage. The [P1 planning verification record](../../../docs/roadmap/p1-implementation-roadmap.md#planning-verification-record)
+identifies the inspected main revision and focused foundation checks; it does not
+claim end-to-end P1 acceptance. The former commit-02 Currency revision record
+remains in Git history at `664e501:docs/roadmap/p1-commit-sequence.md`.

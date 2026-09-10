@@ -145,9 +145,12 @@ currency/instrument/convention mixing, type coercion, immutable values,
 non-finite/overflow/precision inputs, invalid native results, version and native
 failures, calendar limits, settlement lags, unchecked C01/C02 model copies,
 multi-year modified adjustments, and independence from Decimal context and
-QuantLib's evaluation date across concurrent calls. The observed revised checks
-are recorded in the [commit-02 Currency configuration revision](../roadmap/p1-commit-sequence.md#commit-02-currency-configuration-revision);
-a bounded local performance check is diagnostic and supplies no target latency/SLO
+QuantLib's evaluation date across concurrent calls. The historical commit-02
+Currency configuration validation record remains in Git at
+`664e501:docs/roadmap/p1-commit-sequence.md`; that roadmap was subsequently deleted.
+Current coverage lives in the [financial-unit tests](../../tests/unit/financial_units/test_financial_units.py)
+and [Currency tests](../../tests/unit/financial_units/test_currency_units.py).
+A bounded local performance check is diagnostic and supplies no target latency/SLO
 certification.
 
 The direct [golden fixture](../../tests/golden/financial_units/c03_units.json)
