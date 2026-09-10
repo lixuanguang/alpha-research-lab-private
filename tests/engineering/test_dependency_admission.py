@@ -35,6 +35,23 @@ REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs/architecture/dependency-admission.toml"
 
 
+def test_policy_translates_malformed_toml(tmp_path: Path) -> None:
+    """Translate parser errors while preserving the original TOML exception cause."""
+    path = tmp_path / "dependency-admission.toml"
+    path.write_text("schema_version = [", encoding="utf-8")
+    with pytest.raises(DependencyAdmissionError, match="invalid TOML") as raised:
+        load_policy(path)
+    assert type(raised.value.__cause__).__name__ == "TOMLDecodeError"
+
+
+def test_policy_preserves_unicode_read_errors(tmp_path: Path) -> None:
+    """Keep invalid UTF-8 distinct from a syntactically invalid TOML document."""
+    path = tmp_path / "dependency-admission.toml"
+    path.write_bytes(b"\xff")
+    with pytest.raises(UnicodeDecodeError):
+        load_policy(path)
+
+
 def test_policy_contains_only_retained_dependency_facts() -> None:
     """Load the compact policy and retain the unresolved native exception."""
     policy = load_policy(POLICY_PATH)
@@ -87,6 +104,26 @@ def test_lock_hash_is_checked_for_every_artifact(tmp_path: Path) -> None:
     )
     findings = _python_lock_findings(tmp_path, load_policy(POLICY_PATH))
     assert any("digest-bound source distribution" in finding for finding in findings)
+
+
+@pytest.mark.parametrize("python_boundary", ["==3.12.*", "==3.13.*", ">=3.14", "==3.15.*"])
+def test_lock_rejects_unsupported_python_boundary(tmp_path: Path, python_boundary: str) -> None:
+    """Reject a lock that permits an unsupported Python minor version."""
+    source = (REPOSITORY_ROOT / "uv.lock").read_text(encoding="utf-8")
+    lock_path = tmp_path / "uv.lock"
+    assert 'requires-python = "==3.14.*"' in source
+    lock_path.write_text(
+        source.replace('requires-python = "==3.14.*"', f'requires-python = "{python_boundary}"'),
+        encoding="utf-8",
+    )
+    with pytest.raises(DependencyAdmissionError, match="Python boundary drifted"):
+        _locked_python_packages(lock_path)
+
+
+def test_lock_accepts_supported_python_boundary() -> None:
+    """Load the supported lock without requiring external attestation tooling."""
+    packages = _locked_python_packages(REPOSITORY_ROOT / "uv.lock")
+    assert packages["alpha-research-lab"]["version"] == "0.1.0"
 
 
 def test_lock_schema_rejects_duplicate_package_names(tmp_path: Path) -> None:

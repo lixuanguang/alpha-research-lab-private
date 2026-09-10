@@ -8,15 +8,30 @@ publication, and consumer verification remain blocked. The current boundary is
 described in the [architecture overview](../../../architecture/README.md#dependency-and-release-boundaries).
 
 The machine-readable admission record consumes the trust root, four review
-reports, and the ten exact locked-wheel Sigstore bundles here. The retained
+reports, and twenty exact locked-wheel Sigstore bundles here. The retained
 native observations, publication verification results, compatibility record,
 and locked vulnerability report support those reviews. Their bytes were moved
 from the retired synthetic C03/B07 evidence envelopes without rewriting them.
-These records are historical observations from 2026-09-04. Current admission
+The original records are historical observations from 2026-09-04. Current admission
 and wheel-source tests verify their paths, hashes, and claims, but do not turn
 historical results into a new review or resolve the unverified build binding.
 The admission record was reviewed on 2026-09-04 and expires on 2026-10-04;
 isolated development and CI remain permitted only through that date.
+
+The Python 3.14 migration retains the ten original `cp39-abi3` bundles unchanged
+and adds ten `cp314-cp314t` bundles selected by uv's universal lock. On 2026-09-10,
+their PyPI Integrity API publication statements, certificates, and transparency
+entries were converted to Sigstore v0.3 bundles without changing signed payloads,
+then verified with the retained trust root and Cosign 3.1.3. The policy binds every
+bundle and wheel digest. The original security review already recorded successful
+verification of all 26 published wheels; its historical bytes remain unchanged.
+The additional free-threaded artifacts are lock inventory, not supported runtime
+modes. Standard CPython 3.14 still selects the original ABI3 wheels, so the native
+inventory and source reviews remain applicable to both supported platforms.
+On 2026-09-10, CPython 3.14.7 warnings-as-errors native imports and stubtest passed
+on macOS arm64 and Linux x86_64 under Docker emulation. Numerical and calendar
+goldens remained unchanged; those local results do not replace hosted CI.
+Neither the review dates nor the release restriction have been extended.
 
 The retained records are [the trust root](sigstore-trusted-root-2026-09-04.json),
 [the source review](source-review.txt), [the security review](security-review.txt),

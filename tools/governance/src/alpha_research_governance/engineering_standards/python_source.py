@@ -574,7 +574,7 @@ class PythonSourceChecker:
         """Parse and scan one quoted forward annotation or type comment."""
         try:
             expression = ast.parse(value, mode="eval").body
-        except (SyntaxError, ValueError):
+        except SyntaxError, ValueError:
             return
         self._any_expression(expression, scope, detail, annotation=True, line=line)
 

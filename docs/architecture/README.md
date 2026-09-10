@@ -117,10 +117,12 @@ market data source, strategy, deployment, or trading readiness.
 
 ## Build, setup, and CI contract
 
-The supported development path uses Python 3.12.14, uv 0.12.7, the repository's
-frozen `uv.lock`, and ordinary Git/Make prerequisites. Set up a checkout with:
+The supported development path uses standard GIL-enabled CPython 3.14.7 on
+macOS arm64 and Linux x86_64, uv 0.12.7, the repository's frozen `uv.lock`, and
+ordinary Git/Make prerequisites. Set up a checkout with:
 
 ```sh
+uv python install
 uv sync --frozen
 ```
 
@@ -146,8 +148,9 @@ For a targeted change, run only the affected tests in the frozen environment:
 uv run --frozen --no-editable pytest -q <test-paths>
 ```
 
-Hosted CI runs source validation once on Linux and then wheel smoke on Linux and
-macOS. The required check, `Authoritative merged-result full lane`, fails if
+Hosted CI asserts the pinned interpreter, standard GIL build and architecture in
+each job. It runs source validation once on Linux and then wheel smoke on Linux
+and macOS arm64. The required check, `Authoritative merged-result full lane`, fails if
 source validation or macOS smoke fails. Pull requests also verify the exact
 checked-out merge commit and its base/head parents. The installed-wheel check
 uses hash-checked dependencies and isolated public runtime imports outside the

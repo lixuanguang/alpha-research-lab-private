@@ -38,6 +38,27 @@ def _fixture_root(tmp_path: Path, source: str) -> Path:
 class TestEngineeringStandards:
     """Exercise direct source validation and its command boundary."""
 
+    def test_tooling_configuration_reports_malformed_toml(self, tmp_path: Path) -> None:
+        """Report malformed TOML through the controlled configuration boundary."""
+        (tmp_path / "pyproject.toml").write_text("[tool", encoding="utf-8")
+        findings = tooling_configuration_findings(tmp_path)
+        assert len(findings) == 1
+        assert findings[0].startswith("Python tooling configuration:")
+
+    def test_source_accepts_unparenthesized_exception_types(self, tmp_path: Path) -> None:
+        """Parse Python 3.14 exception syntax emitted by the pinned formatter."""
+        root = _fixture_root(
+            tmp_path,
+            '"""Exercise exception syntax."""\n\n'
+            "def _parse(value: str) -> int:\n"
+            '    """Return an integer or the invalid-input sentinel."""\n'
+            "    try:\n"
+            "        return int(value)\n"
+            "    except TypeError, ValueError:\n"
+            "        return -1\n",
+        )
+        assert source_tree_findings(root) == ()
+
     def test_repository_source_passes_without_policy_or_evidence_files(self) -> None:
         """Validate the retained source contract without repository policy records."""
         assert validate_repository(REPOSITORY_ROOT) == ()

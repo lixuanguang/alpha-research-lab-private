@@ -22,9 +22,11 @@ source-to-wheel binding is unverified; artifact release remains blocked. See the
 
 ## Development environment
 
-Install Python 3.12.14 and uv 0.12.7, then synchronize the single lock:
+Use standard GIL-enabled CPython 3.14.7 and uv 0.12.7 on macOS arm64 or Linux
+x86_64, then synchronize the single lock:
 
 ```sh
+uv python install
 uv sync --frozen
 ```
 

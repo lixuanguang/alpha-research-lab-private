@@ -10,8 +10,8 @@ specific.
 Follow the [development workflow](../governance/workflow.md) for changes and the
 [architecture guide](../architecture/README.md) for dependency direction.
 
-The current implemented source is Python 3.12, with native dependency stubs
-under `tools/typing/stubs`. No C, C++, or Rust implementation target is present
+The current implemented source targets standard GIL-enabled CPython 3.14.7, with
+native dependency stubs under `tools/typing/stubs`. No C, C++, or Rust implementation target is present
 today; the native-boundary paragraph records the reusable contract for bindings.
 
 Use **MUST** and **MUST NOT** for requirements, **SHOULD** and **SHOULD NOT** for

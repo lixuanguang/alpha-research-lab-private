@@ -127,11 +127,13 @@ def load_policy(path: Path) -> DependencyAdmission:
         OSError: If the policy cannot be read.
         UnicodeDecodeError: If the policy is not UTF-8.
     """
+    content = path.read_text(encoding="utf-8")
     try:
-        raw_document: object = tomllib.loads(path.read_text(encoding="utf-8"))
-        document = _table(raw_document, context=str(path))
-    except tomllib.TOMLDecodeError as error:
+        raw_document: object = tomllib.loads(content)
+    # TOMLDecodeError is a ValueError; its legacy constructor is dynamically typed in 3.14.
+    except ValueError as error:
         raise DependencyAdmissionError([f"{path}: invalid TOML: {error}"]) from error
+    document = _table(raw_document, context=str(path))
     if set(document) != _ROOT_KEYS:
         raise DependencyAdmissionError([f"{path}: root has missing or unknown fields"])
     if document.get("schema_version") != 3:
@@ -287,7 +289,7 @@ def _locked_python_packages(path: Path) -> dict[str, dict[str, object]]:
     if (
         document.get("version") != 1
         or document.get("revision") != 3
-        or document.get("requires-python") != "==3.12.*"
+        or document.get("requires-python") != "==3.14.*"
     ):
         raise DependencyAdmissionError(["uv.lock schema or Python boundary drifted"])
     packages: dict[str, dict[str, object]] = {}
