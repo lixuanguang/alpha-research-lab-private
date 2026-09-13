@@ -5,8 +5,10 @@ institutional, multi-asset, multi-strategy research-to-production platform. It i
 not an executable package catalog, registry service, or release gate. The repository currently has no
 data-ingestion system, strategy runner, simulator, broker integration, or monitoring service.
 
-The immediate operating model is a single founder choosing one data source, one bounded universe, one strategy
-hypothesis, and one operating target. The long-term model can add asset classes, strategy families, shared
+The immediate operating model is a single founder implementing the
+[selected P1 source and frozen hypothesis](../research/p1-baseline.md), with access and historical evidence still
+unresolved. The [P1 implementation plan](p1-implementation-roadmap.md) owns delivery of its library operations and
+orchestrator pipelines. A production operating target remains a later decision. The long-term model can add asset classes, strategy families, shared
 portfolio construction, production execution, monitoring, and recovery. Independent research, model-risk,
 risk, release, and activation controls become formal organizational controls when people are hired; they do
 not block the founder from implementing and reproducibly testing technical work now.

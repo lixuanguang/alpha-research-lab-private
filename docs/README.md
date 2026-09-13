@@ -1,11 +1,20 @@
 # Alpha Research Platform
 
 A monorepo growing toward institutional-grade multi-asset, multi-strategy research,
-production trading and monitoring. The implemented Python domain libraries cover
-instrument identity, venue calendars and financial units. Data ingestion,
-simulation, risk enforcement, execution and deployment remain future work.
+production trading and monitoring. The implemented Python libraries cover
+instrument identity, venue calendars, financial units, exact serialization,
+event provenance, an authored reference catalog and bounded Tardis/Binance
+decoding. Acquisition, versioned datasets, simulation, accounting, risk
+enforcement, execution and deployment remain future work.
 One reproducible strategy baseline is the first delivery target; shared research,
 portfolio infrastructure and independently operated strategies are the destination.
+
+The [P1 experiment specification](research/p1-baseline.md) has merged: Tardis raw
+Binance BTCUSDT spot trades with a fixed one-minute positive-return baseline.
+Access, retention rights and historical eligibility/revision evidence remain
+unresolved. The [P1 implementation plan](roadmap/p1-implementation-roadmap.md)
+records C0's implemented decoder cleanup in this candidate and the planned
+pipeline work; no empirical result is claimed.
 
 The [platform roadmap](roadmap/README.md) sets phased deliverables and evidence.
 The [platform design](architecture/platform-design.md) preserves intended module
@@ -33,8 +42,7 @@ uv sync --frozen
 Exact interpreter and dependency inputs live in
 [pyproject.toml](../pyproject.toml), [uv.lock](../uv.lock), and
 [.python-version](../.python-version). Git and Make support repository checks.
-The dependency check also needs Cosign 3.1.3 for retained native attestations;
-hosted source validation installs it. Development tooling is installed through the
+Development tooling is installed through the
 `dev` dependency group; the runtime package has no dependency on governance or
 repository policy files.
 
@@ -52,7 +60,7 @@ record what ran. `make check` remains the complete check entry point.
 | `make test` | Correctness and integration tests, excluding performance cases |
 | `make integration-test`, `make performance-test` | Explicit integration or performance selection |
 | `make engineering-standards-check` | Protected typing, import and docstring rules |
-| `make architecture-check` | Local documentation links |
+| `make architecture-check` | Local links and headings in `docs/**/*.md`; component READMEs require explicit inclusion |
 | `make dependency-admission-check`, `make dependency-audit` | Frozen dependency sources, retained restrictions and vulnerability audit |
 | `uv run --frozen alpha-governance-artifacts release-check` | Report release blockers; currently always fails closed |
 | `make ci-secrets-check`, `make security` | Secret/private-key scanning and Bandit |
@@ -66,23 +74,24 @@ uv run --frozen --no-editable pytest -q <test-paths>
 
 The [architecture guide](architecture/README.md) explains the source and installed-package
 checks. Runtime consumers can install the built wheel with its declared domain
-dependencies; development tools and the retired `alpha-research-ci` command are
-absent from the runtime distribution. This installation boundary does not override
+dependencies; development tools are absent from the runtime distribution.
+This installation boundary does not override
 the QuantLib release restriction.
 
 ## Documentation map
 
 | Start here | Contents |
 | --- | --- |
-| [Cleanup plan](cleanup/README.md) | Cleanup scope, decisions and measured validation |
 | [Architecture](architecture/README.md) | Current architecture and implemented domain contracts |
 | [Platform design](architecture/platform-design.md) | Planned shared modules, runtime lanes, contracts, recovery and scaling decisions |
 | [Development workflow](governance/workflow.md) | Implementation, validation and founder activation rules |
 | [Operations runbook](governance/operations.md) | Security, monitoring, stop and recovery requirements for a future deployment |
 | [Platform roadmap](roadmap/README.md) | Phased multi-asset, multi-strategy research, production, monitoring and scaling work |
+| [P1 implementation plan](roadmap/p1-implementation-roadmap.md), [frozen experiment](research/p1-baseline.md) | Pipeline/library ownership, delivery dependencies, the selected case and acceptance requirements |
 | [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |
 | [Engineering guide](coding_standards/README.md) | Enforced clarity and numerical engineering requirements |
 | [Instrument identity](architecture/instrument-identity.md), [venue calendars](architecture/venue-calendar.md), [financial units](architecture/financial-units.md) | Implemented domain contracts and golden datasets |
+| [Data contracts](data/contracts.md), [point-in-time semantics](data/point-in-time-semantics.md), [data library](../src/alpha_research/data/README.md) | Implemented events, decoding, provenance and current construction example |
 
 Data ingestion, backtesting, paper/replay, deployment, activation, monitoring and
 stop commands are planned. Follow the roadmap and add commands here as those

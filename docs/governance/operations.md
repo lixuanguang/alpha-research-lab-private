@@ -18,7 +18,8 @@ execution and observability boundaries.
 Current `make build` and `make wheel-smoke` commands verify development artifacts.
 The [QuantLib restriction](../architecture/README.md#dependency-and-release-boundaries)
 blocks release use until its source-to-wheel uncertainty is
-resolved. Passing checks or moving an evidence file does not remove that block.
+resolved. Passing development checks or deleting the allowance does not satisfy
+source admission or remove that block.
 
 Build and verify one immutable artifact. Record its commit, digest, dependency
 lock, configuration/model/data references, target environment, limits, and

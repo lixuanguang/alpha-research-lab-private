@@ -100,7 +100,7 @@ def test_external_scanner_start_failure_is_propagated(
 
 
 def test_cli_rejects_empty_scan_mode(capsys: pytest.CaptureFixture[str]) -> None:
-    """Return a nonzero status when the minimal compatibility CLI has no scope."""
+    """Return a nonzero status when the secret-scan CLI has no scope."""
     assert ci_policy.main(["scan-secrets"]) == 1
     assert "scan-secrets accepts" in capsys.readouterr().err
 
@@ -191,13 +191,6 @@ def test_external_scanner_uses_shell_free_argv(
             {"cwd": tmp_path, "check": False},
         )
     ]
-
-
-def test_cli_smoke_module_has_no_scheduler_or_event_log_api() -> None:
-    """Keep the compatibility namespace limited to the retained secret boundary."""
-    assert not hasattr(ci_policy, "run_affected_ci_lane")
-    assert not hasattr(ci_policy, "run_authoritative_full_ci_lane")
-    assert not hasattr(ci_policy, "CIEvent")
 
 
 def test_repository_scan_passes_only_existing_normalized_files_to_external_scanner(

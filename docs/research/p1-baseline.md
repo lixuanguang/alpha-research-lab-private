@@ -1,10 +1,10 @@
 # P1 bounded baseline specification
 
-Owner: repository founder. Status: MR 00 specification ready for review;
+Owner: repository founder. Status: MR 00 specification merged in
+[PR 14](https://github.com/lixuanguang/alpha-research-lab-private/pull/14);
 implementation and empirical acceptance remain planned. Decision date: 2026-09-11.
 Experiment ID: `p1-btcusdt-return-v1`. This page owns the frozen case required by
 [MR 00](../roadmap/p1-implementation-roadmap.md#a-fix-the-experiment-and-acquire-immutable-inputs).
-The [MR 00 change record](p1-mr-00-review.md) records validation and limitations.
 
 The founder explicitly selected Tardis raw Binance spot trades, BTCUSDT only,
 2024-06-01 00:00–01:00 UTC, and a fixed one-minute positive-return long-or-flat

@@ -131,7 +131,9 @@ All other implementation modules MUST expose reusable library functions,
 cohesive classes, or value types and MUST NOT introduce forwarding wrappers.
 A function that merely constructs a library object and forwards its arguments
 to a method is a wrapper, even when it is described as a convenience API or
-compatibility helper.
+compatibility helper. A subclass whose only purpose is choosing existing
+constructor arguments or wiring other library objects is also a composition
+wrapper; it needs its own substantive contract to belong in a library.
 
 Orchestrator pipelines own workflow composition: selecting run configuration,
 constructing and reusing collaborators, sequencing operations, coordinating I/O,
@@ -145,13 +147,22 @@ collaborators explicitly and MUST NOT depend on orchestrator pipelines or
 choose a pipeline's run configuration. Library functions and methods may call
 other library operations to implement their own cohesive contract. Classes may
 bind reusable configuration and enforce invariants; a library need not consist
-only of stateless functions.
+only of stateless functions. Bounded I/O operations such as verified file reading
+or atomic publication may be library contracts. Curated package exports may
+expose the actual library types/functions without adding forwarding callables.
 
-For example, a pipeline creates one `BinanceTardisDecoder(instruments)` and calls
-its `decode_line` method for each input. The data library MUST NOT add a
-`decode_tardis_line` function that only constructs that decoder and forwards the
-call. Apply this boundary when adding or materially changing implementation
-code, including development tooling.
+For example, a dataset pipeline creates a `BinancePayloadDecoder(instruments)`,
+passes it to `TardisDecoder(payload_decoder=..., source_id=...)`, and reuses
+`decode_line` for each input. The two classes own venue parsing and provider
+framing respectively; their construction belongs to the pipeline. The data
+library MUST NOT add a `decode_tardis_line` forwarding function or a subclass
+whose only purpose is that wiring. Apply this boundary when adding or materially
+changing implementation code, including development tooling. Implementation
+plans MUST identify the concrete consumer and responsibility of each new
+abstraction, and explicitly retain, change or retire relevant existing
+abstractions before adding consumers that depend on them. The
+[P1 ownership map](../roadmap/p1-implementation-roadmap.md#p1-code-ownership-and-call-flow)
+applies this rule to the next implementation slices.
 
 ## Python source rules
 

@@ -29,20 +29,24 @@ sufficient.
 
 The current [architecture overview](README.md) owns active command and dependency boundaries. This page owns future
 platform shape, module seams, data and runtime contracts, and the triggers for adding infrastructure.
+The [P1 ownership map](../roadmap/p1-implementation-roadmap.md#p1-code-ownership-and-call-flow) specializes this design
+into the next working acquisition, dataset and research pipelines. Only orchestrator pipelines compose workflows;
+other implementation modules expose library operations under the [engineering rule](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
 
 ## Current and planned repository shape
 
-The existing tree contains the three implemented domain libraries and development tooling. The following tree shows the
-intended layout without creating directories before their consumers exist:
+The existing tree contains the domain, event/decoder and reference foundations plus development tooling. The following
+tree shows the intended layout without creating directories before their consumers exist:
 
 ```text
 src/alpha_research/
   financial_units/          CURRENT: exact values and date conventions
   instrument_identity/      CURRENT: canonical IDs and temporal mappings
   venue_calendar/           CURRENT: bounded venue/session state
-  core/                     PLANNED: shared events, clocks, schemas, IDs
-  data/                     PLANNED: source adapters, raw landing, PIT data
-  research/                 PLANNED: datasets, features, labels, experiments
+  core/                     CURRENT: event provenance; further shared contracts as needed
+  data/                     CURRENT: events and decoding; PLANNED: transport, raw storage, PIT datasets
+  research/                 PLANNED: observations, features, labels, trial/report operations
+  pipelines/                PLANNED: acquisition, dataset-building and research orchestration
   strategies/               PLANNED: strategy kernels and versioned configs
   simulation/               PLANNED: replay, fills, costs, market mechanics
   portfolio/                PLANNED: targets, constraints, allocation, netting
@@ -50,10 +54,10 @@ src/alpha_research/
   accounting/               PLANNED: positions, cash, ledger, reconciliation
   execution/                PLANNED: order state and OMS contracts
   venues/                   PLANNED: broker and venue protocol adapters
-  runtime/                  PLANNED: process composition and durable state
+  runtime/                  PLANNED: process lifecycle and durable-state library contracts
   telemetry/                PLANNED: bounded metrics, traces, and audit events
 
-apps/                       PLANNED: thin research/data/trading process entry points
+apps/                       PLANNED: independently deployed pipeline entry points when needed
 deploy/                     PLANNED: environment definitions and non-secret config
 packages/                   OPTIONAL PLANNED: separately packaged shared libraries
 tools/

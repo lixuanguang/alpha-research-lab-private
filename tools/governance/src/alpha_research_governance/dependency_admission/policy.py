@@ -3,8 +3,8 @@
 This module owns policy parsing and repository checks in one shallow path. It
 binds lock bytes, exact package/license/source/hash/platform/edge facts, complete
 pip-audit coverage, runtime-install restrictions, workflow pins, and the
-publication verifier. Scorecard and emergency-override contracts were retired
-with their unused consumers.
+bounded development-only wheel allowances. It does not authenticate publisher
+signatures or assert a verified source-to-wheel build.
 """
 
 from __future__ import annotations
@@ -19,20 +19,20 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
+# third party library imports
+from pydantic import TypeAdapter, ValidationError
+
 # project library imports
 from alpha_research_governance.dependency_admission.models import (
     DependencyAdmission,
     DependencyAdmissionError,
     PythonPackageAdmission,
-)
-from alpha_research_governance.dependency_admission.wheel_sources import (
-    parse_bootstrap_wheels,
-    verify_bootstrap_wheels,
+    WheelOnlyAllowance,
 )
 
 _ROOT_KEYS = {
     "as_of_date",
-    "bootstrap_wheel_admissions",
+    "wheel_only_allowances",
     "lock_digests",
     "native_python_packages",
     "pip_audit",
@@ -55,7 +55,6 @@ _WORKFLOW_USE = re.compile(r"(?m)^\s*-?\s*uses:\s*([^\s@]+)@([^\s#]+)")
 _ACTION_PINS = {
     "actions/checkout": "34e114876b0b11c390a56381ad16ebd13914f8d5",
     "astral-sh/setup-uv": "c771a70e6277c0a99b617c7a806ffedaca235ff9",
-    "sigstore/cosign-installer": "6f9f17788090df1f26f669e9d70d6ae9567deba6",
 }
 _APPROVED_LICENSES = {
     "Apache-2.0",
@@ -112,6 +111,38 @@ def _iso_date(value: object, *, context: str) -> date:
     return parsed
 
 
+def _parse_wheel_only_allowances(
+    value: object,
+    packages: tuple[PythonPackageAdmission, ...],
+    *,
+    as_of_date: date,
+    review_due_on: date,
+) -> tuple[WheelOnlyAllowance, ...]:
+    """Require unique exact native allowances with bounded development windows."""
+    try:
+        records = TypeAdapter(tuple[WheelOnlyAllowance, ...]).validate_json(json.dumps(value))
+    except (ValidationError, ValueError, TypeError) as error:
+        raise DependencyAdmissionError(["invalid wheel-only allowance fields"]) from error
+    names = [record.name for record in records]
+    if len(names) != len(set(names)):
+        raise DependencyAdmissionError(["duplicate wheel-only allowance"])
+    admitted = {package.name: package for package in packages}
+    for record in records:
+        package = admitted.get(record.name)
+        if package is None or record.version != package.version or not package.native_artifacts:
+            raise DependencyAdmissionError(
+                ["wheel-only allowance must match an exact native package"]
+            )
+        if not (
+            as_of_date <= record.reviewed_on < record.expires_on <= review_due_on
+            and record.expires_on <= record.reviewed_on + timedelta(days=30)
+        ):
+            raise DependencyAdmissionError(
+                ["wheel-only allowance must expire within 30 days and policy review"]
+            )
+    return records
+
+
 def load_policy(path: Path) -> DependencyAdmission:
     """Load and validate the machine-readable dependency admission policy.
 
@@ -123,7 +154,7 @@ def load_policy(path: Path) -> DependencyAdmission:
 
     Raises:
         DependencyAdmissionError: If schema, package, date, license, scanner,
-            vulnerability, lock, or native evidence declarations are invalid.
+            vulnerability, lock, or wheel-only allowance declarations are invalid.
         OSError: If the policy cannot be read.
         UnicodeDecodeError: If the policy is not UTF-8.
     """
@@ -136,8 +167,8 @@ def load_policy(path: Path) -> DependencyAdmission:
     document = _table(raw_document, context=str(path))
     if set(document) != _ROOT_KEYS:
         raise DependencyAdmissionError([f"{path}: root has missing or unknown fields"])
-    if document.get("schema_version") != 3:
-        raise DependencyAdmissionError(["dependency policy schema_version must be 3"])
+    if document.get("schema_version") != 4:
+        raise DependencyAdmissionError(["dependency policy schema_version must be 4"])
     as_of_date = _iso_date(document.get("as_of_date"), context="as_of_date")
     review_due_on = _iso_date(document.get("review_due_on"), context="review_due_on")
     if review_due_on <= as_of_date or review_due_on > as_of_date + timedelta(days=90):
@@ -202,20 +233,19 @@ def load_policy(path: Path) -> DependencyAdmission:
         "version": "2.10.1",
     }:
         raise DependencyAdmissionError(["pip-audit must remain an exact blocking signal"])
-    bootstrap = parse_bootstrap_wheels(
-        document.get("bootstrap_wheel_admissions"),
+    allowances = _parse_wheel_only_allowances(
+        document.get("wheel_only_allowances"),
         tuple(packages),
-        _APPROVED_LICENSES,
         as_of_date=as_of_date,
         review_due_on=review_due_on,
     )
     return DependencyAdmission(
-        schema_version=3,
+        schema_version=4,
         as_of_date=as_of_date,
         review_due_on=review_due_on,
         lock_digests=tuple((name, cast(str, lock_digests[name])) for name in _EXPECTED_LOCK_PATHS),
         packages=tuple(packages),
-        bootstrap_wheel_admissions=bootstrap,
+        wheel_only_allowances=allowances,
     )
 
 
@@ -357,7 +387,7 @@ def _artifact_source_findings(
 def _python_lock_findings(
     root: Path, policy: DependencyAdmission, *, validation_date: date | None = None
 ) -> list[str]:
-    """Check lock identity, origin, hashes, wheels, graph edges, and native evidence."""
+    """Check lock identities, origins, hashes, platforms, edges and wheel-only limits."""
     locked = _locked_python_packages(root / "uv.lock")
     admitted = {item.name for item in policy.packages}
     external = {
@@ -384,7 +414,7 @@ def _python_lock_findings(
             "uv.lock external packages and admissions differ: "
             f"missing={sorted(external - admitted)}, stale={sorted(admitted - external)}"
         )
-    bootstrap = {item.name: item for item in policy.bootstrap_wheel_admissions}
+    allowances = {item.name: item for item in policy.wheel_only_allowances}
     observed_date = date.today() if validation_date is None else validation_date
     for package in policy.packages:
         item = locked.get(package.name)
@@ -394,13 +424,16 @@ def _python_lock_findings(
         if item.get("source") != {"registry": "https://pypi.org/simple"}:
             findings.append(f"{package.name} uses an unapproved package source")
         findings.extend(_artifact_source_findings(package, item))
-        if package.name in bootstrap:
-            try:
-                verify_bootstrap_wheels(
-                    root, item, bootstrap[package.name], validation_date=observed_date
+        if package.name in allowances:
+            allowance = allowances[package.name]
+            if not allowance.reviewed_on <= observed_date <= allowance.expires_on:
+                findings.append(
+                    f"{package.name}: wheel-only allowance is expired or not yet effective"
                 )
-            except DependencyAdmissionError as error:
-                findings.extend(f"{package.name}: {finding}" for finding in error.findings)
+            if "sdist" in item:
+                findings.append(
+                    f"{package.name}: wheel-only allowance cannot replace an existing sdist"
+                )
         else:
             source = item.get("sdist")
             if (
@@ -468,18 +501,18 @@ def _runtime_install_findings(root: Path) -> list[str]:
 def validate_repository(
     repository_root: Path, *, validation_date: date | None = None
 ) -> DependencyAdmission:
-    """Validate the admitted policy, lock graph, CI pins, source roots, and evidence.
+    """Validate the policy, lock graph, CI pins, source roots, and development limits.
 
     Args:
         repository_root: Repository whose dependency boundary is checked.
-        validation_date: Date used for review and bootstrap expiry checks.
+        validation_date: Date used for policy review and wheel-only expiry checks.
 
     Returns:
         The validated immutable dependency policy.
 
     Raises:
         DependencyAdmissionError: If any retained lock, source, hash, graph, scan,
-            evidence, or expiry check fails.
+            or expiry check fails.
         OSError: If required repository files cannot be read.
     """
     root = repository_root.resolve(strict=True)
@@ -506,14 +539,14 @@ def require_release_admission(repository_root: Path) -> None:
         repository_root: Repository whose policy and lock are checked.
 
     Raises:
-        DependencyAdmissionError: If bootstrap evidence remains active or validation fails.
+        DependencyAdmissionError: If a wheel-only allowance remains active or validation fails.
     """
     root = repository_root.resolve(strict=True)
     policy = load_policy(root / "docs/architecture/dependency-admission.toml")
-    if policy.bootstrap_wheel_admissions:
+    if policy.wheel_only_allowances:
         details = ", ".join(
-            f"{item.name}=={item.version} ({item.finding_id}, expires {item.expires_on})"
-            for item in policy.bootstrap_wheel_admissions
+            f"{item.name}=={item.version} (unverified source binding, expires {item.expires_on})"
+            for item in policy.wheel_only_allowances
         )
         raise DependencyAdmissionError(
             [f"artifact release blocked by unresolved native dependency admission: {details}"]

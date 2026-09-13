@@ -60,14 +60,22 @@ workflows. It does not create imaginary approvers for a one-person company.
 ## P1: first causal baseline
 
 The [P1 implementation roadmap](p1-implementation-roadmap.md) maps the current
-`main` foundations to ordered, small merge requests with temporary notebook
-checkpoints, review-size estimates and acceptance evidence. It records the
-inspected base revision and separates existing code from planned consumers.
+`main` foundations to pipeline ownership, reusable library operations and
+bounded delivery slices with activity-based local notebook checkpoints and
+acceptance evidence. It records the inspected base revision, identifies existing
+abstractions to retain or retire, and separates current code from planned consumers.
 
-Choose one data source, universe, asset class, horizon and transparent hypothesis.
-No venue or broker has been selected by this roadmap. The earlier digital-asset
-factor/residual idea remains a candidate. Record source rights and the exact
-hypothesis before downloading controlled data or comparing results.
+The merged [MR 00 specification](../research/p1-baseline.md) selects Tardis raw
+Binance BTCUSDT spot trades and the fixed one-minute positive-return baseline.
+Source access, retention rights and historical eligibility/revision evidence
+remain unresolved; selection does not authorize controlled data access. The
+earlier digital-asset factor/residual idea remains a future research candidate.
+
+The P1 [ownership map](p1-implementation-roadmap.md#p1-code-ownership-and-call-flow)
+assigns acquisition, dataset building and research execution to explicit
+orchestrator pipelines. Other implementation modules expose cohesive library
+operations and records. Cleanup C0 has removed redundant decoder composition and
+legacy import facades in the current checkpoint.
 
 Implement the following small slices together with their concrete types and tests:
 
@@ -254,8 +262,12 @@ Introduce a control with its concrete trigger, owner, enforcement point and test
 
 ## How to execute and maintain the plan
 
-The bounded [cleanup](../cleanup/README.md#step-5-results) is complete. Select
-the first P1 source and hypothesis while preserving the detailed platform design. For each implementation slice, record the input/output contract,
+The bounded governance cleanup is complete, and
+[MR 00](../research/p1-baseline.md) has frozen the first source and hypothesis.
+The [C0 cleanup](p1-implementation-roadmap.md#c0-remove-redundant-composition-before-adding-consumers)
+is implemented in the current checkpoint. Continue with MR 01
+and the subsequent pipeline/library slices while preserving the detailed platform
+design. For each implementation slice, record the input/output contract,
 affected modules and consumers, persisted identities, critical failure behavior,
 selected tests and a working command or artifact. Update its status here when
 that evidence exists. Keep future work explicitly planned.
