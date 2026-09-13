@@ -46,7 +46,8 @@ train/validation/final holdout is acceptable only with predeclared boundaries an
 final OOS to decide what to try next. When a holdout is consumed, label it evaluated and define new untouched
 evidence for a new experiment.
 
-Use the same versioned strategy logic in research, deterministic replay, paper, shadow, and live operation.
+Once a strategy is promoted into the package, use the same versioned strategy logic in formal research,
+deterministic replay, paper, shadow, and live operation.
 Adapters may supply asset- or venue-specific data, execution, representation, and precision, but economic
 semantics and the decision contract remain the same. Test conversion and parity at those boundaries; do not
 create a second production implementation merely because runtime representation differs.
@@ -56,6 +57,41 @@ stopped variants, remains in an append-only trial record. Account for related tr
 search bounds, seeds, transforms, and stopping decisions. Report uncertainty appropriate to repeated and
 dependent trials. Prefer net utility, risk-adjusted contribution, drawdown, turnover, capacity, exposure, and
 stability over one headline return.
+
+## Notebook research and package promotion
+
+The founder selected long-lived, activity-based notebooks on 2026-09-13.
+Repository-root `examples/` is the ignored local research workspace. Notebooks
+evolve into separate data-fetching, EDA, quant strategy research and strategy
+monitoring workspaces as there is working content to separate. They are test
+beds for new ideas and may span many implementation MRs; an MR records the
+relevant notebook section and decisive scenario rather than requiring a new file.
+
+Exploratory source calls, transformations, signals, models and visualizations
+may be developed locally without first turning every experiment into a package
+API. Use existing instrument, calendar, provenance and exact financial contracts
+where applicable. Source-access permissions and the predeclared experiment's
+universe, hypothesis and holdout boundaries continue to apply to notebook work.
+Exploration that changes selection must retain its attempts, including failures;
+an ignored notebook's overwritten output is not the sole research record.
+
+The maintained package owns productionized shared infrastructure and versioned
+strategy implementations intended for publication or operation. Promote an idea
+when it has a concrete retained consumer or a selected reproducible strategy
+contract: extract cohesive logic, validate its inputs and invariants, retain
+decisive regression cases and expose a callable interface. Package development
+can proceed in bounded tested slices before a complete strategy is ready.
+After promotion, notebooks call that implementation for formal results; they
+remain useful for new variants without becoming a second production strategy.
+
+Data-fetching notebooks explore and invoke acquisition APIs; mature acquisition
+and storage behavior belongs in the package. EDA notebooks inspect data and
+quality. Strategy-research notebooks develop and compare hypotheses. Monitoring
+notebooks inspect versioned outputs and runtime observations; persistent metric
+collection, alerts and operational controls belong in maintained code when those
+capabilities are built. No monitoring service or published strategy exists merely
+because a notebook is created, and this workflow does not authorize publication
+or activation. Existing release and operating boundaries remain applicable.
 
 ## Small records and artifacts
 

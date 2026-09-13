@@ -73,11 +73,11 @@ def test_catalog_resolution_rejects_incomplete_coverage() -> None:
         catalog.resolve(instrument.instrument_id, instrument.valid_from, instrument.valid_to)
         == instrument
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="complete requested interval"):
         catalog.resolve(
             instrument.instrument_id,
             _START,
-            _START + timedelta(days=2),
+            instrument.valid_to + timedelta(microseconds=1),
         )
 
 

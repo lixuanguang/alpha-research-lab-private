@@ -3,7 +3,10 @@
 Owner: repository founder. Status: proposed implementation sequence; no P1
 end-to-end result is claimed. Prepared on 2026-09-11 on `p1-roadmap`, based on
 `main` at `f9cee2819eaa6c2a3e8ab47220922f566bff16f5`. After fetching `origin`,
-`origin/main` matched that commit. All MR statuses below are **planned**.
+`origin/main` matched that commit. MR 00 is **ready for review** on
+`codex/p1-00-baseline-spec`; MRs 01–28 remain **planned**. See the
+[selected experiment](../research/p1-baseline.md) and
+[MR 00 validation record](../research/p1-mr-00-review.md).
 
 This page turns [P1: first causal baseline](README.md#p1-first-causal-baseline)
 into individually reviewable merge requests. The
@@ -21,14 +24,12 @@ transparent baseline to produce a reproducible net report. Another process must
 reproduce the result using retained bytes, configuration and code identities.
 Independent hand calculations must reconcile cash, positions, costs and NAV.
 
-The existing Tardis/Binance spot decoder is the lowest-change candidate for this
-sequence. It is **not an approved source or selected research hypothesis**. MR 00
-settles that choice before source-dependent implementation or controlled data
-access. The concrete proposed baseline is a single unlevered spot instrument,
-fixed UTC decision cadence, and a long-or-flat fixed quantity chosen from the
-sign of the preceding completed price return. No-trade uses the same accounting.
-The cadence, sample, quantity and cost assumptions remain decisions for MR 00;
-they must be fixed before inspecting comparative results.
+The founder selected the Tardis/Binance BTCUSDT spot case and one-minute
+positive-return hypothesis in MR 00; the [owning specification](../research/p1-baseline.md)
+fixes the sample, quantity, costs and timing before comparative results.
+**Access, retention rights and historical eligibility/revision evidence remain
+unresolved.** This source selection does not authorize controlled data access.
+No-trade uses the same accounting as the single unlevered, long-or-flat baseline.
 
 This trade-price model needs neither book reconstruction nor an OMS. Fills are
 declared simulation assumptions; trade prints do not establish executable prices,
@@ -108,18 +109,37 @@ the count. A cohesive change slightly above the preference may be justified in
 the MR description with its actual count and the reason a split hurts review.
 
 Every MR carries focused tests and documentation for the behavior it introduces,
-the temporary notebook exercise below, and validation in the existing PR
+the local notebook exercise below, and validation in the existing PR
 template. Tests need not fit the production-line budget. The notebook does not
 replace retained regression tests. New event/economic records follow the existing
 frozen `msgspec.Struct`, cached codec and explicit validation requirements;
 preserve the existing foundation APIs and exact Decimal/Fraction rules.
 
-## Temporary notebook workflow
+## Local notebook workflow
 
-Use a disposable notebook named `p1-mr-XX.ipynb` for each implementation slice;
-MR 00 can inspect the existing foundations without changing runtime code. Each
-exercise below names what to inspect and what to prove. Create only the notebook
-needed for the active MR, for example under `/private/tmp/alpha-p1-mr-XX/`.
+Use long-lived notebooks organized by research activity under repository-root
+`examples/`, ignored by the root `/examples/` rule. On 2026-09-13 the founder
+selected local retention and then activity-based notebooks, superseding both
+the original temporary-directory/deletion requirement and one notebook per MR.
+The [research program](research-program.md#notebook-research-and-package-promotion)
+owns the boundary between exploratory ideas and maintained package behavior.
+
+| Notebook responsibility | Intended contents | Package boundary as behavior matures |
+| --- | --- | --- |
+| Data fetching | Explore permitted source APIs, bounded requests, responses, clocks and acquisition quality. | Reusable clients, validation, immutable storage and resumable acquisition. |
+| EDA | Inspect saved data, coverage, missingness, distributions, temporal alignment and candidate features. | Shared quality/feature transformations needed by retained consumers. |
+| Quant strategy research | Prototype hypotheses, signals and models; compare scenarios, costs and attribution. | Versioned strategy logic, configuration, simulation/accounting and reproducible runners. |
+| Strategy monitoring | Inspect saved or available runtime reports, exposures, P&L, data freshness and drift. | Persistent monitoring, metric definitions, alert delivery and operational controls when implemented. |
+
+Use `examples/research-foundations.ipynb` as the working foundation example,
+with editable scenarios, intermediate tables, findings and separate fixed
+reference checks. Its local runner defaults to one execution and preserves
+distinct successful or failed snapshots under ignored `examples/runs/`.
+Split or move its sections into these activity notebooks as actual work grows;
+do not create empty notebooks or fictional fetching/monitoring capabilities now.
+Each MR names the notebook and relevant scenario/section it exercised. Notebook
+lifetime follows the research activity, while package changes remain one bounded
+MR at a time. MR 00 still stops for review before MR 01 begins.
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
@@ -129,23 +149,26 @@ needed for the active MR, for example under `/private/tmp/alpha-p1-mr-XX/`.
    result. Refresh the install/kernel after source changes.
 2. Start with a tiny synthetic or permitted saved sample. Display meaningful
    intermediate objects/tables: clocks, identities, eligibility, observations,
-   targets, fills, cash or report attribution. Hand calculations may be local
-   notebook expressions; reusable logic belongs in the package.
+   targets, fills, cash or report attribution. Exploratory transforms, signals,
+   models and hand calculations may remain notebook-local while an idea is being
+   evaluated. Reuse existing foundation APIs; promote mature shared behavior and
+   selected strategy implementations into the package when they need retained
+   consumers, regression coverage or reproducible execution outside a notebook.
 3. Exercise the listed boundary failure, then restart the kernel and run all cells
    in order. Promote decisive cases into focused tests and small permitted
    fixtures. Record commands, identities, conclusions and limitations in the MR.
    Keep a retrievable protected reference for permitted raw data/bulk outputs.
-4. Before **each commit, push and merge to main**, close and delete that MR's
-   temporary notebook, its notebook checkpoint directory and disposable notebook
-   exports, including copies outside the checkout. Retain the extracted tests and
-   concise findings, not the notebook. Recreate it if another learning pass is
-   needed; an ignore rule or keeping it unstaged does not satisfy removal.
-5. Inspect the staged diff and notebook paths. For a checkout with no pre-existing
-   notebooks, both `git ls-files -- '*.ipynb'` and
-   `git ls-files --others --exclude-standard -- '*.ipynb'` should be empty. Also
-   verify the external temporary notebook directory is gone. Stage explicit files.
-   Before push/merge, check the branch diff/history contains no notebook addition;
-   a later deletion does not erase an earlier committed notebook.
+4. Before **each commit, push and merge to main**, confirm notebooks, checkpoints
+   and local exports stay under ignored `examples/`. Close finished execution
+   kernels; notebooks may remain locally. After promotion, notebooks import the
+   packaged implementation for formal comparisons and monitoring, retaining
+   independent hand calculations only as explicit oracles. Preserve decisive
+   cases in retained tests and research attempts outside mutable notebook output.
+5. Inspect the staged diff and notebook paths. `git ls-files -- examples/ '*.ipynb'`
+   must be empty; run `git check-ignore` on the actual notebook paths and confirm
+   they are ignored. Stage explicit retained files; never force-add examples.
+   Before push/merge, check the branch diff/history contains no example/notebook
+   addition; a later deletion does not erase an earlier committed notebook.
 
 Do not inspect a final holdout through a notebook. Synthetic learning exercises
 are engineering work; any real-data attempt influencing hypothesis or parameter
@@ -157,7 +180,8 @@ outputs with the [trial fields](research-program.md#small-records-and-artifacts)
 
 Dependencies identify required contracts; numerical order is the straightforward
 implementation path, not a demand for parallel agents or stacked unmerged MRs.
-`NB XX` means the disposable notebook described above. Paths are relative to the
+`NB XX` identifies an MR's learning checkpoint in the relevant activity notebook;
+it does not prescribe a separate notebook file. Paths are relative to the
 repository root and are proposed unless linked in the current-state table.
 
 ### A. Fix the experiment and acquire immutable inputs
@@ -275,7 +299,7 @@ this example, and absent observations must not produce fabricated zero returns.
 | **25 — Compose the callable causal runner** | 13–24 | **100–140.** `research/runner.py`: compose saved snapshot reading, cadence/decision clock, targets, delayed fills, costs, ledger and valuations. Journal start before computation and terminal outcome afterward; return a typed result with trace and coverage status. | Compare no-trade and baseline through the same economic path. No mutable state leaks between invocations. Pin event/decision/fill/mark tie order; exercise pending-intent policy and a terminal expiry. A failed or incomplete valuation cannot become a successful net report. **NB 25:** inspect the complete synthetic raw-to-NAV trace, then rerun after a failed attempt. |
 | **26 — Save the net report and durable references** | 23–25 | **90–140.** `research/reports.py`: versioned exact report serialization and atomic output persistence with digest references in the trial record. Include initial/final cash, positions/NAV, gross/net P&L, fees/slippage/financing, turnover, fill/decision counts, coverage, assumptions and identities. | Report totals match the retained ledger/trace. Refuse clobbering another result; incomplete output is never a completed trial. Missing bytes or digest mismatch fail reproduction. **NB 26:** reopen a saved report and reconcile totals; tamper with an output and show rejection. |
 | **27 — Add the reproducible command and installed consumer** | 26 | **60–120**, plus explicit entry-point metadata. `research/__main__.py` or one narrow configured script: load explicit config/snapshot/output paths and call the runner. Save the actual command and identities. Extend the existing wheel smoke only for the new public consumer. | From a fresh process outside the checkout, install the candidate wheel and reproduce the synthetic report from saved inputs, without notebooks, editable imports, hidden working-directory files or a network fetch. Unsupported/missing inputs produce a nonzero exit. **NB 27:** compare fresh-process output with the earlier callable result; execute the command independently as the retained acceptance proof. |
-| **28 — Close P1 with a permitted saved sample** | 04–27 | **0–50** for necessary wiring only; otherwise tests/docs/evidence. Run the frozen case on the permitted source and retain the request/raw/canonical/report identities and protected retrievable bytes. Update the owning experiment, this status and the roadmap after acceptance. | Resume actual acquisition, rebuild the snapshot and reproduce the report in another process using saved inputs. Hand-reconcile a bounded ledger excerpt; audit the selected source availability/eligibility assumptions and keep failures/limits. **NB 28:** explain the end-to-end trace and cost attribution, then delete it before commit/push/merge. Any product defect is fixed in its owning small MR before claiming completion. |
+| **28 — Close P1 with a permitted saved sample** | 04–27 | **0–50** for necessary wiring only; otherwise tests/docs/evidence. Run the frozen case on the permitted source and retain the request/raw/canonical/report identities and protected retrievable bytes. Update the owning experiment, this status and the roadmap after acceptance. | Resume actual acquisition, rebuild the snapshot and reproduce the report in another process using saved inputs. Hand-reconcile a bounded ledger excerpt; audit the selected source availability/eligibility assumptions and keep failures/limits. **NB 28:** explain the end-to-end trace and cost attribution, keeping the notebook under ignored `examples/`. Any product defect is fixed in its owning small MR before claiming completion. |
 
 Run identity excludes attempt timestamps and local output paths. Report comparison
 uses canonical economic bytes/values; operational attempt metadata may differ.
@@ -319,7 +343,7 @@ Use the cheapest sufficient evidence for the boundary:
   performance, venue or operating-system matrix is introduced beyond existing CI.
 
 Record tested commit/candidate state, exact command, input/config identities,
-passes/failures/skips, notebook findings/removal and material limits in each MR.
+passes/failures/skips, notebook findings/local ignore verification and material limits in each MR.
 For an uncommitted notebook iteration, identify the base commit and candidate
 diff/content digest; the base commit alone does not identify modified code.
 Final reproduction uses the retained committed implementation and its lock.

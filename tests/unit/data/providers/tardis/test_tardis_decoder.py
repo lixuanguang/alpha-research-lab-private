@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal, Self
 from uuid import UUID
 
@@ -110,6 +110,7 @@ def test_provider_decoder_handles_capture_ceiling_provenance_and_disconnect() ->
         "",
         source_sequence=5,
         local_received=datetime(2024, 6, 1, 0, 0, 3, tzinfo=UTC),
+        local_ingested=datetime(2024, 6, 1, 0, 0, 5, tzinfo=UTC),
         disconnect_capture_time=datetime(2024, 6, 1, 0, 0, 4, tzinfo=UTC),
         disconnect_capture_reason="interval_end",
     )
@@ -117,6 +118,14 @@ def test_provider_decoder_handles_capture_ceiling_provenance_and_disconnect() ->
     assert disconnect.capture_proxy_reason == "interval_end"
     assert disconnect.provenance.source_id == "synthetic.source"
     assert disconnect.provenance.ts_knowledge == datetime(2024, 6, 1, 0, 0, 4, tzinfo=UTC)
+    assert disconnect.provenance.ts_event == disconnect.provenance.ts_knowledge
+    assert disconnect.provenance.ts_source_received == disconnect.provenance.ts_knowledge
+    assert disconnect.provenance.ts_received == datetime(2024, 6, 1, 0, 0, 3, tzinfo=UTC)
+    assert disconnect.provenance.ts_ingested == datetime(2024, 6, 1, 0, 0, 5, tzinfo=UTC)
+    assert disconnect.provenance.valid_to == disconnect.provenance.valid_from + timedelta(
+        microseconds=1
+    )
+    assert disconnect.instrument_id is None and disconnect.symbol is None
 
 
 def test_provider_decoder_rejects_malformed_line_framing() -> None:
