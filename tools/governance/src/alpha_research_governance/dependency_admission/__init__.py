@@ -111,10 +111,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         if not tokens:
             policy = validate_repository(root)
             print(f"Dependency admission passed for {len(policy.packages)} locked Python packages.")
-            for record in policy.bootstrap_wheel_admissions:
+            for record in policy.wheel_only_allowances:
                 print(
-                    f"BOOTSTRAP ONLY: {record.name}=={record.version}; source-to-wheel binding "
-                    f"unverified; {record.finding_id}; expires={record.expires_on}; "
+                    f"DEVELOPMENT ONLY: {record.name}=={record.version}; source-to-wheel binding "
+                    f"unverified; expires={record.expires_on}; "
                     f"usage={record.usage}; artifact release blocked."
                 )
             return 0

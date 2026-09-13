@@ -14,24 +14,6 @@ from alpha_research_governance.artifact_supply_chain import main
 REPOSITORY_ROOT = Path(__file__).parents[2]
 
 
-@pytest.mark.parametrize("retired_command", ("create", "sign", "publish", "verify"))
-def test_retired_lifecycle_commands_fail_without_writing(
-    retired_command: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Reject each removed lifecycle name before it can create repository output."""
-    monkeypatch.chdir(REPOSITORY_ROOT)
-    output_path = tmp_path / "retired-output"
-
-    assert main([retired_command, str(output_path)]) == 2
-
-    captured = capsys.readouterr()
-    assert "release-check" in captured.err
-    assert not output_path.exists()
-
-
 @pytest.mark.parametrize("arguments", ((), ("unknown",), ("release-check", "extra")))
 def test_unknown_or_malformed_commands_fail(
     arguments: tuple[str, ...],

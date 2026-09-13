@@ -7,8 +7,7 @@ PYTHON_PATHS := src tests tools/governance/src tools/typing/stubs
 	engineering-standards-check dependency-admission-check \
 	dependency-audit architecture-check \
 	ci-secrets-check security \
-	source-check integration-test performance-test test build wheel-smoke smoke \
-	ci-full check
+	source-check integration-test performance-test test build wheel-smoke check
 
 sync:
 	$(UV) sync --frozen
@@ -64,11 +63,6 @@ build:
 wheel-smoke:
 	$(UV) run --frozen python -m alpha_research_governance.wheel_smoke
 
-smoke: wheel-smoke
-
 source-check: lock-check lint format-check typecheck governance-check security dependency-audit ci-secrets-check test
-
-# Keep this hosted-facing alias while callers migrate off the retired scheduler.
-ci-full: check
 
 check: source-check wheel-smoke

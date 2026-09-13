@@ -11,7 +11,7 @@ from uuid import UUID
 import pytest
 
 # project library imports
-from alpha_research.data.providers.tardis.binance import BinanceTardisDecoder
+from alpha_research.data import BinancePayloadDecoder, TardisDecoder
 from alpha_research.data.venues.binance.events import DepthSnapshot, DepthUpdate, Trade
 from alpha_research.financial_units import Currency, Dimension, Price, Quantity, QuantityKind
 from alpha_research.instrument_identity import InstrumentId
@@ -61,7 +61,9 @@ _UPDATE = (
 
 def test_decoder_preserves_capture_order_and_ceils_submicroseconds() -> None:
     """Decode exact capture text and round knowledge upward conservatively."""
-    decoder = BinanceTardisDecoder(_INSTRUMENTS)
+    decoder = TardisDecoder(
+        payload_decoder=BinancePayloadDecoder(_INSTRUMENTS), source_id="tardis.binance.spot"
+    )
     event = decoder.decode_line(
         _TRADE,
         source_sequence=4,
@@ -79,7 +81,9 @@ def test_decoder_preserves_capture_order_and_ceils_submicroseconds() -> None:
 def test_archived_trade_keeps_local_clocks_and_point_availability_distinct() -> None:
     """Preserve acquisition clocks without turning point validity into a last-price query."""
     ingested = _RECEIVED + timedelta(seconds=1)
-    decoder = BinanceTardisDecoder(_INSTRUMENTS)
+    decoder = TardisDecoder(
+        payload_decoder=BinancePayloadDecoder(_INSTRUMENTS), source_id="tardis.binance.spot"
+    )
     event = decoder.decode_line(
         _TRADE,
         source_sequence=0,
@@ -114,7 +118,9 @@ def test_archived_trade_keeps_local_clocks_and_point_availability_distinct() -> 
 
 def test_decoder_accepts_snapshot_without_exchange_symbol_or_event_time() -> None:
     """Use capture time as an explicit snapshot proxy without inventing exchange time."""
-    decoder = BinanceTardisDecoder(_INSTRUMENTS)
+    decoder = TardisDecoder(
+        payload_decoder=BinancePayloadDecoder(_INSTRUMENTS), source_id="tardis.binance.spot"
+    )
     event = decoder.decode_line(
         _SNAPSHOT,
         source_sequence=0,
@@ -130,7 +136,9 @@ def test_decoder_accepts_snapshot_without_exchange_symbol_or_event_time() -> Non
 def test_decoder_resolves_a_synthetic_configured_symbol() -> None:
     """Resolve a third configured stream without a runtime symbol whitelist."""
     synthetic_line = _SNAPSHOT.replace("btcusdt", "solusdt")
-    decoder = BinanceTardisDecoder(_ALL_INSTRUMENTS)
+    decoder = TardisDecoder(
+        payload_decoder=BinancePayloadDecoder(_ALL_INSTRUMENTS), source_id="tardis.binance.spot"
+    )
     event = decoder.decode_line(
         synthetic_line,
         source_sequence=0,
@@ -140,7 +148,9 @@ def test_decoder_resolves_a_synthetic_configured_symbol() -> None:
     assert event.symbol == "SOLUSDT"
     assert event.instrument_id == _ALL_INSTRUMENTS[2].instrument_id
 
-    limited_decoder = BinanceTardisDecoder(_INSTRUMENTS)
+    limited_decoder = TardisDecoder(
+        payload_decoder=BinancePayloadDecoder(_INSTRUMENTS), source_id="tardis.binance.spot"
+    )
     with pytest.raises(ValueError, match="unsupported stream symbol"):
         limited_decoder.decode_line(
             synthetic_line,
@@ -151,7 +161,9 @@ def test_decoder_resolves_a_synthetic_configured_symbol() -> None:
 
 def test_decoder_recovers_after_invalid_depth_interval_and_negative_quantity() -> None:
     """Reject malformed updates and reuse the decoder for the next valid line."""
-    decoder = BinanceTardisDecoder(_INSTRUMENTS)
+    decoder = TardisDecoder(
+        payload_decoder=BinancePayloadDecoder(_INSTRUMENTS), source_id="tardis.binance.spot"
+    )
     with pytest.raises(ValueError, match="last_update_id"):
         decoder.decode_line(
             _UPDATE.replace('"u":11', '"u":9'),

@@ -9,23 +9,22 @@ This page does not claim a dataset, HTTP request, or trading result.
 ## Boundary and module ownership
 
 The public package surface is
-[`alpha_research.data`](../../src/alpha_research/data/__init__.py). The former
-monolithic [`data.models`](../../src/alpha_research/data/models.py) path retains
-compatibility imports for event and decoder classes; new internal code uses the
-defining modules. The one-off decoding function has been removed. Callers create
-`BinanceTardisDecoder(instruments)` and reuse its `decode_line` method.
+[`alpha_research.data`](../../src/alpha_research/data/__init__.py). Callers
+construct `TardisDecoder` with a configured `BinancePayloadDecoder` and reuse
+`decode_line`. Both decoders are public library types; internal modules import
+their dependencies from defining modules. The
+[C0 migration](../roadmap/p1-implementation-roadmap.md#existing-abstractions-to-retain-or-retire)
+removes the composition-only subclass and compatibility import paths. Event
+schemas and decoding semantics are unchanged.
 
 | Module | Contract |
 | --- | --- |
 | [`data/events.py`](../../src/alpha_research/data/events.py) | Frozen `TaggedEvent` and `MarketEventRecord` templates, shared validation, and `Disconnect` |
 | [`data/decoders.py`](../../src/alpha_research/data/decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol; no provider framing or venue schema |
 | [`data/providers/tardis/decoder.py`](../../src/alpha_research/data/providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, blank-line handling, and raw JSON handoff |
-| [`data/providers/tardis/binance.py`](../../src/alpha_research/data/providers/tardis/binance.py) | Composition of Tardis framing and Binance payload decoding for the configured foundation symbols |
 | [`data/venues/binance/events.py`](../../src/alpha_research/data/venues/binance/events.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade` with Binance symbol and event invariants |
 | [`data/venues/binance/payloads.py`](../../src/alpha_research/data/venues/binance/payloads.py) | `BinancePayloadDecoder`, Binance combined-stream envelope decoding, and payload-to-event mapping |
-| [`data/venues/binance/decoder.py`](../../src/alpha_research/data/venues/binance/decoder.py) | Explicit compatibility exports for the provider-facing Binance decoder |
 | [`data/venues/binance/codecs.py`](../../src/alpha_research/data/venues/binance/codecs.py) | Private payload schemas and cached payload decoders, closed `MarketEvent` union, and strict canonical codecs |
-| [`data/models.py`](../../src/alpha_research/data/models.py) | Compatibility imports only; it is not the defining implementation boundary |
 
 `data.decoders` owns only the neutral context and payload-decoder protocol. The
 Tardis provider owns line framing, capture parsing, provenance construction, and
@@ -99,8 +98,8 @@ exchange event timestamp. These rules describe source availability; they are not
 network-latency measurements or exchange-clock observations. See
 [point-in-time semantics](point-in-time-semantics.md).
 
-`BinanceTardisDecoder` in `data/providers/tardis/binance.py` binds a nonempty
-tuple of authored `SpotInstrument` mappings. Its `BinancePayloadDecoder` accepts
+`BinancePayloadDecoder` in `data/venues/binance/payloads.py` validates and indexes
+a nonempty tuple of authored `SpotInstrument` mappings once. It accepts
 only the current `tardis.binance.spot` stream forms: `trade`, `depth@100ms`, and
 `depthSnapshot`. It requires lowercase stream symbols that resolve to configured
 uppercase instruments and rejects unknown streams, symbols, payload mismatches,
@@ -129,5 +128,6 @@ The decoding boundary is covered by
 [`test_tardis_decoder.py`](../../tests/unit/data/providers/tardis/test_tardis_decoder.py),
 [`test_tardis_binance.py`](../../tests/unit/data/providers/tardis/test_tardis_binance.py),
 and [`test_binance_decoder.py`](../../tests/unit/data/venues/binance/test_binance_decoder.py).
-These references identify coverage; candidate-specific validation results remain
-in the owning roadmap record.
+These tests cover the library boundary; the
+[P1 acceptance map](../roadmap/p1-implementation-roadmap.md#p1-acceptance-map)
+identifies the remaining end-to-end requirements.

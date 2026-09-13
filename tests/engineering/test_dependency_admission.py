@@ -4,11 +4,8 @@ from __future__ import annotations
 
 # standard library imports
 import json
-import shutil
-import tomllib
 from datetime import date
 from pathlib import Path
-from typing import cast
 
 # third party library imports
 import pytest
@@ -29,7 +26,6 @@ from alpha_research_governance.dependency_admission.policy import (
     _python_lock_findings,
     _runtime_install_findings,
 )
-from alpha_research_governance.dependency_admission.wheel_sources import parse_bootstrap_wheels
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 POLICY_PATH = REPOSITORY_ROOT / "docs/architecture/dependency-admission.toml"
@@ -56,17 +52,15 @@ def test_policy_contains_only_retained_dependency_facts() -> None:
     """Load the compact policy and retain the unresolved native exception."""
     policy = load_policy(POLICY_PATH)
 
-    assert policy.schema_version == 3
-    assert policy.bootstrap_wheel_admissions[0].name == "quantlib"
-    assert policy.bootstrap_wheel_admissions[0].finding_id == "quantlib-wheel-binding"
-    assert policy.bootstrap_wheel_admissions[0].source_to_wheel_binding == "unverified"
-    assert policy.bootstrap_wheel_admissions[0].expires_on == date(2026, 10, 4)
+    assert policy.schema_version == 4
+    assert policy.wheel_only_allowances[0].name == "quantlib"
+    assert policy.wheel_only_allowances[0].version == "1.43"
+    assert policy.wheel_only_allowances[0].source_to_wheel_binding == "unverified"
+    assert policy.wheel_only_allowances[0].expires_on == date(2026, 10, 4)
 
 
-def test_repository_validation_checks_lock_and_native_evidence() -> None:
-    """Accept current frozen bytes while the bootstrap review window is open."""
-    if shutil.which("cosign") is None:
-        pytest.skip("focused native verification binary is unavailable")
+def test_repository_validation_checks_lock_and_development_limits() -> None:
+    """Accept frozen bytes during the allowance window without archived reports."""
     policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 9, 7))
     assert len(policy.packages) == 72
 
@@ -77,10 +71,11 @@ def test_release_admission_remains_blocked_by_unverified_quantlib() -> None:
         require_release_admission(REPOSITORY_ROOT)
 
 
-def test_bootstrap_admission_expires_after_bounded_review() -> None:
-    """Reject development and CI use after the recorded exception deadline."""
+@pytest.mark.parametrize("validation_date", (date(2026, 9, 3), date(2026, 10, 5)))
+def test_wheel_only_allowance_rejects_dates_outside_its_window(validation_date: date) -> None:
+    """Reject development and CI use outside the recorded allowance window."""
     with pytest.raises(DependencyAdmissionError, match="expired or not yet effective"):
-        validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 10, 5))
+        validate_repository(REPOSITORY_ROOT, validation_date=validation_date)
 
 
 def test_lock_source_url_is_checked_even_when_lock_digest_is_supplied(tmp_path: Path) -> None:
@@ -121,7 +116,7 @@ def test_lock_rejects_unsupported_python_boundary(tmp_path: Path, python_boundar
 
 
 def test_lock_accepts_supported_python_boundary() -> None:
-    """Load the supported lock without requiring external attestation tooling."""
+    """Load the supported lock with the pinned Python boundary."""
     packages = _locked_python_packages(REPOSITORY_ROOT / "uv.lock")
     assert packages["alpha-research-lab"]["version"] == "0.1.0"
 
@@ -152,26 +147,77 @@ def test_runtime_installation_scan_rejects_owned_source(tmp_path: Path) -> None:
     assert findings == ["runtime package installation is prohibited: src/runtime.py"]
 
 
-def test_bootstrap_evidence_path_is_canonical() -> None:
-    """Reject path traversal in the retained native evidence record."""
-    raw_document: object = tomllib.loads(POLICY_PATH.read_text(encoding="utf-8"))
-    assert isinstance(raw_document, dict)
-    raw_policy = cast(dict[str, object], raw_document)
-    raw_records = raw_policy.get("bootstrap_wheel_admissions")
-    assert isinstance(raw_records, list) and raw_records
-    raw_record_object = raw_records[0]
-    assert isinstance(raw_record_object, dict)
-    raw_record = dict(cast(dict[str, object], raw_record_object))
-    raw_record["trusted_root"] = {"path": "../outside.json", "sha256": "0" * 64}
-    policy = load_policy(POLICY_PATH)
-    with pytest.raises(DependencyAdmissionError, match="canonical"):
-        parse_bootstrap_wheels(
-            [raw_record],
-            policy.packages,
-            {package.license_expression for package in policy.packages},
-            as_of_date=policy.as_of_date,
-            review_due_on=policy.review_due_on,
-        )
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ('version = "1.43"', 'version = "0"', "exact native package"),
+        ('name = "quantlib"', 'name = "unknown"', "exact native package"),
+        ('usage = "isolated_development_and_ci"', 'usage = "release"', "allowance fields"),
+        (
+            'source_to_wheel_binding = "unverified"',
+            'source_to_wheel_binding = "verified"',
+            "allowance fields",
+        ),
+        ('reviewed_on = "2026-09-04"', 'reviewed_on = "2026-09-03"', "expire within 30 days"),
+        ('expires_on = "2026-10-04"', 'expires_on = "2026-10-05"', "expire within 30 days"),
+    ],
+)
+def test_wheel_only_allowance_preserves_identity_scope_and_window(
+    tmp_path: Path, old: str, new: str, message: str
+) -> None:
+    """Reject mismatched identities, release use, verified claims and expanded dates."""
+    prefix, allowance = POLICY_PATH.read_text().split("[[wheel_only_allowances]]", 1)
+    assert old in allowance
+    path = tmp_path / "policy.toml"
+    path.write_text(prefix + "[[wheel_only_allowances]]" + allowance.replace(old, new, 1))
+    with pytest.raises(DependencyAdmissionError, match=message):
+        load_policy(path)
+
+
+def test_duplicate_wheel_only_allowances_are_rejected(tmp_path: Path) -> None:
+    """Reject conflicting grants for the same native dependency."""
+    source = POLICY_PATH.read_text()
+    allowance = source.split("[[wheel_only_allowances]]", 1)[1]
+    path = tmp_path / "policy.toml"
+    path.write_text(source + "\n[[wheel_only_allowances]]" + allowance)
+    with pytest.raises(DependencyAdmissionError, match="duplicate wheel-only allowance"):
+        load_policy(path)
+
+
+def test_removing_allowance_does_not_admit_a_package_without_source(tmp_path: Path) -> None:
+    """Require a source distribution when the explicit wheel-only allowance is absent."""
+    source = POLICY_PATH.read_text().split("[[wheel_only_allowances]]", 1)[0]
+    path = tmp_path / "policy.toml"
+    path.write_text("wheel_only_allowances = []\n" + source)
+    findings = _python_lock_findings(
+        REPOSITORY_ROOT, load_policy(path), validation_date=date(2026, 9, 13)
+    )
+    assert "quantlib lacks a digest-bound source distribution" in findings
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ("https://files.pythonhosted.org", "https://evil.invalid", "unapproved source"),
+        ("sha256:", "sha256:invalid", "wheel without a SHA-256 digest"),
+    ],
+)
+def test_wheel_only_allowance_keeps_artifact_source_and_hash_checks(
+    tmp_path: Path, old: str, new: str, message: str
+) -> None:
+    """Reject a malformed QuantLib wheel even while development use is allowed."""
+    source = (REPOSITORY_ROOT / "uv.lock").read_text()
+    prefix, marker, tail = source.partition('name = "quantlib"\n')
+    assert marker
+    package, separator, suffix = tail.partition("\n[[package]]")
+    assert old in package
+    (tmp_path / "uv.lock").write_text(
+        prefix + marker + package.replace(old, new, 1) + separator + suffix
+    )
+    findings = _python_lock_findings(
+        tmp_path, load_policy(POLICY_PATH), validation_date=date(2026, 9, 13)
+    )
+    assert any("quantlib" in finding and message in finding for finding in findings)
 
 
 def test_clean_pip_audit_report_covers_the_admitted_graph(tmp_path: Path) -> None:
@@ -260,11 +306,11 @@ def test_pip_audit_identity_and_coverage_are_exact(
         [],
         {"dependencies": [], "fixes": []},
         {"dependencies": {}, "fixes": []},
-        {"dependencies": [], "fixes": {}, "retired_waivers": []},
+        {"dependencies": [], "fixes": {}, "unexpected": []},
     ],
 )
-def test_pip_audit_malformed_or_retired_shape_is_rejected(tmp_path: Path, report: object) -> None:
-    """Reject malformed reports and fields from the retired waiver contract."""
+def test_pip_audit_malformed_or_unknown_shape_is_rejected(tmp_path: Path, report: object) -> None:
+    """Reject malformed reports and unrecognized top-level fields."""
     policy = load_policy(POLICY_PATH)
     with pytest.raises(
         DependencyAdmissionError,
@@ -276,19 +322,19 @@ def test_pip_audit_malformed_or_retired_shape_is_rejected(tmp_path: Path, report
 @pytest.mark.parametrize(
     ("replacement", "message"),
     [
-        ("schema_version = 2", "schema_version must be 3"),
+        ("schema_version = 2", "schema_version must be 4"),
         ("vulnerability_decisions = []", "root has missing or unknown fields"),
     ],
 )
-def test_policy_rejects_old_schema_and_retired_keys(
+def test_policy_rejects_unsupported_schema_and_unknown_keys(
     tmp_path: Path, replacement: str, message: str
 ) -> None:
-    """Keep schema 3 explicit and reject removed waiver policy keys."""
+    """Keep schema 4 explicit and reject unknown policy keys."""
     source = POLICY_PATH.read_text(encoding="utf-8")
     if replacement.startswith("schema"):
-        source = source.replace("schema_version = 3", replacement, 1)
+        source = source.replace("schema_version = 4", replacement, 1)
     else:
-        source = source.replace("schema_version = 3", f"schema_version = 3\n{replacement}", 1)
+        source = source.replace("schema_version = 4", f"schema_version = 4\n{replacement}", 1)
     path = tmp_path / "dependency-admission.toml"
     path.write_text(source, encoding="utf-8")
     with pytest.raises(DependencyAdmissionError, match=message):

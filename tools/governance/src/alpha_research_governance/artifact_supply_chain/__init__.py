@@ -14,7 +14,6 @@ from alpha_research_governance.dependency_admission import require_release_admis
 def main(arguments: Sequence[str] | None = None) -> int:
     """Check dependency release admission before rejecting the absent consumer.
 
-    The former development-policy and artifact lifecycle commands are retired.
     Dependency admission alone cannot enable releases or create artifacts.
 
     Args:

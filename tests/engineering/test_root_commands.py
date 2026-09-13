@@ -46,27 +46,10 @@ def test_authoritative_check_has_one_direct_uv_source_path_and_wheel_smoke() -> 
     assert commands.count("uv run --frozen python -m alpha_research_governance.wheel_smoke") == 1
     assert any("mypy.stubtest" in command for command in commands)
     assert any("bandit" in command for command in commands)
-    assert all(
-        retired not in result.stdout
-        for retired in (
-            "bazel",
-            "remote-execution",
-            "run_affected_ci_lane",
-            "event-log",
-            "alpha-governance-program",
-            "alpha-governance-evidence",
-            "alpha-governance-ownership",
-            "alpha-governance-change-risk",
-            "alpha-governance-inventory",
-            "alpha-governance-topology",
-            "alpha-governance-security",
-            "alpha-governance-artifacts",
-        )
-    )
 
 
 def test_hosted_workflow_has_one_source_job_and_cross_platform_smoke() -> None:
-    """Require direct CI steps, the preserved merged-result name and no retired scheduler."""
+    """Require direct CI steps, merged-result identity and cross-platform smoke."""
     makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
     workflow = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     secrets = (
@@ -84,31 +67,18 @@ def test_hosted_workflow_has_one_source_job_and_cross_platform_smoke() -> None:
     assert "runs-on: macos-14" in workflow
     assert workflow.count("make source-check") == 1
     assert workflow.count("make wheel-smoke") == 2
-    assert "alpha-governance-evidence" not in workflow
     assert "merged result parents do not match" in workflow
     assert "checked-out commit does not match the merged result" in workflow
     assert "detect-private-key" in secrets
     assert "alpha-governance-ci scan-secrets --all" in makefile
     assert "dependency-audit:" in makefile
     assert "bandit" in makefile
-    for retired in (
-        "ci-fast",
-        "run_affected_ci_lane",
-        "run_authoritative_full_ci_lane",
-        "event-log",
-        "bazel",
-        "remote-execution",
-    ):
-        assert retired not in makefile
-        assert retired not in workflow
 
 
-def test_build_and_check_do_not_offer_a_second_backend() -> None:
-    """Reject the retired Bazel/rollback backend switches at the root interface."""
+def test_build_produces_the_runtime_wheel() -> None:
+    """Build the runtime wheel using the frozen project environment."""
     makefile = (REPOSITORY_ROOT / "Makefile").read_text(encoding="utf-8")
 
-    assert "BUILD_BACKEND" not in makefile
-    assert "rollback-check" not in makefile
     assert "build:" in makefile
     result = _run_make("-n", "build")
     assert result.returncode == 0, result.stderr

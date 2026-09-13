@@ -13,9 +13,9 @@ dynamic types are prohibited throughout the checked scope, including tests.
 The four `disallow_any_*` flags are global in `pyproject.toml`; there are no
 module allowances or migration inventories.
 
-The root command runs mypy directly once. The historical governance typing
-CLI and its extra subprocess wrapper are retired; the same strict flags,
-source/test/stub scope and diagnostics remain enforced by `make typecheck`.
+The root command runs mypy directly once across source, tests and native stubs.
+`make typecheck` also checks the declared native signatures against the installed
+libraries.
 
 ## Native stubs
 

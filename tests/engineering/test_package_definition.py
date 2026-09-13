@@ -81,7 +81,7 @@ class TestPackageDefinitionContracts:
         }
 
     def test_governance_is_available_only_to_development_tools(self) -> None:
-        """Keep governance in development dependencies and reject runtime compatibility scripts."""
+        """Keep governance and command entry points outside the runtime distribution."""
         configuration = _load_pyproject()
         tool_configuration = _load_pyproject("tools/governance/pyproject.toml")
         uv = _require_table(_require_table(configuration, "tool"), "uv")
@@ -101,7 +101,6 @@ class TestPackageDefinitionContracts:
         constraints = TypeAdapter(list[str]).validate_python(uv["constraint-dependencies"])
         assert "numpy==2.4.6" in constraints
         assert scripts["alpha-governance-ci"] == "alpha_research_governance.ci_policy:main"
-        assert "alpha-governance-remote-execution" not in scripts
         assert not any("governance" in requirement for requirement in runtime_dependencies)
         assert "alpha-research-governance==0.1.0" in development_dependencies
         assert "scripts" not in runtime_project
@@ -109,7 +108,7 @@ class TestPackageDefinitionContracts:
             entry.name
             for entry in importlib.metadata.distribution("alpha-research-lab").entry_points
         }
-        assert "alpha-research-ci" not in installed_commands
+        assert not installed_commands
 
     def test_wheel_smoke_is_the_build_install_boundary(self) -> None:
         """Require the root interface to invoke the isolated installed-wheel smoke."""

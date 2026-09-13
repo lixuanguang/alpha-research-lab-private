@@ -1,52 +1,56 @@
 # Dependency admission reference
 
-The [architecture guide](README.md#dependency-and-release-boundaries) is the
-current explanation of this boundary. This short page remains because retained
-QuantLib evidence links to its stable headings, while the adjacent
-`dependency-admission.toml` is the machine-readable policy consumed by the
-checker.
+This page owns the dependency admission contract, native allowance and supported
+commands. The [architecture guide](README.md#dependency-and-release-boundaries)
+summarizes its place in the system;
+[`dependency-admission.toml`](dependency-admission.toml) is the machine-readable
+policy consumed by the checker.
 
-Schema version 3 binds the frozen `uv.lock` to exact package versions, artifact
+Schema version 4 binds the frozen `uv.lock` to exact package versions, artifact
 hashes and URLs, the reviewed PyPI simple index, Darwin arm64 and Linux x86_64
 wheel coverage, dependency edges, licenses, and vulnerability coverage. The
-checker fixes the lock path and `src`/`tools` runtime scan roots directly;
-unused configurable copies of those boundaries were retired. `uv lock --check`
-separately ties that lock to the project manifest. The admission checker rejects
-missing, duplicate, mutable, unsafe, or unverifiable identities. Development
-tools remain outside the runtime package. `pip-audit` must cover the complete
-admitted package set, and every finding blocks admission because no vulnerability
-waivers are retained.
+checker fixes the lock path and `src`/`tools` runtime scan roots directly.
+`uv lock --check` separately ties that lock to the project manifest. The checker
+rejects missing, duplicate, mutable or unsafe identities. Development tools
+remain outside the runtime package. `pip-audit` must cover the complete admitted
+package set, and every finding blocks admission; no vulnerability waivers exist.
 
-## Wheel-only source evidence
+## Wheel-only development allowance
 
-The former source-bound SLSA wheel profile is retired: it was empty and had no
-current consumer. Advisory Scorecard reports, vulnerability-waiver records, and
-general emergency-override records are retired for the same reason. Their
-parsers, model types, CLI routes, and exclusive tests were removed together.
-An ordinary package must continue to provide a digest-bound source distribution;
-no alternate profile silently rescues malformed source metadata.
-The former `audit-report` command, `PipAuditRunner`/`run_pip_audit` forwarding
-API, and package `__main__` forwarding module were also unused and retired;
-`audit` remains the canonical scanner command.
+An ordinary package must provide a digest-bound source distribution. A native
+package without one requires an explicit `wheel_only_allowances` record matching
+its admitted name and version. The record declares a rationale, isolated
+development/CI usage, an **unverified** source-to-wheel binding, review date and
+expiry. Its validity cannot exceed 30 days or extend beyond the policy review
+deadline. Duplicate records and an allowance overriding source-distribution
+metadata are rejected.
 
-## Bounded solo bootstrap publication evidence
+This allowance preserves lock, hash, source-origin, platform, license,
+vulnerability and runtime-install checks. It does not authenticate publisher
+signatures or establish source-to-wheel provenance. Archived native evidence,
+its publication-attestation verifier and the Cosign CI installation have been
+removed; historical records remain in Git.
 
-The bounded bootstrap profile is the retained native exception. It may
-accept publication-only evidence with an explicitly unverified source-to-wheel
-binding only for isolated development and CI, with an expiry and an enforced
-release block. The old institutional evidence packs are retired. Retained native
-records are ordinary digest-bound files under
-`docs/governance/evidence/quantlib-1.43/`, with the separate 1.40 investigation
-kept for historical comparison. Publication attestations identify the publisher;
-they do not prove that the inspected source produced the wheel.
+## QuantLib restriction
 
-## QuantLib exception
+QuantLib 1.43 is used by the C03 date-convention adapter. Its allowance applies
+only to isolated development and CI from **2026-09-04 through 2026-10-04**.
+The source-to-wheel binding remains unverified, so the
+[artifact boundary](artifact-supply-chain.md) blocks release use for the graph.
+Removing the allowance alone does not clear the block: ordinary admission still
+rejects its missing source distribution.
 
-QuantLib 1.43 is admitted only for isolated development and CI through
-**2026-10-04**. Its source-to-wheel binding remains unverified, so the artifact
-boundary blocks release creation, signing, publication, and consumer
-verification for the graph. Resolve the evidence gap or remove the dependency,
-imports, lock entries, and tests together before clearing the block.
+Resolve the source-binding requirement with an enforceable admission contract,
+or remove the dependency, imports, lock entries and affected tests together,
+before enabling release use. Native adapter conformance tests and exact domain
+goldens remain behavioral checks, not provenance verification.
+
+## Review and reversal
+
+Re-review on expiry, any dependency/policy change, or the first release consumer.
+If the admission contract is defective, revert or correct the affected policy,
+lock identity, checker, tests and documentation together. This allowance grants
+no deployment, activation, credential, market or capital authority.
 
 ## Commands
 
@@ -54,4 +58,7 @@ imports, lock entries, and tests together before clearing the block.
 uv run --frozen alpha-governance-dependencies
 uv run --frozen alpha-governance-dependencies audit
 uv run --frozen pip-audit --locked
+uv run --frozen alpha-governance-artifacts release-check
 ```
+
+The last command currently fails with the unresolved native dependency blocker.

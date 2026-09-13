@@ -4,13 +4,10 @@
 
 This boundary records the release requirements that a future trusted artifact
 consumer must implement. It does not build, sign, publish, or verify artifacts
-today. The former bundle lifecycle and its machine-readable policy were retired
-because this repository has no release consumer that could use their output.
+today; this repository has no implemented release consumer.
 
 `alpha-governance-artifacts release-check` delegates to dependency admission
-and then fails closed with a no-consumer finding. The former no-argument check
-only repeated dependency-policy parsing and input existence checks after the
-artifact framework was removed; that redundant source-check phase is retired.
+and then fails closed with a no-consumer finding.
 `make governance-check` retains the actual clarity, dependency and local-link
 checks. Passing development checks does not authorize release or deployment.
 
@@ -44,5 +41,5 @@ uv run --frozen alpha-governance-artifacts release-check
 ```
 
 This diagnostic is expected to fail until both dependency admission and a
-trusted release consumer exist. No-argument and retired lifecycle invocations
-return usage failures and produce no artifacts.
+trusted release consumer exist. Unsupported invocations return usage failures
+and produce no artifacts.
