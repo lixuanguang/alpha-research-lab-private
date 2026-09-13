@@ -77,10 +77,19 @@ universe, hypothesis and holdout boundaries continue to apply to notebook work.
 Exploration that changes selection must retain its attempts, including failures;
 an ignored notebook's overwritten output is not the sole research record.
 
+Notebooks may tailor names and calculations to a particular asset or alpha
+hypothesis. Maintained package code follows the
+[generalization and activation standard](../coding_standards/README.md#generalized-code-and-configuration-driven-activation):
+shared operations use role-based names and explicit inputs, strategy modules own
+their formulas, and configuration selects active instances, assets, parameters
+and associated pipelines. Asset-specific notebook defaults do not become hidden
+package defaults during promotion.
+
 The maintained package owns productionized shared infrastructure and versioned
 strategy implementations intended for publication or operation. Promote an idea
 when it has a concrete retained consumer or a selected reproducible strategy
-contract: extract cohesive logic, validate its inputs and invariants, retain
+contract: extract cohesive logic, move incidental case assumptions into explicit
+inputs/configuration, validate its inputs and invariants, retain
 decisive regression cases and expose a callable interface. Package development
 can proceed in bounded tested slices before a complete strategy is ready.
 After promotion, notebooks call that implementation for formal results; they
@@ -99,16 +108,26 @@ or activation. Existing release and operating boundaries remain applicable.
 
 Start with small versioned records, not a registry platform. Assign a stable `strategy_id` from the first formal
 run. Add a `family_id` when variants or shared selection rules make grouping useful. Keep each record
-human-readable and append changes rather than silently renaming history. A strategy record identifies its asset,
-universe, representation and precision, horizon, lifecycle state, current version, optional family, and links to
-code and data contracts. A family record groups related variants; neither record approves a strategy or replaces
-the trial ledger.
+human-readable and append changes rather than silently renaming history. A strategy record identifies its
+implementation, input/parameter contracts, supported capabilities, lifecycle state, version and optional family.
+A configured instance links that strategy/version to its selected assets/universe, representation and precision,
+horizon, parameters and data bindings, with a distinct instance identity. Reusing the algorithm for another
+compatible asset does not require copying its implementation or inventing another algorithm ID. A family record
+groups related variants; these records neither approve a strategy nor replace the trial ledger.
+
+Instance identity includes its state namespace; each invocation resolves actual
+universe membership, versions, parameters and input dependencies into an immutable
+run manifest. Collection jobs may serve several strategies or a wider EDA universe.
+Deployment/account/trading authority is added only for the corresponding runtime
+consumer and cannot be inferred from a research selection. Historical EDA and
+deterministic strategies can advance after M2 without M3 live capture or M4 models;
+the [capability plan](capability-milestones.md) owns these dependencies.
 
 | Artifact | Minimum contents | Purpose |
 | --- | --- | --- |
 | Dataset manifest | Source and rights, raw identity, availability and knowledge times, revisions, universe rule, units, timezone, adjustments, quality policy | Rebuild the point-in-time sample and limitations |
 | Split/transform manifest | Train/validation/test intervals, label horizon, purge/embargo, fit rows, feature and imputation versions, seed | Prove selection used permitted information |
-| Trial record | Strategy/family IDs, hypothesis, exact command, commit, lock identity, data/config/model identities, choices, resources, metrics, uncertainty, outcome | Account for every result influencing a decision |
+| Trial record | Strategy/family/instance IDs, run/attempt identity, state namespace, hypothesis, exact command, commit/lock, resolved universe/config/data/model identities, choices, resources, metrics, uncertainty, outcome | Account for every result influencing a decision without sharing instance state |
 | Model/rule artifact | Version, inputs, parameters, transforms, precision, representation, serialization identity, expected errors | Reuse decision logic in replay and operation |
 | Portfolio/replay trace | Signals, targets, orders, fills, costs, financing, cash, positions, exposures, risk, timestamps, reconciliation | Compare decisions with executable behavior |
 | Selection/OOS manifest | Closed family, selection rule, freeze identity, access record, final result, failures and deviations | Protect and interpret final evidence |

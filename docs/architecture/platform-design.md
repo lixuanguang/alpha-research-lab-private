@@ -44,9 +44,10 @@ src/alpha_research/
   instrument_identity/      CURRENT: canonical IDs and temporal mappings
   venue_calendar/           CURRENT: bounded venue/session state
   core/                     CURRENT: event provenance; further shared contracts as needed
+  configuration.py          PLANNED: typed configuration reading, validation and resolution
   data/                     CURRENT: events and decoding; PLANNED: transport, raw storage, PIT datasets
   research/                 PLANNED: observations, features, labels, trial/report operations
-  pipelines/                PLANNED: acquisition, dataset-building and research orchestration
+  pipelines/                PLANNED: acquisition, dataset, EDA/replay, live, research and runtime orchestration
   strategies/               PLANNED: strategy kernels and versioned configs
   simulation/               PLANNED: replay, fills, costs, market mechanics
   portfolio/                PLANNED: targets, constraints, allocation, netting
@@ -57,6 +58,7 @@ src/alpha_research/
   runtime/                  PLANNED: process lifecycle and durable-state library contracts
   telemetry/                PLANNED: bounded metrics, traces, and audit events
 
+configs/                    CURRENT: authored reference data; PLANNED: implementations, bindings and active instances
 apps/                       PLANNED: independently deployed pipeline entry points when needed
 deploy/                     PLANNED: environment definitions and non-secret config
 packages/                   OPTIONAL PLANNED: separately packaged shared libraries
@@ -118,6 +120,68 @@ Cross-process messages use versioned schemas and explicit compatibility rules. I
 cohesive classes; introduce protocols for real interchangeable implementations or useful test boundaries. A measured
 native boundary warrants an explicit ABI. Provider objects,
 exceptions, timestamps with unknown timezone semantics, and mutable registries stop at adapters.
+
+## Configuration and active workflows
+
+This is a planned boundary under the
+[configuration-driven implementation standard](../coding_standards/README.md#generalized-code-and-configuration-driven-activation).
+The current authored instrument catalog supplies reference facts and assumptions;
+it does not select active assets or strategies. Introduce a small typed file
+reader with the first acquisition consumer, then extend its records with actual
+strategy consumers. JSON fits the existing serialization boundary; multiple file
+formats, a registry service and a configuration programming language are unnecessary.
+
+Keep these responsibilities distinct, whether the records live in one file or
+in explicitly referenced versioned files:
+
+| Configuration record | What it declares | What consumes it |
+| --- | --- | --- |
+| Implementation definitions | Stable IDs/versions for reviewed installed strategy, pipeline and adapter entry points, with their supported input/output contracts and capabilities. Configuration cannot grant capabilities absent from the implementation. | A configuration resolver validates references/records; the orchestrator loads, checks and constructs the selected implementation. Foundation/config libraries do not import pipelines or providers. |
+| Instrument/reference and universe definitions | Canonical IDs, temporal membership/source/venue mappings, applicable increments/multipliers/currencies and market rules, with evidence semantics. | Data, strategy and accounting validation. Catalog membership is not collection, research selection or trading authority. |
+| Data jobs and pipeline bindings | Job ID, source, dataset/stream type, pipeline, independently selected universe, historical/live mode, interval, policies and explicit raw/snapshot references. | Acquisition, dataset or live orchestration. The collection universe may exceed a strategy's universe. |
+| Strategy definitions | Strategy ID/version, implementation, parameters, declared input/output capabilities and named data/feature/model requirements. | Strategy-instance resolution and contract validation; formulas remain in strategy code. |
+| Strategy instances | Instance ID, strategy reference, selected assets and dependency bindings, supported mode and isolated state namespace. Active instances are selected per workflow. | Research/runtime orchestrators and per-instance trials/results; multiple instances can share compatible immutable inputs. |
+| Deployment and authorization, when implemented | Deployment/environment, instance/artifact versions, account/venue/execution connections, independently approved instrument/limit/duration envelope and monitoring/risk bindings. | Runtime orchestration within existing release/operating boundaries. Research config cannot grant executable access. |
+
+For example, a `return_momentum` implementation can have a BTCUSDT instance and
+an ETHUSDT instance with different configured quantities. Both refer to their
+canonical instrument IDs and compatible trade-data bindings. Enabling the second
+instance changes configuration, while the observation, decision, fill and ledger
+operations keep their role-based names and explicit inputs. This demonstrates
+reuse within supported spot mechanics; it does not authorize another empirical
+experiment or establish support for a derivative or a multi-currency portfolio.
+
+The orchestrator reads a selected configuration, resolves the active data jobs or
+strategy instances and their bindings, validates references, units and capability
+compatibility, then composes the requested workflow. Relationships are many-to-many:
+one strategy may use several instruments/sources, and several strategies may share
+a dataset or collection job. A strategy-driven acquisition derives requirements
+from its selected instances; an independent data job owns its broader collection
+scope. Deactivating a strategy does not implicitly stop that collection. Avoid a
+platform-global mutable active asset/pipeline. Use a small declarative
+mapping to reviewed installed entry points with a typed contract, so adding a
+compatible strategy does not require editing a shared strategy-name dispatch
+chain. Resolve only explicit installed implementations; do not evaluate formulas
+or arbitrary commands from configuration. Keep construction and sequencing in
+the pipeline, with parsing and validation as reusable library operations.
+
+Acquisition, dataset building and saved-snapshot research remain separate
+workflows. A research input binding identifies the required saved dataset; it
+does not implicitly trigger a download. Inactive definitions cause no workflow
+execution. Reuse immutable inputs only when their complete identities and
+requirements match; keep mutable state and outputs separate for each strategy
+instance. P1 is planned to execute independent instances sequentially without introducing
+concurrency or cross-strategy portfolio allocation.
+
+Retain an immutable resolved run manifest with actual universe membership and
+reference versions, parameters/policies, implementation/code/schema versions,
+source/input identities and run/instance/state namespace as applicable. Add
+deployment identity with its consumer; keep attempt clocks outside semantic identity.
+A mutable config name or model alias alone cannot identify what ran. Reject missing selections and unsupported
+combinations before workflow effects. New assets using existing mechanics need
+configuration/reference additions; new algorithms need strategy code and config.
+A missing representation, source protocol, lifecycle or monitoring behavior
+requires an implementation at that owning boundary before activation can succeed.
 
 ## Canonical economic and temporal model
 
@@ -199,6 +263,20 @@ expected partitions, and quality thresholds. A new specification or policy produ
 Quality states are explicit: informational records remain visible; degraded data may be used only with a visible
 limitation and stated scope; hard failures prevent publication; and an incident identifies affected products,
 experiments, candidates, and releases for replay.
+
+The [delivery plan](../roadmap/capability-milestones.md) places basic normalization,
+coverage/identity/time checks and atomic publication in M1, before a dataset is
+advertised as valid. M2 supplies selective, versioned, bounded-memory EDA and replay
+without a live feed or hosted service dependency. Market-event access and feature
+serving are distinct contracts even if they share storage.
+
+Historical ingestion and live capture converge on compatible canonical envelopes
+while retaining source/receipt/availability differences. M3 adds tested `valid`,
+`degraded`, `stale`, `recovering` and `unavailable` transitions with consumer actions,
+backpressure and synchronization. Replay the exact locally captured inputs and
+receipt order to establish parity; a later vendor archive cannot stand in for
+what the local system knew. A decoded depth update alone does not establish a
+valid book after a gap; enable that consumer only with its reconstruction contract.
 
 ## Dataset, feature, label, and experiment contracts
 
@@ -367,6 +445,17 @@ Minimum signals include stale or missing data, heartbeat loss, sequence gaps, re
 limit breaches, position/cash mismatch, open-order mismatch, fill duplication, reconciliation failure, resource
 exhaustion, and alert-delivery failure.
 
+Deliver the applicable signals with the first working capability: batch progress,
+invalid counts and persistence failures in M1; advancing ingestion, freshness,
+queues and recovery in M3; query resource/failure visibility in M2; execution,
+attribution and risk state in M6/M7. A live heartbeat with no advancing work must
+be distinguishable from a healthy service. Test process/collector loss and alert
+delivery; hard risk controls do not depend on telemetry availability. Instrumentation
+or model-tracking products supply adapters, not the domain checks or responses.
+Every deployed strategy needs operational/economic monitoring; learned-model checks
+add feature freshness, prediction behavior, inference failures and delayed-label
+evaluation through the same versioned research definitions.
+
 On a material signal, safe response stops new risk, cancels where safe, fences the affected process or account,
 preserves raw and normalized evidence, reconciles the venue, and records release/configuration identity. Restart follows
 state, schema, credential, limit, and fencing checks. Backup/restore, stop/cancel, replay, rollback, and alert delivery
@@ -402,9 +491,11 @@ artifact is admitted and tested for every supported platform before a consumer d
 
 ## Delivery sequence
 
-The [platform roadmap](../roadmap/README.md#priority-and-completion-model) owns priority and completion status:
-current foundations lead to a causal baseline, reusable research, faithful simulation/accounting, supervised production,
-multi-asset/multi-strategy operation and infrastructure scale. The people-triggered organizational workstream is last in
+The [platform roadmap](../roadmap/README.md#priority-and-completion-model) owns maturity and status;
+the [capability milestones](../roadmap/capability-milestones.md) own MR delivery and demonstrated exits.
+Validated historical data leads to EDA/replay and independent research/backtesting
+while reliable live capture advances alongside them. Features/models are added
+with their consumers; paper/shadow precedes controlled live operation. The people-triggered organizational workstream is last in
 speculative priority. Technical scaling does not require hiring first, and onboarding does not wait for platform scale.
 
 Each slice leaves the previous path usable or provides a tested rollback. It states what is implemented, what remains

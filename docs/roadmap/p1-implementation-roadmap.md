@@ -1,12 +1,19 @@
 # P1 implementation roadmap: first causal baseline
 
-Owner: repository founder. Status: refined implementation plan as of 2026-09-13;
+Owner: repository founder. Status: refined implementation plan as of 2026-09-14;
 no P1 end-to-end result is claimed. The MR 00 specification and library-guideline
 checkpoint merged in [PR 14](https://github.com/lixuanguang/alpha-research-lab-private/pull/14)
-at `8b53d7507c313a96e1a31bc080839a60f9821ac6`, the base revision for this cleanup.
-Cleanup C0 is **implemented in the current checkpoint**. MRs 01–28
+at `8b53d7507c313a96e1a31bc080839a60f9821ac6`. Cleanup C0 merged in
+[PR 15](https://github.com/lixuanguang/alpha-research-lab-private/pull/15)
+at `67b740197cdf27113fddd98030b32ba83ab2e59c`. MRs 01–62
 remain **planned**. The [selected experiment](../research/p1-baseline.md)
 continues to own the frozen economic assumptions.
+
+The [capability milestone plan](capability-milestones.md) now owns delivery order
+and integrated exits, including EDA, live capture and operation. Both plans use
+the single MR 01–62 sequence: this page defines the core data and baseline
+contracts, while the milestone plan defines their additional workflow/control
+packages. The milestone table identifies the full range for each usable outcome.
 
 This page turns [P1: first causal baseline](README.md#p1-first-causal-baseline)
 into individually reviewable merge requests. The
@@ -33,6 +40,14 @@ fixes the sample, quantity, costs and timing before comparative results.
 unresolved.** This source selection does not authorize controlled data access.
 No-trade uses the same accounting as the single unlevered, long-or-flat baseline.
 
+The selected pair and hypothesis are configuration for this experiment, not
+special cases in shared implementation. Follow the
+[generalization and activation standard](../coding_standards/README.md#generalized-code-and-configuration-driven-activation)
+from the first consuming slice. Synthetic configurations may exercise another
+compatible asset or strategy through the same code without changing the frozen
+empirical case. P1 will support independent single-instrument, cash-funded spot
+instances; broader mechanics require their own implemented capability.
+
 This trade-price model needs neither book reconstruction nor an OMS. Fills are
 declared simulation assumptions; trade prints do not establish executable prices,
 spread, liquidity or queue priority. Depth decoding already works and remains
@@ -45,8 +60,9 @@ A negative net result can complete this engineering baseline. It does not prove
 alpha, satisfy a future strategy-selection threshold or grant trading readiness.
 Synthetic examples establish software properties; final permitted-source
 acceptance is a separate requirement. P2 fitting/sweeps, P3 venue fidelity and
-P4 operation remain outside this sequence unless the selected baseline requires
-a specific dependency.
+P4 operation remain outside this baseline's dependencies unless the selected
+strategy requires a specific capability. M2 historical EDA and M5 deterministic
+backtesting can advance while M3 live capture is built; neither waits for M4 models.
 
 ## Existing libraries and remaining work
 
@@ -84,7 +100,7 @@ dataset pipeline     -> those saved inputs -> immutable canonical snapshot
 research pipeline    -> snapshot + frozen config -> trial record + net report
 ```
 
-These are three callable workflows in the existing package, not three services.
+These are callable workflows in the existing package, not mandatory services.
 Artifact arrows do not imply imports between pipelines. In particular, a saved
 snapshot research run does not implicitly acquire or rebuild data. The names
 below are proposed modules under `src/alpha_research/`; create each with its first
@@ -92,14 +108,15 @@ working workflow, not as an empty skeleton or a forwarding facade.
 
 | Pipeline owner | Explicit inputs and result | Coordination owned here | First working slice and growth |
 | --- | --- | --- | --- |
-| `pipelines/acquisition.py` | Validated request, permitted access reference, destination, transport and clock → verified raw objects and acquisition manifest | Construct/reuse the provider transport; select partitions; sequence fetch, verification and durable publication; record original clocks; apply bounded retry and restart policy. | MR 04 fetches and stores one partition; MR 05 adds manifest-backed resume. |
-| `pipelines/dataset.py` | Saved request/raw manifest and verified objects, catalog, eligibility evidence and explicit normalization/quality policy → immutable snapshot | Construct/reuse the configured framing and payload decoders; iterate raw frames; bind occurrences; apply revision, eligibility and quality operations; assemble and publish the snapshot. | MR 07 produces traceable occurrences; MRs 08–13 extend the same workflow through publication. |
-| `pipelines/research.py` | Explicit saved snapshot, frozen strategy/execution config, seed, trial and output locations → retained attempt and exact net report | Own the decision clock, per-run ledger and pending intent; sequence observations, decisions, fills, costs and valuation; record start/failure/completion and publish results. | MR 25 executes a callable synthetic run; MR 26 adds durable reports; MR 27 adds argument parsing and an installed command entry point here. |
+| `pipelines/acquisition.py` | Resolved data-job/universe bindings, validated requests, permitted access reference, destination and clock → verified raw objects and acquisition manifest | Construct/reuse the configured provider transport; select partitions; sequence fetch, verification and durable publication; record original clocks; apply bounded retry and restart policy; expose progress/failure. | MR 05 fetches/stores one partition; MR 06 adds resume; MR 07 adds the installed acquisition command. |
+| `pipelines/dataset.py` | Saved request/raw manifest and verified objects, resolved universe/catalog, eligibility evidence and explicit normalization/quality policy → immutable snapshot | Construct/reuse configured decoders; iterate frames; bind occurrences; apply revision, eligibility and quality operations; assemble/publish the snapshot and expose its quality report. | MR 02 starts fixture inspection; MR 09 adds persisted occurrences; 10–15 complete publication; MR 16 adds the validated-dataset command. |
+| `pipelines/research.py` | Resolved active strategy instances and saved input bindings, frozen strategy/execution parameters, seeds, trial and output locations → per-instance attempts and exact net reports | Select configured implementations; own each instance's decision clock, ledger and pending intent; sequence observations, decisions, fills, costs and valuation; record outcomes and publish results. | MR 44 executes callable synthetic runs sequentially; MR 45 adds durable reports; MR 46 adds argument parsing and an installed command entry point here. |
 
 The library contracts consumed by those workflows are:
 
 | Library responsibility | Meaningful operation and output | Consumer |
 | --- | --- | --- |
+| Configuration resolution | Read versioned definitions and explicit active selections; resolve implementation, reference and input bindings; validate capabilities and exact parameters; identify the resolved configuration. | Pipeline setup. This library does not construct collaborators or execute a workflow. |
 | Request and reference selection | Validate a bounded request, resolve full-interval instrument mappings, identify exact partitions and evidence references. | Acquisition setup; dataset input validation. |
 | Provider transport | Fetch one explicit partition with timeout and response validation; expose response bytes and receipt metadata. It does not select the next partition, retry the run or write the raw store. | Acquisition pipeline. |
 | Raw objects, storage and manifests | Verify byte identity; atomically publish/reopen immutable bytes; validate and append manifest/checkpoint records. Workflow advancement remains in the caller. | Acquisition pipeline; dataset readers. |
@@ -109,7 +126,8 @@ The library contracts consumed by those workflows are:
 | Eligibility and quality | Read evidence-backed assertions; select membership bitemporally; validate coverage and normalized partitions with explicit accepted/rejected results. | Dataset pipeline and as-of reader. |
 | Dataset manifests and snapshots | Validate semantic identity and references; atomically publish and reopen an explicitly identified snapshot. | Dataset publication; research input reading. |
 | As-of selection and observations | Select known eligible revisions and derive completed observations from explicit cutoffs/windows with missing/stale status. | Research pipeline; strategy receives the resulting decision inputs. |
-| Strategy configuration, context and rules | Read/validate the frozen specification and unit-bearing context; compute a target from completed observations. | Research pipeline. A strategy does not read raw files, fetch prices or mutate the ledger. |
+| Strategy configuration, context and rules | Resolve strategy/instance definitions and the frozen specification; compute a target from unit-bearing completed observations. | Research pipeline. A strategy does not read raw files, fetch prices, mutate the ledger or choose account limits. |
+| Simulated risk decisions | Validate explicit intent, cash, holdings and pending commitments against supported bounds, without changing strategy parameters. | Research pipeline before fill evaluation; MR 42 supplies this contract. |
 | Fills, costs, ledger and valuation | Evaluate a pending intent against an eligible event; cost an accepted fill; apply a pure state transition; mark and reconcile exact balances. | Research pipeline, which supplies and retains per-run state. |
 | Trials and reports | Validate identities and append attempt records; serialize, publish and verify exact report artifacts. | Research pipeline, which decides when an attempt starts, fails or completes. |
 
@@ -117,8 +135,49 @@ This is an ownership map, not a class or file checklist. Keep closely related
 functions together; introduce a record, protocol or module only with a real
 operation and named consumer. File/transport persistence can be a reusable
 library operation: only coordinating the overall workflow belongs in a pipeline.
-Do not add a decoder factory, provider registry, generic runner framework or
-composition subclass for this single selected path.
+Use a small declarative mapping to reviewed installed implementations for the
+actual configured consumers. Do not add a decoder factory, registry service,
+generic runner framework or composition subclass for this selected path.
+
+### Configuration delivery and onboarding
+
+The [planned configuration design](../architecture/platform-design.md#configuration-and-active-workflows)
+separates reference/universe definitions, data jobs, strategy definitions,
+instances and deployment authority. A catalog entry is never an instruction to run it.
+Shared variables, operations and paths describe their roles; the BTCUSDT pair,
+quantity, currency, selected rule and data binding live in the experiment config.
+Venue-specific decoding and strategy-specific formulas retain meaningful names
+and their own substantive library contracts.
+
+- MR 01 introduces only the configuration records needed to select bounded data
+  jobs/requests and resolve an immutable run manifest. MR 02 exercises its fixture
+  consumer. MRs 05, 09 consume those bindings for acquisition and decoding.
+- MR 34 extends the same boundary with strategy definitions, instances,
+  parameters and required data bindings. Match strategy requirements to compatible
+  data jobs/snapshots; collection may cover a wider independently selected universe.
+  Deactivating a strategy does not disable an independently requested data job.
+  MRs 35–36 supply compatible decision
+  contracts and implementations; combine dependent declarations with their first
+  working consumer where needed. Configuration cannot enable unfinished code.
+- MR 44 composes only the explicitly active instances through a shared research
+  path. MR 46 accepts an explicit config file and verifies installed entry-point
+  resolution. The frozen comparison selects no-trade and return-momentum
+  instances with independent cash and state; it is not a combined portfolio.
+
+Use one supported file format and the existing exact typed codecs. Validate
+references, periods, instrument units, parameter schemas and implementation
+capabilities before workflow execution. Resolve the actual universe for the
+selected data job or strategy instance rather than consuming every catalog entry.
+Saved-snapshot research still performs no implicit acquisition or dataset build.
+Retain immutable resolved manifests and implementation/reference identities with runs.
+
+The bounded onboarding proof changes only config/reference fixtures to run the
+same strategy on another supported synthetic instrument, then adds a compatible
+test strategy entry point plus config without editing shared orchestration.
+MR 21 adds a bounded different-family fixture at neutral query/replay interfaces;
+MR 48 exercises overlapping inputs, two instances, failed/restarted state and
+unsupported economic capabilities. These are interface/isolation proofs, not
+production support for another instrument family or another empirical experiment.
 
 ### Existing abstractions to retain or retire
 
@@ -163,12 +222,13 @@ Serialized events and historical notebook snapshots keep their original meaning.
 
 ## Merge size and review contract
 
-The sequence describes behavior to deliver, with proposed MR boundaries. C0
-precedes MR 01; the existing IDs 00–28 stay stable for specification references.
+The sequence describes behavior to deliver, with proposed MR boundaries. MR 00
+and C0 are completed prerequisites; planned work uses MR 01–62 across both plans.
 Branch from updated `main` after prerequisites merge; use
-`codex/p1-XX-<topic>` for implementation branches unless another name is requested.
-Implement in numerical order by default, subject to the source-evidence limits
-below. A row is not a requirement to create a separate file or class. Combine a
+`codex/mr-<NN>-<topic>` for implementation branches unless another name is requested.
+Follow the milestone dependency graph, subject to the source-evidence limits
+below. MR IDs remain meaningful even when independent work advances
+out of order. A row is not a requirement to create a separate file or class. Combine a
 declaration with its first working consumer when separating them would leave
 scaffolding; record the covered IDs in the actual MR.
 
@@ -191,7 +251,8 @@ state lifetime in the normal description. Review whether composition belongs
 in one of the pipelines above and whether a proposed abstraction adds a contract
 beyond forwarding. This needs no new registry, wrapper-count test or review form.
 
-Every MR carries focused tests and documentation for the behavior it introduces,
+Every MR carries focused tests, applicable progress/failure telemetry and
+recovery behavior with the capability it introduces, plus documentation,
 the local notebook exercise below, and validation in the existing PR
 template. Tests need not fit the production-line budget. The notebook does not
 replace retained regression tests. New event/economic records follow the existing
@@ -259,14 +320,15 @@ the next planned implementation slice.
 
 Do not inspect a final holdout through a notebook. Synthetic learning exercises
 are engineering work; any real-data attempt influencing hypothesis or parameter
-selection must be retained, including failed/abandoned attempts. Before MR 24
+selection must be retained, including failed/abandoned attempts. Before MR 43
 implements the journal, use an append-only text record beside protected research
 outputs with the [trial fields](research-program.md#small-records-and-artifacts).
 
 ## MR sequence
 
-Dependencies identify required contracts; numerical order is the straightforward
-implementation path, not a demand for parallel agents or stacked unmerged MRs.
+Dependencies identify required contracts under the
+[milestone map](capability-milestones.md#completion-and-dependency-model);
+they do not require parallel agents or stacked unmerged MRs.
 `NB XX` identifies an MR's learning checkpoint in the relevant activity notebook;
 it does not prescribe a separate notebook file. Python module paths below are
 relative to `src/alpha_research/`; documentation paths are repository-relative.
@@ -277,7 +339,8 @@ Unlinked module names are proposed unless identified as existing above.
 **Implemented in the current checkpoint.** The composition-only class
 and both compatibility import modules are removed. Retained callers and public
 exports use the generic and venue libraries directly; no replacement factory,
-wrapper or empty pipeline was added. MR 07 introduces the real dataset workflow.
+wrapper or empty pipeline was added. MR 02 starts the fixture pipeline; MR 09
+adds the persistent dataset workflow to it.
 
 The existing tests exercise trade, depth snapshot, depth update and disconnect
 behavior, invalid mappings, exact timestamps/identities and recovery after a
@@ -292,12 +355,12 @@ subsequent valid lines. This cleanup adds no acquisition or dataset functionalit
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
 | **00 — Freeze the bounded P1 case** | Current foundations | **Merged specification.** Added `docs/research/p1-baseline.md` as the owning experiment specification, recording the decisions below and a hand ledger before any comparison. | **NB 00:** decode a synthetic trade and disconnect, inspect all clocks and exact units, then show catalog interval rejection. Completion is an explicit selected scope and unresolved-access status, not a research result. |
-| **01 — Load a bounded source request** | 00, C0 | `data/requests.py`: strict request record/reader for the chosen provider, stream, instrument, half-open range and deterministic partition rule. Bind catalog identity and rights-record reference; resolve the whole requested interval using `CatalogSnapshot`. This is the acquisition pipeline's input contract. | Wrong symbols, empty/reversed intervals, unsupported streams and insufficient catalog coverage fail before source access. Equivalent requests have stable identity. **NB 01:** load the selected request and inspect exact partitions; reject a range crossing catalog coverage. |
-| **02 — Describe and verify a raw object** | 01 | `data/raw_objects.py`: immutable object descriptor with SHA-256, byte size, request/partition identity, retrieval reference and original receipt/ingestion times; callable verifier for an existing saved file. | Hash the exact retained bytes, including compression where present. Mutation, truncation and a descriptor for another request fail. **NB 02:** verify a tiny local object, change one byte and observe identity failure. |
-| **03 — Publish raw bytes durably** | 02 | `data/raw_store.py`: content-addressed write/read boundary, staging on the destination filesystem, durable completion and atomic publication. Reuse the verifier; preserve immutable existing objects. | Readers see complete verified objects only. Repeating the same write reuses bytes; a conflicting object is rejected. Interrupt before/after publication and reconcile the observable files. **NB 03:** inspect staging versus published state after injected failure. |
-| **04 — Fetch one provider partition** | 01–03 | `data/providers/tardis/transport.py` implements one bounded partition fetch with explicit timeout and response validation. Introduce `pipelines/acquisition.py` with a working fetch/verify/store operation using explicit transport/clock inputs. Validate request construction and response framing against current primary provider documentation during implementation. | Fake transport covers success, malformed/truncated response, auth failure and timeout through the pipeline. A smallest permitted source probe confirms actual endpoint/framing, retention and timestamp assumptions; a fake cannot close that boundary. **NB 04:** inspect a saved response through the retained decoders. Do not print credentials. |
-| **05 — Resume the acquisition manifest** | 04 | `data/manifests.py` validates, reads and appends acquisition completion/checkpoint records. Extend `pipelines/acquisition.py` with sequential partition selection, restart and bounded transient retry/backoff. Advance only after verified raw publication; do not introduce a second acquisition wrapper in `data/`. | Restart skips verified completed partitions; missing/mutated completed objects fail. Failure after object publication but before checkpoint does not lose or duplicate observations. Auth/schema errors are terminal; exhausted transient retries leave an incomplete run. **NB 05:** interrupt a three-partition fake run and compare the resumed manifest with uninterrupted acquisition. |
-| **06 — Stream raw lines with explicit gaps** | 05 | `data/providers/tardis/lines.py`: bounded decompression/UTF-8 iteration over explicit verified objects and expected partitions. Emit ordered frames with stable zero-based positions, origin, blank-line lookahead and terminal interval-end proxy metadata for the dataset pipeline. Report missing partitions and disconnect intervals without constructing a decoder. | Preserve source bytes and line order, including repeated captures and trailing blanks across object boundaries. A quiet interval is distinct from a missing object; a missing object is not an empty market. Truncation/invalid encoding fails. **NB 06:** inspect blanks at beginning/middle/end and an absent partition without inventing timestamps or padding prices. |
+| **01 — Resolve configured source requests** | 00, C0 | Introduce `configuration.py` with typed data-job/universe definitions and immutable resolved run manifests. `data/requests.py` derives bounded per-instrument requests from the selected provider, dataset/stream, pipeline, universe, half-open range and partition rule. Bind actual instrument/reference versions, policies and rights references; resolve complete intervals using `CatalogSnapshot`. Add strategy/deployment records with their consumers. | Unknown fields/references, unsupported source/product/mode combinations, invalid intervals and insufficient catalog coverage fail before source access. Equivalent resolved requests have stable identity; a changed underlying universe cannot hide behind the same config name. **NB 01:** select two supported instruments through config and inspect exact partitions; reject an unsupported family and incomplete interval. MR 02 supplies the runnable fixture consumer. |
+| **03 — Describe and verify a raw object** | 01 | `data/raw_objects.py`: immutable object descriptor with SHA-256, byte size, request/partition identity, retrieval reference and original receipt/ingestion times; callable verifier for an existing saved file. | Hash the exact retained bytes, including compression where present. Mutation, truncation and a descriptor for another request fail. **NB 03:** verify a tiny local object, change one byte and observe identity failure. |
+| **04 — Publish raw bytes durably** | 03 | `data/raw_store.py`: content-addressed write/read boundary, staging on the destination filesystem, durable completion and atomic publication. Reuse the verifier; preserve immutable existing objects. | Readers see complete verified objects only. Repeating the same write reuses bytes; a conflicting object is rejected. Interrupt before/after publication and reconcile the observable files. **NB 04:** inspect staging versus published state after injected failure. |
+| **05 — Fetch one provider partition** | 01, 03–04 | `data/providers/tardis/transport.py` implements one bounded partition fetch with explicit timeout and response validation. Introduce `pipelines/acquisition.py` with working fetch/verify/store composition from the resolved data job and explicit clock/transport dependencies. Emit run/partition identity, progress and failure status from this first consumer. The first transport is Tardis; reject unsupported selections and verify current primary provider documentation during implementation. | Fake transport covers success, malformed/truncated response, auth failure and timeout through the pipeline. A smallest permitted source probe confirms actual endpoint/framing, retention and timestamp assumptions; a fake cannot close that boundary. **NB 05:** inspect a saved response through the retained decoders. Do not print credentials or label retained raw data as a validated dataset. |
+| **06 — Resume the acquisition manifest** | 05 | `data/manifests.py` validates, reads and appends acquisition completion/checkpoint records. Extend `pipelines/acquisition.py` with sequential partition selection, restart and bounded transient retry/backoff. Advance only after verified raw publication; do not introduce a second acquisition wrapper in `data/`. | Restart skips verified completed partitions; missing/mutated completed objects fail. Failure after object publication but before checkpoint does not lose or duplicate observations. Auth/schema errors are terminal; exhausted transient retries leave an incomplete run. **NB 06:** interrupt a three-partition fake run and compare the resumed manifest with uninterrupted acquisition. |
+| **08 — Read saved raw frames with explicit gaps** | 06 | `data/providers/tardis/lines.py`: bounded decompression/UTF-8 iteration over explicit verified objects and expected partitions. Emit ordered frames with stable zero-based positions, origin, blank-line lookahead and terminal interval-end proxy metadata for the dataset pipeline. Report missing partitions and disconnect intervals without constructing a decoder. This is saved-file iteration; M3 owns live capture. | Preserve source bytes and line order, including repeated captures and trailing blanks across object boundaries. A quiet interval is distinct from a missing object; a missing object is not an empty market. Truncation/invalid encoding fails. **NB 08:** inspect blanks at beginning/middle/end and an absent partition without inventing timestamps or padding prices. |
 
 MR 00 must name the provider/access method and permitted use/retention, source
 revision and capture semantics, exact sample range, universe and eligibility
@@ -313,7 +376,7 @@ are inapplicable only while that remains true. Any comparative tuning requires
 the research program's split and trial discipline before it begins. Preserve
 the declared acceptance even if observed results are poor.
 
-MR 04 is the early source feasibility checkpoint. Source access is not assumed
+MR 05 is the early source feasibility checkpoint. Source access is not assumed
 by this roadmap. If it is unavailable, retain the exact unproven boundary and
 continue synthetic/storage/accounting work that does not depend on it. Do not
 mark permitted-source acquisition or P1 complete, purchase access, or substitute
@@ -323,15 +386,15 @@ an unapproved provider to obtain a pass.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
-| **07 — Bind decoded events to raw occurrences** | 06 | `data/normalization.py` binds an already decoded event and explicit raw origin into a persisted occurrence envelope identifying request partition, raw digest and line position. Introduce `pipelines/dataset.py` to construct one `TardisDecoder` with `BinancePayloadDecoder`, iterate frames and call the occurrence operation. Retain exact canonical event bytes and original acquisition provenance. | Two files starting at sequence zero cannot collide. Rebuild from saved objects and identical retries reproduce the same occurrence identities. Keep occurrence identity separate from the venue trade key used for economic deduplication in MR 08. **NB 07:** decode two colliding local sequences through the pipeline and trace each event back to its raw bytes. |
-| **08 — Admit duplicates and corrections explicitly** | 07 | `data/revisions.py`: resolve economic duplicates by source/venue/instrument/stream/trade ID for the selected trade representation; record conflicting payloads, revision linkage and correction publication/availability beside original occurrences. The dataset pipeline supplies occurrences and explicit correction evidence/policy. | Exact duplicates retain all lineage and contribute once. Conflicts without justified revision ordering/availability fail publication. Known corrections append versions; effective knowledge is no earlier than original capture and correction availability. **NB 08:** add a late correction and show the earlier version remains reconstructible. Positional IDs alone cannot match revisions after inserted lines. |
-| **09 — Read historical eligibility assertions** | 00–01 | `data/eligibility.py`: strict file-backed assertions for canonical instrument, valid interval, knowledge time, included/excluded state, reason and evidence identity. Validate linkage to the selected catalog/units without changing its authored meaning. | Reject missing evidence, overlapping contradictory assertions and invented knowledge dates. Preserve excluded/delisted members. Synthetic assertions are labeled as such. **NB 09:** compare a 2026-authored assumption with an assertion actually evidenced as known during the sample. |
-| **10 — Select the universe as of a decision** | 09 | Extend `data/eligibility.py` with pure bitemporal selection and explicit unknown/unsupported outcomes. Use validity and knowledge independently; append corrections rather than rewriting history. | A later listing correction/exclusion cannot change an earlier universe. Unknown membership cannot silently become eligible. **NB 10:** display inclusion before/at/after both knowledge and validity boundaries, including the half-open endpoint. |
-| **11 — Validate a canonical partition** | 07–10 | `data/quality.py`: consume normalized occurrences and policies; check declared coverage, units/identity, revisions, missing partitions, duplicate disposition and ordering. Produce canonical partition bytes plus a compact accepted/rejected quality result. Extend the dataset pipeline to supply revision/eligibility evidence and route rejected results. | Invalid records and unresolved required coverage never become accepted data. Retain exclusion and rejection reasons; no silent row drops, zero fill or forward fill. Same retained inputs/policies produce the same canonical partition. **NB 11:** inspect counts and exact lineage while injecting a duplicate, gap and wrong instrument. |
-| **12 — Validate and identify a dataset manifest** | 11 | `data/datasets.py`: versioned manifest reader and identity over ordered partition digests, raw manifests, request/catalog/eligibility identities, normalization code/schema and quality/correction policy. Verify referenced files. The dataset pipeline assembles inputs for this contract from accepted partitions. | Equivalent saved inputs rebuild the same identity; a policy/schema/reference change changes identity; missing bytes and unknown versions fail. Keep build wall-clock/path metadata outside semantic identity. **NB 12:** rebuild twice, then change one policy and compare hashes. |
-| **13 — Publish and reopen one snapshot atomically** | 12 | `data/snapshots.py`: stage verified partitions/manifest, publish the immutable snapshot as one visibility boundary, and reopen by explicit snapshot ID. Use existing raw-publication primitives only where semantics match. Complete the dataset pipeline by calling this publication operation and returning the snapshot identity. | An interrupted build exposes no partial snapshot. Prior snapshots remain readable after failure and publication of a new one. Never silently resolve a mutable latest tag in a run. **NB 13:** fail before publication, inspect reader behavior, then reopen the completed snapshot. |
-| **14 — Read point events as of a cutoff** | 08, 10, 13 | `data/asof.py`: select known revisions and eligible events from a saved snapshot with an explicit decision cutoff and business window. Define total ordering from effective knowledge, stable partition identity and source order with deterministic final tie-breaks. | Filter knowledge before selecting the latest revision. Never sort only on exchange time or take today's corrected projection. Future payload, correction and universe perturbations leave earlier selected records unchanged. **NB 14:** compare equal captures across objects, UTC offsets, late publication and future corrections at a fixed cutoff. |
-| **15 — Build completed observations at a fixed cadence** | 14 | `research/observations.py`: derive the selected trade-price observations and preceding return from explicit half-open windows. Carry input lineage, availability and staleness; emit missing/invalid status where required. | A decision sees only completed, then-available observations. Newer-but-late events are unavailable; later changes cannot revise an already emitted decision input. Require enough valid observations for the return; no future/backfill imputation. **NB 15:** plot a tiny observation timeline and show warm-up, a late trade and a stale/disconnected interval. |
+| **09 — Bind decoded events to raw occurrences** | 08, 02 | `data/normalization.py` binds a decoded event and explicit raw origin into an occurrence envelope identifying request partition, raw digest and line position. Extend `pipelines/dataset.py` from fixture inspection to persisted input: resolve the data-job decoder binding/universe, reuse framing/payload decoders, iterate frames and bind occurrences. The first binding composes `TardisDecoder` with `BinancePayloadDecoder`. Retain exact bytes and original provenance. | Two files starting at sequence zero cannot collide. Saved-input rebuilds and identical retries reproduce occurrence identities. Reject incompatible bindings; an unselected catalog instrument is not implicitly admitted. Keep occurrence identity separate from the venue trade key used in MR 10. **NB 09:** trace two colliding local sequences to their raw bytes; retain failures with job/partition identity. |
+| **10 — Admit duplicates and corrections explicitly** | 09 | `data/revisions.py`: resolve economic duplicates by source/venue/instrument/stream/trade ID for the selected trade representation; record conflicting payloads, revision linkage and correction publication/availability beside original occurrences. The dataset pipeline supplies occurrences and explicit correction evidence/policy. | Exact duplicates retain all lineage and contribute once. Conflicts without justified revision ordering/availability fail publication. Known corrections append versions; effective knowledge is no earlier than original capture and correction availability. **NB 10:** add a late correction and show the earlier version remains reconstructible. Positional IDs alone cannot match revisions after inserted lines. |
+| **11 — Read historical eligibility assertions** | 00–01 | `data/eligibility.py`: strict file-backed assertions for canonical instrument, valid interval, knowledge time, included/excluded state, reason and evidence identity. Validate linkage to the selected catalog/units without changing its authored meaning. | Reject missing evidence, overlapping contradictory assertions and invented knowledge dates. Preserve excluded/delisted members. Synthetic assertions are labeled as such. **NB 11:** compare a 2026-authored assumption with an assertion actually evidenced as known during the sample. |
+| **12 — Select the universe as of a decision** | 11 | Extend `data/eligibility.py` with pure bitemporal selection and explicit unknown/unsupported outcomes. Use validity and knowledge independently; append corrections rather than rewriting history. | A later listing correction/exclusion cannot change an earlier universe. Unknown membership cannot silently become eligible. **NB 12:** display inclusion before/at/after both knowledge and validity boundaries, including the half-open endpoint. |
+| **13 — Validate a canonical partition** | 09–12 | `data/quality.py`: consume occurrences and declared-use policies; check schema, identity/units, timestamps, revisions, coverage, duplicate disposition and ordering. Produce canonical bytes plus accepted/rejected outcome, quality scope and reasons; distinguish admissible degraded use from valid data. The dataset pipeline reports invalid/gap counts and routes failures before publication. | Invalid records and unresolved required coverage/eligibility never become valid data. Retain exclusions and reasons; no silent row drops, zero/forward fill or fabricated completeness. Same inputs/policies reproduce the partition. **NB 13:** inject a duplicate, gap, wrong instrument and conflicting correction, inspect the report and demonstrate publication refusal. Advanced statistical quality analysis is not needed to meet these basic checks. |
+| **14 — Validate and identify a dataset manifest** | 13 | `data/datasets.py`: versioned manifest reader/identity over ordered partition digests, raw manifests, resolved job/universe/catalog/eligibility identities, normalization code/schema and quality/correction/availability policy. Verify referenced files and declared quality/use scope. The dataset pipeline assembles these inputs from admitted partitions. | Equivalent saved inputs rebuild the same identity; a policy/schema/reference change changes identity. Missing bytes and unknown versions fail; a mutable config/universe name cannot substitute for its resolved content. Keep build wall-clock/path metadata outside semantic identity. **NB 14:** rebuild twice, then change one policy and compare hashes. |
+| **15 — Publish and reopen one snapshot atomically** | 14 | `data/snapshots.py`: stage verified partitions/manifest, publish the immutable snapshot as one visibility boundary, and reopen by explicit snapshot ID. Use existing raw-publication primitives only where semantics match. Complete the dataset pipeline by calling this publication operation and returning the snapshot identity. | An interrupted build exposes no partial snapshot. Prior snapshots remain readable after failure and publication of a new one. Never silently resolve a mutable latest tag in a run. **NB 15:** fail before publication, inspect reader behavior, then reopen the completed snapshot. |
+| **17 — Read point events as of a cutoff** | 10, 12, 15 | `data/asof.py`: select known revisions/eligible events from an explicit snapshot and business/decision window, preserving distinct event, availability and ingestion clocks. Define ordering from effective knowledge, stable partition identity and source order with deterministic tie-breaks. This is the reference contract for M2 query/replay adapters. | Filter availability before latest-revision selection; event-time-only joins and later corrections cannot bypass the cutoff. Same snapshot without the proper knowledge filter is reproducible but not causally valid. **NB 17:** compare equal captures, late publication, future corrections and universe changes at a fixed cutoff. |
+| **33 — Build completed observations at a fixed cadence** | 17, 19 | `research/observations.py`: derive trade-price observations and preceding return from bounded query batches and explicit half-open windows. Carry lineage, availability and staleness; emit missing/invalid status. This small deterministic operation needs neither the full M4 feature pipeline nor a fitted model. | A decision sees only completed, then-available observations. Newer-but-late events are unavailable; later changes cannot revise an already emitted input. Require enough valid observations; no future/backfill imputation. **NB 33:** show warm-up, a late trade and a stale/disconnected interval through the shared data-access contract. |
 
 Persisted event revisions may carry the current decoder output in an envelope
 instead of widening every public event type. The envelope owns occurrence and
@@ -356,17 +419,17 @@ into a nominally small MR without counting its integration and review scope.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
-| **16 — Load the frozen baseline specification** | 00–01 | `strategies/baseline_config.py`: typed immutable strategy/version, cadence/horizon, quantity, capital and execution/cost configuration with exact units and cached serialization. Bind the owning experiment and relevant reference identities. | Reject unsupported leverage/shorting/currencies, invalid periods and unsafe numeric values. Config bytes have stable identity; changed behavior cannot replace an old configuration under the same identity. **NB 16:** inspect dimensions and show that a fee or cadence change produces a new configuration identity. |
-| **17 — Define decision context and typed targets** | 15–16 | `strategies/contracts.py`: immutable context binding strategy/version, dataset/config, explicit decision clock and seed; output target quantity, decision time, horizon and input lineage. Validate all boundaries. | Context cannot select a different dataset silently. Target units belong to the selected instrument; expiration and decision time are explicit. Seed is recorded even when unused by this deterministic baseline. **NB 17:** round-trip a context/target and reject a quantity for the other instrument. |
-| **18 — Implement no-trade and the transparent rule** | 17 | `strategies/baseline.py`: pure decision functions over the selected valid completed observations. Produce zero or the predeclared fixed quantity; no fitting, parameter search or notebook-owned signal calculation. | No-trade always stays flat. Hand examples cover positive/zero/negative return, warm-up and invalid/stale observations using the frozen policy. Same context reproduces decisions, independent of invocation order. **NB 18:** display inputs beside targets and perturb future observations. |
-| **19 — Select a causally delayed simulated fill** | 14, 16–18 | `simulation/fills.py`: exact immutable simulated fill record and the selected full-fill price rule. Evaluate an explicit pending intent and causally admitted event; return a fill, pending or expiry/rejection outcome. The research pipeline supplies events in order so a target delta uses the first eligible subsequent trade after the positive delay, within its horizon; retain decision and price-event identities. | No same-observation fill. Price event and its effective availability meet the delay; source quantity does not imply available liquidity. Missing/stale/gapped prices expire or reject according to the frozen policy. **NB 19:** show decision, earliest-fill and actual-fill times, including equal-time and no-price cases. |
-| **20 — Compute fees and adverse price costs** | 19 | `simulation/costs.py`: versioned quote-currency fee and declared adverse slippage rules using C03 arithmetic/rounding. Preserve reference and effective fill prices and signed trade quantity. | Buy and sell fees reduce NAV; adverse slippage worsens both sides. Zero cost gives exact gross parity. Wrong currency, negative unsupported fee and nonfinite values fail. **NB 20:** hand-calculate one buy and one sell with nonzero costs and inspect rounding. |
-| **21 — Establish bounded ledger state** | 16, 19 | `accounting/state.py`: immutable validated single-instrument cash/position/cost-basis state, initialized from explicit cash and zero holdings. Use existing `Money`/`Quantity` values and expose working initialization/validation. | Reject inconsistent instruments/currencies, unsupported negative cash/holdings and unsafe copies. This is an economic position, not a portfolio weight. **NB 21:** inspect initialized balances and show a unit-mismatched state fails. |
-| **22 — Apply a costed fill exactly once per run** | 20–21 | `accounting/ledger.py`: pure ledger transition for buys/sells, exact fee cashflows, cost basis and realized P&L; retain applied fill identity in the bounded run state. | Repeated fill ID cannot change cash/position twice. Buy, partial sell, full sell, oversell and insufficient-cash cases follow explicit rejection rules. No external deposits are invented. **NB 22:** reconcile each step of the hand ledger below, then repeat a fill. Durable account recovery remains P3 work. |
-| **23 — Mark NAV and reconcile gross to net** | 14, 20, 22 | `accounting/valuation.py`: exact point-in-time marking, unrealized P&L and attribution for the same accepted quantities against reference/effective prices. Record fees, slippage and applicable financing separately. | Ending NAV equals cash plus marked position and reconciles to initial NAV plus net P&L. No double subtraction of slippage already embedded in fills. Stale/missing marks invalidate the valuation; terminal open holdings are marked, not magically liquidated. **NB 23:** reconcile flat and open-position cases and zero-trade/zero-cost variants. |
+| **34 — Resolve active strategy configurations** | 00–01, 05, 09 | Extend `configuration.py` with strategy definitions and distinct instances/state namespaces. Bind exact strategy/version, canonical instruments, named dataset/data-job dependencies and typed cadence/horizon, quantity, capital and execution/cost parameters. Preserve many-to-many bindings and independently configured collection universes. Validate rule parameters with MRs 35–36 and freeze resolved identities. | Duplicate instances/namespaces, missing bindings, unsupported mechanics and unsafe parameters fail. Empty selection never enables all definitions. Two instances may share matching inputs without sharing state. **NB 34:** deactivate one instance while another consumer and an independent collection job retain their bindings; reject missing data and attempted trading authority in research config. |
+| **35 — Define decision context and typed targets** | 33–34 | `strategies/contracts.py`: typed entry-point contract and immutable context binding instance/run/state namespace, strategy/version, instrument and data/config identities, explicit clock and seed. The supported P1 output is target quantity/time/horizon/lineage, not a universal contract for all future quoting or execution strategies. | Context cannot silently change dataset or another instance's state. Units belong to the selected instrument; expiry/time are explicit. Seed is retained even when unused. **NB 35:** round-trip context/target and reject another instrument's quantity or unsupported output contract. |
+| **36 — Implement no-trade and the transparent rule** | 35 | `strategies/no_trade.py` and `strategies/return_momentum.py`: pure decision functions and rule parameter validation under the shared contract. Use the context's instrument and configured cadence/quantity; produce zero or the configured fixed quantity. Resolve these installed entry points through config definitions. No fitting, parameter search or notebook-owned signal calculation. | No-trade always stays flat. Hand examples cover positive/zero/negative return, warm-up and invalid/stale observations using the frozen policy. Same context reproduces decisions, independent of invocation order. Unsupported parameter/contracts fail resolution. **NB 36:** display inputs beside targets for two compatible synthetic instruments and perturb future observations without changing the frozen empirical case. |
+| **37 — Select a causally delayed simulated fill** | 17, 34–36 | `simulation/fills.py`: exact immutable simulated fill record and the selected full-fill price rule. Evaluate an explicit pending intent and causally admitted event; return a fill, pending or expiry/rejection outcome. The research pipeline supplies events in order so a target delta uses the first eligible subsequent trade after the positive delay, within its horizon; retain decision and price-event identities. | No same-observation fill. Price event and its effective availability meet the delay; source quantity does not imply available liquidity. Missing/stale/gapped prices expire or reject according to the frozen policy. **NB 37:** show decision, earliest-fill and actual-fill times, including equal-time and no-price cases. |
+| **38 — Compute fees and adverse price costs** | 37 | `simulation/costs.py`: versioned quote-currency fee and declared adverse slippage rules using C03 arithmetic/rounding. Preserve reference and effective fill prices and signed trade quantity. | Buy and sell fees reduce NAV; adverse slippage worsens both sides. Zero cost gives exact gross parity. Wrong currency, negative unsupported fee and nonfinite values fail. **NB 38:** hand-calculate one buy and one sell with nonzero costs and inspect rounding. |
+| **39 — Establish bounded ledger state** | 34, 37 | `accounting/state.py`: immutable validated single-instrument cash/position/cost-basis state, initialized from explicit cash and zero holdings. Use existing `Money`/`Quantity` values and expose working initialization/validation. | Reject inconsistent instruments/currencies, unsupported negative cash/holdings and unsafe copies. This is an economic position, not a portfolio weight. **NB 39:** inspect initialized balances and show a unit-mismatched state fails. |
+| **40 — Apply a costed fill exactly once per run** | 38–39 | `accounting/ledger.py`: pure ledger transition for buys/sells, exact fee cashflows, cost basis and realized P&L; retain applied fill identity in the bounded run state. | Repeated fill ID cannot change cash/position twice. Buy, partial sell, full sell, oversell and insufficient-cash cases follow explicit rejection rules. No external deposits are invented. **NB 40:** reconcile each step of the hand ledger below, then repeat a fill. Durable account recovery remains P3 work. |
+| **41 — Mark NAV and reconcile gross to net** | 17, 38, 40 | `accounting/valuation.py`: exact point-in-time marking, unrealized P&L and attribution for the same accepted quantities against reference/effective prices. Record fees, slippage and applicable financing separately. | Ending NAV equals cash plus marked position and reconciles to initial NAV plus net P&L. No double subtraction of slippage already embedded in fills. Stale/missing marks invalidate the valuation; terminal open holdings are marked, not magically liquidated. **NB 41:** reconcile flat and open-position cases and zero-trade/zero-cost variants. |
 
-The research pipeline will own a single outstanding target intent. The frozen
-MR 00 policy skips new intents while one is pending. Derive quantity deltas from actual
+The research pipeline will own a single outstanding target intent per instance.
+The frozen MR 00 policy skips new intents while one is pending. Derive quantity deltas from actual
 holdings, apply no-trade and rejection policies consistently, and test this
 interaction when composing the pipeline. Do not add partial-fill, margin or OMS
 machinery to simulate unsupported precision.
@@ -398,11 +461,11 @@ this example, and absent observations must not produce fabricated zero returns.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
-| **24 — Persist append-only trial attempts** | 12, 16–17 | `research/trials.py`: semantic run identity from source commit, lock/environment, data/config/strategy identities and seed; distinct attempt ID; append-only start/completion/failure records under an explicit single-writer local policy. | Repeating the same inputs retains semantic identity but creates another attempt. Changed config/data/code cannot overwrite history. A crash leaves a visible incomplete attempt; startup identifies it, and a truncated tail is reported without erasing prior records. **NB 24:** append success, failure and interrupted attempts and inspect retained history. |
-| **25 — Compose the callable causal runner** | 13–24 | `pipelines/research.py`: compose saved snapshot reading, cadence/decision clock, targets, delayed fills, costs, ledger and valuations. Own per-run ledger/pending state and the frozen tie order. Journal start before computation and terminal outcome afterward; return a typed result with trace and coverage status. No forwarding `research/runner.py` or runner class is needed. | Compare no-trade and baseline through the same economic path. No mutable state leaks between invocations. Pin event/decision/fill/mark tie order; exercise pending-intent policy and a terminal expiry. A failed or incomplete valuation cannot become a successful net report. **NB 25:** inspect the complete synthetic raw-to-NAV trace, then rerun after a failed attempt. |
-| **26 — Save the net report and durable references** | 23–25 | `research/reports.py` owns versioned exact report serialization and atomic output persistence. Include initial/final cash, positions/NAV, gross/net P&L, fees/slippage/financing, turnover, fill/decision counts, coverage, assumptions and identities. Extend the research pipeline to publish the report, append its digest references and complete the trial only after durable publication. | Report totals match the retained ledger/trace. Refuse clobbering another result; incomplete output is never a completed trial. Missing bytes or digest mismatch fail reproduction. **NB 26:** reopen a saved report and reconcile totals; tamper with an output and show rejection. |
-| **27 — Add the reproducible command and installed consumer** | 26 | Add argument parsing, explicit config/snapshot/output loading and exit handling in `pipelines/research.py`, with an installed entry point targeting that module. Reuse its callable workflow; add no forwarding command module in a library package. Save the actual command and identities. Extend the existing wheel smoke only for the new public consumer. | From a fresh process outside the checkout, install the candidate wheel and reproduce the synthetic report from saved inputs, without notebooks, editable imports, hidden working-directory files or a network fetch. Unsupported/missing inputs produce a nonzero exit. **NB 27:** compare fresh-process output with the earlier callable result; execute the command independently as the retained acceptance proof. |
-| **28 — Close P1 with a permitted saved sample** | 04–27 | Acceptance tests, documentation and retained evidence. Run the frozen case on the permitted source and retain the request/raw/canonical/report identities and protected retrievable bytes. Update the owning experiment, this status and the roadmap after acceptance. | Resume actual acquisition, rebuild the snapshot and reproduce the report in another process using saved inputs. Hand-reconcile a bounded ledger excerpt; audit the selected source availability/eligibility assumptions and keep failures/limits. **NB 28:** explain the end-to-end trace and cost attribution, keeping the notebook under ignored `examples/`. Any product defect is fixed in its owning small MR before claiming completion. |
+| **43 — Persist append-only trial attempts** | 14, 34–36 | `research/trials.py`: semantic run identity from source commit, lock/environment, resolved active config, instance/implementation versions, reference/data bindings and seed; distinct attempt ID; append-only start/completion/failure records under an explicit single-writer local policy. Retain resolved non-secret configuration alongside its identity. | Repeating the same inputs retains semantic identity but creates another attempt. Changed config/data/code cannot overwrite history. A crash leaves a visible incomplete attempt; startup identifies it, and a truncated tail is reported without erasing prior records. **NB 43:** append success, failure and interrupted attempts and inspect retained history. |
+| **44 — Compose configured causal runs** | 15, 17, 33–41, 43, 19, 42 | `pipelines/research.py`: resolve instances/saved bindings and compose bounded queries, cadence/clock, configured decisions, independent simulated risk checks, delayed fills, costs, ledger and valuation. Execute sequentially with isolated ledger/pending state and frozen tie order. Journal starts/outcomes and expose per-instance progress/failure. No shared strategy-name switch or forwarding runner is needed. | Compare no-trade/return-momentum through the same economic path. Compatible asset or strategy additions change config/reference fixtures or strategy code only. Inactive instances never execute; failures cannot leak state. Pin tie order, pending policy and expiry; rejected risk or incomplete valuation cannot become a successful fill/report. **NB 44:** inspect traces and rerun after failure; MR 48 broadens isolation proof. |
+| **45 — Save the net report and durable references** | 41, 43–44 | `research/reports.py` owns versioned exact report serialization and atomic output persistence. Include instance/implementation/config/input identities, initial/final cash, positions/NAV, gross/net P&L, fees/slippage/financing, turnover, fill/decision counts, coverage and assumptions. Extend the research pipeline to publish each report, append its digest references and complete its trial only after durable publication. | Report totals match that instance's retained ledger/trace; independent trial NAVs are not combined into portfolio NAV. Refuse clobbering another result; incomplete output is never a completed trial. Missing bytes or digest mismatch fail reproduction. **NB 45:** reopen a saved report and reconcile totals; tamper with an output and show rejection. |
+| **46 — Add the reproducible command and installed consumer** | 45 | Add argument parsing with a required config file, explicit saved-input/output resolution and exit handling in `pipelines/research.py`, with an installed entry point targeting that module. The config selects active instances and implementations; no hidden pair, strategy or working-directory default. Reuse the callable workflow and save the actual command and resolved identities. Extend the existing wheel smoke for the new public consumer. | From a fresh process outside the checkout, install the candidate wheel and reproduce configured synthetic reports from saved inputs, without notebooks, editable imports or a network fetch. Verify installed strategy resolution and config-only activation changes. Unsupported/missing bindings fail before a run; an active-instance failure produces a nonzero exit and retains its outcome. **NB 46:** compare fresh-process output with the callable results; execute the command independently as retained acceptance proof. |
+| **49 — Close P1 with a permitted saved sample** | 05–06, 08–15, 17, 33–41, 43–46 | Acceptance tests, documentation and retained evidence. Run the frozen case on the permitted source and retain the request/raw/canonical/report identities and protected retrievable bytes. Update the owning experiment, this status and the roadmap after acceptance. | Resume actual acquisition, rebuild the snapshot and reproduce the report in another process using saved inputs. Hand-reconcile a bounded ledger excerpt; audit the selected source availability/eligibility assumptions and keep failures/limits. **NB 49:** explain the end-to-end trace and cost attribution, keeping the notebook under ignored `examples/`. Any product defect is fixed in its owning small MR before claiming completion. |
 
 Run identity excludes attempt timestamps and local output paths. Report comparison
 uses canonical economic bytes/values; operational attempt metadata may differ.
@@ -411,7 +474,7 @@ environment. A hash with missing or inaccessible content is not reproduction.
 Do not hash the final output into an input identity or make a trial ID depend on
 its own serialized completion record.
 
-The planned CLI has no current verified invocation. MR 27 must add its tested
+The planned CLI has no current verified invocation. MR 46 must add its tested
 command and prerequisites to the [development index](../README.md). Local
 installed-wheel acceptance is development evidence; the existing
 [dependency/release restriction](../architecture/README.md#dependency-and-release-boundaries)
@@ -438,11 +501,11 @@ Use the cheapest sufficient evidence for the boundary:
 - Pure types, timing, selection and accounting: small deterministic examples and
   focused negative/round-trip tests; add future-perturbation tests at the actual
   selector/runner boundary, not only at a record constructor.
-- Raw transport: injected failures plus the bounded real source probe in MR 04.
+- Raw transport: injected failures plus the bounded real source probe in MR 05.
   Persistence: interrupt at the specific publication/checkpoint boundaries in
-  MRs 03/05/13. These catch behaviors that a prebuilt fixture bypasses.
+  MRs 04, 06, 15. These catch behaviors that a prebuilt fixture bypasses.
 - Final composition: one synthetic fresh-process installed-wheel reproduction in
-  MR 27 and one permitted saved-input acceptance in MR 28. No universal network,
+  MR 46 and one permitted saved-input acceptance in MR 49. No universal network,
   performance, venue or operating-system matrix is introduced beyond existing CI.
 
 Record tested commit/candidate state, exact command, input/config identities,
@@ -470,14 +533,15 @@ rollback appear successful. No service migration or trading rollback is implied.
 
 | Roadmap requirement | Implemented foundation reused | MRs closing the remaining gap | Decisive final evidence |
 | --- | --- | --- | --- |
-| Time and event identity | `EventProvenance`, decoder capture/sequence semantics | 06–08, 10, 14–15 | Late publication/corrections, equal timestamps, UTC boundaries and future-universe changes cannot alter earlier decisions. |
-| Raw ingestion | Tardis/Binance decoding | 00–06 | Permitted source probe plus interrupted/resumed acquisition and mutated-object rejection. |
-| Canonical dataset | Exact events, authored catalog, codecs | 07–15 | Repeatable atomic snapshot with raw lineage, historical eligibility, explicit exclusions and as-of revision selection. |
-| Strategy input/output | Canonical IDs and units | 16–18 | Same immutable context gives the same unit-bearing target; changed configuration gives another identity. |
-| Baseline accounting | C03 exact values/rounding | 19–23, 25 | Buy/sell/open/no-trade goldens and exact gross-to-net cash/position/NAV reconciliation. |
-| Run and report | Frozen build and installed imports | 24–28 | Retained attempts and retrievable inputs reproduce the net report through the saved command in another process. |
+| Configuration and onboarding | Typed codecs, canonical IDs, configured decoder inputs | 01, 05, 09, 34–36, 43–46; 02, 21, 48 | Scoped data jobs and instances preserve immutable resolved identity; compatible additions leave shared orchestration unchanged. Multiple instruments/instances and explicit unsupported-family boundaries are exercised. |
+| Time and event identity | `EventProvenance`, decoder capture/sequence semantics | 08–10, 12, 17, 33 | Late publication/corrections, equal timestamps, UTC boundaries and future-universe changes cannot alter earlier decisions. |
+| Raw ingestion | Tardis/Binance decoding | 00–01, 03–06, 08, 07 | Permitted source probe plus installed, observable interrupted/resumed acquisition and mutated-object rejection. |
+| Canonical dataset | Exact events, authored catalog, codecs | 09–15, 17, 33; 16, 18–20 | Repeatable atomic snapshot with lineage, eligibility, exclusions and as-of selection; bounded queries/replay preserve those semantics. |
+| Strategy input/output | Canonical IDs and units | 34–36 | Same immutable context gives the same unit-bearing target; changed configuration gives another identity. |
+| Baseline accounting | C03 exact values/rounding | 37–41, 44, 42 | Buy/sell/open/no-trade goldens and exact gross-to-net cash/position/NAV reconciliation with independent supported risk checks. |
+| Run and report | Frozen build and installed imports | 43–46, 49, 47–48 | Retained attempts/selection controls and retrievable inputs reproduce the net report; failed/restarted instances do not corrupt peers. |
 
-Mark P1 complete only when all six rows have actual passing evidence for the
+Mark P1 complete only when all seven rows have actual passing evidence for the
 assembled candidate and selected permitted source. Preserve the reported source,
 capture, universe and simulated-fill limitations. If historical eligibility or
 source revision availability cannot be established, the engineering path may be
