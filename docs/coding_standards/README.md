@@ -124,6 +124,35 @@ API public. Declare direct dependencies in the owning metadata and lock, and do
 not rely on a mutable environment, path mutation, transitive imports, or an
 editable install at runtime.
 
+### Orchestrator pipelines and libraries
+
+Only orchestrator pipelines MAY introduce workflow or convenience wrappers.
+All other implementation modules MUST expose reusable library functions,
+cohesive classes, or value types and MUST NOT introduce forwarding wrappers.
+A function that merely constructs a library object and forwards its arguments
+to a method is a wrapper, even when it is described as a convenience API or
+compatibility helper.
+
+Orchestrator pipelines own workflow composition: selecting run configuration,
+constructing and reusing collaborators, sequencing operations, coordinating I/O,
+handling workflow failures, and routing results. A pipeline wrapper MUST serve
+that coordination responsibility; it MUST NOT duplicate domain logic or add
+another name for an otherwise identical call.
+
+Library modules own parsing, validation, transformations, calculations, codecs,
+and explicit adapter contracts. They MUST receive required inputs and
+collaborators explicitly and MUST NOT depend on orchestrator pipelines or
+choose a pipeline's run configuration. Library functions and methods may call
+other library operations to implement their own cohesive contract. Classes may
+bind reusable configuration and enforce invariants; a library need not consist
+only of stateless functions.
+
+For example, a pipeline creates one `BinanceTardisDecoder(instruments)` and calls
+its `decode_line` method for each input. The data library MUST NOT add a
+`decode_tardis_line` function that only constructs that decoder and forwards the
+call. Apply this boundary when adding or materially changing implementation
+code, including development tooling.
+
 ## Python source rules
 
 Use the pinned interpreter and let `ruff format` decide whitespace and wrapping.

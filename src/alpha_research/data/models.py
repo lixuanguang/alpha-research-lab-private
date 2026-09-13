@@ -8,7 +8,7 @@ from alpha_research.data.events import (
     PriceLevel,
     Symbol,
 )
-from alpha_research.data.providers.tardis.binance import BinanceTardisDecoder, decode_tardis_line
+from alpha_research.data.providers.tardis.binance import BinanceTardisDecoder
 from alpha_research.data.venues.binance.codecs import (
     MarketEvent,
     decode_market_event,
@@ -33,7 +33,6 @@ __all__ = [
     "Symbol",
     "Trade",
     "decode_market_event",
-    "decode_tardis_line",
     "encode_market_event",
     "validate_market_event",
 ]

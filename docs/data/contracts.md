@@ -10,8 +10,10 @@ This page does not claim a dataset, HTTP request, or trading result.
 
 The public package surface is
 [`alpha_research.data`](../../src/alpha_research/data/__init__.py). The former
-monolithic [`data.models`](../../src/alpha_research/data/models.py) path remains
-an import-compatibility facade; new internal code uses the defining modules.
+monolithic [`data.models`](../../src/alpha_research/data/models.py) path retains
+compatibility imports for event and decoder classes; new internal code uses the
+defining modules. The one-off decoding function has been removed. Callers create
+`BinanceTardisDecoder(instruments)` and reuse its `decode_line` method.
 
 | Module | Contract |
 | --- | --- |
@@ -103,6 +105,13 @@ only the current `tardis.binance.spot` stream forms: `trade`, `depth@100ms`, and
 `depthSnapshot`. It requires lowercase stream symbols that resolve to configured
 uppercase instruments and rejects unknown streams, symbols, payload mismatches,
 invented snapshot timestamps, malformed decimals, and invalid level data.
+
+An orchestrator owns the decoder's lifetime for one configured instrument
+selection and supplies the metadata for each line. Input reading, source order,
+blank-line capture-proxy selection, error policy, and downstream delivery belong
+to that orchestrator. The decoder and its parsing, validation, and codec
+dependencies remain library components without acquisition or persistence I/O.
+See the [pipeline call example](../../src/alpha_research/data/README.md#pipeline-use).
 
 ## Planned boundaries
 

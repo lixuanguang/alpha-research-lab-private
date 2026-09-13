@@ -9,7 +9,8 @@ institutional approval is not a prerequisite for ordinary development.
 1. State the behavior, affected data or interfaces, and a short reversal plan.
 2. Change the implementation and its focused tests together. Preserve the
    existing typing, import organization, docstring, numerical, and temporal
-   contracts.
+   contracts. Assign module responsibilities according to the
+   [orchestrator pipeline and library boundary](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
 3. Use the four sections in the pull-request template: problem/change,
    affected scope, validation result, and risks/reversal. Add migration,
    benchmark, or operational detail only when the change needs it.
