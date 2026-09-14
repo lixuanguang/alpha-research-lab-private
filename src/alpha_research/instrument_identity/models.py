@@ -8,19 +8,21 @@ import unicodedata
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import NotRequired, Protocol, Self, TypedDict
+from typing import Self
 from uuid import UUID
 
 # third party library imports
 from pydantic import (
     BaseModel,
     ConfigDict,
-    TypeAdapter,
     ValidationError,
     ValidationInfo,
     field_validator,
     model_validator,
 )
+
+# project library imports
+from alpha_research._validation import _ValidationMessages
 
 
 class InstrumentIdentityError(ValueError):
@@ -29,37 +31,6 @@ class InstrumentIdentityError(ValueError):
 
 class InstrumentIdentityValidationError(InstrumentIdentityError):
     """Report an invalid canonical identity or symbology record."""
-
-
-class _ValidationErrorReader(Protocol):
-    """Expose Pydantic error details as an unchecked boundary object."""
-
-    def errors(
-        self,
-        *,
-        include_url: bool = True,
-        include_context: bool = True,
-        include_input: bool = True,
-    ) -> object:
-        """Read error details for immediate validation into the owned record shape."""
-        ...
-
-
-class _ValidationErrorContext(TypedDict, total=False):
-    """Capture optional context while retaining the original exception object."""
-
-    error: object
-
-
-class _ValidationErrorDetail(TypedDict):
-    """Capture the Pydantic fields used in identity error messages."""
-
-    loc: tuple[int | str, ...]
-    msg: str
-    ctx: NotRequired[_ValidationErrorContext]
-
-
-_VALIDATION_ERROR_DETAILS = TypeAdapter(list[_ValidationErrorDetail])
 
 
 class _InstrumentIdentityModel(BaseModel):
@@ -80,26 +51,6 @@ class _InstrumentIdentityModel(BaseModel):
         validate_default=True,
     )
 
-    @staticmethod
-    def _validation_error_message(error: ValidationError) -> str:
-        """Join validation messages in field order, retaining translated domain causes."""
-        messages: list[str] = []
-        error_reader: _ValidationErrorReader = error
-        details = _VALIDATION_ERROR_DETAILS.validate_python(
-            error_reader.errors(include_input=False, include_url=False),
-            strict=True,
-        )
-        for detail in details:
-            context = detail.get("ctx")
-            cause = context.get("error") if context is not None else None
-            if isinstance(cause, InstrumentIdentityValidationError):
-                messages.append(str(cause))
-                continue
-            location = ".".join(str(component) for component in detail["loc"])
-            message = detail["msg"].removeprefix("Value error, ")
-            messages.append(f"{location}: {message}" if location else message)
-        return "\n".join(messages)
-
     def __init__(self, **data: object) -> None:
         """Validate supplied fields and translate framework validation failures.
 
@@ -114,8 +65,52 @@ class _InstrumentIdentityModel(BaseModel):
             super().__init__(**data)
         except ValidationError as error:
             raise InstrumentIdentityValidationError(
-                self._validation_error_message(error)
+                _ValidationMessages.from_error(error, InstrumentIdentityValidationError)
             ) from error
+
+    @staticmethod
+    def _require_bounded_text(
+        candidate_text: object, *, field_name: str, maximum_length: int
+    ) -> str:
+        """Reject empty, padded, overlong text and Unicode control, format or surrogate codes."""
+        if (
+            not isinstance(candidate_text, str)
+            or not candidate_text
+            or candidate_text != candidate_text.strip()
+        ):
+            raise InstrumentIdentityValidationError(
+                f"{field_name} must be non-empty without surrounding whitespace"
+            )
+        if len(candidate_text) > maximum_length:
+            raise InstrumentIdentityValidationError(
+                f"{field_name} exceeds the {maximum_length}-character limit"
+            )
+        if any(
+            unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in candidate_text
+        ):
+            raise InstrumentIdentityValidationError(f"{field_name} contains a control character")
+        return candidate_text
+
+    @staticmethod
+    def _require_utc_datetime(candidate_datetime: object, *, field_name: str) -> datetime:
+        """Require an aware UTC datetime without reading host-local timezone state.
+
+        Args:
+            candidate_datetime: Value to check; its UTC offset must be zero at that instant.
+            field_name: Field label included in validation failures.
+
+        Returns:
+            The original datetime, without timezone conversion or replacement.
+
+        Raises:
+            InstrumentIdentityValidationError: The value is not an aware datetime with a zero
+                UTC offset.
+        """
+        if not isinstance(candidate_datetime, datetime) or candidate_datetime.tzinfo is None:
+            raise InstrumentIdentityValidationError(f"{field_name} must be timezone-aware UTC")
+        if candidate_datetime.utcoffset() != timedelta(0):
+            raise InstrumentIdentityValidationError(f"{field_name} must use UTC")
+        return candidate_datetime
 
 
 class InstrumentKind(StrEnum):
@@ -158,162 +153,30 @@ _CUSIP_PATTERN = re.compile(r"^[A-Z0-9*@#]{8}[0-9]$")
 _SEDOL_PATTERN = re.compile(r"^[0-9BCDFGHJKLMNPQRSTVWXYZ]{6}[0-9]$")
 
 
-def _require_non_nil_uuid(candidate_uuid: object, *, field_name: str) -> UUID:
-    """Require a UUID instance other than the all-zero identifier."""
-    if not isinstance(candidate_uuid, UUID) or candidate_uuid.int == 0:
-        raise InstrumentIdentityValidationError(f"{field_name} must be a non-nil UUID")
-    return candidate_uuid
+class _IdentityUuid:
+    """Share canonical non-nil UUID parsing for distinct C01 identity types."""
 
+    @staticmethod
+    def _require_non_nil_uuid(candidate_uuid: object, *, field_name: str) -> UUID:
+        """Require a UUID instance other than the all-zero identifier."""
+        if not isinstance(candidate_uuid, UUID) or candidate_uuid.int == 0:
+            raise InstrumentIdentityValidationError(f"{field_name} must be a non-nil UUID")
+        return candidate_uuid
 
-def _parse_canonical_uuid(uuid_text: str, *, field_name: str) -> UUID:
-    """Require non-nil, lowercase hyphenated UUID text without normalization."""
-    if not isinstance(uuid_text, str):
-        raise InstrumentIdentityValidationError(f"{field_name} must be a UUID string")
-    try:
-        parsed_uuid = UUID(uuid_text)
-    except ValueError as error:
-        raise InstrumentIdentityValidationError(f"{field_name} must be a canonical UUID") from error
-    if str(parsed_uuid) != uuid_text:
-        raise InstrumentIdentityValidationError(f"{field_name} must be a canonical UUID")
-    return _require_non_nil_uuid(parsed_uuid, field_name=field_name)
-
-
-def _require_bounded_text(candidate_text: object, *, field_name: str, maximum_length: int) -> str:
-    """Reject empty, padded, overlong text and Unicode control, format or surrogate characters."""
-    if (
-        not isinstance(candidate_text, str)
-        or not candidate_text
-        or candidate_text != candidate_text.strip()
-    ):
-        raise InstrumentIdentityValidationError(
-            f"{field_name} must be non-empty without surrounding whitespace"
-        )
-    if len(candidate_text) > maximum_length:
-        raise InstrumentIdentityValidationError(
-            f"{field_name} exceeds the {maximum_length}-character limit"
-        )
-    if any(unicodedata.category(character) in {"Cc", "Cf", "Cs"} for character in candidate_text):
-        raise InstrumentIdentityValidationError(f"{field_name} contains a control character")
-    return candidate_text
-
-
-def _validate_identifier_namespace(
-    candidate_namespace: object, *, namespace_required: bool
-) -> str | None:
-    """Validate a lowercase namespace token, enforcing presence when requested."""
-    if candidate_namespace is None:
-        if namespace_required:
+    @staticmethod
+    def _parse_canonical_uuid(uuid_text: str, *, field_name: str) -> UUID:
+        """Require non-nil, lowercase hyphenated UUID text without normalization."""
+        if not isinstance(uuid_text, str):
+            raise InstrumentIdentityValidationError(f"{field_name} must be a UUID string")
+        try:
+            parsed_uuid = UUID(uuid_text)
+        except ValueError as error:
             raise InstrumentIdentityValidationError(
-                "identifier namespace is required for provider-local schemes"
-            )
-        return None
-    if (
-        not isinstance(candidate_namespace, str)
-        or _NAMESPACE_PATTERN.fullmatch(candidate_namespace) is None
-    ):
-        raise InstrumentIdentityValidationError(
-            "identifier namespace must be a lower-case stable token"
-        )
-    return candidate_namespace
-
-
-def _has_valid_luhn_checksum(decimal_digits: str) -> bool:
-    """Check the Luhn sum of the supplied decimal digit string."""
-    checksum_total = 0
-    for digit_position, digit_character in enumerate(reversed(decimal_digits)):
-        digit_value = int(digit_character)
-        if digit_position % 2 == 1:
-            digit_value *= 2
-        checksum_total += digit_value // 10 + digit_value % 10
-    return checksum_total % 10 == 0
-
-
-def _has_valid_isin_checksum(identifier_value: str) -> bool:
-    """Check uppercase ISIN shape and the Luhn sum of expanded characters."""
-    if _ISIN_PATTERN.fullmatch(identifier_value) is None:
-        return False
-    expanded_digits = "".join(
-        str(ord(character) - 55) if character.isalpha() else character
-        for character in identifier_value
-    )
-    return _has_valid_luhn_checksum(expanded_digits)
-
-
-def _cusip_character_numeric_value(identifier_character: str) -> int:
-    """Map an admitted CUSIP digit, uppercase letter or special character to its weight."""
-    if identifier_character.isdigit():
-        return int(identifier_character)
-    if identifier_character.isalpha():
-        return ord(identifier_character) - 55
-    return {"*": 36, "@": 37, "#": 38}[identifier_character]
-
-
-def _has_valid_cusip_checksum(identifier_value: str) -> bool:
-    """Check CUSIP shape and the alternating-weight check digit."""
-    if _CUSIP_PATTERN.fullmatch(identifier_value) is None:
-        return False
-    checksum_total = 0
-    for character_position, identifier_character in enumerate(identifier_value[:8]):
-        weighted_value = _cusip_character_numeric_value(identifier_character) * (
-            1 if character_position % 2 == 0 else 2
-        )
-        checksum_total += weighted_value // 10 + weighted_value % 10
-    return (10 - checksum_total % 10) % 10 == int(identifier_value[-1])
-
-
-def _has_valid_sedol_checksum(identifier_value: str) -> bool:
-    """Check SEDOL shape and the weighted check digit, excluding vowels."""
-    if _SEDOL_PATTERN.fullmatch(identifier_value) is None:
-        return False
-    checksum_weights = (1, 3, 1, 7, 3, 9)
-    checksum_total = sum(
-        _cusip_character_numeric_value(identifier_character) * checksum_weight
-        for identifier_character, checksum_weight in zip(
-            identifier_value[:6], checksum_weights, strict=True
-        )
-    )
-    return (10 - checksum_total % 10) % 10 == int(identifier_value[-1])
-
-
-def _validate_identifier_value(identifier_scheme: IdentifierScheme, candidate_value: object) -> str:
-    """Validate bounded exact text and the checksum required by its global scheme."""
-    identifier_value = _require_bounded_text(
-        candidate_value, field_name="identifier value", maximum_length=256
-    )
-    checksum_validators = {
-        IdentifierScheme.ISIN: (_has_valid_isin_checksum, "valid uppercase ISIN with checksum"),
-        IdentifierScheme.CUSIP: (_has_valid_cusip_checksum, "valid uppercase CUSIP with checksum"),
-        IdentifierScheme.SEDOL: (_has_valid_sedol_checksum, "valid uppercase SEDOL with checksum"),
-    }
-    checksum_validator_and_requirement = checksum_validators.get(identifier_scheme)
-    if checksum_validator_and_requirement is not None:
-        checksum_validator, requirement_description = checksum_validator_and_requirement
-        if not checksum_validator(identifier_value):
-            raise InstrumentIdentityValidationError(
-                f"{identifier_scheme.value} identifier must be a {requirement_description}"
-            )
-    return identifier_value
-
-
-def require_utc_datetime(candidate_datetime: object, *, field_name: str) -> datetime:
-    """Require an aware UTC datetime without reading host-local timezone state.
-
-    Args:
-        candidate_datetime: Value to check; its UTC offset must be zero at that instant.
-        field_name: Field label included in validation failures.
-
-    Returns:
-        The original datetime, without timezone conversion or replacement.
-
-    Raises:
-        InstrumentIdentityValidationError: The value is not an aware datetime with a zero
-            UTC offset.
-    """
-    if not isinstance(candidate_datetime, datetime) or candidate_datetime.tzinfo is None:
-        raise InstrumentIdentityValidationError(f"{field_name} must be timezone-aware UTC")
-    if candidate_datetime.utcoffset() != timedelta(0):
-        raise InstrumentIdentityValidationError(f"{field_name} must use UTC")
-    return candidate_datetime
+                f"{field_name} must be a canonical UUID"
+            ) from error
+        if str(parsed_uuid) != uuid_text:
+            raise InstrumentIdentityValidationError(f"{field_name} must be a canonical UUID")
+        return _IdentityUuid._require_non_nil_uuid(parsed_uuid, field_name=field_name)
 
 
 class InstrumentId(_InstrumentIdentityModel):
@@ -355,7 +218,7 @@ class InstrumentId(_InstrumentIdentityModel):
         Raises:
             InstrumentIdentityValidationError: The value is not a UUID or is the all-zero UUID.
         """
-        return _require_non_nil_uuid(value, field_name="instrument_id")
+        return _IdentityUuid._require_non_nil_uuid(value, field_name="instrument_id")
 
     @classmethod
     def from_canonical_text(cls, instrument_id_text: str) -> InstrumentId:
@@ -371,7 +234,9 @@ class InstrumentId(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The text is malformed, noncanonical or represents
                 the all-zero UUID.
         """
-        return cls(_parse_canonical_uuid(instrument_id_text, field_name="instrument_id"))
+        return cls(
+            _IdentityUuid._parse_canonical_uuid(instrument_id_text, field_name="instrument_id")
+        )
 
     def __str__(self) -> str:
         """Render the identifier as lowercase hyphenated UUID text.
@@ -421,7 +286,7 @@ class MappingId(_InstrumentIdentityModel):
         Raises:
             InstrumentIdentityValidationError: The value is not a UUID or is the all-zero UUID.
         """
-        return _require_non_nil_uuid(value, field_name="mapping_id")
+        return _IdentityUuid._require_non_nil_uuid(value, field_name="mapping_id")
 
     @classmethod
     def from_canonical_text(cls, mapping_id_text: str) -> MappingId:
@@ -437,7 +302,7 @@ class MappingId(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The text is malformed, noncanonical or represents
                 the all-zero UUID.
         """
-        return cls(_parse_canonical_uuid(mapping_id_text, field_name="mapping_id"))
+        return cls(_IdentityUuid._parse_canonical_uuid(mapping_id_text, field_name="mapping_id"))
 
     def __str__(self) -> str:
         """Render the identifier as lowercase hyphenated UUID text.
@@ -566,6 +431,119 @@ class InstrumentIdentity(_InstrumentIdentityModel):
         return self
 
 
+class _IdentifierFields:
+    """Own exact identifier checksum and namespace mechanics for records and queries."""
+
+    @staticmethod
+    def _validate_identifier_namespace(
+        candidate_namespace: object, *, namespace_required: bool
+    ) -> str | None:
+        """Validate a lowercase namespace token, enforcing presence when requested."""
+        if candidate_namespace is None:
+            if namespace_required:
+                raise InstrumentIdentityValidationError(
+                    "identifier namespace is required for provider-local schemes"
+                )
+            return None
+        if (
+            not isinstance(candidate_namespace, str)
+            or _NAMESPACE_PATTERN.fullmatch(candidate_namespace) is None
+        ):
+            raise InstrumentIdentityValidationError(
+                "identifier namespace must be a lower-case stable token"
+            )
+        return candidate_namespace
+
+    @staticmethod
+    def _has_valid_luhn_checksum(decimal_digits: str) -> bool:
+        """Check the Luhn sum of the supplied decimal digit string."""
+        checksum_total = 0
+        for digit_position, digit_character in enumerate(reversed(decimal_digits)):
+            digit_value = int(digit_character)
+            if digit_position % 2 == 1:
+                digit_value *= 2
+            checksum_total += digit_value // 10 + digit_value % 10
+        return checksum_total % 10 == 0
+
+    @staticmethod
+    def _has_valid_isin_checksum(identifier_value: str) -> bool:
+        """Check uppercase ISIN shape and the Luhn sum of expanded characters."""
+        if _ISIN_PATTERN.fullmatch(identifier_value) is None:
+            return False
+        expanded_digits = "".join(
+            str(ord(character) - 55) if character.isalpha() else character
+            for character in identifier_value
+        )
+        return _IdentifierFields._has_valid_luhn_checksum(expanded_digits)
+
+    @staticmethod
+    def _cusip_character_numeric_value(identifier_character: str) -> int:
+        """Map an admitted CUSIP digit, uppercase letter or special character to its weight."""
+        if identifier_character.isdigit():
+            return int(identifier_character)
+        if identifier_character.isalpha():
+            return ord(identifier_character) - 55
+        return {"*": 36, "@": 37, "#": 38}[identifier_character]
+
+    @staticmethod
+    def _has_valid_cusip_checksum(identifier_value: str) -> bool:
+        """Check CUSIP shape and the alternating-weight check digit."""
+        if _CUSIP_PATTERN.fullmatch(identifier_value) is None:
+            return False
+        checksum_total = 0
+        for character_position, identifier_character in enumerate(identifier_value[:8]):
+            weighted_value = _IdentifierFields._cusip_character_numeric_value(
+                identifier_character
+            ) * (1 if character_position % 2 == 0 else 2)
+            checksum_total += weighted_value // 10 + weighted_value % 10
+        return (10 - checksum_total % 10) % 10 == int(identifier_value[-1])
+
+    @staticmethod
+    def _has_valid_sedol_checksum(identifier_value: str) -> bool:
+        """Check SEDOL shape and the weighted check digit, excluding vowels."""
+        if _SEDOL_PATTERN.fullmatch(identifier_value) is None:
+            return False
+        checksum_weights = (1, 3, 1, 7, 3, 9)
+        checksum_total = sum(
+            _IdentifierFields._cusip_character_numeric_value(identifier_character) * checksum_weight
+            for identifier_character, checksum_weight in zip(
+                identifier_value[:6], checksum_weights, strict=True
+            )
+        )
+        return (10 - checksum_total % 10) % 10 == int(identifier_value[-1])
+
+    @staticmethod
+    def _validate_identifier_value(
+        identifier_scheme: IdentifierScheme, candidate_value: object
+    ) -> str:
+        """Validate bounded exact text and the checksum required by its global scheme."""
+        identifier_value = _InstrumentIdentityModel._require_bounded_text(
+            candidate_value, field_name="identifier value", maximum_length=256
+        )
+        checksum_validators = {
+            IdentifierScheme.ISIN: (
+                _IdentifierFields._has_valid_isin_checksum,
+                "valid uppercase ISIN with checksum",
+            ),
+            IdentifierScheme.CUSIP: (
+                _IdentifierFields._has_valid_cusip_checksum,
+                "valid uppercase CUSIP with checksum",
+            ),
+            IdentifierScheme.SEDOL: (
+                _IdentifierFields._has_valid_sedol_checksum,
+                "valid uppercase SEDOL with checksum",
+            ),
+        }
+        checksum_validator_and_requirement = checksum_validators.get(identifier_scheme)
+        if checksum_validator_and_requirement is not None:
+            checksum_validator, requirement_description = checksum_validator_and_requirement
+            if not checksum_validator(identifier_value):
+                raise InstrumentIdentityValidationError(
+                    f"{identifier_scheme.value} identifier must be a {requirement_description}"
+                )
+        return identifier_value
+
+
 class ExternalIdentifier(_InstrumentIdentityModel):
     """Represent an exact adapter-boundary identifier without normalizing its value.
 
@@ -635,7 +613,9 @@ class ExternalIdentifier(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The value is not bounded text or contains
                 control, format or surrogate characters.
         """
-        return _require_bounded_text(value, field_name="identifier value", maximum_length=256)
+        return _InstrumentIdentityModel._require_bounded_text(
+            value, field_name="identifier value", maximum_length=256
+        )
 
     @field_validator("namespace", mode="before")
     @classmethod
@@ -653,7 +633,7 @@ class ExternalIdentifier(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: A supplied namespace does not match the token
                 syntax.
         """
-        return _validate_identifier_namespace(value, namespace_required=False)
+        return _IdentifierFields._validate_identifier_namespace(value, namespace_required=False)
 
     @model_validator(mode="after")
     def coherent_identifier(self) -> Self:
@@ -666,7 +646,7 @@ class ExternalIdentifier(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: A checksum fails, a local namespace is absent, or
                 a global namespace is supplied.
         """
-        _validate_identifier_value(self.scheme, self.value)
+        _IdentifierFields._validate_identifier_value(self.scheme, self.value)
         if self.namespace is None and self.scheme in _NAMESPACED_SCHEMES:
             raise InstrumentIdentityValidationError(
                 "identifier namespace is required for provider-local schemes"
@@ -750,7 +730,9 @@ class IdentifierQuery(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The value is not bounded text or contains
                 control, format or surrogate characters.
         """
-        return _require_bounded_text(value, field_name="identifier value", maximum_length=256)
+        return _InstrumentIdentityModel._require_bounded_text(
+            value, field_name="identifier value", maximum_length=256
+        )
 
     @field_validator("namespace", mode="before")
     @classmethod
@@ -768,7 +750,7 @@ class IdentifierQuery(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: A supplied namespace does not match the token
                 syntax.
         """
-        return _validate_identifier_namespace(value, namespace_required=False)
+        return _IdentifierFields._validate_identifier_namespace(value, namespace_required=False)
 
     @model_validator(mode="after")
     def coherent_query(self) -> Self:
@@ -781,7 +763,7 @@ class IdentifierQuery(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: A global checksum fails or a global scheme
                 carries a namespace.
         """
-        _validate_identifier_value(self.scheme, self.value)
+        _IdentifierFields._validate_identifier_value(self.scheme, self.value)
         if self.scheme in _GLOBAL_SCHEMES and self.namespace is not None:
             raise InstrumentIdentityValidationError(
                 f"{self.scheme.value} queries cannot carry a provider namespace"
@@ -884,7 +866,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
                     "correction_reason is permitted only when supersedes_mapping_id is present"
                 )
         else:
-            _require_bounded_text(
+            _InstrumentIdentityModel._require_bounded_text(
                 correction_reason,
                 field_name="correction_reason",
                 maximum_length=512,
@@ -1008,7 +990,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The value is not an aware datetime with a zero
                 UTC offset.
         """
-        return require_utc_datetime(value, field_name="valid_from")
+        return _InstrumentIdentityModel._require_utc_datetime(value, field_name="valid_from")
 
     @field_validator("valid_to", mode="before")
     @classmethod
@@ -1025,7 +1007,11 @@ class SymbologyMapping(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: A supplied end is not an aware datetime with a
                 zero UTC offset.
         """
-        return None if value is None else require_utc_datetime(value, field_name="valid_to")
+        return (
+            None
+            if value is None
+            else _InstrumentIdentityModel._require_utc_datetime(value, field_name="valid_to")
+        )
 
     @field_validator("source", "source_revision", mode="before")
     @classmethod
@@ -1089,7 +1075,7 @@ class SymbologyMapping(_InstrumentIdentityModel):
                     "correction_reason is permitted only when supersedes_mapping_id is present"
                 )
         else:
-            _require_bounded_text(
+            _InstrumentIdentityModel._require_bounded_text(
                 self.correction_reason,
                 field_name="correction_reason",
                 maximum_length=512,
@@ -1110,7 +1096,9 @@ class SymbologyMapping(_InstrumentIdentityModel):
             InstrumentIdentityValidationError: The instant is not an aware datetime with a zero
                 UTC offset.
         """
-        valid_at_utc = require_utc_datetime(valid_at, field_name="valid_at")
+        valid_at_utc = _InstrumentIdentityModel._require_utc_datetime(
+            valid_at, field_name="valid_at"
+        )
         return self.valid_from <= valid_at_utc and (
             self.valid_to is None or valid_at_utc < self.valid_to
         )

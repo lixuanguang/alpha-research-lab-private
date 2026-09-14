@@ -151,11 +151,17 @@ rounding; they never apply to money, quantities or dimensional checks.
 explicit C02 calendar. Construction revalidates and retains an independent
 calendar copy; operations use that immutable snapshot without retaining
 intermediate results. Invalid calendars fail at construction.
-The current implementation also exports `adjust_business_day` and
-`settlement_date` compatibility functions that delegate to this service. Their
-retirement is [pending OOP migration](../roadmap/README.md#oop-migration-status):
-move callers to the service methods and update exports and tests together.
-These functions still exist; this policy update does not remove their APIs.
+The module-level `adjust_business_day` and `settlement_date` forwarding APIs and
+their package exports have been retired. Construct a service once and reuse its
+methods for the selected calendar. The [runtime migration record](../roadmap/oop-migration/README.md#runtime-implementation-and-validation)
+records the caller and validation changes.
+
+Construction now precedes operation arguments: an invalid calendar fails before
+an invalid candidate, convention or lag can be checked. This deliberately retires
+the wrappers' earlier argument checks. On a valid service, adjustment still checks
+candidate type, convention type, then coverage; settlement still checks lag before
+calling adjustment. Domain errors, chained calendar-validation causes and bounded
+selection failures retain their existing meanings.
 
 `SettlementConventions.adjust_business_day` uses the bounded C02
 `SettlementCalendar` eligible-date set for unadjusted, following, modified

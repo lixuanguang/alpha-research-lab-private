@@ -22,53 +22,6 @@ class MarketEventError(ValueError):
     """Report malformed or unsupported source market data."""
 
 
-def _require_text(value: object, *, field_name: str, allow_empty: bool = False) -> str:
-    """Require one string field at the Python construction boundary."""
-    if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be a string")
-    if not allow_empty and not value:
-        raise ValueError(f"{field_name} must be nonempty")
-    return value
-
-
-def _require_int(value: object, *, field_name: str, nonnegative: bool = True) -> int:
-    """Require a strict integer field, rejecting booleans."""
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"{field_name} must be an integer")
-    if nonnegative and value < 0:
-        raise ValueError(f"{field_name} must be nonnegative")
-    return value
-
-
-def _validate_decimal(value: object, *, field_name: str, allow_zero: bool = True) -> Decimal:
-    """Require a finite nonnegative Decimal price or quantity."""
-    if not isinstance(value, Decimal):
-        raise TypeError(f"{field_name} must be a Decimal")
-    if not value.is_finite():
-        raise ValueError(f"{field_name} must be finite")
-    if value < 0 or (not allow_zero and value == 0):
-        qualifier = "positive" if not allow_zero else "nonnegative"
-        raise ValueError(f"{field_name} must be {qualifier}")
-    return value
-
-
-def _validate_levels(value: object, *, field_name: str) -> tuple[PriceLevel, ...]:
-    """Validate immutable price-level pairs and reject duplicate prices."""
-    if not isinstance(value, tuple):
-        raise TypeError(f"{field_name} must be a tuple")
-    seen_prices: set[Decimal] = set()
-    for level in value:
-        if not isinstance(level, tuple) or len(level) != 2:
-            raise TypeError(f"{field_name} must contain two-item tuples")
-        price, quantity = level
-        _validate_decimal(price, field_name=f"{field_name}.price", allow_zero=False)
-        _validate_decimal(quantity, field_name=f"{field_name}.quantity")
-        if price in seen_prices:
-            raise ValueError(f"{field_name} contains duplicate prices")
-        seen_prices.add(price)
-    return value
-
-
 class TaggedEvent(
     msgspec.Struct,
     frozen=True,
@@ -88,26 +41,14 @@ class TaggedEvent(
         tag = type(self).__struct_config__.tag
         return tag if isinstance(tag, str) else str(tag)
 
-
-def _validate_market_fields(event: MarketEventRecord) -> None:
-    """Validate fields shared by all canonical market events."""
-    if not isinstance(event.provenance, EventProvenance):
-        raise TypeError("provenance must be an EventProvenance")
-    event.provenance.validate()
-    _require_text(event.original_capture_time, field_name="original_capture_time")
-    if event.original_capture_time != event.original_capture_time.strip():
-        raise ValueError("source text must not have surrounding whitespace")
-    if not isinstance(event.event_time_basis, str):
-        raise TypeError("event_time_basis must be a string")
-    if event.event_time_basis not in {"source_event", "capture_proxy"}:
-        raise ValueError("event_time_basis is unsupported")
-    _require_text(event.symbol, field_name="symbol")
-    if not isinstance(event.instrument_id, InstrumentId):
-        raise TypeError("instrument_id must be an InstrumentId")
-    _require_text(event.source_stream, field_name="source_stream")
-    _require_text(event.raw_line, field_name="raw_line")
-    if event.raw_line != event.raw_line.strip():
-        raise ValueError("source text must not have surrounding whitespace")
+    @staticmethod
+    def _require_text(value: object, *, field_name: str, allow_empty: bool = False) -> str:
+        """Require one string field at the Python construction boundary."""
+        if not isinstance(value, str):
+            raise TypeError(f"{field_name} must be a string")
+        if not allow_empty and not value:
+            raise ValueError(f"{field_name} must be nonempty")
+        return value
 
 
 class MarketEventRecord(TaggedEvent, frozen=True, kw_only=True):
@@ -135,8 +76,64 @@ class MarketEventRecord(TaggedEvent, frozen=True, kw_only=True):
             TypeError: A field has the wrong Python type.
             ValueError: A field or cross-field invariant is invalid.
         """
-        _validate_market_fields(self)
+        if not isinstance(self.provenance, EventProvenance):
+            raise TypeError("provenance must be an EventProvenance")
+        self.provenance.validate()
+        self._require_text(self.original_capture_time, field_name="original_capture_time")
+        if self.original_capture_time != self.original_capture_time.strip():
+            raise ValueError("source text must not have surrounding whitespace")
+        if not isinstance(self.event_time_basis, str):
+            raise TypeError("event_time_basis must be a string")
+        if self.event_time_basis not in {"source_event", "capture_proxy"}:
+            raise ValueError("event_time_basis is unsupported")
+        self._require_text(self.symbol, field_name="symbol")
+        if not isinstance(self.instrument_id, InstrumentId):
+            raise TypeError("instrument_id must be an InstrumentId")
+        self._require_text(self.source_stream, field_name="source_stream")
+        self._require_text(self.raw_line, field_name="raw_line")
+        if self.raw_line != self.raw_line.strip():
+            raise ValueError("source text must not have surrounding whitespace")
         return self
+
+    @staticmethod
+    def _require_int(value: object, *, field_name: str, nonnegative: bool = True) -> int:
+        """Require a strict integer field, rejecting booleans."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(f"{field_name} must be an integer")
+        if nonnegative and value < 0:
+            raise ValueError(f"{field_name} must be nonnegative")
+        return value
+
+    @staticmethod
+    def _validate_decimal(value: object, *, field_name: str, allow_zero: bool = True) -> Decimal:
+        """Require a finite nonnegative Decimal price or quantity."""
+        if not isinstance(value, Decimal):
+            raise TypeError(f"{field_name} must be a Decimal")
+        if not value.is_finite():
+            raise ValueError(f"{field_name} must be finite")
+        if value < 0 or (not allow_zero and value == 0):
+            qualifier = "positive" if not allow_zero else "nonnegative"
+            raise ValueError(f"{field_name} must be {qualifier}")
+        return value
+
+    @staticmethod
+    def _validate_levels(value: object, *, field_name: str) -> tuple[PriceLevel, ...]:
+        """Validate immutable price-level pairs and reject duplicate prices."""
+        if not isinstance(value, tuple):
+            raise TypeError(f"{field_name} must be a tuple")
+        seen_prices: set[Decimal] = set()
+        for level in value:
+            if not isinstance(level, tuple) or len(level) != 2:
+                raise TypeError(f"{field_name} must contain two-item tuples")
+            price, quantity = level
+            MarketEventRecord._validate_decimal(
+                price, field_name=f"{field_name}.price", allow_zero=False
+            )
+            MarketEventRecord._validate_decimal(quantity, field_name=f"{field_name}.quantity")
+            if price in seen_prices:
+                raise ValueError(f"{field_name} contains duplicate prices")
+            seen_prices.add(price)
+        return value
 
 
 class Disconnect(TaggedEvent, frozen=True, kw_only=True, tag="disconnect"):
@@ -161,7 +158,7 @@ class Disconnect(TaggedEvent, frozen=True, kw_only=True, tag="disconnect"):
         if not isinstance(self.provenance, EventProvenance):
             raise TypeError("provenance must be an EventProvenance")
         self.provenance.validate()
-        _require_text(
+        self._require_text(
             self.original_capture_time, field_name="original_capture_time", allow_empty=True
         )
         if not isinstance(self.event_time_basis, str):

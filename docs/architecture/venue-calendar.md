@@ -136,6 +136,11 @@ opening-order invariant; no mutable index or external cache is introduced.
 
 ## Migration, rollout, rollback, monitoring, and runbook
 
+Calendar records own their validation methods, and `ExchangeCalendarsAdapter` owns
+source metadata and timestamp conversion. C01/C02 share only the private redacted
+error formatter; calendar exceptions and trusted unchecked framework copy semantics
+remain unchanged. See the [runtime migration record](../roadmap/oop-migration/README.md#runtime-implementation-and-validation).
+
 Financial-unit settlement conventions already consume `SettlementCalendar`.
 There is no external strategy/service, database, order state or deployment to
 migrate. Additional consumers integrate by constructing a stable `Venue`, selecting an

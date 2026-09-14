@@ -24,9 +24,8 @@ from alpha_research.financial_units.models import (
     EvaluationContext,
     Rounding,
     UnitError,
+    _DecimalArithmetic,
     _FinancialUnitModel,
-    require_type,
-    round_fraction,
 )
 from alpha_research.venue_calendar import SettlementCalendar
 
@@ -54,12 +53,17 @@ class DayCountResult(_FinancialUnitModel):
 
     context: Annotated[
         EvaluationContext,
-        BeforeValidator(partial(require_type, expected=EvaluationContext, name="context")),
+        BeforeValidator(
+            partial(_FinancialUnitModel._require_type, expected=EvaluationContext, name="context")
+        ),
     ]
     start: date
     end: date
     duration: Annotated[
-        Duration, BeforeValidator(partial(require_type, expected=Duration, name="duration"))
+        Duration,
+        BeforeValidator(
+            partial(_FinancialUnitModel._require_type, expected=Duration, name="duration")
+        ),
     ]
     adapter_version: str = QUANTLIB_VERSION
 
@@ -74,10 +78,10 @@ class DayCountResult(_FinancialUnitModel):
             ConventionError: The interval is reversed or the adapter version differs
                 from the pinned version.
         """
-        require_type(self.context, EvaluationContext, "context")
-        require_type(self.start, date, "start")
-        require_type(self.end, date, "end")
-        require_type(self.duration, Duration, "duration")
+        _FinancialUnitModel._require_type(self.context, EvaluationContext, "context")
+        _FinancialUnitModel._require_type(self.start, date, "start")
+        _FinancialUnitModel._require_type(self.end, date, "end")
+        _FinancialUnitModel._require_type(self.duration, Duration, "duration")
         if self.end < self.start or self.adapter_version != QUANTLIB_VERSION:
             raise ConventionError("invalid result interval or adapter version")
 
@@ -117,10 +121,10 @@ class QuantLibConventions:
                 1901-2199; the interval is reversed; the pinned library is unavailable
                 or mismatched; or native evaluation fails or returns an invalid value.
         """
-        require_type(context, EvaluationContext, "context")
-        require_type(day_count, DayCount, "day count")
+        _FinancialUnitModel._require_type(context, EvaluationContext, "context")
+        _FinancialUnitModel._require_type(day_count, DayCount, "day count")
         for value in (start, end, context.evaluation_date):
-            require_type(value, date, "date")
+            _FinancialUnitModel._require_type(value, date, "date")
             if not 1901 <= value.year <= 2199:
                 raise ConventionError("QuantLib date must be within 1901-2199")
         if end < start:
@@ -151,7 +155,9 @@ class QuantLibConventions:
             raise ConventionError("QuantLib day-count evaluation failed") from error
         if type(raw) is not float or not math.isfinite(raw) or raw < 0:
             raise ConventionError("QuantLib returned an invalid year fraction")
-        fraction = round_fraction(Fraction(Decimal(str(raw))), Decimal("1e-15"), Rounding.HALF_EVEN)
+        fraction = _DecimalArithmetic.round_fraction(
+            Fraction(Decimal(str(raw))), Decimal("1e-15"), Rounding.HALF_EVEN
+        )
         return DayCountResult(
             context=context,
             start=start,
@@ -179,7 +185,7 @@ class QuantLibConventions:
             ConventionError: Date coverage, interval ordering, library compatibility,
                 or native-result validation fails as described by ``year_fraction``.
         """
-        require_type(context, EvaluationContext, "context")
+        _FinancialUnitModel._require_type(context, EvaluationContext, "context")
         return self.year_fraction(
             context=context, start=context.evaluation_date, end=end, day_count=day_count
         )
@@ -208,7 +214,7 @@ class SettlementConventions:
             UnitError: ``calendar`` is not an exact ``SettlementCalendar`` instance.
             ConventionError: The supplied calendar instance fails revalidation.
         """
-        require_type(calendar, SettlementCalendar, "settlement calendar")
+        _FinancialUnitModel._require_type(calendar, SettlementCalendar, "settlement calendar")
         try:
             self._calendar = SettlementCalendar.model_validate(calendar)
         except ValueError as error:
@@ -234,8 +240,10 @@ class SettlementConventions:
             ConventionError: The candidate is outside coverage, or the required
                 directional search has no eligible date within coverage.
         """
-        require_type(candidate, date, "candidate")
-        require_type(convention, BusinessDayConvention, "business-day convention")
+        _FinancialUnitModel._require_type(candidate, date, "candidate")
+        _FinancialUnitModel._require_type(
+            convention, BusinessDayConvention, "business-day convention"
+        )
         calendar = self._calendar
         if not calendar.covered_from <= candidate <= calendar.covered_through:
             raise ConventionError("date is outside settlement calendar coverage")
@@ -245,41 +253,23 @@ class SettlementConventions:
         following = bisect_left(dates, candidate)
         preceding = bisect_right(dates, candidate) - 1
 
-        def select(index: int) -> date:
-            """Select an eligible date without leaving known calendar coverage.
-
-            Args:
-                index: Position in the calendar's sorted eligible settlement dates.
-
-            Returns:
-                The eligible date at the requested position.
-
-            Raises:
-                ConventionError: The position is outside the retained settlement dates.
-            """
-            if not 0 <= index < len(dates):
-                raise ConventionError(
-                    "settlement calendar cannot determine adjustment within coverage"
-                )
-            return dates[index]
-
         if convention in (
             BusinessDayConvention.FOLLOWING,
             BusinessDayConvention.MODIFIED_FOLLOWING,
         ):
-            result = select(following)
+            result = self._select_date(following)
             if convention is BusinessDayConvention.MODIFIED_FOLLOWING and (
                 result.year,
                 result.month,
             ) != (candidate.year, candidate.month):
-                result = select(preceding)
+                result = self._select_date(preceding)
         else:
-            result = select(preceding)
+            result = self._select_date(preceding)
             if convention is BusinessDayConvention.MODIFIED_PRECEDING and (
                 result.year,
                 result.month,
             ) != (candidate.year, candidate.month):
-                result = select(following)
+                result = self._select_date(following)
         return result
 
     def settlement_date(
@@ -321,70 +311,18 @@ class SettlementConventions:
             raise ConventionError("settlement lag exceeds calendar coverage")
         return dates[index]
 
+    def _select_date(self, index: int) -> date:
+        """Select an eligible date without leaving known calendar coverage.
 
-def adjust_business_day(
-    candidate: date, *, calendar: SettlementCalendar, convention: BusinessDayConvention
-) -> date:
-    """Delegate business-day adjustment through the supported function API.
+        Args:
+            index: Position in the calendar's sorted eligible settlement dates.
 
-    The candidate check remains at the compatibility boundary so its legacy error
-    ordering precedes calendar construction. The service performs the adjustment
-    against a revalidated calendar copy.
+        Returns:
+            The eligible date at the requested position.
 
-    Args:
-        candidate: Exact date inside the calendar's inclusive coverage.
-        calendar: Validated settlement dates and complete coverage to search.
-        convention: Direction and month rule; UNADJUSTED retains a covered date
-            even if it is absent from the eligible settlement dates.
-
-    Returns:
-        The selected eligible date, or the covered candidate for UNADJUSTED.
-
-    Raises:
-        UnitError: An argument has an unexpected concrete type.
-        ConventionError: Calendar revalidation fails, the candidate is outside
-            coverage, or a required directional search has no eligible date.
-    """
-    require_type(candidate, date, "candidate")
-    require_type(calendar, SettlementCalendar, "settlement calendar")
-    require_type(convention, BusinessDayConvention, "business-day convention")
-    return SettlementConventions(calendar).adjust_business_day(candidate, convention=convention)
-
-
-def settlement_date(
-    trade_date: date,
-    *,
-    business_day_lag: int,
-    calendar: SettlementCalendar,
-    convention: BusinessDayConvention,
-) -> date:
-    """Delegate settlement-date calculation through the supported function API.
-
-    Lag and trade-date checks remain at the compatibility boundary so their legacy
-    ordering precedes calendar construction. The service performs adjustment and
-    lag counting against one revalidated calendar copy.
-
-    Args:
-        trade_date: Exact date inside the calendar's inclusive coverage.
-        business_day_lag: Number of eligible dates after the adjusted anchor;
-            an exact integer from zero through 366, excluding booleans.
-        calendar: Explicit settlement schedule used for both adjustment and lag.
-        convention: Business-day adjustment applied to the trade date first.
-
-    Returns:
-        The adjusted anchor for zero lag, otherwise the requested subsequent
-        eligible date. No additional adjustment or calendar extrapolation occurs.
-
-    Raises:
-        UnitError: A date, calendar, or convention has an unexpected concrete type.
-        ConventionError: The lag is invalid, anchor adjustment fails, or too few
-            eligible dates remain within calendar coverage.
-    """
-    if type(business_day_lag) is not int or not 0 <= business_day_lag <= 366:
-        raise ConventionError("business-day lag must be an integer between 0 and 366")
-    require_type(trade_date, date, "candidate")
-    require_type(calendar, SettlementCalendar, "settlement calendar")
-    require_type(convention, BusinessDayConvention, "business-day convention")
-    return SettlementConventions(calendar).settlement_date(
-        trade_date, business_day_lag=business_day_lag, convention=convention
-    )
+        Raises:
+            ConventionError: The position is outside the retained settlement dates.
+        """
+        if not 0 <= index < len(self._calendar.settlement_dates):
+            raise ConventionError("settlement calendar cannot determine adjustment within coverage")
+        return self._calendar.settlement_dates[index]
