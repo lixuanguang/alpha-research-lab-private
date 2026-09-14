@@ -320,6 +320,15 @@ funding timing, auctions, disconnects, or other behavior. A result cannot silent
 paper compare decisions, target quantities, risk decisions, order intent, and state traces; differences are classified
 by data, timing, randomness, market mechanics, or implementation before advancement.
 
+Replay and research consume one [event-stepping contract](../data/point-in-time-semantics.md#planned-economic-ordering-and-event-stepping),
+owned by MR 20. Pipelines compose operations and retain state; the iterator and
+scheduled-step library enforce source admission, expiry, pending fill, decision
+and valuation order. Use fixed source/stream precedence and stable logical source
+order for meaningful ties. Hashes retain provenance without allowing future byte
+changes to reorder earlier economics. E1 first exercises this contract through
+observations, decisions and a reconciled synthetic ledger, then MR 44 extends the
+same path with saved-input/trial composition.
+
 ## Portfolio, accounting, and position state
 
 Portfolio construction consumes forecasts, current positions, risk budgets, costs, liquidity, financing, and
@@ -330,6 +339,11 @@ The planned accounting boundary owns positions, lots or contract quantities, cas
 margin/collateral, financing, fees, dividends, coupons, funding, variation margin, exercise, assignment, delivery, and
 settlement events for supported asset classes. Money and quantities use the current exact financial-unit contract;
 weight-only state cannot replace an economic position.
+The planned P1 [arithmetic contract](financial-units.md#planned-research-and-accounting-arithmetic)
+keeps cash/notional/marks on the exact C03 grid and uses dimensioned rational
+basis/P&L attribution where proportional division is nonterminating. Exact
+returns use reduced fractions; display/model approximation has a separate
+declared representation. P1 NAV and gross-to-net reconciliation are exact.
 
 Each accepted fill changes economic state exactly once. Rejected or canceled quantity never becomes a position. Realized
 and unrealized P&L use one authoritative definition. Base-currency translation names its FX source and timestamp. NAV
@@ -362,6 +376,19 @@ limits remain safe; otherwise the account or venue is fenced as a whole.
 Risk consumes authoritative positions, pending orders, market state, limits, entitlements, and activation state. Missing
 or stale inputs, unavailable limits, timeout, unknown instrument, or failed authorization rejects new risk with a
 visible reason. Kill and cancel controls remain reachable when a strategy process is unhealthy.
+
+For the first dedicated single-instance paper account, qualify durable state,
+pending reservations, hard limits and base account reconciliation. Shared-account
+netting/allocation and its reconciliation become mandatory before a second
+instance shares the account (MRs 54–55), not before the first base reconciliation.
+
+Initial strategies are trusted founder-authored code. Logical separation,
+immutable limits, per-instance state and final risk enforcement outside strategy
+logic protect supported interactions and failures. They do not isolate hostile
+code. Before admitting adversarial or untrusted strategies, require a privilege
+boundary with controlled communication and credentials/limits outside that
+code's authority. A separate class or same-privilege process does not establish
+this stronger guarantee; no sandbox platform is a P1 prerequisite.
 
 ## OMS and venue adapter design
 
@@ -425,6 +452,9 @@ venues, instruments, capital, limits, duration, credentials, and stop conditions
 An artifact identity binds source commit, build command, dependency lock, platform, configuration, model/data
 references, schema versions, limits, and complete artifact digest. Build once and promote the same bytes. The retained
 [artifact boundary](artifact-supply-chain.md) is the reference for this identity and verification contract.
+Its R1 consumer and admitted deployment graph precede the first actual deployment,
+including early capture and paper/shadow. MR 59 later binds executable authority
+to the verified artifact; it cannot be the first installer for an earlier milestone.
 
 Schema changes use explicit versions and compatibility windows. The normal migration is expand, dual-read/write where
 necessary, backfill or reconcile, cut over, then contract. A reader rejects unknown incompatible versions with a visible

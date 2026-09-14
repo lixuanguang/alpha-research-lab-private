@@ -62,10 +62,16 @@ workflows. It does not create imaginary approvers for a one-person company.
 ## Usable delivery milestones
 
 The [milestone implementation plan](capability-milestones.md#completion-and-dependency-model)
-assigns the single MR 01–62 sequence to runnable outcomes, with MR 00 and C0
-retained as completed prerequisites.
+assigns MR 01–62 to runnable outcomes, with MR 00 and C0 retained as completed
+prerequisites. R1 splits the trusted artifact consumer out of MR 59 and precedes
+the first deployment. E1 is an early integration checkpoint within the existing
+research packages, not an additional MR count.
 M0 resolves and exercises a fixture; M1 delivers validated historical ingestion;
-M2 delivers selective EDA and replay. Live capture proceeds through M3 with
+M2 starts with a bounded reference query and shared event-stepping library;
+columnar storage is conditional on a measured consumer. E1 uses those contracts
+to compose saved synthetic events through decisions, delayed fills, costs and a
+reconciled ledger. It stays runnable as later research packages extend it.
+M2 also delivers selective EDA and replay. Live capture proceeds through M3 with
 validation, monitoring and recovery included. M4 adds features and optional model
 research; M5 delivers strategy simulation and research controls. M6 qualifies
 paper/shadow operation and M7 qualifies specifically authorized live operation
@@ -76,7 +82,16 @@ wait for M3 streaming or an ML platform; historical M4 work can start after M2.
 Collection may start early for irrecoverable feeds with its basic controls intact.
 Monitoring is part of each operational milestone, not a final platform add-on.
 Completion requires the declared workflow and failure/extension evidence, not a
-particular MR count. The original frozen P1 experiment remains unchanged.
+particular MR count. The P1 sample, strategy and costs remain frozen; its
+2026-09-14 contract clarification settles rational arithmetic and replaces the
+digest-based economic tie-break before implementation.
+
+“Frozen P1 baseline accepted” requires every baseline row and MR 49's permitted
+saved-source reproduction. “M5 accepted” additionally requires reusable installed
+data workflows, EDA/extension evidence and research comparison/instance isolation
+controls. The [acceptance map](p1-implementation-roadmap.md#p1-acceptance-map)
+assigns both outcomes without dropping the broader requirements. Neither an
+early synthetic result nor MR 49 alone without its prerequisites closes them.
 
 ## P1: first causal baseline
 
@@ -111,13 +126,13 @@ Implement the following small slices together with their concrete types and test
 
 | Slice | Implementation detail | Decisive evidence |
 | --- | --- | --- |
-| Configuration and onboarding | Typed definitions and explicit active instances with implementation, asset, parameter and data bindings; pipelines resolve and compose supported selections | Another supported synthetic asset and a compatible test strategy use the same orchestration; inactive selections do not execute and unsupported bindings fail |
+| Configuration and onboarding | Typed definitions and explicit active instances with implementation, asset, parameter and data bindings; validate against metadata contracts before acquisition workflows exist | Another supported spot fixture and compatible test rule use the same orchestration; M5 adds overlapping inputs, peer failure/restart and different-family boundary evidence |
 | Time and event identity | Aware event/receipt/ingestion/availability times, valid interval, source revision, source sequence and deterministic tie-breaking; distinguish what happened from what was knowable | Late publication, future corrections, repeated timestamps and timezone boundaries cannot alter an earlier decision |
 | Raw ingestion | One adapter, immutable raw-object digest, request/range manifest, restart checkpoint, bounded retry and explicit gap/duplicate handling | Interrupt and resume a download without inventing, losing or duplicating observations; mutated input fails identity checks |
 | Canonical dataset | Normalize vendor identifiers and units at the adapter; preserve source lineage, historical membership, exclusions and correction policy; publish a versioned snapshot atomically | Rebuild the same snapshot and perform as-of selection by availability time; schema or quality failures stay out of published data |
 | Strategy input and output | Explicit context containing strategy/version, data/config identity, clock and random seed; signal or target output with horizon and units | The same context reproduces decisions; changing a strategy configuration cannot silently replace an earlier run |
-| Baseline accounting | No-trade plus one transparent baseline; declared fill delay/price, quantities, fees, positions, cash, financing where applicable and gross-to-net attribution | Hand-calculated buy/sell, no-trade, cost-sign and valuation examples reconcile to the report |
-| Run and report | A callable runner over the existing libraries, a small append-only trial record and durable output references | An independent process reproduces the net report from the saved command and identities |
+| Baseline accounting | No-trade plus one transparent baseline; shared scheduling, exact C03 postings, rational returns/proportional attribution, explicit fees and gross-to-net treatment | Hand-calculated trades, nonterminating ratios/basis, a true rounding tie, and expiry/gap/resume cases reconcile exactly |
+| Run and report | E1 starts the callable economic path; MR 44 adds full saved-input/trial composition, followed by durable reports and an installed command | An independent process reproduces the net report from saved command/identities; permitted-source evidence closes the frozen baseline separately from M5 reuse |
 
 These are proposed implementation slices, not existing module names or commands.
 Prefer files, typed records and local functions/classes until concurrency or
@@ -196,6 +211,8 @@ has been exercised. Implementation includes:
    through explicit configuration. Startup rejects incompatible schema/state,
    missing inputs and unreconciled positions. Dependency source or release
    restrictions must be resolved before the artifact lifecycle can proceed.
+   R1 implements trusted artifact verification/installation before the first
+   deployment; MR 59 later binds executable authority to that release.
 2. A broker/venue session boundary for sequencing, throttles, reconnect and replay.
    Treat a send timeout as an unknown outcome; query/reconcile before retrying.
    Prevent concurrent processes from owning the same executable session by using
@@ -203,6 +220,9 @@ has been exercised. Implementation includes:
 3. Durable OMS state and a journal supporting duplicate suppression and restart.
    Compare order/fill records with venue state and drop copy where available;
    maintain observable breaks and a safe response until reconciliation succeeds.
+   A dedicated single-instance paper account requires this base reconciliation;
+   shared-account arbitration and allocation reconciliation become mandatory
+   before a second instance shares it.
 4. Risk checks outside strategy logic, covering pending orders as well as fills:
    quantity/notional, strategy and account exposures, loss, price bounds,
    liquidity/rate limits and stale input. A strategy cannot raise its own limits.

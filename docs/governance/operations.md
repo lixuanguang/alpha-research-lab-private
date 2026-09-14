@@ -20,6 +20,10 @@ The [QuantLib restriction](../architecture/README.md#dependency-and-release-boun
 blocks release use until its source-to-wheel uncertainty is
 resolved. Passing development checks or deleting the allowance does not satisfy
 source admission or remove that block.
+The [R1 trusted consumer](../roadmap/capability-milestones.md#r1-trusted-artifact-before-first-deployment)
+is also required before an actual collector or paper deployment. Clearing the
+dependency restriction alone does not implement artifact verification. MR 59
+subsequently binds executable trading authority to the verified release.
 
 Build and verify one immutable artifact. Record its commit, digest, dependency
 lock, configuration/model/data references, target environment, limits, and
@@ -47,6 +51,11 @@ feed freshness, clock and availability assumptions, order sizing, notional,
 exposure, loss, and rate limits. Run a bounded paper or canary period with an
 explicit duration and stop conditions. Keep risk enforcement outside strategy
 decision logic.
+The initial scope trusts founder-authored strategy code and tests logical
+separation and final risk enforcement. It does not claim hostile-code isolation;
+untrusted strategies require the actual privilege boundary described in the
+[platform design](../architecture/platform-design.md#multi-strategy-netting-and-isolated-risk)
+before admission.
 
 ## Monitor and stop
 
@@ -65,6 +74,10 @@ strategy's attributed activity and the actual account ledger; monitor aggregate
 exposure, margin and pending orders across strategies. Define which failures stop
 one instance, an account or all trading. A failed strategy must not disable shared
 account protection or conceal another strategy's live orders.
+For a first dedicated single-instance paper account, base cash/position/order
+and pending-commitment reconciliation is mandatory. MR 54 allocation/arbitration
+and MR 55 allocation reconciliation must additionally pass before the second
+instance shares the account. Stop and recovery controls apply in either scope.
 
 Add dashboards, centralized telemetry and additional operators when the workload
 needs them. Minimum health, financial monitoring and tested recovery accompany the

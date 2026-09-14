@@ -61,6 +61,72 @@ invented snapshot timestamps fail at the payload boundary. The adapter does not
 download data or assert historical exchange metadata in this foundation
 candidate.
 
+### Planned economic ordering and event stepping
+
+Decision date: 2026-09-14. MR 17 supplies the economic order and MR 20 owns a
+small reusable event iterator and scheduled-step operation, consumed by both
+replay and research pipelines. This is planned consumer behavior; the current
+decoder's provenance and occurrence identities remain unchanged.
+
+Order admitted events by effective knowledge time, then predefined source/stream
+precedence, stable logical partition/session order and source-local sequence.
+Freeze precedence in the resolved input configuration before a run. For P1's
+single stream, use partition start and zero-based raw line position within each
+partition. Deduplicate/reconcile object versions before scheduling; unresolved
+competing versions or ambiguous logical ordering fail admission. Preserve each
+admitted revision and its effective availability in replay history: a
+latest-revision projection at one cutoff is a distinct query result, not a
+history for replay through earlier cutoffs. MRs 19–20 must not collapse history
+at the terminal cutoff before advancing the clock. Instrument/column selection
+also preserves [applicable control information](contracts.md#control-scope-through-queries).
+Content hashes, whole-snapshot identities and digest-derived occurrence IDs identify retained
+bytes and lineage; they must not resolve an economically meaningful tie. This
+does not claim an observed global arrival order across independent sources.
+
+Advance the replay clock chronologically to the next relevant source-availability
+time, decision time, pending-intent expiry or terminal time. Schedule any
+additional fill-eligibility time required by the timestamp model explicitly;
+P1's candidate fill time is `max(ts_event, effective_knowledge)` after both
+timestamps satisfy its positive-delay rule. Waiting does not make an otherwise
+ineligible old trade eligible. A query batch is only a delivery unit: read-ahead
+must not make later information available at an earlier step or defer an earlier
+fill until the next decision boundary.
+
+At each simulation timestamp, admit all then-known source events in that order
+(including gap/correction information), expire old intents, apply a still-eligible pending
+fill, evaluate any scheduled decision, then mark NAV. A fill at exact expiry is
+ineligible. A gap becoming known at the same time cancels the pending intent
+before a prospective fill. A new decision cannot fill at its own step. The
+scheduler owns this phase order; libraries compute the operations and pipelines
+own composition and per-instance economic state.
+Complete source admission for that timestamp across batch boundaries before
+applying the remaining phases. Phase precedence applies within one timestamp,
+never across an entire batch or decision interval.
+
+E1's synthetic chronology case creates an intent at `00:02:00`, fills on an
+eligible trade known at `00:02:01`, then admits a gap at `00:02:30`. The later
+gap cannot undo the accepted fill, although its coverage/valuation consequences
+remain visible. With identical saved inputs, config and ordering policy, batch
+size `1` and batch size `k` must produce the same economic trace: decisions,
+rejections, accepted fills, costs and balances. Diagnostic batch counts may differ.
+Include a batch boundary within
+an equal-time trade/control group, alongside exact-expiry and resume cases.
+
+A cursor binds the input/configuration and ordering-policy versions and a stable
+logical source position. Resume at a completed step, with the clock, frozen
+observations, pending intent, outstanding scheduled times, applied-fill identities
+and ledger supplied by the consumer; otherwise reject the incomplete/incompatible
+checkpoint. MR 20 proves
+event/cursor parity; the early economic slice and MR 44 prove resumed economic
+state equals uninterrupted state. This is offline replay state, not M6 durable
+account recovery.
+
+Test future perturbations at the selector and economic consumer: changing only
+information strictly after cutoff `t`, including a later row that changes an
+object's digest, cannot change decisions, fills or balances through `t`. Full
+provenance/run identities may change. Do not label a changed knowledge assertion
+at or before `t` a future-only perturbation.
+
 ## Planned consumers
 
 The semantics above are inputs to the planned raw store, dataset publication,

@@ -18,33 +18,47 @@ configuration, library boundaries and milestone requirements.
 A milestone delivers a runnable workflow for a declared supported scope, with
 controlled failures and a demonstrated extension boundary. Merged MR counts do
 not establish completion. Counts below describe logical review packages and
-exclude completed MR 00/C0. Planned work is numbered **MR 01–62**, grouped by
-milestone with prerequisites ordered within each group. MR 00 remains the merged
+exclude completed MR 00/C0. Planned work retains **MR 01–62**, grouped by
+responsibility; dependency cells determine delivery order. MR 00 remains the merged
 specification; C0 identifies the completed cleanup. Milestone names M0–M7 are not
 MR IDs. Use `codex/mr-<NN>-<topic>` for implementation branches unless another name
 is requested. Split a package at useful review boundaries when necessary and
 record its scope under the owning MR; counts do not weaken its acceptance.
+E1 is an early integration checkpoint within existing research packages. R1 is
+the artifact-consumer responsibility split out of MR 59 and scheduled before the
+first deployment; it is one additional logical package, not an M7 prerequisite
+on M6. Numeric MR IDs remain stable. MR 18 and MR 54 are conditional on their
+declared consumer; deferred packages are not claimed implemented.
 
 | Milestone | Runnable outcome | Assigned packages | Dependencies and scope |
 | --- | --- | --- | --- |
 | M0 — Minimal runnable foundation | Config resolves a bounded data job and runs a saved fixture through configured decoders. | MR 01–02: **2** | Current foundations and MR 00/C0. No network, registry service or universal runner framework. |
 | M1 — Validated historical ingestion | Ingest, normalize, validate, publish and reopen a versioned historical dataset through documented commands. | MR 03–16: **14** | M0 and permitted source access for external acceptance. Initial trade-data path; full snapshot eligibility/coverage claims require their actual evidence. |
-| M2 — Research data access and replay | Select instruments, intervals, columns and a snapshot for bounded-memory EDA and deterministic replay. | MR 17–21: **5** | M1. No live stream, feature store, database service, trained model or strategy required. |
-| M3 — Reliable live capture | Configured live inputs are validated, durably captured, recoverable and consumable through compatible canonical contracts. | MR 22–27: **6** | Prototype capture after 01, 03–04; complete with M1 quality/publication and MR 20 replay contracts. Initial live trades; live source/format must be selected and verified in MR 22. |
+| M2 — Research data access and replay | Select instruments, intervals, columns and a snapshot for bounded-memory EDA and deterministic replay. | MR 17–21: **5**, with 18 conditional | Verified published inputs and 10/12/15 contracts; synthetic development does not await M1's acquisition commands or external acceptance. The reference reader suffices unless a measured workload needs 18. |
+| M3 — Reliable live capture | Configured live inputs are validated, durably captured, recoverable and consumable through compatible canonical contracts. | MR 22–27: **6** | Prototype capture after 01, 03–04; complete with quality/publication and MR 20 replay contracts. Any deployed collector first requires R1. Live source/format is selected and verified in MR 22. |
 | M4 — Reproducible features and model research | Versioned transforms and optional models have causal inputs, retained fit state and reproducible evaluation; supported incremental features match replay. | MR 28–32: **5** | Historical work starts after M2. Incremental/live parity uses M3. Model work applies only to a selected model consumer. |
-| M5 — Strategy simulation and research controls | Configured strategies use shared decision/economic logic and produce isolated, reproducible, costed reports with applicable risk and comparison controls. | MR 33–49: **17** | M2. M4 only for strategies consuming its features/models; deterministic backtesting does not wait for M3 or an ML platform. |
-| M6 — Paper/shadow deployment | The same versioned strategy/feature artifacts run against live inputs with order, risk, reconciliation, recovery and monitoring controls. | MR 50–57: **8** | M3 and M5; M4 where used. Initial declared account/venue scope, with no executable orders in paper/shadow acceptance. |
-| M7 — Controlled live operation and expansion | A specifically authorized deployment operates within tested limits; a compatible additional instance can be onboarded without copying strategy code. | MR 58–62: **5** | M6 and applicable release/dependency admission. Each new product/venue needs acceptance for its actual mechanics before execution is enabled. |
+| M5 — Strategy simulation and research controls | E1 first composes synthetic economics; MR 49 accepts the frozen baseline; M5 adds reusable research/workflow/isolation evidence. | MR 33–49: **17** | E1 uses reference query/replay contracts; full M5 requires M1/M2 workflow exits and 47–48. M4 only for consuming strategies; neither M3 nor ML blocks the deterministic baseline. |
+| M6 — Paper/shadow deployment | The same versioned strategy/feature artifacts run against live inputs with order, risk, reconciliation, recovery and monitoring controls. | MR 50–57: **8**, with 54 conditional | M3 and M5; R1 before deployed acceptance; M4 where used. Single-instance accounts use base reconciliation; sharing requires 54 and allocation reconciliation. No executable orders. |
+| M7 — Controlled live operation and expansion | A specifically authorized deployment operates within tested limits; a compatible additional instance can be onboarded without copying strategy code. | MR 58–62: **5**, with release-consumer work moved to R1 | M6 and maintained release/dependency admission. MR 59 binds trading authority. Each new product/venue needs acceptance for its actual mechanics before execution is enabled. |
+| R1 — Trusted deployment artifact | Build, identify, verify and install one trusted immutable artifact for the first concrete deployment. | **1**, split from MR 59 | Existing build inputs and resolved dependency admission for the actual deployment graph; no M6, MR 58 or executable-account prerequisite. |
 
 ```mermaid
 flowchart LR
-    M0 --> M1 --> M2 --> M5 --> M6 --> M7
+    M0 --> M1
+    M1 -->|saved-input contracts| M2
+    M2 -->|reference query and stepping| E1
+    E1 -->|strengthen the same path| P1[MR 49 frozen baseline]
+    M1 -->|permitted-source evidence| P1
+    P1 --> M5 --> M6 --> M7
+    M2 -->|EDA and extension evidence| M5
     M1 -->|validation and publication| M3
     M2 -->|replay contract| M3
     M2 -->|historical features| M4
     M3 -->|incremental parity| M4
     M4 -.->|when consumed| M5
     M3 --> M6
+    R1 -->|before deployed capture| M3
+    R1 -->|before paper deployment| M6
 ```
 
 The arrows name actual interfaces, not a global waterfall. Historical EDA and
@@ -52,6 +66,16 @@ simple backtests are useful while live capture is developed. Early capture is
 reasonable for otherwise irrecoverable feeds, but it must retain basic validation,
 loss visibility and durable input identity from its first working slice.
 Monitoring and recovery belong to the capability they protect throughout this graph.
+The M1→M2 edge names saved-input contracts, not completion of downloader or CLI
+work; synthetic verified snapshots can supply them. R1 edges apply to actual
+deployment, while isolated development smoke may continue under current policy.
+
+For founder delivery, follow one main path: configured fixture and early source
+feasibility → durable historical data → reference query/replay and E1 → frozen
+P1 reproduction → M5 reuse and useful live capture → one paper deployment →
+scoped live operation. Pull capture forward for history worth preserving, and
+R1 forward whenever that capture is actually deployed. Numeric milestone order
+does not require completing live capture or models before research.
 
 ## Shared configuration and support contracts
 
@@ -133,15 +157,18 @@ knowledge model; a historical download's wall clock is not historical availabili
 
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
-| **18 — Write a queryable snapshot representation** | 14–15, 17 | Add a versioned columnar writer/reader under `data/`, consumed by dataset publication. Preserve exact prices/quantities, instrument contracts, revision/availability fields and semantic snapshot identity. Benchmark one bounded Parquet/embedded-engine candidate before dependency admission. | Round trips preserve exact units and timestamps; physical conversion cannot drop rejected/revised history or change selected economic values. An interrupted conversion leaves the prior snapshot readable. |
-| **19 — Query selected data in bounded batches** | 18, 17 | `data/` query operations accept snapshot ID, instrument set, time/knowledge bounds and columns; return typed batches/aggregates and query identity. Use the admitted embedded backend behind this contract. Config selects compatible implementations. | Compare with the reference as-of selector, including late corrections. Measure peak memory, scanned partitions/columns and returned rows on a declared selective workload; verify cancellation and bounded iteration. A projection cannot bypass eligibility or revision filtering. |
-| **20 — Replay a canonical event sequence** | 19 | A replay library reads explicitly ordered events with an injected clock, stable cursor and bounded buffering; `pipelines/replay.py` owns sequencing and consumer invocation. Preserve source-local ordering and a deterministic cross-source tie rule without claiming unobserved global arrival order. | Same snapshot/config produces the same event sequence. Equal timestamps, future corrections, restart from a cursor and a slow consumer preserve the declared order and loss policy. |
+| **18 — Add a measured query backend** | 14–15, 17, 19; selected workload requires it | Add a versioned columnar writer/reader behind MR 19's working query interface. Preserve exact units, revisions, availability and semantic snapshot identity. Benchmark a bounded candidate before dependency admission; defer if the reference reader meets the workload. | Reference parity and exact round trips; conversion cannot drop history or change selected values. Interrupted conversion leaves prior inputs readable. Retain measured I/O/memory benefit and added dependency cost. |
+| **19 — Query selected data in bounded batches** | 17, not 18 | Introduce a working file/reference reader accepting snapshot ID, instruments, time/knowledge bounds and columns; return typed batches/aggregates and query identity. Preserve [applicable control/quality scope](../data/contracts.md#control-scope-through-queries) through selection/projection. Distinguish cutoff projections from replay history retaining revisions and their availability. MR 18 may later supply another implementation. | Compare with the as-of selector including late corrections. Applicable instrument-less disconnects survive projected queries; unrelated bindings' disconnects do not affect selected inputs. Replay retains earlier versions instead of using terminal-cutoff state. Measure memory/read counts; verify cancellation and bounded iteration. Projection cannot bypass eligibility or revision filtering. |
+| **20 — Replay with shared event stepping** | 19 | Own the ordered iterator, clock, cursor and stepping under the [shared timing contract](../data/point-in-time-semantics.md#planned-economic-ordering-and-event-stepping). Advance chronologically through source availability, decisions, expiry, terminal and any additional fill-eligibility times; phase order applies at one timestamp across batch boundaries. Replay and E1/MR 44 research consume the same operation. | Preserve source order, bounded buffering, future-only prefix and cursor/resume parity. E1/MR 44 prove an earlier fill survives a later-known gap, batch sizes 1/k give identical economics, and equal-time controls, exact expiry and retained revisions stay causal. Read-ahead never advances knowledge. |
 | **21 — Exercise EDA and extension boundaries** | 19–20 | An EDA orchestration entry resolves query config and produces retained query/summary identities; the activity notebook calls the same libraries. Include query duration, failures, rows/batches and memory/read observations. | Query multiple instruments, plot a bounded interval and replay it outside the notebook. An explicit different-family fixture exercises neutral identity/unit/query contracts; unsupported lifecycle or adapter requests fail. Notebook convenience does not require a hosted service or a production-supported second family. |
 
 Exit workflow: select assets, dates, columns and a saved dataset version; inspect
 EDA results and replay ordered inputs without loading the entire dataset eagerly.
 Benchmark selection must record actual I/O and layout, not promise that every
 filter avoids a full scan. Live ingestion and a feature store are not dependencies.
+Complete 17, 19–21 with the reference reader first. MR 18 is required only when
+the selected consumer's measured workload needs that representation; record its
+deferral explicitly instead of gating observations or E1 on a backend choice.
 
 Parquet with an embedded engine is a candidate, not an adopted stack. DuckDB
 supports projection/filter pushdown and metadata-based row-group skipping; actual
@@ -212,12 +239,23 @@ feature scope, not implemented model support.
 Reuse 33–41, 43–46, 49 for completed observations, configured strategies, delayed fills,
 exact accounting, trials and reports. Preserve the
 [frozen P1 experiment](../research/p1-baseline.md): additional synthetic cases do
-not revise its sample, strategy, costs or empirical acceptance. MR 49 closes that
-original experiment; M5 also requires the relevant controls below.
+not revise its sample, strategy or costs. The 2026-09-14 arithmetic and ordering
+clarifications apply before implementation. Start with
+[E1](p1-implementation-roadmap.md#early-synthetic-economic-slice), which delivers
+initial 33–42 behavior and the research callable together using the reference
+query/scheduler. Keep it runnable while the remaining acceptance cases and
+43–46 persistence/installed execution are added.
+
+MR 49 accepts the frozen baseline only after every baseline requirement passes.
+M5 additionally requires M1's installed workflows, M2's EDA/extension exit and
+47–48 below, as assigned in the
+[acceptance map](p1-implementation-roadmap.md#p1-acceptance-map). MR 18 remains
+conditional on a measured consumer; neither outcome requires a columnar backend
+merely to complete its package number.
 
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
-| **42 — Enforce simulated decision limits** | 34–41 | A risk library validates unit-bearing intent, available cash, holdings and pending commitments against explicit supported limits. The research pipeline applies it outside strategy code before fills. Preserve frozen P1 bounds. | A strategy cannot bypass limits or change them; wrong units, excess size/cash and pending exposure fail with attributable reasons. Limits apply equally in no-trade/baseline composition. |
+| **42 — Enforce simulated decision limits** | 34–41 | A risk library validates unit-bearing intent, available cash, holdings and pending commitments against explicit supported limits. The research pipeline applies it outside strategy code before fills. Preserve frozen P1 bounds and the [intent/run outcome distinction](../research/p1-baseline.md#intent-outcomes-and-run-completion). | A strategy cannot bypass limits or change them; wrong units, excess size/cash and pending exposure are rejected with attributable reasons. An expected unaffordable intent produces no fill and unchanged balances, without alone failing a complete run. Broken invariants or incompatible required state still fail computation. Limits apply equally in no-trade/baseline composition. |
 | **47 — Retain research selection controls** | 43–46 | Extend trial/config consumers with predeclared comparisons and applicable split, fit and holdout access records; integrate M4 state/model identities only when used. | Failed/rejected comparisons remain visible. A changed split/cost/config cannot overwrite a prior trial; a fitted consumer cannot use future/held-out inputs. The deterministic baseline records fitting as inapplicable. |
 | **48 — Prove instance and capability isolation** | 44–46, 42, 47 | Exercise two strategy implementations/instances on overlapping multi-instrument fixtures through the same orchestration, with distinct state namespaces and identities. Reuse matching immutable inputs, not mutable cash or pending intents. | Failure/restart of one instance cannot change another's state, fills or output. A compatible strategy needs only implementation/config additions. A different-family contract fixture exposes unit/multiplier assumptions and rejects unsupported economic execution. No shared-account portfolio support is inferred. |
 
@@ -225,6 +263,23 @@ Exit workflow: run configured no-trade and baseline instances, reconcile a hand
 ledger, reproduce a saved report outside the checkout and exercise the isolation
 cases. Complete permitted-source MR 49 separately from synthetic evidence. Live
 feeds, fitted models and feature services are not mandatory dependencies.
+
+## R1 — Trusted artifact before first deployment
+
+This package moves the release-consumer portion of MR 59 ahead of the first
+actual deployment, including an early M3 collector. It has no dependency on M6,
+MR 58, broker access or trading authority. Implement the smallest consumer for
+the selected artifact/target when needed; a general signing platform is not a
+prerequisite for synthetic research.
+
+| Package | Depends on | Owned behavior and concrete consumer | Decisive evidence |
+| --- | --- | --- | --- |
+| **R1 — Build, verify and install a trusted artifact** | Existing build/lock inputs; actual deployment graph admitted under dependency policy | Resolve the [QuantLib deployment decision](../architecture/dependency-admission.md#first-deployment-dependency-decision), then implement the [artifact contract](../architecture/artifact-supply-chain.md) for a concrete collector or runtime installer. Bind source/lock/platform, immutable digest, trusted origin/builder, inventory/provenance and state compatibility; retain installation/rollback records. | Outside-checkout installation verifies trusted identities and exact bytes; tampering, unsafe archive members, unknown/missing provenance, incompatible state and dependency mismatches fail. Release-use checks remain fail-closed until both dependency admission and the consumer pass. Artifact verification grants no trading authority. |
+
+Any deployed M3 acceptance and MR 57 depend on R1. Keep local wheel smoke labeled
+development evidence while release is blocked. MR 59 later consumes this release
+identity and independently binds the executable account/venue/limit/duration
+envelope; it does not create the artifact consumer needed by its own prerequisites.
 
 ## M6 — Paper/shadow deployment
 
@@ -234,27 +289,40 @@ pipelines, provider SDKs stop at adapters and production code imports neither
 notebooks nor workstation configuration. Deployed artifacts follow existing
 [release/dependency boundaries](../architecture/README.md#dependency-and-release-boundaries).
 Local development smoke can proceed while those boundaries block an actual release.
+R1 must pass before any deployed acceptance. The first scope may be a single
+trusted founder-authored strategy instance in a dedicated paper account. It
+still needs durable orders/fills, pending reservations, account limits, duplicate
+protection, reconciliation, monitoring, stop and recovery. MR 54's arbitration
+and allocation-specific MR 55 evidence become mandatory before a second instance
+shares that account; unsupported sharing must fail configuration/startup.
+
+The initial threat model is trusted founder-authored code with logical state
+separation, invariant checks and final risk enforcement outside strategy logic.
+It does not guarantee isolation from malicious code. Adversarial/untrusted
+strategies require a real privilege boundary with controlled communication and
+credentials/limits outside their authority before onboarding; classes, namespaces
+or a same-privilege process alone do not establish that guarantee.
 
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
 | **50 — Resolve an immutable deployment** | M3, M5; M4 where used | Runtime orchestration resolves instance/run/deployment/state namespace, exact artifact/input versions, environment, accounts and explicit mode. Keep collection/research selections separate from executable authorization. | Incompatible artifacts/state/bindings fail startup; the same strategy decisions agree for matched research/runtime inputs. Paper/shadow cannot acquire an executable connection by adding a symbol to config. |
 | **51 — Implement the paper order lifecycle** | 50 | Execution contracts and a working paper adapter handle submit/acknowledge/fill/reject/cancel/replace and unknown outcomes under one defined venue model. | Independent order/fill traces preserve IDs, quantities and states; timeout is not silently treated as rejection or permission to resend. |
 | **52 — Journal and recover execution state** | 51 | Durable order/fill journal, idempotent transitions and a single-writer/fencing policy used by runtime startup and restart. | Duplicate/late messages and process loss cannot apply a fill twice; a stale process cannot continue owning the same session. |
-| **53 — Enforce independent runtime risk** | 52, 42 | Strategy-instance budgets and account/portfolio hard limits include pending commitments. Enforce limits and kill controls outside strategy authority. | Competing intents cannot spend the same reserved capital; a failed or hostile strategy cannot raise a limit, bypass a stop or write another instance's state. |
+| **53 — Enforce independent runtime risk** | 52, 42 | Strategy-instance budgets and account/portfolio hard limits include pending commitments. Enforce limits and kill controls outside trusted strategy logic under the stated threat model. | Supported strategy interfaces cannot raise limits, bypass stops or write peer state; failures retain protective behavior. Pending intents cannot spend reserved capital twice. No hostile-code isolation claim. |
 | **54 — Attribute and arbitrate shared-account intents** | 52–53 | Explicit aggregation/allocation policy preserves strategy intents, account orders, fill/cost attribution and reservations. Required before multiple instances share a paper account. | Opposing synthetic intents net under a declared policy while gross strategy exposures/costs remain attributable; stopping one instance does not flatten another. Unsupported shorting/product execution is still rejected. |
-| **55 — Reconcile before resuming** | 52–54 | Reconcile authoritative account cash, positions and open orders against the journal and allocations; runtime owns break/repair sequencing. | Unknown sends, partial fills and interrupted restart produce visible breaks; no new risk is accepted until required reconciliation succeeds. |
-| **56 — Operate and stop the runtime** | 53–55, 26 | Add heartbeat plus decision/order progress, acknowledgements, rejects, exposure, risk state and reconciliation metrics; explicit stop/cancel/restart/rollback operations with scoped responses. | Detect an alive-but-stalled strategy, collector failure and reconciliation break. Test alert delivery, protective behavior and compatible state recovery without relying on telemetry to enforce hard limits. |
-| **57 — Exercise installed paper/shadow deployment** | 50–56 | Run the exact versioned artifact/config through paper and shadow with saved/live inputs and retained outcomes; document actual operating commands. | Prove parity, isolation, disconnect/restart, stop and rollback for the supported scope. Paper/shadow paths send no executable orders; passing them is not live authorization. |
+| **55 — Reconcile before resuming** | 52–53 for base account; 54 additionally for sharing | Base reconciliation compares authoritative cash, positions, open orders and pending commitments against the durable journal. For shared accounts, also reconcile strategy allocations, reservations and fill/cost attribution under MR 54. Runtime owns break/repair sequencing. | Unknown sends, partial fills and interrupted restart produce visible breaks; no new risk before reconciliation succeeds. Single-instance acceptance exercises the base path; shared acceptance also proves allocations sum to account activity without hiding breaks. |
+| **56 — Operate and stop the runtime** | 53, 55 base, 26; 54 and 55 allocation scope when sharing | Add heartbeat plus decision/order progress, acknowledgements, rejects, exposure, risk state and reconciliation metrics; explicit stop/cancel/restart/rollback operations with scoped responses. | Detect an alive-but-stalled strategy, collector failure and reconciliation break. Test alert delivery, protective behavior and compatible state recovery without relying on telemetry to enforce hard limits. |
+| **57 — Exercise installed paper/shadow deployment** | R1, 50–53, 55 base, 56; 54 and 55 allocation scope when sharing | Run the trusted immutable artifact/config through paper and shadow with saved/live inputs and retained outcomes; document actual operating commands and accepted account scope. | Prove parity, state separation, disconnect/restart, stop and rollback. Reject shared-account configuration until arbitration and allocation reconciliation pass. Paper/shadow sends no executable orders; passing is not live authorization. |
 
 ## M7 — Controlled live operation and expansion
 
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
 | **58 — Admit one executable venue path** | M6 | Implement the selected venue's bounded execution adapter and conform it to the owned lifecycle, throttling, unknown-outcome and reconciliation contracts. | Permitted sandbox/paper traces plus required actual-boundary checks establish that adapter's scope; unsupported order/product combinations fail. |
-| **59 — Bind release and trading authority** | 58; release admission | Resolve immutable artifact/config/state and independently approved account/venue/instrument/limit/duration scope at runtime. Implement the concrete trusted release consumer required by the existing artifact policy. | Tampered/incompatible artifacts or out-of-envelope selections fail. Deployment and activation remain distinct; unresolved release dependencies still block release use. |
+| **59 — Bind executable trading authority** | 58, R1; maintained release admission | Consume the verified immutable release/config/state identity and bind the explicit founder-authorized account, venue, instrument, capital, limits and duration at runtime. Release-consumer implementation belongs to R1. | Unverified/incompatible releases or out-of-envelope selections fail. Deployment and activation remain distinct; changed dependencies or expired authority block use. No additional institutional approver is invented. |
 | **60 — Apply operational and economic monitoring** | 59, 56; 32 where used | Track data/feature freshness, inference/decision failures, execution quality, exposures and economic attribution for every strategy. Learned models also reuse prediction/drift and delayed-label evaluation definitions. | Inject stale features, a stalled decision path and attribution/label gaps; verify the defined response and model/instance/version identity. A healthy tracking server is not evidence of a healthy strategy. |
 | **61 — Exercise bounded activation and recovery** | 59–60 | Complete actual scoped activation, stop/cancel, reconciliation and compatible rollback workflows with explicit founder authorization for external operation. | Retain the declared envelope and observed outcomes; recovery cannot undo filled orders or silently widen limits. No milestone plan itself grants capital authority. |
-| **62 — Onboard a compatible additional instance** | 61, 54 | Add an instance/asset within implemented capabilities through config and scoped authority, preserving artifact reuse, allocations and support declarations. | Prior instances remain correct; new inputs/orders/fills are attributable. Qualify the actual enabled mode. A new instrument family needs separate owning data/lifecycle/accounting/risk/adapter work before its support state can advance. |
+| **62 — Onboard a compatible additional instance** | 61; 54 and 55 allocation scope before sharing an account | Add an instance/asset within implemented capabilities through config and scoped authority, preserving artifact reuse and support declarations. Shared-account onboarding also consumes qualified allocations and reconciliation. | Prior instances remain correct; new inputs/orders/fills are attributable. Qualify the actual enabled mode. A new instrument family needs its own data/lifecycle/accounting/risk/adapter acceptance before support advances. |
 
 ## Acceptance records and maintenance
 
@@ -278,3 +346,22 @@ is introduced. Documentation refinements need link/semantic validation; changed
 runtime/artifact boundaries need their affected proofs. Counts and status change
 with actual delivery, while every retained requirement has an owning MR or an
 explicitly applicable later capability.
+
+Documentation review, 2026-09-14: these edits are based on
+`778f86c64cc82a25f63ced935e6b797358da4b9e`. `uv run --frozen
+alpha-governance-architecture` passes for all 18 documents under `docs/`, and
+`git diff --check` passes. Independent Python `Fraction`/`Decimal` calculations
+confirm `1/10003`, basis release `302/3` and remainder `604/3`, exact attribution,
+and the `0.205` rounding tie at Decimal precisions 6, 28 and 60. Dependency and
+completion rows were checked against their owning contracts. Runtime source,
+tests, lock, dependency-policy TOML and packaged `docs/README.md` are unchanged; no
+research, deployment, new consumer or end-to-end acceptance is claimed.
+
+Follow-up review, 2026-09-14: clarified scoped control propagation, chronological
+stepping/revision history and batch invariance, intent rejection versus run
+completion, and the architecture overview's order/cost wording. The same local
+link and diff checks pass. A focused documentation check confirms one owning row
+for each MR 00–62 and R1, and MR 49 dependency coverage of every baseline
+acceptance owner. The prior arithmetic verification remains applicable because
+its contract is unchanged; new consumer scenarios are planned evidence in the
+existing MRs/E1, not executed runtime tests. MR 01–02 remain the next delivery.
