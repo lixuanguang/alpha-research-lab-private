@@ -30,8 +30,10 @@ sufficient.
 The current [architecture overview](README.md) owns active command and dependency boundaries. This page owns future
 platform shape, module seams, data and runtime contracts, and the triggers for adding infrastructure.
 The [P1 ownership map](../roadmap/README.md#p1-code-ownership-and-call-flow) specializes this design
-into the next working acquisition, dataset and research pipelines. Only orchestrator pipelines compose workflows;
-other implementation modules expose library operations under the [engineering rule](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
+into the next working acquisition, dataset and research pipelines. Bare functions are reserved for workflow
+orchestration; reusable library behavior belongs to cohesive classes under the
+[engineering rule](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
+Existing code migration is tracked in the [roadmap](../roadmap/README.md#oop-migration-status).
 
 ## Current and planned repository shape
 
@@ -116,9 +118,10 @@ A strategy may read an approved position and risk snapshot, but the risk decisio
 whether its own limit is valid. Accounting does not import a broker SDK. Test the import direction as actual modules
 appear, alongside order-to-fill-to-ledger conformance traces at the connected boundaries.
 
-Cross-process messages use versioned schemas and explicit compatibility rules. In-process code uses typed functions and
-cohesive classes; introduce protocols for real interchangeable implementations or useful test boundaries. A measured
-native boundary warrants an explicit ABI. Provider objects,
+Cross-process messages use versioned schemas and explicit compatibility rules. In-process library interfaces use typed
+methods on cohesive domain, service and adapter classes; orchestrator functions compose their workflows. Classes own
+invariants, related behavior and useful dependency lifetimes. Introduce protocols for real interchangeable implementations
+or useful test boundaries. A measured native boundary warrants an explicit ABI. Provider objects,
 exceptions, timestamps with unknown timezone semantics, and mutable registries stop at adapters.
 
 ## Configuration and active workflows

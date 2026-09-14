@@ -473,7 +473,7 @@ under the existing protected text-record rule.
 | **33 — Build completed observations at a fixed cadence** | 17, 19 reference reader; declared rational contract | `research/observations.py`: derive trade-price observations and exact rational returns from bounded query batches and explicit half-open windows. Carry lineage, availability and staleness; emit missing/invalid status. Introduce its smallest working consumer in E1. No columnar backend, M4 feature pipeline or fitted model is required. | A decision sees only completed, then-available observations; later changes cannot revise an emitted input. Preserve `1/10003` exactly for `100.03` → `100.04` and across codec round trips. **NB 33:** show warm-up, a late trade and a stale/disconnected interval without imputation. |
 | **34 — Resolve active strategy configurations** | 00–01; dataset/capability metadata and binding contracts, not 05 or 09 workflows | Extend `configuration.py` with strategy definitions and distinct instances/state namespaces. Bind exact strategy/version, canonical instruments, named dataset/data-job dependencies and typed cadence/horizon, quantity, capital and execution/cost parameters. Introduce the consumed metadata validation with synthetic bindings in E1; publication reuses the same contract. Preserve many-to-many bindings and independently configured collection universes. Validate rule parameters with MRs 35–36 and freeze resolved identities. | Duplicate instances/namespaces, missing bindings, unsupported mechanics and unsafe parameters fail. Empty selection never enables all definitions. Two instances may share matching inputs without sharing state. **NB 34:** deactivate one instance while another consumer and an independent collection job retain their bindings; reject missing data and attempted trading authority in research config. MR 49 separately proves source-backed integration. |
 | **35 — Define decision context and typed targets** | 33–34 | `strategies/contracts.py`: typed entry-point contract and immutable context binding instance/run/state namespace, strategy/version, instrument and data/config identities, explicit clock and seed. The supported P1 output is target quantity/time/horizon/lineage, not a universal contract for all future quoting or execution strategies. | Context cannot silently change dataset or another instance's state. Units belong to the selected instrument; expiry/time are explicit. Seed is retained even when unused. **NB 35:** round-trip context/target and reject another instrument's quantity or unsupported output contract. |
-| **36 — Implement no-trade and the transparent rule** | 35 | `strategies/no_trade.py` and `strategies/return_momentum.py`: pure decision functions and rule parameter validation under the shared contract. Use the context's instrument and configured cadence/quantity; produce zero or the configured fixed quantity. Resolve these installed entry points through config definitions. No fitting, parameter search or notebook-owned signal calculation. | No-trade always stays flat. Hand examples cover positive/zero/negative return, warm-up and invalid/stale observations using the frozen policy. Same context reproduces decisions, independent of invocation order. Unsupported parameter/contracts fail resolution. **NB 36:** display inputs beside targets for two compatible synthetic instruments and perturb future observations without changing the frozen empirical case. |
+| **36 — Implement no-trade and the transparent rule** | 35 | `strategies/no_trade.py` and `strategies/return_momentum.py`: cohesive strategy classes with pure decision methods and rule parameter validation under the shared contract. Use the context's instrument and configured cadence/quantity; produce zero or the configured fixed quantity. Resolve these installed strategy types through config definitions and construct them in the orchestrator. No fitting, parameter search or notebook-owned signal calculation. | No-trade always stays flat. Hand examples cover positive/zero/negative return, warm-up and invalid/stale observations using the frozen policy. Same context reproduces decisions, independent of invocation order. Unsupported parameter/contracts fail resolution. **NB 36:** display inputs beside targets for two compatible synthetic instruments and perturb future observations without changing the frozen empirical case. |
 | **37 — Select a causally delayed simulated fill** | 17, 34–36 | `simulation/fills.py`: exact immutable simulated fill record and the selected full-fill price rule. Evaluate an explicit pending intent and causally admitted event; return a fill, pending or expiry/rejection outcome. The research pipeline supplies events in order so a target delta uses the first eligible subsequent trade after the positive delay, within its horizon; retain decision and price-event identities. | No same-observation fill. Price event and its effective availability meet the delay; source quantity does not imply available liquidity. Missing/stale/gapped prices expire or reject according to the frozen policy. **NB 37:** show decision, earliest-fill and actual-fill times, including equal-time and no-price cases. |
 | **38 — Compute fees and adverse price costs** | 37; declared posting/rounding contract | `simulation/costs.py`: versioned quote-currency fee and declared adverse slippage rules using C03 arithmetic/rounding. Add the explicit half-up operation for the independent oracle; retain half-even for P1. Preserve reference/effective fill prices and signed quantity. | Buy and sell fees reduce NAV; adverse slippage worsens both sides. Zero cost gives exact gross parity. Wrong currency, unsupported fee and nonfinite values fail. **NB 38:** retain existing hand fees and distinguish `0.205` at `0.01`: half-up `0.21`, half-even `0.20`. |
 | **39 — Establish bounded ledger state** | 34, 37; declared rational attribution contract | `accounting/state.py`: immutable validated single-instrument state initialized from explicit cash and zero holdings. Use C03 `Money`/`Quantity` for cash/holdings and currency-bearing reduced rationals for basis and P&L, with exact codecs; initialize and validate through E1. | Reject inconsistent dimensions, negative unsupported cash/holdings, noncanonical fractions and unsafe copies; zero holdings require zero basis. **NB 39:** inspect balances, reject wrong units and round-trip a nonterminating rational basis without Decimal-context dependence. |
@@ -657,16 +657,43 @@ at this revision. New paths below are **proposed**, not current imports or
 commands. Create a module only with working behavior, tests and a concrete
 consumer; names may change without changing the agreed contracts.
 
+### OOP migration status
+
+**Status: policy adopted; implementation and automated enforcement pending.**
+The [engineering guide](../coding_standards/README.md#orchestrator-pipelines-and-libraries)
+reserves bare functions for orchestration and assigns reusable behavior to
+cohesive classes. This applies to existing owned Python as well as new work,
+under the guide's [scope and migration rules](../coding_standards/README.md#python-scope-and-migration).
+Current function APIs below still exist; the documentation update does not
+remove them or establish checker enforcement.
+
+| Migration area | Required outcome |
+| --- | --- |
+| Domain and reference records | Move record-specific validation and helper behavior into its owning class. Share duplicated validation implementation where contracts coincide; retain distinct IDs, units, event schemas, exceptions and model-copy semantics. |
+| Serialization, event codecs and provider parsing | Give reusable codec operations, compiled-schema lifetime and parsing helpers cohesive class owners. Preserve strict schemas, deterministic bytes, exact numeric values and conservative timestamp rounding. Keep the configured Tardis and Binance decoders separate. |
+| Settlement conventions | Use `SettlementConventions` as the supported operation owner and retire the two module-level forwarding APIs with their callers, exports and documentation. Preserve bounded calendar and error behavior. |
+| Development tooling, tests and maintained snippets | Move reusable behavior and helpers to cohesive classes, retain actual orchestration entry functions, and preserve test/fixture discovery, isolation and callback contracts. Native stubs continue to describe upstream signatures. |
+| Automated enforcement | Add checks for non-orchestrator bare functions and update the existing acceptance tests that currently permit them. Cover the owned implementation scope and retain existing typing, import and docstring checks. Class cohesion and actual workflow responsibility still require review. |
+
+Deliver each migration with its affected callers, imports, signatures, tests,
+active examples and documentation. Use the existing focused contract and
+installed-consumer checks where affected. New P1 consumers follow the adopted
+policy; migrate an affected legacy boundary with its consumer rather than add
+another forwarding API. Record remaining migration work here. Keep this work
+separate from the completed C0 cleanup; completion of C0 does not establish OOP
+compliance.
+
 ## P1 code ownership and call flow
 
-Only orchestrator pipelines own workflow composition, following the
+Only bare orchestrator functions own workflow composition, following the
 [library boundary rule](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
-Libraries implement parsing, validation, transformations, calculations and
-bounded I/O contracts. They receive explicit inputs and may call other libraries
-to fulfill those contracts; they do not select a run, construct its dependency
-graph or import a pipeline. A class must own behavior, invariants or a useful
-configuration lifetime. Wiring two existing classes together does not justify
-another library class, even if more features might arrive later.
+Library classes implement parsing, validation, transformations, calculations and
+bounded I/O contracts through methods. They receive explicit inputs and may call
+other objects to fulfill those contracts; they do not select a run, construct
+its dependency graph or import a pipeline. A class must own a meaningful domain
+concept, behavior, invariants or a useful configuration lifetime. One meaningful
+operation can justify a class. Wiring two existing classes together does not
+justify another library class, even if more features might arrive later.
 
 The target P1 artifact flow is:
 
@@ -676,7 +703,7 @@ dataset pipeline     -> those saved inputs -> immutable canonical snapshot
 research pipeline    -> snapshot + frozen config -> trial record + net report
 ```
 
-These are callable workflows in the existing package, not mandatory services.
+These are orchestrator functions in the existing package, not mandatory services.
 Artifact arrows do not imply imports between pipelines. In particular, a saved
 snapshot research run does not implicitly acquire or rebuild data. The names
 below are proposed modules under `src/alpha_research/`; create each with its first
@@ -708,10 +735,12 @@ The library contracts consumed by those workflows are:
 | Fills, costs, ledger and valuation | Evaluate a pending intent against an eligible event; cost an accepted fill; apply a pure state transition; mark and reconcile exact balances. | Research pipeline, which supplies and retains per-run state. |
 | Trials and reports | Validate identities and append attempt records; serialize, publish and verify exact report artifacts. | Research pipeline, which decides when an attempt starts, fails or completes. |
 
-This is an ownership map, not a class or file checklist. Keep closely related
-functions together; introduce a record, protocol or module only with a real
-operation and named consumer. File/transport persistence can be a reusable
-library operation: only coordinating the overall workflow belongs in a pipeline.
+This is an ownership map, not a class or file checklist. Keep related behavior
+on its cohesive class owner; introduce a class, record, protocol or module only
+with a meaningful contract and named consumer. Merge classes only when their
+responsibilities and contracts coincide, not to meet a method-count threshold.
+File/transport persistence can be a reusable library method: only coordinating
+the overall workflow belongs in a pipeline.
 Use a small declarative mapping to reviewed installed implementations for the
 actual configured consumers. Do not add a decoder factory, registry service,
 generic runner framework or composition subclass for this selected path.
@@ -761,10 +790,10 @@ production support for another instrument family or another empirical experiment
 
 | Retained abstraction | Responsibility | Consumer contract |
 | --- | --- | --- |
-| C01/C02/C03, provenance, reference records, immutable market events and canonical codecs | Domain contracts and exact arithmetic. | Event bytes, validation failures, temporal semantics and configured-symbol support remain covered. |
+| C01/C02/C03, provenance, reference records, immutable market events and canonical codecs | Domain contracts and exact arithmetic. | Event bytes, validation failures, temporal semantics and configured-symbol support remain covered; function-based API ownership changes remain in the pending OOP migration. |
 | `TardisDecoder` | Source framing and provenance. | Reuse a configured instance across lines, including after rejected input. |
 | `BinancePayloadDecoder` | Venue parsing and validated symbol configuration. | Supply it explicitly to the framing decoder; no provider-specific composition subclass. |
-| Curated `data/__init__.py` exports | Public event, codec and retained decoder types. | External callers use this surface; internal modules use defining imports. |
+| Curated `data/__init__.py` exports | Public event types, current codec functions and retained decoder types. | External callers use this surface; internal modules use defining imports. Update codec exports and callers together during OOP migration. |
 
 C0 removes `BinanceTardisDecoder` and the compatibility-only `data/models.py`
 and `data/venues/binance/decoder.py` modules. These imports are no longer
@@ -1326,3 +1355,14 @@ the architecture checker and `git diff --check` pass. Explicit component README
 validation brings link coverage to 17 documents. All 64 MR definitions and their
 dependencies remain unchanged. The checker/test change does not alter runtime
 wheel inputs; the earlier runtime build and installed-wheel evidence is reused.
+
+OOP policy adoption, 2026-09-14, based on
+`8b0ba043d4b51b0d868dcdde4c45dae87537b963`: updated the engineering guide and
+aligned architecture, roadmap, workflow, data and typing documentation. Existing
+function APIs and automated enforcement remain pending migration. The existing
+`ArchitectureGovernanceService.validate_local_links` passes for all 19 Markdown
+files, explicitly including both component READMEs and the PR template;
+`git diff --check` passes. Comparison with the base preserves all 64 MR IDs,
+dependencies and acceptance criteria; only MR 36's implementation wording changes
+to strategy classes with pure decision methods. Only Markdown files changed;
+runtime tests were not rerun for this documentation update.

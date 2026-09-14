@@ -3,9 +3,11 @@
 This is the repository's single engineering guide. It applies to Python source,
 tests, scripts, configuration-owned snippets, and the native stubs under
 `tools/typing/stubs`. It governs new code and code materially changed by a
-patch; it does not require unrelated legacy code to be rewritten. Repository
-configuration and the owning target contract take precedence when they are more
-specific.
+patch; it does not require unrelated legacy code to be rewritten in that patch.
+The OOP target also covers existing owned Python implementation, with remaining
+work recorded under [Python scope and migration](#python-scope-and-migration).
+Repository configuration and the owning target contract take precedence when
+they are more specific.
 
 Follow the [development workflow](../governance/workflow.md) for changes and the
 [architecture guide](../architecture/README.md) for dependency direction.
@@ -55,9 +57,12 @@ The checker scans every `.py` and `.pyi` file recursively under exactly:
 `src`, `tests`, `tools/governance/src`, and `tools/typing/stubs`, including files
 that Git does not track. A missing root, unreadable source, malformed
 configuration, or finding fails closed. It has no source-rule waiver or
-function-registration mechanism: functions do not need owner, expiry, or
-fingerprint records. Line-scoped tool suppressions are separate and must carry
-the owner, rationale, and expiry metadata described below.
+function-registration mechanism. The checker does not yet enforce the
+orchestrator-only function rule or assess class cohesion; those are review
+requirements pending the [OOP migration](../roadmap/README.md#oop-migration-status).
+A passing check does not establish OOP compliance. Line-scoped tool suppressions
+are separate and must carry the owner, rationale, and expiry metadata described
+below.
 
 The configured tools currently require:
 
@@ -92,24 +97,33 @@ names such as `data`, `manager`, `helper`, and `utils`. Predicates should read
 as facts or questions, operations should use verbs, and collection names should
 be plural.
 
-Each function must have a clear contract and one level of abstraction. Keep
-transformations and calculations pure where practical, isolate I/O and other
-side effects behind explicit boundaries, and extract a block only when it has
-its own name, invariant, reuse, or test value. Do not split cohesive logic to
+Each method or orchestrator function must have a clear contract and one level
+of abstraction. Keep transformations and calculations pure where practical,
+isolate I/O and other side effects behind explicit boundaries, and extract a
+block only when it has its own name, invariant, reuse, or test value. Do not split cohesive logic to
 meet a line count, introduce Boolean mode flags whose meaning is unclear, or
 create forwarding layers that only repeat arguments or error translation.
 
-Use a cohesive class when it represents a meaningful concept, groups related
-behavior, owns state, or establishes an invariant. A stateless validator can
-justify a class when its operations form one coherent responsibility. Use a
-module-level function when it expresses a stateless, low-level, parser,
-arithmetic, predicate, callback, or test operation clearly. Functions need no
-registration, owner, expiry, or source-fingerprint record, and there is no
-class-to-function ratio or blanket class requirement. Prefer composition and
-shallow inheritance; public inheritance requires substitutable behavior.
+Owned Python implementation MUST use cohesive classes for reusable behavior.
+Domain objects own their invariants and related operations; service and adapter
+objects own explicit capabilities. A class may own one meaningful operation or
+represent a validated value or schema. Method count alone does not justify
+merging or splitting classes. Share implementation when responsibilities and
+contracts coincide, while preserving distinct domain types and error semantics.
+Prefer composition and shallow inheritance; public inheritance requires
+substitutable behavior.
+
+Private parsing, arithmetic, validation, predicate and callback helpers MUST be
+methods of their cohesive owner. Use instance methods for object state or bound
+dependencies, class methods for construction tied to the concrete class, and
+static methods for class-owned operations that need neither. Stateless methods
+may remain pure; do not introduce mutable state solely to use a class. Moving
+unrelated functions into a static-method collection does not establish meaningful
+ownership. Supply callbacks as methods or callable objects, preserving their
+required signatures and behavior.
 
 Constructors establish valid objects. Put fallible I/O and complex parsing in a
-named factory or boundary service. Bind stable collaborators in a typed
+named factory method or boundary service. Bind stable collaborators in a typed
 constructor and keep findings and intermediate results local to each invocation.
 A reusable service must not retain a prior invocation's findings after success
 or failure unless an explicit cache lifetime and invalidation contract exists.
@@ -126,9 +140,10 @@ editable install at runtime.
 
 ### Orchestrator pipelines and libraries
 
-Only orchestrator pipelines MAY introduce workflow or convenience wrappers.
-All other implementation modules MUST expose reusable library functions,
-cohesive classes, or value types and MUST NOT introduce forwarding wrappers.
+Bare module-level functions, including asynchronous functions, MUST be workflow
+orchestrators. All other implementation modules MUST expose reusable behavior
+through cohesive domain, service or adapter classes and their methods, alongside
+value types and protocols. They MUST NOT introduce forwarding wrappers.
 A function that merely constructs a library object and forwards its arguments
 to a method is a wrapper, even when it is described as a convenience API or
 compatibility helper. A subclass whose only purpose is choosing existing
@@ -137,19 +152,21 @@ wrapper; it needs its own substantive contract to belong in a library.
 
 Orchestrator pipelines own workflow composition: selecting run configuration,
 constructing and reusing collaborators, sequencing operations, coordinating I/O,
-handling workflow failures, and routing results. A pipeline wrapper MUST serve
-that coordination responsibility; it MUST NOT duplicate domain logic or add
-another name for an otherwise identical call.
+handling workflow failures, and routing results. An orchestrator function MUST
+serve that coordination responsibility; its name or placement in a pipeline
+module alone is insufficient. It MUST NOT duplicate domain logic or add another
+name for an otherwise identical call.
 
 Library modules own parsing, validation, transformations, calculations, codecs,
 and explicit adapter contracts. They MUST receive required inputs and
 collaborators explicitly and MUST NOT depend on orchestrator pipelines or
-choose a pipeline's run configuration. Library functions and methods may call
-other library operations to implement their own cohesive contract. Classes may
-bind reusable configuration and enforce invariants; a library need not consist
-only of stateless functions. Bounded I/O operations such as verified file reading
-or atomic publication may be library contracts. Curated package exports may
-expose the actual library types/functions without adding forwarding callables.
+choose a pipeline's run configuration. Library methods may call other objects'
+methods to implement their own cohesive contract; such collaboration does not
+make them workflow orchestrators. Classes bind reusable configuration where
+needed and enforce their invariants. Bounded I/O operations such as verified file
+reading or atomic publication may be library methods. Curated package exports
+may expose the actual library types and orchestrator functions without adding
+forwarding callables.
 
 For example, a dataset pipeline creates a `BinancePayloadDecoder(instruments)`,
 passes it to `TardisDecoder(payload_decoder=..., source_id=...)`, and reuses
@@ -163,6 +180,29 @@ abstraction, and explicitly retain, change or retire relevant existing
 abstractions before adding consumers that depend on them. The
 [P1 ownership map](../roadmap/README.md#p1-code-ownership-and-call-flow)
 applies this rule to the next implementation slices.
+
+### Python scope and migration
+
+The OOP target covers maintained runtime source, reusable development tooling,
+scripts, tests and implementation snippets. Organize tests and fixtures as
+methods on cohesive test classes while retaining framework discovery, fixture
+scope and isolation. Reusable test doubles and callbacks follow the same
+ownership rule. Internal helper behavior belongs in methods; nesting a function
+or lambda is not a substitute for giving that behavior a class owner. Script and
+command entry functions are permitted when they actually orchestrate a workflow.
+
+Native-library stubs describe upstream interfaces, including upstream free
+functions; they MUST retain those signatures. Calls into those libraries belong
+behind owned adapter classes. Historical fixtures and recorded examples retain
+their original meaning and are not evidence of current OOP compliance.
+
+Existing non-orchestrator functions remain migration work, not a permanent
+exception or evidence that migration is complete. New and materially changed
+implementation MUST follow this rule. Migrate each affected API with its callers,
+exports, tests and documentation; retain current API descriptions until the code
+changes. The [roadmap](../roadmap/README.md#oop-migration-status) owns the remaining
+implementation and enforcement work. This policy update changes no runtime API
+or checker behavior by itself.
 
 ### Generalized code and configuration-driven activation
 
@@ -413,11 +453,12 @@ evidence, a bounded failure policy and measured need.
 
 ## Documentation
 
-Every module, class, and named function, including private helpers and ordinary
-test functions, must have a meaningful Google-style summary. A private helper
-or test may use a useful one-line summary because it exposes no public
-structured contract. A public function or method must document every parameter
-(excluding implicit `self` and `cls`) with `Args:` entries, and must include an
+Every module, class, method and orchestrator function must have a meaningful
+Google-style summary. Existing functions pending migration remain subject to
+the same documentation checks. A private helper method or test may use a useful
+one-line summary because it exposes no public structured contract. A public
+function or method must document every parameter (excluding implicit `self` and
+`cls`) with `Args:` entries, and must include an
 applicable nonempty `Returns:`, `Yields:`, or `Raises:` section. The checker
 treats a function as public unless its name or containing owner begins with
 `_`, except that `__init__` remains public; test functions named `test_*` under

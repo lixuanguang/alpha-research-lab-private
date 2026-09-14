@@ -11,6 +11,9 @@ institutional approval is not a prerequisite for ordinary development.
    existing typing, import organization, docstring, numerical, and temporal
    contracts. Assign module responsibilities according to the
    [orchestrator pipeline and library boundary](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
+   Review class ownership and reserve bare functions for actual orchestration;
+   the checker does not yet enforce this rule. Migrate affected APIs with their
+   callers and follow the [remaining OOP work](../roadmap/README.md#oop-migration-status).
 3. Use the four sections in the pull-request template: problem/change,
    affected scope, validation result, and risks/reversal. Add migration,
    benchmark, or operational detail only when the change needs it.
