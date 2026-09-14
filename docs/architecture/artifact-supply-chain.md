@@ -36,7 +36,7 @@ building or verifying an artifact never grants trading authority.
 
 ## Delivery dependency
 
-The [R1 package](../roadmap/capability-milestones.md#r1-trusted-artifact-before-first-deployment)
+The [R1 package](../roadmap/README.md#r1-trusted-artifact-before-first-deployment)
 implements this contract for the first concrete deployment target. It must
 precede an actually deployed M3 collector and deployed M6 paper/shadow acceptance;
 it does not depend on M6 or an executable venue adapter. MR 59 separately binds

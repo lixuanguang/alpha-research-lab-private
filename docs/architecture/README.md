@@ -44,7 +44,7 @@ configured fixture -> versioned data + explicit availability
     -> explicit bounded live activation using those qualified controls
 ```
 
-The [milestone dependency graph](../roadmap/capability-milestones.md#completion-and-dependency-model)
+The [milestone dependency graph](../roadmap/README.md#completion-and-dependency-model)
 owns detailed order. R1 precedes any actual deployment, including a collector
 pulled forward for a concrete data need. Operational controls accompany their
 runtime and must pass before activation.
@@ -106,7 +106,7 @@ intent into orders only after an independent risk boundary. Cross-process
 interfaces will use versioned schemas when such a boundary is introduced.
 
 The graph describes the current candidate after
-[C0](../roadmap/p1-implementation-roadmap.md#existing-abstractions-to-retain-or-retire).
+[C0](../roadmap/README.md#existing-abstractions-to-retain-or-retire).
 Callers construct the framing and payload decoders directly. The planned dataset
 pipeline will own that composition; no pipeline is implemented yet.
 

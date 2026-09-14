@@ -29,7 +29,7 @@ sufficient.
 
 The current [architecture overview](README.md) owns active command and dependency boundaries. This page owns future
 platform shape, module seams, data and runtime contracts, and the triggers for adding infrastructure.
-The [P1 ownership map](../roadmap/p1-implementation-roadmap.md#p1-code-ownership-and-call-flow) specializes this design
+The [P1 ownership map](../roadmap/README.md#p1-code-ownership-and-call-flow) specializes this design
 into the next working acquisition, dataset and research pipelines. Only orchestrator pipelines compose workflows;
 other implementation modules expose library operations under the [engineering rule](../coding_standards/README.md#orchestrator-pipelines-and-libraries).
 
@@ -264,7 +264,7 @@ Quality states are explicit: informational records remain visible; degraded data
 limitation and stated scope; hard failures prevent publication; and an incident identifies affected products,
 experiments, candidates, and releases for replay.
 
-The [delivery plan](../roadmap/capability-milestones.md) places basic normalization,
+The [delivery plan](../roadmap/README.md) places basic normalization,
 coverage/identity/time checks and atomic publication in M1, before a dataset is
 advertised as valid. M2 supplies selective, versioned, bounded-memory EDA and replay
 without a live feed or hosted service dependency. Market-event access and feature
@@ -521,8 +521,8 @@ artifact is admitted and tested for every supported platform before a consumer d
 
 ## Delivery sequence
 
-The [platform roadmap](../roadmap/README.md#priority-and-completion-model) owns maturity and status;
-the [capability milestones](../roadmap/capability-milestones.md) own MR delivery and demonstrated exits.
+The single [implementation roadmap](../roadmap/README.md) owns maturity, status,
+MR delivery dependencies and demonstrated milestone exits.
 Validated historical data leads to EDA/replay and independent research/backtesting
 while reliable live capture advances alongside them. Features/models are added
 with their consumers; paper/shadow precedes controlled live operation. The people-triggered organizational workstream is last in

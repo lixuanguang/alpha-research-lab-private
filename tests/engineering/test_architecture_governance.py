@@ -62,6 +62,37 @@ def test_local_links_ignore_external_urls_and_fenced_examples(tmp_path: Path) ->
     ArchitectureGovernanceService(root).validate_local_links((source,))
 
 
+@pytest.mark.parametrize(
+    ("heading", "fragment"),
+    [
+        ("M0 — Minimal runnable foundation", "m0--minimal-runnable-foundation"),
+        ("M0: Minimal runnable foundation", "m0-minimal-runnable-foundation"),
+        ("Two  spaces", "two--spaces"),
+        ("Existing--hyphens", "existing--hyphens"),
+    ],
+)
+def test_local_links_preserve_github_heading_hyphens(
+    tmp_path: Path, heading: str, fragment: str
+) -> None:
+    """Accept GitHub fragments without collapsing spaces or existing hyphens."""
+    source = tmp_path / "source.md"
+    source.write_text(f"# {heading}\n[self](#{fragment})\n", encoding="utf-8")
+
+    ArchitectureGovernanceService(tmp_path).validate_local_links((source,))
+
+
+def test_local_links_reject_collapsed_em_dash_fragment(tmp_path: Path) -> None:
+    """Reject the single-hyphen fragment that GitHub does not emit for a spaced dash."""
+    source = tmp_path / "source.md"
+    source.write_text(
+        "# M0 — Minimal runnable foundation\n[self](#m0-minimal-runnable-foundation)\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArchitectureGovernanceError, match="heading does not exist"):
+        ArchitectureGovernanceService(tmp_path).validate_local_links((source,))
+
+
 def test_cli_reports_invalid_document_encoding(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

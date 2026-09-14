@@ -20,7 +20,7 @@ The [QuantLib restriction](../architecture/README.md#dependency-and-release-boun
 blocks release use until its source-to-wheel uncertainty is
 resolved. Passing development checks or deleting the allowance does not satisfy
 source admission or remove that block.
-The [R1 trusted consumer](../roadmap/capability-milestones.md#r1-trusted-artifact-before-first-deployment)
+The [R1 trusted consumer](../roadmap/README.md#r1-trusted-artifact-before-first-deployment)
 is also required before an actual collector or paper deployment. Clearing the
 dependency restriction alone does not implement artifact verification. MR 59
 subsequently binds executable trading authority to the verified release.

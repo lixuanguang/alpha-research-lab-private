@@ -15,7 +15,7 @@ The public package surface is defined by
 - `TardisDecoder` and `BinancePayloadDecoder` for reusable source-line decoding.
 
 Callers compose the retained decoders directly and reuse `decode_line`. The
-[C0 migration](../../../docs/roadmap/p1-implementation-roadmap.md#existing-abstractions-to-retain-or-retire)
+[C0 migration](../../../docs/roadmap/README.md#existing-abstractions-to-retain-or-retire)
 removes the composition-only subclass and compatibility import paths without
 changing serialized events. Internal code imports from defining modules:
 
@@ -97,7 +97,7 @@ The intended orchestrator owns input reading, source ordering, capture-proxy
 selection, error policy, and delivery to downstream consumers. The decoder and
 the lower-level parsing, validation, and codec modules are reusable library
 components; decoding performs no acquisition or persistence. Orchestrator
-pipelines remain planned consumers. The [P1 dataset pipeline](../../../docs/roadmap/p1-implementation-roadmap.md#p1-code-ownership-and-call-flow)
+pipelines remain planned consumers. The [P1 dataset pipeline](../../../docs/roadmap/README.md#p1-code-ownership-and-call-flow)
 will own this composition; the data library will not add a forwarding function,
 factory or replacement composition subclass.
 
@@ -123,5 +123,5 @@ Focused coverage is in
 [`test_serialization.py`](../../../tests/unit/test_serialization.py), alongside
 the financial-unit tests that exercise exact Currency values. These references
 describe library coverage. The
-[P1 acceptance map](../../../docs/roadmap/p1-implementation-roadmap.md#p1-acceptance-map)
+[P1 acceptance map](../../../docs/roadmap/README.md#p1-acceptance-map)
 identifies the remaining end-to-end requirements.

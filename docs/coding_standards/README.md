@@ -161,7 +161,7 @@ changing implementation code, including development tooling. Implementation
 plans MUST identify the concrete consumer and responsibility of each new
 abstraction, and explicitly retain, change or retire relevant existing
 abstractions before adding consumers that depend on them. The
-[P1 ownership map](../roadmap/p1-implementation-roadmap.md#p1-code-ownership-and-call-flow)
+[P1 ownership map](../roadmap/README.md#p1-code-ownership-and-call-flow)
 applies this rule to the next implementation slices.
 
 ### Generalized code and configuration-driven activation
@@ -250,7 +250,7 @@ where behavior is unsupported. Before multiple strategies share an executable
 or paper account, implement independent instance/account risk, reservation and
 aggregation/allocation rules, attributable orders/fills/costs and restart isolation.
 Strategy logic cannot own hard limits or kill authority. The
-[milestone plan](../roadmap/capability-milestones.md) maps these obligations to MRs.
+[milestone plan](../roadmap/README.md) maps these obligations to MRs.
 
 ## Python source rules
 

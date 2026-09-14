@@ -7,7 +7,7 @@ data-ingestion system, strategy runner, simulator, broker integration, or monito
 
 The immediate operating model is a single founder implementing the
 [selected P1 source and frozen hypothesis](../research/p1-baseline.md), with access and historical evidence still
-unresolved. The [P1 implementation plan](p1-implementation-roadmap.md) owns delivery of its library operations and
+unresolved. The single [implementation roadmap](README.md) owns delivery of its library operations and
 orchestrator pipelines. A production operating target remains a later decision. The long-term model can add asset classes, strategy families, shared
 portfolio construction, production execution, monitoring, and recovery. Independent research, model-risk,
 risk, release, and activation controls become formal organizational controls when people are hired; they do
@@ -121,7 +121,7 @@ run manifest. Collection jobs may serve several strategies or a wider EDA univer
 Deployment/account/trading authority is added only for the corresponding runtime
 consumer and cannot be inferred from a research selection. Historical EDA and
 deterministic strategies can advance after M2 without M3 live capture or M4 models;
-the [capability plan](capability-milestones.md) owns these dependencies.
+the [implementation roadmap](README.md#completion-and-dependency-model) owns these dependencies.
 
 | Artifact | Minimum contents | Purpose |
 | --- | --- | --- |

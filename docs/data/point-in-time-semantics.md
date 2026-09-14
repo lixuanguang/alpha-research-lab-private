@@ -134,7 +134,7 @@ order-book, and replay boundaries. Those consumers must preserve the original
 capture text, source sequence, provenance identity, exact values, and proxy
 reasons when they add persistence or point-in-time selection.
 
-The [milestone plan](../roadmap/capability-milestones.md) places revision-aware
+The [milestone plan](../roadmap/README.md) places revision-aware
 availability selection in MR 17/M2, before feature engineering. A selected input
 must satisfy `available_at <= decision_time` under its declared knowledge model;
 derived features also include their processing/availability assumptions. Dataset

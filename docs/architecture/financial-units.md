@@ -93,7 +93,7 @@ rounded. No netting, spread, fee or cashflow convention is inferred.
 
 Decision date: 2026-09-14. This resolves the P1 consumer contract before
 observations and ledger implementation; it does not add APIs or widen C03's
-implemented decimal grid. The [P1 plan](../roadmap/p1-implementation-roadmap.md#c-make-decisions-and-reconcile-exact-economics)
+implemented decimal grid. The [P1 plan](../roadmap/README.md#exact-economics)
 owns delivery with the first consuming operations.
 
 | Quantity | Representation and boundary |
