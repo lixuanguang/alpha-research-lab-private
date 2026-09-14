@@ -5,9 +5,7 @@ from alpha_research.data.events import Disconnect
 from alpha_research.data.providers.tardis.decoder import TardisDecoder
 from alpha_research.data.venues.binance.codecs import (
     MarketEvent,
-    decode_market_event,
-    encode_market_event,
-    validate_market_event,
+    MarketEventCodec,
 )
 from alpha_research.data.venues.binance.events import DepthSnapshot, DepthUpdate, Trade
 from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
@@ -18,9 +16,7 @@ __all__ = [
     "DepthUpdate",
     "Disconnect",
     "MarketEvent",
+    "MarketEventCodec",
     "TardisDecoder",
     "Trade",
-    "decode_market_event",
-    "encode_market_event",
-    "validate_market_event",
 ]

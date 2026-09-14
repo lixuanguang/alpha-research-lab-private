@@ -97,58 +97,6 @@ class _TimestampConverter(Protocol):
         ...
 
 
-def _calendar_library_version() -> str:
-    """Read the installed calendar distribution metadata."""
-    try:
-        return installed_version(EXCHANGE_CALENDARS_DISTRIBUTION)
-    except PackageNotFoundError as error:
-        raise IncompatibleCalendarLibraryError(
-            f"{EXCHANGE_CALENDARS_DISTRIBUTION} is not installed"
-        ) from error
-
-
-def _as_date(candidate: object, *, field_name: str) -> date:
-    """Extract a source session label's date without applying timezone conversion."""
-    if isinstance(candidate, datetime):
-        return candidate.date()
-    if isinstance(candidate, date):
-        return candidate
-    to_datetime: object = getattr(candidate, "to_pydatetime", None)
-    if isinstance(to_datetime, _TimestampConverter) and callable(to_datetime):
-        converted = to_datetime()
-    else:
-        converted = None
-    if isinstance(converted, datetime):
-        return converted.date()
-    raise CalendarAdapterError(f"calendar source returned invalid {field_name}")
-
-
-def _as_utc_datetime(
-    candidate: object, *, field_name: str, optional: bool = False
-) -> datetime | None:
-    """Normalize aware source timestamps to UTC, allowing None or NaT only if optional."""
-    if optional and (candidate is None or candidate is _pandas.NaT):
-        return None
-    converted: object = candidate
-    to_datetime: object = getattr(candidate, "to_pydatetime", None)
-    if isinstance(to_datetime, _TimestampConverter) and callable(to_datetime):
-        converted = to_datetime()
-    if isinstance(converted, datetime) and converted.tzinfo is not None:
-        try:
-            return converted.astimezone(UTC)
-        except (OSError, OverflowError, ValueError) as error:
-            raise CalendarAdapterError(f"calendar source returned invalid {field_name}") from error
-    raise CalendarAdapterError(f"calendar source returned invalid {field_name}")
-
-
-def _required_utc_datetime(candidate: object, *, field_name: str) -> datetime:
-    """Normalize one mandatory aware timestamp to UTC or raise CalendarAdapterError."""
-    converted = _as_utc_datetime(candidate, field_name=field_name)
-    if converted is None:
-        raise CalendarAdapterError(f"calendar source returned invalid {field_name}")
-    return converted
-
-
 class ExchangeCalendarsAdapter:
     """Build bounded owned snapshots from exactly exchange-calendars 4.13.2."""
 
@@ -175,7 +123,7 @@ class ExchangeCalendarsAdapter:
         inclusive bounds. Aliases are resolved here; callers verify the resolved
         name and timezone against the requested venue.
         """
-        if _calendar_library_version() != EXCHANGE_CALENDARS_VERSION:
+        if ExchangeCalendarsAdapter._calendar_library_version() != EXCHANGE_CALENDARS_VERSION:
             raise IncompatibleCalendarLibraryError(
                 f"{EXCHANGE_CALENDARS_DISTRIBUTION} must be exactly {EXCHANGE_CALENDARS_VERSION}"
             )
@@ -228,13 +176,17 @@ class ExchangeCalendarsAdapter:
             ) from error
         return TradingSession(
             session_label=session_label,
-            opens_at=_required_utc_datetime(source_open, field_name="session open"),
-            closes_at=_required_utc_datetime(source_close, field_name="session close"),
+            opens_at=ExchangeCalendarsAdapter._required_utc_datetime(
+                source_open, field_name="session open"
+            ),
+            closes_at=ExchangeCalendarsAdapter._required_utc_datetime(
+                source_close, field_name="session close"
+            ),
             kind=kind,
-            break_starts_at=_as_utc_datetime(
+            break_starts_at=ExchangeCalendarsAdapter._as_utc_datetime(
                 source_break_start, field_name="session break start", optional=True
             ),
-            break_ends_at=_as_utc_datetime(
+            break_ends_at=ExchangeCalendarsAdapter._as_utc_datetime(
                 source_break_end, field_name="session break end", optional=True
             ),
         )
@@ -248,11 +200,12 @@ class ExchangeCalendarsAdapter:
     ) -> tuple[TradingSession, ...]:
         """Adapt source labels in the requested inclusive range."""
         early_close_labels = {
-            _as_date(item, field_name="early-close label") for item in calendar.early_closes
+            ExchangeCalendarsAdapter._as_date(item, field_name="early-close label")
+            for item in calendar.early_closes
         }
         base_sessions: list[TradingSession] = []
         for raw_label in calendar.sessions:
-            session_label = _as_date(raw_label, field_name="session label")
+            session_label = ExchangeCalendarsAdapter._as_date(raw_label, field_name="session label")
             if session_label < start or session_label > end:
                 continue
             base_sessions.append(
@@ -450,3 +403,57 @@ class ExchangeCalendarsAdapter:
             price_limits=price_limits,
             settlement_calendar=settlement_calendar,
         )
+
+    @staticmethod
+    def _calendar_library_version() -> str:
+        """Read the installed calendar distribution metadata."""
+        try:
+            return installed_version(EXCHANGE_CALENDARS_DISTRIBUTION)
+        except PackageNotFoundError as error:
+            raise IncompatibleCalendarLibraryError(
+                f"{EXCHANGE_CALENDARS_DISTRIBUTION} is not installed"
+            ) from error
+
+    @staticmethod
+    def _as_date(candidate: object, *, field_name: str) -> date:
+        """Extract a source session label's date without applying timezone conversion."""
+        if isinstance(candidate, datetime):
+            return candidate.date()
+        if isinstance(candidate, date):
+            return candidate
+        to_datetime: object = getattr(candidate, "to_pydatetime", None)
+        if isinstance(to_datetime, _TimestampConverter) and callable(to_datetime):
+            converted = to_datetime()
+        else:
+            converted = None
+        if isinstance(converted, datetime):
+            return converted.date()
+        raise CalendarAdapterError(f"calendar source returned invalid {field_name}")
+
+    @staticmethod
+    def _as_utc_datetime(
+        candidate: object, *, field_name: str, optional: bool = False
+    ) -> datetime | None:
+        """Normalize aware source timestamps to UTC, allowing None or NaT only if optional."""
+        if optional and (candidate is None or candidate is _pandas.NaT):
+            return None
+        converted: object = candidate
+        to_datetime: object = getattr(candidate, "to_pydatetime", None)
+        if isinstance(to_datetime, _TimestampConverter) and callable(to_datetime):
+            converted = to_datetime()
+        if isinstance(converted, datetime) and converted.tzinfo is not None:
+            try:
+                return converted.astimezone(UTC)
+            except (OSError, OverflowError, ValueError) as error:
+                raise CalendarAdapterError(
+                    f"calendar source returned invalid {field_name}"
+                ) from error
+        raise CalendarAdapterError(f"calendar source returned invalid {field_name}")
+
+    @staticmethod
+    def _required_utc_datetime(candidate: object, *, field_name: str) -> datetime:
+        """Normalize one mandatory aware timestamp to UTC or raise CalendarAdapterError."""
+        converted = ExchangeCalendarsAdapter._as_utc_datetime(candidate, field_name=field_name)
+        if converted is None:
+            raise CalendarAdapterError(f"calendar source returned invalid {field_name}")
+        return converted

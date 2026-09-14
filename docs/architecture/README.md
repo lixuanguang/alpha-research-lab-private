@@ -84,6 +84,8 @@ The following rules govern new code and documentation:
 Current and selected foundation-boundary imports are:
 
 ```text
+instrument_identity -> _validation
+venue_calendar.models -> _validation
 financial_units -> instrument_identity
 financial_units -> venue_calendar
 serialization -> financial_units, instrument_identity, msgspec
@@ -94,7 +96,7 @@ data.decoders -> core.events, msgspec
 data.providers.tardis.decoder -> data.decoders, data.events
 data.venues.binance.events -> data.events
 data.venues.binance.codecs -> data.events, data.venues.binance.events, serialization, msgspec
-data.venues.binance.payloads -> data.decoders, data.events, data.venues.binance.codecs, data.venues.binance.events, instrument_identity, reference_data
+data.venues.binance.payloads -> data.decoders, data.events, data.venues.binance.events, instrument_identity, reference_data
 ```
 
 Foundational contracts do not depend on notebooks, research-only approximations,

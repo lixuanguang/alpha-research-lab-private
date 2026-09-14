@@ -7,16 +7,16 @@ import hashlib
 import re
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Literal, Self
+from typing import ClassVar, Literal, Self
 
 # third party library imports
 import msgspec
 
 # project library imports
 from alpha_research.financial_units import Currency
-from alpha_research.financial_units.models import require_currency, require_decimal
+from alpha_research.financial_units.models import _DecimalArithmetic
 from alpha_research.instrument_identity import InstrumentId
-from alpha_research.serialization import encode_json
+from alpha_research.serialization import DomainCodec
 
 Venue = Literal["binance"]
 Product = Literal["spot"]
@@ -27,39 +27,25 @@ _SYMBOL_PATTERN = re.compile(r"[A-Z0-9]+")
 _SOURCE: Source = "tardis.binance.spot"
 
 
-def _require_utc(value: object, *, field_name: str) -> datetime:
-    """Require an aware datetime whose offset is exactly UTC."""
-    if not isinstance(value, datetime) or value.tzinfo is None:
-        raise TypeError(f"{field_name} must be a timezone-aware datetime")
-    if value.utcoffset() != timedelta(0):
-        raise ValueError(f"{field_name} must use UTC")
-    return value
+class _ReferenceRecord(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
+    """Keep authored reference timestamps strictly UTC without normalization."""
+
+    @staticmethod
+    def _require_utc(value: object, *, field_name: str) -> datetime:
+        """Require an aware datetime whose offset is exactly UTC."""
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            raise TypeError(f"{field_name} must be a timezone-aware datetime")
+        if value.utcoffset() != timedelta(0):
+            raise ValueError(f"{field_name} must use UTC")
+        return value
 
 
-def _require_text(value: object, *, field_name: str) -> str:
-    """Require bounded nonempty text without silently coercing scalar values."""
-    if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be a string")
-    if not value or value != value.strip():
-        raise ValueError(f"{field_name} must be nonempty without surrounding whitespace")
-    return value
-
-
-def _require_decimal(value: object, *, field_name: str) -> Decimal:
-    """Require one finite, strictly positive exact C03-bounded decimal value."""
-    if not isinstance(value, Decimal):
-        raise TypeError(f"{field_name} must be a Decimal")
-    if not value.is_finite() or value <= 0:
-        raise ValueError(f"{field_name} must be finite and positive")
-    return require_decimal(value)
-
-
-class SpotInstrument(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
+class SpotInstrument(_ReferenceRecord, frozen=True, kw_only=True):
     """Describe one authored Binance spot listing for local research metadata.
 
     The validity interval is scenario metadata used to select an instrument for a
     bounded replay. It does not assert historical exchange filters or point-in-time
-    venue truth. Exact Decimal values are emitted as strings by ``encode_json``;
+    venue truth. Exact Decimal values are emitted as strings by ``DomainCodec.encode_json``;
     strict JSON decoding follows msgspec's Decimal contract, while Python
     constructors require Decimal instances.
     """
@@ -90,10 +76,10 @@ class SpotInstrument(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_f
             raise ValueError("symbol exceeds the bounded Binance symbol length")
         if type(self.quote_currency) is not Currency:
             raise TypeError("quote_currency must be a Currency")
-        require_currency(self.quote_currency)
-        _require_decimal(self.price_tick, field_name="price_tick")
-        valid_from = _require_utc(self.valid_from, field_name="valid_from")
-        valid_to = _require_utc(self.valid_to, field_name="valid_to")
+        Currency._require(self.quote_currency)
+        SpotInstrument._require_decimal(self.price_tick, field_name="price_tick")
+        valid_from = self._require_utc(self.valid_from, field_name="valid_from")
+        valid_to = self._require_utc(self.valid_to, field_name="valid_to")
         if valid_to <= valid_from:
             raise ValueError("valid_to must be later than valid_from")
         if self.venue != "binance":
@@ -118,9 +104,20 @@ class SpotInstrument(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_f
         self.__post_init__()
         return self
 
+    @staticmethod
+    def _require_decimal(value: object, *, field_name: str) -> Decimal:
+        """Require one finite, strictly positive exact C03-bounded decimal value."""
+        if not isinstance(value, Decimal):
+            raise TypeError(f"{field_name} must be a Decimal")
+        if not value.is_finite() or value <= 0:
+            raise ValueError(f"{field_name} must be finite and positive")
+        return _DecimalArithmetic.require_decimal(value)
 
-class CatalogSnapshot(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
+
+class CatalogSnapshot(_ReferenceRecord, frozen=True, kw_only=True):
     """Capture the complete authored instrument metadata used by one research run."""
+
+    _codec: ClassVar[DomainCodec] = DomainCodec()
 
     schema_version: Literal["1"] = "1"
     recorded_at: datetime
@@ -136,8 +133,8 @@ class CatalogSnapshot(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
         """
         if self.schema_version != "1":
             raise ValueError("unsupported catalog schema version")
-        _require_utc(self.recorded_at, field_name="recorded_at")
-        _require_text(self.evidence, field_name="evidence")
+        self._require_utc(self.recorded_at, field_name="recorded_at")
+        CatalogSnapshot._require_text(self.evidence, field_name="evidence")
         if type(self.instruments) is not tuple or not self.instruments:
             raise TypeError("instruments must be a nonempty tuple")
         seen_ids: set[InstrumentId] = set()
@@ -189,8 +186,8 @@ class CatalogSnapshot(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
         self.validate()
         if type(instrument_id) is not InstrumentId:
             raise TypeError("instrument_id must be an InstrumentId")
-        requested_start = _require_utc(start, field_name="requested start")
-        requested_end = _require_utc(end, field_name="requested end")
+        requested_start = self._require_utc(start, field_name="requested start")
+        requested_end = self._require_utc(end, field_name="requested end")
         if requested_end <= requested_start:
             raise ValueError("requested interval must be nonempty")
         for instrument in self.instruments:
@@ -209,7 +206,16 @@ class CatalogSnapshot(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             Lowercase SHA-256 digest of the complete canonical catalog encoding.
         """
         self.validate()
-        return hashlib.sha256(encode_json(self)).hexdigest()
+        return hashlib.sha256(self._codec.encode_json(self)).hexdigest()
+
+    @staticmethod
+    def _require_text(value: object, *, field_name: str) -> str:
+        """Require bounded nonempty text without silently coercing scalar values."""
+        if not isinstance(value, str):
+            raise TypeError(f"{field_name} must be a string")
+        if not value or value != value.strip():
+            raise ValueError(f"{field_name} must be nonempty without surrounding whitespace")
+        return value
 
 
 __all__ = ["CatalogSnapshot", "MetadataBasis", "Product", "Source", "SpotInstrument", "Venue"]

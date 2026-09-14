@@ -1141,12 +1141,12 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
         candidate = _DynamicTimestamp(datetime(2024, 3, 11, 1, 30, tzinfo=UTC))
         if helper_name == "date":
             assert (
-                calendar_adapter_module._as_date(candidate, field_name="synthetic timestamp")
+                ExchangeCalendarsAdapter._as_date(candidate, field_name="synthetic timestamp")
                 == expected
             )
         else:
             assert (
-                calendar_adapter_module._as_utc_datetime(
+                ExchangeCalendarsAdapter._as_utc_datetime(
                     candidate, field_name="synthetic timestamp"
                 )
                 == expected
@@ -1167,9 +1167,9 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
             CalendarAdapterError, match="calendar source returned invalid synthetic timestamp"
         ):
             if helper_name == "date":
-                calendar_adapter_module._as_date(candidate, field_name="synthetic timestamp")
+                ExchangeCalendarsAdapter._as_date(candidate, field_name="synthetic timestamp")
             else:
-                calendar_adapter_module._as_utc_datetime(
+                ExchangeCalendarsAdapter._as_utc_datetime(
                     candidate, field_name="synthetic timestamp"
                 )
 
@@ -1389,7 +1389,7 @@ class TestVenueCalendarBoundaryContracts(_CalendarTestData):
     ) -> None:
         """Reject a naive optional break timestamp instead of treating it as a missing break."""
         with pytest.raises(CalendarAdapterError, match="invalid session break"):
-            calendar_adapter_module._as_utc_datetime(
+            ExchangeCalendarsAdapter._as_utc_datetime(
                 datetime(2024, 3, 11, 4, 0),
                 field_name="session break",
                 optional=True,

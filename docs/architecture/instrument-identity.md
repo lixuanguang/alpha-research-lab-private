@@ -92,7 +92,15 @@ predecessors, changed correction keys, forks, and cycles.
 ## Migration, rollout, rollback, monitoring, and runbook
 
 Financial-unit dimensions already consume `InstrumentId`. There is no external
-strategy/service or persisted state to migrate. The internal model implementation moved
+strategy/service or persisted state to migrate. C01 and C02 now share a private
+redacted Pydantic error formatter, with the owned
+exception type supplied explicitly. Field ordering, locations, owned causes and
+exception chaining are preserved. Domain bases remain separate, and C01/C02
+framework `model_copy` operations remain trusted and unchecked; C03 reconstructs
+and validates its copies. UUID parsing and identifier checksum/namespace mechanics
+have private class owners; concrete IDs and namespace-broad queries remain distinct.
+
+The internal model implementation moved
 from frozen dataclasses to strict immutable Pydantic models without changing the
 public constructors or domain exceptions. Downstream adapters migrate by converting
 provider identifiers into `ExternalIdentifier`, resolving at an explicit valid

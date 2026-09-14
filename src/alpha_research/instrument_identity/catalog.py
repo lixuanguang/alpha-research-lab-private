@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # standard library imports
 from datetime import datetime
+from functools import partial
 from typing import Self
 
 # third party library imports
@@ -21,7 +22,6 @@ from alpha_research.instrument_identity.models import (
     MappingId,
     SymbologyMapping,
     _InstrumentIdentityModel,
-    require_utc_datetime,
 )
 
 
@@ -208,14 +208,9 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         for mapping in current_projection_mappings:
             mappings_by_identifier.setdefault(mapping.external_identifier, []).append(mapping)
         for external_identifier, identifier_mappings in mappings_by_identifier.items():
-
-            def mapping_order(mapping: SymbologyMapping) -> tuple[datetime, str]:
-                """Order current mappings by valid-from instant and mapping ID."""
-                return mapping.valid_from, str(mapping.mapping_id)
-
             chronologically_ordered_mappings = sorted(
                 identifier_mappings,
-                key=mapping_order,
+                key=self._chronological_mapping_order,
             )
             previous_mapping: SymbologyMapping | None = None
             for mapping in chronologically_ordered_mappings:
@@ -249,23 +244,6 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         """
         superseded_mapping_ids = self._superseded_mapping_ids()
 
-        def mapping_order(mapping: SymbologyMapping) -> tuple[str, str, str, datetime, str]:
-            """Build a stable key for one current mapping assertion.
-
-            Args:
-                mapping: Mapping assertion to order within the current projection.
-
-            Returns:
-                Scheme, namespace, identifier, valid-from instant, and mapping ID.
-            """
-            return (
-                mapping.external_identifier.scheme.value,
-                mapping.external_identifier.namespace or "",
-                mapping.external_identifier.value,
-                mapping.valid_from,
-                str(mapping.mapping_id),
-            )
-
         return tuple(
             sorted(
                 (
@@ -273,7 +251,7 @@ class SymbologyCatalog(_InstrumentIdentityModel):
                     for mapping in self.mappings
                     if mapping.mapping_id not in superseded_mapping_ids
                 ),
-                key=mapping_order,
+                key=self._projection_mapping_order,
             )
         )
 
@@ -322,7 +300,9 @@ class SymbologyCatalog(_InstrumentIdentityModel):
         """
         if not isinstance(identifier_query, IdentifierQuery):
             raise InstrumentIdentityValidationError("identifier_query must be an IdentifierQuery")
-        valid_at_utc = require_utc_datetime(valid_at, field_name="valid_at")
+        valid_at_utc = _InstrumentIdentityModel._require_utc_datetime(
+            valid_at, field_name="valid_at"
+        )
         matching_mappings = tuple(
             mapping
             for mapping in self.current_projection_mappings()
@@ -364,7 +344,9 @@ class SymbologyCatalog(_InstrumentIdentityModel):
             UnknownInstrumentError: The canonical instrument is not registered.
         """
         self.get_instrument_identity(instrument_id)
-        valid_at_utc = require_utc_datetime(valid_at, field_name="valid_at")
+        valid_at_utc = _InstrumentIdentityModel._require_utc_datetime(
+            valid_at, field_name="valid_at"
+        )
         if identifier_scheme is not None and not isinstance(identifier_scheme, IdentifierScheme):
             raise InstrumentIdentityValidationError("identifier_scheme must be an IdentifierScheme")
         return tuple(
@@ -400,37 +382,6 @@ class SymbologyCatalog(_InstrumentIdentityModel):
             )
         mappings_by_mapping_id = {mapping.mapping_id: mapping for mapping in self.mappings}
 
-        def correction_depth_for_mapping(mapping: SymbologyMapping) -> int:
-            """Count retained predecessors for ordering one validated correction chain.
-
-            Args:
-                mapping: Assertion from this catalog's validated acyclic mapping graph.
-
-            Returns:
-                Zero for an original assertion, otherwise the number of predecessors.
-            """
-            correction_depth = 0
-            current_mapping = mapping
-            while current_mapping.supersedes_mapping_id is not None:
-                correction_depth += 1
-                current_mapping = mappings_by_mapping_id[current_mapping.supersedes_mapping_id]
-            return correction_depth
-
-        def mapping_order(mapping: SymbologyMapping) -> tuple[datetime, int, str]:
-            """Build a stable key for one mapping-history assertion.
-
-            Args:
-                mapping: Mapping assertion to order within the retained history.
-
-            Returns:
-                Valid-from instant, correction depth, and mapping ID.
-            """
-            return (
-                mapping.valid_from,
-                correction_depth_for_mapping(mapping),
-                str(mapping.mapping_id),
-            )
-
         return tuple(
             sorted(
                 (
@@ -438,6 +389,72 @@ class SymbologyCatalog(_InstrumentIdentityModel):
                     for mapping in self.mappings
                     if mapping.external_identifier == external_identifier
                 ),
-                key=mapping_order,
+                key=partial(
+                    self._history_mapping_order, mappings_by_mapping_id=mappings_by_mapping_id
+                ),
             )
+        )
+
+    @staticmethod
+    def _chronological_mapping_order(mapping: SymbologyMapping) -> tuple[datetime, str]:
+        """Order current mappings by valid-from instant and mapping ID."""
+        return mapping.valid_from, str(mapping.mapping_id)
+
+    @staticmethod
+    def _projection_mapping_order(mapping: SymbologyMapping) -> tuple[str, str, str, datetime, str]:
+        """Build a stable key for one current mapping assertion.
+
+        Args:
+            mapping: Mapping assertion to order within the current projection.
+
+        Returns:
+            Scheme, namespace, identifier, valid-from instant, and mapping ID.
+        """
+        return (
+            mapping.external_identifier.scheme.value,
+            mapping.external_identifier.namespace or "",
+            mapping.external_identifier.value,
+            mapping.valid_from,
+            str(mapping.mapping_id),
+        )
+
+    @staticmethod
+    def _correction_depth_for_mapping(
+        mapping: SymbologyMapping, *, mappings_by_mapping_id: dict[MappingId, SymbologyMapping]
+    ) -> int:
+        """Count retained predecessors for ordering one validated correction chain.
+
+        Args:
+            mapping: Assertion from this catalog's validated acyclic mapping graph.
+            mappings_by_mapping_id: Index local to the current history query.
+
+        Returns:
+            Zero for an original assertion, otherwise the number of predecessors.
+        """
+        correction_depth = 0
+        current_mapping = mapping
+        while current_mapping.supersedes_mapping_id is not None:
+            correction_depth += 1
+            current_mapping = mappings_by_mapping_id[current_mapping.supersedes_mapping_id]
+        return correction_depth
+
+    @staticmethod
+    def _history_mapping_order(
+        mapping: SymbologyMapping, *, mappings_by_mapping_id: dict[MappingId, SymbologyMapping]
+    ) -> tuple[datetime, int, str]:
+        """Build a stable key for one mapping-history assertion.
+
+        Args:
+            mapping: Mapping assertion to order within the retained history.
+            mappings_by_mapping_id: Index local to the current history query.
+
+        Returns:
+            Valid-from instant, correction depth, and mapping ID.
+        """
+        return (
+            mapping.valid_from,
+            SymbologyCatalog._correction_depth_for_mapping(
+                mapping, mappings_by_mapping_id=mappings_by_mapping_id
+            ),
+            str(mapping.mapping_id),
         )

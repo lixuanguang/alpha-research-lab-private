@@ -659,19 +659,34 @@ consumer; names may change without changing the agreed contracts.
 
 ### OOP migration status
 
-**Status: policy adopted; implementation and automated enforcement pending.**
+**Status: runtime remediation complete and locally verified on 2026-09-14.
+Repository-wide tooling/test migration and automated enforcement remain pending.**
+
+The [runtime review and implementation handoff](oop-migration/README.md) records
+the reviewed function inventory, consolidation decisions, runtime batch results,
+baseline evidence, and the original implementation prompt.
+
 The [engineering guide](../coding_standards/README.md#orchestrator-pipelines-and-libraries)
 reserves bare functions for orchestration and assigns reusable behavior to
 cohesive classes. This applies to existing owned Python as well as new work,
 under the guide's [scope and migration rules](../coding_standards/README.md#python-scope-and-migration).
-Current function APIs below still exist; the documentation update does not
-remove them or establish checker enforcement.
+Runtime helpers now have class owners; codec consumers use `DomainCodec` and
+`MarketEventCodec`, and settlement callers reuse `SettlementConventions`. This
+runtime change does not establish repository-wide checker enforcement.
+
+The final `make check` passed: 439 tests, 3 performance deselections, complete
+configured source checks and isolated installed-wheel validation. The maintained
+notebook and component example passed; 13 original/migrated round trips retained
+identical bytes. The runtime inventory has no module-level or nested functions
+or lambdas across 26 Python files. Exact tested-state identities, commands,
+development failures and remaining hosted gates are in the
+[runtime validation record](oop-migration/README.md#runtime-implementation-and-validation).
 
 | Migration area | Required outcome |
 | --- | --- |
-| Domain and reference records | Move record-specific validation and helper behavior into its owning class. Share duplicated validation implementation where contracts coincide; retain distinct IDs, units, event schemas, exceptions and model-copy semantics. |
-| Serialization, event codecs and provider parsing | Give reusable codec operations, compiled-schema lifetime and parsing helpers cohesive class owners. Preserve strict schemas, deterministic bytes, exact numeric values and conservative timestamp rounding. Keep the configured Tardis and Binance decoders separate. |
-| Settlement conventions | Use `SettlementConventions` as the supported operation owner and retire the two module-level forwarding APIs with their callers, exports and documentation. Preserve bounded calendar and error behavior. |
+| Domain and reference records — implemented | Move record-specific validation and helper behavior into its owning class. Share duplicated validation implementation where contracts coincide; retain distinct IDs, units, event schemas, exceptions and model-copy semantics. |
+| Serialization, event codecs and provider parsing — implemented | Give reusable codec operations, compiled-schema lifetime and parsing helpers cohesive class owners. Preserve strict schemas, deterministic bytes, exact numeric values and conservative timestamp rounding. Keep the configured Tardis and Binance decoders separate. |
+| Settlement conventions — implemented | Use `SettlementConventions` as the supported operation owner and retire the two module-level forwarding APIs with their callers, exports and documentation. Preserve bounded calendar and error behavior. |
 | Development tooling, tests and maintained snippets | Move reusable behavior and helpers to cohesive classes, retain actual orchestration entry functions, and preserve test/fixture discovery, isolation and callback contracts. Native stubs continue to describe upstream signatures. |
 | Automated enforcement | Add checks for non-orchestrator bare functions and update the existing acceptance tests that currently permit them. Cover the owned implementation scope and retain existing typing, import and docstring checks. Class cohesion and actual workflow responsibility still require review. |
 
@@ -790,10 +805,10 @@ production support for another instrument family or another empirical experiment
 
 | Retained abstraction | Responsibility | Consumer contract |
 | --- | --- | --- |
-| C01/C02/C03, provenance, reference records, immutable market events and canonical codecs | Domain contracts and exact arithmetic. | Event bytes, validation failures, temporal semantics and configured-symbol support remain covered; function-based API ownership changes remain in the pending OOP migration. |
+| C01/C02/C03, provenance, reference records, immutable market events and canonical codecs | Domain contracts and exact arithmetic. | Event bytes, validation failures, temporal semantics and configured-symbol support remain covered; runtime APIs now have cohesive class owners; the runtime migration record retains validation evidence. |
 | `TardisDecoder` | Source framing and provenance. | Reuse a configured instance across lines, including after rejected input. |
 | `BinancePayloadDecoder` | Venue parsing and validated symbol configuration. | Supply it explicitly to the framing decoder; no provider-specific composition subclass. |
-| Curated `data/__init__.py` exports | Public event types, current codec functions and retained decoder types. | External callers use this surface; internal modules use defining imports. Update codec exports and callers together during OOP migration. |
+| Curated `data/__init__.py` exports | Public event types, `MarketEventCodec` and retained decoder types. | External callers use this surface; internal modules use defining imports. The old codec function exports have been retired. |
 
 C0 removes `BinanceTardisDecoder` and the compatibility-only `data/models.py`
 and `data/venues/binance/decoder.py` modules. These imports are no longer

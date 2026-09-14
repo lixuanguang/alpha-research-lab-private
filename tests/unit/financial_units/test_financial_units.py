@@ -52,9 +52,7 @@ from alpha_research.financial_units import (
     UnitError,
     Volatility,
     Yield,
-    adjust_business_day,
     conventions,
-    settlement_date,
 )
 from alpha_research.financial_units.models import _FinancialUnitModel
 from alpha_research.instrument_identity import InstrumentId
@@ -412,7 +410,7 @@ def test_fx_conversion_has_declared_currency_rounding_tolerance(raw: int, rate: 
 
 
 class TestSettlementConventions:
-    """Exercise bounded settlement adjustment, lag and compatibility contracts."""
+    """Exercise bounded settlement adjustment, lag and calendar ownership contracts."""
 
     @pytest.mark.parametrize(
         ("convention", "candidate", "expected"),
@@ -431,16 +429,7 @@ class TestSettlementConventions:
         service = SettlementConventions(calendar())
         assert service.adjust_business_day(candidate, convention=convention) == expected
         assert (
-            adjust_business_day(candidate, calendar=calendar(), convention=convention) == expected
-        )
-        assert (
             service.settlement_date(candidate, business_day_lag=0, convention=convention)
-            == expected
-        )
-        assert (
-            settlement_date(
-                candidate, business_day_lag=0, calendar=calendar(), convention=convention
-            )
             == expected
         )
         expected_lagged = date(2024, 9, 4)
@@ -448,28 +437,15 @@ class TestSettlementConventions:
             service.settlement_date(date(2024, 8, 30), business_day_lag=2, convention=BDC.FOLLOWING)
             == expected_lagged
         )
-        assert (
-            settlement_date(
-                date(2024, 8, 30), business_day_lag=2, calendar=calendar(), convention=BDC.FOLLOWING
-            )
-            == expected_lagged
-        )
 
     @pytest.mark.parametrize("lag", [-1, 367, True, 1.0])
     def test_bad_settlement_lag_rejects(self, lag: object) -> None:
-        """Reject out-of-range and non-integer lags through the settlement function."""
+        """Reject out-of-range and non-integer lags through the settlement service."""
         service = SettlementConventions(calendar())
         with pytest.raises(ConventionError, match="lag"):
             service.settlement_date(
                 date(2024, 8, 30),
                 business_day_lag=lag,  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed settlement lag rejection; expires=2027-03-01]
-                convention=BDC.FOLLOWING,
-            )
-        with pytest.raises(ConventionError, match="lag"):
-            settlement_date(
-                date(2024, 8, 30),
-                business_day_lag=lag,  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed settlement lag rejection; expires=2027-03-01]
-                calendar=calendar(),
                 convention=BDC.FOLLOWING,
             )
 
@@ -479,14 +455,8 @@ class TestSettlementConventions:
         for candidate in (date(2024, 8, 28), date(2024, 9, 6)):
             with pytest.raises(ConventionError, match="coverage"):
                 service.adjust_business_day(candidate, convention=BDC.UNADJUSTED)
-            with pytest.raises(ConventionError, match="coverage"):
-                adjust_business_day(candidate, calendar=calendar(), convention=BDC.UNADJUSTED)
         with pytest.raises(ConventionError, match="coverage"):
             service.settlement_date(date(2024, 9, 5), business_day_lag=1, convention=BDC.FOLLOWING)
-        with pytest.raises(ConventionError, match="coverage"):
-            settlement_date(
-                date(2024, 9, 5), business_day_lag=1, calendar=calendar(), convention=BDC.FOLLOWING
-            )
         calendar_update: dict[str, tuple[date, ...]] = {"settlement_dates": ()}
         empty = calendar().model_copy(update=calendar_update)
         with pytest.raises(ConventionError, match="coverage"):
@@ -494,15 +464,11 @@ class TestSettlementConventions:
             service_with_empty_calendar.adjust_business_day(
                 date(2024, 8, 31), convention=BDC.FOLLOWING
             )
-        with pytest.raises(ConventionError, match="coverage"):
-            adjust_business_day(date(2024, 8, 31), calendar=empty, convention=BDC.FOLLOWING)
         with pytest.raises(UnitError):
             service.adjust_business_day(
                 date(2024, 8, 31),
                 convention="following",  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed convention rejection on SettlementConventions; expires=2027-03-01]
             )
-        with pytest.raises(UnitError):
-            adjust_business_day(date(2024, 8, 31), calendar=calendar(), convention="following")  # type: ignore[arg-type]  # [owner=platform; rationale=exercise typed convention rejection; expires=2027-03-01]
 
     @pytest.mark.parametrize(
         ("candidate", "convention"),
@@ -518,8 +484,6 @@ class TestSettlementConventions:
         service = SettlementConventions(calendar())
         with pytest.raises(ConventionError, match="coverage"):
             service.adjust_business_day(candidate, convention=convention)
-        with pytest.raises(ConventionError, match="coverage"):
-            adjust_business_day(candidate, calendar=calendar(), convention=convention)
 
     @pytest.mark.parametrize(
         ("candidate", "convention", "settlement_dates"),
@@ -544,8 +508,6 @@ class TestSettlementConventions:
         service = SettlementConventions(bounded)
         with pytest.raises(ConventionError, match="cannot determine"):
             service.adjust_business_day(candidate, convention=convention)
-        with pytest.raises(ConventionError, match="cannot determine"):
-            adjust_business_day(candidate, calendar=bounded, convention=convention)
 
     @pytest.mark.parametrize(
         ("business_day_lag", "expected"),
@@ -568,21 +530,12 @@ class TestSettlementConventions:
             )
             == expected
         )
-        assert (
-            settlement_date(
-                trade_date,
-                business_day_lag=business_day_lag,
-                calendar=calendar(),
-                convention=BDC.UNADJUSTED,
-            )
-            == expected
-        )
 
     @pytest.mark.parametrize("lag", [-1, 367])
-    def test_invalid_settlement_lag_precedes_trade_date_and_calendar_validation(
+    def test_constructor_validation_precedes_calls_and_lag_precedes_trade_date(
         self, lag: int
     ) -> None:
-        """Reject an invalid lag before checking an uncovered trade date or calendar."""
+        """Validate calendars at construction, then reject lag before checking trade dates."""
         service = SettlementConventions(calendar())
         with pytest.raises(ConventionError, match="lag"):
             service.settlement_date(
@@ -592,13 +545,11 @@ class TestSettlementConventions:
             "settlement_dates": (date(2024, 9, 3), date(2024, 8, 30))
         }
         invalid_calendar = calendar().model_copy(update=invalid_update)
-        with pytest.raises(ConventionError, match="lag"):
-            settlement_date(
-                date(2024, 8, 28),
-                business_day_lag=lag,
-                calendar=invalid_calendar,
-                convention=BDC.FOLLOWING,
+        with pytest.raises(ConventionError, match="invalid settlement") as caught:
+            SettlementConventions(invalid_calendar).settlement_date(
+                date(2024, 8, 28), business_day_lag=lag, convention=BDC.FOLLOWING
             )
+        assert isinstance(caught.value.__cause__, ValidationError)
 
     def test_unchecked_calendar_is_rejected_at_construction_with_chained_error(self) -> None:
         """Revalidate an unchecked calendar copy at construction and preserve its cause."""
@@ -609,11 +560,34 @@ class TestSettlementConventions:
         with pytest.raises(ConventionError, match="invalid settlement") as caught:
             SettlementConventions(invalid_calendar)
         assert isinstance(caught.value.__cause__, ValidationError)
-        with pytest.raises(ConventionError, match="invalid settlement") as wrapper_error:
-            adjust_business_day(
-                date(2024, 8, 31), calendar=invalid_calendar, convention=BDC.FOLLOWING
+
+    @pytest.mark.parametrize(
+        ("candidate", "expected_message"),
+        [
+            (datetime(2024, 8, 31), "candidate must be date"),
+            (date(2024, 8, 31), "business-day convention must be BusinessDayConvention"),
+        ],
+    )
+    def test_calendar_construction_precedes_invalid_call_arguments(
+        self, candidate: date, expected_message: str
+    ) -> None:
+        """Reject the calendar first, retaining candidate-before-convention method order."""
+        invalid_update: Mapping[str, object] = {"settlement_dates": (date(2024, 1, 1),)}
+        invalid = calendar().model_copy(update=invalid_update)
+        with pytest.raises(ConventionError) as constructor_error:
+            SettlementConventions(invalid).adjust_business_day(
+                candidate,
+                convention="following",  # type: ignore[arg-type]  # [owner=platform; rationale=verify constructor precedence over multiple invalid operation inputs; expires=2027-03-01]
             )
-        assert isinstance(wrapper_error.value.__cause__, ValidationError)
+        assert str(constructor_error.value) == "invalid settlement calendar"
+        assert isinstance(constructor_error.value.__cause__, ValidationError)
+        service = SettlementConventions(calendar())
+        with pytest.raises(UnitError) as method_error:
+            service.adjust_business_day(
+                candidate,
+                convention="following",  # type: ignore[arg-type]  # [owner=platform; rationale=preserve candidate-before-convention method validation ordering; expires=2027-03-01]
+            )
+        assert str(method_error.value) == expected_message
 
     def test_repeated_failures_do_not_contaminate_snapshot_or_caller_calendar(self) -> None:
         """Keep one service usable after repeated failures and preserve the caller calendar."""
@@ -638,22 +612,13 @@ class TestSettlementConventions:
         assert caller_calendar.settlement_dates == original_dates
 
     def test_strict_date_contract_rejects_datetime_candidates(self) -> None:
-        """Reject datetime subclasses at both the service and compatibility boundaries."""
+        """Reject datetime subclasses at both service operation boundaries."""
         candidate = datetime(2024, 8, 31)
         service = SettlementConventions(calendar())
         with pytest.raises(UnitError, match="candidate"):
             service.adjust_business_day(candidate, convention=BDC.UNADJUSTED)
         with pytest.raises(UnitError, match="candidate"):
-            adjust_business_day(candidate, calendar=calendar(), convention=BDC.UNADJUSTED)
-        with pytest.raises(UnitError, match="candidate"):
             service.settlement_date(candidate, business_day_lag=0, convention=BDC.UNADJUSTED)
-        with pytest.raises(UnitError, match="candidate"):
-            settlement_date(
-                candidate,
-                business_day_lag=0,
-                calendar=calendar(),
-                convention=BDC.UNADJUSTED,
-            )
 
     def test_modified_adjustment_compares_year_as_well_as_month(self) -> None:
         """Treat same-month dates in different years as crossing an adjustment boundary."""
@@ -671,14 +636,8 @@ class TestSettlementConventions:
         assert service.adjust_business_day(
             date(2024, 1, 30), convention=BDC.MODIFIED_FOLLOWING
         ) == date(2024, 1, 1)
-        assert adjust_business_day(
-            date(2024, 1, 30), calendar=bounded, convention=BDC.MODIFIED_FOLLOWING
-        ) == date(2024, 1, 1)
         assert service.adjust_business_day(
             date(2025, 1, 2), convention=BDC.MODIFIED_PRECEDING
-        ) == date(2025, 1, 31)
-        assert adjust_business_day(
-            date(2025, 1, 2), calendar=bounded, convention=BDC.MODIFIED_PRECEDING
         ) == date(2025, 1, 31)
 
 
@@ -931,9 +890,7 @@ class TestFinancialModelContracts:
         }
         invalid_calendar = calendar().model_copy(update=calendar_update)
         with pytest.raises(ConventionError, match="invalid settlement"):
-            adjust_business_day(
-                date(2024, 8, 31), calendar=invalid_calendar, convention=BDC.FOLLOWING
-            )
+            SettlementConventions(invalid_calendar)
 
     def test_all_numeric_types_are_immutable_and_distinct(self) -> None:
         """Preserve frozen values and reject arithmetic across distinct quote types."""

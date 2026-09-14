@@ -7,8 +7,6 @@ from alpha_research.financial_units.conventions import (
     DayCountResult,
     QuantLibConventions,
     SettlementConventions,
-    adjust_business_day,
-    settlement_date,
 )
 from alpha_research.financial_units.models import (
     Compounding,
@@ -59,6 +57,4 @@ __all__ = [
     "UnitError",
     "Volatility",
     "Yield",
-    "adjust_business_day",
-    "settlement_date",
 ]

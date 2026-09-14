@@ -23,8 +23,8 @@ schemas and decoding semantics are unchanged.
 | [`data/decoders.py`](../../src/alpha_research/data/decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol; no provider framing or venue schema |
 | [`data/providers/tardis/decoder.py`](../../src/alpha_research/data/providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, blank-line handling, and raw JSON handoff |
 | [`data/venues/binance/events.py`](../../src/alpha_research/data/venues/binance/events.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade` with Binance symbol and event invariants |
-| [`data/venues/binance/payloads.py`](../../src/alpha_research/data/venues/binance/payloads.py) | `BinancePayloadDecoder`, Binance combined-stream envelope decoding, and payload-to-event mapping |
-| [`data/venues/binance/codecs.py`](../../src/alpha_research/data/venues/binance/codecs.py) | Private payload schemas and cached payload decoders, closed `MarketEvent` union, and strict canonical codecs |
+| [`data/venues/binance/payloads.py`](../../src/alpha_research/data/venues/binance/payloads.py) | `BinancePayloadDecoder`, source envelope/payload schemas, cached source decoders, and payload-to-event mapping |
+| [`data/venues/binance/codecs.py`](../../src/alpha_research/data/venues/binance/codecs.py) | Closed `MarketEvent` union and reusable strict `MarketEventCodec` |
 
 `data.decoders` owns only the neutral context and payload-decoder protocol. The
 Tardis provider owns line framing, capture parsing, provenance construction, and
@@ -86,6 +86,10 @@ identifiers.
 The shared serialization boundary in
 [`serialization.py`](../../src/alpha_research/serialization.py) encodes exact
 Decimal text and complete Currency values with `code` and `minor_unit`.
+`DomainCodec` owns domain hooks and deterministic JSON operations, caching each
+requested schema for that instance. Reuse it across records. `MarketEventCodec`
+compiles the closed canonical event union once per instance and exposes `encode`,
+`decode` and `validate`; these replace the former module-level codec functions.
 Canonical event codecs reject unknown fields. Raw vendor envelopes and private
 payload schemas intentionally tolerate source extras so a generated source
 snapshot with additional fields does not break decoding; known fields and
@@ -93,11 +97,10 @@ domain invariants remain strict.
 
 ## Capture and source semantics
 
-The current `parse_capture_time` function in
+`TardisDecoder.parse_capture_time` in
 [`data/providers/tardis/decoder.py`](../../src/alpha_research/data/providers/tardis/decoder.py)
-parses the leading ISO UTC capture text. Its move to a provider-owned method is
-[pending OOP migration](../roadmap/README.md#oop-migration-status); the following
-timing contract is unchanged. A source fraction beyond six digits rounds upward
+parses the leading ISO UTC capture text. Its timing contract is unchanged. A source
+fraction beyond six digits rounds upward
 by one microsecond whenever any discarded digit is nonzero. The original text is
 retained verbatim. `DecodeContext` binds source sequence, source/raw identity,
 capture time, local receipt and optional ingestion to

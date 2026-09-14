@@ -10,17 +10,19 @@ The current public package surface is defined by
 [`alpha_research.data`](__init__.py):
 
 - `DepthSnapshot`, `DepthUpdate`, `Trade`, and `Disconnect` event records;
-- the closed `MarketEvent` union and strict `encode_market_event`,
-  `decode_market_event`, and `validate_market_event` codecs; and
+- the closed `MarketEvent` union and `MarketEventCodec`, with `encode`, `decode`,
+  and `validate` methods; and
 - `TardisDecoder` and `BinancePayloadDecoder` for reusable source-line decoding.
 
 The [OOP policy](../../../docs/coding_standards/README.md#orchestrator-pipelines-and-libraries)
-assigns reusable behavior to cohesive classes. Migrating the codec functions,
-serialization hooks and parsing helpers to class owners remains
-[pending work](../../../docs/roadmap/README.md#oop-migration-status). The functions
-listed here still exist; update their exports, callers and examples with that
-implementation change. The two configured decoder classes retain their separate
-provider-framing and venue-parsing responsibilities.
+assigns reusable behavior to cohesive classes. The
+[runtime migration](../../../docs/roadmap/oop-migration/README.md#runtime-implementation-and-validation)
+replaces module-level canonical codec functions with `MarketEventCodec` methods
+and serialization functions with `DomainCodec` methods. Reuse each codec instance
+across records; its compiled schemas survive both successful and rejected calls.
+The two configured decoder classes retain their separate provider-framing and
+venue-parsing responsibilities. Repository-wide tooling/test migration and OOP
+enforcement remain separate work.
 
 Callers compose the retained decoders directly and reuse `decode_line`. The
 [C0 migration](../../../docs/roadmap/README.md#existing-abstractions-to-retain-or-retire)
@@ -33,8 +35,8 @@ changing serialized events. Internal code imports from defining modules:
 | [`decoders.py`](decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol for source-independent payload decoding |
 | [`providers/tardis/decoder.py`](providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, and blank-line disconnect handling; raw exchange JSON is passed to a payload decoder |
 | [`venues/binance/events.py`](venues/binance/events.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade`; shared validation runs before the Binance symbol rule and concrete validators add event invariants |
-| [`venues/binance/payloads.py`](venues/binance/payloads.py) | `BinancePayloadDecoder`, Binance combined-stream envelope decoding, and payload-to-event mapping |
-| [`venues/binance/codecs.py`](venues/binance/codecs.py) | Private source-payload schemas and cached payload decoders, the closed `MarketEvent` union, and strict canonical codecs |
+| [`venues/binance/payloads.py`](venues/binance/payloads.py) | `BinancePayloadDecoder`, source envelope/payload schemas, cached source decoders, and payload-to-event mapping |
+| [`venues/binance/codecs.py`](venues/binance/codecs.py) | The closed `MarketEvent` union and reusable strict `MarketEventCodec` |
 
 ## Catalog and event identity
 
@@ -59,9 +61,9 @@ floats and malformed values. Canonical event codecs reject unknown fields, while
 raw vendor envelopes and payload schemas intentionally tolerate source extras.
 
 The current Tardis implementation parses the leading ISO UTC capture text with
-the `parse_capture_time` function in
-[`providers/tardis/decoder.py`](providers/tardis/decoder.py), pending migration
-to a provider-owned method. Source fractions beyond microsecond precision round
+`TardisDecoder.parse_capture_time` in
+[`providers/tardis/decoder.py`](providers/tardis/decoder.py). Source fractions beyond
+microsecond precision round
 upward by one microsecond when discarded digits are nonzero. `DecodeContext`
 keeps source sequence, raw text, source digest, receipt
 and ingestion times, and builds source-capture provenance. A blank source line
@@ -90,8 +92,10 @@ The following illustrates the call boundary; `instruments`, `line`,
 `source_sequence`, and `local_received` are supplied by the caller:
 
 ```python
-from alpha_research.data import BinancePayloadDecoder, TardisDecoder
+# project library imports
+from alpha_research.data import BinancePayloadDecoder, MarketEventCodec, TardisDecoder
 
+codec = MarketEventCodec()
 decoder = TardisDecoder(
     payload_decoder=BinancePayloadDecoder(instruments),
     source_id="tardis.binance.spot",
@@ -101,6 +105,8 @@ event = decoder.decode_line(
     source_sequence=source_sequence,
     local_received=local_received,
 )
+encoded = codec.encode(event)
+restored = codec.decode(encoded)
 ```
 
 The intended orchestrator owns input reading, source ordering, capture-proxy
@@ -113,8 +119,8 @@ factory or replacement composition subclass.
 
 ## Boundaries and planned consumers
 
-`serialization.py` provides the strict exact-domain hooks used by the catalog
-and event codecs, including complete currency wire values with `code` and
+`DomainCodec` in `serialization.py` provides the strict exact-domain hooks used by
+the catalog and event codecs, including complete currency wire values with `code` and
 `minor_unit` and exact Decimal text. This candidate does not implement an HTTP
 transport, checkpoint/raw store, dataset manifest, order book, research
 configuration loader, replay runner, accounting consumer, or operational feed.

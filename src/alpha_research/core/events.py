@@ -18,102 +18,6 @@ type KnowledgeBasis = Literal[
 """Identify how the availability time of an event was established."""
 
 
-def _require_text(value: object, *, field_name: str, allow_empty: bool = False) -> str:
-    """Require a string field, optionally requiring one or more characters."""
-    if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be a string")
-    if not allow_empty and not value:
-        raise ValueError(f"{field_name} must be nonempty")
-    return value
-
-
-def _normalize_utc(value: object, *, field_name: str) -> datetime:
-    """Require an aware instant and return it represented in UTC.
-
-    Args:
-        value: Datetime supplied at the provenance boundary.
-        field_name: Name used in the validation message.
-
-    Returns:
-        The supplied instant converted to UTC.
-
-    Raises:
-        TypeError: The value is not a datetime.
-        ValueError: The datetime is naive or has no usable UTC offset.
-    """
-    if not isinstance(value, datetime):
-        raise TypeError(f"{field_name} must be a datetime")
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ValueError(f"{field_name} must be timezone-aware")
-    return value.astimezone(UTC)
-
-
-def _validate_provenance(provenance: EventProvenance) -> None:
-    """Validate one provenance instance without constructing another record."""
-    _require_text(provenance.schema_version, field_name="schema_version")
-    if provenance.schema_version != "1":
-        raise ValueError("schema_version must be '1'")
-    _require_text(provenance.source_id, field_name="source_id")
-    _require_text(provenance.event_id, field_name="event_id")
-    for field_name, value in (
-        ("source_revision", provenance.source_revision),
-        ("source_sequence", provenance.source_sequence),
-    ):
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise TypeError(f"{field_name} must be an integer")
-        if value < 0:
-            raise ValueError(f"{field_name} must be nonnegative")
-    _require_text(provenance.source_digest, field_name="source_digest")
-    if len(provenance.source_digest) != 64 or any(
-        character not in "0123456789abcdef" for character in provenance.source_digest
-    ):
-        raise ValueError("source_digest must be a lowercase SHA-256 digest")
-
-    timestamps: dict[str, datetime] = {
-        "ts_event": _normalize_utc(provenance.ts_event, field_name="ts_event"),
-        "ts_received": _normalize_utc(provenance.ts_received, field_name="ts_received"),
-        "ts_ingested": _normalize_utc(provenance.ts_ingested, field_name="ts_ingested"),
-        "ts_knowledge": _normalize_utc(provenance.ts_knowledge, field_name="ts_knowledge"),
-    }
-    source_received = provenance.ts_source_received
-    if source_received is not None:
-        timestamps["ts_source_received"] = _normalize_utc(
-            source_received, field_name="ts_source_received"
-        )
-    timestamps["valid_from"] = _normalize_utc(provenance.valid_from, field_name="valid_from")
-    timestamps["valid_to"] = _normalize_utc(provenance.valid_to, field_name="valid_to")
-
-    correction_id = provenance.correction_id
-    if correction_id is not None:
-        _require_text(correction_id, field_name="correction_id")
-    if not isinstance(provenance.knowledge_basis, str):
-        raise TypeError("knowledge_basis must be a string")
-    if provenance.knowledge_basis not in {
-        "observed",
-        "source_published",
-        "source_capture",
-        "assumed_delay",
-    }:
-        raise ValueError("knowledge_basis is unsupported")
-
-    if timestamps["ts_received"] > timestamps["ts_ingested"]:
-        raise ValueError("ts_received must be earlier than or equal to ts_ingested")
-    if timestamps["valid_to"] <= timestamps["valid_from"]:
-        raise ValueError("valid_to must be later than valid_from")
-    if (
-        provenance.knowledge_basis == "observed"
-        and timestamps["ts_knowledge"] < timestamps["ts_ingested"]
-    ):
-        raise ValueError("observed ts_knowledge must be later than or equal to ts_ingested")
-    if provenance.knowledge_basis == "source_capture":
-        if source_received is None:
-            raise ValueError("source_capture knowledge_basis requires ts_source_received")
-        if timestamps["ts_knowledge"] < timestamps["ts_source_received"]:
-            raise ValueError(
-                "source_capture ts_knowledge must be later than or equal to ts_source_received"
-            )
-
-
 class EventProvenance(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Hold immutable identity, timing, validity, and availability metadata.
 
@@ -165,7 +69,7 @@ class EventProvenance(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             TypeError: A field has the wrong Python type.
             ValueError: A field value or temporal invariant is invalid.
         """
-        _validate_provenance(self)
+        self._validate_fields()
         timestamp_values: tuple[tuple[str, datetime | None], ...] = (
             ("ts_event", self.ts_event),
             ("ts_received", self.ts_received),
@@ -177,7 +81,7 @@ class EventProvenance(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
         )
         for field_name, value in timestamp_values:
             if value is not None:
-                normalized = _normalize_utc(value, field_name=field_name)
+                normalized = EventProvenance._normalize_utc(value, field_name=field_name)
                 msgspec.structs.force_setattr(self, field_name, normalized)
 
     def validate(self) -> Self:
@@ -190,7 +94,7 @@ class EventProvenance(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             TypeError: An unsafe mutation inserted a value with the wrong Python type.
             ValueError: An unsafe mutation violates a provenance invariant.
         """
-        _validate_provenance(self)
+        self._validate_fields()
         return self
 
     @property
@@ -198,7 +102,7 @@ class EventProvenance(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
         """Return the deterministic revision-ordering key.
 
         Returns:
-            A tuple suitable for ``sorted(..., key=lambda item: item.ordering_key)``.
+            Knowledge instant, source sequence, revision and digest, in ordering priority.
 
         Raises:
             TypeError: The instance was unsafely mutated with a wrong field type.
@@ -206,7 +110,7 @@ class EventProvenance(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
         """
         validated = self.validate()
         return (
-            _normalize_utc(validated.ts_knowledge, field_name="ts_knowledge"),
+            EventProvenance._normalize_utc(validated.ts_knowledge, field_name="ts_knowledge"),
             validated.source_sequence,
             validated.source_revision,
             validated.source_digest,
@@ -229,13 +133,122 @@ class EventProvenance(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             ValueError: A query time is naive or this instance is invalid.
         """
         validated = self.validate()
-        normalized_decision_time = _normalize_utc(decision_time, field_name="decision_time")
-        normalized_valid_time = _normalize_utc(valid_time, field_name="valid_time")
-        return _normalize_utc(
+        normalized_decision_time = EventProvenance._normalize_utc(
+            decision_time, field_name="decision_time"
+        )
+        normalized_valid_time = EventProvenance._normalize_utc(valid_time, field_name="valid_time")
+        return EventProvenance._normalize_utc(
             validated.ts_knowledge, field_name="ts_knowledge"
-        ) <= normalized_decision_time and _normalize_utc(
+        ) <= normalized_decision_time and EventProvenance._normalize_utc(
             validated.valid_from, field_name="valid_from"
-        ) <= normalized_valid_time < _normalize_utc(validated.valid_to, field_name="valid_to")
+        ) <= normalized_valid_time < EventProvenance._normalize_utc(
+            validated.valid_to, field_name="valid_to"
+        )
+
+    @staticmethod
+    def _require_text(value: object, *, field_name: str, allow_empty: bool = False) -> str:
+        """Require a string field, optionally requiring one or more characters."""
+        if not isinstance(value, str):
+            raise TypeError(f"{field_name} must be a string")
+        if not allow_empty and not value:
+            raise ValueError(f"{field_name} must be nonempty")
+        return value
+
+    @staticmethod
+    def _normalize_utc(value: object, *, field_name: str) -> datetime:
+        """Require an aware instant and return it represented in UTC.
+
+        Args:
+            value: Datetime supplied at the provenance boundary.
+            field_name: Name used in the validation message.
+
+        Returns:
+            The supplied instant converted to UTC.
+
+        Raises:
+            TypeError: The value is not a datetime.
+            ValueError: The datetime is naive or has no usable UTC offset.
+        """
+        if not isinstance(value, datetime):
+            raise TypeError(f"{field_name} must be a datetime")
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError(f"{field_name} must be timezone-aware")
+        return value.astimezone(UTC)
+
+    def _validate_fields(self) -> None:
+        """Validate one self instance without constructing another record."""
+        EventProvenance._require_text(self.schema_version, field_name="schema_version")
+        if self.schema_version != "1":
+            raise ValueError("schema_version must be '1'")
+        EventProvenance._require_text(self.source_id, field_name="source_id")
+        EventProvenance._require_text(self.event_id, field_name="event_id")
+        for field_name, value in (
+            ("source_revision", self.source_revision),
+            ("source_sequence", self.source_sequence),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"{field_name} must be an integer")
+            if value < 0:
+                raise ValueError(f"{field_name} must be nonnegative")
+        EventProvenance._require_text(self.source_digest, field_name="source_digest")
+        if len(self.source_digest) != 64 or any(
+            character not in "0123456789abcdef" for character in self.source_digest
+        ):
+            raise ValueError("source_digest must be a lowercase SHA-256 digest")
+
+        timestamps: dict[str, datetime] = {
+            "ts_event": EventProvenance._normalize_utc(self.ts_event, field_name="ts_event"),
+            "ts_received": EventProvenance._normalize_utc(
+                self.ts_received, field_name="ts_received"
+            ),
+            "ts_ingested": EventProvenance._normalize_utc(
+                self.ts_ingested, field_name="ts_ingested"
+            ),
+            "ts_knowledge": EventProvenance._normalize_utc(
+                self.ts_knowledge, field_name="ts_knowledge"
+            ),
+        }
+        source_received = self.ts_source_received
+        if source_received is not None:
+            timestamps["ts_source_received"] = EventProvenance._normalize_utc(
+                source_received, field_name="ts_source_received"
+            )
+        timestamps["valid_from"] = EventProvenance._normalize_utc(
+            self.valid_from, field_name="valid_from"
+        )
+        timestamps["valid_to"] = EventProvenance._normalize_utc(
+            self.valid_to, field_name="valid_to"
+        )
+
+        correction_id = self.correction_id
+        if correction_id is not None:
+            EventProvenance._require_text(correction_id, field_name="correction_id")
+        if not isinstance(self.knowledge_basis, str):
+            raise TypeError("knowledge_basis must be a string")
+        if self.knowledge_basis not in {
+            "observed",
+            "source_published",
+            "source_capture",
+            "assumed_delay",
+        }:
+            raise ValueError("knowledge_basis is unsupported")
+
+        if timestamps["ts_received"] > timestamps["ts_ingested"]:
+            raise ValueError("ts_received must be earlier than or equal to ts_ingested")
+        if timestamps["valid_to"] <= timestamps["valid_from"]:
+            raise ValueError("valid_to must be later than valid_from")
+        if (
+            self.knowledge_basis == "observed"
+            and timestamps["ts_knowledge"] < timestamps["ts_ingested"]
+        ):
+            raise ValueError("observed ts_knowledge must be later than or equal to ts_ingested")
+        if self.knowledge_basis == "source_capture":
+            if source_received is None:
+                raise ValueError("source_capture knowledge_basis requires ts_source_received")
+            if timestamps["ts_knowledge"] < timestamps["ts_source_received"]:
+                raise ValueError(
+                    "source_capture ts_knowledge must be later than or equal to ts_source_received"
+                )
 
 
 __all__ = ["EventProvenance", "KnowledgeBasis"]

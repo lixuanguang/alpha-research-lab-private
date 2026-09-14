@@ -11,41 +11,6 @@ from alpha_research.data.decoders import DecodeContext, PayloadDecoder
 from alpha_research.data.events import Disconnect, MarketEventError
 
 
-def parse_capture_time(capture_text: str) -> datetime:
-    """Parse source capture text and round upward to microsecond precision.
-
-    Args:
-        capture_text: ISO UTC source capture text ending in ``Z``.
-
-    Returns:
-        A timezone-aware UTC instant rounded upward to microsecond precision.
-
-    Raises:
-        TypeError: ``capture_text`` is not a string.
-        MarketEventError: The text is not a valid ISO UTC capture timestamp.
-    """
-    if not isinstance(capture_text, str):
-        raise TypeError("capture timestamp must be a string")
-    if not capture_text.endswith("Z"):
-        raise MarketEventError("capture timestamp must be an ISO UTC timestamp")
-    timestamp_text = capture_text[:-1]
-    if "." in timestamp_text:
-        date_text, fraction = timestamp_text.split(".", 1)
-    else:
-        date_text, fraction = timestamp_text, ""
-    if len(date_text) != 19 or (fraction and not fraction.isdigit()):
-        raise MarketEventError("capture timestamp must be an ISO UTC timestamp")
-    try:
-        base = datetime.fromisoformat(f"{date_text}+00:00")
-    except ValueError as error:
-        raise MarketEventError("capture timestamp is not a valid instant") from error
-    microseconds = int((fraction + "000000")[:6])
-    rounded = base.replace(microsecond=microseconds)
-    if len(fraction) > 6 and any(character != "0" for character in fraction[6:]):
-        rounded += timedelta(microseconds=1)
-    return rounded
-
-
 class TardisDecoder[T]:
     """Decode Tardis capture lines with shared framing and provenance semantics."""
 
@@ -145,7 +110,7 @@ class TardisDecoder[T]:
         if " " not in line:
             raise MarketEventError("source line must contain capture timestamp and JSON payload")
         capture_text, payload_text = line.split(" ", 1)
-        capture = parse_capture_time(capture_text)
+        capture = self.parse_capture_time(capture_text)
         context = DecodeContext(
             capture_text=capture_text,
             capture_time=capture,
@@ -158,5 +123,40 @@ class TardisDecoder[T]:
         )
         return self._payload_decoder.decode_payload(payload_text, context)
 
+    @staticmethod
+    def parse_capture_time(capture_text: str) -> datetime:
+        """Parse source capture text and round upward to microsecond precision.
 
-__all__ = ["TardisDecoder", "parse_capture_time"]
+        Args:
+            capture_text: ISO UTC source capture text ending in ``Z``.
+
+        Returns:
+            A timezone-aware UTC instant rounded upward to microsecond precision.
+
+        Raises:
+            TypeError: ``capture_text`` is not a string.
+            MarketEventError: The text is not a valid ISO UTC capture timestamp.
+        """
+        if not isinstance(capture_text, str):
+            raise TypeError("capture timestamp must be a string")
+        if not capture_text.endswith("Z"):
+            raise MarketEventError("capture timestamp must be an ISO UTC timestamp")
+        timestamp_text = capture_text[:-1]
+        if "." in timestamp_text:
+            date_text, fraction = timestamp_text.split(".", 1)
+        else:
+            date_text, fraction = timestamp_text, ""
+        if len(date_text) != 19 or (fraction and not fraction.isdigit()):
+            raise MarketEventError("capture timestamp must be an ISO UTC timestamp")
+        try:
+            base = datetime.fromisoformat(f"{date_text}+00:00")
+        except ValueError as error:
+            raise MarketEventError("capture timestamp is not a valid instant") from error
+        microseconds = int((fraction + "000000")[:6])
+        rounded = base.replace(microsecond=microseconds)
+        if len(fraction) > 6 and any(character != "0" for character in fraction[6:]):
+            rounded += timedelta(microseconds=1)
+        return rounded
+
+
+__all__ = ["TardisDecoder"]

@@ -32,7 +32,6 @@ from alpha_research.instrument_identity import (
     UnknownIdentifierError,
     UnknownInstrumentError,
 )
-from alpha_research.instrument_identity import models as instrument_identity_models
 from alpha_research.instrument_identity.models import _InstrumentIdentityModel
 
 
@@ -505,27 +504,30 @@ class TestInstrumentIdentityBoundaryContracts:
                 tampered_id,
             )
 
+    @staticmethod
+    def _ordinary_field_failure(
+        candidate_value: object, *, field_name: str, maximum_length: int
+    ) -> str:
+        """Raise an ordinary validator error whose field location must be retained."""
+        del candidate_value, field_name, maximum_length
+        raise ValueError("ordinary field failure")
+
+    @staticmethod
+    def _owned_field_failure(
+        candidate_value: object, *, field_name: str, maximum_length: int
+    ) -> str:
+        """Raise an owned validator error whose field location is already descriptive."""
+        del candidate_value, field_name, maximum_length
+        raise InstrumentIdentityValidationError("owned field failure")
+
     def test_constructor_errors_preserve_locations_and_causes(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Preserve field locations for ordinary errors and messages for owned errors."""
-
-        def _ordinary_field_failure(
-            candidate_value: object, *, field_name: str, maximum_length: int
-        ) -> str:
-            """Raise an ordinary validator error whose field location must be retained."""
-            del candidate_value, field_name, maximum_length
-            raise ValueError("ordinary field failure")
-
-        def _owned_field_failure(
-            candidate_value: object, *, field_name: str, maximum_length: int
-        ) -> str:
-            """Raise an owned validator error whose field location is already descriptive."""
-            del candidate_value, field_name, maximum_length
-            raise InstrumentIdentityValidationError("owned field failure")
-
         monkeypatch.setattr(
-            instrument_identity_models, "_require_bounded_text", _ordinary_field_failure
+            _InstrumentIdentityModel,
+            "_require_bounded_text",
+            staticmethod(self._ordinary_field_failure),
         )
         with pytest.raises(InstrumentIdentityValidationError) as ordinary_error:
             ExternalIdentifier(IdentifierScheme.TICKER, "SYMBOL", "xnas")
@@ -533,7 +535,9 @@ class TestInstrumentIdentityBoundaryContracts:
         assert isinstance(ordinary_error.value.__cause__, ValidationError)
 
         monkeypatch.setattr(
-            instrument_identity_models, "_require_bounded_text", _owned_field_failure
+            _InstrumentIdentityModel,
+            "_require_bounded_text",
+            staticmethod(self._owned_field_failure),
         )
         with pytest.raises(InstrumentIdentityValidationError) as owned_error:
             ExternalIdentifier(IdentifierScheme.TICKER, "SYMBOL", "xnas")
