@@ -34,6 +34,13 @@ reference examples, so changing an exploratory quantity does not change a golden
 result. The notebook records interpreter, installed-package/source agreement,
 Git, catalog, lockfile, notebook source and experiment-input identities.
 
+Section 11 completes **NB 03** with the installed `RawObject` API: inspect the
+compressed-byte digest, request partition, retrieval reference and original clocks;
+round-trip the descriptor; reject mutation, truncation and another request; then
+verify recovery with the original bytes. The sample files are temporary and
+synthetic. See the [MR 03 acceptance record](../docs/roadmap/mr-03-implementation.md)
+for commands and results. MR 04 durable publication remains the next package.
+
 Future notebooks can
 use names such as `data-fetching.ipynb`, `eda.ipynb`, `strategy-research.ipynb` and
 `strategy-monitoring.ipynb`; these files have not been created yet. Each MR records
