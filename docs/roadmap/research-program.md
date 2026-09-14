@@ -63,7 +63,9 @@ stability over one headline return.
 ## Notebook research and package promotion
 
 The founder selected long-lived, activity-based notebooks on 2026-09-13.
-Repository-root `examples/` is the ignored local research workspace. Notebooks
+The 2026-09-14 retention decision versions maintained `.ipynb`, `.py` and `.md`
+files under repository-root `examples/`; generated runs and kernel files remain
+local and ignored. Notebooks
 evolve into separate data-fetching, EDA, quant strategy research and strategy
 monitoring workspaces as there is working content to separate. They are test
 beds for new ideas and may span many implementation MRs; an MR records the
@@ -75,7 +77,7 @@ API. Use existing instrument, calendar, provenance and exact financial contracts
 where applicable. Source-access permissions and the predeclared experiment's
 universe, hypothesis and holdout boundaries continue to apply to notebook work.
 Exploration that changes selection must retain its attempts, including failures;
-an ignored notebook's overwritten output is not the sole research record.
+a notebook's overwritten output is not the sole research record.
 
 Notebooks may tailor names and calculations to a particular asset or alpha
 hypothesis. Maintained package code follows the

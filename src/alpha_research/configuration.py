@@ -1,0 +1,264 @@
+"""Resolve explicit offline data jobs against complete authored catalog intervals."""
+
+from __future__ import annotations
+
+# standard library imports
+import hashlib
+from datetime import datetime, timedelta
+from importlib.metadata import version
+from pathlib import Path
+from typing import ClassVar, Literal
+
+# third party library imports
+import msgspec
+
+# project library imports
+from alpha_research.instrument_identity import InstrumentId
+from alpha_research.reference_data import CatalogSnapshot, SpotInstrument
+from alpha_research.serialization import DomainCodec
+
+
+class _ConfigurationRecord(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
+    """Share strict identifiers and deterministic identities for cold configuration."""
+
+    _codec: ClassVar[DomainCodec] = DomainCodec()
+
+    @staticmethod
+    def _text(value: object) -> None:
+        """Require a bounded, nonempty reference without control characters."""
+        if not isinstance(value, str) or not 1 <= len(value) <= 256:
+            raise ValueError("configuration references must contain 1-256 characters")
+        if value != value.strip() or not value.isprintable():
+            raise ValueError("configuration references must be printable without outer whitespace")
+
+
+class Universe(_ConfigurationRecord, frozen=True, kw_only=True):
+    """Define available canonical listings without activating a job."""
+
+    name: str
+    instrument_ids: tuple[InstrumentId, ...]
+
+    def __post_init__(self) -> None:
+        """Validate a nonempty, unique and bounded instrument selection.
+
+        Raises:
+            ValueError: A name or selection is invalid.
+        """
+        self._text(self.name)
+        if type(self.instrument_ids) is not tuple or not 1 <= len(self.instrument_ids) <= 32:
+            raise ValueError("universe must contain 1-32 instrument IDs in a tuple")
+        if any(type(item) is not InstrumentId for item in self.instrument_ids):
+            raise ValueError("universe members must be canonical InstrumentId values")
+        if len(set(self.instrument_ids)) != len(self.instrument_ids):
+            raise ValueError("universe contains duplicate instrument IDs")
+
+
+class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
+    """Select the implemented offline trade capability and explicit non-secret inputs.
+
+    The capture interval is UTC, half-open and minute-aligned, at most one day.
+    Rights and revision references describe the saved fixture; they grant no access.
+    """
+
+    name: str
+    universe: str
+    provider: Literal["tardis"]
+    venue: Literal["binance"]
+    product: Literal["spot"]
+    dataset: Literal["raw"]
+    stream: Literal["trade"]
+    mode: Literal["fixture"]
+    pipeline: Literal["dataset.inspect"]
+    partition: Literal["utc-minute"]
+    capture_policy: Literal["source-capture-v1"]
+    source_revision: str
+    rights_reference: str
+    start: datetime
+    end: datetime
+
+    def __post_init__(self) -> None:
+        """Reject unsupported capabilities and invalid bounded capture intervals.
+
+        Raises:
+            ValueError: A reference, capability, timestamp or interval is invalid.
+        """
+        for value in (self.name, self.universe, self.source_revision, self.rights_reference):
+            self._text(value)
+        selection = (
+            self.provider,
+            self.venue,
+            self.product,
+            self.dataset,
+            self.stream,
+            self.mode,
+            self.pipeline,
+            self.partition,
+            self.capture_policy,
+        )
+        if selection != (
+            "tardis",
+            "binance",
+            "spot",
+            "raw",
+            "trade",
+            "fixture",
+            "dataset.inspect",
+            "utc-minute",
+            "source-capture-v1",
+        ):
+            raise ValueError("unsupported source/product/mode/pipeline or partition/capture policy")
+        for timestamp in (self.start, self.end):
+            if not isinstance(timestamp, datetime) or timestamp.utcoffset() != timedelta(0):
+                raise ValueError("job timestamps must be timezone-aware UTC")
+            if timestamp.second or timestamp.microsecond:
+                raise ValueError("utc-minute partitions require minute-aligned timestamps")
+        if not timedelta(0) < self.end - self.start <= timedelta(days=1):
+            raise ValueError("job interval must be nonempty and at most one day")
+
+
+class ResolvedManifest(_ConfigurationRecord, frozen=True, kw_only=True):
+    """Retain actual selected metadata and implementation identity for one resolved job."""
+
+    schema_version: Literal["1"] = "1"
+    job: DataJob
+    catalog: CatalogSnapshot
+    instruments: tuple[SpotInstrument, ...]
+    implementation_identity: str
+
+    def __post_init__(self) -> None:
+        """Reject unsafe records and require exact selected catalog bindings.
+
+        Raises:
+            ValueError: The schema, identity, selection or full-interval coverage is invalid.
+        """
+        if self.schema_version != "1" or type(self.job) is not DataJob:
+            raise ValueError("invalid resolved manifest schema or job")
+        self.job.__post_init__()
+        if type(self.catalog) is not CatalogSnapshot:
+            raise ValueError("manifest requires a CatalogSnapshot")
+        self.catalog.validate()
+        if (
+            not isinstance(self.implementation_identity, str)
+            or len(self.implementation_identity) != 64
+            or any(char not in "0123456789abcdef" for char in self.implementation_identity)
+        ):
+            raise ValueError("implementation_identity must be a lowercase SHA-256 digest")
+        if type(self.instruments) is not tuple or not 1 <= len(self.instruments) <= 32:
+            raise ValueError("manifest requires 1-32 resolved instruments")
+        ids: list[str] = []
+        for instrument in self.instruments:
+            if type(instrument) is not SpotInstrument:
+                raise ValueError("manifest instruments must be SpotInstrument records")
+            instrument.validate()
+            resolved = self.catalog.resolve(instrument.instrument_id, self.job.start, self.job.end)
+            if instrument != resolved:
+                raise ValueError("manifest instrument differs from its catalog binding")
+            ids.append(str(instrument.instrument_id))
+        if ids != sorted(set(ids)):
+            raise ValueError("manifest instruments must be unique and sorted by canonical ID")
+
+    @property
+    def identity(self) -> str:
+        """Hash the complete validated resolved job and its actual bindings.
+
+        Returns:
+            Lowercase SHA-256 digest, independent of JSON input formatting.
+        """
+        self.__post_init__()
+        return hashlib.sha256(self._codec.encode_json(self)).hexdigest()
+
+
+class Configuration(_ConfigurationRecord, frozen=True, kw_only=True):
+    """Parse versioned definitions and resolve only the explicitly selected data job."""
+
+    schema_version: Literal["1"] = "1"
+    universes: tuple[Universe, ...]
+    jobs: tuple[DataJob, ...]
+
+    def __post_init__(self) -> None:
+        """Validate definitions, unique names and every universe reference.
+
+        Raises:
+            ValueError: Definitions are malformed, unsupported, duplicate or unbound.
+        """
+        if self.schema_version != "1":
+            raise ValueError("unsupported configuration schema version")
+        for records, expected in ((self.universes, Universe), (self.jobs, DataJob)):
+            if type(records) is not tuple or not records:
+                raise ValueError("configuration definitions must be nonempty tuples")
+            names: set[str] = set()
+            for record in records:
+                if type(record) is not expected:
+                    raise ValueError("configuration contains an invalid definition type")
+                record.__post_init__()
+                if record.name in names:
+                    raise ValueError(f"duplicate configuration name: {record.name}")
+                names.add(record.name)
+        universe_names = {universe.name for universe in self.universes}
+        for job in self.jobs:
+            if job.universe not in universe_names:
+                raise ValueError(f"job {job.name}: missing universe binding {job.universe}")
+
+    def resolve(self, job_name: str, catalog: CatalogSnapshot) -> ResolvedManifest:
+        """Bind a named job to its complete interval and installed implementation bytes.
+
+        Args:
+            job_name: Explicit job selection; catalog membership never activates a job.
+            catalog: Authored catalog, preserved with its evidence and actual content identity.
+
+        Returns:
+            Immutable manifest with sorted actual instruments and all non-secret inputs.
+
+        Raises:
+            ValueError: A binding, capability or full-interval catalog coverage is invalid.
+            OSError: Installed implementation files cannot be read for identification.
+        """
+        self.__post_init__()
+        for job in self.jobs:
+            if job.name == job_name:
+                universe = next(item for item in self.universes if item.name == job.universe)
+                instruments = tuple(
+                    catalog.resolve(item, job.start, job.end)
+                    for item in sorted(universe.instrument_ids, key=str)
+                )
+                return ResolvedManifest(
+                    job=job,
+                    catalog=catalog,
+                    instruments=instruments,
+                    implementation_identity=self._implementation_identity(),
+                )
+        raise ValueError(f"unknown data-job binding: {job_name}")
+
+    @classmethod
+    def read(cls, path: Path) -> Configuration:
+        """Read one bounded JSON configuration through the existing strict exact codec.
+
+        Args:
+            path: Explicit local JSON configuration file.
+
+        Returns:
+            Validated definitions without activating any pipeline.
+
+        Raises:
+            ValueError: JSON, schema, definitions or the one-MiB input bound is invalid.
+            OSError: The file cannot be read.
+        """
+        with path.open("rb") as source:
+            payload = source.read(1_048_577)
+        if len(payload) > 1_048_576:
+            raise ValueError("configuration exceeds one MiB")
+        return cls._codec.decode_json(payload, cls)
+
+    @classmethod
+    def _implementation_identity(cls) -> str:
+        """Identify runtime source/assets and the installed codec dependency versions."""
+        root = Path(__file__).parent
+        inputs = [
+            (path.relative_to(root).as_posix(), hashlib.sha256(path.read_bytes()).hexdigest())
+            for path in sorted(root.rglob("*"))
+            if path.is_file() and (path.suffix in {".py", ".json"} or path.name == "py.typed")
+        ]
+        dependencies = tuple(
+            (name, version(name)) for name in ("alpha-research-lab", "msgspec", "pydantic")
+        )
+        return hashlib.sha256(cls._codec.encode_json((inputs, dependencies))).hexdigest()

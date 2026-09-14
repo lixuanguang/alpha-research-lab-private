@@ -3,8 +3,8 @@
 A monorepo growing toward institutional-grade multi-asset, multi-strategy research,
 production trading and monitoring. The implemented Python libraries cover
 instrument identity, venue calendars, financial units, exact serialization,
-event provenance, an authored reference catalog and bounded Tardis/Binance
-decoding. Acquisition, versioned datasets, simulation, accounting, risk
+event provenance, an authored reference catalog, bounded Tardis/Binance
+decoding and configured saved-fixture inspection. Acquisition, versioned datasets, simulation, accounting, risk
 enforcement, execution and deployment remain future work.
 One reproducible strategy baseline is the first delivery target; shared research,
 portfolio infrastructure and independently operated strategies are the destination.
@@ -16,7 +16,8 @@ unresolved. C0's decoder cleanup is implemented; no empirical result is claimed.
 
 The single [implementation roadmap](roadmap/README.md) groups every MR under its
 delivery milestone and includes pipeline ownership, acceptance and longer-term
-scope. Start with M0/MR 01–02 for configured fixture execution.
+scope. M0/MR 01–02 is implemented in the current review candidate; see the
+[M0 commands and validation](roadmap/m0-implementation.md). MR 03 is next.
 The [platform design](architecture/platform-design.md) preserves intended module
 boundaries, interfaces, runtime lanes and scaling choices. Technical correctness,
 reproducibility and trading safety accompany the features that need them. Team
@@ -53,6 +54,7 @@ record what ran. `make check` remains the complete check entry point.
 
 | Command | Use |
 | --- | --- |
+| `alpha-inspect-fixture --help` | Inspect one saved trade frame through an explicitly configured job |
 | `make check` | Complete source checks and isolated wheel smoke |
 | `make format`, `make format-check`, `make lint` | Python formatting and linting |
 | `make typecheck` | Strict typing across source, tools, tests and owned native stubs |

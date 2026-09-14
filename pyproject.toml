@@ -16,6 +16,9 @@ dependencies = [
     "QuantLib==1.43",
 ]
 
+[project.scripts]
+alpha-inspect-fixture = "alpha_research.pipelines.dataset:main"
+
 [dependency-groups]
 dev = [
     "alpha-research-governance==0.1.0",

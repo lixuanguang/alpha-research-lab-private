@@ -1,0 +1,77 @@
+{
+  "schema_version": "1",
+  "universes": [
+    {
+      "name": "btc",
+      "instrument_ids": [
+        "11111111-1111-4111-8111-111111111111"
+      ]
+    },
+    {
+      "name": "eth",
+      "instrument_ids": [
+        "22222222-2222-4222-8222-222222222222"
+      ]
+    },
+    {
+      "name": "both",
+      "instrument_ids": [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222"
+      ]
+    }
+  ],
+  "jobs": [
+    {
+      "name": "btc-fixture",
+      "universe": "btc",
+      "provider": "tardis",
+      "venue": "binance",
+      "product": "future",
+      "dataset": "raw",
+      "stream": "trade",
+      "mode": "fixture",
+      "pipeline": "dataset.inspect",
+      "partition": "utc-minute",
+      "capture_policy": "source-capture-v1",
+      "source_revision": "synthetic-frames-v1",
+      "rights_reference": "synthetic-local-fixtures-v1",
+      "start": "2024-06-01T00:00:00Z",
+      "end": "2024-06-01T01:00:00Z"
+    },
+    {
+      "name": "eth-fixture",
+      "universe": "eth",
+      "provider": "tardis",
+      "venue": "binance",
+      "product": "spot",
+      "dataset": "raw",
+      "stream": "trade",
+      "mode": "fixture",
+      "pipeline": "dataset.inspect",
+      "partition": "utc-minute",
+      "capture_policy": "source-capture-v1",
+      "source_revision": "synthetic-frames-v1",
+      "rights_reference": "synthetic-local-fixtures-v1",
+      "start": "2024-06-01T00:00:00Z",
+      "end": "2024-06-01T01:00:00Z"
+    },
+    {
+      "name": "both-fixture",
+      "universe": "both",
+      "provider": "tardis",
+      "venue": "binance",
+      "product": "spot",
+      "dataset": "raw",
+      "stream": "trade",
+      "mode": "fixture",
+      "pipeline": "dataset.inspect",
+      "partition": "utc-minute",
+      "capture_policy": "source-capture-v1",
+      "source_revision": "synthetic-frames-v1",
+      "rights_reference": "synthetic-local-fixtures-v1",
+      "start": "2024-06-01T00:00:00Z",
+      "end": "2024-06-01T01:00:00Z"
+    }
+  ]
+}
