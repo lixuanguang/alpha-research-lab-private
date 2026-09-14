@@ -13,7 +13,7 @@ The public package surface is
 construct `TardisDecoder` with a configured `BinancePayloadDecoder` and reuse
 `decode_line`. Both decoders are public library types; internal modules import
 their dependencies from defining modules. The
-[C0 migration](../roadmap/p1-implementation-roadmap.md#existing-abstractions-to-retain-or-retire)
+[C0 migration](../roadmap/README.md#existing-abstractions-to-retain-or-retire)
 removes the composition-only subclass and compatibility import paths. Event
 schemas and decoding semantics are unchanged.
 
@@ -61,7 +61,7 @@ The current catalog and decoders do not implement that activation workflow.
 Capability support is scoped by source, product, representation and mode. Existing
 depth decoding is not book reconstruction or live gap recovery; a different-family
 fixture is not admission to the spot ledger or executable trading. The
-[milestone support contract](../roadmap/capability-milestones.md#shared-configuration-and-support-contracts)
+[milestone support contract](../roadmap/README.md#shared-configuration-and-support-contracts)
 assigns ingestion, query/replay, simulation and operating proofs separately.
 
 ## Provenance, events, and wire values
@@ -165,5 +165,5 @@ The decoding boundary is covered by
 [`test_tardis_binance.py`](../../tests/unit/data/providers/tardis/test_tardis_binance.py),
 and [`test_binance_decoder.py`](../../tests/unit/data/venues/binance/test_binance_decoder.py).
 These tests cover the library boundary; the
-[P1 acceptance map](../roadmap/p1-implementation-roadmap.md#p1-acceptance-map)
+[P1 acceptance map](../roadmap/README.md#p1-acceptance-map)
 identifies the remaining end-to-end requirements.

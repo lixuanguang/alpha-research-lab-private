@@ -48,7 +48,7 @@ goldens remain behavioral checks, not provenance verification.
 ## First deployment dependency decision
 
 Status: planned R1 decision, 2026-09-14; the current release block is unchanged.
-Before the [first trusted deployment consumer](../roadmap/capability-milestones.md#r1-trusted-artifact-before-first-deployment)
+Before the [first trusted deployment consumer](../roadmap/README.md#r1-trusted-artifact-before-first-deployment)
 needs an artifact, choose the smallest enforceable path for its actual graph:
 
 - Admit the required QuantLib build/source provenance under an implemented,

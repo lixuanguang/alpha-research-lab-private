@@ -12,11 +12,11 @@ portfolio infrastructure and independently operated strategies are the destinati
 The [P1 experiment specification](research/p1-baseline.md) has merged: Tardis raw
 Binance BTCUSDT spot trades with a fixed one-minute positive-return baseline.
 Access, retention rights and historical eligibility/revision evidence remain
-unresolved. The [P1 implementation plan](roadmap/p1-implementation-roadmap.md)
-records C0's implemented decoder cleanup in this candidate and the planned
-pipeline work; no empirical result is claimed.
+unresolved. C0's decoder cleanup is implemented; no empirical result is claimed.
 
-The [platform roadmap](roadmap/README.md) sets phased deliverables and evidence.
+The single [implementation roadmap](roadmap/README.md) groups every MR under its
+delivery milestone and includes pipeline ownership, acceptance and longer-term
+scope. Start with M0/MR 01–02 for configured fixture execution.
 The [platform design](architecture/platform-design.md) preserves intended module
 boundaries, interfaces, runtime lanes and scaling choices. Technical correctness,
 reproducibility and trading safety accompany the features that need them. Team
@@ -86,8 +86,8 @@ the QuantLib release restriction.
 | [Platform design](architecture/platform-design.md) | Planned shared modules, runtime lanes, contracts, recovery and scaling decisions |
 | [Development workflow](governance/workflow.md) | Implementation, validation and founder activation rules |
 | [Operations runbook](governance/operations.md) | Security, monitoring, stop and recovery requirements for a future deployment |
-| [Platform roadmap](roadmap/README.md) | Phased multi-asset, multi-strategy research, production, monitoring and scaling work |
-| [P1 implementation plan](roadmap/p1-implementation-roadmap.md), [frozen experiment](research/p1-baseline.md) | Pipeline/library ownership, delivery dependencies, the selected case and acceptance requirements |
+| [Implementation roadmap](roadmap/README.md) | One delivery sequence: milestones, MR definitions, pipeline/library ownership, acceptance and longer-term scope |
+| [Frozen P1 experiment](research/p1-baseline.md) | Selected sample, strategy, timing, cost assumptions and experiment acceptance requirements |
 | [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |
 | [Engineering guide](coding_standards/README.md) | Enforced clarity and numerical engineering requirements |
 | [Instrument identity](architecture/instrument-identity.md), [venue calendars](architecture/venue-calendar.md), [financial units](architecture/financial-units.md) | Implemented domain contracts and golden datasets |

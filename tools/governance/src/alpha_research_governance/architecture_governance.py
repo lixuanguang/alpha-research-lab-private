@@ -22,16 +22,16 @@ class ArchitectureGovernanceError(ValueError):
 def _heading_anchors(text: str) -> set[str]:
     """Derive approximate anchors from Markdown heading text.
 
-    Case-fold and strip punctuation; repeated headings receive the ``-1``,
-    ``-2`` suffixes used by common Markdown renderers.
+    Case-fold and strip markup/punctuation. Preserve GitHub's one hyphen per
+    space and existing hyphens; repeated headings receive ``-1``, ``-2`` suffixes.
     """
     anchors: set[str] = set()
     counts: dict[str, int] = {}
     for match in _HEADING_PATTERN.finditer(text):
         heading = match.group("heading")
         without_markup = re.sub(r"[`*_~]", "", heading)
-        base = re.sub(r"[^\w\s-]", "", without_markup.casefold())
-        base = re.sub(r"[\s-]+", "-", base).strip("-")
+        base = re.sub(r"[^\w -]", "", without_markup.casefold())
+        base = base.replace(" ", "-")
         count = counts.get(base, 0)
         anchors.add(base if count == 0 else f"{base}-{count}")
         counts[base] = count + 1

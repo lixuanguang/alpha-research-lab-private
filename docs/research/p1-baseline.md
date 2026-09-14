@@ -4,7 +4,7 @@ Owner: repository founder. Status: MR 00 specification merged in
 [PR 14](https://github.com/lixuanguang/alpha-research-lab-private/pull/14);
 implementation and empirical acceptance remain planned. Decision date: 2026-09-11.
 Experiment ID: `p1-btcusdt-return-v1`. This page owns the frozen case required by
-[MR 00](../roadmap/p1-implementation-roadmap.md#a-fix-the-experiment-and-acquire-immutable-inputs).
+[MR 00](../roadmap/README.md#mr-00-frozen-experiment).
 
 Contract clarification, 2026-09-14: exact rational representation and stable
 source ordering below resolve implementation gaps identified in review. The
@@ -169,7 +169,7 @@ resizing the intent or claiming permitted-source acceptance.
 
 ## Independent hand ledger
 
-Retain the roadmap's [independent example](../roadmap/p1-implementation-roadmap.md#independent-accounting-example)
+Retain the roadmap's [independent example](../roadmap/README.md#independent-accounting-example)
 unchanged: arbitrary instrument/currency with quantum `0.01`, initial cash
 `1000.00`, quantity `2`, fee rate `0.001`, reference prices `100.00`/`110.00`,
 and adverse price cost `0.50` per unit. This separate oracle uses **half-up**
@@ -220,11 +220,11 @@ capacity claim, deployment or capital authorization. Future implementation must
 retain the frozen values and disclose poor results rather than tune to pass.
 
 “Frozen P1 baseline accepted” means every baseline requirement in the
-[P1 acceptance map](../roadmap/p1-implementation-roadmap.md#p1-acceptance-map)
+[P1 acceptance map](../roadmap/README.md#p1-acceptance-map)
 passes for the assembled candidate, including MR 49's permitted-source and
 fresh-process proof. “M5 accepted” additionally requires the reusable research,
 EDA/replay and instance-isolation evidence assigned in that map and the
-[milestone plan](../roadmap/capability-milestones.md#m5-strategy-simulation-and-research-controls).
+[milestone plan](../roadmap/README.md#m5-strategy-simulation-and-research-controls).
 An early synthetic slice, MR 49 alone without its prerequisites, or an installed
 development wheel establishes neither outcome. This scope clarification moves
 the broader workflow requirements to M5; it does not retire them or mark them
