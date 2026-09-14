@@ -1,16 +1,20 @@
-# Runtime OOP migration review and implementation handoff
+# Runtime OOP migration review and implementation record
 
 Owner: repository founder. Reviewed: 2026-09-14.
-Status: runtime batches 1–4 complete and locally verified on 2026-09-14.
+Status: runtime batches 1–4 complete, locally verified and merged to `main` on
+2026-09-14 after all three required hosted checks passed in
+[PR #20](https://github.com/lixuanguang/alpha-research-lab-private/pull/20).
 Repository-wide tooling/test migration and automated enforcement remain pending.
 Reviewed source: `7f4893a78d9866fff634ad562eb459112a42d8ab`, with a clean working
 tree at review time. The inventory and review evidence below describe that
 baseline; the [implementation record](#runtime-implementation-and-validation)
-describes the subsequent uncommitted runtime changes and actual verification.
+describes the delivered runtime changes and actual verification. The
+[merge record](#commit-merge-and-hosted-validation) identifies the committed and
+hosted-tested revisions.
 
-The runtime contains reusable behavior implemented as free functions even though
-the adopted engineering policy assigns that behavior to cohesive classes. Most
-small classes represent useful domain types, schemas, or adapter contracts.
+The reviewed runtime contained reusable behavior implemented as free functions
+even though the adopted engineering policy assigns that behavior to cohesive
+classes. Most small classes represent useful domain types, schemas, or adapter contracts.
 Consolidate duplicated implementation where contracts coincide while preserving
 those distinctions.
 
@@ -38,6 +42,9 @@ separate work in the main roadmap. Completing this runtime scope cannot mark the
 whole repository OOP migration complete.
 
 ## Findings
+
+These are findings against the reviewed baseline. F1–F3 were resolved by the
+runtime implementation below; their original rationale and scope are retained.
 
 ### F1 — P2: reusable behavior lacks class ownership
 
@@ -94,9 +101,9 @@ C01 and C02 retain trusted, unchecked framework copy operations. Those differenc
 are established contracts, not duplication to erase.
 
 All three findings are high-confidence architecture/standards findings in the
-reliability/operability dimension. Their disposition is advisory for the current
+reliability/operability dimension. At review time they were advisory for the
 runtime and unresolved for the claimed OOP target; no P0/P1 behavioral defect was
-established by this review.
+established by the review.
 
 ## Complete function inventory and ownership direction
 
@@ -262,9 +269,10 @@ the runtime batches are complete.
 
 ## Runtime implementation and validation
 
-Implemented on 2026-09-14 in the working tree based on the reviewed commit above.
-No commit or push was performed. The pre-existing main-roadmap edit and this
-untracked handoff were preserved and extended. The installed skill's suggested
+Implemented and locally verified on 2026-09-14 in a working tree based on the
+reviewed commit above. Local validation preceded the commit and merge recorded
+below. The pre-existing main-roadmap edit and then-untracked handoff were
+preserved and extended. The installed skill's suggested
 `docs/coding_standards/documentation.md` does not exist at this revision; the
 engineering guide's Documentation section is the owning source rule.
 
@@ -314,14 +322,15 @@ update mapping fixed it. A final ownership review removed the now-redundant
 
 Environment: CPython 3.14.7, macOS arm64, frozen uv environment. All 28 installed
 runtime inputs (26 Python files, currency JSON and `py.typed`) matched the checkout
-byte-for-byte. For the final uncommitted state, SHA-256 over sorted runtime
-relative paths and contents, each separated by NUL, is
+byte-for-byte. For the final locally tested runtime state, SHA-256 over sorted
+runtime relative paths and contents, each separated by NUL, is
 `b6f31706c9c12a2c8f9b74f61c19875ba3b2241197fa7bc49b388147f1cc947c`.
 The unchanged `uv.lock` SHA-256 is
 `1159199bc83be7a75b0ccd2df3a401f3239eda11e37892f5e32d3a88ecf5fc6d`.
 The notebook records that same runtime identity and the source/input identities
-of its executed cells. The recorded source is this working tree, not an assertion
-that the original reviewed commit contains these changes.
+of its executed cells. These local checks preceded the implementation commit;
+commit `97dcd203ce30a6bcf0c635ff6f11f164344661c5` records the same runtime bytes.
+The original reviewed commit does not contain these changes.
 
 | Command or inspection | Actual final result |
 | --- | --- |
@@ -348,11 +357,45 @@ goldens and explicit error-order assertions.
 
 Runtime remediation is complete. Remaining work is the unrelated development
 tooling/test/snippet migration and repository-wide OOP enforcement in the main
-roadmap. Hosted Linux/macOS merged-result gates still apply before merge; they
-were not run from this uncommitted task. The three diagnostic performance tests
-were not requested by the correctness lane, and no latency claim is made.
+roadmap. The hosted Linux/macOS gates passed as recorded below. The three
+diagnostic performance tests were not requested by the correctness lane, and no
+latency claim is made.
 QuantLib's existing development-only admission and release block remain in force.
 No empirical research, live-source, deployment or release qualification is claimed.
+
+### Commit, merge and hosted validation
+
+The runtime implementation was committed and pushed on
+`codex/runtime-oop-migration` as
+[`97dcd203ce30a6bcf0c635ff6f11f164344661c5`](https://github.com/lixuanguang/alpha-research-lab-private/commit/97dcd203ce30a6bcf0c635ff6f11f164344661c5).
+[PR #20](https://github.com/lixuanguang/alpha-research-lab-private/pull/20) merged it
+into `main` as
+[`729257dbe2cefadf24470d1d125a6468b4b3d969`](https://github.com/lixuanguang/alpha-research-lab-private/commit/729257dbe2cefadf24470d1d125a6468b4b3d969)
+after the required checks succeeded.
+
+[PR CI run 34832840327](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/34832840327)
+passed all three jobs: Source validation (43 seconds), macOS wheel smoke
+(14 seconds), and Authoritative merged-result full lane (20 seconds), with a
+total duration of 1 minute 30 seconds. GitHub's tested PR merge result was
+`f052de2158b27f61eca525572c5ae17c320858d0`, whose parents were the reviewed base
+`7f4893a78d9866fff634ad562eb459112a42d8ab` and implementation head
+`97dcd203ce30a6bcf0c635ff6f11f164344661c5`. The implementation head, tested PR
+merge result and actual `main` merge all have Git tree
+`9d0a5647e6f310ac3189808a76af09e375f0da86`.
+
+The subsequent
+[`main` push CI run 34833002062](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/34833002062)
+also passed on `729257dbe2cefadf24470d1d125a6468b4b3d969`: Source validation
+(36 seconds), macOS wheel smoke (17 seconds), and Authoritative merged-result
+full lane (16 seconds), with a total duration of 1 minute 22 seconds.
+
+This post-merge README update passed `uv run --frozen alpha-governance-architecture`
+(17 documents) and `git diff --check`.
+
+Each workflow reported three checkout-action Node.js deprecation warnings, one
+per job; no job failed. Updating that existing workflow dependency is separate
+maintenance. Runtime completion does not close the repository-wide tooling,
+test and snippet migration or OOP enforcement follow-up.
 
 ## Prompt to start the runtime fixes
 
