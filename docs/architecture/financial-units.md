@@ -89,6 +89,44 @@ Negative values obey the same mathematical rules. FX division is exact until
 its single requested target-quantum rounding; no intermediate inverse quote is
 rounded. No netting, spread, fee or cashflow convention is inferred.
 
+## Planned research and accounting arithmetic
+
+Decision date: 2026-09-14. This resolves the P1 consumer contract before
+observations and ledger implementation; it does not add APIs or widen C03's
+implemented decimal grid. The [P1 plan](../roadmap/p1-implementation-roadmap.md#c-make-decisions-and-reconcile-exact-economics)
+owns delivery with the first consuming operations.
+
+| Quantity | Representation and boundary |
+| --- | --- |
+| Prices, quantities, cash postings, notional and marks | Existing exact C03 values. Supported products must fit its grid and magnitude or fail. Cash changes retain exact notional; P1 rounds only each fee once to the quote quantum with half-even. No automatic rounding of cash or valuation to a display quantum. |
+| Exact returns and proportional attribution | Reduced rational values computed from exact Decimal inputs using `Fraction`, never a prior Decimal division or float conversion. Returns are dimensionless; cost basis and realized/unrealized P&L retain their currency, with basis bound to the position's instrument. These are attribution values, not rounded cash postings or C03 `Money` values. |
+| Analytical/model outputs | Each consumer declares representation, units and justified tolerance. Approximate presentation or model output cannot replace exact decision, posting or reconciliation values. |
+
+For a sale of quantity `q` from holding `Q` with rational basis `B`, release
+`B * q / Q` exactly and retain `B - B * q / Q`. Zero holdings have zero basis;
+a full sale releases all remaining basis. Fees remain separate immediately
+recognized costs. Realized plus unrealized attribution minus fees equals the
+exact NAV change, with no tolerance on this P1 identity. Any conversion back to
+C03 must prove grid/magnitude representability or reject it; ambient Decimal
+precision never chooses an allocation or realized P&L.
+
+Planned records serialize a rational as a canonical numerator/denominator pair
+of base-10 integer strings, with a positive denominator, coprime terms and zero
+encoded as `0/1`. Preserve dimensions and schema version in the containing
+record. Constructors/codecs reject malformed, noncanonical or zero-denominator
+values. Decimal displays are explicitly derived, with named precision/rounding,
+and excluded from authoritative reconciliation and decision inputs.
+
+Decisive consumer cases include the return from `100.03` to `100.04`, exactly
+`1/10003`, and buys of one unit at `100` and two at `101`, followed by a one-unit
+sale releasing basis `302/3` and retaining `604/3`. Round-trip and resumed state
+must preserve these fractions under changed Decimal contexts. For fees, a true
+tie of `0.205` at quantum `0.01` yields `0.21` under the independent oracle's
+half-up and `0.20` under P1's half-even. Existing oracle amounts remain unchanged;
+MR 38 must add the explicit half-up operation needed by that oracle, since C03
+does not currently expose it. These are planned consumer tests, not new claims
+about the existing foundation test suite.
+
 ## Convention adapter
 
 `QuantLibConventions.year_fraction` requires context, start, end and one of:

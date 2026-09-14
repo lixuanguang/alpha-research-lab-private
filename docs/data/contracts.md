@@ -132,6 +132,31 @@ boundaries must add their own contracts and evidence while preserving these
 event tags, exact numeric values, source text, provenance, and capture-proxy
 semantics.
 
+### Control scope through queries
+
+MR 09 retains the source, request/input binding and, where applicable,
+subscription/capture-session identity that determines a control event's affected
+scope. Carry that relationship in the occurrence envelope, input manifest or
+query-result quality metadata; the existing `Disconnect` type stays unchanged.
+A null instrument or the `global` stream tag neither identifies the affected
+instruments nor makes the disconnect apply repository-wide.
+
+MRs 17 and 19 preserve all control/quality information applicable to the selected
+input bindings through instrument/time filtering and column projection. Return
+the applicable records or equivalent scoped, time-aware quality metadata with
+the market rows, including known interval state needed at the query boundary.
+Retain effective knowledge, affected interval, reason and source lineage even
+when those fields are absent from the requested market columns. Unknown required
+scope cannot silently become valid coverage. Replay admits this information at
+its own availability time under the [shared timing contract](point-in-time-semantics.md#planned-economic-ordering-and-event-stepping).
+
+The decisive planned fixture queries one supported instrument with its trades
+and an applicable instrument-less disconnect: query/replay must invalidate the
+affected observation or cancel the pending intent. A disconnect exclusive to an
+unrelated input binding/session must not invalidate that instrument. Exercise
+both cases with column projection; matching only non-null instrument IDs is
+insufficient.
+
 ## Focused coverage
 
 The decoding boundary is covered by

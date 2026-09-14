@@ -34,6 +34,19 @@ configuration/model/data references, operating limits, rollback artifact and
 state-compatibility result. Activation remains a separate explicit decision;
 building or verifying an artifact never grants trading authority.
 
+## Delivery dependency
+
+The [R1 package](../roadmap/capability-milestones.md#r1-trusted-artifact-before-first-deployment)
+implements this contract for the first concrete deployment target. It must
+precede an actually deployed M3 collector and deployed M6 paper/shadow acceptance;
+it does not depend on M6 or an executable venue adapter. MR 59 separately binds
+trading authority to the already verified release. Local development installation
+can proceed within the current allowance and does not close this release gate.
+
+R1 first resolves the [deployment dependency graph](dependency-admission.md#first-deployment-dependency-decision).
+Clearing QuantLib alone does not supply a trusted consumer; implementing a
+consumer alone does not clear dependency admission. Both remain required.
+
 ## Commands
 
 ```sh

@@ -324,8 +324,10 @@ consumers are introduced; this does not require a blanket foundation rewrite.
 `msgspec` annotations are not checked by direct constructors. Its records MUST
 therefore retain explicit constructor and custom invariant checks so invalid,
 malformed, non-finite, wrong-unit or unsafely modified values fail. Records stay
-immutable, and serialized numeric values use exact Decimal strings or
-scale-documented integer units; binary floats MUST NOT replace exact arithmetic.
+immutable, and serialized numeric values use exact Decimal strings,
+scale-documented integer units, or canonical integer numerator/denominator pairs
+for exact rational values under the [financial contract](../architecture/financial-units.md#planned-research-and-accounting-arithmetic);
+binary floats MUST NOT replace exact arithmetic.
 Preserve the established strict immutable contracts for instrument identity,
 venue calendars and financial units, including their distinct validation and
 copy behavior. Prove any measured allocation or serialization choice with
@@ -382,7 +384,10 @@ decisions must enforce `ts_knowledge <= decision_time`.
 
 Use `Decimal` constructed from strings or integer minor units for exact monetary
 arithmetic, according to the domain contract. Do not use binary floating point
-for currency or identifiers. Numerical comparisons use a tolerance justified by
+for currency or identifiers. Exact ratios and proportional attribution use
+`Fraction` where division is not closed over the declared decimal grid; retain
+dimensions and explicit serialization. Exact financial reconciliation uses no
+tolerance. Approximate analytical comparisons use a tolerance justified by
 the scale and algorithm. Handle empty input, zero denominators,
 overflow/underflow, non-finite values, shape and dtype mismatches, duplicate
 keys, missing data, and unstable ordering deliberately.

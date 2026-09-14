@@ -6,6 +6,13 @@ implementation and empirical acceptance remain planned. Decision date: 2026-09-1
 Experiment ID: `p1-btcusdt-return-v1`. This page owns the frozen case required by
 [MR 00](../roadmap/p1-implementation-roadmap.md#a-fix-the-experiment-and-acquire-immutable-inputs).
 
+Contract clarification, 2026-09-14: exact rational representation and stable
+source ordering below resolve implementation gaps identified in review. The
+digest-based economic tie-break is superseded before any empirical run; sample,
+strategy, cash, costs and timing phases remain frozen. Retain this clarification
+and the ordering/arithmetic policy versions with future run identities; MR 00's
+historical evidence is not evidence of these planned consumers.
+
 The founder explicitly selected Tardis raw Binance spot trades, BTCUSDT only,
 2024-06-01 00:00–01:00 UTC, and a fixed one-minute positive-return long-or-flat
 baseline, answering: “Select this bounded case; access and evidence unresolved”.
@@ -61,8 +68,12 @@ Effective knowledge is no earlier than original capture and any correction's
 availability. Unknown revision history cannot establish a historical causal
 claim. Do not use today's corrected projection for past decisions.
 
-Order eligible records by effective knowledge, partition start, raw digest and
-line position, with canonical occurrence identity as the final tie-breaker.
+Order eligible records by effective knowledge, fixed source/stream precedence,
+partition start and source-local line position under the
+[shared ordering contract](../data/point-in-time-semantics.md#planned-economic-ordering-and-event-stepping).
+The selected case has one source/stream. Reconcile raw versions before ordering;
+unresolved competing versions fail admission. Raw digests and digest-derived
+occurrence identities retain provenance and do not break economic ties.
 Filter by knowledge before choosing a revision. At equal simulation times,
 admit source events in that order, expire old intents, apply any still-eligible
 pending fill, evaluate a scheduled decision, then mark NAV. Half-open intent
@@ -88,7 +99,7 @@ empirical acceptance. No-trade does not waive required dataset quality.
 | Completed observation | For a close `t`, use source event time in `[t-60s, t)` and effective knowledge `<= t`. Select the latest event time, breaking ties with the total order above. Freeze that observation at its own close; later arrival/correction cannot revise it. |
 | Age / lookback | Require a positive price and event age `0 < t - ts_event <= 30s` at each close. The return needs two adjacent valid completed observations, so its information window spans 120 seconds and its return lookback is 60 seconds. |
 | Hypothesis | The preceding completed one-minute price increase may continue over the next decision interval. This is a transparent internal engineering hypothesis, not a published replication or an established alpha claim. |
-| Rule | At decision `t`, compare `P_t` with the frozen `P_(t-60s)`: target `0.00100 BTC` if greater, otherwise zero. A reported return is the exact ratio `P_t / P_(t-60s) - 1`; sign selection needs no approximate division. |
+| Rule | At decision `t`, compare `P_t` with the frozen `P_(t-60s)`: target `0.00100 BTC` if greater, otherwise zero. A reported return is the exact reduced rational `P_t / P_(t-60s) - 1`, serialized as integer numerator/denominator strings; sign selection needs no division. |
 | Invalid input | Warm-up, zero/negative price, missing, stale or known-gapped observations produce no new intent with an explicit reason; holdings remain unchanged. They are not a zero-return signal. |
 | Position / capital | Initial cash `1000.00000000 USDT`, zero BTC; target and maximum holding `0.00100 BTC`. Zero and negative signals target flat. No-trade always targets zero through the same costs/accounting. |
 | Quantity / price grids | `QuantityKind.BASE_UNIT`; lot `0.00001 BTC`, minimum positive quantity one lot, and tick `0.01 USDT/BTC`. Reject off-grid targets and nonpositive/off-tick reference prices; do not silently resize. No additional venue minimum-notional rule is claimed. |
@@ -118,8 +129,12 @@ not a Binance fee schedule or calibrated execution cost.
 Cash decreases by buy notional plus fee; it increases by sell notional minus
 fee. Cost basis uses effective purchase notional excluding fees. Recognize all
 fees immediately as separate costs; proportionally release basis on a partial
-sale using exact arithmetic. Realized effective-price P&L plus unrealized
-effective-price P&L minus fees reconciles to NAV change. Reference-price gross
+sale using rational internal attribution under the
+[arithmetic contract](../architecture/financial-units.md#planned-research-and-accounting-arithmetic).
+Retain basis and realized/unrealized P&L as currency-bearing rational values;
+cash, quantities, notional and marks remain exact C03 values. Do not force a
+nonterminating basis allocation onto the C03 grid. Realized effective-price P&L
+plus unrealized effective-price P&L minus fees reconciles to NAV change. Reference-price gross
 P&L for the same accepted quantities minus adverse slippage and fees must give
 the same net result; do not subtract slippage twice. Financing is inapplicable
 for this cash-funded unlevered spot case. Cash earns no interest.
@@ -133,6 +148,25 @@ report still carries dataset coverage failures. The decision horizon is one
 minute; actual holding duration is determined by targets, fills and this terminal
 marking rule, not capped by forced one-minute liquidation.
 
+### Intent outcomes and run completion
+
+Expected risk rejections, including insufficient cash or overselling, produce
+no accepted fill and leave cash/holdings unchanged. Record the intent and reason
+in the trace/report and continue under the pending-intent policy. Such a
+rejection does not by itself invalidate an otherwise complete, reconciled run.
+An applied disallowed fill, broken invariant, incompatible required input or
+incomplete required valuation prevents successful completion. A rejection-count
+or category threshold can affect acceptance only through an explicit predeclared
+evaluation rule; P1 adds no such threshold here.
+
+Keep intent rejection, computational/accounting completion and frozen-baseline
+acceptance separate. Baseline acceptance additionally requires the declared
+source, causality, coverage and reproduction evidence. A synthetic price-rise
+case that makes a proposed fill unaffordable must retain the rejection, zero
+fills and unchanged balances in a completed result when all other required
+conditions pass. This tests correct enforcement without changing the strategy,
+resizing the intent or claiming permitted-source acceptance.
+
 ## Independent hand ledger
 
 Retain the roadmap's [independent example](../roadmap/p1-implementation-roadmap.md#independent-accounting-example)
@@ -142,6 +176,9 @@ and adverse price cost `0.50` per unit. This separate oracle uses **half-up**
 fees; it is not the selected BTC quantity, USDT quantum or half-even cost policy.
 C03 does not currently expose half-up rounding. The notebook calculated oracle
 fees explicitly with Decimal; future MR 38 must preserve this distinction.
+Add the distinguishing tie `0.205` at quantum `0.01`: half-up is `0.21`,
+half-even is `0.20`. The existing fees `0.201` and `0.219` do not distinguish
+those modes; preserve the existing hand ledger alongside the new tie case.
 
 | Event | Cash change | Cash | Holding | Reconciliation |
 | --- | --- | --- | --- | --- |
@@ -160,6 +197,9 @@ MR 00 completes the explicit scope, access-status record and synthetic foundatio
 exercise. It does not complete data feasibility or P1. MR 05 owns actual endpoint,
 framing, timestamp and permitted-retention feasibility; MRs 11–12 own historical
 eligibility; MRs 10, 17 own revision availability; MR 49 owns saved-source acceptance.
+MR 05 also investigates whether historical eligibility and revision evidence can
+be obtained for this sample, recording missing evidence early; it does not
+implement those later selectors or infer knowability from a successful download.
 Absent evidence leaves the empirical causal baseline incomplete even if the
 synthetic engineering path works. Do not substitute another source to close it.
 
@@ -178,3 +218,14 @@ passes that engineering criterion if all causal, coverage and reproduction
 requirements pass. There is no profitability threshold, strategy promotion,
 capacity claim, deployment or capital authorization. Future implementation must
 retain the frozen values and disclose poor results rather than tune to pass.
+
+“Frozen P1 baseline accepted” means every baseline requirement in the
+[P1 acceptance map](../roadmap/p1-implementation-roadmap.md#p1-acceptance-map)
+passes for the assembled candidate, including MR 49's permitted-source and
+fresh-process proof. “M5 accepted” additionally requires the reusable research,
+EDA/replay and instance-isolation evidence assigned in that map and the
+[milestone plan](../roadmap/capability-milestones.md#m5-strategy-simulation-and-research-controls).
+An early synthetic slice, MR 49 alone without its prerequisites, or an installed
+development wheel establishes neither outcome. This scope clarification moves
+the broader workflow requirements to M5; it does not retire them or mark them
+complete.

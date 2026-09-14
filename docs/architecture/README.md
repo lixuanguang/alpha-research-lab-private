@@ -21,9 +21,10 @@ and replay consumers remain planned; the established C01, C02 and C03 foundation
 contracts remain preserved.
 
 The [platform roadmap](../roadmap/README.md) selects the next work. The retired
-blueprint and package catalog remain in Git history. The first planned delivery
-is one reproducible, costed strategy baseline that can later use the same
-decision logic in replay and paper operation.
+blueprint and package catalog remain in Git history. MR 01–02 first deliver a
+configured installed fixture consumer, followed by versioned data and reference
+query/replay. E1 then starts the economic path toward the reproducible costed
+baseline; the same strategy logic later serves paper operation.
 
 The full monorepo is one source tree with multiple deployables and release
 cadences. Shared economic semantics are canonical; strategy variants, asset
@@ -32,18 +33,24 @@ measured workload justifies a shared boundary.
 
 ## Current boundary
 
-The first end-to-end delivery sequence is:
+The planned research-to-operation path is:
 
 ```text
-future versioned data + explicit availability
-    -> reproducible baseline with realistic costs and accounting
-    -> shared strategy logic in replay and paper
-    -> verified artifact and explicit activation
-    -> reconciliation, monitoring, stop, and recovery
+configured fixture -> versioned data + explicit availability
+    -> reference query/replay + E1 synthetic economics
+    -> reproducible baseline with declared cost assumptions and exact accounting
+    -> reusable research + live inputs + R1 verified artifact
+    -> paper/shadow with risk, reconciliation, monitoring, stop and recovery
+    -> explicit bounded live activation using those qualified controls
 ```
 
+The [milestone dependency graph](../roadmap/capability-milestones.md#completion-and-dependency-model)
+owns detailed order. R1 precedes any actual deployment, including a collector
+pulled forward for a concrete data need. Operational controls accompany their
+runtime and must pass before activation.
+
 The domain, provenance, reference and decoding foundations exist today; the
-versioned dataset at the left does not. Keep research code dependent on those
+configured workflow and versioned dataset above do not. Keep research code dependent on those
 contracts, and add a data or
 broker adapter only when an actual workload needs it. Do not introduce a service
 mesh, event bus, schema platform, or distributed build system without a measured
