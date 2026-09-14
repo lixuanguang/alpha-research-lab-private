@@ -4,7 +4,8 @@ Owner: repository founder. Status: implemented for the bounded foundation
 candidate. This package owns immutable canonical event records, strict Binance
 Tardis line decoding, source provenance binding, and the authored reference
 catalog boundary. The M0 dataset pipeline now consumes these libraries for
-configured saved-fixture inspection. Acquisition, raw-object retention, local-book reconstruction,
+configured saved-fixture inspection. MR 03 adds saved raw-object description and
+verification. Acquisition, durable raw-object retention, local-book reconstruction,
 replay, and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -34,6 +35,7 @@ changing serialized events. Internal code imports from defining modules:
 | --- | --- |
 | [`events.py`](events.py) | Frozen `TaggedEvent` and `MarketEventRecord` templates, shared field validation, and `Disconnect` |
 | [`decoders.py`](decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol for source-independent payload decoding |
+| [`raw_objects.py`](raw_objects.py) | Immutable `RawObject` descriptors and bounded verification of exact saved bytes against an expected request |
 | [`providers/tardis/decoder.py`](providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, and blank-line disconnect handling; raw exchange JSON is passed to a payload decoder |
 | [`venues/binance/events.py`](venues/binance/events.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade`; shared validation runs before the Binance symbol rule and concrete validators add event invariants |
 | [`venues/binance/payloads.py`](venues/binance/payloads.py) | `BinancePayloadDecoder`, source envelope/payload schemas, cached source decoders, and payload-to-event mapping |
@@ -202,7 +204,41 @@ retains no mutable state; fix the reported input and rerun.
 
 Config, catalog and frame reads are each capped at one MiB. Inspection accepts
 one nonblank UTF-8 trade frame, with an optional line ending. Blank disconnects,
-multiple frames, compression, acquisition, durable raw verification/publication,
-resume and dataset-level validation are later consumers. A fixture digest does
-not replace MR 03's raw-object descriptor/verifier. No transport or credentials
+multiple frames, compression and acquisition remain unsupported by this command.
+Raw-object verification is the separate MR 03 library below; durable publication,
+resume and dataset-level validation remain planned. No transport or credentials
 are read. Existing decoder/provenance/event wire contracts remain unchanged.
+
+## Saved raw-object verification
+
+[`RawObject`](raw_objects.py) describes one retained binary file with SHA-256,
+nonnegative byte size, `SourceRequest.identity` (including the instrument and
+minute partition), an opaque non-secret retrieval reference and original local
+receipt/ingestion times. Both times must be timezone-aware UTC and ingestion
+cannot precede receipt. Verification never substitutes the current time.
+
+Use `RawObject.from_file(path, request=request, retrieval_reference=reference,
+ts_received=received, ts_ingested=ingested)` with explicit saved-file provenance,
+then `descriptor.verify(path, request=expected_request)` to reopen and verify it.
+Successful verification returns the same immutable descriptor. The existing
+`DomainCodec.encode_json` / `decode_json(..., RawObject)` provides strict version-1
+serialization, rejecting unknown fields and invalid types, values or clocks.
+
+The factory and verifier hash/count one binary stream in one-MiB chunks, including
+compression headers/trailers and line endings. No decompression or decoding occurs.
+The verifier revalidates metadata and checks the independently expected request
+before file I/O. Changed bytes fail SHA-256; truncation or append fails byte size;
+another instrument, partition or source policy fails request identity. These are
+`ValueError` diagnostics; file access/read failures propagate as `OSError`.
+After a failed check the descriptor remains reusable with the original bytes.
+
+The caller must supply trusted metadata and exclude concurrent writers during
+description/verification. This checks observed bytes, not later reads, provider
+authenticity or semantic membership of the payload in the assigned request.
+Describing already incomplete bytes cannot prove transport completeness. Empty
+files are representable without claiming a quiet interval. Atomic publication and
+immutable storage belong to MR 04; transport validation belongs to MR 05.
+
+The [MR 03 acceptance record](../../../docs/roadmap/mr-03-implementation.md) records
+focused tests, outside-checkout wheel verification and the foundation notebook's
+section 11 (NB 03), including a changed gzip header with identical decoded content.
