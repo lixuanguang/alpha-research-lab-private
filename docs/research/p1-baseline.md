@@ -20,18 +20,18 @@ MR 00. Public provider documentation was read to specify the access method.
 | --- | --- |
 | Provider / access method | Tardis HTTP raw replay, exchange `binance`, `/v1/data-feeds/binance`; filter channel `trade`, symbol `btcusdt`; source ID `tardis.binance.spot`. No normalized CSV substitution. |
 | Raw sample | Half-open capture interval `[2024-06-01T00:00:00Z, 2024-06-01T01:00:00Z)`. Exactly 60 one-minute partitions, fixed `from` at sample start and offsets 0–59, `sliceSize=1`, gzip. Preserve the exact compressed bytes and blank lines. |
-| Source access | Unresolved and unprobed. No account entitlement, credential reference or authorized data-access record has been supplied. MR 04 must establish the permitted smallest probe before accessing data. |
+| Source access | Unresolved and unprobed. No account entitlement, credential reference or authorized data-access record has been supplied. MR 05 must establish the permitted smallest probe before accessing data. |
 | Use and retention | Intended use is private offline engineering/research and reproduction from retained raw/canonical bytes. Permission, retention duration, redistribution restrictions and a protected retrievable location are unresolved. No permission or indefinite retention is inferred; no data purchase or source access is authorized by this selection. |
 | Rights evidence | None supplied. Before acquisition, retain a reference to the applicable dated terms/entitlement covering this interval, intended use and retention. Later request records bind that reference; an unresolved marker cannot pass source-access admission. |
 | Universe | One cash-funded, unlevered Binance spot instrument: BTCUSDT, canonical ID `11111111-1111-4111-8111-111111111111`. ETHUSDT remains supported by the foundations but is outside this case. No cross-sectional or survivor ranking. |
-| Eligibility evidence | Unresolved. The authored catalog was recorded in 2026 and cannot prove what was known in 2024. MR 09–10 must preserve separate evidence-backed valid/knowledge intervals; unknown eligibility cannot become eligible. Synthetic eligibility may exercise software only. |
+| Eligibility evidence | Unresolved. The authored catalog was recorded in 2026 and cannot prove what was known in 2024. MRs 11–12 must preserve separate evidence-backed valid/knowledge intervals; unknown eligibility cannot become eligible. Synthetic eligibility may exercise software only. |
 | Reference inputs | Reuse the complete [authored catalog](../../configs/reference/binance-spot.json), schema `1`, recorded at `2026-09-07T18:09:25Z`, with coverage `[2024-06-01, 2024-06-02)` UTC. Do not backdate or relabel its `research_assumption` basis. |
 
 Tardis documents timestamp-prefixed exchange-native JSON, blank disconnect
 markers, capture-based minute partitions, lowercase Binance symbols and gzip.
 Its HTTP documentation also describes first-of-month access without an API key;
 that availability statement does not resolve this experiment's rights or
-authorize a probe. MR 04 must recheck the endpoint and framing against actual
+authorize a probe. MR 05 must recheck the endpoint and framing against actual
 permitted bytes. [Tardis HTTP API reference](https://docs.tardis.dev/api/http-api-reference.md),
 [Binance capture details](https://docs.tardis.dev/historical-data-details/binance.md)
 (read 2026-09-11).
@@ -46,7 +46,7 @@ rules below are explicit experiment assumptions; the catalog has no lot field.
 Preserve the [existing clocks](../data/point-in-time-semantics.md): Binance `T`
 is trade event time; the original Tardis capture text and its conservative
 microsecond ceiling supply source receipt and `source_capture` knowledge.
-The existing decoder interprets Binance `T`/`E` as Unix milliseconds; MR 04 must
+The existing decoder interprets Binance `T`/`E` as Unix milliseconds; MR 05 must
 verify that the selected historical payloads match before admission. Local
 receipt and durable ingestion occur at archive acquisition. Persist their
 original values for rebuild; new attempt times do not replace them.
@@ -141,7 +141,7 @@ unchanged: arbitrary instrument/currency with quantum `0.01`, initial cash
 and adverse price cost `0.50` per unit. This separate oracle uses **half-up**
 fees; it is not the selected BTC quantity, USDT quantum or half-even cost policy.
 C03 does not currently expose half-up rounding. The notebook calculated oracle
-fees explicitly with Decimal; future MR 20 must preserve this distinction.
+fees explicitly with Decimal; future MR 38 must preserve this distinction.
 
 | Event | Cash change | Cash | Holding | Reconciliation |
 | --- | --- | --- | --- | --- |
@@ -157,9 +157,9 @@ ledger's fill identity, duplicate rejection, state transitions or cost engine.
 ## Acceptance and research discipline
 
 MR 00 completes the explicit scope, access-status record and synthetic foundation
-exercise. It does not complete data feasibility or P1. MR 04 owns actual endpoint,
-framing, timestamp and permitted-retention feasibility; MR 09–10 own historical
-eligibility; MR 08/14 own revision availability; MR 28 owns saved-source acceptance.
+exercise. It does not complete data feasibility or P1. MR 05 owns actual endpoint,
+framing, timestamp and permitted-retention feasibility; MRs 11–12 own historical
+eligibility; MRs 10, 17 own revision availability; MR 49 owns saved-source acceptance.
 Absent evidence leaves the empirical causal baseline incomplete even if the
 synthetic engineering path works. Do not substitute another source to close it.
 
@@ -169,7 +169,7 @@ inapplicable. No training/validation/holdout intervals are designated or consume
 Any tuning, alternative symbol/window, or formal strategy selection first needs
 a new versioned specification, recorded attempts and the
 [research program's split discipline](../roadmap/research-program.md#rules-for-every-workstream).
-Before MR 24, retain influencing attempts in the specified append-only protected
+Before MR 43, retain influencing attempts in the specified append-only protected
 text record with the [trial fields](../roadmap/research-program.md#small-records-and-artifacts).
 
 The engineering acceptance rule is reproducible saved-input execution plus exact

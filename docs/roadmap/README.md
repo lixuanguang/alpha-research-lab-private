@@ -4,9 +4,10 @@
 
 Build an institutional-grade monorepo for multi-asset, multi-strategy quantitative
 research, simulation, portfolio construction, production trading and monitoring.
-The founder implements it incrementally. One reproducible strategy is the first
-end-to-end delivery and a test of the shared foundations; it is not the ceiling
-of the platform's ambition.
+The founder implements it incrementally. Validated historical ingestion and EDA
+are the first usable data deliveries; one reproducible strategy then exercises
+the shared research/accounting foundations. These narrow deliveries retain
+extension boundaries for the broader platform.
 
 Today the runtime contains instrument identity, venue calendars, financial units,
 exact serialization, event provenance, an authored reference catalog and bounded
@@ -33,8 +34,9 @@ build target; retain a straightforward supported development entry point as it g
 
 ## Priority and completion model
 
-Use the following maturity slices to choose the next useful work. Each adds a
-working path and reusable components. Dependencies are the interfaces actually
+The following P0–P7 areas describe maturity and long-term scope. Delivery follows
+the [capability milestones](capability-milestones.md), whose M0–M7 identifiers
+are distinct from these priority-area names. Dependencies are the interfaces actually
 consumed by that slice, not completion of every row in a global package catalog.
 A second strategy may expose a shared requirement before the first live release;
 an asset-specific lifecycle belongs with the first strategy that needs it.
@@ -43,7 +45,7 @@ an asset-specific lifecycle belongs with the first strategy that needs it.
 | --- | --- | --- | --- | --- |
 | P0 | Typed domain foundations and reproducible development | Three domain libraries and uv/CI implemented; bounded cleanup complete | Existing checkout | Existing contract tests, strict checks and isolated installed imports |
 | P1 | One causal raw-data-to-net-report baseline | Data foundations partially implemented; end-to-end delivery planned | P0 and a permitted source | Saved inputs reproduce a hand-reconciled costed result without future information |
-| P2 | Reusable research and multiple candidate strategies | Planned | P1 data, experiment and accounting interfaces | Two independently configured strategies share infrastructure without sharing mutable state; comparison is reproducible |
+| P2 | Reusable research and multiple candidate strategies | Planned | M2 historical access; experiment/accounting interfaces as consumed | Two independently configured strategies share infrastructure without sharing mutable state; comparison is reproducible |
 | P3 | Faithful simulation, asset accounting and replay | Planned | P1 accounting and the strategy's required market data; P2 interfaces where used | Deterministic order/fill/state traces, checkpoint parity, realistic costs and reconciled lifecycle events |
 | P4 | One supervised paper-to-live production path with monitoring | Planned | Required P3 behavior, a venue adapter and release-admissible dependencies | Paper/shadow, restart, limits, alerts, stop and rollback exercised before bounded founder activation |
 | P5 | Multi-asset, multi-strategy portfolio operation | Planned | Reusable research plus accounting/risk/operation for each selected instrument and venue | Combined exposures and costs reconcile; strategy failures and lifecycle differences are isolated |
@@ -56,6 +58,25 @@ reconciliation, monitoring and recovery. They are needed when the corresponding
 behavior becomes real. P7 covers staffing-dependent process: separation of duties,
 independent approvals, formal model-risk review, access-review programs and audit
 workflows. It does not create imaginary approvers for a one-person company.
+
+## Usable delivery milestones
+
+The [milestone implementation plan](capability-milestones.md#completion-and-dependency-model)
+assigns the single MR 01–62 sequence to runnable outcomes, with MR 00 and C0
+retained as completed prerequisites.
+M0 resolves and exercises a fixture; M1 delivers validated historical ingestion;
+M2 delivers selective EDA and replay. Live capture proceeds through M3 with
+validation, monitoring and recovery included. M4 adds features and optional model
+research; M5 delivers strategy simulation and research controls. M6 qualifies
+paper/shadow operation and M7 qualifies specifically authorized live operation
+and compatible expansion.
+
+This order is a dependency graph. M2 EDA and M5 deterministic backtests do not
+wait for M3 streaming or an ML platform; historical M4 work can start after M2.
+Collection may start early for irrecoverable feeds with its basic controls intact.
+Monitoring is part of each operational milestone, not a final platform add-on.
+Completion requires the declared workflow and failure/extension evidence, not a
+particular MR count. The original frozen P1 experiment remains unchanged.
 
 ## P1: first causal baseline
 
@@ -77,10 +98,20 @@ orchestrator pipelines. Other implementation modules expose cohesive library
 operations and records. Cleanup C0 has removed redundant decoder composition and
 legacy import facades in the current checkpoint.
 
+General names, explicit inputs and
+[configuration-driven activation](../coding_standards/README.md#generalized-code-and-configuration-driven-activation)
+are P1 requirements. Scoped config selects data jobs/universes and strategy
+instances with their input dependencies; collection may exceed a strategy's
+universe and does not grant trading authority. The frozen BTCUSDT case is one selection.
+Compatible asset onboarding should change config/reference data; a new strategy
+adds its implementation and config. Shared code changes only for missing
+capabilities, with focused tests at the affected boundary.
+
 Implement the following small slices together with their concrete types and tests:
 
 | Slice | Implementation detail | Decisive evidence |
 | --- | --- | --- |
+| Configuration and onboarding | Typed definitions and explicit active instances with implementation, asset, parameter and data bindings; pipelines resolve and compose supported selections | Another supported synthetic asset and a compatible test strategy use the same orchestration; inactive selections do not execute and unsupported bindings fail |
 | Time and event identity | Aware event/receipt/ingestion/availability times, valid interval, source revision, source sequence and deterministic tie-breaking; distinguish what happened from what was knowable | Late publication, future corrections, repeated timestamps and timezone boundaries cannot alter an earlier decision |
 | Raw ingestion | One adapter, immutable raw-object digest, request/range manifest, restart checkpoint, bounded retry and explicit gap/duplicate handling | Interrupt and resume a download without inventing, losing or duplicating observations; mutated input fails identity checks |
 | Canonical dataset | Normalize vendor identifiers and units at the adapter; preserve source lineage, historical membership, exclusions and correction policy; publish a versioned snapshot atomically | Rebuild the same snapshot and perform as-of selection by availability time; schema or quality failures stay out of published data |
@@ -95,7 +126,9 @@ a daily baseline need not first implement an order-book exchange simulator.
 
 ## P2: shared research and strategy development
 
-Grow the first baseline into a reusable research interface:
+Use M2 historical data access to develop features/models in M4 and research
+controls in M5. Fitting and comparison work does not require the entire original
+baseline or live platform to finish first:
 
 - Separate dataset/universe selection, feature and label generation, transforms,
   model fitting, signal generation, portfolio targets and execution assumptions.
@@ -117,9 +150,9 @@ Grow the first baseline into a reusable research interface:
   Extract selected calculations from notebooks before making them production
   dependencies; exploratory notebooks may evolve faster than deployed code.
 
-The first reuse test is two strategies with different configurations and horizons
-using the same data/accounting/reporting code. Exercise concurrent runs, changed
-schema versions and failed runs. Decide whether a shared abstraction is useful
+Extend the P1 onboarding proof to two strategies with different configurations
+and horizons using the same data/accounting/reporting code. Exercise concurrent
+runs, changed schema versions and failed runs. Decide whether a shared abstraction is useful
 from those consumers. Detailed research families and experiments live in the
 [research program](research-program.md); a strategy uses only relevant families.
 
@@ -221,12 +254,12 @@ when its trigger is measured; it does not require hiring first.
 
 | Observed trigger | Implementation direction | Validation |
 | --- | --- | --- |
-| Data no longer fits practical local memory/storage or snapshot reads dominate runs | Partitioned columnar datasets, query pushdown, object storage and an appropriate versioned table/catalog layer | Same as-of results and identifiers; interrupted publication/backfill is recoverable; cost and read amplification are measured |
+| M2's selective embedded queries no longer meet memory/storage, concurrency or latency needs | Extend the existing query contract with object storage, a service or an appropriate table/catalog backend | Same as-of results and identifiers; interrupted publication/backfill is recoverable; cost and read amplification are measured |
 | Trial throughput or GPUs are the bottleneck | Queue-backed CPU/GPU workers, immutable run inputs, resource quotas, cancellation, checkpoint/resume and explicit retry ownership | Worker loss/reschedule cannot overwrite or duplicate a trial; resumed outputs and numerical tolerances remain comparable |
 | Native code or cross-language generation becomes material | Admit a pinned compiler and narrow ABI; generate schemas reproducibly; add conformance, sanitizer/fuzz and installed-artifact checks | Shared golden traces and errors survive the boundary; compiler/platform identity explains performance or numerical changes |
 | Build duration or dependency coupling slows multiple applications | Target dependency graph, selective CI with coverage evidence, trusted caches and hermetic execution where justified | Relevant reverse dependencies are checked; generated inputs and clean installs agree; missing/stale cache data cannot produce a false pass |
 | Several deployments need reliable rollout | Independent artifact/config releases, declarative host/environment setup, staged deployment and state/schema migration | Unrelated strategies stay on their selected revision; rollback and restart compatibility are exercised |
-| More operating instances exceed manual visibility | Central metrics/logs, bounded cardinality, tracing where useful, deploy/data/model identity correlation and operator views | Alerts survive collector/node failure; telemetry cannot block trading; aggregate queries retain per-instance attribution |
+| Existing milestone telemetry no longer provides sufficient visibility across operating instances | Scale metrics/logs collection and operator views, retain bounded cardinality and identity correlation, add tracing where useful | Alerts survive collector/node failure; telemetry cannot block trading; aggregate queries retain per-instance attribution |
 | Measured latency or burst behavior exceeds the strategy budget | Profile first, then compiled kernels or a dedicated native event loop; define hardware/clock/network assumptions | Tail latency and jitter under representative load, bounded queues, overload response and numerical parity |
 
 The current uv path, lock and strict checks remain authoritative until a
@@ -265,9 +298,10 @@ Introduce a control with its concrete trigger, owner, enforcement point and test
 The bounded governance cleanup is complete, and
 [MR 00](../research/p1-baseline.md) has frozen the first source and hypothesis.
 The [C0 cleanup](p1-implementation-roadmap.md#c0-remove-redundant-composition-before-adding-consumers)
-is implemented in the current checkpoint. Continue with MR 01
-and the subsequent pipeline/library slices while preserving the detailed platform
-design. For each implementation slice, record the input/output contract,
+is implemented in the current checkpoint. Continue with MRs 01–02, then
+the dependency-ordered [milestone packages](capability-milestones.md). Historical
+ingestion closes only with normalization, validation and publication; the earlier
+raw-download command remains a useful intermediate checkpoint. For each slice, record the input/output contract,
 affected modules and consumers, persisted identities, critical failure behavior,
 selected tests and a working command or artifact. Update its status here when
 that evidence exists. Keep future work explicitly planned.

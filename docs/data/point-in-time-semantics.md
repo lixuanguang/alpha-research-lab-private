@@ -67,3 +67,17 @@ The semantics above are inputs to the planned raw store, dataset publication,
 order-book, and replay boundaries. Those consumers must preserve the original
 capture text, source sequence, provenance identity, exact values, and proxy
 reasons when they add persistence or point-in-time selection.
+
+The [milestone plan](../roadmap/capability-milestones.md) places revision-aware
+availability selection in MR 17/M2, before feature engineering. A selected input
+must satisfy `available_at <= decision_time` under its declared knowledge model;
+derived features also include their processing/availability assumptions. Dataset
+identity makes a result reproducible but cannot make an event-time-only join causal.
+
+For planned live capture, retain actual local receipt/order and durable progress,
+then replay those exact captured inputs through the shared downstream contracts.
+Historical vendor capture, local live receipt and later archive ingestion have
+different meanings. Do not backdate a late correction or recovery backfill, or
+claim that a subsequently downloaded vendor archive reproduces the original
+local information set. Preserve source-local order and explicitly define any
+cross-source tie rule rather than inventing a total observed arrival order.

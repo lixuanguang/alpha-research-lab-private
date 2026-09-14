@@ -50,8 +50,19 @@ historical exchange filters, listing membership, or venue truth.
 `resolve` operation returns an instrument only when the requested half-open
 interval is fully covered; missing IDs, incomplete coverage, unsupported
 metadata, and invalid nested records fail closed. The identity is the SHA-256 of
-the canonical encoded snapshot. A general research configuration loader is a
-later planned boundary.
+the canonical encoded snapshot. Catalog membership does not activate an asset or
+select a strategy. The planned
+[configuration boundary](../architecture/platform-design.md#configuration-and-active-workflows)
+separates data jobs/universes from strategy-instance input requirements and
+deployment authority. Orchestrators pass resolved instruments and bindings to
+these libraries; an independent collection job may cover a broader universe.
+The current catalog and decoders do not implement that activation workflow.
+
+Capability support is scoped by source, product, representation and mode. Existing
+depth decoding is not book reconstruction or live gap recovery; a different-family
+fixture is not admission to the spot ledger or executable trading. The
+[milestone support contract](../roadmap/capability-milestones.md#shared-configuration-and-support-contracts)
+assigns ingestion, query/replay, simulation and operating proofs separately.
 
 ## Provenance, events, and wire values
 

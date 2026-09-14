@@ -164,6 +164,94 @@ abstractions before adding consumers that depend on them. The
 [P1 ownership map](../roadmap/p1-implementation-roadmap.md#p1-code-ownership-and-call-flow)
 applies this rule to the next implementation slices.
 
+### Generalized code and configuration-driven activation
+
+Implementation code MUST express reusable behavior across the assets and
+strategies its contracts support. Names, signatures and purpose MUST describe
+economic or technical roles: use `instrument`, `quote_currency` and
+`target_quantity`, rather than `btc_pair`, `usdt_balance` or a pair-specific
+calculation name. Shared code MUST NOT hardcode the selected research pair,
+strategy, source binding or run parameters in defaults, branches or paths.
+Strategy modules own their particular formulas; provider and venue adapters own
+their actual protocol and market mechanics. Those meaningful specializations
+remain explicit. Generalization does not require speculative abstractions or
+claim support for unimplemented products, data sources or operating modes.
+
+Versioned configuration files MUST distinguish available definitions from active
+selections scoped to a workflow. Separate instrument/universe definitions, data
+jobs, strategy definitions, strategy instances and deployment/authorization
+configuration. These relationships may be many-to-many: a strategy can use several
+sources/instruments, several strategies can share a dataset, and a collection job
+can cover a wider universe than its current research consumers. A single global
+mutable `active_asset` or `active_pipeline` MUST NOT control unrelated jobs.
+Add monitoring, execution and other bindings with their implemented consumers. Listing an asset
+in a reference catalog or installing a strategy MUST NOT activate it. Use one
+appropriate serialization format at a boundary; this rule does not require
+parallel JSON, YAML and TOML loaders.
+
+Orchestrator pipelines MUST load and resolve that configuration, select the
+active jobs or instances and construct the collaborators required by the requested
+workflow. Configuration libraries may parse, validate and resolve records; they
+MUST NOT run pipelines. Other libraries receive explicit validated inputs and
+MUST NOT discover active assets or strategies through global configuration or
+environment reads. Configuration selects implemented behavior and supplies
+parameters; strategy formulas remain in strategy code.
+
+Validate schema versions, references, units, parameter invariants and capability
+compatibility before starting the workflow. Unknown or unsupported selections
+MUST fail explicitly. Retain an immutable resolved run manifest containing the
+actual universe, non-secret parameters, policies and referenced implementation,
+schema, reference and data versions. A mutable config name is insufficient.
+Collection, research selection and trading authorization MUST remain distinct;
+research configuration cannot grant executable account access. Isolate
+mutable state and results by strategy instance; a shared implementation or input
+does not imply shared cash, positions or pending decisions.
+
+For an asset already covered by implemented capabilities, onboarding SHOULD
+require only configuration/reference data and focused validation. A new strategy
+SHOULD require its strategy implementation, configuration and relevant tests,
+without edits to shared orchestration or asset-specific branches in libraries.
+Extend the owning library, pipeline or monitoring boundary only when a required
+capability is missing. Implementation plans MUST place configuration selection
+with its first working consumer and include a bounded onboarding example that
+proves the shared path is reusable; do not defer general names and explicit inputs
+until a later platform rewrite.
+
+Exploratory research notebooks MAY tailor names, calculations and scenarios to
+specific strategies or assets. When promoting behavior into the maintained
+package, remove incidental case assumptions, expose explicit inputs and move
+activation and parameters into configuration. Formal notebook results then call
+the promoted implementation. The
+[planned configuration design](../architecture/platform-design.md#configuration-and-active-workflows)
+and [research workflow](../roadmap/research-program.md#notebook-research-and-package-promotion)
+apply these boundaries.
+
+### Capability milestones and extension evidence
+
+Implementation plans MUST organize MRs around runnable capability milestones
+with supported configurations, dependencies, an executable acceptance workflow
+and documented limitations. MR counts describe review boundaries, not completion.
+Basic data correctness, reproducibility, applicable telemetry and recovery MUST
+ship with the behavior they protect; advanced analysis may follow later.
+Historical EDA and deterministic backtesting MUST NOT depend on an unused live
+feed, trained-model platform or particular storage product.
+
+Historical, replay and live paths MUST use compatible canonical contracts while
+preserving their distinct source/receipt/availability semantics. Promote the same
+versioned decision and feature logic between research and runtime. Evidence must
+distinguish deterministic fixture parity from supported source, market mechanics
+and operational use. The support boundary is per product, capability and mode;
+a new configuration entry alone cannot establish lifecycle or execution support.
+
+Exercise multi-instrument selection and independent strategy-instance state at
+their first consumers. Use a bounded different-family fixture at the relevant
+neutral interface to expose unit or lifecycle assumptions, with explicit rejection
+where behavior is unsupported. Before multiple strategies share an executable
+or paper account, implement independent instance/account risk, reservation and
+aggregation/allocation rules, attributable orders/fills/costs and restart isolation.
+Strategy logic cannot own hard limits or kill authority. The
+[milestone plan](../roadmap/capability-milestones.md) maps these obligations to MRs.
+
 ## Python source rules
 
 Use the pinned interpreter and let `ruff format` decide whitespace and wrapping.
