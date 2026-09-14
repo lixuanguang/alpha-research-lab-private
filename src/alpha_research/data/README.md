@@ -6,13 +6,21 @@ Tardis line decoding, source provenance binding, and the authored reference
 catalog boundary. Acquisition, raw-object retention, local-book reconstruction,
 replay, and live feeds remain planned consumers.
 
-The public package surface is defined by
+The current public package surface is defined by
 [`alpha_research.data`](__init__.py):
 
 - `DepthSnapshot`, `DepthUpdate`, `Trade`, and `Disconnect` event records;
 - the closed `MarketEvent` union and strict `encode_market_event`,
   `decode_market_event`, and `validate_market_event` codecs; and
 - `TardisDecoder` and `BinancePayloadDecoder` for reusable source-line decoding.
+
+The [OOP policy](../../../docs/coding_standards/README.md#orchestrator-pipelines-and-libraries)
+assigns reusable behavior to cohesive classes. Migrating the codec functions,
+serialization hooks and parsing helpers to class owners remains
+[pending work](../../../docs/roadmap/README.md#oop-migration-status). The functions
+listed here still exist; update their exports, callers and examples with that
+implementation change. The two configured decoder classes retain their separate
+provider-framing and venue-parsing responsibilities.
 
 Callers compose the retained decoders directly and reuse `decode_line`. The
 [C0 migration](../../../docs/roadmap/README.md#existing-abstractions-to-retain-or-retire)
@@ -50,10 +58,12 @@ quantities, and levels remain exact `Decimal` values; Python constructors reject
 floats and malformed values. Canonical event codecs reject unknown fields, while
 raw vendor envelopes and payload schemas intentionally tolerate source extras.
 
-The Tardis provider decoder parses the leading ISO UTC capture text with
-`parse_capture_time` in [`providers/tardis/decoder.py`](providers/tardis/decoder.py). Source fractions beyond
-microsecond precision round upward by one microsecond when discarded digits are
-nonzero. `DecodeContext` keeps source sequence, raw text, source digest, receipt
+The current Tardis implementation parses the leading ISO UTC capture text with
+the `parse_capture_time` function in
+[`providers/tardis/decoder.py`](providers/tardis/decoder.py), pending migration
+to a provider-owned method. Source fractions beyond microsecond precision round
+upward by one microsecond when discarded digits are nonzero. `DecodeContext`
+keeps source sequence, raw text, source digest, receipt
 and ingestion times, and builds source-capture provenance. A blank source line
 becomes an explicit `Disconnect` with a conservative proxy supplied by the
 caller and reason `next_source_capture` or `interval_end`. Provider framing does

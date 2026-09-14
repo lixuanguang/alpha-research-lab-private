@@ -32,6 +32,11 @@ source distribution includes `tools/typing`. The stubs are development
 inputs and are not injected into the runtime wheel or dependency resolution.
 These package versions and stub signatures are validated on CPython 3.14.7.
 
+The [OOP implementation rule](../../docs/coding_standards/README.md#python-scope-and-migration)
+does not change upstream declarations: retain native free-function signatures
+where the installed library exposes them. Owned adapters provide the class-based
+boundary used by repository consumers.
+
 Stubtest uses `--ignore-missing-stub` because the declarations intentionally cover
 only the consumed surface. It checks declared names and signatures without an
 allowlist. The native conformance tests additionally check actual return types,
@@ -50,6 +55,8 @@ For a changed boundary, run the affected strict typing checks and the owning
 tests, including malformed inputs and serialization or native goldens where
 applicable. Changes to global enforcement require checking the complete static
 scope. No baseline, test exclusion or blanket suppression may admit a new
-diagnostic. Functions need no exception registration. The engineering-standards
-checker still enforces source typing, import headings and applicable docstrings
-directly, with no source-rule waiver mechanism.
+diagnostic. The engineering-standards checker enforces source typing, import
+headings and applicable docstrings directly, with no source-rule waiver
+mechanism. Class ownership and orchestrator-only bare functions require review;
+automated enforcement remains part of the
+[pending OOP migration](../../docs/roadmap/README.md#oop-migration-status).

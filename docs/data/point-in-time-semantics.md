@@ -25,9 +25,12 @@ validity interval.
 ## Capture precision and proxies
 
 Tardis source lines begin with an ISO UTC capture string. The provider decoder
-preserves it in `original_capture_time` and parses it through
-`parse_capture_time` in [`data/providers/tardis/decoder.py`](../../src/alpha_research/data/providers/tardis/decoder.py). Python timestamps
-represent microseconds, so a source fraction with more than six digits is
+preserves it in `original_capture_time` and currently parses it through the
+`parse_capture_time` function in
+[`data/providers/tardis/decoder.py`](../../src/alpha_research/data/providers/tardis/decoder.py).
+The [pending OOP migration](../roadmap/README.md#oop-migration-status) moves this
+behavior to a provider-owned method while preserving the timing rules. Python
+timestamps represent microseconds, so a source fraction with more than six digits is
 rounded **up** by one microsecond whenever any discarded digit is nonzero. This
 conservative ceiling prevents availability from moving earlier than the
 captured instant. A millisecond Binance `E`/`T` timestamp is converted to an

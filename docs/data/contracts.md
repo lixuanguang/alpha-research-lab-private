@@ -93,10 +93,12 @@ domain invariants remain strict.
 
 ## Capture and source semantics
 
-`parse_capture_time` in
-[`data/providers/tardis/decoder.py`](../../src/alpha_research/data/providers/tardis/decoder.py) parses the leading
-ISO UTC capture text. A source fraction beyond six digits rounds upward by one
-microsecond whenever any discarded digit is nonzero. The original text is
+The current `parse_capture_time` function in
+[`data/providers/tardis/decoder.py`](../../src/alpha_research/data/providers/tardis/decoder.py)
+parses the leading ISO UTC capture text. Its move to a provider-owned method is
+[pending OOP migration](../roadmap/README.md#oop-migration-status); the following
+timing contract is unchanged. A source fraction beyond six digits rounds upward
+by one microsecond whenever any discarded digit is nonzero. The original text is
 retained verbatim. `DecodeContext` binds source sequence, source/raw identity,
 capture time, local receipt and optional ingestion to
 `EventProvenance` with `knowledge_basis="source_capture"`.
