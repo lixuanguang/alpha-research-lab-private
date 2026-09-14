@@ -153,8 +153,7 @@ calendar copy; operations use that immutable snapshot without retaining
 intermediate results. Invalid calendars fail at construction.
 The module-level `adjust_business_day` and `settlement_date` forwarding APIs and
 their package exports have been retired. Construct a service once and reuse its
-methods for the selected calendar. The [runtime migration record](../roadmap/oop-migration/README.md#runtime-implementation-and-validation)
-records the caller and validation changes.
+methods for the selected calendar.
 
 Construction now precedes operation arguments: an invalid calendar fails before
 an invalid candidate, convention or lag can be checked. This deliberately retires

@@ -662,10 +662,6 @@ consumer; names may change without changing the agreed contracts.
 **Status: runtime remediation complete and locally verified on 2026-09-14.
 Repository-wide tooling/test migration and automated enforcement remain pending.**
 
-The [runtime review and implementation handoff](oop-migration/README.md) records
-the reviewed function inventory, consolidation decisions, runtime batch results,
-baseline evidence, and the original implementation prompt.
-
 The [engineering guide](../coding_standards/README.md#orchestrator-pipelines-and-libraries)
 reserves bare functions for orchestration and assigns reusable behavior to
 cohesive classes. This applies to existing owned Python as well as new work,
@@ -674,19 +670,32 @@ Runtime helpers now have class owners; codec consumers use `DomainCodec` and
 `MarketEventCodec`, and settlement callers reuse `SettlementConventions`. This
 runtime change does not establish repository-wide checker enforcement.
 
-The final `make check` passed: 439 tests, 3 performance deselections, complete
-configured source checks and isolated installed-wheel validation. The maintained
-notebook and component example passed; 13 original/migrated round trips retained
-identical bytes. The runtime inventory has no module-level or nested functions
-or lambdas across 26 Python files. Exact tested-state identities, commands,
-development failures and remaining hosted gates are in the
-[runtime validation record](oop-migration/README.md#runtime-implementation-and-validation).
+Runtime batches 1–4 shipped in
+[PR #20](https://github.com/lixuanguang/alpha-research-lab-private/pull/20).
+The completed inventory, implementation handoff and detailed validation record
+were removed from the active roadmap; their history remains at
+[revision 44dbde5](https://github.com/lixuanguang/alpha-research-lab-private/commit/44dbde57c7758bd297f00b1e506a6e1d034e2901).
+
+A local recheck of that revision on 2026-09-14 used CPython 3.14.7 on macOS arm64
+with the frozen uv environment. `make check` passed all configured source and
+isolated installed-wheel checks: **439 tests passed, 3 performance tests
+deselected, no skips or failures**. The first attempt was blocked by sandbox
+cache access; the permitted retry passed. All 28 installed runtime inputs matched
+the checkout, and 13 round trips matched the retained original wire bytes.
+The component example passed; the unchanged notebook source and runtime identity
+allowed reuse of its completed execution. Ownership inspection found 113 classes
+and no module-level functions, nested functions or lambdas across 26 runtime
+Python files. No further runtime refactoring was needed.
+
+Documentation cleanup validation on 2026-09-14: `uv run --frozen
+alpha-governance-architecture` passed for 16 documents. Explicit component README
+link/example checks and `uv run --frozen python -m
+alpha_research_governance.wheel_smoke` passed. Retired-path inspection and
+`git diff --check` passed. Only Markdown changed; the preceding runtime test
+evidence is reused, with fresh wheel validation covering the packaged README.
 
 | Migration area | Required outcome |
 | --- | --- |
-| Domain and reference records — implemented | Move record-specific validation and helper behavior into its owning class. Share duplicated validation implementation where contracts coincide; retain distinct IDs, units, event schemas, exceptions and model-copy semantics. |
-| Serialization, event codecs and provider parsing — implemented | Give reusable codec operations, compiled-schema lifetime and parsing helpers cohesive class owners. Preserve strict schemas, deterministic bytes, exact numeric values and conservative timestamp rounding. Keep the configured Tardis and Binance decoders separate. |
-| Settlement conventions — implemented | Use `SettlementConventions` as the supported operation owner and retire the two module-level forwarding APIs with their callers, exports and documentation. Preserve bounded calendar and error behavior. |
 | Development tooling, tests and maintained snippets | Move reusable behavior and helpers to cohesive classes, retain actual orchestration entry functions, and preserve test/fixture discovery, isolation and callback contracts. Native stubs continue to describe upstream signatures. |
 | Automated enforcement | Add checks for non-orchestrator bare functions and update the existing acceptance tests that currently permit them. Cover the owned implementation scope and retain existing typing, import and docstring checks. Class cohesion and actual workflow responsibility still require review. |
 
@@ -805,7 +814,7 @@ production support for another instrument family or another empirical experiment
 
 | Retained abstraction | Responsibility | Consumer contract |
 | --- | --- | --- |
-| C01/C02/C03, provenance, reference records, immutable market events and canonical codecs | Domain contracts and exact arithmetic. | Event bytes, validation failures, temporal semantics and configured-symbol support remain covered; runtime APIs now have cohesive class owners; the runtime migration record retains validation evidence. |
+| C01/C02/C03, provenance, reference records, immutable market events and canonical codecs | Domain contracts and exact arithmetic. | Event bytes, validation failures, temporal semantics and configured-symbol support remain covered; runtime APIs have cohesive class owners. |
 | `TardisDecoder` | Source framing and provenance. | Reuse a configured instance across lines, including after rejected input. |
 | `BinancePayloadDecoder` | Venue parsing and validated symbol configuration. | Supply it explicitly to the framing decoder; no provider-specific composition subclass. |
 | Curated `data/__init__.py` exports | Public event types, `MarketEventCodec` and retained decoder types. | External callers use this surface; internal modules use defining imports. The old codec function exports have been retired. |

@@ -15,10 +15,10 @@ The current public package surface is defined by
 - `TardisDecoder` and `BinancePayloadDecoder` for reusable source-line decoding.
 
 The [OOP policy](../../../docs/coding_standards/README.md#orchestrator-pipelines-and-libraries)
-assigns reusable behavior to cohesive classes. The
-[runtime migration](../../../docs/roadmap/oop-migration/README.md#runtime-implementation-and-validation)
-replaces module-level canonical codec functions with `MarketEventCodec` methods
-and serialization functions with `DomainCodec` methods. Reuse each codec instance
+assigns reusable behavior to cohesive classes. `MarketEventCodec` owns canonical
+event validation and encoding; `DomainCodec` owns exact domain hooks and JSON
+serialization under the [wire contract](../../../docs/data/contracts.md#provenance-events-and-wire-values).
+Reuse each codec instance
 across records; its compiled schemas survive both successful and rejected calls.
 The two configured decoder classes retain their separate provider-framing and
 venue-parsing responsibilities. Repository-wide tooling/test migration and OOP
