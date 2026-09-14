@@ -3,7 +3,8 @@
 Owner: repository founder. Status: implemented for the bounded foundation
 candidate. This package owns immutable canonical event records, strict Binance
 Tardis line decoding, source provenance binding, and the authored reference
-catalog boundary. Acquisition, raw-object retention, local-book reconstruction,
+catalog boundary. The M0 dataset pipeline now consumes these libraries for
+configured saved-fixture inspection. Acquisition, raw-object retention, local-book reconstruction,
 replay, and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -48,8 +49,9 @@ complete `Currency` values, price ticks, UTC validity intervals, and fixed
 Binance spot/Tardis metadata. `CatalogSnapshot.resolve` requires one instrument
 to cover the complete requested half-open interval; duplicate IDs or symbols,
 unsupported metadata, and incomplete coverage fail closed. Its identity hashes
-the canonical encoded snapshot. A general configuration loader is planned and is
-not part of this candidate.
+the canonical encoded snapshot. [`Configuration`](../configuration.py) resolves
+explicit data-job/universe selections against that complete interval;
+[`SourceRequest`](requests.py) derives immutable per-instrument minute requests.
 
 Every canonical event retains `EventProvenance`, the original capture text,
 event-time basis, configured symbol and instrument ID, source stream, and raw
@@ -113,9 +115,10 @@ The intended orchestrator owns input reading, source ordering, capture-proxy
 selection, error policy, and delivery to downstream consumers. The decoder and
 the lower-level parsing, validation, and codec modules are reusable library
 components; decoding performs no acquisition or persistence. Orchestrator
-pipelines remain planned consumers. The [P1 dataset pipeline](../../../docs/roadmap/README.md#p1-code-ownership-and-call-flow)
-will own this composition; the data library will not add a forwarding function,
-factory or replacement composition subclass.
+composition is now implemented by [`pipelines/dataset.py`](../pipelines/dataset.py)
+for the M0 fixture consumer. Its `main` orchestrator owns configuration/catalog
+loading, explicit selection, output and exit codes; `inspect_fixture` owns
+bounded frame I/O and direct decoder construction. No replacement decoder wrapper is needed.
 
 ## Boundaries and planned consumers
 
@@ -141,3 +144,65 @@ the financial-unit tests that exercise exact Currency values. These references
 describe library coverage. The
 [P1 acceptance map](../../../docs/roadmap/README.md#p1-acceptance-map)
 identifies the remaining end-to-end requirements.
+
+## Configured fixture command
+
+Use the installed `alpha-inspect-fixture` command with an explicit configuration,
+catalog, job and saved frame. For a development checkout:
+
+```sh
+uv run --frozen --no-editable alpha-inspect-fixture \
+  --config configs/data-jobs/fixture-inspection.json \
+  --catalog configs/reference/binance-spot.json --job btc-fixture \
+  --fixture tests/fixtures/m0/btcusdt.txt \
+  --received 2026-09-14T00:00:00Z --ingested 2026-09-14T00:00:01Z --sequence 0
+```
+
+Select `eth-fixture` with `ethusdt.txt`, or `both-fixture` with either saved frame,
+to exercise the same implementation. These timestamps and revision/rights
+references describe authored synthetic fixtures; provide actual retained receipt,
+ingestion and line-position metadata for any other saved input. The complete
+[outside-checkout workflow and results](../../../docs/roadmap/m0-implementation.md)
+include controlled failures.
+
+The version-1 JSON [configuration](../../../configs/data-jobs/fixture-inspection.json)
+separates available `universes` and named `jobs`; `--job` alone selects a run.
+Unknown fields, schema versions, duplicate names/IDs, missing universe bindings
+and unsupported provider/venue/product/dataset/stream/mode/pipeline/policies fail
+before fixture access. Only selected instruments are resolved against the catalog.
+M0 supports Tardis/Binance spot raw trades in `fixture` mode through
+`dataset.inspect`, with `utc-minute` partitions and `source-capture-v1` semantics.
+An unsupported depth frame is rejected even though the retained decoder can parse it.
+
+Job intervals are UTC, minute-aligned, half-open, nonempty and at most one day;
+a universe contains 1–32 unique canonical IDs. Requests use the fixed job start
+and integer offsets, in minute-major then canonical-ID order. The supplied hour
+yields 60 requests per instrument. Capture time, conservatively rounded by the
+existing decoder, determines request membership; an exchange event may precede
+the capture interval. No historical eligibility claim follows from catalog coverage.
+
+A `ResolvedManifest` retains the complete job, actual sorted instruments,
+full catalog with evidence and a hash of installed runtime Python/assets plus
+package/codec versions. Its identity ignores input JSON formatting and universe
+ordering; changed actual selections, catalog, policies, revisions or code change it.
+Request identities also bind the actual instrument, catalog, source selection,
+fixed origin and offset, but exclude job/universe names and unrelated selected
+instruments. Renaming a job or inspecting the same partition within a wider
+universe therefore preserves its request identity. These identities describe
+configuration/request content; they are not an authenticated artifact signature.
+
+Success prints one JSON report to stdout containing the manifest/run identity,
+request identity/bounds, the exact saved-byte SHA-256 and canonical trade. Input
+bytes and original clocks are separately attributable; an invocation time never
+replaces them. Failure prints a JSON diagnostic to stderr, including the stage,
+job and run identity when resolution completed. CLI syntax errors use argparse's
+usage diagnostic. Exit codes are **0** success, **2** configuration/usage,
+**3** frame/decoding/clock validation and **4** local I/O. A failed invocation
+retains no mutable state; fix the reported input and rerun.
+
+Config, catalog and frame reads are each capped at one MiB. Inspection accepts
+one nonblank UTF-8 trade frame, with an optional line ending. Blank disconnects,
+multiple frames, compression, acquisition, durable raw verification/publication,
+resume and dataset-level validation are later consumers. A fixture digest does
+not replace MR 03's raw-object descriptor/verifier. No transport or credentials
+are read. Existing decoder/provenance/event wire contracts remain unchanged.

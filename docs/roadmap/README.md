@@ -1,12 +1,11 @@
 # Platform implementation roadmap
 
 Owner: repository founder. Consolidated 2026-09-14. MR 00 and C0 are complete;
-MRs 01–62 and R1 remain planned. No M0–M7 milestone or P1 end-to-end result is
-claimed complete.
+MRs 01–02 are implemented and locally verified in the M0 delivery. MRs 03–62 and R1 remain planned; no M1–M7 or P1 result is claimed.
 
-**Start with [M0: MR 01–02](#m0-minimal-runnable-foundation): resolve configured
-inputs and run an installed fixture consumer.** Then follow the dependency graph
-through verified saved inputs, reference query/replay and E1. Keep MR 05's source
+**Review [M0: MR 01–02](#m0-minimal-runnable-foundation), then start MR 03.**
+M0 resolves configured inputs and runs an installed fixture consumer. Follow the
+dependency graph through verified saved inputs, reference query/replay and E1. Keep MR 05's source
 feasibility investigation early. The frozen sample, strategy and cost assumptions
 remain in the [P1 experiment specification](../research/p1-baseline.md).
 
@@ -36,9 +35,9 @@ the shared research/accounting foundations. These narrow deliveries retain
 extension boundaries for the broader platform.
 
 Today the runtime contains instrument identity, venue calendars, financial units,
-exact serialization, event provenance, an authored reference catalog and bounded
-Tardis/Binance event decoding. The frozen uv build, strict source checks, CI and
-runtime wheel installation exist. Data acquisition, versioned datasets, strategy
+exact serialization, event provenance, an authored reference catalog, bounded
+Tardis/Binance event decoding and configured fixture inspection. The frozen uv
+build, strict source checks, CI and runtime wheel installation exist. Data acquisition, versioned datasets, strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
@@ -182,8 +181,10 @@ subsequent valid lines. This cleanup adds no acquisition or dataset functionalit
 
 ## M0: Minimal runnable foundation
 
-MR 01 supplies scoped data-job parsing, capability validation and resolved run
-identity. It does not require strategy or deployment schemas before those consumers.
+**Status: implemented and locally verified for M0.** The [M0 implementation record](m0-implementation.md)
+contains commands, review slices, installed-consumer and notebook evidence, and
+limitations. MR 01 supplies scoped data-job parsing, capability validation and
+resolved run identity. It does not require strategy or deployment schemas before those consumers.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -524,7 +525,7 @@ or the existing ledger to manufacture this distinction.
 | **46 — Add the reproducible command and installed consumer** | 45 | Add argument parsing with a required config file, explicit saved-input/output resolution and exit handling in `pipelines/research.py`, with an installed entry point targeting that module. The config selects active instances and implementations; no hidden pair, strategy or working-directory default. Reuse the callable workflow and save the actual command and resolved identities. Extend the existing wheel smoke for the new public consumer. | From a fresh process outside the checkout, install the candidate wheel and reproduce configured synthetic reports from saved inputs, without notebooks, editable imports or a network fetch. Verify installed strategy resolution and config-only activation changes. Unsupported/missing bindings fail before a run; an active-instance failure produces a nonzero exit and retains its outcome. **NB 46:** compare fresh-process output with the callable results; execute the command independently as retained acceptance proof. |
 | **47 — Retain research selection controls** | 43–46 | Extend trial/config consumers with predeclared comparisons and applicable split, fit and holdout access records; integrate M4 state/model identities only when used. | Failed/rejected comparisons remain visible. A changed split/cost/config cannot overwrite a prior trial; a fitted consumer cannot use future/held-out inputs. The deterministic baseline records fitting as inapplicable. |
 | **48 — Prove instance and capability isolation** | 44–46, 42, 47 | Exercise two strategy implementations/instances on overlapping multi-instrument fixtures through the same orchestration, with distinct state namespaces and identities. Reuse matching immutable inputs, not mutable cash or pending intents. | Failure/restart of one instance cannot change another's state, fills or output. A compatible strategy needs only implementation/config additions. A different-family contract fixture exposes unit/multiplier assumptions and rejects unsupported economic execution. No shared-account portfolio support is inferred. |
-| **49 — Accept the frozen P1 baseline with a permitted saved sample** | 00–06, 08–15, 17, 19–20, 33–46; C0 and E1 | Run the frozen case on the permitted source and retain request/raw/canonical/report identities and protected retrievable bytes. Verify every baseline row in the acceptance map; update the owning experiment and roadmap with this precise outcome. This package does not close M5. | Resume actual acquisition, rebuild the snapshot and reproduce the report in another process using saved inputs. Hand-reconcile a bounded ledger excerpt; audit source availability/eligibility assumptions and retain failures/limits. **NB 49:** explain the trace and attribution in ignored `examples/`. Fix product defects before acceptance; synthetic evidence cannot close source claims. |
+| **49 — Accept the frozen P1 baseline with a permitted saved sample** | 00–06, 08–15, 17, 19–20, 33–46; C0 and E1 | Run the frozen case on the permitted source and retain request/raw/canonical/report identities and protected retrievable bytes. Verify every baseline row in the acceptance map; update the owning experiment and roadmap with this precise outcome. This package does not close M5. | Resume actual acquisition, rebuild the snapshot and reproduce the report in another process using saved inputs. Hand-reconcile a bounded ledger excerpt; audit source availability/eligibility assumptions and retain failures/limits. **NB 49:** explain the trace and attribution in `examples/` under the notebook retention rules. Fix product defects before acceptance; synthetic evidence cannot close source claims. |
 
 Run identity excludes attempt timestamps and local output paths. Report comparison
 uses canonical economic bytes/values; operational attempt metadata may differ.
@@ -647,15 +648,16 @@ or a same-privilege process alone do not establish that guarantee.
 | [C01](../architecture/instrument-identity.md), [C02](../architecture/venue-calendar.md), [C03](../architecture/financial-units.md) | Canonical IDs, temporal symbology, bounded calendars, exact `Currency`, `Money`, `Price`, `Quantity`, tick/lot arithmetic | Compose these contracts; do not recreate identifiers, clocks or money in notebooks. C01 valid-time mapping alone is not a knowledge-time universe selector. |
 | [serialization.py](../../src/alpha_research/serialization.py) | Cached typed JSON codecs and exact financial values, including currency quantum | Reuse for actual new records; add their constructor/invariant checks and schema versions with their consumers. |
 | [core/events.py](../../src/alpha_research/core/events.py) | `EventProvenance`, UTC normalization, source revision/sequence, knowledge/valid times, deterministic ordering and `is_available` | Cross-object ordering, correction admission and dataset-level as-of selection. No replacement provenance framework. |
-| [reference_data.py](../../src/alpha_research/reference_data.py), [authored catalog](../../configs/reference/binance-spot.json) | Strict `SpotInstrument`/`CatalogSnapshot`, canonical snapshot hash and complete-interval resolution | Load run selections; add evidence-backed historical eligibility and required quantity rules. The catalog covers BTCUSDT/ETHUSDT for 2024-06-01 only and explicitly records research assumptions. |
+| [reference_data.py](../../src/alpha_research/reference_data.py), [authored catalog](../../configs/reference/binance-spot.json) | Strict `SpotInstrument`/`CatalogSnapshot`, canonical snapshot hash and complete-interval resolution | M0 resolves run selections; add evidence-backed historical eligibility and required quantity rules. The catalog covers BTCUSDT/ETHUSDT for 2024-06-01 only and explicitly records research assumptions. |
 | [data contracts](../data/contracts.md), [decoder context](../../src/alpha_research/data/decoders.py) | Frozen trade/depth/disconnect records and source lineage; strict canonical codecs | Raw requests, storage, request manifests, checkpoints, dataset identity/publication and quality reports. |
 | [Tardis framing](../../src/alpha_research/data/providers/tardis/decoder.py), [Binance payload decoding](../../src/alpha_research/data/venues/binance/payloads.py) | One-line capture parsing, conservative submicrosecond rounding, configured symbol validation, payload mapping, blank-line disconnect proxies | C0 retains these libraries with direct caller composition. Add transport and multi-line streaming with actual pipeline consumers. A decoder is not a downloader or completeness check. |
 | [pyproject.toml](../../pyproject.toml), [Makefile](../../Makefile), [CI](../../.github/workflows/ci.yml) | CPython 3.14.7, uv 0.12.7, strict source checks and installed runtime wheel checks | Add narrow public imports/runner coverage when introduced. Jupyter tooling is not in the project lock. |
 
-There are no implemented strategy, simulation, accounting or run/report packages
-at this revision. New paths below are **proposed**, not current imports or
-commands. Create a module only with working behavior, tests and a concrete
-consumer; names may change without changing the agreed contracts.
+There are no implemented strategy, simulation, accounting or research run/report
+packages at this revision. `configuration.py`, `data/requests.py` and the
+fixture-only `pipelines/dataset.py` now exist. Other new paths below remain
+**proposed**, not current imports or commands. Create a module only with working
+behavior, tests and a concrete consumer; names may change without changing the agreed contracts.
 
 ### OOP migration status
 
@@ -941,9 +943,11 @@ semantic checks below without rerunning behavioral notebooks.
 ## Local notebook workflow
 
 Use long-lived notebooks organized by research activity under repository-root
-`examples/`, ignored by the root `/examples/` rule. On 2026-09-13 the founder
-selected local retention and then activity-based notebooks, superseding both
-the original temporary-directory/deletion requirement and one notebook per MR.
+`examples/`. On 2026-09-14 the founder selected version control for maintained
+`.ipynb`, `.py` and `.md` examples, superseding the earlier local-only retention
+rule. Generated run snapshots, notebook checkpoints and temporary kernel files
+remain ignored. The 2026-09-13 activity-based organization continues; do not
+require a separate notebook per MR.
 The [research program](research-program.md#notebook-research-and-package-promotion)
 owns the boundary between exploratory ideas and maintained package behavior.
 
@@ -962,8 +966,9 @@ Split or move its sections into these activity notebooks as actual work grows;
 do not create empty notebooks or fictional fetching/monitoring capabilities now.
 Each MR names the notebook and relevant scenario/section it exercised. Notebook
 lifetime follows the research activity, while package changes remain one bounded
-MR at a time. MR 00 has merged; C0 is implemented in this candidate. MR 01 is
-the next planned implementation slice.
+MR at a time. MR 00 has merged; C0 is implemented in this candidate. MR 01–02
+checkpoints are complete in section 10 of the foundation notebook for the current
+M0 candidate; MR 03 is next.
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
@@ -982,17 +987,17 @@ the next planned implementation slice.
    in order. Promote decisive cases into focused tests and small permitted
    fixtures. Record commands, identities, conclusions and limitations in the MR.
    Keep a retrievable protected reference for permitted raw data/bulk outputs.
-4. Before **each commit, push and merge to main**, confirm notebooks, checkpoints
-   and local exports stay under ignored `examples/`. Close finished execution
-   kernels; notebooks may remain locally. After promotion, notebooks import the
-   packaged implementation for formal comparisons and monitoring, retaining
-   independent hand calculations only as explicit oracles. Preserve decisive
-   cases in retained tests and research attempts outside mutable notebook output.
-5. Inspect the staged diff and notebook paths. `git ls-files -- examples/ '*.ipynb'`
-   must be empty; run `git check-ignore` on the actual notebook paths and confirm
-   they are ignored. Stage explicit retained files; never force-add examples.
-   Before push/merge, check the branch diff/history contains no example/notebook
-   addition; a later deletion does not erase an earlier committed notebook.
+4. Before **each commit, push and merge to main**, review the maintained notebook,
+   Python runner and Markdown guide as versioned source. Keep credentials,
+   restricted/raw data and bulk exports outside Git. Small synthetic outputs may
+   remain in the notebook when they help inspect the implemented behavior. Close
+   finished execution kernels. Preserve attempt snapshots under ignored
+   `examples/runs/`; these do not replace retained tests or research trial records.
+5. Stage explicit maintained example files. Confirm `git ls-files -- examples/`
+   contains only intended source and reviewed small outputs, and use
+   `git check-ignore` on generated run/kernel/checkpoint paths. Do not force-add
+   generated artifacts. Inspect notebook code, output and metadata for secrets,
+   unintended data and stale execution claims before pushing or merging.
 
 Do not inspect a final holdout through a notebook. Synthetic learning exercises
 are engineering work; any real-data attempt influencing hypothesis or parameter
@@ -1055,8 +1060,8 @@ rollback appear successful. No service migration or trading rollback is implied.
 Each milestone closes with its documented installed command or notebook-plus-
 package workflow, supported config/input identities, selected failure scenarios,
 actual results and remaining operational/data limitations in the existing MR/run
-records. Commands above describe planned workflows; they are not current verified
-invocations. Add exact commands to owning component docs when implemented.
+records. Except for the implemented M0 fixture command, future workflow commands
+above remain planned. Add exact commands to owning component docs when implemented.
 
 Tests, telemetry and recovery are delivered with the MR that introduces the
 behavior; the final integration package connects and verifies them. Reuse shared
@@ -1078,9 +1083,9 @@ explicitly applicable later capability.
 The bounded governance cleanup is complete, and
 [MR 00](../research/p1-baseline.md) has frozen the first source and hypothesis.
 The [C0 cleanup](#c0-remove-redundant-composition-before-adding-consumers)
-is implemented in the current checkpoint. Continue with MRs 01–02, then
-the dependency-ordered [milestone packages](#completion-and-dependency-model). Historical
-ingestion closes only with normalization, validation and publication; the earlier
+is implemented in the current checkpoint. M0/MRs 01–02 is locally verified;
+continue with MR 03 and the dependency-ordered
+[milestone packages](#completion-and-dependency-model). Historical ingestion closes only with normalization, validation and publication; the earlier
 raw-download command remains a useful intermediate checkpoint. For each slice, record the input/output contract,
 affected modules and consumers, persisted identities, critical failure behavior,
 selected tests and a working command or artifact. Update its status here when
