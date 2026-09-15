@@ -169,6 +169,49 @@ small synthetic outputs; no credentials or restricted data are retained.
 | Unchanged uv lock | `1159199bc83be7a75b0ccd2df3a401f3239eda11e37892f5e32d3a88ecf5fc6d` |
 | Preserved P1 specification | `a00d4a2e6bc4e5b31576abc3cbcc8d794b4da7b522f3d439fe0424374199b17a` |
 
+### Editor environment repair before merge
+
+On 2026-09-15, the user's editor reproduced the import problem in the repository
+`.venv`: `data/raw_store.py` was missing. The existing 33 expected files matched
+source, but 20 renamed duplicate Python/JSON/typing files remained from the
+previous environment issue. This distinguished the editor installation from the
+successful clean-environment run above. The user's failed notebook output was
+preserved under ignored `examples/runs/research-foundations/` as
+`mr04-editor-missing-raw-store.ipynb`; its cell sources matched the committed
+candidate exactly.
+
+Rebuilt with the installed pinned Hatchling 1.32.0; the wheel SHA-256 was exactly
+`0d780b2020ff17c4607adf2b00b1eda01dcbe372c363c72081f1748641d73538`, matching the
+originally tested candidate. Reinstalled only that wheel into `.venv`, preserving
+its runtime dependencies and ipykernel 7.3.0. Moved the 20 extra runtime files into
+`/private/tmp/mr04-notebook-repair/duplicate-runtime-files/`, with their names and
+SHA-256 values in `quarantined-files.json`. They were retained, not deleted. All 34
+runtime files then matched the source and wheel, with no extra runtime inputs.
+
+```sh
+.venv/bin/python -m hatchling build -t wheel \
+  -d /private/tmp/mr04-notebook-repair/wheels
+uv pip install --python .venv/bin/python --no-deps --reinstall --link-mode copy \
+  /private/tmp/mr04-notebook-repair/wheels/alpha_research_lab-0.1.0-py3-none-any.whl
+uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
+  python examples/run_notebook.py --kernel-python .venv/bin/python
+```
+
+Attempt `92d41cf8-f517-4ff3-969e-f28790bd138c` passed all **13 code cells** in a
+fresh `.venv/bin/python` kernel on CPython 3.14.7 / macOS 27.0 arm64. The runner
+shut down its kernel. The maintained notebook now contains this editor-interpreter
+run's successful outputs. Its source hash remains
+`8a3e0ba5c3950a045ee2576046564ccd7142ab6c5f7257787ff889d04237b006`; the runtime
+input diff against committed `caec320` is empty. Existing product tests and wheel
+acceptance are reused because runtime source and wheel bytes are unchanged.
+An already-open interactive kernel must be restarted to discard cached imports.
+The cause of the renamed duplicates remains unestablished.
+
+The preserved ipykernel 7.3.0 emitted a warning about unencrypted local TCP kernel
+transport; the run completed without cell errors. No kernel transport setting was
+changed. Cache-access failures succeeded on authorized retry. The merge was paused
+at the user's request; no PR or main-branch merge had occurred at repair time.
+
 ## Risks / reversal
 
 The store requires a durably provisioned, caller-controlled local directory and
