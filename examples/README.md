@@ -44,7 +44,11 @@ child processes exit before/after the atomic link; inspect staging versus publis
 bytes, retry, confirm inode reuse and reject a corrupt existing object. The retained
 [interruption fixture](../tests/fixtures/mr04/interrupt_publish.py) is shared with
 the storage tests. See the [MR 04 acceptance record](../docs/roadmap/mr-04-implementation.md).
-MR 05 provider-partition fetching remains the next package.
+Section 13 completes the synthetic **NB 05** checkpoint: fetch a fake HTTP
+partition, verify/reopen its exact gzip bytes, decode the saved trade, inspect
+original clocks, and reject malformed/truncated gzip, authentication and timeout
+failures. See the [MR 05 record](../docs/roadmap/mr-05-implementation.md) for the
+unperformed source probe and historical-evidence limits. MR 06 is next.
 
 Future notebooks can
 use names such as `data-fetching.ipynb`, `eda.ipynb`, `strategy-research.ipynb` and
@@ -127,3 +131,10 @@ and run all cells. `--no-sync` only preserves an existing installation; it does
 not install new source. The package version remains `0.1.0` across these MRs, so
 check installed file identity instead of treating the version string as proof
 that the current candidate is installed.
+
+During MR 05 verification, four byte-identical ` 2` copies in the checkout and
+35 such files in the installed runtime package were quarantined outside the
+checkout. The verified MR 05 wheel contains no duplicate names; reinstalling it
+restored exact agreement for all 37 package files. The cause of the copies was
+not established. The [MR 05 cleanup record](../docs/roadmap/mr-05-implementation.md#duplicate-file-cleanup)
+identifies the reversible quarantine and installation command.

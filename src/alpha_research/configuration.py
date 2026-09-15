@@ -57,7 +57,7 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
     """Select the implemented offline trade capability and explicit non-secret inputs.
 
     The capture interval is UTC, half-open and minute-aligned, at most one day.
-    Rights and revision references describe the saved fixture; they grant no access.
+    Rights and revision references grant no access; acquisition requires explicit admission.
     """
 
     name: str
@@ -67,8 +67,8 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
     product: Literal["spot"]
     dataset: Literal["raw"]
     stream: Literal["trade"]
-    mode: Literal["fixture"]
-    pipeline: Literal["dataset.inspect"]
+    mode: Literal["fixture", "historical"]
+    pipeline: Literal["dataset.inspect", "acquisition.fetch"]
     partition: Literal["utc-minute"]
     capture_policy: Literal["source-capture-v1"]
     source_revision: str
@@ -90,8 +90,6 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
             self.product,
             self.dataset,
             self.stream,
-            self.mode,
-            self.pipeline,
             self.partition,
             self.capture_policy,
         )
@@ -101,12 +99,15 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
             "spot",
             "raw",
             "trade",
-            "fixture",
-            "dataset.inspect",
             "utc-minute",
             "source-capture-v1",
         ):
             raise ValueError("unsupported source/product/mode/pipeline or partition/capture policy")
+        if (self.mode, self.pipeline) not in {
+            ("fixture", "dataset.inspect"),
+            ("historical", "acquisition.fetch"),
+        }:
+            raise ValueError("unsupported mode/pipeline combination")
         for timestamp in (self.start, self.end):
             if not isinstance(timestamp, datetime) or timestamp.utcoffset() != timedelta(0):
                 raise ValueError("job timestamps must be timezone-aware UTC")
