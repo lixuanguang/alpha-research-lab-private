@@ -48,7 +48,13 @@ Section 13 completes the synthetic **NB 05** checkpoint: fetch a fake HTTP
 partition, verify/reopen its exact gzip bytes, decode the saved trade, inspect
 original clocks, and reject malformed/truncated gzip, authentication and timeout
 failures. See the [MR 05 record](../docs/roadmap/mr-05-implementation.md) for the
-unperformed source probe and historical-evidence limits. MR 06 is next.
+unperformed source probe and historical-evidence limits. Section 14 completes
+**NB 06**: four abrupt process exits around raw/checkpoint publication, exact
+resumed/uninterrupted manifest comparison with fixed clocks, repeated-run skips,
+missing/mutated completed-byte rejection, terminal auth/schema failures and
+exhausted transient backoff. It shares the [synthetic process fixture](../tests/fixtures/mr06/acquire.py)
+with retained regressions and runs child consumers outside the checkout. See the
+[MR 06 record](../docs/roadmap/mr-06-implementation.md). MR 07 is next after MR 06 merges.
 
 Future notebooks can
 use names such as `data-fetching.ipynb`, `eda.ipynb`, `strategy-research.ipynb` and

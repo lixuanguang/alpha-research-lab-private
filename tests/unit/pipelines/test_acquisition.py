@@ -20,6 +20,7 @@ from msgspec.structs import replace
 
 # project library imports
 from alpha_research.configuration import Configuration, DataJob
+from alpha_research.data.providers.tardis.transport import TransientFetchError
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
@@ -161,7 +162,7 @@ class TestAcquisition:
             (b"secret error body", 401, "", PermissionError, "401"),
             (b"secret error body", 403, "", PermissionError, "403"),
             (b"redirect", 302, "Location: https://example.com\r\n", OSError, "302"),
-            (b"unavailable", 503, "", OSError, "503"),
+            (b"unavailable", 503, "", TransientFetchError, "503"),
             (b"not gzip", 200, "", ValueError, "gzip"),
             (gzip.compress(b"hello", mtime=0)[:-4], 200, "", ValueError, "truncated"),
             (b"", 200, "", ValueError, "empty"),
@@ -336,7 +337,7 @@ class TestAcquisition:
             patch.object(HTTPSConnection, "request", exchange.record),
             patch.object(HTTPSConnection, "getresponse", exchange.respond),
             patch.object(HTTPResponse, "read", side_effect=TimeoutError("private-detail")),
-            pytest.raises(TimeoutError),
+            pytest.raises(TransientFetchError),
         ):
             self._run(request_partition, tmp_path, reports)
         assert exchange.response is not None and exchange.response.isclosed()
@@ -356,3 +357,20 @@ class TestAcquisition:
                 )
             assert "secret" not in str(error.value)
         assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.parametrize("status", [408, 429, 500, 502, 504])
+    def test_transient_http_status_is_explicitly_retryable(
+        self,
+        request_partition: SourceRequest,
+        tmp_path: Path,
+        status: int,
+    ) -> None:
+        """Classify only admitted temporary HTTP statuses for the acquisition retry loop."""
+        exchange = _HTTPFixture(b"private response", status=status)
+        with (
+            patch.object(HTTPSConnection, "request", exchange.record),
+            patch.object(HTTPSConnection, "getresponse", exchange.respond),
+            pytest.raises(TransientFetchError, match=str(status)),
+        ):
+            self._run(request_partition, tmp_path, [])
+        assert not list(tmp_path.iterdir())

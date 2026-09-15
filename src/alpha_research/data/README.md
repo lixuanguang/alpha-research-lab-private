@@ -6,8 +6,8 @@ Tardis line decoding, source provenance binding, and the authored reference
 catalog boundary. The M0 dataset pipeline now consumes these libraries for
 configured saved-fixture inspection. MR 03 adds saved raw-object description and
 verification; MR 04 adds durable raw-byte publication and verified reads.
-Acquisition, local-book reconstruction,
-replay, and live feeds remain planned consumers.
+MRs 05–06 add bounded partition acquisition, durable manifests and sequential resume.
+Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
 [`alpha_research.data`](__init__.py):
@@ -37,6 +37,7 @@ changing serialized events. Internal code imports from defining modules:
 | [`events.py`](events.py) | Frozen `TaggedEvent` and `MarketEventRecord` templates, shared field validation, and `Disconnect` |
 | [`decoders.py`](decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol for source-independent payload decoding |
 | [`raw_objects.py`](raw_objects.py) | Immutable `RawObject` descriptors and bounded verification of exact saved bytes against an expected request |
+| [`manifests.py`](manifests.py) | Validated acquisition completion prefixes, write-ahead receipts and durable checkpoint replacement |
 | [`raw_store.py`](raw_store.py) | Content-addressed `RawStore` publication, verified reads and no-overwrite retry after interruption |
 | [`providers/tardis/decoder.py`](providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, and blank-line disconnect handling; raw exchange JSON is passed to a payload decoder |
 | [`venues/binance/events.py`](venues/binance/events.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade`; shared validation runs before the Binance symbol rule and concrete validators add event invariants |
@@ -128,9 +129,9 @@ bounded frame I/O and direct decoder construction. No replacement decoder wrappe
 
 `DomainCodec` in `serialization.py` provides the strict exact-domain hooks used by
 the catalog and event codecs, including complete currency wire values with `code` and
-`minor_unit` and exact Decimal text. This candidate does not implement an HTTP
-transport, acquisition checkpoint, dataset manifest, order book, research
-configuration loader, replay runner, accounting consumer, or operational feed.
+`minor_unit` and exact Decimal text. The acquired raw inputs do not yet supply a
+dataset manifest, order book, research configuration loader, replay runner,
+accounting consumer or operational feed.
 Those later boundaries must add their own schemas, tests, and evidence without
 changing the meaning of the foundation records or silently widening the Binance
 source selection.
@@ -315,7 +316,8 @@ transport, `RawObject` and `RawStore`. Resolve a `Configuration` job with
 `SourceRequest.partition(manifest)` requests. All existing provider, venue,
 product, stream, interval and catalog checks remain active. Fixture inspection
 accepts only `dataset.inspect`; changing a job selection cannot silently use the
-wrong consumer. No acquisition CLI or persistent manifest exists yet.
+wrong consumer. The sequential callable below adds the persistent manifest; the
+installed acquisition CLI remains MR 07 work.
 
 Supply the callable with the request, an existing `RawStore`, an unopened
 `HTTPSConnection("api.tardis.dev")`, a UTC clock, a synchronous JSON report sink,
@@ -350,8 +352,8 @@ to this invocation. Connections close after attempted HTTP operations.
 
 A storage, clock or report-sink failure after publication can leave a verified
 object without successful acknowledgement. Preserve those bytes and diagnose the
-failure; do not infer rollback or advance a checkpoint. MR 06 owns durable
-manifest reconciliation, restart and retry. The caller must keep the report sink
+failure; do not infer rollback or advance a checkpoint. Use the sequential
+acquisition callable below for durable manifest reconciliation, restart and retry. The caller must keep the report sink
 available; a failing sink propagates and can prevent terminal telemetry delivery.
 
 The [MR 05 record](../../../docs/roadmap/mr-05-implementation.md) contains exact
@@ -359,3 +361,65 @@ verification commands, the source-documentation investigation, and the open
 rights/retention and actual-source framing/timestamp boundaries. Notebook section
 13 calls the installed implementation with synthetic HTTP responses and then
 uses the retained decoders on the saved bytes.
+
+
+## Sequential acquisition and resume
+
+[`acquire`](../pipelines/acquisition.py) consumes one expected `ResolvedManifest`
+with the existing `historical` / `acquisition.fetch` selection. It uses the same
+connection, store, admission, byte bounds, UTC clock and report sink as
+`fetch_partition`. Additionally supply `manifest_path` in an existing durable
+directory, an explicit `sleep(seconds)` callback, and optionally `retry_delays`.
+The default `(1.0, 2.0)` permits two additional attempts for the active partition.
+It returns an [`AcquisitionManifest`](manifests.py) with one completed descriptor
+per request in minute-major/instrument order.
+
+The caller exclusively owns the manifest path throughout the invocation and
+protects it and the store from external mutation/removal. Resume requires the same
+resolved run identity, including implementation, actual universe/catalog, rights
+and policies. Unknown schemas/fields, invalid nested values, foreign requests,
+duplicate/out-of-order completions and invalid clocks fail. An absent manifest
+starts a new empty run; preserve this file with its stored objects. No migration
+of a manifest to another implementation identity is implied.
+
+The manifest stores the full resolved run, a completed prefix and at most one
+pending receipt. Each atomic file replacement retains that full completion history.
+Receipt persistence precedes raw publication; completion is appended only after
+verified durable publication. The file is staged on the destination filesystem,
+flushed and synchronized, replaced atomically, then its parent directory is
+synchronized. This requires local atomic replacement and file/directory `fsync`.
+The bounded manifest is read, validated and rewritten in memory; this is not a
+concurrent-writer journal or a large-history storage backend. Ignore leftover
+`.checkpoint-*` staging files; remove them only after their writer has stopped.
+
+| Reopened state | Behavior |
+| --- | --- |
+| Completed descriptor | Verify bytes before new source access; skip its request. Missing, mutated, truncated or nonregular objects fail. |
+| Pending receipt, raw bytes absent | Fetch that request again; persist the new receipt before publication. No completion was previously claimed. |
+| Pending receipt, raw bytes present | Verify and synchronize the existing object, preserving its bytes/inode and original receipt; append one completion. Corrupt pending bytes fail. |
+| Complete manifest | Verify all objects and return without another fetch or logical completion. |
+
+For recovered pending objects, `ts_received` remains the original receipt instant;
+`ts_ingested` records recovery's post-synchronization confirmation. The pending
+record's provisional ingestion value is never a completed-ingestion claim.
+Already completed clocks remain unchanged. Fixed-clock interruption fixtures yield
+byte-identical resumed/uninterrupted manifests; actual recovery clocks can differ.
+
+`TransientFetchError`, an `OSError` subtype, identifies HTTP 408/429/500/502/503/504,
+socket timeouts, connection failures and HTTP protocol failures. These failures
+consume the explicit finite nonnegative backoff tuple. `fetch_partition` now wraps
+socket timeouts in this type, preserving the original exception as its cause;
+callers that previously caught only `TimeoutError` must catch `TransientFetchError`.
+HTTP 401/403 remain terminal `PermissionError`; other unclassified statuses and
+OS failures are terminal, as are schema/gzip, storage, checkpoint and callback
+errors. Exhaustion propagates the last transient error with the manifest incomplete.
+No retries occur after a storage or checkpoint failure within the invocation;
+reopen before retrying uncertain persistence.
+
+Existing partition reports are retained. Retry reports include run/request identity,
+attempt and delay; `checkpointed` includes the durable completion count. Propagated
+exceptions remain the failure boundary; a failed report sink cannot guarantee its
+own telemetry. MR 07 owns the installed CLI and expanded whole-job reporting.
+The [MR 06 record](../../../docs/roadmap/mr-06-implementation.md) and notebook
+section 14 contain actual synthetic commands/results. No source acceptance,
+canonical dataset, frame iteration or coverage claim is added.
