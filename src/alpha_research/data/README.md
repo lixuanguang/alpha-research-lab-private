@@ -305,3 +305,57 @@ descriptor/manifest, garbage collector, acquisition transport or dataset validit
 The [MR 04 acceptance record](../../../docs/roadmap/mr-04-implementation.md),
 [storage tests](../../../tests/unit/data/test_raw_store.py) and notebook section 12
 retain the publication, reuse, conflict and interruption evidence.
+
+
+## One-partition acquisition
+
+[`fetch_partition`](../pipelines/acquisition.py) composes the configured Tardis
+transport, `RawObject` and `RawStore`. Resolve a `Configuration` job with
+`mode="historical"` and `pipeline="acquisition.fetch"`, then select one of its
+`SourceRequest.partition(manifest)` requests. All existing provider, venue,
+product, stream, interval and catalog checks remain active. Fixture inspection
+accepts only `dataset.inspect`; changing a job selection cannot silently use the
+wrong consumer. No acquisition CLI or persistent manifest exists yet.
+
+Supply the callable with the request, an existing `RawStore`, an unopened
+`HTTPSConnection("api.tardis.dev")`, a UTC clock, a synchronous JSON report sink,
+positive `timeout_seconds` and `max_bytes`, and `permitted_rights_reference`.
+The rights reference must match the job and represent caller-confirmed evidence
+covering access, intended use, retention and the destination. Empty, mismatched
+and explicit `unresolved`/`unknown`/`pending` markers fail. This is explicit caller
+admission, not a legal-policy engine: another arbitrary matching string does not
+establish permission. Optional `api_key` is supplied directly, never discovered
+from environment/configuration or included in reports/descriptors. Disable HTTP
+debugging and keep the caller's connection exclusively owned during the attempt.
+
+[`TardisTransport`](providers/tardis/transport.py) sends exactly one GET to the
+raw data-feeds endpoint, fixing `from` to the job origin, using the selected
+integer offset, one-minute slice, lowercase Binance symbol filter and gzip.
+It checks HTTP 200, gzip encoding, one-minute response metadata when present,
+Content-Length when present, and the gzip trailer/CRC. Compressed and expanded
+representations each have the caller's byte cap; empty gzip content is retained
+without a coverage claim. The timeout bounds socket inactivity, not total elapsed
+time or DNS resolution. There are no retries or redirects. Invalid HTTP/gzip
+responses publish nothing; semantic frame validation and bounded saved-line
+iteration remain MR 08/09 work. A gzip-wrapped invalid exchange message may be
+retained as raw evidence, never labeled a validated dataset.
+
+The pipeline emits JSON with run/request identity, partition start, stage,
+status and byte count. Status progresses from `started` to `received` to `stored`;
+exceptions emit `failed` with an error type, without response bodies or credentials.
+The original local receipt clock is sampled after fetch validation; ingestion is
+sampled after durable publication. Successful return is an immutable `RawObject`;
+retain it with its resolved request. Transport state and temporary files belong
+to this invocation. Connections close after attempted HTTP operations.
+
+A storage, clock or report-sink failure after publication can leave a verified
+object without successful acknowledgement. Preserve those bytes and diagnose the
+failure; do not infer rollback or advance a checkpoint. MR 06 owns durable
+manifest reconciliation, restart and retry. The caller must keep the report sink
+available; a failing sink propagates and can prevent terminal telemetry delivery.
+
+The [MR 05 record](../../../docs/roadmap/mr-05-implementation.md) contains exact
+verification commands, the source-documentation investigation, and the open
+rights/retention and actual-source framing/timestamp boundaries. Notebook section
+13 calls the installed implementation with synthetic HTTP responses and then
+uses the retained decoders on the saved bytes.

@@ -58,6 +58,8 @@ def inspect_fixture(
         TypeError: A supplied decoder boundary value has an invalid type.
     """
     manifest.__post_init__()
+    if manifest.job.pipeline != "dataset.inspect":
+        raise ValueError("fixture inspection requires the dataset.inspect pipeline")
     with fixture.open("rb") as source:
         payload = source.read(1_048_577)
     if len(payload) > 1_048_576:
