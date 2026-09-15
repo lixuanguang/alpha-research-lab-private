@@ -4,6 +4,9 @@
 research work. Primary documentation and the bounded observations below support
 the claims. Most sources are candidates, not integrated adapters.
 
+Use the [source summary](../README.md#source-summary) for the provider-by-market
+table, ordered free first, with depth, quality evidence and API links.
+
 The current [notebook](../../../examples/research-foundations.ipynb) acquires
 Binance **spot individual trades** through the
 [configured job](../../../configs/data-jobs/binance-archive.json).
@@ -140,6 +143,10 @@ history is documented; no endpoint sample or full history was verified here.
 Deribit's [options collection guide](https://docs.deribit.com/articles/options-data-collection-best-practices)
 documents current option marks, quotes, IV and Greeks. That does not establish
 a free historical option-chain archive or a published “option-perp basis” series.
+Separately, [Tardis's Deribit catalog](https://docs.tardis.dev/historical-data-details/deribit)
+documents an `options_chain` archive with free first-of-month samples and paid
+history. This is a candidate for historical inputs, not a verified local sample
+or a substitute for defining the signal.
 Specify whether the signal means an option-implied forward versus a perpetual,
 a futures/perpetual spread, or implied versus realized volatility. Those are
 different quantities. A derived basis needs matched timestamps, expiry/strike,
@@ -163,7 +170,11 @@ exempts historical crypto data from its general authentication requirement;
 streaming/latest access is separate. Kraken routing was
 [announced in October 2025](https://docs.alpaca.markets/us/changelog/add-support-for-us-1-crypto-market-data-location).
 That announcement does not prove an earlier backfill starts on that date, or
-that our 2024 sample is available. No Alpaca request/entitlement was tested here.
+that our 2024 trade sample is available. Separately, the
+[historical quotes endpoint](https://docs.alpaca.markets/us/reference/cryptoquotes-1)
+explicitly starts `us-1` quote history at 2025-10-14 00:00 UTC; those quotes
+cannot cover the 2024 sample. This cutoff does not establish trade or `eu-1`
+coverage. No Alpaca request/entitlement was tested here.
 
 **Kraken directly — documented, not integrated.**
 [Trade CSV downloads](https://support.kraken.com/articles/360047543791-downloadable-historical-market-data-time-and-sales-)

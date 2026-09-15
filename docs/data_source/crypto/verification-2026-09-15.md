@@ -119,3 +119,19 @@ change does not alter runtime behavior; no wheel rebuild, installed-consumer
 rerun or fresh notebook execution is needed to verify these source-survey facts.
 Existing MR 07 runtime evidence remains linked in the crypto guide. Full provider
 backfills, historical option-chain availability and L2 replay remain unverified.
+
+## Source-summary follow-up
+
+The source index now separates 37 provider/market/dataset entries into the six
+requested columns, with free access before paid access. A one-off table check
+confirmed six cells per row and the access ordering. The documentation checker
+and `git diff --check` passed again using the commands above.
+
+Additional primary-document checks covered Tardis's Binance and Deribit catalogs,
+its free sample dates and paid access, and Alpaca's quotes and pricing pages.
+The [Alpaca quote reference](https://docs.alpaca.markets/us/reference/cryptoquotes-1)
+sets the Kraken US (`us-1`) quote-history start at 2025-10-14 00:00 UTC.
+The [Tardis Deribit catalog](https://docs.tardis.dev/historical-data-details/deribit)
+documents historical `options_chain` samples; selected files remain untested.
+No additional market-data files or authenticated endpoints were tested for this
+table update. The existing sample results above remain the byte-level evidence.
