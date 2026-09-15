@@ -20,7 +20,7 @@ from alpha_research.serialization import DomainCodec
 
 Venue = Literal["binance"]
 Product = Literal["spot"]
-Source = Literal["tardis.binance.spot"]
+Source = Literal["tardis.binance.spot", "binance.archive.spot"]
 MetadataBasis = Literal["research_assumption"]
 
 _SYMBOL_PATTERN = re.compile(r"[A-Z0-9]+")
@@ -86,7 +86,7 @@ class SpotInstrument(_ReferenceRecord, frozen=True, kw_only=True):
             raise ValueError("unsupported instrument venue")
         if self.product != "spot":
             raise ValueError("unsupported instrument product")
-        if self.source != _SOURCE:
+        if self.source not in (_SOURCE, "binance.archive.spot"):
             raise ValueError("unsupported instrument source")
         if self.metadata_basis != "research_assumption":
             raise ValueError("unsupported instrument metadata basis")

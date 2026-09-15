@@ -65,6 +65,8 @@ secrets/*
 # Data outputs (keep fixtures/schemas in git)
 # -----------------------------------------------------------------------------
 data/bronze/
+# User-selected local Binance downloads, manifests and acquisition logs only.
+/data/binance-archives/
 data/silver/
 data/gold/
 *.parquet

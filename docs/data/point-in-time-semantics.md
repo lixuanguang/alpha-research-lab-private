@@ -22,6 +22,23 @@ source revision, digest, and zero-based source sequence attached to the event.
 later than the decision cutoff and the business time lies in the half-open
 validity interval.
 
+## Binance archive source amendment
+
+On 2026-09-15 the founder selected public Binance daily trade archives for the
+[P1 sample](../research/p1-baseline.md). MR 07 downloads and retains exact ZIP
+bytes. The archive `time` is exchange event time: milliseconds for the selected
+2024 sample, microseconds for spot archives from 2025-01-01. These rows supply
+neither recorder capture nor historical knowledge clocks or disconnect markers.
+Do not pass them through the Tardis decoder or invent its required capture prefix.
+
+`exchange-time-only-v1` is the acquisition selection's explicit time policy.
+Local receipt/ingestion describe acquisition today and remain preserved on repeat.
+MR 09 owns the later row decoder and absent-capture provenance; MR 17 owns
+availability selection. An explicit `event-time-assumption-v1` research scenario
+may assume event-time availability without claiming historical knowability. None
+of these later consumers is implemented by the source acquisition amendment.
+The Tardis-specific capture rules below remain valid for their existing inputs.
+
 ## Capture precision and proxies
 
 Tardis source lines begin with an ISO UTC capture string. The provider decoder

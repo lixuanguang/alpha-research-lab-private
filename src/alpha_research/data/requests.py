@@ -1,4 +1,4 @@
-"""Derive identified per-instrument minute requests from a resolved offline job."""
+"""Derive identified per-instrument source objects from a resolved offline job."""
 
 from __future__ import annotations
 
@@ -17,10 +17,11 @@ from alpha_research.serialization import DomainCodec
 
 
 class SourceRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
-    """Bind one minute of source capture to its complete immutable run manifest.
+    """Bind one source object to its complete immutable run manifest.
 
     ``offset_minutes`` is relative to the job's fixed ``start`` (the future HTTP
-    ``from`` value). No endpoint, transport or data-access admission is implied.
+    ``from`` value). Daily archives use offset zero and cover the full UTC day,
+    retaining the narrower research selection in the manifest. No access is implied.
     """
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
@@ -49,6 +50,8 @@ class SourceRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
             or not 0 <= self.offset_minutes < self._minute_count()
         ):
             raise ValueError("source request offset must identify a minute inside the job interval")
+        if self.manifest.job.partition == "utc-day" and self.offset_minutes != 0:
+            raise ValueError("daily source request offset must be zero")
 
     @property
     def identity(self) -> str:
@@ -78,7 +81,7 @@ class SourceRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
             selection,
             self.instrument,
             job.start,
-            self.offset_minutes,
+            (self.offset_minutes, job.end) if job.partition == "utc-day" else self.offset_minutes,
             self.manifest.catalog.identity,
             self.manifest.implementation_identity,
         )
@@ -86,21 +89,25 @@ class SourceRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
 
     @property
     def start(self) -> datetime:
-        """Return the inclusive UTC capture boundary.
+        """Return the inclusive UTC source-object boundary.
 
         Returns:
-            Fixed job start plus the integer minute offset.
+            UTC midnight for daily archives, otherwise job start plus minute offset.
         """
+        if self.manifest.job.partition == "utc-day":
+            return self.manifest.job.start.replace(hour=0, minute=0)
         return self.manifest.job.start + timedelta(minutes=self.offset_minutes)
 
     @property
     def end(self) -> datetime:
-        """Return the exclusive UTC capture boundary.
+        """Return the exclusive UTC source-object boundary.
 
         Returns:
-            Exactly one minute after this request's start.
+            One day for daily archives, otherwise one minute after this request's start.
         """
-        return self.start + timedelta(minutes=1)
+        return self.start + timedelta(
+            minutes=1440 if self.manifest.job.partition == "utc-day" else 1
+        )
 
     def _minute_count(self) -> int:
         """Count complete minutes without floating-point timestamp arithmetic."""
@@ -121,6 +128,8 @@ class SourceRequest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
         """
         manifest.__post_init__()
         minutes = (manifest.job.end - manifest.job.start) // timedelta(minutes=1)
+        if manifest.job.partition == "utc-day":
+            minutes = 1
         return tuple(
             cls(manifest=manifest, instrument=instrument, offset_minutes=offset)
             for offset in range(minutes)

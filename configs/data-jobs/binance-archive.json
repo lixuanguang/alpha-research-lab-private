@@ -1,0 +1,43 @@
+{
+  "schema_version": "1",
+  "universes": [
+    {
+      "name": "btc",
+      "instrument_ids": [
+        "11111111-1111-4111-8111-111111111111"
+      ]
+    },
+    {
+      "name": "eth",
+      "instrument_ids": [
+        "22222222-2222-4222-8222-222222222222"
+      ]
+    },
+    {
+      "name": "both",
+      "instrument_ids": [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222"
+      ]
+    }
+  ],
+  "jobs": [
+    {
+      "name": "btc-archive",
+      "universe": "btc",
+      "provider": "binance-archive",
+      "venue": "binance",
+      "product": "spot",
+      "dataset": "raw",
+      "stream": "trade",
+      "mode": "historical",
+      "pipeline": "acquisition.fetch",
+      "partition": "utc-day",
+      "capture_policy": "exchange-time-only-v1",
+      "source_revision": "publisher-checksum-at-retrieval-v1",
+      "rights_reference": "binance-public-data-2026-09-15-private-research",
+      "start": "2024-06-01T00:00:00Z",
+      "end": "2024-06-01T01:00:00Z"
+    }
+  ]
+}

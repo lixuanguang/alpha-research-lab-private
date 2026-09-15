@@ -91,6 +91,7 @@ the QuantLib release restriction.
 | [Implementation roadmap](roadmap/README.md) | One delivery sequence: milestones, MR definitions, pipeline/library ownership, acceptance and longer-term scope |
 | [Frozen P1 experiment](research/p1-baseline.md) | Selected sample, strategy, timing, cost assumptions and experiment acceptance requirements |
 | [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |
+| [Data sources](data_source/README.md) | Sources by asset class and data type, historical coverage, access limits and dated verification evidence |
 | [Engineering guide](coding_standards/README.md) | Enforced clarity and numerical engineering requirements |
 | [Instrument identity](architecture/instrument-identity.md), [venue calendars](architecture/venue-calendar.md), [financial units](architecture/financial-units.md) | Implemented domain contracts and golden datasets |
 | [Data contracts](data/contracts.md), [point-in-time semantics](data/point-in-time-semantics.md), [data library](../src/alpha_research/data/README.md) | Implemented events, decoding, provenance and current construction example |

@@ -6,9 +6,12 @@ from __future__ import annotations
 import argparse
 import gzip
 import os
+import runpy
 import socket
+import sys
 from datetime import UTC, datetime
 from http.client import HTTPResponse, HTTPSConnection
+from importlib.metadata import distribution
 from io import BufferedReader, BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -28,6 +31,7 @@ class _Arguments(argparse.Namespace):
     root: Path
     run: Path
     point: str
+    command: list[str] | None
 
 
 class _SyntheticAcquisition:
@@ -43,6 +47,7 @@ class _SyntheticAcquisition:
         self._root = root
         self._point = point
         self._offset = 0
+        self._attempts = 0
         self._link = os.link
         self._replace = os.replace
         self._codec = DomainCodec()
@@ -53,6 +58,12 @@ class _SyntheticAcquisition:
         self._offset = int(parse_qs(urlsplit(url).query)["offset"][0])
         with (self._root / "fetches.txt").open("a") as output:
             output.write(f"{self._offset}\n")
+        if self._offset == 1:
+            self._attempts += 1
+            if self._point == "interrupt":
+                raise KeyboardInterrupt
+            if self._point == "exhausted" or (self._point == "retry" and self._attempts == 1):
+                raise TimeoutError("synthetic private transport detail")
 
     def respond(self) -> HTTPResponse:
         """Parse a distinct fixed gzip representation for each selected minute."""
@@ -109,8 +120,18 @@ def main() -> None:
     parser.add_argument("run", type=Path)
     parser.add_argument(
         "point",
-        choices=("none", "before-raw", "after-raw", "before-checkpoint", "after-checkpoint"),
+        choices=(
+            "none",
+            "before-raw",
+            "after-raw",
+            "before-checkpoint",
+            "after-checkpoint",
+            "interrupt",
+            "retry",
+            "exhausted",
+        ),
     )
+    parser.add_argument("--command", nargs=argparse.REMAINDER)
     args = parser.parse_args(namespace=_Arguments())
     scenario = _SyntheticAcquisition(args.root, args.point)
     run = DomainCodec().decode_json(args.run.read_bytes(), ResolvedManifest)
@@ -120,6 +141,12 @@ def main() -> None:
         patch("alpha_research.data.raw_store.os.link", scenario.link),
         patch("alpha_research.data.manifests.os.replace", scenario.replace),
     ):
+        if args.command is not None:
+            sys.argv = ["alpha-acquire", *args.command]
+            installed = distribution("alpha-research-lab")
+            script = next(item for item in installed.files or () if item.name == "alpha-acquire")
+            runpy.run_path(str(installed.locate_file(script)), run_name="__main__")
+            return
         state = acquire(
             run,
             manifest_path=args.root / "manifest.json",

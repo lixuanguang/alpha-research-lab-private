@@ -281,6 +281,89 @@ receipt order to establish parity; a later vendor archive cannot stand in for
 what the local system knew. A decoded depth update alone does not establish a
 valid book after a gap; enable that consumer only with its reconstruction contract.
 
+Delivery scope and acceptance live in the
+[roadmap](../roadmap/README.md#market-data-expansion-and-replay-lessons).
+The contracts below define the planned source, reconstruction and quality behavior;
+[scaling decisions](#storage-and-performance-decisions) own infrastructure selection.
+
+### Collection scope and source contracts
+
+MR 22 records each enabled combination in the existing source/job configuration:
+venue, product, canonical instrument, source/access mode, stream representation,
+timestamp units and meaning, sequence/reset guarantees, depth coverage, supported
+intervals, backfill limits and permitted use. Record unsupported and unknown
+coverage explicitly. Revalidate the adapter's protocol assumptions when admitting
+a changed source schema; retain the last working fixture and source version.
+
+| Representation | Required distinction before claiming coverage |
+| --- | --- |
+| Individual trades | Retain trade identity, exact units, maker/aggressor meaning and correction policy. Aggregated trades cannot silently stand in for every individual trade; specify whether separate trade channels belong to the selected universe. |
+| L2 market by price | Snapshot plus ordered changes reconstruct quantities at prices within declared coverage. This does not establish individual-order queue positions or L3 market-by-order history. |
+| Tickers | Best bid/offer, last trade and rolling statistics are distinct products. Record the chosen fields/window, update semantics, age and source; one cannot certify another's completeness. |
+| Klines | Enumerate the selected venue-supported intervals, timezone/boundaries and whether provisional updates or only closed bars are retained. Preserve close/finality and revision availability. Trade-derived bars have separate lineage and are not relabeled exchange klines. “Every kline” means the declared intervals and retained coverage, not an unspecified promise. |
+
+For execution-sensitive inputs, prefer the direct feed for the actual venue and
+product, with its native order adapter. An aggregator remains useful for research
+and historical backfill. Any alternative execution input needs explicit freshness,
+ordering and provenance acceptance; switching providers cannot silently preserve
+the old source identity or measured latency. Endpoint, heartbeat, connection
+lifetime and request limits are verified for the selected product during MR 22,
+not copied from another venue or an old example.
+
+### L2 synchronization and recovery
+
+Validate continuity against the source stream's documented contract, including
+batched sequence ranges, resets and checksums where supplied. The local raw-record
+position and a broker offset are not exchange sequence numbers. A stream without
+consecutive IDs needs its documented integrity checks and an honest unknown-
+coverage outcome; do not manufacture a universal per-message counter rule.
+
+The reconstruction library consumes saved snapshots, updates and session controls;
+the live pipeline owns network requests, rate limits, retries and persistence.
+The same reconstruction library serves saved-input replay. Its supported book
+carries instrument, session/recovery epoch, snapshot/raw identity, applied source
+cursor, known depth coverage, effective availability and quality status.
+
+1. On startup, a proven gap, checksum failure or unusable book, immediately block
+   affected book-dependent consumers and enter `recovering`. Preserve raw input
+   and the failure boundary. Keep independent healthy bindings usable.
+2. Buffer updates within explicit memory/time bounds while requesting a fresh
+   snapshot through the venue's supported recovery mechanism. For a REST-based
+   adapter, coalesce recovery to one in-flight request per binding, respect the
+   shared endpoint budget and retry/backoff policy, and discard responses from
+   superseded session epochs. Overflow or exhausted recovery stays unavailable.
+3. Reconcile snapshot and buffered updates under the venue-specific bridge rule;
+   reject stale/incompatible snapshots and gaps in the retained suffix. Apply a
+   complete source message atomically, including all bid/ask changes. Downstream
+   decisions must not observe a half-applied message or snapshot.
+4. Validate the reconstructed state and coverage, then resume at its actual
+   availability time. A repaired book cannot restore observations or decisions
+   inside the earlier missing interval. Persist enough snapshot/cursor/epoch
+   identity for deterministic reconstruction after restart.
+
+For Binance spot, the documented procedure buffers depth events before obtaining
+a REST snapshot, removes updates covered by the snapshot, reconciles the first
+remaining range and restarts if a subsequent `U` exceeds the local update ID plus
+one. Updates set absolute quantities; zero quantity deletes a level. Snapshot
+depth is limited, so untouched levels outside it remain unknown. Use the current
+documented bridge rule and distinguish it from futures continuity fields.
+[Official spot procedure](https://github.com/binance/binance-spot-api-docs/blob/master/web-socket-streams.md#how-to-manage-a-local-order-book-correctly)
+(reviewed 2026-09-15; recheck during adapter implementation).
+
+The [MR 24/25 acceptance cases](../roadmap/README.md#l2-recovery-acceptance)
+verify these transitions with saved traces and the supported live boundary.
+
+### Ingestion quality
+
+MR 13's historical checks and MRs 23–26's continuous checks share schema/unit and
+source policies. Reject nonfinite or nonpositive trade prices and invalid trade
+quantities under that representation's contract; zero L2 update quantity remains
+a deletion. Preserve rejected raw records, reasons and binding-scoped counts.
+An invalid required update invalidates dependent book state. Do not silently
+drop an anomaly, forward-fill it or mark the stream healthy after reconnect.
+Keep the existing frozen `msgspec.Struct` and explicit invariant requirements;
+this design does not migrate market events to Pydantic.
+
 ## Dataset, feature, label, and experiment contracts
 
 Planned dataset, feature, label, signal, model, cost, risk, portfolio, and candidate records carry identity, version,
@@ -331,6 +414,48 @@ order for meaningful ties. Hashes retain provenance without allowing future byte
 changes to reorder earlier economics. E1 first exercises this contract through
 observations, decisions and a reconciled synthetic ledger, then MR 44 extends the
 same path with saved-input/trial composition.
+
+### Replay clocks and fill fidelity
+
+Preserve exchange time, local receipt, ingestion and effective knowledge as
+distinct facts under the [point-in-time contract](../data/point-in-time-semantics.md).
+Retain original precision and source order. Introduce versioned integer timestamp
+units only when a supported consumer needs precision beyond the current boundary;
+never reinterpret existing microsecond values. Negative apparent latency is a
+clock-quality observation. A correction requires an explicit versioned model
+and calibration availability, retaining original clocks; a future extreme offset
+must not rewrite an earlier decision's information set.
+
+An order-book simulation distinguishes exchange-side matching state from the
+strategy's then-known state. Feed delay, local processing, order entry and order
+response delay have separate meanings. A fill can occur before its response is
+visible locally; a cancel request is not a successful cancel. Retain send,
+exchange/acknowledgement/fill and response identities/times where actually
+observed, with absent clocks explicit. Constant delays are declared scenarios;
+empirical latency models need source/environment identity, calibration windows,
+coverage and sensitivity checks. Archive download time cannot measure historical
+feed latency. Use recorded or paper/sandbox evidence first; the existing authority
+rules continue to govern executable activity.
+
+Extend MRs 20/35/37/38 and 51 for a selected quoting consumer only after its book,
+order lifecycle and product economics exist. Pull pure lifecycle contracts from
+MR 51 forward with an offline simulator when needed; MR 50 remains a prerequisite
+for the paper runtime, not for those pure contracts. Saved-book research does not
+require a deployed collector. Define queue assumptions, maker/taker
+fees, supported order types, post-only rejection, partial fills and cancel/replace
+priority. For L2, position in queue is modeled; L3 requires actual order identities
+and lifecycle data. Trade depletion and its matching depth decrease must not
+advance the modeled queue twice. Deterministic scenarios exercise the selected
+model and an alternative plausible queue/latency assumption; they are not proof
+of exchange fidelity.
+
+Historical replay does not change other participants' recorded orders when our
+simulated order trades. State the no-impact and size/liquidity envelope, and reject
+or visibly bound unsupported liquidity-taking/capacity claims. A partial-fill
+option alone does not remove this limitation. Keep P1's declared trade-price
+model intact; book-based research needs a separate versioned experiment.
+
+The roadmap owns [capture and paper comparison acceptance](../roadmap/README.md#replay-and-paper-comparison).
 
 ## Portfolio, accounting, and position state
 
@@ -494,6 +619,15 @@ preserves raw and normalized evidence, reconciles the venue, and records release
 state, schema, credential, limit, and fencing checks. Backup/restore, stop/cancel, replay, rollback, and alert delivery
 are tested before a canary receives more exposure.
 
+### Feed health and observable loss
+
+Measure receipt-to-durable delay, advancing source/persistence cursors, interarrival
+gaps, queue age/bytes, invalid/duplicate counts, reconnects and recovery duration
+per supported binding. Distinguish expected quiet feeds from stalled progress
+using the stream contract. Heartbeats alone do not establish fresh data. Venue
+quality is an observed property of the selected feed and period, not a permanent
+ranking such as “Binance is always stable.”
+
 ## Security, entitlements, and organization
 
 Secrets stay outside source, fixtures, logs, and artifacts. Data rights, retention, venue permissions, account scope,
@@ -521,6 +655,51 @@ not introduced merely to reproduce an institutional pattern.
 A Rust or C++ component preserves the Python reference's goldens and accounting/risk decisions. Its ABI names
 allocation, ownership, error, threading, layout, numeric representation, version, and shutdown behavior. The native
 artifact is admitted and tested for every supported platform before a consumer depends on it.
+
+### Storage and performance decisions
+
+MR 23 decouples receipt from downstream work through durable, replayable capture
+and bounded queues. A durable local segment log is the first candidate. Evaluate
+Kafka when independent consumers, retention/replay, cross-process recovery or
+burst isolation justify a service. Partition by a declared ordering scope and
+retain original event identity; acknowledgement and consumer checkpoint rules
+must compose with durable sink writes. Broker guarantees do not by themselves
+make an external database sink exactly once.
+[Kafka delivery semantics](https://kafka.apache.org/design/).
+
+MR 18 compares the reference reader with a bounded columnar candidate; include
+ClickHouse when the depth-history or concurrent analytics workload warrants it.
+Decide sorting/partition keys, batching, retention and snapshot-plus-delta layout
+from the named query. Keep all economically relevant revisions and control events
+available to as-of selection; a latest-value table cannot replace replay history.
+Columnar storage performance depends on layout and accessed data, so choosing the
+engine alone is not acceptance.
+[ClickHouse MergeTree design](https://github.com/ClickHouse/ClickHouse/blob/master/docs/en/engines/table-engines/mergetree-family/mergetree.md).
+
+Use the proposed **7M+ source messages/day and sub-500ms historical depth query**
+as a candidate workload to scope in MR 18/P6, not an achieved result or a reason
+to mandate both services. Define total versus per-venue volume, messages versus
+normalized rows, burst distribution, retention horizon, depth levels, query/result
+size, concurrency, hardware, warm/cold cache and latency percentile before a run.
+Measure sustained/burst ingestion, durable lag, memory/disk, queue growth, recovery,
+rows/bytes scanned and p50/p95/p99 query latency. Retain exact-value/revision parity
+and the operational cost. A bounded representative experiment decides whether to
+adopt, defer or revise the target; no service deployment is required for P1.
+
+### External simulator reuse
+
+Use hftbacktest first as a source of small independent traces and, when a book
+consumer exists, a candidate differential simulator. Its
+[Python package metadata](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/py-hftbacktest/pyproject.toml)
+adds a Rust build and NumPy/Numba dependencies; compatibility with this repository's
+pinned Python 3.14 and dependency policy has not been established. Do not import
+its stack, sample numeric types, timestamp repairs or connector code wholesale.
+A reuse experiment names the revision and supported mechanics, checks exact
+unit/clock conversion, compares matched traces and reports disagreements before
+dependency admission. Optimize representation, prefetch or native loops only
+after the relevant P6 measurement, preserving the reference semantics.
+The [pinned implementation assessment](../roadmap/README.md#hftbacktest-implementation-review)
+records the inspected behavior and differences to preserve at our boundaries.
 
 ## Delivery sequence
 
