@@ -246,8 +246,9 @@ files are representable without claiming a quiet interval. MR 04 supplies the
 store below; transport validation remains owned by MR 05.
 
 The [MR 03 acceptance record](../../../docs/roadmap/mr-03-implementation.md) records
-focused tests, outside-checkout wheel verification and the foundation notebook's
-section 11 (NB 03), including a changed gzip header with identical decoded content.
+focused tests, outside-checkout wheel verification and
+[companion notebook](../../../examples/foundation-contract-checks.ipynb) section 11
+(NB 03), including a changed gzip header with identical decoded content.
 
 
 ## Durable raw-byte store
@@ -307,7 +308,7 @@ power-loss behavior or network/object-store support. This MR adds no persistent
 descriptor/manifest, garbage collector, acquisition transport or dataset validity.
 
 The [MR 04 acceptance record](../../../docs/roadmap/mr-04-implementation.md),
-[storage tests](../../../tests/unit/data/test_raw_store.py) and notebook section 12
+[storage tests](../../../tests/unit/data/test_raw_store.py) and companion notebook section 12
 retain the publication, reuse, conflict and interruption evidence.
 
 
@@ -423,7 +424,7 @@ Existing partition reports are retained. Retry reports include run/request ident
 attempt and delay; `checkpointed` includes the durable completion count. Propagated
 exceptions remain the failure boundary; a failed report sink cannot guarantee its
 own telemetry. The installed command below adds whole-job reporting in MR 07.
-The [MR 06 record](../../../docs/roadmap/mr-06-implementation.md) and notebook
+The [MR 06 record](../../../docs/roadmap/mr-06-implementation.md) and companion notebook
 section 14 contain actual synthetic commands/results. No source acceptance,
 canonical dataset, frame iteration or coverage claim is added.
 
@@ -492,9 +493,11 @@ the process exit, last flushed report and saved checkpoint. A failed output sink
 is terminal; reporting cannot guarantee its own availability.
 
 The [MR 07 acceptance record](../../../docs/roadmap/mr-07-implementation.md) and
-notebook section 15 exercise the installed command outside the checkout through
+companion notebook section 15 exercise the installed command outside the checkout through
 synthetic HTTP, abrupt interruption, retries, repeats and damaged-byte rejection.
-Section 16 and the linked follow-up record exercise actual Binance archive acquisition.
+The [main notebook](../../../examples/research-foundations.ipynb) now connects actual
+archive acquisition, verified cache reads, row previews and exact financial units.
+Each section explains the operation; the linked record retains prior verification.
 This is an intermediate raw-acquisition workflow; canonical row decoding, coverage
 validation, dataset publication and M1/P1 acceptance remain later work.
 

@@ -230,8 +230,10 @@ storage, interrupted-publication recovery and NB 04 evidence. MR 05’s
 NB 05 synthetic evidence. MR 06’s [merged implementation](mr-06-implementation.md) adds
 validated manifests, checkpoint recovery and bounded transient retry with NB 06.
 MR 07’s [review candidate](mr-07-implementation.md) adds the installed command
-and observable resume, with synthetic NB 07 in notebook section 15. Section 16
-now downloads the actual Binance public daily trade archive, verifies publisher
+and observable resume. Synthetic NB 07 is retained in section 15 of
+[foundation-contract-checks.ipynb](../../examples/foundation-contract-checks.ipynb).
+[research-foundations.ipynb](../../examples/research-foundations.ipynb) now connects
+actual Binance public daily trade acquisition, verifies publisher
 SHA-256 and ZIP CRC, and inspects the selected hour. The founder authorized this
 source-contract amendment on 2026-09-15 and chose ignored local data storage.
 See the [P1 amendment](../research/p1-baseline.md) and
@@ -992,19 +994,24 @@ owns the boundary between exploratory ideas and maintained package behavior.
 | Quant strategy research | Prototype hypotheses, signals and models; compare scenarios, costs and attribution. | Versioned strategy logic, configuration, simulation/accounting and reproducible runners. |
 | Strategy monitoring | Inspect saved or available runtime reports, exposures, P&L, data freshness and drift. | Persistent monitoring, metric definitions, alert delivery and operational controls when implemented. |
 
-Use `examples/research-foundations.ipynb` as the working foundation example,
-with editable scenarios, intermediate tables, findings and separate fixed
-reference checks. Its local runner defaults to one execution and preserves
-distinct successful or failed snapshots under ignored `examples/runs/`.
+Use `examples/research-foundations.ipynb` for the connected real historical-data
+workflow: configuration, acquisition/cache, verified source inspection, clocks
+and exact financial-unit previews. Its eight sections explain each operation.
+`examples/foundation-contract-checks.ipynb` retains the independent synthetic
+scenarios, reference checks and original numbered MR checkpoints. Both are
+maintained, executable notebooks; neither needs state from the other. The local
+runner defaults to one execution and preserves distinct successful or failed
+snapshots under ignored `examples/runs/`.
 Split or move its sections into these activity notebooks as actual work grows;
 do not create empty notebooks or fictional fetching/monitoring capabilities now.
 Each MR names the notebook and relevant scenario/section it exercised. Notebook
 lifetime follows the research activity, while package changes remain one bounded
 MR at a time. MR 00 has merged; C0 is implemented in this candidate. MR 01–02
-checkpoints are complete in section 10 of the foundation notebook. MR 03's
+checkpoints are retained in section 10 of the companion contract-check notebook. MR 03's
 checkpoint is complete in section 11. MR 04's checkpoint is complete in section 12
 for its merged implementation. MR 05’s synthetic checkpoint is complete in
-section 13; its permitted-source checkpoint remains open. MR 06’s synthetic
+section 13; actual Binance source verification is in the main notebook and the
+MR 07 follow-up record. MR 06’s synthetic
 checkpoint is complete in section 14, including four abrupt process interruptions,
 manifest parity, completed-object rejection and bounded retry failures. MR 07’s
 synthetic checkpoint is complete in section 15: installed command/config identity,
