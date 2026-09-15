@@ -15,6 +15,10 @@ from alpha_research.data.requests import SourceRequest
 from alpha_research.serialization import DomainCodec
 
 
+class TransientFetchError(OSError):
+    """Identify retryable HTTP/network failures without including source response bodies."""
+
+
 class TardisTransport:
     """Own one-request HTTP and gzip validation, leaving frame interpretation to readers."""
 
@@ -61,7 +65,7 @@ class TardisTransport:
         Raises:
             ValueError: Selection, admission, response encoding, size or gzip is invalid.
             PermissionError: HTTP authentication or entitlement failed.
-            TimeoutError: The socket inactivity limit expired.
+            TransientFetchError: Retryable status, timeout, connection or protocol failure.
             OSError: HTTP status, network or protocol failure; no retry is performed.
         """
         request.__post_init__()
@@ -95,6 +99,8 @@ class TardisTransport:
             with self._connection.getresponse() as response:
                 if response.status in (401, 403):
                     raise PermissionError(f"Tardis access denied (HTTP {response.status})")
+                if response.status in (408, 429, 500, 502, 503, 504):
+                    raise TransientFetchError(f"Tardis temporary failure (HTTP {response.status})")
                 if response.status != 200:
                     raise OSError(f"Tardis fetch failed (HTTP {response.status})")
                 if response.getheader("Content-Encoding") != "gzip":
@@ -115,7 +121,7 @@ class TardisTransport:
             return payload
         except (EOFError, gzip.BadGzipFile, ZlibError) as error:
             raise ValueError("Tardis response has invalid or truncated gzip bytes") from error
-        except HTTPException as error:
-            raise OSError("Tardis HTTP protocol failure") from error
+        except (TimeoutError, ConnectionError, HTTPException) as error:
+            raise TransientFetchError("Tardis transient network/protocol failure") from error
         finally:
             self._connection.close()

@@ -2,14 +2,14 @@
 
 Owner: repository founder. Consolidated 2026-09-14. MR 00 and C0 are complete;
 MRs 01–02 are merged in the M0 delivery. MR 03 is merged in PR #24 at `bf3fb99`.
-MR 04 is merged in PR #25 at `b136b36`. MR 05 is implemented and locally verified
-for synthetic acquisition in its [review candidate](mr-05-implementation.md);
-the permitted source probe remains blocked by unresolved rights admission and retention.
-MRs 06–62 and R1 remain planned;
+MR 04 is merged in PR #25 at `b136b36`. MR 05 is merged in PR #26 at `48bf9b7`;
+its permitted source probe remains blocked by unresolved rights admission and retention.
+MR 06 is implemented and locally verified for synthetic resume in its
+[review candidate](mr-06-implementation.md). MRs 07–62 and R1 remain planned;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 05](mr-05-implementation.md), including its open source-evidence boundary.
-MR 06 is next after MR 05 merges.**
+**Review [MR 06](mr-06-implementation.md). MR 07 is next after MR 06 merges.**
+MR 05’s open source-evidence boundary remains unchanged.
 M0 resolves configured inputs and runs an installed fixture consumer. Follow the
 dependency graph through verified saved inputs, reference query/replay and E1. Keep MR 05's source
 feasibility investigation early. The frozen sample, strategy and cost assumptions
@@ -46,8 +46,9 @@ Tardis/Binance event decoding, configured fixture inspection and saved raw-objec
 description/verification with durable content-addressed publication and verified
 reads. A bounded Tardis partition fetch composes these storage contracts with
 explicit access admission, HTTP/gzip checks and progress/failure reports; only
-synthetic acquisition is verified so far. The frozen uv build, strict source checks, CI and runtime
-wheel installation exist. Resumable acquisition, versioned datasets, strategy
+synthetic acquisition is verified so far. MR 06 adds a durable acquisition manifest,
+sequential restart and bounded transient retry. The frozen uv build, strict source checks, CI and runtime
+wheel installation exist. Versioned datasets, strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
@@ -219,10 +220,11 @@ statistical anomaly detection and automatic repair are later, consumer-driven wo
 MR 03's [implementation record](mr-03-implementation.md) contains the local
 saved-byte verification, installed-consumer and NB 03 evidence. MR 03 is merged.
 MR 04's [merged implementation](mr-04-implementation.md) adds durable raw-byte
-storage, interrupted-publication recovery and NB 04 evidence. MR 05's
-[review candidate](mr-05-implementation.md) adds the one-partition callable and
-NB 05 synthetic evidence. Its permitted source probe remains unperformed; this
-does not close source acceptance or M1.
+storage, interrupted-publication recovery and NB 04 evidence. MR 05’s
+[merged implementation](mr-05-implementation.md) adds the one-partition callable and
+NB 05 synthetic evidence. MR 06’s [review candidate](mr-06-implementation.md) adds
+validated manifests, checkpoint recovery and bounded transient retry with NB 06.
+The permitted source probe remains unperformed; this does not close source acceptance or M1.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -988,7 +990,9 @@ MR at a time. MR 00 has merged; C0 is implemented in this candidate. MR 01–02
 checkpoints are complete in section 10 of the foundation notebook. MR 03's
 checkpoint is complete in section 11. MR 04's checkpoint is complete in section 12
 for its merged implementation. MR 05’s synthetic checkpoint is complete in
-section 13; its permitted-source checkpoint remains open.
+section 13; its permitted-source checkpoint remains open. MR 06’s synthetic
+checkpoint is complete in section 14, including four abrupt process interruptions,
+manifest parity, completed-object rejection and bounded retry failures.
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
@@ -1104,10 +1108,9 @@ The bounded governance cleanup is complete, and
 [MR 00](../research/p1-baseline.md) has frozen the first source and hypothesis.
 The [C0 cleanup](#c0-remove-redundant-composition-before-adding-consumers)
 is implemented in the current checkpoint. M0/MRs 01–02 and MR 03 are merged.
-MR 05 is locally verified with synthetic responses in its
-[review candidate](mr-05-implementation.md), with source acceptance still open;
-after MR 05 merges, continue with MR 06
-and the dependency-ordered
+MR 05 is merged in PR #26, with source acceptance still open. MR 06 is locally
+verified in its [review candidate](mr-06-implementation.md); after MR 06 merges,
+continue with MR 07 and the dependency-ordered
 [milestone packages](#completion-and-dependency-model). Historical ingestion closes only with normalization, validation and publication; the earlier
 raw-download command remains a useful intermediate checkpoint. For each slice, record the input/output contract,
 affected modules and consumers, persisted identities, critical failure behavior,
