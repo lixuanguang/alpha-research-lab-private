@@ -1,11 +1,12 @@
 # Platform implementation roadmap
 
 Owner: repository founder. Consolidated 2026-09-14. MR 00 and C0 are complete;
-MRs 01–02 are merged in the M0 delivery. MR 03 is implemented and locally verified
-in its [review candidate](mr-03-implementation.md). MRs 04–62 and R1 remain planned;
+MRs 01–02 are merged in the M0 delivery. MR 03 is merged in PR #24 at `bf3fb99`.
+MR 04 is implemented and locally verified in its
+[review candidate](mr-04-implementation.md). MRs 05–62 and R1 remain planned;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 03](mr-03-implementation.md), then start MR 04 after it merges.**
+**Review [MR 04](mr-04-implementation.md), then start MR 05 after it merges.**
 M0 resolves configured inputs and runs an installed fixture consumer. Follow the
 dependency graph through verified saved inputs, reference query/replay and E1. Keep MR 05's source
 feasibility investigation early. The frozen sample, strategy and cost assumptions
@@ -39,7 +40,8 @@ extension boundaries for the broader platform.
 Today the runtime contains instrument identity, venue calendars, financial units,
 exact serialization, event provenance, an authored reference catalog, bounded
 Tardis/Binance event decoding, configured fixture inspection and saved raw-object
-description/verification. The frozen uv build, strict source checks, CI and runtime
+description/verification with durable content-addressed publication and verified
+reads. The frozen uv build, strict source checks, CI and runtime
 wheel installation exist. Data acquisition, versioned datasets, strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
@@ -210,8 +212,10 @@ statistical anomaly detection and automatic repair are later, consumer-driven wo
 ### Raw inputs and acquisition
 
 MR 03's [implementation record](mr-03-implementation.md) contains the local
-saved-byte verification, installed-consumer and NB 03 evidence. Durable storage
-and acquisition remain planned; this does not close M1.
+saved-byte verification, installed-consumer and NB 03 evidence. MR 03 is merged.
+MR 04's [review candidate](mr-04-implementation.md) adds durable raw-byte storage,
+interrupted-publication recovery and NB 04 evidence. Acquisition remains planned;
+this does not close M1.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -975,7 +979,8 @@ Each MR names the notebook and relevant scenario/section it exercised. Notebook
 lifetime follows the research activity, while package changes remain one bounded
 MR at a time. MR 00 has merged; C0 is implemented in this candidate. MR 01–02
 checkpoints are complete in section 10 of the foundation notebook. MR 03's
-checkpoint is complete in section 11 for its review candidate; MR 04 is next.
+checkpoint is complete in section 11. MR 04's checkpoint is complete in section 12
+for its review candidate; MR 05 is next.
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
@@ -1090,8 +1095,9 @@ explicitly applicable later capability.
 The bounded governance cleanup is complete, and
 [MR 00](../research/p1-baseline.md) has frozen the first source and hypothesis.
 The [C0 cleanup](#c0-remove-redundant-composition-before-adding-consumers)
-is implemented in the current checkpoint. M0/MRs 01–02 is merged and MR 03 is
-locally verified in its review candidate; after MR 03 merges, continue with MR 04
+is implemented in the current checkpoint. M0/MRs 01–02 and MR 03 are merged.
+MR 04 is locally verified in its [review candidate](mr-04-implementation.md);
+after MR 04 merges, continue with MR 05
 and the dependency-ordered
 [milestone packages](#completion-and-dependency-model). Historical ingestion closes only with normalization, validation and publication; the earlier
 raw-download command remains a useful intermediate checkpoint. For each slice, record the input/output contract,

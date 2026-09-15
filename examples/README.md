@@ -39,7 +39,12 @@ compressed-byte digest, request partition, retrieval reference and original cloc
 round-trip the descriptor; reject mutation, truncation and another request; then
 verify recovery with the original bytes. The sample files are temporary and
 synthetic. See the [MR 03 acceptance record](../docs/roadmap/mr-03-implementation.md)
-for commands and results. MR 04 durable publication remains the next package.
+for commands and results. Section 12 completes **NB 04** with `RawStore`: two
+child processes exit before/after the atomic link; inspect staging versus published
+bytes, retry, confirm inode reuse and reject a corrupt existing object. The retained
+[interruption fixture](../tests/fixtures/mr04/interrupt_publish.py) is shared with
+the storage tests. See the [MR 04 acceptance record](../docs/roadmap/mr-04-implementation.md).
+MR 05 provider-partition fetching remains the next package.
 
 Future notebooks can
 use names such as `data-fetching.ipynb`, `eda.ipynb`, `strategy-research.ipynb` and
@@ -105,3 +110,20 @@ all 33 files then matched it exactly. The cause of the file renaming was not
 established. Restart a previously opened kernel after repairing its installation,
 since it may retain the failed namespace import in memory. The saved interactive
 failure is retained under `examples/runs/research-foundations/`.
+
+
+On 2026-09-15, the MR 04 editor run used an older `.venv` installation missing
+`data/raw_store.py`; the separate clean verification environment already had it.
+The same candidate wheel was installed into `.venv` with `--no-deps --reinstall
+--link-mode copy`. Twenty stale renamed runtime duplicates were quarantined, and
+all 34 expected runtime files then matched the source and wheel exactly. All 13
+cells passed using `--kernel-python .venv/bin/python`, preserving the editor's
+ipykernel 7.3.0. The [MR 04 repair record](../docs/roadmap/mr-04-implementation.md#editor-environment-repair-before-merge)
+contains the commands and retained attempt identity.
+
+After switching to source that adds or changes a module, refresh the installed
+candidate in the interpreter selected by the editor, then restart that kernel
+and run all cells. `--no-sync` only preserves an existing installation; it does
+not install new source. The package version remains `0.1.0` across these MRs, so
+check installed file identity instead of treating the version string as proof
+that the current candidate is installed.
