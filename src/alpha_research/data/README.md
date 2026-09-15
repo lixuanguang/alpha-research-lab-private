@@ -5,7 +5,8 @@ candidate. This package owns immutable canonical event records, strict Binance
 Tardis line decoding, source provenance binding, and the authored reference
 catalog boundary. The M0 dataset pipeline now consumes these libraries for
 configured saved-fixture inspection. MR 03 adds saved raw-object description and
-verification. Acquisition, durable raw-object retention, local-book reconstruction,
+verification; MR 04 adds durable raw-byte publication and verified reads.
+Acquisition, local-book reconstruction,
 replay, and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -36,6 +37,7 @@ changing serialized events. Internal code imports from defining modules:
 | [`events.py`](events.py) | Frozen `TaggedEvent` and `MarketEventRecord` templates, shared field validation, and `Disconnect` |
 | [`decoders.py`](decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol for source-independent payload decoding |
 | [`raw_objects.py`](raw_objects.py) | Immutable `RawObject` descriptors and bounded verification of exact saved bytes against an expected request |
+| [`raw_store.py`](raw_store.py) | Content-addressed `RawStore` publication, verified reads and no-overwrite retry after interruption |
 | [`providers/tardis/decoder.py`](providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, and blank-line disconnect handling; raw exchange JSON is passed to a payload decoder |
 | [`venues/binance/events.py`](venues/binance/events.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade`; shared validation runs before the Binance symbol rule and concrete validators add event invariants |
 | [`venues/binance/payloads.py`](venues/binance/payloads.py) | `BinancePayloadDecoder`, source envelope/payload schemas, cached source decoders, and payload-to-event mapping |
@@ -127,7 +129,7 @@ bounded frame I/O and direct decoder construction. No replacement decoder wrappe
 `DomainCodec` in `serialization.py` provides the strict exact-domain hooks used by
 the catalog and event codecs, including complete currency wire values with `code` and
 `minor_unit` and exact Decimal text. This candidate does not implement an HTTP
-transport, checkpoint/raw store, dataset manifest, order book, research
+transport, acquisition checkpoint, dataset manifest, order book, research
 configuration loader, replay runner, accounting consumer, or operational feed.
 Those later boundaries must add their own schemas, tests, and evidence without
 changing the meaning of the foundation records or silently widening the Binance
@@ -205,8 +207,8 @@ retains no mutable state; fix the reported input and rerun.
 Config, catalog and frame reads are each capped at one MiB. Inspection accepts
 one nonblank UTF-8 trade frame, with an optional line ending. Blank disconnects,
 multiple frames, compression and acquisition remain unsupported by this command.
-Raw-object verification is the separate MR 03 library below; durable publication,
-resume and dataset-level validation remain planned. No transport or credentials
+Raw-object verification and durable publication are the separate libraries below;
+acquisition resume and dataset-level validation remain planned. No transport or credentials
 are read. Existing decoder/provenance/event wire contracts remain unchanged.
 
 ## Saved raw-object verification
@@ -236,9 +238,70 @@ The caller must supply trusted metadata and exclude concurrent writers during
 description/verification. This checks observed bytes, not later reads, provider
 authenticity or semantic membership of the payload in the assigned request.
 Describing already incomplete bytes cannot prove transport completeness. Empty
-files are representable without claiming a quiet interval. Atomic publication and
-immutable storage belong to MR 04; transport validation belongs to MR 05.
+files are representable without claiming a quiet interval. MR 04 supplies the
+store below; transport validation remains owned by MR 05.
 
 The [MR 03 acceptance record](../../../docs/roadmap/mr-03-implementation.md) records
 focused tests, outside-checkout wheel verification and the foundation notebook's
 section 11 (NB 03), including a changed gzip header with identical decoded content.
+
+
+## Durable raw-byte store
+
+[`RawStore`](raw_store.py) binds an explicit existing directory on the destination
+filesystem. The caller must durably provision that directory and its ancestors;
+the constructor performs no I/O. Use a caller-controlled local filesystem with
+atomic hard links and file/directory `fsync`, and keep the directory path stable.
+Unsupported filesystem operations propagate failures instead of weakening the
+publication guarantee. Import from `alpha_research.data.raw_store`.
+
+Given the descriptor and expected request from the preceding section:
+
+```python
+# project library imports
+from alpha_research.data.raw_store import RawStore
+
+store = RawStore(storage_directory)
+published = store.publish(saved_path, descriptor=descriptor, request=expected_request)
+with store.open(descriptor=descriptor, request=expected_request) as stream:
+    first_chunk = stream.read(1_048_576)
+```
+
+`publish` copies in one-MiB chunks into a unique `.staging-*` file in the same
+directory. It flushes buffers, marks the staged file read-only (`0444`), synchronizes
+it and calls `RawObject.verify` before linking it to `root/<sha256>`. The hard link
+never replaces an existing name. A concurrent winner must pass the same verifier.
+Normal completion removes this invocation's staging name and synchronizes the
+published file and directory before returning its path. An existing matching
+object is reused without reading the source, preserving its inode and modification
+time; retries still verify and synchronize it before acknowledging completion.
+
+`open` accepts only the digest-named regular file, rejects symlinks and directories,
+verifies all bytes against the trusted descriptor and expected request, then
+returns a read-only binary stream at position zero. The caller closes the stream.
+Metadata, request, file-kind and byte conflicts raise `ValueError`; missing files
+and copy/link/synchronization failures propagate `OSError`. Conflicts are retained
+unchanged, never repaired or overwritten automatically. Descriptor serialization,
+retrieval reference and original receipt/ingestion clocks are unchanged.
+
+After an abrupt exit before the link, a staging orphan may remain but the object
+is absent to readers. After the link, a complete verified object may be visible
+without acknowledged durable completion. Retry from the source if absent, or
+verify/resynchronize the existing object if present. Staging names are never
+adopted or automatically swept: another publisher may still own one. With writers
+stopped, remove known orphan staging names; removing their hard links does not
+remove a published object. Ordinary exceptions clean this invocation's staging
+file when filesystem access permits, but an I/O error after publication does not
+imply rollback.
+
+Concurrent writers using this API never mutate published bytes. External writers,
+removal/replacement of objects or directory ancestors, and hostile directory access
+must be excluded during verification and reads. Mode `0444` guards accidental
+writes; it cannot constrain the owner. Durability relies on the filesystem/device
+honoring synchronization; process-interruption tests do not prove physical
+power-loss behavior or network/object-store support. This MR adds no persistent
+descriptor/manifest, garbage collector, acquisition transport or dataset validity.
+
+The [MR 04 acceptance record](../../../docs/roadmap/mr-04-implementation.md),
+[storage tests](../../../tests/unit/data/test_raw_store.py) and notebook section 12
+retain the publication, reuse, conflict and interruption evidence.

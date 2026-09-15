@@ -39,7 +39,12 @@ compressed-byte digest, request partition, retrieval reference and original cloc
 round-trip the descriptor; reject mutation, truncation and another request; then
 verify recovery with the original bytes. The sample files are temporary and
 synthetic. See the [MR 03 acceptance record](../docs/roadmap/mr-03-implementation.md)
-for commands and results. MR 04 durable publication remains the next package.
+for commands and results. Section 12 completes **NB 04** with `RawStore`: two
+child processes exit before/after the atomic link; inspect staging versus published
+bytes, retry, confirm inode reuse and reject a corrupt existing object. The retained
+[interruption fixture](../tests/fixtures/mr04/interrupt_publish.py) is shared with
+the storage tests. See the [MR 04 acceptance record](../docs/roadmap/mr-04-implementation.md).
+MR 05 provider-partition fetching remains the next package.
 
 Future notebooks can
 use names such as `data-fetching.ipynb`, `eda.ipynb`, `strategy-research.ipynb` and
