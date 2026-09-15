@@ -5,7 +5,9 @@ research work. Primary documentation and the bounded observations below support
 the claims. Most sources are candidates, not integrated adapters.
 
 Use the [source summary](../README.md#source-summary) for the provider-by-market
-table, ordered free first, with depth, quality evidence and API links.
+tables, ordered free first, with depth, quality evidence and API links. The
+expanded tables include imported candidates whose claims remain unverified;
+their labels distinguish them from the checks recorded in this guide.
 
 The current [notebook](../../../examples/research-foundations.ipynb) acquires
 Binance **spot individual trades** through the
@@ -187,6 +189,44 @@ CSV is not a historical quote feed.
 A cross-venue workflow can therefore combine Binance directly with Kraken
 directly or via Alpaca. Keep each venue separate, account for USD versus USDT,
 and use same-venue/same-product books when relating trades to available liquidity.
+
+## Crypto.com access and history
+
+**Documented on 2026-09-15; not integrated or endpoint-tested.** Crypto.com's
+[Exchange API](https://exchange-developer.crypto.com/exchange/v1/docs/api/rest/reference-and-market-data)
+provides public, unauthenticated market data. The catalog separates spot and
+perpetual products; it does not infer option or US prediction-market access from
+this API's generic instrument schema.
+
+- [Public trades](https://exchange-developer.crypto.com/exchange/v1/docs/api/rest/public-get-trades)
+  allow at most 150 records per request and a seven-day maximum query window.
+  That window is not proof of seven-day retention or a complete historical
+  backfill. The documented response distinguishes millisecond and nanosecond
+  trade timestamps.
+- [Public books](https://exchange-developer.crypto.com/exchange/v1/docs/api/rest/public-get-book)
+  return current price-level snapshots up to 50 levels. Order counts at a price
+  do not expose individual orders, so this is L2. The
+  [WebSocket reference](https://exchange-developer.crypto.com/exchange/v1/docs/api/websocket-single-page/)
+  documents live snapshots/deltas and ticker bid/ask sizes. Neither is a native
+  historical book archive.
+- [Candles](https://exchange-developer.crypto.com/exchange/v1/docs/api/rest/public-get-candlestick)
+  are historical OHLCV, with earliest dates and pagination still untested.
+  [Valuations](https://exchange-developer.crypto.com/exchange/v1/docs/api/rest/public-get-valuations)
+  distinguish hourly settled funding from current/estimated rates and minute
+  mark/index values. Current ticker OI does not establish an OI archive.
+
+For recorded history, [Tardis's Crypto.com catalog](https://docs.tardis.dev/historical-data-details/crypto-com)
+advertises coverage from 2022-06-01 and free first-of-month CSV samples. It lists
+book, trade and derivative-ticker products; specific symbols, dates and continuity
+remain untested. The table separates free sample days from paid access. No native
+free continuous L2 archive was established by this documentation check.
+
+The expanded survey also rechecked live L3 documentation for
+[Kraken](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/level3)
+and [Bitfinex](https://docs.bitfinex.com/reference/ws-public-raw-books), plus
+[Coinbase's batched L2 channel](https://docs.cdp.coinbase.com/exchange/websocket-feed/channels).
+Those checks establish documented feed structure, not a collected history or
+successful local replay. Other newly imported rows remain labeled for rechecking.
 
 ## Evidence and next use
 
