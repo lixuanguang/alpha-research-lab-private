@@ -2,8 +2,8 @@
 
 **Status: source catalog updated 2026-09-16.** Rows distinguish earlier imports,
 report candidates and primary-document checks. Access, depth and history remain
-unverified unless the row states its evidence. See the [evidence labels](../README.md#reading-the-records)
-and [report integration](../deep-research-integration-2026-09-16.md).
+unverified unless the row states its evidence. See the
+[evidence labels](../README.md#reading-the-records).
 
 Tables order free access before conditional and paid routes.
 Return to the [complete source index](../README.md#asset-class-guides).

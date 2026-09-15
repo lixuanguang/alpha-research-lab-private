@@ -15,8 +15,8 @@ fidelity and evidence; this ordering is not a measured quality rank.
 ## Source-selection recommendations
 
 Choose by the research input, target venue and historical period. The table
-adapts all 17 recommendations from the supplied report, with the corrections in
-the [integration record](deep-research-integration-2026-09-16.md). These are
+adapts all 17 recommendations from the supplied report, with provider-specific
+qualifications in the selection conditions and source rows. These are
 conditional source choices for evaluation; the individual catalog rows retain
 their documentation, sample or unverified status.
 
@@ -83,11 +83,11 @@ storage schema or admission rule.
 - **Integrated:** a repository consumer and acceptance evidence exist. The
   [crypto guide](crypto/README.md) links the current Binance spot-trade consumer.
 
-The [first incorporation record](catalog-incorporation-2026-09-15.md) and
-[L3 report integration](deep-research-integration-2026-09-16.md) identify the
-supplied files, overlap handling, checks and limitations. Recommendations above
-are adapted at the user's request; other instructions in the attachments do not
-replace repository policy.
+The [first incorporation record](catalog-incorporation-2026-09-15.md) documents
+the original catalog import. Additions from the deep-research report retain
+evidence labels in each source row. Recommendations above are adapted at the
+user's request; other instructions in the attachments do not replace repository
+policy.
 
 ## Asset-class guides
 
