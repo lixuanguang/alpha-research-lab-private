@@ -54,7 +54,13 @@ resumed/uninterrupted manifest comparison with fixed clocks, repeated-run skips,
 missing/mutated completed-byte rejection, terminal auth/schema failures and
 exhausted transient backoff. It shares the [synthetic process fixture](../tests/fixtures/mr06/acquire.py)
 with retained regressions and runs child consumers outside the checkout. See the
-[MR 06 record](../docs/roadmap/mr-06-implementation.md). MR 07 is next after MR 06 merges.
+[MR 06 record](../docs/roadmap/mr-06-implementation.md). Section 15 completes the
+synthetic **NB 07** checkpoint through the installed `alpha-acquire` command:
+saved config/command identities, flushed progress, abrupt and keyboard interruption,
+retry exhaustion, resume/repeat parity and missing/mutated object rejection. It
+uses copied inputs and the same synthetic fixture from outside the checkout.
+See the [MR 07 record](../docs/roadmap/mr-07-implementation.md); source acceptance
+remains open. MR 08 is next and is not started here.
 
 Future notebooks can
 use names such as `data-fetching.ipynb`, `eda.ipynb`, `strategy-research.ipynb` and

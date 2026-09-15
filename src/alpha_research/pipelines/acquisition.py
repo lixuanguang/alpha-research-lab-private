@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 # standard library imports
+import argparse
+import hashlib
+import os
+import sys
+import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import partial
 from http.client import HTTPSConnection
 from math import isfinite
@@ -12,16 +17,72 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 # third party library imports
+import msgspec
 from msgspec.structs import replace
 
 # project library imports
-from alpha_research.configuration import ResolvedManifest
+from alpha_research.configuration import Configuration, ResolvedManifest
 from alpha_research.data.manifests import AcquisitionManifest
 from alpha_research.data.providers.tardis.transport import TardisTransport, TransientFetchError
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
+from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
+
+
+class _AcquisitionArguments(argparse.Namespace):
+    """Type the installed command's explicit selection, storage and resource limits."""
+
+    config: Path
+    catalog: Path
+    manifest: Path
+    store: Path
+    job: str
+    rights_reference: str
+    api_key_env: str | None
+    timeout_seconds: float
+    max_bytes: int
+    retry_delays: list[float]
+
+
+class _AcquisitionOutput:
+    """Flush command progress while retaining only acknowledged job totals per invocation."""
+
+    def __init__(self) -> None:
+        """Start with unknown persisted state until resume verification succeeds."""
+        self._codec = DomainCodec()
+        self._decoder = msgspec.json.Decoder(dict[str, object])
+        self._retries = 0
+        self._summary: dict[str, object] = {
+            "completed": None,
+            "persisted_bytes": None,
+            "last_persistence": None,
+            "stage": "configuration",
+            "run_identity": None,
+            "command_identity": None,
+            "request_identity": None,
+            "total": None,
+        }
+
+    def __call__(self, payload: str) -> None:
+        """Consume the pipeline's scalar JSON reports and preserve job context."""
+        fields = self._decoder.decode(payload)
+        self._retries += fields.get("status") == "retry"
+        self.emit(**fields)
+
+    def emit(self, **fields: object) -> None:
+        """Write one flushed record, routing terminal errors to stderr.
+
+        Args:
+            **fields: Owned JSON fields; credentials and raw exception text are excluded.
+        """
+        for key in self._summary:
+            if key in fields:
+                self._summary[key] = fields[key]
+        record = {**self._summary, "scope": "partition", "retries": self._retries, **fields}
+        destination = sys.stderr if fields.get("exit_code") else sys.stdout
+        print(self._codec.encode_json(record).decode(), file=destination, flush=True)
 
 
 def fetch_partition(
@@ -151,6 +212,22 @@ def acquire(
     state = AcquisitionManifest.read(manifest_path, run=run, store=store)
     state.save(manifest_path)
     requests = SourceRequest.partition(run)
+    report(
+        DomainCodec()
+        .encode_json(
+            {
+                "scope": "job",
+                "stage": "resume",
+                "status": "resumed",
+                "run_identity": run.identity,
+                "total": len(requests),
+                "completed": len(state.completed),
+                "persisted_bytes": sum(item.size_bytes for item in state.completed),
+                "last_persistence": state.completed[-1].ts_ingested if state.completed else None,
+            }
+        )
+        .decode()
+    )
     for request in requests[len(state.completed) :]:
         descriptor = state.pending
         if descriptor is not None:
@@ -199,6 +276,17 @@ def acquire(
             raise RuntimeError("acquisition produced no descriptor")
         completed: tuple[RawObject, ...] = (*state.completed, descriptor)
         state = replace(state, completed=completed, pending=None)
+        report(
+            DomainCodec()
+            .encode_json(
+                {
+                    "stage": "checkpoint",
+                    "status": "checkpointing",
+                    "request_identity": request.identity,
+                }
+            )
+            .decode()
+        )
         state.save(manifest_path)
         report(
             DomainCodec()
@@ -208,8 +296,109 @@ def acquire(
                     "request_identity": request.identity,
                     "status": "checkpointed",
                     "completed": len(state.completed),
+                    "persisted_bytes": sum(item.size_bytes for item in state.completed),
+                    "last_persistence": descriptor.ts_ingested,
+                    "stage": "checkpoint",
                 }
             )
             .decode()
         )
     return state
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Resolve a configured acquisition, resume its manifest and report terminal status.
+
+    Args:
+        argv: Explicit arguments, or process arguments when omitted. Credentials are
+            read only from the explicitly named environment variable, never argv.
+
+    Returns:
+        Zero for completion, two for configuration, three for acquisition validation,
+        four for I/O or unexpected failure, or 130 for a keyboard interruption.
+
+    Raises:
+        SystemExit: Argparse handles help and invalid argument syntax.
+        OSError: A failed terminal report cannot be written to stderr.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    for option in ("config", "catalog", "manifest", "store"):
+        parser.add_argument(f"--{option}", type=Path, required=True)
+    for option in ("job", "rights-reference"):
+        parser.add_argument(f"--{option}", required=True)
+    parser.add_argument("--api-key-env", help="Name of an existing credential environment variable")
+    parser.add_argument("--timeout-seconds", type=float, required=True)
+    parser.add_argument("--max-bytes", type=int, required=True)
+    parser.add_argument("--retry-delays", nargs="*", type=float, default=list[float]((1.0, 2.0)))
+    args = parser.parse_args(argv, namespace=_AcquisitionArguments())
+    output = _AcquisitionOutput()
+    stage = "configuration"
+    try:
+        configuration = Configuration.read(args.config)
+        with args.catalog.open("rb") as source:
+            catalog_bytes = source.read(1_048_577)
+        if len(catalog_bytes) > 1_048_576:
+            raise ValueError("catalog exceeds one MiB")
+        codec = DomainCodec()
+        run = configuration.resolve(args.job, codec.decode_json(catalog_bytes, CatalogSnapshot))
+        AcquisitionManifest(run=run)
+        if args.manifest.resolve() in {args.config.resolve(), args.catalog.resolve()}:
+            raise ValueError("manifest must not overwrite configuration or catalog")
+        api_key = None if args.api_key_env is None else os.environ[args.api_key_env]
+        connection = HTTPSConnection("api.tardis.dev")
+        TardisTransport(connection, timeout_seconds=args.timeout_seconds, max_bytes=args.max_bytes)
+        command = {
+            "command": "alpha-acquire",
+            "run_identity": run.identity,
+            "manifest": str(args.manifest.resolve()),
+            "store": str(args.store.resolve()),
+            "timeout_seconds": args.timeout_seconds,
+            "max_bytes": args.max_bytes,
+            "retry_delays": args.retry_delays,
+            "rights_reference": args.rights_reference,
+            "api_key_env": args.api_key_env,
+        }
+        output.emit(
+            scope="job",
+            status="started",
+            command=command,
+            run_identity=run.identity,
+            command_identity=hashlib.sha256(codec.encode_json(command)).hexdigest(),
+        )
+        stage = "acquisition"
+        output.emit(scope="job", stage="resume", status="verifying")
+        acquire(
+            run,
+            manifest_path=args.manifest,
+            store=RawStore(args.store),
+            connection=connection,
+            clock=partial(datetime.now, UTC),
+            sleep=time.sleep,
+            report=output,
+            timeout_seconds=args.timeout_seconds,
+            max_bytes=args.max_bytes,
+            permitted_rights_reference=args.rights_reference,
+            retry_delays=tuple(args.retry_delays),
+            api_key=api_key,
+        )
+        output.emit(scope="job", stage="complete", status="complete", exit_code=0)
+    except (Exception, KeyboardInterrupt) as error:
+        status = 2 if stage == "configuration" else (3 if isinstance(error, ValueError) else 4)
+        if isinstance(error, KeyboardInterrupt):
+            status = 130
+        output.emit(
+            scope="job",
+            status="interrupted" if status == 130 else "failed",
+            exit_code=status,
+            error_type=type(error).__name__,
+            diagnostic=str(error)
+            if isinstance(error, ValueError)
+            else "Check the reported stage, config/admission and retained manifest/store; "
+            "correct the cause, then repeat the same command to verify and resume.",
+        )
+        return status
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -419,7 +419,78 @@ reopen before retrying uncertain persistence.
 Existing partition reports are retained. Retry reports include run/request identity,
 attempt and delay; `checkpointed` includes the durable completion count. Propagated
 exceptions remain the failure boundary; a failed report sink cannot guarantee its
-own telemetry. MR 07 owns the installed CLI and expanded whole-job reporting.
+own telemetry. The installed command below adds whole-job reporting in MR 07.
 The [MR 06 record](../../../docs/roadmap/mr-06-implementation.md) and notebook
 section 14 contain actual synthetic commands/results. No source acceptance,
 canonical dataset, frame iteration or coverage claim is added.
+
+## Installed acquisition command
+
+`alpha-acquire` (or `python -m alpha_research.pipelines.acquisition`) resolves the
+explicit `--job` from `--config` against `--catalog`, then calls the same `acquire`
+operation above. Use a `historical` / `acquisition.fetch` job and an existing,
+durably provisioned manifest directory/raw store under exclusive caller control.
+Config/catalog reads retain the one-MiB limit. The manifest cannot overwrite
+these input paths. No manifest format or event serialization changes in MR 07.
+
+For **admitted source inputs only**, the installed command shape is:
+
+```sh
+alpha-acquire --config /protected/jobs.json --catalog /protected/catalog.json \
+  --job admitted-job --manifest /protected/run/manifest.json --store /protected/run/raw \
+  --rights-reference admitted-evidence-reference --api-key-env TARDIS_API_KEY \
+  --timeout-seconds 30 --max-bytes 16777216 --retry-delays 1 2 \
+  >> /protected/run/attempts.jsonl 2>> /protected/run/errors.jsonl
+```
+
+These paths, limits and admission are illustrative, not a performed source probe.
+Supply actual reviewed rights evidence matching the job; a string is an attestation,
+not automatic admission. Existing synthetic rights references authorize only the
+injected fixture. `--api-key-env` names an already provisioned environment variable;
+its value is read without echoing or saving it. Omit this option only for an admitted
+keyless request. Timeouts bound socket inactivity, and `max-bytes` bounds each
+compressed/expanded partition. Defaults allow two extra attempts with delays of
+one and two seconds; `--retry-delays` with no values disables retry. Invalid limits
+and delay values fail. No total elapsed-time or throughput guarantee is made.
+
+Repeat the same command after correcting a failure. The existing manifest verifies
+all acknowledged bytes before fetching, recovers a published pending object, and
+skips completed requests. Missing/mutated stored objects or a changed resolved
+run fail; they are never automatically redownloaded or migrated. Keep the manifest,
+objects, original configuration/catalog and command output together.
+
+Every record is flushed JSON. Progress goes to stdout; terminal errors go to
+stderr. The startup record includes the normalized command and its SHA-256:
+resolved run identity, absolute manifest/store destinations, non-secret limits,
+retry delays, admission reference and credential-variable name. The resolved
+manifest saves the selected job/catalog/code identity. JSON formatting and input
+file location do not change the resolved identity; destination/limit changes
+change command identity. Neither identity includes credentials or attempt time.
+
+| Field / record | Meaning |
+| --- | --- |
+| `scope`, `stage`, `status` | Job or partition progress through configuration, resume, fetch, store, checkpoint and completion. A partition `failed` can precede a permitted retry; only job terminal status ends an invocation. |
+| `run_identity`, `command_identity`, `request_identity`, `partition_start` | Resolved input, normalized invocation and active partition correlation. Partition start is present on fetch/store records. |
+| `total`, `completed` | Expected partitions and acknowledged completion prefix. Totals remain null until resume verification succeeds. |
+| `bytes` | Compressed bytes of the active received/stored response; starts at zero. No cumulative network-byte count is claimed. |
+| `persisted_bytes` | Sum of compressed sizes in acknowledged descriptors, including the resumed prefix; separate completions can reference shared bytes. Not physical disk usage. |
+| `last_persistence` | UTC ingestion instant of the last acknowledged raw descriptor, preserved on repeats; null when none is acknowledged or verification failed. Not the checkpoint file's modification time. |
+| `retries`, `attempt`, `delay_seconds` | Invocation retry count, active-partition retry ordinal and its selected delay. Previous invocations' retry history remains in saved reports. |
+| `checkpointing` / `checkpointed` | Before/after durable manifest save. A stored object alone cannot advance acknowledged totals. |
+
+Exit **0** means all expected raw partitions are verified; **2** means setup/configuration
+or argument syntax failed; **3** means acquisition validation failed; **4** means
+I/O, exhausted transport retries or another runtime failure; **130** means keyboard
+interruption. Syntax errors use argparse's usage diagnostic. Other failures include
+JSON stage/error type and a diagnostic; raw OS/transport exception text is withheld.
+Value validation errors identify the invalid input. Inspect retained state and
+repeat after correction. SIGKILL/process loss cannot emit a terminal record; use
+the process exit, last flushed report and saved checkpoint. A failed output sink
+is terminal; reporting cannot guarantee its own availability.
+
+The [MR 07 acceptance record](../../../docs/roadmap/mr-07-implementation.md) and
+notebook section 15 exercise the installed command outside the checkout through
+synthetic HTTP, abrupt interruption, retries, repeats and damaged-byte rejection.
+The permitted-source download remains unproven under MR 05's unresolved rights
+and retention. This is an intermediate raw-acquisition workflow; semantic frame
+validation, dataset publication and M1/P1 acceptance remain later work.
