@@ -465,3 +465,28 @@ snapshot after a malformed metadata edit, then parsed and fully rerun. Final
 source hashes match execution metadata and all expected cells are executed;
 no uncaught errors remain. The actual archive digest and P1 baseline hash remain
 unchanged. No new archive download was needed for this review.
+
+## Pull request CI follow-up
+
+[PR 28](https://github.com/lixuanguang/alpha-research-lab-private/pull/28)'s first
+[source-validation run](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/34975156630/job/104400912671)
+at `38f98ad` completed with 627 passed, one failed and three deselected. The
+package-definition test still expected only `alpha-inspect-fixture`, omitting
+MR 07's `alpha-acquire` from both the declared and installed command sets. The
+dependent merged-result gate failed and macOS smoke was skipped.
+
+The follow-up retains exact command-set assertions and adds the implemented
+acquisition command to both expectations. Runtime, project metadata, dependency
+lock and notebooks are unchanged. Focused validation passes:
+
+```sh
+uv run --frozen --no-editable pytest -q tests/engineering/test_package_definition.py
+uv run --frozen --no-sync ruff check tests/engineering/test_package_definition.py
+uv run --frozen --no-sync ruff format --check tests/engineering/test_package_definition.py
+uv run --frozen --no-sync mypy --strict tests/engineering/test_package_definition.py
+```
+
+All four package tests pass; lint, format and strict typing pass. Existing
+runtime and current-source notebook evidence above remains applicable. The
+hosted lane must rerun on the corrected commit before merge; this local check
+does not replace that gate or rewrite the failed attempt.

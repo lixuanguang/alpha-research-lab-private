@@ -81,7 +81,7 @@ class TestPackageDefinitionContracts:
         }
 
     def test_governance_is_available_only_to_development_tools(self) -> None:
-        """Keep governance outside runtime while exposing the implemented fixture command."""
+        """Keep governance outside runtime while exposing fixture and acquisition commands."""
         configuration = _load_pyproject()
         tool_configuration = _load_pyproject("tools/governance/pyproject.toml")
         uv = _require_table(_require_table(configuration, "tool"), "uv")
@@ -104,12 +104,15 @@ class TestPackageDefinitionContracts:
         assert not any("governance" in requirement for requirement in runtime_dependencies)
         assert "alpha-research-governance==0.1.0" in development_dependencies
         runtime_scripts = _require_table(runtime_project, "scripts")
-        assert runtime_scripts == {"alpha-inspect-fixture": "alpha_research.pipelines.dataset:main"}
+        assert runtime_scripts == {
+            "alpha-acquire": "alpha_research.pipelines.acquisition:main",
+            "alpha-inspect-fixture": "alpha_research.pipelines.dataset:main",
+        }
         installed_commands = {
             entry.name
             for entry in importlib.metadata.distribution("alpha-research-lab").entry_points
         }
-        assert installed_commands == {"alpha-inspect-fixture"}
+        assert installed_commands == {"alpha-acquire", "alpha-inspect-fixture"}
 
     def test_wheel_smoke_is_the_build_install_boundary(self) -> None:
         """Require the root interface to invoke the isolated installed-wheel smoke."""
