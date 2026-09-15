@@ -1,13 +1,11 @@
 # Fixed-income, credit and money-market data
 
-**Status: imported candidates, 2026-09-15.** These rows incorporate the supplied
-catalog; their provider claims and access terms have not been independently
-rechecked in this repository. No adapter or downloaded-data test is implied.
-See [evidence labels and depth definitions](../README.md#reading-the-records)
-and the [incorporation record](../catalog-incorporation-2026-09-15.md).
+**Status: source catalog updated 2026-09-16.** Rows distinguish earlier imports,
+report candidates and primary-document checks. Access, depth and history remain
+unverified unless the row states its evidence. See the [evidence labels](../README.md#reading-the-records)
+and [report integration](../deep-research-integration-2026-09-16.md).
 
-Use the six-column tables below to compare products within this asset/data class.
-Free access precedes paid access in each table; qualifications remain attached.
+Tables order free access before conditional and paid routes.
 Return to the [complete source index](../README.md#asset-class-guides).
 
 ## Fixed income, credit and money markets
@@ -20,6 +18,7 @@ Reported bond transactions, executable bid/ask quotes, evaluated prices, benchma
 | New York Fed — reference rates | Free | SOFR / EFFR and related money-market series | Reference / fixings | **Imported; not rechecked.** Official published rates, volumes and related statistics; publication time differs from observation date. | [Markets API](https://markets.newyorkfed.org/static/docs/markets-api.html) |
 | Federal Reserve — H.15 / rate data | Free | US interest rates | Reference / time series | **Imported; not rechecked.** Official statistical rate series; inspect frequency and revision metadata. | [Data releases](https://www.federalreserve.gov/data.htm) |
 | Bank of England — yield curves | Free | UK nominal / real / inflation curves | Reference / fitted curves | **Imported; not rechecked.** Official estimated term structures; model outputs, not individual bond-order liquidity. | [Database / curves](https://www.bankofengland.co.uk/boeapps/database/) |
+| TreasuryDirect — auction and security data | Free | US Treasury issuance / auction results | N/A — reference / auction data | **Report candidate; not rechecked.** Primary reference-data candidate; distinct from secondary-market prices, liquidity and resting orders. | [Auction data](https://www.treasurydirect.gov/auctions/announcements-data-results/) |
 | FRED — yields / credit-spread series | Free (API key) | Rates / selected credit indices | Reference / time series | **Imported; not rechecked.** Convenient redistributed series; underlying index-owner usage terms still apply. | [FRED API](https://fred.stlouisfed.org/docs/api/fred/) |
 | FINRA — public fixed-income lookup | Free (public portal) | US corporate / agency and covered bonds | Trade only; Reference | **Imported; not rechecked.** Public bond information and reported transactions; not the bulk TRACE feed entitlement. | [Fixed-income portal](https://www.finra.org/finra-data/fixed-income) |
 | MSRB EMMA — public municipal trades | Free (public portal) | US municipal bonds | Trade only; Reference / disclosures | **Imported; not rechecked.** Official reported muni trades and disclosure documents; public access differs from bulk subscription. | [Free versus subscription access](https://www.msrb.org/Market-Data-and-Research/Data-Subscription-Services-and-Products) |
@@ -29,3 +28,8 @@ Reported bond transactions, executable bid/ask quotes, evaluated prices, benchma
 | FINRA TRACE — live dissemination | Paid | TRACE-eligible fixed income | Trade only | **Imported; not rechecked.** Regulatory transaction reports in real time after processing; reporting latency is not exchange matching latency. | [TRACE](https://www.finra.org/filing-reporting/trace) |
 | MSRB — municipal trade subscriptions | Paid | US municipal bonds | Trade only | **Imported; not rechecked.** Real-time, comprehensive and historical subscription products; no resting-order queues. | [Trade subscriptions](https://www.msrb.org/Market-Data-and-Research/Trade-Data-Subscriptions) |
 | LSEG Tick History — fixed income | Paid | Bonds / fixed-income venue instruments | L1; Trades; L2 where supported | **Imported; not rechecked.** Source- and instrument-specific historical quotes/trades; distinguish contributor prices from execution data. | [Tick History](https://www.lseg.com/en/data-analytics/market-data/data-feeds/tick-history) |
+| CME BrokerTec — premium MBO | Paid | BrokerTec Chicago US Treasury actives | L3 — full order depth | **Documented 2026-09-16.** Chicago premium UDP documents full-order depth; selected UST market, history and recovery remain untested. | [BrokerTec Chicago market data](https://cmegroupclientsite.atlassian.net/wiki/spaces/EPICSANDBOX/pages/649592833) |
+| CME BrokerTec — conflated MBO | Paid | BrokerTec Chicago US Treasury actives | L3 — limited, conflated | **Documented 2026-09-16.** Chicago conflated products document top-ten orders at 50 ms intervals. They do not preserve every intervening queue event. | [BrokerTec Chicago market data](https://cmegroupclientsite.atlassian.net/wiki/spaces/EPICSANDBOX/pages/649592833) |
+| Tradeweb / Dealerweb — Treasury CLOB | Paid / participant agreement | US Treasuries — selected market | Venue depth; L3 unverified | **Report candidate; not rechecked.** Report identifies institutional CLOB access. Individual-order dissemination, selected feed and historical entitlement need confirmation. | [Provider](https://www.tradeweb.com/) |
+| ICE — fixed-income data services | Paid | Government / corporate / municipal bonds | L1/L2; reference / evaluated data | **Report candidate; not rechecked.** Select executable quote, transaction, depth or evaluated-price product explicitly. Report does not establish universal bond order data. | [Fixed-income services](https://www.ice.com/fixed-income-data-services) |
+| CME / GovPX — Treasury pricing | Paid / license-dependent | US Treasury / agency pricing | L1/L2/Trade only — product unverified | **Report candidate; not rechecked.** Report candidate; exact current product, depth and delivery require confirmation. Not a substitute for BrokerTec order events. | [Market-data catalog](https://www.cmegroup.com/market-data.html) |

@@ -1,13 +1,11 @@
 # Macroeconomic data
 
-**Status: imported candidates, 2026-09-15.** These rows incorporate the supplied
-catalog; their provider claims and access terms have not been independently
-rechecked in this repository. No adapter or downloaded-data test is implied.
-See [evidence labels and depth definitions](../README.md#reading-the-records)
-and the [incorporation record](../catalog-incorporation-2026-09-15.md).
+**Status: source catalog updated 2026-09-16.** Rows distinguish earlier imports,
+report candidates and primary-document checks. Access, depth and history remain
+unverified unless the row states its evidence. See the [evidence labels](../README.md#reading-the-records)
+and [report integration](../deep-research-integration-2026-09-16.md).
 
-Use the six-column tables below to compare products within this asset/data class.
-Free access precedes paid access in each table; qualifications remain attached.
+Tables order free access before conditional and paid routes.
 Return to the [complete source index](../README.md#asset-class-guides).
 
 ## Macroeconomic data — United States
@@ -22,7 +20,7 @@ Use ALFRED or another vintage archive for revised indicators. A calendar date in
 | US Treasury Fiscal Data — cash operations | Free | Treasury cash balances / deposits / withdrawals | Macro / fiscal time series | **Imported; not rechecked.** Official Daily Treasury Statement API and downloads; balance date and public availability are distinct. | [API documentation](https://fiscaldata.treasury.gov/api-documentation/) · [Daily Treasury Statement](https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/) |
 | US Treasury Fiscal Data — debt / interest | Free | Federal debt / interest costs / fiscal operations | Macro / fiscal time series | **Imported; not rechecked.** Official dataset APIs; use dataset-specific units, date fields and revision handling. | [API documentation](https://fiscaldata.treasury.gov/api-documentation/) · [Dataset catalogue](https://fiscaldata.treasury.gov/) |
 | FRED — latest available observations | Free (API key) | US / international macro and financial series | Macro / time series | **Imported; not rechecked.** Convenient cross-source API; default latest observations may contain revisions and source-specific licensing. | [FRED API](https://fred.stlouisfed.org/docs/api/fred/) |
-| ALFRED — historical vintages | Free (API key) | Revisable macro indicators | Macro / point-in-time vintages | **Imported; not rechecked.** Use `realtime_start` / `realtime_end`; date-level vintages alone do not establish subsecond announcement availability. | [Real-time/vintage parameters](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html) |
+| ALFRED — historical vintages | Free (API key) | Revisable macro indicators | Macro / point-in-time vintages | **Documented 2026-09-16.** Set realtime_start/realtime_end to retrieve past information sets; defaults use today. Date-level vintages do not establish intraday publication time. | [Real-time/vintage parameters](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html) |
 | BLS — inflation statistics | Free; registration expands access | CPI / PPI and related price series | Macro / time series | **Imported; not rechecked.** Official series API; preserve seasonal adjustment, index base and revision treatment. | [BLS API](https://www.bls.gov/developers/) |
 | BLS — labor-market statistics | Free; registration expands access | Employment / unemployment / wages / JOLTS | Macro / time series | **Imported; not rechecked.** Official labor data; benchmark revisions and first-release values differ from latest history. | [BLS API](https://www.bls.gov/developers/) |
 | BEA — national accounts | Free (API key) | GDP / PCE / income / profits | Macro / time series | **Imported; not rechecked.** Official NIPA and related datasets; advance/second/third estimates and comprehensive revisions require vintages. | [BEA API](https://apps.bea.gov/API/signup/) |
@@ -49,10 +47,12 @@ National agencies are the primary source; international organizations harmonize 
 | Banco de México — SIE API | Free (token) | Mexican rates / FX / economic indicators | Macro / time series | **Imported; not rechecked.** Official time-series API; token and series IDs required; publication timing remains series-specific. | [SIE API](https://www.banxico.org.mx/SieAPIRest/service/v1/) |
 | Trading Economics — economic data API | Paid; limited demonstration access | Global macro indicators | Macro / time series | **Imported; not rechecked.** Normalized cross-country series; verify source revisions and historical vintage entitlement. | [Indicators / API](https://docs.tradingeconomics.com/) |
 | Trading Economics — economic calendar | Paid; limited demonstration access | Global releases / actuals / forecasts | Macro / release events | **Imported; not rechecked.** Calendar/consensus product; archive forecasts as known before release rather than today’s revised display. | [Calendar API](https://docs.tradingeconomics.com/) |
-| Macrobond — Data API / vintage products | Paid | Global macro / financial time series | Macro / point-in-time where supported | **Imported; not rechecked.** Institutional normalized series and revision history; historical vintage depth is series/product-specific. | [Data platform](https://www.macrobond.com/) · [API documentation](https://macrobond.github.io/) |
-| Haver Analytics — database subscriptions | Paid | Global macro / surveys / forecasts | Macro / time series; archive products | **Imported; not rechecked.** Curated economic databases; obtain database-level entitlements and archive/vintage specifications. | [Products / contact](https://www.haver.com/) |
+| Macrobond — Data API / vintage products | Paid | Global macro / financial time series | Macro / point-in-time where supported | **Documented 2026-09-16.** Separately licensed Web API exposes revision/vintage methods; revision coverage varies by series. Endpoint and entitlement untested. | [Data platform](https://www.macrobond.com/) · [API documentation](https://macrobond.github.io/), [Web API and revisions](https://help.macrobond.com/apis-feeds-connectors/the-macrobond-data-web-api-feed/) |
+| Haver Analytics — database subscriptions | Paid | Global macro / surveys / forecasts | Macro / time series; archive products | **Documented 2026-09-16.** Provider documents archives, forecasts and REST delivery. Reported release speed is vendor advertising, not a measured guarantee; selected series/vintages untested. | [Products / contact](https://www.haver.com/) |
 | CEIC — global / country-premium databases | Paid | Global / emerging-market economic indicators | Macro / time series; vintage products | **Imported; not rechecked.** Regional detail and revision histories; API/feed and point-in-time coverage require a contract. | [Data delivery / products](https://info.ceicdata.com/) |
 | S&P Global — PMI data | Paid (full data); free release excerpts | Manufacturing / services / composite surveys | Macro / survey indices | **Imported; not rechecked.** Proprietary survey product; flash/final releases and historical/redistribution rights differ. | [PMI products](https://www.spglobal.com/market-intelligence/en/solutions/products/pmi) |
+| LSEG — economic / release data | Paid enterprise | Global macro / calendars / forecasts — selected product | N/A — observations / release events | **Report candidate; not rechecked.** Report identifies economic content; historical consensus, vintages and actual release timestamps require product-level checks. | [Data catalog](https://www.lseg.com/en/data-analytics), [Developer portal](https://developers.lseg.com/) |
+| Bloomberg — economic data / Server API | Paid enterprise | Global macro / releases / surveys / calendars | N/A — observations / forecasts / events | **Report candidate; not rechecked.** Report identifies desk/enterprise data services. Terminal, Server API and B-PIPE entitlements are distinct; release-history coverage untested. | [Provider products](https://www.bloomberg.com/professional/) |
 
 ## Macroeconomic data — Asia-Pacific
 

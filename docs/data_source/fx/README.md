@@ -1,13 +1,11 @@
 # Foreign-exchange data
 
-**Status: imported candidates, 2026-09-15.** These rows incorporate the supplied
-catalog; their provider claims and access terms have not been independently
-rechecked in this repository. No adapter or downloaded-data test is implied.
-See [evidence labels and depth definitions](../README.md#reading-the-records)
-and the [incorporation record](../catalog-incorporation-2026-09-15.md).
+**Status: source catalog updated 2026-09-16.** Rows distinguish earlier imports,
+report candidates and primary-document checks. Access, depth and history remain
+unverified unless the row states its evidence. See the [evidence labels](../README.md#reading-the-records)
+and [report integration](../deep-research-integration-2026-09-16.md).
 
-Use the six-column tables below to compare products within this asset/data class.
-Free access precedes paid access in each table; qualifications remain attached.
+Tables order free access before conditional and paid routes.
 Return to the [complete source index](../README.md#asset-class-guides).
 
 ## Foreign exchange — spot, NDFs and reference rates
@@ -25,8 +23,16 @@ Spot FX is fragmented. A broker’s ticks or liquidity tiers are not a consolida
 | Bank of Canada — Valet exchange rates | Free | Daily FX reference rates | Reference / time series | **Imported; not rechecked.** Official observation API; verify series metadata and update schedule. | [Valet API](https://www.bankofcanada.ca/valet/docs) |
 | OANDA v20 — account pricing stream | Free with eligible account | Spot FX / broker instruments | L1; broker liquidity tiers | **Imported; not rechecked.** Account-specific prices; stream is not every market tick or an interbank L3 feed. | [Pricing API](https://developer.oanda.com/rest-live-v20/pricing-ep/) |
 | Twelve Data — FX price series | Free tier; paid expansion | Spot FX pairs | Bars; quote snapshots | **Imported; not rechecked.** Aggregated/vendor prices; plan coverage and delay matter; no global order-book claim. | [Coverage / plans](https://twelvedata.com/pricing) |
+| Alpha Vantage — FX series | Free tier / paid expansion; limits unverified | FX rates / selected pairs | Reference prices; Bars | **Report candidate; not rechecked.** Low-frequency/reference candidate; quote executability and current plan access untested. Not a venue order book. | [API documentation](https://www.alphavantage.co/documentation/) |
+| Tiingo — FX pricing | Free tier / paid plans; limits unverified | Spot FX — provider coverage | L1; tick / bar history | **Report candidate; not rechecked.** Report identifies pricing history; determine source venues and aggregation. Not a global FX order book. | [Documentation](https://www.tiingo.com/documentation/) |
+| LMAX Global — price-level market data | Conditional — client / data fees | Venue-specific spot FX / metals | L1; L2 | **Documented 2026-09-16.** Live and historical products documented. Provider pages describe different FIX depth caps; exact interface/depth and fees need confirmation. | [Data access](https://www.lmax.com/global/market-data-access), [Trading/API](https://www.lmax.com/global/trading) |
+| LMAX Global — disaggregated snapshots | Conditional — client / data fees | Venue-specific spot FX / metals | L3-labelled snapshots; lifecycle unverified | **Documented 2026-09-16.** Provider lists individual-entry snapshots. IDs, event continuity and queue reconstruction were not established. | [Data access](https://www.lmax.com/global/market-data-access) |
 | Cboe FX — top-of-book history | Paid | Institutional spot FX | L1 | **Imported; not rechecked.** Venue-specific historical TOP product; not all dealer/interbank liquidity. | [FX products](https://www.cboe.com/global/fx/spot/) |
 | Cboe FX — full-depth snapshots | Paid | Spot FX / NDFs | L2 — snapshots | **Imported; not rechecked.** Historical full-depth snapshots; no guarantee of the events between snapshots. | [DataShop snapshot product](https://datashop.cboe.com/fx-order-book-snapshot-historical-data) |
 | Cboe FX — trade prints | Paid | Institutional spot FX | Trade only | **Imported; not rechecked.** Venue trade data with volume; distinct from quote and order-event subscriptions. | [FX products](https://www.cboe.com/global/fx/spot/) |
 | Cboe FX — order-event history | Paid | Institutional spot FX | Order-event depth — confirm L3 schema | **Imported; not rechecked.** Potential queue-research route; require sample order identities and priority semantics before classifying as L3. | [Order Book product](https://www.cboe.com/global/fx/spot/) |
 | LSEG Tick History — FX | Paid | FX quotes / venue instruments | L1; L2 where contributed; Trades where available | **Imported; not rechecked.** Historical source-specific data; distinguish executable venues, contributor quotes and reference series. | [Tick History](https://www.lseg.com/en/data-analytics/market-data/data-feeds/tick-history) |
+| CME EBS — spot market data | Paid | Institutional spot FX | L2 / product-specific depth | **Report candidate; not rechecked.** Venue CLOB candidate; delivery/conflation and any order-level entitlement need confirmation. Not global FX liquidity. | [EBS](https://www.cmegroup.com/markets/ebs.html) |
+| CME EBS — NDF market data | Paid | NDFs / selected FX forwards | L2 / product-specific depth | **Report candidate; not rechecked.** Venue CLOB candidate; delivery/conflation and any order-level entitlement need confirmation. Not global FX liquidity. | [EBS](https://www.cmegroup.com/markets/ebs.html) |
+| LSEG Matching — spot FX | Paid | Interdealer spot FX | L2 / product-specific depth | **Report candidate; not rechecked.** Report identifies venue-market interfaces. Obtain exact native schema and delivery terms; continuous order-ID history unverified. | [FX products](https://www.lseg.com/en/fx), [API catalog](https://developers.lseg.com/en/api-catalog) |
+| LSEG Matching — NDF API | Paid | NDFs / FX forwards | L2 / product-specific depth | **Report candidate; not rechecked.** Report identifies venue-market interfaces. Obtain exact native schema and delivery terms; continuous order-ID history unverified. | [FX products](https://www.lseg.com/en/fx), [API catalog](https://developers.lseg.com/en/api-catalog) |

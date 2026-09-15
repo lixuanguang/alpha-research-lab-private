@@ -1,59 +1,118 @@
 # Data sources
 
 Find market, reference and macroeconomic data by asset class and product.
-This catalog incorporates all **283 supplied entries across 19 tables**, merges
-the earlier crypto survey and adds **21 Crypto.com entries**. The result has
-**331 rows** after overlapping entries are combined or split by product.
-Counts describe catalog entries, including vendor bundles, not unique datasets
-or integrated adapters. Coverage is broader, but not an exhaustive venue census.
+The catalog now has **383 rows across 19 tables**, incorporating the original
+283-entry list, the earlier crypto evidence, Crypto.com additions, and all
+101 source entries from the supplied L3 research report through new or existing
+rows. Counts include vendor bundles, separate access routes and the CCXT library
+entry; they do not represent disjoint datasets or integrated adapters.
 
-**Updated: 2026-09-15.** The six columns are Source, Free/Paid, Asset, Depth,
-Quality of Data and URL/API. Each table puts free access before limited free
-tiers, infrastructure-cost archives, free sample days and paid products.
-Quality describes fidelity and evidence; this ordering is not a quality rank.
+**Updated: 2026-09-16.** The six columns are Source, Free/Paid, Asset, Depth,
+Quality of Data and URL/API. Each table puts free access first, followed by
+limited/sample routes, conditional access and paid products. Quality describes
+fidelity and evidence; this ordering is not a measured quality rank.
+
+## Source-selection recommendations
+
+Choose by the research input, target venue and historical period. The table
+adapts all 17 recommendations from the supplied report, with the corrections in
+the [integration record](deep-research-integration-2026-09-16.md). These are
+conditional source choices for evaluation; the individual catalog rows retain
+their documentation, sample or unverified status.
+
+| Research objective | Source choice / candidates | Selection condition |
+| --- | --- | --- |
+| Free crypto queue reconstruction | Bitfinex R0; authenticated Kraken L3 or Coinbase full/level3. See [spot sources](#cryptocurrency--spot). | Record live order-ID feeds with snapshots and recovery. Account requirements and bounded visible depth apply; a live API is not a historical archive. |
+| Free or low-cost US-equity L3 experiments | IEX delayed DEEP+ and published DEEP+ samples; inspect [HIST separately](equities/README.md#equities-and-etfs--united-states). | Delayed DEEP+ has no exchange fee, but delivery can cost extra. Confirm the actual HIST feed/version before treating a download as L3. [IEX fees](https://www.iex.io/resources/trading/fee-schedule). |
+| US-equity production queue modeling | Nasdaq TotalView-ITCH, NYSE Integrated, Cboe PITCH or IEX DEEP+, for the execution venue. | Select the native order feed and demonstrate reconstruction/recovery; a listing venue does not identify every execution venue. See [equity products](equities/README.md#equities-and-etfs--united-states). |
+| Normalized cross-venue L3 research | Databento MBO for supported datasets. | Check each dataset's order identity, normalization and history; an MBO schema alone is not a universal coverage claim. [MBO semantics](https://databento.com/docs/schemas-and-data-formats/mbo). |
+| CME futures/options queue modeling | CME MDP 3.0 directly, or Databento GLBX.MDP3. | Match the specific contract/channel and preserve event boundaries and matching rules. See [listed derivatives](listed-derivatives/README.md). |
+| ICE futures queue modeling | Native ICE iMpact/FOD or a faithful normalized futures dataset. | Check contract/product silo; ICE US options use price-level data and cannot inherit the futures L3 label. [Normalization](https://databento.com/docs/venues-and-datasets/ifus-impact). |
+| Crypto multi-venue L2 research | Binance, Bybit, OKX or Deribit native feeds; Kaiko/CoinAPI as normalization candidates. | Choose event updates for replay and compare sampled-history cadence separately. For historical work evaluate the [archive candidates](crypto/README.md#historical-l2-candidates). |
+| Crypto multi-venue L3 | CoinAPI's source-dependent order-level product is a candidate. | Require actual order IDs and lifecycle updates for each venue/symbol. Null/missing IDs can indicate an L2 fallback; current snapshots do not prove historical L3. [Product semantics](https://www.coinapi.io/datasets/crypto-order-book-l3-data). |
+| US consolidated equity tick research | A consolidated quote/trade product from Massive, LSEG or Bloomberg. | Verify consolidated coverage, corrections and timestamps; this serves tape/NBBO questions rather than venue queue state. See [equities](equities/README.md) and [enterprise delivery](multi-asset/README.md). |
+| US options consolidated studies | OPRA directly or an OPRA-derived Massive, LSEG/Bloomberg product. | Consolidated quotes and last sales suit market-wide pricing studies; they do not identify resting orders. [OPRA](https://www.opraplan.com/). |
+| US options queue modeling | The target venue's Cboe PITCH or Nasdaq order feed; IEX Options DEEP after confirming activation/access. | Verify the individual options feed, schema and delivery. A published IEX specification does not establish usable history. See [options products](listed-derivatives/README.md#listed-options-and-volatility--equity-index-and-options-on-futures). |
+| Institutional spot-FX microstructure | LMAX, CME EBS or LSEG Matching for the chosen venue. | Establish executable venue liquidity and exact depth, conflation and order semantics. An FX venue is not a global consolidated book. See [FX sources](fx/README.md). |
+| Treasury queue modeling | BrokerTec premium MBO for the relevant UST market; Dealerweb/Tradeweb after confirming order dissemination. | Keep full-depth event data distinct from limited, conflated order snapshots. See [fixed-income sources](fixed-income/README.md). |
+| Corporate-bond transaction research | FINRA TRACE, using the required historical/dissemination product. | Handle reporting delays, corrections and size caps. Transaction reports do not reveal resting orders. See [fixed-income sources](fixed-income/README.md). |
+| Global cross-asset enterprise delivery | LSEG Real-Time/Direct, Bloomberg B-PIPE or ICE Consolidated Feed. | Match the underlying feeds and entitlements; normalization, depth and delivery latency are separate properties. See [enterprise products](multi-asset/README.md). |
+| Free macro research | Primary BLS, BEA, Census, ECB and Eurostat data; World Bank, OECD, IMF and BIS panels; FRED/ALFRED for convenient series and vintages. | Preserve source agency, release time and revisions. Use past vintages for historical information sets, not today's revised observations. See [macro sources](macro/README.md). |
+| Macro nowcasting / vintage research | Haver or Macrobond when their curated coverage, revision history or delivery fits the workload; retain primary-agency comparisons. | Check vintage coverage per series, API licensing, historical forecasts and measured release latency. A vendor speed claim is not an observed guarantee. See [macro products](macro/README.md#macroeconomic-data--international-and-cross-country). |
+
+### Match fidelity and cost to the question
+
+Use L3 where the signal or simulator depends on individual-order age, cancellation
+behavior or displayed queue position. Event L2 can support spread, microprice and
+aggregate-liquidity questions. Trades or bars may be sufficient for other research.
+The current installed notebook workflow remains the documented
+[Binance historical spot-trade consumer](crypto/README.md); these recommendations
+do not select a replacement source or activate a collector.
+
+For a queue-replay objective, prefer a faithful native order feed or normalized
+MBO, then event L2 when price-level state is sufficient. Sampled L2, quotes/trades
+and bars lose different parts of the intervening event path. Native packets are
+a transport representation: packets containing L2 do not become L3. Raw capture
+also needs correct decoding, sequencing and recovery to be useful.
+
+Compare logical depth separately from delivery mode, conflation, capture location,
+latency and loss recovery. Public Internet WebSocket L3 does not reproduce
+colocated binary-feed timing. A mixed choice of sources can reserve expensive
+order data for consumers that need it, subject to measured workflow requirements.
+
+Within the existing [data contracts](../data/contracts.md) and permitted retention,
+preserve available source ordering, event/receive timestamps, order IDs, actions,
+instrument versions and reset markers before normalization. Keep unknown receipt
+or publication times unknown. For macro inputs, preserve release and vintage
+identity as well as the observation period. This is sourcing guidance, not a new
+storage schema or admission rule.
 
 ## Reading the records
 
 - **Imported; not rechecked:** a claim from the supplied catalog. Its stated
   review date is not independent verification by this repository. Price, depth,
   coverage and URL remain candidates for checking.
-- **Documented:** primary provider documentation was reviewed on 2026-09-15;
-  no endpoint, full-history or entitlement test is implied.
+- **Report candidate; not rechecked:** an additional claim from the supplied
+  deep-research report, with subjective grades and unverified exact fees removed.
+- **Documented:** primary provider documentation was reviewed on 2026-09-15,
+  or on the later date stated in the row; no endpoint, full-history or
+  entitlement test is implied.
 - **Observed / sample verified:** a stated listing, schema or actual file was
   inspected. Read the [crypto sample evidence](crypto/verification-2026-09-15.md)
   for its exact scope.
 - **Integrated:** a repository consumer and acceptance evidence exist. The
   [crypto guide](crypto/README.md) links the current Binance spot-trade consumer.
 
-The [incorporation record](catalog-incorporation-2026-09-15.md) identifies the
-supplied files, overlap handling, new checks and limitations. The tables retain
-the supplied product claims as candidates; the attachments' proposed acceptance
-and ingestion procedures do not replace repository policy.
+The [first incorporation record](catalog-incorporation-2026-09-15.md) and
+[L3 report integration](deep-research-integration-2026-09-16.md) identify the
+supplied files, overlap handling, checks and limitations. Recommendations above
+are adapted at the user's request; other instructions in the attachments do not
+replace repository policy.
 
 ## Asset-class guides
 
 | Asset / data class | Entries | Summary table |
 | --- | ---: | --- |
-| Cryptocurrency — spot | 51 | [Sources](#cryptocurrency--spot) |
-| Cryptocurrency — perpetuals and dated futures | 44 | [Sources](#cryptocurrency--perpetuals-and-dated-futures) |
-| Cryptocurrency — options | 14 | [Sources](#cryptocurrency--options) |
+| Cryptocurrency — spot | 58 | [Sources](#cryptocurrency--spot) |
+| Cryptocurrency — perpetuals and dated futures | 48 | [Sources](#cryptocurrency--perpetuals-and-dated-futures) |
+| Cryptocurrency — options | 17 | [Sources](#cryptocurrency--options) |
 | Cryptocurrency — funding, positioning and on-chain fundamentals | 24 | [Sources](#cryptocurrency--funding-positioning-and-on-chain-fundamentals) |
 | Prediction / event-contract markets | 4 | [Sources](prediction/README.md#prediction--event-contract-markets) |
-| Equities and ETFs — United States | 19 | [Sources](equities/README.md#equities-and-etfs--united-states) |
+| Equities and ETFs — United States | 23 | [Sources](equities/README.md#equities-and-etfs--united-states) |
 | Equities and ETFs — Europe and multi-region low-frequency data | 10 | [Sources](equities/README.md#equities-and-etfs--europe-and-multi-region-low-frequency-data) |
 | Equities and ETFs — Asia-Pacific | 22 | [Sources](equities/README.md#equities-and-etfs--asia-pacific) |
-| Listed futures — equity index, rates, FX, commodity and volatility | 19 | [Sources](listed-derivatives/README.md#listed-futures--equity-index-rates-fx-commodity-and-volatility) |
-| Listed options and volatility — equity, index and options on futures | 20 | [Sources](listed-derivatives/README.md#listed-options-and-volatility--equity-index-and-options-on-futures) |
-| Foreign exchange — spot, NDFs and reference rates | 14 | [Sources](fx/README.md#foreign-exchange--spot-ndfs-and-reference-rates) |
-| Fixed income, credit and money markets | 13 | [Sources](fixed-income/README.md#fixed-income-credit-and-money-markets) |
+| Listed futures — equity index, rates, FX, commodity and volatility | 25 | [Sources](listed-derivatives/README.md#listed-futures--equity-index-rates-fx-commodity-and-volatility) |
+| Listed options and volatility — equity, index and options on futures | 26 | [Sources](listed-derivatives/README.md#listed-options-and-volatility--equity-index-and-options-on-futures) |
+| Foreign exchange — spot, NDFs and reference rates | 22 | [Sources](fx/README.md#foreign-exchange--spot-ndfs-and-reference-rates) |
+| Fixed income, credit and money markets | 19 | [Sources](fixed-income/README.md#fixed-income-credit-and-money-markets) |
 | Company fundamentals, filings, corporate actions and identifiers | 17 | [Sources](fundamentals/README.md#company-fundamentals-filings-corporate-actions-and-identifiers) |
 | Positioning, holdings, short interest and research factors | 9 | [Sources](positioning/README.md#positioning-holdings-short-interest-and-research-factors) |
 | Macroeconomic data — United States | 13 | [Sources](macro/README.md#macroeconomic-data--united-states) |
-| Macroeconomic data — international and cross-country | 17 | [Sources](macro/README.md#macroeconomic-data--international-and-cross-country) |
+| Macroeconomic data — international and cross-country | 19 | [Sources](macro/README.md#macroeconomic-data--international-and-cross-country) |
 | Macroeconomic data — Asia-Pacific | 11 | [Sources](macro/README.md#macroeconomic-data--asia-pacific) |
-| Physical commodities, energy and agriculture fundamentals | 5 | [Sources](commodities/README.md#physical-commodities-energy-and-agriculture-fundamentals) |
-| Institutional multi-asset delivery and raw packet archives | 5 | [Sources](multi-asset/README.md#institutional-multi-asset-delivery-and-raw-packet-archives) |
-| **Total** | **331** | |
+| Physical commodities, energy and agriculture fundamentals | 6 | [Sources](commodities/README.md#physical-commodities-energy-and-agriculture-fundamentals) |
+| Institutional multi-asset delivery and raw packet archives | 10 | [Sources](multi-asset/README.md#institutional-multi-asset-delivery-and-raw-packet-archives) |
+| **Total** | **383** | |
 
 ## Depth and access labels
 
@@ -123,17 +182,22 @@ Centralized-exchange feeds describe that venue only. A live subscription is not 
 | Crypto.com Exchange — price-level book | Free (public API) | Spot | L2 | **Documented.** Current REST snapshot up to 50 levels; live WS snapshots/deltas. Sequence recovery and replay untested. | [public/get-book](https://exchange-developer.crypto.com/exchange/v1/docs/api/rest/public-get-book), [book subscription](https://exchange-developer.crypto.com/exchange/v1/docs/api/websocket-single-page/) |
 | Crypto.com Exchange — candles | Free (public API) | Spot | Bars / OHLCV | **Documented.** Historical candles by instrument/timeframe; earliest coverage and pagination untested. | [public/get-candlestick](https://exchange-developer.crypto.com/exchange/v1/docs/api/rest/public-get-candlestick) |
 | OKX Historical Data — executions | Free (portal access conditions) | Spot — available archive instruments | Trade only | **Imported; not rechecked.** Official tick-history downloads; verify selected instrument/date availability. | [Official archive](https://www.okx.com/historical-data) |
-| Coinbase Exchange — full / level3 | Free (account + authentication) | Spot | L3 | **Imported; not rechecked.** Live order lifecycle; synchronize the initial snapshot. Authentication currently required. | [Exchange channels](https://docs.cdp.coinbase.com/exchange/websocket-feed/channels) · [Authentication](https://docs.cdp.coinbase.com/exchange/websocket-feed/authentication) |
+| Coinbase Exchange — full / level3 | Free (account + authentication) | Spot | L3 | **Documented 2026-09-16.** Live order lifecycle with initial snapshot synchronization. Current full/level3 channels require authentication; no collection or replay tested. | [Exchange channels](https://docs.cdp.coinbase.com/exchange/websocket-feed/channels) · [Authentication](https://docs.cdp.coinbase.com/exchange/websocket-feed/authentication) |
 | Kraken Spot API — level3 | Free (account + authentication) | Spot | L3 — depth bounded | **Documented.** Authenticated live visible-order feed; 10/100/1,000 price-level choices. Hidden iceberg quantity excluded; no archive or replay tested. | [Spot WS level3](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/level3) |
+| CCXT — exchange API library | Free software; upstream access varies | Supported crypto venues | N/A — integration library | **Report candidate; not rechecked.** An abstraction over venue APIs. It cannot supply missing order IDs, history or entitlement; not an independent feed. | [Documentation](https://docs.ccxt.com/), [Project](https://github.com/ccxt/ccxt) |
 | CoinGecko Demo API | Free tier; paid expansion | Aggregated crypto spot prices | Reference prices; Bars | **Imported; not rechecked.** Cross-venue aggregates and historical charts, not executable exchange BBO or an order book. | [Demo API](https://docs.coingecko.com/docs/setting-up-your-api-key) |
 | Alpaca Historical Data — trades, Alpaca venue | Free (limited tier) | Spot — Alpaca `us` | Trade only | **Documented.** Venue-specific history; date coverage and free-tier behavior untested. Not Binance data. | [Historical trades API](https://docs.alpaca.markets/us/reference/cryptotrades-1) |
 | Alpaca Historical Data — trades, Kraken venue | Free (limited tier) | Spot — Kraken `us-1` / `eu-1` | Trade only | **Documented.** Kraken routing; inspect location and historical provider identity. 2024 sample coverage unverified. | [Historical trades API](https://docs.alpaca.markets/us/reference/cryptotrades-1) |
 | Alpaca Historical Data — quotes, Alpaca venue | Free (limited tier) | Spot — Alpaca `us` | L1 | **Documented.** Historical best quotes, not a depth archive; selected date/access untested. | [Historical quotes API](https://docs.alpaca.markets/us/reference/cryptoquotes-1) |
 | Alpaca Historical Data — quotes, Kraken venue | Free (limited tier) | Spot — Kraken `us-1` / `eu-1` | L1 | **Documented.** `us-1` history starts 2025-10-14 UTC; `eu-1` coverage untested. Best quotes only. | [Historical quotes API](https://docs.alpaca.markets/us/reference/cryptoquotes-1) |
+| Tiingo — crypto top-of-book and trades | Free tier / paid plans; limits unverified | Spot — selected exchanges or composites | L1; Trade only; Bars | **Report candidate; not rechecked.** Venue/composite top-of-book and bars are described; inspect constituent venues and selected plan. Access limits and history untested. | [Crypto API](https://www.tiingo.com/products/crypto-api) |
+| CoinDesk Data / CryptoCompare — market aggregates | Free tier / paid expansion; limits unverified | Crypto spot — venue / aggregate series | Reference prices; Bars | **Report candidate; not rechecked.** Limited public services are separate from institutional order-book products. Confirm dataset, source venues and allowance. | [Developer portal](https://developers.cryptocompare.com/) |
 | Tardis History Data — Binance quotes | Free (first-of-month samples) | Spot — Binance | L1 | **Documented.** `quotes` derived from the book; distinguish native `bookTicker`. File untested. | [Binance coverage](https://docs.tardis.dev/historical-data-details/binance) |
 | Tardis History Data — Binance order book | Free (first-of-month samples) | Spot — Binance | L2 | **Documented.** Snapshots/deltas with recorder timestamps; captured depth/cadence limits apply. Replay untested. | [Binance coverage](https://docs.tardis.dev/historical-data-details/binance) |
 | Tardis — Crypto.com order book | Free (first-of-month samples) | Spot | L2 | **Documented.** Recorded history; symbol/date continuity untested. | [Coverage and samples](https://docs.tardis.dev/historical-data-details/crypto-com) |
 | Tardis — Crypto.com trades | Free (first-of-month samples) | Spot | Trade only | **Documented.** Recorded history; symbol/date continuity untested. | [Coverage and samples](https://docs.tardis.dev/historical-data-details/crypto-com) |
+| LMAX Digital — institutional venue data | Conditional — client / commercial terms | Institutional crypto spot | L2; order-level product unverified | **Report candidate; not rechecked.** Report identifies venue interfaces; obtain the actual feed/schema and pricing. No latency, L3 or completeness claim was validated. | [Provider](https://www.lmaxdigital.com/) |
+| OKX — restricted tick-by-tick books | Conditional — account / trading tier | Spot — eligible instruments | L2 | **Report candidate; not rechecked.** books-l2-tbt and related channels have eligibility limits. More frequent price-level updates do not imply order-level data. | [V5 channels](https://www.okx.com/docs-v5/en/) |
 | Tardis — historical spot books | Paid | Spot — supported exchanges | L2; Trade only | **Imported; not rechecked.** Historical native WS replay or normalized files; coverage/channel dates vary by venue. | [Coverage](https://docs.tardis.dev/historical-data-details/overview) · [Data semantics](https://docs.tardis.dev/faq/data) |
 | Tardis — Coinbase order history | Paid | Coinbase Exchange spot | L3 | **Imported; not rechecked.** Historical native order events plus snapshots; choose raw-message access, not only L2 CSV. | [Coinbase capture](https://docs.tardis.dev/historical-data-details/coinbase) |
 | Tardis — Bitfinex raw history | Paid | Bitfinex spot | L3 — depth bounded | **Imported; not rechecked.** Historical R0 capture; documented `len=100` constraint, not unrestricted full-book history. | [Bitfinex capture](https://docs.tardis.dev/historical-data-details/bitfinex) |
@@ -146,6 +210,8 @@ Centralized-exchange feeds describe that venue only. A live subscription is not 
 | Tardis History Data — Binance order book | Paid | Spot — Binance | L2 | **Documented.** History beyond sample days under selected plan; retained incidents and replay still need validation. | [Coverage](https://docs.tardis.dev/historical-data-details/binance), [plans](https://tardis.dev/#pricing) |
 | Tardis — Crypto.com order book | Paid | Spot | L2 | **Documented.** Recorded history; symbol/date continuity untested. | [Coverage and samples](https://docs.tardis.dev/historical-data-details/crypto-com) |
 | Tardis — Crypto.com trades | Paid | Spot | Trade only | **Documented.** Recorded history; symbol/date continuity untested. | [Coverage and samples](https://docs.tardis.dev/historical-data-details/crypto-com) |
+| CoinAPI — order-level API candidate | Paid / plan entitlement; free L3 allowance unverified | Spot — source-dependent | L3 only with order IDs; L2 fallback | **Documented 2026-09-16.** Current REST/WS product; missing IDs mean L2. Asset/venue coverage and continuous historical L3 are untested. | [L3 product and fallback semantics](https://www.coinapi.io/datasets/crypto-order-book-l3-data) |
+| CoinDesk Data / CryptoCompare — spot depth history | Paid | Spot — contracted venue coverage | L2 — sampled history | **Report candidate; not rechecked.** Report identifies historical depth products; cadence, dates and gaps need checking. No order-event archive established. | [Developer portal](https://developers.cryptocompare.com/) |
 
 ### Cryptocurrency — perpetuals and dated futures
 
@@ -184,6 +250,7 @@ Separate linear, inverse and quanto contracts in storage. Contract size, settlem
 | OKX Historical Data — dated contracts | Free (portal access conditions) | Dated futures — archive-covered contracts | Trade only; L2 | **Imported; not rechecked.** Separate dated-futures selection; do not infer an expiry archive from a perpetual symbol. Asset/contract availability requires confirmation in the archive selector; not independently enumerated here. | [Official archive](https://www.okx.com/historical-data) |
 | Deribit API — perpetuals | Free; raw-channel authentication | Perpetuals | L1; L2; Trade only | **Imported; not rechecked.** Live market data; raw book still aggregates by price. Check channel-specific conflation. | [Book channel](https://docs.deribit.com/subscriptions/orderbook/bookinstrument_nameinterval) · [Ticker channel](https://docs.deribit.com/subscriptions/market-data/tickerinstrument_nameinterval) |
 | Deribit API — dated futures | Free; raw-channel authentication | Dated futures | L1; L2; Trade only | **Imported; not rechecked.** Live contracts and recent/history endpoints; book API is L2, not L3. | [Book channel](https://docs.deribit.com/subscriptions/orderbook/bookinstrument_nameinterval) |
+| Bitfinex — derivatives raw book | Free public API; instrument support unverified | Perpetuals / supported derivatives | L3 — conditional R0 support | **Report candidate; not rechecked.** Report applies the order-ID R0 protocol to derivatives. Verify current native symbols and actual R0 subscription support before collection. | [Raw-book protocol](https://docs.bitfinex.com/reference/ws-public-raw-books) |
 | Hyperliquid — S3 book archive | Free data; AWS transfer costs | Perpetuals | L2 — snapshots | **Imported; not rechecked.** Historical snapshots; docs warn of missing data and non-guaranteed update timing. Not spot history. | [Historical data](https://hyperliquid.gitbook.io/hyperliquid-docs/historical-data) |
 | Hyperliquid — node fill archive | Free data; AWS transfer costs | Chain-recorded market fills | Trade only | **Imported; not rechecked.** Historical node fills by block; decode format versions and avoid counting both sides twice. | [Historical data](https://hyperliquid.gitbook.io/hyperliquid-docs/historical-data) |
 | Tardis History Data — Deribit order book | Free (first-of-month samples) | Perpetual futures — Deribit | L2 | **Documented.** Recorded book updates; symbol/day replay untested. | [Deribit coverage](https://docs.tardis.dev/historical-data-details/deribit) |
@@ -197,6 +264,9 @@ Separate linear, inverse and quanto contracts in storage. Contract size, settlem
 | Tardis History Data — Deribit order book | Paid | Perpetual futures — Deribit | L2 | **Documented.** Plan/date-dependent access; untested locally. | [Coverage](https://docs.tardis.dev/historical-data-details/deribit), [plans](https://tardis.dev/#pricing) |
 | Tardis — Crypto.com order book | Paid | Perpetual futures | L2 | **Documented.** Recorded history; symbol/date continuity untested. | [Coverage and samples](https://docs.tardis.dev/historical-data-details/crypto-com) |
 | Tardis — Crypto.com trades | Paid | Perpetual futures | Trade only | **Documented.** Recorded history; symbol/date continuity untested. | [Coverage and samples](https://docs.tardis.dev/historical-data-details/crypto-com) |
+| CoinAPI — order-level API candidate | Paid / plan entitlement; free L3 allowance unverified | Perpetuals / futures — source-dependent | L3 only with order IDs; L2 fallback | **Documented 2026-09-16.** Current REST/WS product; missing IDs mean L2. Asset/venue coverage and continuous historical L3 are untested. | [L3 product and fallback semantics](https://www.coinapi.io/datasets/crypto-order-book-l3-data) |
+| CoinDesk Data / CryptoCompare — futures depth history | Paid | Crypto futures — contracted coverage | L2 — sampled history | **Report candidate; not rechecked.** Report describes minute snapshots. Cadence and file coverage untested; sampled states cannot recover intervening order events. | [Developer portal](https://developers.cryptocompare.com/) |
+| CME — crypto futures MDP 3.0 | Paid | CME-listed crypto futures | L3 / MBO — supported products | **Documented 2026-09-16.** Direct exchange order feed; select contract/channel and recovery semantics. Coverage and capture untested. | [MDP 3.0 services](https://cmegroupclientsite.atlassian.net/wiki/spaces/EPICSANDBOX/pages/457219613) |
 
 ### Cryptocurrency — options
 
@@ -218,6 +288,9 @@ Trades/quotes, exchange mark IV, vendor-fitted surfaces and Greeks are different
 | Amberdata — options / volatility | Paid | Crypto options | L1; L2; Trade only; Analytics | **Imported; not rechecked.** Historical/live options data and derived volatility analytics; distinguish raw quotes from fitted surfaces. | [Product/API documentation](https://docs.amberdata.io/) |
 | Tardis History Data — Deribit order book | Paid | Options — Deribit | L2 | **Documented.** Historical option books; per-instrument coverage and reconstruction untested. | [Coverage](https://docs.tardis.dev/historical-data-details/deribit), [plans](https://tardis.dev/#pricing) |
 | Tardis History Data — Deribit options chain | Paid | Options — Deribit | N/A — chain/ticker dataset | **Documented.** Chain history under selected plan; does not provide a predefined option-perpetual basis. | [Coverage](https://docs.tardis.dev/historical-data-details/deribit), [plans](https://tardis.dev/#pricing) |
+| CoinAPI — order-level API candidate | Paid / plan entitlement; free L3 allowance unverified | Options — source-dependent; L3 venue coverage unverified | L3 only with order IDs; L2 fallback | **Documented 2026-09-16.** Current REST/WS product; missing IDs mean L2. Asset/venue coverage and continuous historical L3 are untested. | [L3 product and fallback semantics](https://www.coinapi.io/datasets/crypto-order-book-l3-data) |
+| Kaiko — options market data | Paid | Crypto options — contracted venues | L1; L2; Trade only — product-dependent | **Report candidate; not rechecked.** Report candidate for normalized options history. Confirm venues, dates and depth; no universal L3 claim. | [Documentation](https://docs.kaiko.com/) |
+| CME — crypto options MDP 3.0 | Paid | CME-listed options on crypto futures | L3 / MBO — supported products | **Documented 2026-09-16.** Native order data where disseminated; exact contracts, dates and lifecycle support remain untested. | [MDP 3.0 services](https://cmegroupclientsite.atlassian.net/wiki/spaces/EPICSANDBOX/pages/457219613) |
 
 ### Cryptocurrency — funding, positioning and on-chain fundamentals
 

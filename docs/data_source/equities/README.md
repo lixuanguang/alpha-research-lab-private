@@ -1,13 +1,11 @@
 # Equity and ETF data
 
-**Status: imported candidates, 2026-09-15.** These rows incorporate the supplied
-catalog; their provider claims and access terms have not been independently
-rechecked in this repository. No adapter or downloaded-data test is implied.
-See [evidence labels and depth definitions](../README.md#reading-the-records)
-and the [incorporation record](../catalog-incorporation-2026-09-15.md).
+**Status: source catalog updated 2026-09-16.** Rows distinguish earlier imports,
+report candidates and primary-document checks. Access, depth and history remain
+unverified unless the row states its evidence. See the [evidence labels](../README.md#reading-the-records)
+and [report integration](../deep-research-integration-2026-09-16.md).
 
-Use the six-column tables below to compare products within this asset/data class.
-Free access precedes paid access in each table; qualifications remain attached.
+Tables order free access before conditional and paid routes.
 Return to the [complete source index](../README.md#asset-class-guides).
 
 ## Equities and ETFs — United States
@@ -17,12 +15,15 @@ Execution venue is not listing venue. Nasdaq ITCH includes executions on Nasdaq,
 | Source | Free/Paid | Asset | Depth | Quality of Data | URL/API |
 | --- | --- | --- | --- | --- | --- |
 | Stooq — downloadable history | Free | US equities / ETFs — covered symbols | Bars / OHLCV | **Imported; not rechecked.** Exploratory daily-price files; independently validate adjustments, delistings and symbol continuity. | [Historical files](https://stooq.com/db/h/) |
+| IEX — HIST downloads | Free | US equities traded on IEX | L1/L2/L3 — actual file feed/version | **Documented 2026-09-16.** T+1 downloads and recent 12 months advertised. A specific DEEP+ archive file was not verified; HIST alone does not prove L3. | [HIST download portal](https://iextrading.com/trading/market-data/), [Feed descriptions](https://www.iex.io/products/equities/market-data-connectivity) |
 | Yahoo Finance via yfinance | Free (unofficial; use restrictions) | US equities / ETFs | Bars / OHLCV; Reference | **Imported; not rechecked.** Convenient exploratory history; unofficial wrapper, changing endpoints, personal-use limitations and no feed SLA. | [Maintainer documentation](https://ranaroussi.github.io/yfinance/) |
 | Alpaca Basic — IEX feed | Free (account) | US equities / ETFs traded on IEX | L1; Trade only; Bars | **Imported; not rechecked.** Live IEX-only data; not consolidated US quotes/trades. Historical access has plan-specific recency limits. | [Plans and feed coverage](https://docs.alpaca.markets/us/docs/about-market-data-api) |
+| IEX — delayed DEEP+ | Free exchange fee; delivery charges may apply | US equities traded on IEX | L3 — delayed | **Documented 2026-09-16.** Order-by-order displayed book, at least 15 minutes delayed. Confirm delivery route; no stream tested. | [Feed descriptions](https://www.iex.io/products/equities/market-data-connectivity), [Fee schedule](https://www.iex.io/resources/trading/fee-schedule) |
 | Alpha Vantage — free daily endpoints | Free tier | US equities / ETFs | Bars / OHLCV | **Imported; not rechecked.** Limited public daily-series allowance; intraday and adjusted/premium endpoints are not all free. | [API documentation](https://www.alphavantage.co/documentation/) |
 | Massive — free stock tier | Free tier | US equities / ETFs | Bars / OHLCV | **Imported; not rechecked.** Limited historical/delayed bar access by plan; do not assume tick quotes/trades are included. | [Stocks / plans](https://massive.com/stocks) |
 | Twelve Data — Basic stock coverage | Free tier | US equities / ETFs — eligible coverage | Bars; limited quotes | **Imported; not rechecked.** Quota- and market-dependent access; inspect feed provenance and delay before execution research. | [Coverage / plans](https://twelvedata.com/pricing) |
 | EODHD — free/demo access | Free tier | Selected equity / ETF history | Bars / OHLCV | **Imported; not rechecked.** Limited endpoints/history/sample instruments; broad global coverage requires paid access. | [API catalogue](https://eodhd.com/financial-apis/) |
+| Tiingo — IEX quotes and trades | Free tier / paid plans; limits unverified | US equities — IEX venue feed | L1; Trade only | **Report candidate; not rechecked.** Report identifies IEX quote/trade access; not consolidated US depth. Current pricing and historical coverage need checking. | [Documentation](https://www.tiingo.com/documentation/) |
 | Alpaca — consolidated equity plan | Paid | US equities / ETFs | L1; Trade only; Bars | **Imported; not rechecked.** Live consolidated US feeds plus history; not order-by-order market depth. | [Plans and feed coverage](https://docs.alpaca.markets/us/docs/about-market-data-api) |
 | Massive — stock trades / quotes | Paid | US equities / ETFs | L1; Trade only; Bars | **Imported; not rechecked.** Normalized consolidated trades/NBBO and bars; retention and real-time rights vary by plan. | [Stocks / plans](https://massive.com/stocks) |
 | Databento — Nasdaq TotalView-ITCH | Paid | US equities / ETFs on Nasdaq | L3; derived L2/L1; Trade only | **Imported; not rechecked.** Historical/live normalized MBO and native-feed options; preserve native event semantics. | [XNAS.ITCH](https://databento.com/docs/venues-and-datasets/xnas-itch) |
@@ -35,6 +36,7 @@ Execution venue is not listing venue. Nasdaq ITCH includes executions on Nasdaq,
 | Norgate Data — US equity history | Paid | US equities / ETFs | Bars / OHLCV; Reference | **Imported; not rechecked.** End-of-day research data with delisted securities/constituent-history products; package scope matters. | [Product overview](https://norgatedata.com/) |
 | CRSP US Stock Database | Paid (institutional / academic license) | US equities; covered funds/securities | Bars / daily-monthly returns; Reference | **Imported; not rechecked.** Long-horizon research database with permanent identifiers, corporate actions and delisting information; not an intraday feed. | [CRSP product](https://indexes.morningstar.com/research-data-products/crsp-us-stock-databases) |
 | Interactive Brokers — subscribed US data | Paid / account entitlements | US equities / ETFs | L1; L2; Trade only; Bars | **Imported; not rechecked.** Broker API, pacing and exchange subscriptions apply; not an unconstrained bulk tick archive. | [Entitlements](https://www.interactivebrokers.com/docs/general/market-data-subscriptions/introduction) |
+| IEX — real-time DEEP+ | Paid — USD 3,500/month exchange fee | US equities traded on IEX | L3 | **Documented 2026-09-16.** Displayed-order feed. Published exchange fee excludes additional delivery costs; access and replay untested. | [Feed descriptions](https://www.iex.io/products/equities/market-data-connectivity), [Fee schedule](https://www.iex.io/resources/trading/fee-schedule) |
 
 ## Equities and ETFs — Europe and multi-region low-frequency data
 

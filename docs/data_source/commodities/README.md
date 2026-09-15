@@ -1,13 +1,11 @@
 # Physical commodity and energy data
 
-**Status: imported candidates, 2026-09-15.** These rows incorporate the supplied
-catalog; their provider claims and access terms have not been independently
-rechecked in this repository. No adapter or downloaded-data test is implied.
-See [evidence labels and depth definitions](../README.md#reading-the-records)
-and the [incorporation record](../catalog-incorporation-2026-09-15.md).
+**Status: source catalog updated 2026-09-16.** Rows distinguish earlier imports,
+report candidates and primary-document checks. Access, depth and history remain
+unverified unless the row states its evidence. See the [evidence labels](../README.md#reading-the-records)
+and [report integration](../deep-research-integration-2026-09-16.md).
 
-Use the six-column tables below to compare products within this asset/data class.
-Free access precedes paid access in each table; qualifications remain attached.
+Tables order free access before conditional and paid routes.
 Return to the [complete source index](../README.md#asset-class-guides).
 
 ## Physical commodities, energy and agriculture fundamentals
@@ -21,3 +19,4 @@ Physical spot assessments, inventories, production and weather variables are not
 | EIA — petroleum / natural-gas data | Free (API key) | Oil / products / natural gas | Physical prices; inventories; flows | **Imported; not rechecked.** Official energy API; stock, flow and price series have distinct units and release calendars. | [Open Data API](https://www.eia.gov/opendata/) |
 | EIA — electricity / other energy | Free (API key) | Power / coal / energy demand and supply | Physical prices; generation; statistics | **Imported; not rechecked.** Official energy series; regional frequency/availability differs by dataset. | [Open Data API](https://www.eia.gov/opendata/) |
 | USDA NASS — Quick Stats | Free (API key) | Agricultural production / acreage / yields / prices | Physical-market statistics | **Imported; not rechecked.** Official agricultural survey/census data; geographic level, unit and revisions are essential. | [Quick Stats API](https://quickstats.nass.usda.gov/api) |
+| Alpha Vantage — commodity series | Free tier / paid expansion; limits unverified | Commodity prices / indices | N/A — time series | **Report candidate; not rechecked.** Low-frequency macro/factor candidate; source methodology, units and access untested. Not futures queue data. | [API documentation](https://www.alphavantage.co/documentation/) |
