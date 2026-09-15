@@ -23,7 +23,9 @@ from msgspec.structs import replace
 # project library imports
 from alpha_research.configuration import Configuration, ResolvedManifest
 from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.providers.tardis.transport import TardisTransport, TransientFetchError
+from alpha_research.data.providers.binance.transport import BinanceArchiveTransport
+from alpha_research.data.providers.tardis.transport import TardisTransport
+from alpha_research.data.providers.transport import TransientFetchError
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
@@ -101,9 +103,9 @@ def fetch_partition(
     """Fetch, describe and publish one partition, reporting safe JSON progress.
 
     Args:
-        request: Resolved job/instrument/minute selection, revalidated before I/O.
+        request: Resolved source-object selection, revalidated before I/O.
         store: Explicit durably provisioned raw destination, owned by the caller.
-        connection: Unopened Tardis HTTPS connection or injected fake HTTP boundary.
+        connection: Unopened selected provider connection or injected fake HTTP boundary.
         clock: UTC clock sampled after fetch and after durable publication.
         report: Synchronous JSON sink; must succeed or propagate its failure.
         timeout_seconds: Finite positive socket inactivity timeout in seconds.
@@ -132,22 +134,25 @@ def fetch_partition(
     codec = DomainCodec()
     try:
         report(codec.encode_json(progress).decode())
-        transport = TardisTransport(
-            connection, timeout_seconds=timeout_seconds, max_bytes=max_bytes
+        transport_type = (
+            BinanceArchiveTransport
+            if request.manifest.job.provider == "binance-archive"
+            else TardisTransport
         )
+        transport = transport_type(connection, timeout_seconds=timeout_seconds, max_bytes=max_bytes)
         payload = transport.fetch(
             request, permitted_rights_reference=permitted_rights_reference, api_key=api_key
         )
         received = clock()
         progress.update(stage="store", status="received", bytes=len(payload))
         report(codec.encode_json(progress).decode())
-        with TemporaryDirectory(prefix="tardis-partition-") as temporary:
-            source = Path(temporary) / "response.gz"
+        with TemporaryDirectory(prefix="source-partition-") as temporary:
+            source = Path(temporary) / "response"
             source.write_bytes(payload)
             descriptor = RawObject.from_file(
                 source,
                 request=request,
-                retrieval_reference=f"tardis:{request.identity}",
+                retrieval_reference=f"{request.manifest.job.provider}:{request.identity}",
                 ts_received=received,
                 ts_ingested=received,
             )
@@ -345,8 +350,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.manifest.resolve() in {args.config.resolve(), args.catalog.resolve()}:
             raise ValueError("manifest must not overwrite configuration or catalog")
         api_key = None if args.api_key_env is None else os.environ[args.api_key_env]
-        connection = HTTPSConnection("api.tardis.dev")
-        TardisTransport(connection, timeout_seconds=args.timeout_seconds, max_bytes=args.max_bytes)
+        if run.job.provider == "binance-archive" and args.api_key_env is not None:
+            raise ValueError("Binance public archives require no credential environment variable")
+        transport_type = (
+            BinanceArchiveTransport if run.job.provider == "binance-archive" else TardisTransport
+        )
+        connection = HTTPSConnection(
+            "data.binance.vision" if run.job.provider == "binance-archive" else "api.tardis.dev"
+        )
+        transport_type(connection, timeout_seconds=args.timeout_seconds, max_bytes=args.max_bytes)
         command = {
             "command": "alpha-acquire",
             "run_identity": run.identity,

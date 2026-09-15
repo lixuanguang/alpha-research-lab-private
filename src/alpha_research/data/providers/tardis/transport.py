@@ -11,12 +11,9 @@ from urllib.parse import urlencode
 from zlib import error as ZlibError
 
 # project library imports
+from alpha_research.data.providers.transport import TransientFetchError as TransientFetchError
 from alpha_research.data.requests import SourceRequest
 from alpha_research.serialization import DomainCodec
-
-
-class TransientFetchError(OSError):
-    """Identify retryable HTTP/network failures without including source response bodies."""
 
 
 class TardisTransport:
@@ -70,7 +67,7 @@ class TardisTransport:
         """
         request.__post_init__()
         job = request.manifest.job
-        if (job.mode, job.pipeline) != ("historical", "acquisition.fetch"):
+        if (job.provider, job.mode, job.pipeline) != ("tardis", "historical", "acquisition.fetch"):
             raise ValueError("Tardis fetch requires historical/acquisition.fetch selection")
         if (
             not permitted_rights_reference

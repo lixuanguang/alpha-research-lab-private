@@ -2,7 +2,8 @@
 
 Owner: repository founder. Status: MR 00 specification merged in
 [PR 14](https://github.com/lixuanguang/alpha-research-lab-private/pull/14);
-implementation and empirical acceptance remain planned. Decision date: 2026-09-11.
+original specification date: 2026-09-11. Source amendment: 2026-09-15.
+Raw acquisition is implemented; dataset and empirical acceptance remain planned.
 Experiment ID: `p1-btcusdt-return-v1`. This page owns the frozen case required by
 [MR 00](../roadmap/README.md#mr-00-frozen-experiment).
 
@@ -13,63 +14,77 @@ strategy, cash, costs and timing phases remain frozen. Retain this clarification
 and the ordering/arithmetic policy versions with future run identities; MR 00's
 historical evidence is not evidence of these planned consumers.
 
-The founder explicitly selected Tardis raw Binance spot trades, BTCUSDT only,
-2024-06-01 00:00–01:00 UTC, and a fixed one-minute positive-return long-or-flat
-baseline, answering: “Select this bounded case; access and evidence unresolved”.
-The execution and cost values below are fixed engineering conventions chosen
-before any comparative result. They are not estimated venue conditions.
-No source data, credentials, comparative returns or holdout were inspected in
-MR 00. Public provider documentation was read to specify the access method.
+The founder originally selected Tardis raw Binance spot trades. On 2026-09-15,
+before any comparative strategy result, the founder explicitly authorized:
+“Switch to Binance archives and revise the affected source contract”. This
+supersedes the Tardis provider, framing, partition and capture-time assumptions
+only. BTCUSDT, 2024-06-01 00:00–01:00 UTC and all economic/strategy conventions
+below remain fixed. The amended source policy must participate in future run
+identities; original MR 00–07 synthetic Tardis evidence retains its original scope.
+
+The founder selected `data/binance-archives/` for the local working copy and
+explicitly requested that downloaded contents be ignored by Git. No data purchase,
+account credential, trading access or capital use is involved.
 
 ## Source, rights and historical scope
 
 | Item | Frozen selection or explicit unresolved status |
 | --- | --- |
-| Provider / access method | Tardis HTTP raw replay, exchange `binance`, `/v1/data-feeds/binance`; filter channel `trade`, symbol `btcusdt`; source ID `tardis.binance.spot`. No normalized CSV substitution. |
-| Raw sample | Half-open capture interval `[2024-06-01T00:00:00Z, 2024-06-01T01:00:00Z)`. Exactly 60 one-minute partitions, fixed `from` at sample start and offsets 0–59, `sliceSize=1`, gzip. Preserve the exact compressed bytes and blank lines. |
-| Source access | Unresolved and unprobed. No account entitlement, credential reference or authorized data-access record has been supplied. MR 05 must establish the permitted smallest probe before accessing data. |
-| Use and retention | Intended use is private offline engineering/research and reproduction from retained raw/canonical bytes. Permission, retention duration, redistribution restrictions and a protected retrievable location are unresolved. No permission or indefinite retention is inferred; no data purchase or source access is authorized by this selection. |
-| Rights evidence | None supplied. Before acquisition, retain a reference to the applicable dated terms/entitlement covering this interval, intended use and retention. Later request records bind that reference; an unresolved marker cannot pass source-access admission. |
+| Provider / access method | Binance public daily spot **individual `trades`** archive at `data.binance.vision/data/spot/daily/trades/BTCUSDT/BTCUSDT-trades-2024-06-01.zip` and its `.CHECKSUM`; source ID `binance.archive.spot`. No aggregation or kline substitution. |
+| Raw sample | Research selection is the half-open **exchange-event** interval `[2024-06-01T00:00:00Z, 2024-06-01T01:00:00Z)`. Download one complete UTC-day ZIP covering June 1; retain its exact bytes, including rows outside the hour. Future readers filter explicitly while preserving archive row positions. |
+| Source access | Founder-authorized public archive download, without an API key. The installed MR 07 acquisition path validates exact publisher SHA-256, ZIP member/CRC and compressed/expanded bounds before publication. See the [actual acquisition record](../roadmap/mr-07-implementation.md#binance-source-follow-up) for observed results. |
+| Use and retention | Private offline engineering/research. User-selected ignored `data/binance-archives/` contains raw ZIP objects, immutable run inputs, manifests and attempt logs. This working copy has no automatic expiry; a long-term retention entitlement or redistribution permission has not been established. No raw archive is committed. |
+| Access reference | `binance-public-data-2026-09-15-private-research` binds the founder's explicit source/use selection to the public archive documentation reviewed on that date. This is an access/use record, not a Tardis entitlement or automated legal conclusion. The code repository's MIT license is not treated as a separate raw-data license. |
 | Universe | One cash-funded, unlevered Binance spot instrument: BTCUSDT, canonical ID `11111111-1111-4111-8111-111111111111`. ETHUSDT remains supported by the foundations but is outside this case. No cross-sectional or survivor ranking. |
 | Eligibility evidence | Unresolved. The authored catalog was recorded in 2026 and cannot prove what was known in 2024. MRs 11–12 must preserve separate evidence-backed valid/knowledge intervals; unknown eligibility cannot become eligible. Synthetic eligibility may exercise software only. |
-| Reference inputs | Reuse the complete [authored catalog](../../configs/reference/binance-spot.json), schema `1`, recorded at `2026-09-07T18:09:25Z`, with coverage `[2024-06-01, 2024-06-02)` UTC. Do not backdate or relabel its `research_assumption` basis. |
+| Reference inputs | Use the [archive-bound authored catalog](../../configs/reference/binance-archive-spot.json), schema `1`, recorded at `2026-09-15T09:44:05Z`, with coverage `[2024-06-01, 2024-06-02)` UTC. Do not backdate or relabel its `research_assumption` basis. |
 
-Tardis documents timestamp-prefixed exchange-native JSON, blank disconnect
-markers, capture-based minute partitions, lowercase Binance symbols and gzip.
-Its HTTP documentation also describes first-of-month access without an API key;
-that availability statement does not resolve this experiment's rights or
-authorize a probe. MR 05 must recheck the endpoint and framing against actual
-permitted bytes. [Tardis HTTP API reference](https://docs.tardis.dev/api/http-api-reference.md),
-[Binance capture details](https://docs.tardis.dev/historical-data-details/binance.md)
-(read 2026-09-11).
+Binance documents seven columns for individual trades: trade ID, price, quantity,
+quote quantity, time, buyer-maker flag and best-match flag. The file is CSV inside
+ZIP. Daily/monthly archives and SHA-256 sidecars are publicly downloadable. Spot
+timestamps from 2025-01-01 use microseconds; the selected 2024 sample uses
+milliseconds, checked against actual bytes in the notebook. Archives can be
+updated later, so the observed checksum identifies retained bytes, not their
+historical publication or correction availability.
+[Binance public archive documentation](https://github.com/binance/binance-public-data)
+(read 2026-09-15), [Binance historical-data guide](https://www.binance.com/en/academy/articles/how-to-get-trading-data-via-the-binance-api).
 
-The catalog's canonical identity is
+The original Tardis catalog remains unchanged for synthetic fixtures, identity
 `3125723d3760b4a35238b75a493e1d1e2a6956c66566ac7231c35a0afb59bad6`.
-MR 01 must resolve the entire selected interval against it before I/O. Quantity
-rules below are explicit experiment assumptions; the catalog has no lot field.
+The new catalog changes source binding and records the amendment without changing
+canonical listing IDs or economic assumptions. Acquisition resolves the entire
+selected interval before I/O. Quantity rules below remain experiment assumptions;
+the catalog has no lot field.
 
 ## Time, revisions and coverage
 
-Preserve the [existing clocks](../data/point-in-time-semantics.md): Binance `T`
-is trade event time; the original Tardis capture text and its conservative
-microsecond ceiling supply source receipt and `source_capture` knowledge.
-The existing decoder interprets Binance `T`/`E` as Unix milliseconds; MR 05 must
-verify that the selected historical payloads match before admission. Local
-receipt and durable ingestion occur at archive acquisition. Persist their
-original values for rebuild; new attempt times do not replace them.
+Preserve the distinction between [event, receipt and knowledge clocks](../data/point-in-time-semantics.md).
+Binance archive `time` is exchange trade event time. The archive has **no recorder
+capture timestamp or historical receipt/knowledge timestamp**. Source policy
+`exchange-time-only-v1` records this absence; never fabricate a Tardis prefix or
+use the local download clock as availability during 2024. Local receipt and
+durable ingestion occur at acquisition and are preserved on rebuild/repeat.
+
+Later exploratory simulation may use the explicitly labeled
+`event-time-assumption-v1` policy, assuming availability at exchange event time.
+That is a research assumption, not evidence of historical knowability or an
+empirically causal baseline. MR 09 owns archive-row decoding and absent-source-clock
+provenance; MR 17 owns availability selection. Neither is implemented by this
+acquisition amendment. Existing synthetic Tardis decoders retain `source_capture`
+semantics for their own inputs.
 
 Decoder revision `0` is a local initial version, not proof of a vendor revision
 history. Source revision availability is unresolved. Keep raw versions and
-occurrence identities `(partition, raw digest, zero-based line position)`;
+occurrence identities `(archive partition, raw digest, zero-based CSV row position)`;
 deduplicate economically by source/venue/instrument/stream/trade ID. Exact
 duplicates contribute once while retaining lineage. Conflicting payloads need
 justified revision order and correction availability or fail publication.
-Effective knowledge is no earlier than original capture and any correction's
-availability. Unknown revision history cannot establish a historical causal
+Under an evidenced availability policy, effective knowledge is no earlier than
+original source availability and any correction's availability. Unknown revision history cannot establish a historical causal
 claim. Do not use today's corrected projection for past decisions.
 
 Order eligible records by effective knowledge, fixed source/stream precedence,
-partition start and source-local line position under the
+partition start and source-local row position under the
 [shared ordering contract](../data/point-in-time-semantics.md#planned-economic-ordering-and-event-stepping).
 The selected case has one source/stream. Reconcile raw versions before ordering;
 unresolved competing versions fail admission. Raw digests and digest-derived
@@ -79,16 +94,20 @@ admit source events in that order, expire old intents, apply any still-eligible
 pending fill, evaluate a scheduled decision, then mark NAV. Half-open intent
 expiry prevents a fill at its expiry time; a new decision cannot fill immediately.
 
-Missing partitions, corrupt bytes, unresolved conflicts or required unknown
-eligibility fail publication. A verified empty partition is recorded silence,
-not a missing object. Empty/stale observation windows remain missing; never pad
-prices or returns. A blank's conservative gap runs from the preceding capture
-(sample start if absent) to the next capture (sample end if absent), with the
-existing next-capture/interval-end proxy as its knowledge time. A gap known at
-the cutoff invalidates any overlapping observation window and cancels a pending
-intent at that cutoff. Newly discovered gaps do not rewrite prior decisions;
-the final report retains their coverage impact and cannot claim uninterrupted
-empirical acceptance. No-trade does not waive required dataset quality.
+Missing archives, corrupt bytes, unresolved conflicts or required unknown
+eligibility fail publication. Successful SHA/CRC checks establish byte integrity,
+not complete trade coverage. Archives contain no Tardis disconnect markers;
+absence of a row is not evidence that capture was continuous. Empty/stale
+observation windows remain missing; never pad prices or returns. MR 08 must
+report missing objects, invalid CSV and unavailable recorder-gap evidence
+explicitly. MR 13 owns coverage acceptance for the declared use.
+
+A gap evidenced and known at the cutoff invalidates an overlapping observation
+window and cancels a pending intent then. Later-discovered gaps do not rewrite
+prior decisions; the report retains coverage limits and cannot claim uninterrupted
+empirical acceptance. The existing synthetic Tardis blank-marker cases continue
+to exercise gap handling but do not establish Binance archive coverage.
+No-trade does not waive required dataset quality.
 
 ## Observations, hypothesis and targets
 
@@ -200,8 +219,9 @@ eligibility; MRs 10, 17 own revision availability; MR 49 owns saved-source accep
 MR 05 also investigates whether historical eligibility and revision evidence can
 be obtained for this sample, recording missing evidence early; it does not
 implement those later selectors or infer knowability from a successful download.
-Absent evidence leaves the empirical causal baseline incomplete even if the
-synthetic engineering path works. Do not substitute another source to close it.
+Absent evidence leaves the empirical causal baseline incomplete even when real
+archive acquisition or assumed-availability research works. This authorized source
+amendment does not resolve historical eligibility, coverage or revision availability.
 
 The selected hour is an engineering sample, not a validation or final holdout.
 No parameters are fitted, so train-only fitting, purge and embargo are currently

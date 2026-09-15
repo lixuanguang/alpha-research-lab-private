@@ -3,14 +3,17 @@
 Owner: repository founder. Consolidated 2026-09-14. MR 00 and C0 are complete;
 MRs 01–02 are merged in the M0 delivery. MR 03 is merged in PR #24 at `bf3fb99`.
 MR 04 is merged in PR #25 at `b136b36`. MR 05 is merged in PR #26 at `48bf9b7`;
-its permitted source probe remains blocked by unresolved rights admission and retention.
+its Tardis source probe was not performed; the founder later selected Binance archives below.
 MR 06 is merged in PR #27 at `0e35496`. MR 07 is implemented and locally verified
-for synthetic installed acquisition in its [review candidate](mr-07-implementation.md).
+for installed acquisition, including the actual Binance public archive in its
+[review candidate](mr-07-implementation.md#binance-source-follow-up).
 MRs 08–62 and R1 remain planned;
 no M1–M7 completion or P1 result is claimed.
 
 **Review [MR 07](mr-07-implementation.md). MR 08 is next; it is not started here.**
-MR 05’s open source-evidence boundary remains unchanged.
+The 2026-09-15 founder-authorized Binance source amendment supersedes the Tardis
+access prerequisite for P1. Historical eligibility, revision availability and
+coverage acceptance remain open; raw download is not dataset or P1 acceptance.
 M0 resolves configured inputs and runs an installed fixture consumer. Follow the
 dependency graph through verified saved inputs, reference query/replay and E1. Keep MR 05's source
 feasibility investigation early. The frozen sample, strategy and cost assumptions
@@ -46,8 +49,8 @@ exact serialization, event provenance, an authored reference catalog, bounded
 Tardis/Binance event decoding, configured fixture inspection and saved raw-object
 description/verification with durable content-addressed publication and verified
 reads. A bounded Tardis partition fetch composes these storage contracts with
-explicit access admission, HTTP/gzip checks and progress/failure reports; only
-synthetic acquisition is verified so far. MR 06 adds a durable acquisition manifest,
+explicit access admission, HTTP/gzip checks and progress/failure reports. Its
+evidence remains synthetic; MR 07 adds actual Binance daily ZIP/checksum acquisition. MR 06 adds a durable acquisition manifest,
 sequential restart and bounded transient retry. MR 07 adds the installed acquisition
 command with job/partition progress and terminal status. The frozen uv build, strict source checks, CI and runtime
 wheel installation exist. Versioned datasets, strategy
@@ -227,17 +230,23 @@ storage, interrupted-publication recovery and NB 04 evidence. MR 05’s
 NB 05 synthetic evidence. MR 06’s [merged implementation](mr-06-implementation.md) adds
 validated manifests, checkpoint recovery and bounded transient retry with NB 06.
 MR 07’s [review candidate](mr-07-implementation.md) adds the installed command
-and observable resume, with synthetic NB 07 in notebook section 15.
-The permitted source probe remains unperformed; this does not close source acceptance or M1.
+and observable resume, with synthetic NB 07 in notebook section 15. Section 16
+now downloads the actual Binance public daily trade archive, verifies publisher
+SHA-256 and ZIP CRC, and inspects the selected hour. The founder authorized this
+source-contract amendment on 2026-09-15 and chose ignored local data storage.
+See the [P1 amendment](../research/p1-baseline.md) and
+[recorded verification](mr-07-implementation.md#binance-source-follow-up). This
+changes source-specific deliverables below, not MR dependencies or the later
+ownership of canonical decoding, eligibility, availability, quality or publication.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
 | **03 — Describe and verify a raw object** | 01 | `data/raw_objects.py`: immutable object descriptor with SHA-256, byte size, request/partition identity, retrieval reference and original receipt/ingestion times; callable verifier for an existing saved file. | Hash the exact retained bytes, including compression where present. Mutation, truncation and a descriptor for another request fail. **NB 03:** verify a tiny local object, change one byte and observe identity failure. |
 | **04 — Publish raw bytes durably** | 03 | `data/raw_store.py`: content-addressed write/read boundary, staging on the destination filesystem, durable completion and atomic publication. Reuse the verifier; preserve immutable existing objects. | Readers see complete verified objects only. Repeating the same write reuses bytes; a conflicting object is rejected. Interrupt before/after publication and reconcile the observable files. **NB 04:** inspect staging versus published state after injected failure. |
-| **05 — Fetch one provider partition** | 01, 03–04 | `data/providers/tardis/transport.py` implements one bounded partition fetch with explicit timeout and response validation. Introduce `pipelines/acquisition.py` with working fetch/verify/store composition from the resolved data job and explicit clock/transport dependencies. Emit run/partition identity, progress and failure status from this first consumer. The first transport is Tardis; reject unsupported selections and verify current primary provider documentation during implementation. | Fake transport covers success, malformed/truncated response, auth failure and timeout through the pipeline. A smallest permitted source probe confirms actual endpoint/framing, retention and timestamp assumptions; a fake cannot close that boundary. **NB 05:** inspect a saved response through the retained decoders. Do not print credentials or label retained raw data as a validated dataset. |
+| **05 — Fetch one provider partition** | 01, 03–04 | `data/providers/tardis/transport.py` implements one bounded partition fetch with explicit timeout and response validation. Introduce `pipelines/acquisition.py` with working fetch/verify/store composition from the resolved data job and explicit clock/transport dependencies. Emit run/partition identity, progress and failure status from this first consumer. The original transport is Tardis; MR 07's authorized source amendment adds Binance daily archives with its first actual consumer. Reject unsupported selections and verify current primary provider documentation during implementation. | Fake transport covers success, malformed/truncated response, auth failure and timeout through the pipeline. A smallest permitted source probe confirms actual endpoint/framing, retention and timestamp assumptions; a fake cannot close that boundary. **NB 05:** inspect a saved response through the retained decoders. Do not print credentials or label retained raw data as a validated dataset. |
 | **06 — Resume the acquisition manifest** | 05 | `data/manifests.py` validates input manifests and appends acquisition completion/checkpoint records, reusing shared verified-input validation if MR 08 delivered it first. Extend `pipelines/acquisition.py` with sequential partition selection, restart and bounded transient retry/backoff. Advance only after verified raw publication; do not introduce a second acquisition wrapper in `data/`. | Restart skips verified completed partitions; missing/mutated completed objects fail. Failure after object publication but before checkpoint does not lose or duplicate observations. Auth/schema errors are terminal; exhausted transient retries leave an incomplete run. **NB 06:** interrupt a three-partition fake run and compare the resumed manifest with uninterrupted acquisition. |
-| **07 — Make acquisition usable and observable** | 05–06 | Add the installed acquisition command in `pipelines/acquisition.py`; resolve data-job config, expose job/partition progress, retries, bytes, last successful persistence and terminal status. Reuse the existing manifest. | A permitted bounded download resumes after interruption; repeated input does not add logical completions. Mutated/missing stored bytes fail. Saved command/config identity and error status work outside the checkout. This is an intermediate raw-acquisition checkpoint, not M1 completion. |
-| **08 — Read saved raw frames with explicit gaps** | 01, 03; verified-object and input-manifest contracts, not 05–06 | `data/providers/tardis/lines.py`: bounded decompression/UTF-8 iteration over explicit verified objects and expected partitions. Introduce the shared input-manifest validation with this first reader if absent; MR 06 adds workflow checkpoints to those records. Emit ordered frames with stable zero-based positions, origin, blank-line lookahead and terminal interval-end proxy metadata for the dataset pipeline. Report missing partitions and disconnect intervals without constructing a decoder. | Saved synthetic fixtures need no downloader. Preserve source bytes and line order, including repeated captures and trailing blanks across object boundaries. A quiet interval is distinct from a missing object. Truncation/invalid encoding fails. **NB 08:** inspect blanks at beginning/middle/end and an absent partition without inventing timestamps or padding prices. |
+| **07 — Make acquisition usable and observable** | 05–06 | Add the installed acquisition command in `pipelines/acquisition.py`; resolve data-job config, expose job/partition progress, retries, bytes, last successful persistence and terminal status. Reuse the existing manifest. The 2026-09-15 source amendment adds `data/providers/binance/transport.py`, daily archive configuration/source bindings and a real notebook download with publisher SHA/ZIP validation; keep row decoding with MR 09. | A permitted bounded download resumes after interruption; repeated input does not add logical completions. Mutated/missing stored bytes fail. Saved command/config identity and error status work outside the checkout. This is an intermediate raw-acquisition checkpoint, not M1 completion. |
+| **08 — Read saved raw frames with explicit gaps** | 01, 03; verified-object and input-manifest contracts, not 05–06 | For the amended P1 source, `data/providers/binance/rows.py` streams bounded ZIP/UTF-8 CSV records from explicit verified objects and expected daily partitions. Reuse MR 06 input-manifest validation. Emit ordered raw records with stable zero-based positions, origin and selection bounds for the dataset pipeline; report missing objects, malformed input and unavailable recorder-gap evidence without constructing a decoder. Preserve existing Tardis fixture/decoder gap semantics. | Saved synthetic archives need no downloader. Preserve exact source bytes and row order, including equal event timestamps; distinguish missing object, empty content and unknown capture completeness. Truncation, invalid UTF-8 and malformed CSV fail. No fabricated capture timestamps, disconnect markers or price padding. **NB 08:** inspect equal-time rows, an empty/invalid input and an absent daily archive; show that archive presence alone cannot prove recorder coverage. |
 
 MR 05 is the early source feasibility checkpoint. Alongside the smallest
 permitted endpoint/framing/retention probe, investigate whether historical
@@ -253,7 +262,7 @@ an unapproved provider to obtain a pass.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
-| **09 — Bind decoded events to raw occurrences** | 08, 02 | `data/normalization.py` binds decoded events to request partition, raw digest and line position. Retain source/input-binding and applicable subscription/session lineage to resolve [control scope](../data/contracts.md#control-scope-through-queries) without changing `Disconnect`. Extend `pipelines/dataset.py` to persisted input: resolve bindings/universe, reuse `TardisDecoder` with `BinancePayloadDecoder`, iterate frames and bind occurrences, preserving bytes and provenance. | Two files starting at sequence zero cannot collide; saved-input rebuilds/retries preserve identity. Reject incompatible bindings and unselected instruments. Instrument-less controls retain their affected binding, not repository-wide scope. Keep occurrence identity separate from MR 10's trade key. **NB 09:** trace colliding sequences and independent bindings to raw origins. |
+| **09 — Bind decoded events to raw occurrences** | 08, 02 | `data/normalization.py` binds decoded events to request partition, raw digest and source row/line position. Retain source/input-binding and applicable subscription/session lineage to resolve [control scope](../data/contracts.md#control-scope-through-queries) without changing `Disconnect`. Extend `pipelines/dataset.py` to persisted input: resolve bindings/universe, select the source adapter, iterate frames and bind occurrences, preserving bytes and provenance. Add individual archive-trade row decoding with its first consumer; preserve integer timestamp units, exact decimals and absent capture/knowledge evidence without fabricating Tardis framing. Retain `TardisDecoder`/`BinancePayloadDecoder` for their existing supported fixtures. | Two files starting at sequence zero cannot collide; saved-input rebuilds/retries preserve identity. Reject incompatible bindings and unselected instruments. Instrument-less controls retain their affected binding, not repository-wide scope. Keep occurrence identity separate from MR 10's trade key. **NB 09:** trace colliding sequences and independent bindings to raw origins. |
 | **10 — Admit duplicates and corrections explicitly** | 09 | `data/revisions.py`: resolve economic duplicates by source/venue/instrument/stream/trade ID for the selected trade representation; record conflicting payloads, revision linkage and correction publication/availability beside original occurrences. The dataset pipeline supplies occurrences and explicit correction evidence/policy. | Exact duplicates retain all lineage and contribute once. Conflicts without justified revision ordering/availability fail publication. Known corrections append versions; effective knowledge is no earlier than original capture and correction availability. **NB 10:** add a late correction and show the earlier version remains reconstructible. Positional IDs alone cannot match revisions after inserted lines. |
 | **11 — Read historical eligibility assertions** | 00–01 | `data/eligibility.py`: strict file-backed assertions for canonical instrument, valid interval, knowledge time, included/excluded state, reason and evidence identity. Validate linkage to the selected catalog/units without changing its authored meaning. | Reject missing evidence, overlapping contradictory assertions and invented knowledge dates. Preserve excluded/delisted members. Synthetic assertions are labeled as such. **NB 11:** compare a 2026-authored assumption with an assertion actually evidenced as known during the sample. |
 | **12 — Select the universe as of a decision** | 11 | Extend `data/eligibility.py` with pure bitemporal selection and explicit unknown/unsupported outcomes. Use validity and knowledge independently; append corrections rather than rewriting history. | A later listing correction/exclusion cannot change an earlier universe. Unknown membership cannot silently become eligible. **NB 12:** display inclusion before/at/after both knowledge and validity boundaries, including the half-open endpoint. |
@@ -320,7 +329,7 @@ it. [DuckDB Parquet documentation](https://duckdb.org/docs/current/data/parquet/
 ## M3: Reliable live capture
 
 Initial scope is a declared trade stream. Select the actual live source and
-format in MR 22; do not silently extend the frozen Tardis historical experiment.
+format in MR 22; do not silently extend the frozen Binance archive historical experiment.
 Tardis-machine documents exchange-native historical replay but normalized-only
 real-time streaming, so its live output cannot be passed to the raw Tardis line
 decoder as if provenance and format were identical.
@@ -405,7 +414,7 @@ baseline or the broader M5 outcome. MR 49 closes only the baseline after its
 prerequisites pass; M5 additionally closes reusable workflows and isolation.
 Neither outcome is currently complete.
 
-The founder selected the Tardis/Binance BTCUSDT spot case and one-minute
+The founder selected the Binance archive BTCUSDT spot case (source amended 2026-09-15) and one-minute
 positive-return hypothesis in MR 00; the [owning specification](../research/p1-baseline.md)
 fixes the sample, quantity, costs and timing before comparative results.
 **Access, retention rights and historical eligibility/revision evidence remain
@@ -581,7 +590,7 @@ this reassignment, and no existing empirical result is reclassified.
 | --- | --- | --- | --- |
 | Configuration and onboarding | Typed codecs, canonical IDs, configured decoder inputs | 01–02, 05, 09, 34–36, 43–46 | Scoped bindings preserve resolved identity; no-trade/baseline have separate state. Another supported spot fixture and compatible test rule need no shared-runner edits; unsupported bindings fail. |
 | Time and event identity | `EventProvenance`, decoder capture/sequence semantics | 08–10, 12, 17, 19–20, 33, 37, 44 | Scoped controls survive filtering/projection; revisions remain available to chronological replay. Late publication/corrections and future-only changes cannot rewrite prior economics. Shared scheduling proves exact expiry, same-time gap handling, an earlier fill before a later gap, batch invariance and resume parity. |
-| Raw ingestion | Tardis/Binance decoding | 00–01, 03–06, 08 | Permitted source probe plus callable interrupted/resumed acquisition and mutated-object rejection; the installed research command consumes retained inputs. |
+| Raw ingestion | Binance archive acquisition; retained Tardis fixture decoding | 00–01, 03–06, 08 | Permitted source probe plus callable interrupted/resumed acquisition and mutated-object rejection; the installed research command consumes retained inputs. |
 | Canonical dataset | Exact events, authored catalog, codecs | 09–15, 17, 19–20, 33 | Repeatable atomic snapshot with lineage, eligibility, exclusions and causal bounded reference queries/replay. No columnar dependency is assumed. |
 | Strategy input/output | Canonical IDs and units | 34–36 | Same immutable context gives the same unit-bearing target; changed configuration gives another identity. |
 | Baseline accounting | C03 exact values/rounding | 33, 37–42, 44–45 | Buy/sell/open/no-trade goldens, rational return/basis round trips, distinguishing fee tie and exact cash/position/NAV reconciliation with independent supported risk checks. |
@@ -773,7 +782,7 @@ The library contracts consumed by those workflows are:
 | Request and reference selection | Validate a bounded request, resolve full-interval instrument mappings, identify exact partitions and evidence references. | Acquisition setup; dataset input validation. |
 | Provider transport | Fetch one explicit partition with timeout and response validation; expose response bytes and receipt metadata. It does not select the next partition, retry the run or write the raw store. | Acquisition pipeline. |
 | Raw objects, storage and manifests | Verify byte identity; atomically publish/reopen immutable bytes; validate and append manifest/checkpoint records. Workflow advancement remains in the caller. | Acquisition pipeline; dataset readers. |
-| Tardis lines and `TardisDecoder` | Iterate verified bytes into ordered frames with source positions and explicit gap/proxy metadata; decode one frame's capture/provenance and delegate its payload. | Dataset pipeline. The line iterator does not construct a venue decoder. |
+| Saved source records and provider decoders | MR 08 streams verified Binance CSV records with stable positions and explicit missing/unknown-coverage outcomes; MR 09 decodes them with absent capture semantics. Retained `TardisDecoder` handles its own capture/provenance and delegates JSON payloads. | Dataset pipeline. The input reader does not construct an event decoder. |
 | `BinancePayloadDecoder` and event codecs | Validate/index the configured symbols once; parse Binance payloads into exact events; validate and serialize those records. | `TardisDecoder` through its existing payload contract; canonical data consumers. |
 | Occurrence normalization and revisions | Bind a decoded event to request/partition/raw/line identity; resolve economic duplicates and justified corrections while retaining lineage and effective availability. | Dataset pipeline and snapshot readers. Normalization does not construct decoders. |
 | Eligibility and quality | Read evidence-backed assertions; select membership bitemporally; validate coverage and normalized partitions with explicit accepted/rejected results. | Dataset pipeline and as-of reader. |
@@ -865,10 +874,11 @@ Serialized events and historical notebook snapshots keep their original meaning.
   `is_available(decision_time, decision_time)` is not a last-observation query.
   The observation builder must select eligible point events and separately
   enforce its observation window and maximum age.
-- Historical capture time is the existing `source_capture` knowledge model;
-  local receipt/ingestion occur when the archive is downloaded. Preserve both.
-  A later correction must not inherit the original capture as its availability.
-  Unknown correction history cannot establish historical knowability.
+- Tardis capture time retains the existing `source_capture` model. Binance
+  archives instead supply exchange event time with unknown recorder/knowledge
+  clocks (`exchange-time-only-v1`). Never invent capture from event or download
+  time. An event-time availability assumption is explicitly research-only;
+  unknown correction history cannot establish historical knowability.
 - The authored catalog was recorded in 2026 for a 2024 scenario. Changing its
   timestamps or labeling it historical would not establish point-in-time venue
   membership. Preserve it as an engineering fixture and obtain separate evidence

@@ -62,15 +62,15 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
 
     name: str
     universe: str
-    provider: Literal["tardis"]
+    provider: Literal["tardis", "binance-archive"]
     venue: Literal["binance"]
     product: Literal["spot"]
     dataset: Literal["raw"]
     stream: Literal["trade"]
     mode: Literal["fixture", "historical"]
     pipeline: Literal["dataset.inspect", "acquisition.fetch"]
-    partition: Literal["utc-minute"]
-    capture_policy: Literal["source-capture-v1"]
+    partition: Literal["utc-minute", "utc-day"]
+    capture_policy: Literal["source-capture-v1", "exchange-time-only-v1"]
     source_revision: str
     rights_reference: str
     start: datetime
@@ -93,15 +93,18 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
             self.partition,
             self.capture_policy,
         )
-        if selection != (
-            "tardis",
-            "binance",
-            "spot",
-            "raw",
-            "trade",
-            "utc-minute",
-            "source-capture-v1",
-        ):
+        if selection not in {
+            ("tardis", "binance", "spot", "raw", "trade", "utc-minute", "source-capture-v1"),
+            (
+                "binance-archive",
+                "binance",
+                "spot",
+                "raw",
+                "trade",
+                "utc-day",
+                "exchange-time-only-v1",
+            ),
+        }:
             raise ValueError("unsupported source/product/mode/pipeline or partition/capture policy")
         if (self.mode, self.pipeline) not in {
             ("fixture", "dataset.inspect"),
@@ -115,6 +118,11 @@ class DataJob(_ConfigurationRecord, frozen=True, kw_only=True):
                 raise ValueError("utc-minute partitions require minute-aligned timestamps")
         if not timedelta(0) < self.end - self.start <= timedelta(days=1):
             raise ValueError("job interval must be nonempty and at most one day")
+        if self.provider == "binance-archive" and (
+            self.mode != "historical"
+            or self.end > self.start.replace(hour=0, minute=0) + timedelta(days=1)
+        ):
+            raise ValueError("Binance archive acquisition selects an interval within one UTC day")
 
 
 class ResolvedManifest(_ConfigurationRecord, frozen=True, kw_only=True):
@@ -151,6 +159,13 @@ class ResolvedManifest(_ConfigurationRecord, frozen=True, kw_only=True):
             if type(instrument) is not SpotInstrument:
                 raise ValueError("manifest instruments must be SpotInstrument records")
             instrument.validate()
+            expected_source = (
+                "binance.archive.spot"
+                if self.job.provider == "binance-archive"
+                else "tardis.binance.spot"
+            )
+            if instrument.source != expected_source:
+                raise ValueError("instrument source differs from the selected provider")
             resolved = self.catalog.resolve(instrument.instrument_id, self.job.start, self.job.end)
             if instrument != resolved:
                 raise ValueError("manifest instrument differs from its catalog binding")

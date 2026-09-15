@@ -1,9 +1,10 @@
 # MR 07: Make acquisition usable and observable
 
 Owner: repository founder. Status: implemented and locally verified on 2026-09-15
-on `codex/mr-07-acquisition-cli`. This record covers synthetic installed-command
-acceptance. The permitted bounded download remains unproven under MR 05's
-unresolved rights admission and retention; no M1 or P1 completion is claimed.
+on `codex/mr-07-acquisition-cli`. The original delivery below covers synthetic
+installed-command acceptance at `dbd94b9`. The separately reviewable
+[Binance source follow-up](#binance-source-follow-up) adds the founder-authorized
+actual download. No M1 or P1 completion is claimed.
 
 ## Problem / change
 
@@ -52,7 +53,7 @@ setup validation, safe command identity, acknowledged progress and terminal hand
 with the first installed consumer. Splitting would deliver a command without its
 required failure/observation contract; validation and invariants were retained.
 
-`docs/research/p1-baseline.md` is unchanged, SHA-256
+At the original `dbd94b9` delivery, `docs/research/p1-baseline.md` was unchanged, SHA-256
 `a00d4a2e6bc4e5b31576abc3cbcc8d794b4da7b522f3d439fe0424374199b17a`.
 `uv.lock` is unchanged, SHA-256
 `1159199bc83be7a75b0ccd2df3a401f3239eda11e37892f5e32d3a88ecf5fc6d`.
@@ -190,3 +191,177 @@ Revert this isolated branch before dependent consumers merge, retaining raw byte
 manifest/config files and prior attempts. Existing code-bound manifests reject a
 changed implementation identity; no automatic migration or deletion is introduced.
 **Next: MR 08 — Read saved raw frames with explicit gaps.** MR 08 was not started.
+
+
+## Binance source follow-up
+
+### Problem and affected scope
+
+The original notebook did not expose an actual-source workflow. The founder
+asked for practical downloading, then explicitly selected **Binance public daily
+trade archives**, authorized revision of the affected frozen source contract,
+and chose ignored `data/binance-archives/` storage on 2026-09-15. This follow-up
+supersedes Tardis access as P1's prerequisite while preserving BTCUSDT, the selected
+hour, strategy, units, cash, costs and economic timing rules. Earlier Tardis test
+records remain historical evidence of that implementation, not Binance acceptance.
+
+The [revised contract](../research/p1-baseline.md) and roadmap now distinguish a
+full-day source ZIP from the selected exchange-event hour, absent recorder and
+knowledge timestamps, missing gap evidence and potentially revised archives.
+No historical availability, eligibility or causal result is inferred. The original
+Tardis fixture catalog and decoders remain unchanged. A separately authored archive
+catalog retains the same canonical IDs and economic assumptions with a new source
+binding; provider/catalog mismatches fail before HTTP.
+
+`BinanceArchiveTransport` owns credential-free public HTTPS, bounded checksum and
+ZIP reads, filename-bound publisher SHA-256, expected single CSV member, deflate,
+CRC and expansion validation. The pipeline selects it from the resolved job and
+reuses the existing raw store, receipts, checkpoints, retries and console reporting.
+Shared transient-error classification moved to its provider-neutral module; the
+old Tardis import remains the same class. No dependencies, raw-manifest/event schema
+or storage algorithms changed. Notebook-only CSV inspection is feasibility evidence;
+MR 08's reusable reader and MR 09's canonical decoding are not implemented.
+
+Against `dbd94b9`, the follow-up changes **160 added + 26 deleted = 186 production
+code-bearing lines**: transport 98, configuration 39, requests 12, pipeline 28,
+reference source selection 4, and shared/Tardis exception binding 5. The 36-line
+overage keeps the new adapter with its first working consumer, explicit source/day
+bindings and mandatory checksum/ZIP/resource validation. Splitting those would
+leave an unusable adapter or weaken source identity/integrity. New JSON jobs/catalog
+are declarative; tests and the worked notebook are excluded under the roadmap's
+counting rule. Combined against updated-main base `0e35496`, the MR 07 command
+and source amendment total **314 added + 26 deleted = 340** production code-bearing
+lines; the original command remains a separate `dbd94b9` commit for review.
+
+### Observed real acquisition
+
+- Public archive: `BTCUSDT-trades-2024-06-01.zip`, **7,308,819 bytes**.
+- Publisher-verified exact ZIP SHA-256:
+  `c9c333f58fe33faaa0a34d526c61b13f5648b908c4ad341dd6556e15c5bcc46a`.
+- Full-day CSV: **638,484 rows**; frozen hour: **27,480 rows**.
+- First/last selected event: `2024-06-01T00:00:00.001Z` /
+  `2024-06-01T00:59:59.997Z`; integer timestamps verified as milliseconds.
+- Original local receipt: `2026-09-15T09:46:04.103212Z`; durable ingestion:
+  `2026-09-15T09:46:04.125052Z`. These are acquisition clocks, not 2024 knowledge.
+- Implementation identity:
+  `bb9784e3bead20cdd4fa0723ef033931aa633d3585e2d219ba0bb7441fc2e27f`.
+- Resolved run identity:
+  `acb948277201cc169d32c2bb874fb40ce9e9c33c893e56a992faa47853147f80`.
+
+Local retrievable bytes are `data/binance-archives/raw/<zip-sha256>`; run inputs,
+manifest, use/retention record and attempt logs are under
+`data/binance-archives/runs/<run-identity>/`. The founder-selected working copy has
+no automatic expiry; long-term archival/redistribution rights are not established.
+No API key, raw ZIP or bulk CSV is tracked. Only this generated data directory was
+added to `.gitignore`; maintained example `.ipynb`, `.py`, `.md` remain tracked.
+The public archive documentation and the founder's use selection are recorded;
+the GitHub code license is not represented as a raw-data license.
+
+### Validation and limitations
+
+Focused tests: **115 passed**, no skips or deselections. They cover new daily
+request/source serialization, narrower-selection identities, mixed sources,
+checksum/member/CRC/expansion/HTTP failure, admission/credential rejection, shared
+receipt recovery, repeats and damaged-byte refusal, alongside existing configuration,
+reference, Tardis acquisition and CLI regressions. Ruff lint/format, configured
+strict mypy, full engineering-source checks and focused Bandit pass. Local links
+are checked in `docs/` and explicitly in the component/examples guides. Full hosted
+CI remains required before merge; this is a development candidate, not release
+or trading authorization.
+
+Commands (checkout unless another directory is specified):
+
+```sh
+uv run --frozen --no-editable pytest -q \
+  tests/unit/pipelines/test_binance_archive.py \
+  tests/unit/pipelines/test_acquisition.py \
+  tests/unit/pipelines/test_acquisition_command.py \
+  tests/unit/pipelines/test_acquisition_resume.py \
+  tests/unit/data/test_requests.py tests/unit/test_configuration.py \
+  tests/unit/test_reference_data.py
+uv run --frozen --no-sync ruff check src/alpha_research/configuration.py \
+  src/alpha_research/reference_data.py src/alpha_research/data/requests.py \
+  src/alpha_research/data/providers src/alpha_research/pipelines/acquisition.py \
+  tests/unit/pipelines/test_binance_archive.py
+uv run --frozen --no-sync ruff format --check src/alpha_research/configuration.py \
+  src/alpha_research/reference_data.py src/alpha_research/data/requests.py \
+  src/alpha_research/data/providers src/alpha_research/pipelines/acquisition.py \
+  tests/unit/pipelines/test_binance_archive.py
+uv run --frozen --no-sync mypy --strict src/alpha_research/configuration.py \
+  src/alpha_research/reference_data.py src/alpha_research/data/requests.py \
+  src/alpha_research/data/providers src/alpha_research/pipelines/acquisition.py \
+  tests/unit/pipelines/test_binance_archive.py
+uv run --frozen --no-sync alpha-governance-engineering-standards
+uv run --frozen --no-sync bandit -q -r src/alpha_research/configuration.py \
+  src/alpha_research/reference_data.py src/alpha_research/data/requests.py \
+  src/alpha_research/pipelines/acquisition.py src/alpha_research/data/providers
+uv run --frozen --no-sync alpha-governance-architecture
+uv run --frozen --no-sync python /private/tmp/mr07-verification/check_links.py
+```
+
+Fresh-kernel notebook command:
+
+```sh
+uv run --frozen --no-editable --with 'nbclient==0.10.4' \
+  --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py
+```
+
+First actual-source success `5661d1ca-aa84-43b7-89a4-c36662fd346d` ran 23 code
+cells and downloaded the ZIP. The follow-up with explicit real-byte/checksum
+rejections, `6c249ef2-5c4d-4fce-b1a0-8600c93277c5`, ran **24 code cells**, reused
+the completed object and preserved its manifest/clocks. Outputs show actual
+counts, timestamp bounds, three decimal-text trade previews and required failures.
+These generated attempts remain locally retrievable under `examples/runs/`.
+Failed attempt `e744a5a7-7b41-44fb-9062-2735abc9c1b0` encountered an installed-file
+race caused by concurrent uv synchronization; rerunning after stopping environment
+mutations passed. Do not synchronize `.venv` while its kernels/children are running.
+
+The hash-locked runtime-only wheel environment was built with existing
+`_InstalledWheelCheck.validate` under `/private/tmp/mr07-binance-verification/consumer`.
+It passes public imports and `uv pip check`, with governance absent. Its Python
+ran `consumer_check.py` with `-I` from the outside-checkout `consumer-repeat/`
+directory, using copied configuration and actual HTTPS. A process exited **75**
+after real raw publication but before completion; the installed console command
+then resumed and repeated with **one completion, no fetch stages and unchanged
+original receipt**. Mutated/missing test copies returned **3/4** without changing
+the manifest. Results/logs are retained there. The first fixture attempt stopped
+at its deliberate mutation because published files are read-only; making only the
+test copy writable allowed the complete verification to pass. The user's original
+archive was never modified.
+
+Only the selected day/hour is empirically checked. Daily archives can change;
+repeats intentionally use retained bytes without requesting today's checksum.
+Downloads buffer compressed bytes within the explicit bound; this is not a
+large-universe streaming collector. ZIP integrity is not CSV/canonical quality,
+complete market coverage, eligibility or revision-availability evidence. The
+source-capture Tardis entitlement question is superseded for this case, not resolved
+for other Tardis uses. **Next: MR 08**, saved archive reading with explicit missing
+and unknown-coverage outcomes. No later MR was started.
+
+
+Final artifact command (no concurrent environment synchronization):
+
+```sh
+uv run --frozen --no-sync uv build --no-build-isolation --wheel --no-sources . \
+  --out-dir /private/tmp/mr07-binance-verification/wheels
+uv run --frozen --no-sync uv pip install --python .venv/bin/python --no-deps --reinstall \
+  /private/tmp/mr07-binance-verification/wheels/alpha_research_lab-0.1.0-py3-none-any.whl
+```
+
+Final wheel SHA-256:
+`89a8cd420a6d43482237d6f4ccda32c31b693ab2c3fdbdcf6bb9c4786a33ef1f`.
+All **41** packaged files equal the checkout and isolated installed consumer.
+The final wheel includes the updated packaged guide; executable/JSON implementation
+bytes match the already tested first wheel. Reinstallation into both consumers
+and a further outside-checkout console repeat pass with no fetch, unchanged
+manifest and one completion (`consumer-repeat/final-wheel-results.json`). The
+final notebook run uses the command above with `--no-sync` plus the same pinned
+notebook tools, preserving the explicitly installed final wheel. P1's amended
+specification SHA-256 is
+`7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`;
+`uv.lock` remains unchanged at the original digest recorded above.
+
+Final fresh-kernel attempt: `abc10b50-4ba5-4c67-82c8-fba30d9808b4`, all **24** code cells passed.
+Notebook source SHA-256: `ea43aa4668d789ba942a6adf5e41109835873e9473d5f0c86768686047f0db2e`.
+The final output verifies reuse of the real archive, displays the selected-hour
+preview and rejects changed bytes and a mismatched publisher checksum.

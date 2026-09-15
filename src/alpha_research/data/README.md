@@ -7,6 +7,7 @@ catalog boundary. The M0 dataset pipeline now consumes these libraries for
 configured saved-fixture inspection. MR 03 adds saved raw-object description and
 verification; MR 04 adds durable raw-byte publication and verified reads.
 MRs 05–06 add bounded partition acquisition, durable manifests and sequential resume.
+MR 07 adds the installed command and founder-selected Binance public daily archive acquisition.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -56,7 +57,9 @@ to cover the complete requested half-open interval; duplicate IDs or symbols,
 unsupported metadata, and incomplete coverage fail closed. Its identity hashes
 the canonical encoded snapshot. [`Configuration`](../configuration.py) resolves
 explicit data-job/universe selections against that complete interval;
-[`SourceRequest`](requests.py) derives immutable per-instrument minute requests.
+[`SourceRequest`](requests.py) derives immutable per-instrument source requests: Tardis
+minutes or Binance daily archives. The separate archive catalog uses
+`binance.archive.spot`; resolution rejects a provider/catalog source mismatch.
 
 Every canonical event retains `EventProvenance`, the original capture text,
 event-time basis, configured symbol and instrument ID, source stream, and raw
@@ -491,6 +494,62 @@ is terminal; reporting cannot guarantee its own availability.
 The [MR 07 acceptance record](../../../docs/roadmap/mr-07-implementation.md) and
 notebook section 15 exercise the installed command outside the checkout through
 synthetic HTTP, abrupt interruption, retries, repeats and damaged-byte rejection.
-The permitted-source download remains unproven under MR 05's unresolved rights
-and retention. This is an intermediate raw-acquisition workflow; semantic frame
+Section 16 and the linked follow-up record exercise actual Binance archive acquisition.
+This is an intermediate raw-acquisition workflow; canonical row decoding, coverage
 validation, dataset publication and M1/P1 acceptance remain later work.
+
+
+## Binance public daily archive acquisition
+
+The founder amended the [P1 source contract](../../../docs/research/p1-baseline.md)
+on 2026-09-15. [`BinanceArchiveTransport`](providers/binance/transport.py) owns
+public `data.binance.vision` HTTPS, exact filename-bound SHA-256 sidecar checks and
+single-member unencrypted deflate ZIP/CRC validation. It never extracts a path or
+sends credentials. The existing pipeline selects this adapter from the resolved
+job; the raw store, manifest, retry/recovery and CLI exit contracts above are reused.
+`TransientFetchError` now lives in `data.providers.transport`; the old Tardis
+module import remains the same class for existing callers.
+
+Select [binance-archive.json](../../../configs/data-jobs/binance-archive.json) with
+[binance-archive-spot.json](../../../configs/reference/binance-archive-spot.json).
+The supported combination is `binance-archive/binance/spot/raw/trade`,
+`historical/acquisition.fetch`, `utc-day`, `exchange-time-only-v1`. Select a
+minute-aligned nonempty interval within one UTC day, for one or more supported
+catalog instruments. Each instrument produces one full-day source request with
+`offset_minutes=0`; `request.start/end` describe the downloaded day while the job
+retains the research selection. Both boundaries participate in identity. A
+cross-midnight selection or Tardis capture policy fails before HTTP.
+
+The notebook provisions durable directories and saves inputs before this command:
+
+```sh
+alpha-acquire --config <run-directory>/jobs.json --catalog <run-directory>/catalog.json \
+  --job btc-archive --manifest <run-directory>/manifest.json \
+  --store <data-directory>/raw \
+  --rights-reference binance-public-data-2026-09-15-private-research \
+  --timeout-seconds 10 --max-bytes 67108864 --retry-delays 1 2
+```
+
+Replace the angle-bracket paths with the notebook's displayed paths before using
+a shell. No API key option applies. The reviewed access reference binds the
+founder's private research selection to dated public documentation; it does not
+automatically establish long-term retention or redistribution rights. The chosen
+ignored directory holds a local working copy with no automatic expiry.
+
+Both checksum and ZIP are fetched with identity content encoding and bounded
+reads; transient status/network errors retry the complete attempt. Compressed
+bytes are buffered up to `max_bytes`; expanded integrity verification uses one-MiB
+chunks and the same total bound. SHA mismatch, ZIP/CRC/member/size errors are
+terminal and publish no raw completion. The descriptor SHA equals the verified
+publisher checksum; the exact ZIP, resolved request and receipt remain saved.
+Repeats verify local bytes without consulting a mutable current publisher checksum.
+A later publisher revision needs a separately identified acquisition; it must not
+silently overwrite this run. CSV semantics and historical coverage are not validated
+by the transport. The notebook streams a bounded feasibility inspection separately.
+
+Binance archive rows provide exchange event time (milliseconds before 2025,
+microseconds from 2025), no recorder timestamp and no disconnect markers. Neither
+today's local receipt nor an event-time simulation assumption establishes historical
+knowledge. Existing Tardis fixtures, source-capture decoding and their wire meanings
+are unchanged. MR 08 owns the archive reader; MR 09 owns canonical row decoding
+and absent-capture provenance, with availability/quality consumers later.

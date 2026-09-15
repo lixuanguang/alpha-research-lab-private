@@ -22,9 +22,9 @@ outside mutable notebook outputs.
 The package is the maintained home for productionized infrastructure and
 versioned strategies. Notebook monitoring views will consume its outputs;
 persistent collection, alerts and operating controls belong in maintained code.
-Source-access and release/activation requirements still apply. Current source
-access remains unresolved, and no fetching or monitoring service is implied by
-this directory structure.
+Source-access and release/activation requirements still apply. The founder-authorized Binance public archive is now acquired in section 16;
+historical knowledge, eligibility and dataset acceptance remain separate. No
+monitoring service is implied by this directory structure.
 
 The current [research-foundations.ipynb](research-foundations.ipynb) is the working
 starting point. Edit the question, hypothesis and named scenarios in section 2;
@@ -59,8 +59,30 @@ synthetic **NB 07** checkpoint through the installed `alpha-acquire` command:
 saved config/command identities, flushed progress, abrupt and keyboard interruption,
 retry exhaustion, resume/repeat parity and missing/mutated object rejection. It
 uses copied inputs and the same synthetic fixture from outside the checkout.
-See the [MR 07 record](../docs/roadmap/mr-07-implementation.md); source acceptance
-remains open. MR 08 is next and is not started here.
+Section 16 runs **actual Binance public daily trade acquisition** through that
+same installed command, with no key or transport patch. Run All downloads the June 1,
+2024 BTCUSDT ZIP on first use; repeats verify its saved checksum and skip fetching.
+It displays exact raw identity, archive/selected-hour row counts, event timestamps
+and three real trades. The notebook resolves the revised
+[P1 source contract](../docs/research/p1-baseline.md), preserving the selected hour
+and economic rules. See the [MR 07 source follow-up](../docs/roadmap/mr-07-implementation.md#binance-source-follow-up).
+MR 08 is next and is not started here.
+
+The user-selected `data/binance-archives/` is ignored: shared `raw/<sha256>` objects
+and `runs/<resolved-run-identity>/` inputs, manifest, use/retention record and
+separate attempt logs. A code/input change gets a new manifest identity; raw
+content can still be shared. Keep manifests and bytes together for reproduction.
+This local working copy has no automatic expiry and is not a backed-up long-term
+archive. Only that generated data directory is newly ignored; maintained examples
+and configuration remain tracked. No Tardis entitlement is needed for this source.
+
+Set `ALPHA_BINANCE_DOWNLOAD=0` to execute only offline foundations, or set
+`RUN_REAL_BINANCE=False` in section 16. Otherwise Run All performs real network
+access if the selected run has no completed object. The socket timeout is 10 seconds,
+with two retries and separate 64 MiB compressed/expanded caps. Interrupt/rerun the
+download cell to resume. Correct validation failures; never delete a manifest just
+to hide changed raw bytes. The notebook-only CSV inspection is feasibility evidence,
+not a canonical reader, coverage guarantee or causal backtest.
 
 Future notebooks can
 use names such as `data-fetching.ipynb`, `eda.ipynb`, `strategy-research.ipynb` and
@@ -97,8 +119,9 @@ not a backed-up trial journal or the future packaged research runner. Preserve
 influencing real-data attempts with the research program's trial fields and
 protected input/output references.
 
-The example uses synthetic trades and the authored catalog, with no market-data
-access. No project runtime dependencies or `sys.path` changes are needed.
+Sections 1–15 use synthetic trades. Section 16 uses the actual archive and a
+separate authored source binding; local download clocks are not historical knowledge.
+No new project runtime dependencies or `sys.path` changes are needed.
 
 ## Interactive kernel and import repair
 
