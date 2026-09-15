@@ -11,6 +11,10 @@ MRs 08–62 and R1 remain planned;
 no M1–M7 completion or P1 result is claimed.
 
 **Review [MR 07](mr-07-implementation.md). MR 08 is next; it is not started here.**
+The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
+preserves implementation through MR 07 and adds future collection, recovery and
+simulation acceptance within the existing MR owners. No additional implementation
+or milestone completion is claimed.
 The 2026-09-15 founder-authorized Binance source amendment supersedes the Tardis
 access prerequisite for P1. Historical eligibility, revision availability and
 coverage acceptance remain open; raw download is not dataset or P1 acceptance.
@@ -29,6 +33,7 @@ views of the same work, not separate backlogs.
 - [Delivery graph and completion rules](#completion-and-dependency-model)
 - [Completed foundations](#completed-foundations), [M0](#m0-minimal-runnable-foundation), [M1](#m1-validated-historical-ingestion), [M2](#m2-research-data-access-and-replay)
 - [M3](#m3-reliable-live-capture), [M4](#m4-reproducible-features-and-model-research), [M5 and E1](#m5-strategy-simulation-and-research-controls)
+- [Market-data expansion and hftbacktest lessons](#market-data-expansion-and-replay-lessons)
 - [R1 deployment prerequisite](#r1-trusted-artifact-before-first-deployment), [M6](#m6-papershadow-deployment), [M7](#m7-controlled-live-operation-and-expansion)
 - [P1 versus M5 acceptance](#p1-acceptance-map)
 - [Existing libraries](#existing-libraries-and-remaining-work), [code ownership](#p1-code-ownership-and-call-flow), [configuration/support](#shared-configuration-and-support-contracts)
@@ -264,11 +269,11 @@ an unapproved provider to obtain a pass.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
-| **09 — Bind decoded events to raw occurrences** | 08, 02 | `data/normalization.py` binds decoded events to request partition, raw digest and source row/line position. Retain source/input-binding and applicable subscription/session lineage to resolve [control scope](../data/contracts.md#control-scope-through-queries) without changing `Disconnect`. Extend `pipelines/dataset.py` to persisted input: resolve bindings/universe, select the source adapter, iterate frames and bind occurrences, preserving bytes and provenance. Add individual archive-trade row decoding with its first consumer; preserve integer timestamp units, exact decimals and absent capture/knowledge evidence without fabricating Tardis framing. Retain `TardisDecoder`/`BinancePayloadDecoder` for their existing supported fixtures. | Two files starting at sequence zero cannot collide; saved-input rebuilds/retries preserve identity. Reject incompatible bindings and unselected instruments. Instrument-less controls retain their affected binding, not repository-wide scope. Keep occurrence identity separate from MR 10's trade key. **NB 09:** trace colliding sequences and independent bindings to raw origins. |
+| **09 — Bind decoded events to raw occurrences** | 08, 02 | `data/normalization.py` binds decoded events to request partition, raw digest and source row/line position. Retain source/input-binding and applicable subscription/session lineage to resolve [control scope](../data/contracts.md#control-scope-through-queries) without changing `Disconnect`. Extend `pipelines/dataset.py` to persisted input: resolve bindings/universe, select the source adapter, iterate frames and bind occurrences, preserving bytes and provenance. Add individual archive-trade row decoding with its first consumer; preserve integer timestamp units, exact decimals and absent capture/knowledge evidence without fabricating Tardis framing. Retain `TardisDecoder`/`BinancePayloadDecoder` for their existing supported fixtures. Preserve original timestamp precision and source-message grouping when later adapters emit multiple canonical records from one frame. | Two files starting at sequence zero cannot collide; saved-input rebuilds/retries preserve identity. Reject incompatible bindings and unselected instruments. Instrument-less controls retain their affected binding, not repository-wide scope. Keep occurrence identity separate from MR 10's trade key. **NB 09:** trace colliding sequences and independent bindings to raw origins. |
 | **10 — Admit duplicates and corrections explicitly** | 09 | `data/revisions.py`: resolve economic duplicates by source/venue/instrument/stream/trade ID for the selected trade representation; record conflicting payloads, revision linkage and correction publication/availability beside original occurrences. The dataset pipeline supplies occurrences and explicit correction evidence/policy. | Exact duplicates retain all lineage and contribute once. Conflicts without justified revision ordering/availability fail publication. Known corrections append versions; effective knowledge is no earlier than original capture and correction availability. **NB 10:** add a late correction and show the earlier version remains reconstructible. Positional IDs alone cannot match revisions after inserted lines. |
 | **11 — Read historical eligibility assertions** | 00–01 | `data/eligibility.py`: strict file-backed assertions for canonical instrument, valid interval, knowledge time, included/excluded state, reason and evidence identity. Validate linkage to the selected catalog/units without changing its authored meaning. | Reject missing evidence, overlapping contradictory assertions and invented knowledge dates. Preserve excluded/delisted members. Synthetic assertions are labeled as such. **NB 11:** compare a 2026-authored assumption with an assertion actually evidenced as known during the sample. |
 | **12 — Select the universe as of a decision** | 11 | Extend `data/eligibility.py` with pure bitemporal selection and explicit unknown/unsupported outcomes. Use validity and knowledge independently; append corrections rather than rewriting history. | A later listing correction/exclusion cannot change an earlier universe. Unknown membership cannot silently become eligible. **NB 12:** display inclusion before/at/after both knowledge and validity boundaries, including the half-open endpoint. |
-| **13 — Validate a canonical partition** | 09–12 | `data/quality.py`: consume occurrences and declared-use policies; check schema, identity/units, timestamps, revisions, coverage, duplicate disposition and ordering. Produce canonical bytes plus accepted/rejected outcome, quality scope and reasons; distinguish admissible degraded use from valid data. The dataset pipeline reports invalid/gap counts and routes failures before publication. | Invalid records and unresolved required coverage/eligibility never become valid data. Retain exclusions and reasons; no silent row drops, zero/forward fill or fabricated completeness. Same inputs/policies reproduce the partition. **NB 13:** inject a duplicate, gap, wrong instrument and conflicting correction, inspect the report and demonstrate publication refusal. Advanced statistical quality analysis is not needed to meet these basic checks. |
+| **13 — Validate a canonical partition** | 09–12 | `data/quality.py`: consume occurrences and declared-use policies; check schema, identity/units, timestamps, revisions, coverage, duplicate disposition and ordering. Produce canonical bytes plus accepted/rejected outcome, quality scope and reasons; distinguish admissible degraded use from valid data. The dataset pipeline reports invalid/gap counts and routes failures before publication. | Invalid records and unresolved required coverage/eligibility never become valid data. Retain exclusions and reasons; no silent row drops, zero/forward fill or fabricated completeness. Same inputs/policies reproduce the partition. **NB 13:** inject a duplicate, gap, wrong instrument and conflicting correction, inspect the report and demonstrate publication refusal. Reject invalid/nonfinite prices with retained reasons and use stream-specific quantity rules; a future whole-sample clock adjustment cannot silently rewrite prior availability. Advanced statistical quality analysis is not needed to meet these basic checks. |
 | **14 — Validate and identify a dataset manifest** | 13 | `data/datasets.py`: versioned manifest reader/identity over ordered partition digests, raw manifests, resolved job/universe/catalog/eligibility identities, normalization code/schema and quality/correction/availability policy. Verify referenced files and declared quality/use scope. The dataset pipeline assembles these inputs from admitted partitions. | Equivalent saved inputs rebuild the same identity; a policy/schema/reference change changes identity. Missing bytes and unknown versions fail; a mutable config/universe name cannot substitute for its resolved content. Keep build wall-clock/path metadata outside semantic identity. **NB 14:** rebuild twice, then change one policy and compare hashes. |
 | **15 — Publish and reopen one snapshot atomically** | 14 | `data/snapshots.py`: stage verified partitions/manifest, publish the immutable snapshot as one visibility boundary, and reopen by explicit snapshot ID. Use existing raw-publication primitives only where semantics match. Complete the dataset pipeline by calling this publication operation and returning the snapshot identity. | An interrupted build exposes no partial snapshot. Prior snapshots remain readable after failure and publication of a new one. Never silently resolve a mutable latest tag in a run. **NB 15:** fail before publication, inspect reader behavior, then reopen the completed snapshot. |
 | **16 — Publish and inspect a validated dataset** | 08–15, 07 | Extend the dataset command to normalize saved acquisitions, apply declared policies, publish/reopen by snapshot ID and return a compact quality/coverage report. Expose invalid counts, persistence failures and actionable status as work executes. | Ingest → normalize → validate → publish → reopen succeeds on the permitted supported sample. Duplicate ranges preserve logical content. Wrong schema/instrument/time/units, a coverage gap and interrupted publication cannot expose an apparently valid snapshot. |
@@ -308,9 +313,9 @@ knowledge model; a historical download's wall clock is not historical availabili
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
 | **17 — Read point events as of a cutoff** | 10, 12, 15 | `data/asof.py`: select known revisions/eligible events from a snapshot and business/decision window, preserving distinct clocks and [applicable controls](../data/contracts.md#control-scope-through-queries). Use the [economic ordering contract](../data/point-in-time-semantics.md#planned-economic-ordering-and-event-stepping). Keep a cutoff projection distinct from retained history consumed by advancing replay. | Filter availability before revision selection; instrument filters retain scoped controls. **NB 17:** compare equal captures, late publication/corrections and universe changes. An applicable disconnect affects the selected binding; an unrelated one does not. Future-only mutations cannot change prior economics; terminal revision selection cannot erase earlier replay state. |
-| **18 — Add a measured query backend** | 14–15, 17, 19; selected workload requires it | Add a versioned columnar writer/reader behind MR 19's working query interface. Preserve exact units, revisions, availability and semantic snapshot identity. Benchmark a bounded candidate before dependency admission; defer if the reference reader meets the workload. | Reference parity and exact round trips; conversion cannot drop history or change selected values. Interrupted conversion leaves prior inputs readable. Retain measured I/O/memory benefit and added dependency cost. |
+| **18 — Add a measured query backend** | 14–15, 17, 19; selected workload requires it | Add a versioned columnar writer/reader behind MR 19's working query interface. Preserve exact units, revisions, availability and semantic snapshot identity. Benchmark a bounded candidate before dependency admission; defer if the reference reader meets the workload. Include ClickHouse for a selected depth/concurrent-analytics workload under the [performance contract](../architecture/platform-design.md#storage-and-performance-decisions). | Reference parity and exact round trips; conversion cannot drop history or change selected values. Interrupted conversion leaves prior inputs readable. Retain measured I/O/memory benefit and added dependency cost. Define volume, burst, query, hardware/cache and percentile before evaluating the proposed 7M+ messages/day and sub-500ms query target. |
 | **19 — Query selected data in bounded batches** | 17, not 18 | Introduce a working file/reference reader accepting snapshot ID, instruments, time/knowledge bounds and columns; return typed batches/aggregates and query identity. Preserve [applicable control/quality scope](../data/contracts.md#control-scope-through-queries) through selection/projection. Distinguish cutoff projections from replay history retaining revisions and their availability. MR 18 may later supply another implementation. | Compare with the as-of selector including late corrections. Applicable instrument-less disconnects survive projected queries; unrelated bindings' disconnects do not affect selected inputs. Replay retains earlier versions instead of using terminal-cutoff state. Measure memory/read counts; verify cancellation and bounded iteration. Projection cannot bypass eligibility or revision filtering. |
-| **20 — Replay with shared event stepping** | 19 | Own the ordered iterator, clock, cursor and stepping under the [shared timing contract](../data/point-in-time-semantics.md#planned-economic-ordering-and-event-stepping). Advance chronologically through source availability, decisions, expiry, terminal and any additional fill-eligibility times; phase order applies at one timestamp across batch boundaries. Replay and E1/MR 44 research consume the same operation. | Preserve source order, bounded buffering, future-only prefix and cursor/resume parity. E1/MR 44 prove an earlier fill survives a later-known gap, batch sizes 1/k give identical economics, and equal-time controls, exact expiry and retained revisions stay causal. Read-ahead never advances knowledge. |
+| **20 — Replay with shared event stepping** | 19 | Own the ordered iterator, clock, cursor and stepping under the [shared timing contract](../data/point-in-time-semantics.md#planned-economic-ordering-and-event-stepping). Advance chronologically through source availability, decisions, expiry, terminal and any additional fill-eligibility times; phase order applies at one timestamp across batch boundaries. Replay and E1/MR 44 research consume the same operation. | Preserve source order, bounded buffering, future-only prefix and cursor/resume parity. E1/MR 44 prove an earlier fill survives a later-known gap, batch sizes 1/k give identical economics, and equal-time controls, exact expiry and retained revisions stay causal. Read-ahead never advances knowledge. For later L2 consumers, preserve atomic source-message application across query batches; reconstruction/checkpoint state includes the accepted snapshot and recovery epoch. |
 | **21 — Exercise EDA and extension boundaries** | 19–20 | An EDA orchestration entry resolves query config and produces retained query/summary identities; the activity notebook calls the same libraries. Include query duration, failures, rows/batches and memory/read observations. | Query multiple instruments, plot a bounded interval and replay it outside the notebook. An explicit different-family fixture exercises neutral identity/unit/query contracts; unsupported lifecycle or adapter requests fail. Notebook convenience does not require a hosted service or a production-supported second family. |
 
 Exit workflow: select assets, dates, columns and a saved dataset version; inspect
@@ -330,7 +335,10 @@ it. [DuckDB Parquet documentation](https://duckdb.org/docs/current/data/parquet/
 
 ## M3: Reliable live capture
 
-Initial scope is a declared trade stream. Select the actual live source and
+Initial runnable scope is a declared trade stream. The
+[staged expansion below](#market-data-expansion-and-replay-lessons) adds L2,
+tickers, klines and additional venues with their own acceptance; an initial
+trade-stream exit does not close that expansion. Select the actual live source and
 format in MR 22; do not silently extend the frozen Binance archive historical experiment.
 Tardis-machine documents exchange-native historical replay but normalized-only
 real-time streaming, so its live output cannot be passed to the raw Tardis line
@@ -340,12 +348,12 @@ decoder as if provenance and format were identical.
 
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
-| **22 — Bind and verify one live source** | 01, 03–04 | A provider/venue transport performs bounded subscription and frame receipt for one configured live data job; the live pipeline composes it. Define source/session identity, formats, clock precision, availability, permissions and stream-specific sequence guarantees. | Smallest permitted connection verifies actual framing/time assumptions; fixtures cover invalid subscription and unsupported combinations. Vendor archive capture is never invented as local live receipt. |
-| **23 — Capture durably before downstream use** | 22 | Extend raw storage with append/segment boundaries, receipt/order metadata, durable cursors and replayable exact captured input. `pipelines/live.py` coordinates validation, persistence and publication to a bounded consumer. | Truncation, disk failure and process loss leave identifiable durable input and visible uncommitted loss. No acknowledgement beyond the durable boundary; invalid frames retain diagnosis. Initial schema/unit checks are active here. |
-| **24 — Recover sessions without hiding gaps** | 23 | Pipeline connection lifecycle, backoff, resubscription, session epochs, bounded queues and source-specific gap/backfill reconciliation. Preserve duplicates as raw lineage and apply economic deduplication explicitly. | Disconnect/reconnect, duplicate delivery and overload cannot silently lose accepted data. Unknown gaps stay visible; a later backfill cannot acquire an earlier knowledge timestamp. No global exactly-once claim. |
-| **25 — Apply continuous quality and recovery states** | 24, 10–15 | Reuse canonical validation/revision operations; add bounded lateness, freshness, watermark and recovery policy in cohesive data libraries consumed by the live pipeline. Publish valid segments/snapshots with their quality status. | Inject out-of-order/late events, stale progress, schema errors and relevant sequence gaps. Recovery cannot mark an invalid stream valid merely because the connection is open. Book consumers remain disabled until snapshot/update resynchronization is implemented. |
+| **22 — Bind and verify one live source** | 01, 03–04 | A provider/venue transport performs bounded subscription and frame receipt for one configured live data job; the live pipeline composes it. Define source/session identity, formats, clock precision, availability, permissions and stream-specific sequence guarantees. Own the [venue/product/stream scope](../architecture/platform-design.md#collection-scope-and-source-contracts), subscription acknowledgement, heartbeat/lifetime and verified rate-limit assumptions. Prefer direct venue inputs for execution-sensitive consumers; qualify any alternative explicitly. | Smallest permitted connection verifies actual framing/time assumptions; fixtures cover invalid subscription and unsupported combinations. Vendor archive capture is never invented as local live receipt. Each added stream has explicit coverage, decoder/quality support and source evidence before admission. |
+| **23 — Capture durably before downstream use** | 22 | Extend raw storage with append/segment boundaries, receipt/order metadata, durable cursors and replayable exact captured input. `pipelines/live.py` coordinates validation, persistence and publication to a bounded consumer. Preserve source-message grouping and original receipt precision; separate receipt from downstream work with bounded queues and durable segments. Kafka remains a measured [scale option](../architecture/platform-design.md#storage-and-performance-decisions). | Truncation, disk failure and process loss leave identifiable durable input and visible uncommitted loss. No acknowledgement beyond the durable boundary; invalid frames retain diagnosis. Initial schema/unit checks are active here. Writer failure, same-day restart and a slow consumer cannot silently overwrite data or grow memory without bound. |
+| **24 — Recover sessions without hiding gaps** | 23 | Pipeline connection lifecycle, backoff, resubscription, session epochs, bounded queues and source-specific gap/backfill reconciliation. Preserve duplicates as raw lineage and apply economic deduplication explicitly. Own recovery request coalescing, endpoint budgets, retry exhaustion and stale-session response rejection; MR 25 owns reconstruction validity. | Disconnect/reconnect, duplicate delivery and overload cannot silently lose accepted data. Unknown gaps stay visible; a later backfill cannot acquire an earlier knowledge timestamp. No global exactly-once claim. A gap during snapshot acquisition and rate-limited recovery retain an invalid affected state with a bounded recovery attempt. |
+| **25 — Apply continuous quality and recovery states** | 24, 10–15 | Reuse canonical validation/revision operations; add bounded lateness, freshness, watermark and recovery policy in cohesive data libraries consumed by the live pipeline. Publish valid segments/snapshots with their quality status. For L2 admission, implement the shared saved/live [book reconstruction contract](../architecture/platform-design.md#l2-synchronization-and-recovery): snapshot/update bridging, atomic messages, depth coverage, source continuity and restart identity. Split this substantial extension into reviewable slices under MR 25 when its consumer is selected. | Inject out-of-order/late events, stale progress, schema errors and relevant sequence gaps. Recovery cannot mark an invalid stream valid merely because the connection is open. Live book consumers remain disabled until the supported venue's resynchronization trace and bounded capture pass; an asynchronous REST request or decoded depth event is insufficient. Zero-quantity depth deletion remains distinct from invalid price/trade values. |
 | **26 — Supervise live health and responses** | 24–25 | Configure process liveness, advancing ingestion/persistence, freshness, queue pressure, reconnect/invalid counts and alert responses. Use existing telemetry tools behind bounded library adapters; supervision/response composition stays in pipelines. | Detect a live heartbeat with stalled data, loss of the process/collector and persistence failure. Test alert delivery and the declared response; alert failure does not block local protective behavior. |
-| **27 — Prove capture/replay parity** | 25–26, 20 | Complete the installed live workflow and replay its exact saved raw frames, receipt clocks and session transitions through the same normalization and downstream consumer. | Captured-input replay reproduces admitted canonical events, quality transitions and consumer outputs. Demonstrate restart and duplicates on a permitted bounded capture. A later vendor download is not substituted for this proof. |
+| **27 — Prove capture/replay parity** | 25–26, 20 | Complete the installed live workflow and replay its exact saved raw frames, receipt clocks and session transitions through the same normalization and downstream consumer. For admitted books, reuse MR 25 reconstruction and compare message-boundary state, coverage and cursors. | Captured-input replay reproduces admitted canonical events, quality transitions and consumer outputs. Demonstrate restart and duplicates on a permitted bounded capture; retain the first divergent event if comparison fails. A later vendor download is not substituted for this proof. |
 
 Required quality states are `valid`, `degraded`, `stale`, `recovering` and
 `unavailable`, with reason, scope, transition time and last durable progress.
@@ -354,6 +362,53 @@ consumer opt-in and visible limitations. `stale`, `recovering` and `unavailable`
 block freshness-dependent decisions; resume requires the relevant synchronization
 and validation. Historical EDA may inspect retained data with its status. State
 names alone are insufficient: transition/recovery behavior is tested at the consumer.
+
+### Market-data expansion and replay lessons
+
+Refined 2026-09-15 after implementation through MR 07 and a static review of
+`nkaz001/hftbacktest` at `5f3ec40b2afb764e0fea112f941ed85523ef4e88`.
+This roadmap owns MR scope, dependencies, acceptance and the
+[pinned source assessment](#hftbacktest-implementation-review).
+The [platform design](../architecture/platform-design.md#collection-scope-and-source-contracts)
+owns technical contracts and infrastructure choices. The following assignments
+extend existing owners; they do not renumber MRs or add prerequisites to the
+frozen trade-only P1 baseline.
+
+The expansion target is BTCUSDT data across four explicitly selected exchanges:
+individual trades, normalized L2, named ticker streams and a declared set of
+venue kline intervals. Select the exchange/product combinations before enabling
+them; Binance spot is the existing reference, and the other venues remain
+unselected. A matching symbol does not make spot and perpetual contracts the
+same instrument. Deliver one supported stream/venue at a time through MRs 22–27;
+data collection expansion can precede executable venue onboarding in MR 58.
+
+| Delivery scope | Existing owners and dependencies | Observable finish |
+| --- | --- | --- |
+| Historical normalization and quality from MR 08 | 08–10/13 retain original records, clocks, grouping and source-specific semantics; later stream adapters extend these same operations | Original bytes and order remain traceable; invalid prices retain rejection reasons; future clock repairs cannot rewrite earlier knowledge. No ticker, kline or L2 acquisition is added to MR 08's Binance archive task. |
+| First live trade collection | 22–27, using the saved-input contracts above and MR 20 | One configured source is durably captured, monitored and replayed with explicit gaps and restart evidence. |
+| Reconstructed L2 and named ticker streams | Extend 22–27 plus 09/13/19–20 for the first selected book consumer; 25 owns the reconstruction algorithm, which can be developed from saved fixtures | A fresh snapshot and buffered updates restore a valid, coverage-bounded book. Decisions never see half a message, a missing required level as zero, or an invalid recovery interval as complete history. Tickers retain their actual representation and freshness. |
+| Kline coverage and four-exchange collection target | Extend 22–27 and normalization/query owners one admitted venue/stream at a time; select the remaining exchange/product combinations in 22 | The source configuration enumerates individual trades, L2, ticker representations, supported kline intervals and historical/live coverage for each venue. Closed/provisional/corrected and derived bars remain distinct. Passing one source does not imply four-venue completion. Collection does not wait for M7 order execution. |
+| Order-book execution simulation | Consumer-driven P3 extensions to 20/35/37/38/51, after 25's applicable reconstruction, typed order lifecycle and selected product economics | Matched hand traces cover queue depletion, partial fills, post-only and cancel/replace races, separate feed/entry/response latency and no-impact limits. A new experiment owns the model; P1 keeps its frozen full-fill rule. |
+| Operational parity and venue admission | 27/50–52/57–60 | The same strategy contract produces attributable input/decision/order/state traces. Diagnose the first discrepancy; qualify the actual venue adapter independently of an external project's advertised features. |
+| Storage and burst/query scale | Conditional 18 and P6; 23/24 own durable capture and consumer recovery | Evaluate Kafka/ClickHouse only against the [declared workload](../architecture/platform-design.md#storage-and-performance-decisions), exact-value/revision parity and failure behavior. Record adoption or deferral and measurements; neither service is a P1 prerequisite. |
+
+Immediate delivery remains **MR 08 → MR 09 → historical validation/publication**
+with the existing eligibility/revision dependencies. M3's first trade path can
+start from its declared prerequisites; stream expansion has explicit additional
+acceptance. Book simulation is needed only for a consumer whose hypothesis uses
+book/queue behavior. Treat expansion and benchmarking as visible work when
+activated, rather than hiding them inside a small ingestion or fill-model MR.
+
+#### L2 recovery acceptance
+
+Live acceptance for the first supported book combines a hand-reconstructed saved
+trace with one permitted capture. Offline reconstruction can use verified saved
+inputs with their declared quality; synthetic traces prove only the algorithm.
+Exercise a gap during snapshot fetch, stale-session response, duplicate/overlapping updates, deletion, malformed level, interrupted
+message, rate-limited recovery and buffer overflow. Resume must reproduce the
+same book and quality boundaries as uninterrupted replay. Select analogous cases
+for another venue only where its protocol differs; do not create a universal
+cross-product fault matrix.
 
 ## M4: Reproducible features and model research
 
@@ -431,6 +486,11 @@ compatible asset or strategy through the same code without changing the frozen
 empirical case. The P1 runner uses separate single-instrument, cash-funded spot
 state for no-trade and baseline; M5 adds broader instance/restart isolation proof.
 Other mechanics require their own implemented capability.
+
+The later [book/queue and latency extension](../architecture/platform-design.md#replay-clocks-and-fill-fidelity)
+uses MRs 20/35/37/38/51 when a separately specified consumer needs it. Its
+exchange-side and then-known strategy state, partial fills and response races
+are additional acceptance for that consumer, not changes to the P1 rule below.
 
 This trade-price model needs neither book reconstruction nor an OMS. Fills are
 declared simulation assumptions; trade prints do not establish executable prices,
@@ -658,19 +718,28 @@ or a same-privilege process alone do not establish that guarantee.
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
 | **50 — Resolve an immutable deployment** | M3, M5; M4 where used | Runtime orchestration resolves instance/run/deployment/state namespace, exact artifact/input versions, environment, accounts and explicit mode. Keep collection/research selections separate from executable authorization. | Incompatible artifacts/state/bindings fail startup; the same strategy decisions agree for matched research/runtime inputs. Paper/shadow cannot acquire an executable connection by adding a symbol to config. |
-| **51 — Implement the paper order lifecycle** | 50 | Execution contracts and a working paper adapter handle submit/acknowledge/fill/reject/cancel/replace and unknown outcomes under one defined venue model. | Independent order/fill traces preserve IDs, quantities and states; timeout is not silently treated as rejection or permission to resend. |
+| **51 — Implement the paper order lifecycle** | 50 for paper runtime; pure lifecycle contracts may be pulled forward for P3 | Execution contracts and a working paper adapter handle submit/acknowledge/fill/reject/cancel/replace and unknown outcomes under one defined venue model. | Independent order/fill traces preserve IDs, quantities and states; timeout is not silently treated as rejection or permission to resend. For supported quoting modes, verify post-only rejection, partial-fill versus cancel/replace races and separate entry/response delays under the [fill-fidelity contract](../architecture/platform-design.md#replay-clocks-and-fill-fidelity). |
 | **52 — Journal and recover execution state** | 51 | Durable order/fill journal, idempotent transitions and a single-writer/fencing policy used by runtime startup and restart. | Duplicate/late messages and process loss cannot apply a fill twice; a stale process cannot continue owning the same session. |
 | **53 — Enforce independent runtime risk** | 52, 42 | Strategy-instance budgets and account/portfolio hard limits include pending commitments. Enforce limits and kill controls outside trusted strategy logic under the stated threat model. | Supported strategy interfaces cannot raise limits, bypass stops or write peer state; failures retain protective behavior. Pending intents cannot spend reserved capital twice. No hostile-code isolation claim. |
 | **54 — Attribute and arbitrate shared-account intents** | 52–53 | Explicit aggregation/allocation policy preserves strategy intents, account orders, fill/cost attribution and reservations. Required before multiple instances share a paper account. | Opposing synthetic intents net under a declared policy while gross strategy exposures/costs remain attributable; stopping one instance does not flatten another. Unsupported shorting/product execution is still rejected. |
 | **55 — Reconcile before resuming** | 52–53 for base account; 54 additionally for sharing | Base reconciliation compares authoritative cash, positions, open orders and pending commitments against the durable journal. For shared accounts, also reconcile strategy allocations, reservations and fill/cost attribution under MR 54. Runtime owns break/repair sequencing. | Unknown sends, partial fills and interrupted restart produce visible breaks; no new risk before reconciliation succeeds. Single-instance acceptance exercises the base path; shared acceptance also proves allocations sum to account activity without hiding breaks. |
 | **56 — Operate and stop the runtime** | 53, 55 base, 26; 54 and 55 allocation scope when sharing | Add heartbeat plus decision/order progress, acknowledgements, rejects, exposure, risk state and reconciliation metrics; explicit stop/cancel/restart/rollback operations with scoped responses. | Detect an alive-but-stalled strategy, collector failure and reconciliation break. Test alert delivery, protective behavior and compatible state recovery without relying on telemetry to enforce hard limits. |
-| **57 — Exercise installed paper/shadow deployment** | R1, 50–53, 55 base, 56; 54 and 55 allocation scope when sharing | Run the trusted immutable artifact/config through paper and shadow with saved/live inputs and retained outcomes; document actual operating commands and accepted account scope. | Prove parity, state separation, disconnect/restart, stop and rollback. Reject shared-account configuration until arbitration and allocation reconciliation pass. Paper/shadow sends no executable orders; passing is not live authorization. |
+| **57 — Exercise installed paper/shadow deployment** | R1, 50–53, 55 base, 56; 54 and 55 allocation scope when sharing | Run the trusted immutable artifact/config through paper and shadow with saved/live inputs and retained outcomes; document actual operating commands and accepted account scope. | Prove parity, state separation, disconnect/restart, stop and rollback. Reject shared-account configuration until arbitration and allocation reconciliation pass. Paper/shadow sends no executable orders; passing is not live authorization. Compare input/decision/order/position/cash/fee traces and retain the first divergence; simulated paper fills alone do not calibrate real queue or latency behavior. |
+
+### Replay and paper comparison
+
+MRs 27 and 57 compare the same strategy/input traces across capture, replay and
+paper/shadow: decision context, book/quality state, intent, response, fill,
+position, cash and fees. Find the first divergence and classify source, timing,
+queue/fill model or implementation causes before changing calibration. Paper
+fills establish software consistency; actual execution-quality calibration uses
+authorized observed outcomes under MRs 58–61 and retains the original errors.
 
 ## M7: Controlled live operation and expansion
 
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
-| **58 — Admit one executable venue path** | M6 | Implement the selected venue's bounded execution adapter and conform it to the owned lifecycle, throttling, unknown-outcome and reconciliation contracts. | Permitted sandbox/paper traces plus required actual-boundary checks establish that adapter's scope; unsupported order/product combinations fail. |
+| **58 — Admit one executable venue path** | M6 | Implement the selected venue's bounded execution adapter and conform it to the owned lifecycle, throttling, unknown-outcome and reconciliation contracts. Use the native venue order protocol and explicitly admitted execution inputs; third-party connector reuse must pass the same requirements. | Permitted sandbox/paper traces plus required actual-boundary checks establish that adapter's scope; unsupported order/product combinations fail. |
 | **59 — Bind executable trading authority** | 58, R1; maintained release admission | Consume the verified immutable release/config/state identity and bind the explicit founder-authorized account, venue, instrument, capital, limits and duration at runtime. Release-consumer implementation belongs to R1. | Unverified/incompatible releases or out-of-envelope selections fail. Deployment and activation remain distinct; changed dependencies or expired authority block use. No additional institutional approver is invented. |
 | **60 — Apply operational and economic monitoring** | 59, 56; 32 where used | Track data/feature freshness, inference/decision failures, execution quality, exposures and economic attribution for every strategy. Learned models also reuse prediction/drift and delayed-label evaluation definitions. | Inject stale features, a stalled decision path and attribution/label gaps; verify the defined response and model/instance/version identity. A healthy tracking server is not evidence of a healthy strategy. |
 | **61 — Exercise bounded activation and recovery** | 59–60 | Complete actual scoped activation, stop/cancel, reconciliation and compatible rollback workflows with explicit founder authorization for external operation. | Retain the declared envelope and observed outcomes; recovery cannot undo filled orders or silently widen limits. No milestone plan itself grants capital authority. |
@@ -1225,6 +1294,9 @@ Build fidelity appropriate to the intended production strategy and asset:
   across retries; define duplicate, delayed, out-of-order and bust/correct rules.
 - Make execution assumptions pluggable: bar-based delayed fills, trade/quote replay,
   then book/queue and latency models only where the hypothesis depends on them.
+  Apply the [clock, queue and fill contract](../architecture/platform-design.md#replay-clocks-and-fill-fidelity):
+  distinguish observed L3 priority from L2 estimates, avoid double-counting trade
+  and depth depletion, and declare replay's no-impact and size/liquidity limits.
   Explicitly identify what each model cannot establish about live execution.
 - Use common accounting rules for orders, fills, positions, cash, fees, FX,
   realized/unrealized P&L and instrument lifecycle. Add corporate actions, expiry,
@@ -1327,8 +1399,11 @@ when its trigger is measured; it does not require hiring first.
 The current uv path, lock and strict checks remain authoritative until a
 replacement or extension has proved a required capability. Native toolchains,
 remote build/execution, Kubernetes, specialized storage and distributed services
-are implementation options with explicit triggers, not permanently prohibited
-technologies or immediate startup prerequisites.
+are implementation options with explicit triggers. Kafka for capture/consumer
+separation and ClickHouse for depth analytics are named candidates under the
+[storage and benchmark contract](../architecture/platform-design.md#storage-and-performance-decisions),
+including the proposed 7M+ messages/day and sub-500ms query workload. Adoption
+requires the measured benefit and operating evidence defined there.
 
 ### P7: organizational controls as people join
 
@@ -1378,7 +1453,58 @@ Reviewed on 2026-09-07.
   availability and query tradeoffs. This informs a staged observability path.
   [Scaling Prometheus](https://www.hudsonrivertrading.com/hrtbeat/scaling-prometheus/).
 
+### hftbacktest implementation review
+
+Inspected [hftbacktest](https://github.com/nkaz001/hftbacktest) at commit
+[`5f3ec40b2afb764e0fea112f941ed85523ef4e88`](https://github.com/nkaz001/hftbacktest/commit/5f3ec40b2afb764e0fea112f941ed85523ef4e88)
+on 2026-09-15. This is a static review of the following implementation and docs,
+not an executed benchmark, full correctness audit or dependency qualification.
+The mappings below are our design judgments. Pinned source takes precedence over
+an unversioned feature summary when describing what was inspected.
+
+| Observed implementation | Lesson and roadmap application |
+| --- | --- |
+| [Spot collector](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/collector/src/binance/mod.rs) detects depth discontinuity and schedules a throttled snapshot; [futures collector](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/collector/src/binancefuturesum/mod.rs) uses a different continuity field. | MRs 22/24/25 need source-specific continuity and recovery orchestration. A queued snapshot request alone does not certify a synchronized book. |
+| [Writer](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/collector/src/file.rs) records receipt timestamps with raw text in rotating compressed files; [collector entry](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/collector/src/main.rs) separates collection and writing using an unbounded channel. | Reuse the separation in MR 23, adding our bounded-queue, durable-cursor and restart contracts. File rotation is not sufficient crash-durability evidence; unbounded buffering is unsuitable for our declared overload policy. |
+| [Event representation and Bot trait](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/hftbacktest/src/types.rs) distinguish exchange/local events and expose a shared backtest/live interface. | MRs 20/35/50/57 retain one strategy contract with distinct clocks and state visibility. Its `f64` prices/quantities are not our canonical exact financial representation. |
+| [Queue implementation](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/hftbacktest/src/backtest/models/queue.rs) separates queue behavior and subtracts cumulative trade depletion from subsequent depth decreases. | The P3 extension of MRs 37/51 gets explicit queue assumptions and a regression for double-counted depletion; L3 order identity remains separate from L2 estimates. |
+| [Latency models](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/docs/latency_models.rst) separate feed, entry and response latency; [fill documentation](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/docs/order_fill.rst) explains partial-fill and no-impact limits. | P3 and MRs 51/57 retain model identity, response races and a declared size/liquidity envelope. More detailed simulation is conditional on its consumer and does not alter P1. |
+| [Data validation utility](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/py-hftbacktest/hftbacktest/data/validation.py) can shift local timestamps using the sample's minimum latency and duplicate rows for exchange/local ordering. | MRs 09/13/20 preserve original timestamps and economic identity. Such transformations require explicit derived-data policy; whole-sample repair cannot silently change historical knowledge or double-count a trade. |
+| [Discrepancy guide](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/docs/debugging_backtesting_and_live_discrepancies.rst) recommends comparing positions/equity and diagnosing latency and queue assumptions. | MRs 27/57/60 compare attributable traces and retain first divergences, extending existing parity checks beyond final P&L. Calibration changes use the research program's split/trial discipline. |
+| [Spot connector](https://github.com/nkaz001/hftbacktest/blob/5f3ec40b2afb764e0fea112f941ed85523ef4e88/connector/src/binancespot/market_data_stream.rs) has commented pending-update reconciliation and a natural-refresh FIXME; `process_snapshot` sets `exch_ts` from `last_update_id`. | MRs 25/58 must prove actual resynchronization and keep sequence identifiers separate from timestamps. These are concrete reasons to evaluate this path independently rather than infer readiness from the repository's feature list. |
+
+Implementation reuse follows the [platform dependency and simulator boundary](../architecture/platform-design.md#external-simulator-reuse).
+
 ## Historical review evidence
+
+Market-data documentation consolidation, 2026-09-15: based on `db3a552` plus
+this task's preceding roadmap refinement. Moved the standalone note's eight
+content sections into this roadmap and the platform design, then removed the
+note. MR scope, acceptance and the pinned source assessment now live here;
+source/recovery/replay contracts and infrastructure decisions live in the platform
+design. A paragraph comparison confirms all eight sections and 17 external source
+URLs are retained. All 64 MR definitions and dependencies are unchanged from the
+preceding refinement apart from link destinations, and the P1 acceptance map is
+unchanged. `uv run --frozen alpha-governance-architecture` passes for 25 documents;
+`git diff --check` passes. No remaining documentation references point to the
+removed note. Runtime, dependencies, executable examples and packaged
+`docs/README.md` are unchanged; prior behavioral evidence remains applicable.
+
+Market-data/replay refinement, 2026-09-15: runtime baseline
+`94d0fc13889862692a61f55be869645bd4389e8e`; final documentation checks also include
+the independently committed data-source documentation at `ad7dd19`. Updated
+this roadmap and the platform-design links, and added a focused assessment,
+subsequently consolidated into the [platform contracts](../architecture/platform-design.md#collection-scope-and-source-contracts)
+and [source review above](#hftbacktest-implementation-review). A structural
+comparison retains all 64 owning definitions (MR 00–62 and R1), leaves MR 00–08,
+MR 49 and the P1 acceptance map unchanged, and changes only MR 51's dependency
+wording to distinguish offline pure contracts from its paper runtime.
+`uv run --frozen alpha-governance-architecture` passes for 26 documents;
+`git diff --check` passes. One checker retry required uv cache access after a
+sandbox denial. Runtime, tests, the frozen experiment and dependencies are
+unchanged; no behavioral suite, external simulator build, benchmark or live
+collection was run for these prose changes. The pinned external source was
+inspected statically; its features do not establish our implementation acceptance.
 
 Earlier entries describe revisions before this consolidation; their document
 counts and unchanged-file statements refer to those candidates.
