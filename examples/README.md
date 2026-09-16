@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-16 for the OKX/Bitfinex notebook migration.
+Owner: repository founder. Updated 2026-09-16 for MR 09 occurrence tracing.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -68,6 +68,7 @@ does not make an interrupted OKX download or live recording resumable.
 | MR 06: resume collection | A saved checklist of verified completed files | I can continue unfinished work without repeating completed downloads. The unfinished file may need downloading again. |
 | MR 07: run and observe acquisition | A documented command, saved settings and progress/status | I can tell what was requested, what was saved and why a run stopped. |
 | MR 08: inspect original rows | Exact row text, source order, row positions, file origins and research bounds | I can trace observations and see missing or malformed input without silent drops or invented observations. |
+| MR 09: decode and trace occurrences | Exact archive trades, raw origins and stable identities across rebuilds, including separate input scopes | Repeated sequence numbers cannot confuse two files or make a disconnect apply to unrelated input. |
 
 The fixed [P1 experiment specification](../docs/research/p1-baseline.md) retains the
 Binance trade sample, hypothesis and economic assumptions. This notebook migration
@@ -77,6 +78,13 @@ The [MR 08 record](../docs/roadmap/mr-08-implementation.md) retains the earlier
 verified Binance run (638,484 daily rows; 27,480 selected-hour trades). Its synthetic
 row-order and missing-input checks now live in section 16 of the offline lab,
 where they run without provider access.
+
+Section 9 of [research-foundations.ipynb](research-foundations.ipynb) adds NB 09:
+small **synthetic Binance trades** and Tardis controls, without Binance access.
+It displays equal-time row order, colliding sequence numbers across files and
+independent bindings, absent capture/knowledge clocks and explicit wrong-binding
+rejections. This exercise is separate from the real OKX/Bitfinex book observations.
+The [MR 09 record](../docs/roadmap/mr-09-implementation.md) identifies its tested state.
 
 ## How to interpret the evidence
 
@@ -110,7 +118,7 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Check exact price × quantity values for small examples | Available through financial-unit APIs in the offline lab; this is not an executed strategy ledger. |
 | Learn how timing, wrong instruments, corruption and interruption are handled | Available in the offline reliability lab. |
 | Inspect visible order-book observations and reconstruction | Available for the bounded collector examples, with each source's gaps and access limits reported separately. L2 aggregates price levels; L3 retains visible individual orders. Neither establishes fills or queue priority. |
-| Obtain consistently interpreted historical trade events | Next: MR 09, binding decoded observations to raw sources. |
+| Obtain consistently interpreted historical trade events | MR 09 supplies a saved Binance archive iterator with exact values and raw-origin identities. Historical availability and accepted dataset publication remain open. |
 | Treat duplicate trades and corrections consistently | MR 10. |
 | Establish the historically eligible research universe | MR 11–12. Today's instrument catalog is not historical eligibility evidence. |
 | Decide whether the data meets the experiment's quality requirements | MR 13. Unknown required coverage or eligibility cannot silently pass. |
