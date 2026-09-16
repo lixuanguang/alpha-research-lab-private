@@ -92,9 +92,9 @@ does not skip real inspection. With acquisition enabled, the selected run may
 perform real network access when no completed object is available. The socket
 timeout is 10 seconds, with two retries and separate 64 MiB compressed/expanded
 caps. Interrupt and rerun the download stage to resume. Correct validation
-failures; never delete a manifest just to hide changed raw bytes. The notebook
-CSV inspection is feasibility evidence, not a canonical reader, coverage
-guarantee or causal backtest.
+failures; never delete a manifest just to hide changed raw bytes. Section 5 now
+consumes the installed MR 08 archive reader. Numeric/time previews remain
+exploratory; they do not establish canonical events, coverage or a causal backtest.
 
 The companion's synthetic sections retain the following bounded checks and their
 linked implementation records. Section 11 completes **NB 03** with the installed
@@ -128,8 +128,15 @@ Section 15 completes the synthetic **NB 07** checkpoint through the installed
 `alpha-acquire` command: saved config/command identities, flushed progress,
 abrupt and keyboard interruption, retry exhaustion, resume/repeat parity and
 missing or mutated object rejection. It uses copied inputs and the same synthetic
-fixture from outside the checkout. The next package work is **MR 08 — Read saved
-raw frames with explicit gaps**; it is not implemented here.
+fixture from outside the checkout.
+
+The primary notebook completes **NB 08** in sections 5 and 7. It streams verified
+saved CSV rows through `BinanceArchiveRows`, preserving raw bytes, positions,
+origins and selection bounds. Small synthetic archives show equal-time order,
+empty CSV, invalid UTF-8/CSV, ZIP truncation, absent completions and missing objects.
+Every case reports unknown recorder coverage. The [MR 08 record](../docs/roadmap/mr-08-implementation.md)
+contains actual commands, candidate identities and results. **MR 09 — Bind decoded
+events to raw occurrences** is next; canonical row decoding remains unimplemented.
 
 Future notebooks can use names such as `data-fetching.ipynb`, `eda.ipynb`,
 `strategy-research.ipynb` and `strategy-monitoring.ipynb`; these files have not

@@ -7,12 +7,13 @@ its Tardis source probe was not performed; the founder later selected Binance ar
 MR 06 is merged in PR #27 at `0e35496`. MR 07 is implemented and locally verified
 for installed acquisition, including the actual Binance public archive in its
 [review candidate](mr-07-implementation.md#binance-source-follow-up).
-MRs 08–62 and R1 remain planned except the bounded M3 collector slice below;
+MR 08 is implemented and locally verified in its [review candidate](mr-08-implementation.md).
+MRs 09–62 and R1 remain planned except the bounded M3 collector slice below;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 07](mr-07-implementation.md). The founder-authorized
+**Review [MR 08](mr-08-implementation.md). The founder-authorized
 [crypto L3 collector slice](crypto-l3-collectors.md) brings forward parts of MRs 22–27.
-MR 08 remains the next historical ingestion package.**
+MR 09 is the next historical ingestion package after MR 08 merges.**
 The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
 preserves implementation through MR 07 and adds future collection, recovery and
 simulation acceptance within the existing MR owners. No additional implementation
@@ -60,8 +61,9 @@ reads. A bounded Tardis partition fetch composes these storage contracts with
 explicit access admission, HTTP/gzip checks and progress/failure reports. Its
 evidence remains synthetic; MR 07 adds actual Binance daily ZIP/checksum acquisition. MR 06 adds a durable acquisition manifest,
 sequential restart and bounded transient retry. MR 07 adds the installed acquisition
-command with job/partition progress and terminal status. The frozen uv build, strict source checks, CI and runtime
-wheel installation exist. Versioned datasets, strategy
+command with job/partition progress and terminal status. MR 08 streams verified
+Binance archive rows with raw origins and explicit unknown recorder coverage.
+The frozen uv build, strict source checks, CI and runtime wheel installation exist. Versioned datasets, strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
@@ -267,6 +269,11 @@ not assumed by this roadmap. If it is unavailable, retain the exact unproven bou
 continue synthetic/storage/accounting work that does not depend on it. Do not
 mark permitted-source acquisition or P1 complete, purchase access, or substitute
 an unapproved provider to obtain a pass.
+
+MR 08's [implementation record](mr-08-implementation.md) records saved-row reading,
+installed-wheel verification and NB 08 in the primary notebook (sections 5 and 7).
+Synthetic archives require no downloader. The reader retains raw rows and selection
+bounds; numeric/event decoding and the persisted dataset consumer remain MR 09.
 
 ### Canonical datasets and publication
 
@@ -1243,7 +1250,8 @@ The [C0 cleanup](#c0-remove-redundant-composition-before-adding-consumers)
 is implemented in the current checkpoint. M0/MRs 01–02 and MR 03 are merged.
 MR 05 is merged in PR #26, with source acceptance still open. MR 06 is merged
 in PR #27. MR 07 is locally verified in its [review candidate](mr-07-implementation.md);
-MR 08 is next within the dependency-ordered
+MR 08 is locally verified in its [review candidate](mr-08-implementation.md).
+MR 09 follows its merge within the dependency-ordered
 [milestone packages](#completion-and-dependency-model). Historical ingestion closes only with normalization, validation and publication; the earlier
 raw-download command remains a useful intermediate checkpoint. For each slice, record the input/output contract,
 affected modules and consumers, persisted identities, critical failure behavior,
