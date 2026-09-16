@@ -7,12 +7,13 @@ its Tardis source probe was not performed; the founder later selected Binance ar
 MR 06 is merged in PR #27 at `0e35496`. MR 07 is implemented and locally verified
 for installed acquisition, including the actual Binance public archive in its
 [review candidate](mr-07-implementation.md#binance-source-follow-up).
-MRs 08–62 and R1 remain planned except the bounded M3 collector slice below;
+MR 08 is implemented and locally verified in its [review candidate](mr-08-implementation.md).
+MRs 09–62 and R1 remain planned except the bounded M3 collector slice below;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 07](mr-07-implementation.md). The founder-authorized
+**Review [MR 08](mr-08-implementation.md). The founder-authorized
 [crypto L3 collector slice](crypto-l3-collectors.md) brings forward parts of MRs 22–27.
-MR 08 remains the next historical ingestion package.**
+MR 09 is the next historical ingestion package after MR 08 merges.**
 The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
 preserves implementation through MR 07 and adds future collection, recovery and
 simulation acceptance within the existing MR owners. No additional implementation
@@ -60,8 +61,9 @@ reads. A bounded Tardis partition fetch composes these storage contracts with
 explicit access admission, HTTP/gzip checks and progress/failure reports. Its
 evidence remains synthetic; MR 07 adds actual Binance daily ZIP/checksum acquisition. MR 06 adds a durable acquisition manifest,
 sequential restart and bounded transient retry. MR 07 adds the installed acquisition
-command with job/partition progress and terminal status. The frozen uv build, strict source checks, CI and runtime
-wheel installation exist. Versioned datasets, strategy
+command with job/partition progress and terminal status. MR 08 streams verified
+Binance archive rows with raw origins and explicit unknown recorder coverage.
+The frozen uv build, strict source checks, CI and runtime wheel installation exist. Versioned datasets, strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
@@ -267,6 +269,13 @@ not assumed by this roadmap. If it is unavailable, retain the exact unproven bou
 continue synthetic/storage/accounting work that does not depend on it. Do not
 mark permitted-source acquisition or P1 complete, purchase access, or substitute
 an unapproved provider to obtain a pass.
+
+MR 08's [implementation record](mr-08-implementation.md) records saved-row reading
+and installed-wheel verification. Its original real-data notebook run is retained
+as historical evidence; NB 08's synthetic checks now run in section 16 of the
+offline contract-check notebook without provider access.
+Synthetic archives require no downloader. The reader retains raw rows and selection
+bounds; numeric/event decoding and the persisted dataset consumer remain MR 09.
 
 ### Canonical datasets and publication
 
@@ -1083,6 +1092,16 @@ semantic checks below without rerunning behavioral notebooks.
 
 ## Local notebook workflow
 
+The [researcher-facing guide](../../examples/README.md) is the maintained entry
+point for choosing a research question and interpreting notebook outputs. Update
+it and the affected notebook explanations in the same change that adds a usable
+research capability: state inputs, observed behavior, limits and the next research
+action. Keep implementation ownership and acceptance here; keep setup and repair
+instructions in the [notebook operations guide](../../examples/notebook-operations.md).
+Notebook narratives follow question → sample/assumptions → action → observed output
+→ interpretation/limits → next question, with engineering checkpoint IDs retained
+for traceability. This presentation does not expand any MR's scope.
+
 Use long-lived notebooks organized by research activity under repository-root
 `examples/`. On 2026-09-14 the founder selected version control for maintained
 `.ipynb`, `.py` and `.md` examples, superseding the earlier local-only retention
@@ -1099,14 +1118,18 @@ owns the boundary between exploratory ideas and maintained package behavior.
 | Quant strategy research | Prototype hypotheses, signals and models; compare scenarios, costs and attribution. | Versioned strategy logic, configuration, simulation/accounting and reproducible runners. |
 | Strategy monitoring | Inspect saved or available runtime reports, exposures, P&L, data freshness and drift. | Persistent monitoring, metric definitions, alert delivery and operational controls when implemented. |
 
-Use [market-data-capture.ipynb](../../examples/market-data-capture.ipynb) for the
-new native L3 connection, persistence, decoding and offline replay checkpoints
-under MRs 22–27. Bitfinex has real bounded capture evidence; Coinbase external
-acceptance requires the local Exchange credentials and eligibility.
+Use [market-data-capture.ipynb](../../examples/market-data-capture.ipynb) for
+public Bitfinex R0 and OKX live books, persistence and offline replay, plus OKX
+historical archive acquisition. Coinbase implementation and tests remain available;
+its external acceptance still requires local Exchange credentials and eligibility,
+and it is no longer part of the default notebook route.
 
-Use `examples/research-foundations.ipynb` for the connected real historical-data
-workflow: configuration, acquisition/cache, verified source inspection, clocks
-and exact financial-unit previews. Its eight sections explain each operation.
+Following the founder's 2026-09-16 source-access request, use
+`examples/research-foundations.ipynb` for network-free inspection of saved OKX
+historical L2 and Bitfinex recorded R0 books: explicit sample identities, bounded
+reconstruction, visible orders/spread, clocks and controlled failures. Its eight
+sections explain each operation. This changes the exploratory notebook route,
+not the frozen P1 trade study, MR 08's source contract or later MR ownership.
 `examples/foundation-contract-checks.ipynb` retains the independent synthetic
 scenarios, reference checks and original numbered MR checkpoints. Both are
 maintained, executable notebooks; neither needs state from the other. The local
@@ -1120,12 +1143,13 @@ MR at a time. MR 00 has merged; C0 is implemented in this candidate. MR 01–02
 checkpoints are retained in section 10 of the companion contract-check notebook. MR 03's
 checkpoint is complete in section 11. MR 04's checkpoint is complete in section 12
 for its merged implementation. MR 05’s synthetic checkpoint is complete in
-section 13; actual Binance source verification is in the main notebook and the
-MR 07 follow-up record. MR 06’s synthetic
+section 13; earlier actual Binance verification is retained in notebook run
+snapshots and the MR 07/08 records. MR 06’s synthetic
 checkpoint is complete in section 14, including four abrupt process interruptions,
 manifest parity, completed-object rejection and bounded retry failures. MR 07’s
 synthetic checkpoint is complete in section 15: installed command/config identity,
 flushed progress, interruption/retry status, repeated input and damaged-object rejection.
+MR 08's synthetic row-order, empty/malformed and missing-input checks are in section 16.
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
@@ -1243,7 +1267,8 @@ The [C0 cleanup](#c0-remove-redundant-composition-before-adding-consumers)
 is implemented in the current checkpoint. M0/MRs 01–02 and MR 03 are merged.
 MR 05 is merged in PR #26, with source acceptance still open. MR 06 is merged
 in PR #27. MR 07 is locally verified in its [review candidate](mr-07-implementation.md);
-MR 08 is next within the dependency-ordered
+MR 08 is locally verified in its [review candidate](mr-08-implementation.md).
+MR 09 follows its merge within the dependency-ordered
 [milestone packages](#completion-and-dependency-model). Historical ingestion closes only with normalization, validation and publication; the earlier
 raw-download command remains a useful intermediate checkpoint. For each slice, record the input/output contract,
 affected modules and consumers, persisted identities, critical failure behavior,

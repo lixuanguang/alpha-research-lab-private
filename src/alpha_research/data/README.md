@@ -8,6 +8,7 @@ configured saved-fixture inspection. MR 03 adds saved raw-object description and
 verification; MR 04 adds durable raw-byte publication and verified reads.
 MRs 05–06 add bounded partition acquisition, durable manifests and sequential resume.
 MR 07 adds the installed command and founder-selected Binance public daily archive acquisition.
+MR 08 adds verified saved-row reading with exact bytes and unknown recorder coverage.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -554,5 +555,56 @@ Binance archive rows provide exchange event time (milliseconds before 2025,
 microseconds from 2025), no recorder timestamp and no disconnect markers. Neither
 today's local receipt nor an event-time simulation assumption establishes historical
 knowledge. Existing Tardis fixtures, source-capture decoding and their wire meanings
-are unchanged. MR 08 owns the archive reader; MR 09 owns canonical row decoding
+are unchanged. The MR 08 reader is described below; MR 09 owns canonical row decoding
 and absent-capture provenance, with availability/quality consumers later.
+
+## Saved Binance archive rows
+
+[`BinanceArchiveRows`](providers/binance/rows.py) selects expected daily partitions
+from an explicit `AcquisitionManifest` using its existing prefix validation.
+Its first consumers are primary notebook sections 5/7 and the retained
+[installed consumer](../../../tests/fixtures/mr08/read_saved.py); MR 09 will connect
+the persisted dataset pipeline. No acquisition or event decoder is constructed.
+
+For an independently resolved `run`, explicit `manifest_path` and `store`:
+
+```python
+# project library imports
+from alpha_research.data.manifests import AcquisitionManifest
+from alpha_research.data.providers.binance.rows import BinanceArchiveRows
+
+manifest = AcquisitionManifest.read(manifest_path, run=run, store=store)
+for partition in BinanceArchiveRows.from_manifest(manifest):
+    print(partition.request.start, partition.request.end, partition.recorder_coverage)
+    row_count = 0
+    for row in partition.read(store, max_bytes=64 * 1024 * 1024):
+        row_count += 1
+    print(row_count)
+```
+
+Each frozen `ArchiveRow` retains the complete `RawObject` origin (digest, request
+identity and acquisition clocks), half-open UTC research selection, zero-based
+position and exact CSV bytes including LF/CRLF. `columns()` returns seven nonempty
+text fields without numerical or event interpretation. Original order and decimal
+text survive; the reader neither sorts equal timestamps nor filters the research
+interval. Use the shared cached `DomainCodec` for strict round trips.
+
+The reader requires one correctly named, unencrypted deflate ZIP member. Separate
+compressed/expanded caps and a configurable per-row cap (default 4096 bytes) bound
+reads. Only single-line individual-trade CSV is supported. A final complete row
+without a newline is allowed; embedded-newline fields are unsupported. UTF-8 and
+CSV syntax/shape failures report the zero-based row. Digest, ZIP CRC, truncation,
+member, size and binding failures raise `ValueError`; storage failures propagate
+as `OSError`. Exhaust each iterator for full CSV/CRC validation and close it if
+stopping early. A yielded prefix is never a published or accepted dataset.
+
+Missing completions (including pending receipts) and missing completed objects
+raise `FileNotFoundError`. A valid archive with an empty CSV yields zero rows; zero
+raw bytes are an invalid ZIP. Neither empty nor nonempty content supplies recorder
+evidence: `recorder_coverage` is always `"unknown"`. No disconnect, capture/knowledge
+timestamp or price padding is synthesized. Invalid input remains in immutable
+storage, with no checkpoint or dataset mutation. Correction, numeric/time decoding,
+eligibility, quality and publication retain their later roadmap owners.
+
+The [MR 08 acceptance record](../../../docs/roadmap/mr-08-implementation.md)
+identifies the tested candidate, commands, notebook outputs and limitations.
