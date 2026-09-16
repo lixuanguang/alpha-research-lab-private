@@ -18,6 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
+alpha-collect = "alpha_research.pipelines.live:main"
 alpha-acquire = "alpha_research.pipelines.acquisition:main"
 alpha-inspect-fixture = "alpha_research.pipelines.dataset:main"
 
