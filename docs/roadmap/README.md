@@ -7,10 +7,12 @@ its Tardis source probe was not performed; the founder later selected Binance ar
 MR 06 is merged in PR #27 at `0e35496`. MR 07 is implemented and locally verified
 for installed acquisition, including the actual Binance public archive in its
 [review candidate](mr-07-implementation.md#binance-source-follow-up).
-MRs 08–62 and R1 remain planned;
+MRs 08–62 and R1 remain planned except the bounded M3 collector slice below;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 07](mr-07-implementation.md). MR 08 is next; it is not started here.**
+**Review [MR 07](mr-07-implementation.md). The founder-authorized
+[crypto L3 collector slice](crypto-l3-collectors.md) brings forward parts of MRs 22–27.
+MR 08 remains the next historical ingestion package.**
 The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
 preserves implementation through MR 07 and adds future collection, recovery and
 simulation acceptance within the existing MR owners. No additional implementation
@@ -335,16 +337,16 @@ it. [DuckDB Parquet documentation](https://duckdb.org/docs/current/data/parquet/
 
 ## M3: Reliable live capture
 
-Initial runnable scope is a declared trade stream. The
-[staged expansion below](#market-data-expansion-and-replay-lessons) adds L2,
-tickers, klines and additional venues with their own acceptance; an initial
-trade-stream exit does not close that expansion. Select the actual live source and
-format in MR 22; do not silently extend the frozen Binance archive historical experiment.
-Tardis-machine documents exchange-native historical replay but normalized-only
-real-time streaming, so its live output cannot be passed to the raw Tardis line
-decoder as if provenance and format were identical.
-[Tardis-machine documentation](https://docs.tardis.dev/tardis-machine/quickstart.md)
-(reviewed 2026-09-13). A direct venue feed is another candidate with its own adapter.
+The 2026-09-15 founder-authorized narrow amendment prioritizes **Bitfinex public
+R0** and **Coinbase Exchange authenticated level3** for the new bounded L3
+workflow. The [collector implementation record](crypto-l3-collectors.md) maps
+this work to the existing owners below. Capture after MRs 01/03–04 is permitted;
+use their established config/identity and durable raw-byte contracts. Preserve
+MR 20's general replay prerequisite, MRs 10–15 quality/publication, M3's broader
+acceptance and R1 before deployment. This slice implements foreground bounded
+recording and source-order replay only; it does not close these packages or M3.
+The Binance archive workflow and `docs/research/p1-baseline.md` remain reproducible
+historical work. No live recording changes the frozen historical experiment.
 
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
@@ -1062,6 +1064,11 @@ owns the boundary between exploratory ideas and maintained package behavior.
 | EDA | Inspect saved data, coverage, missingness, distributions, temporal alignment and candidate features. | Shared quality/feature transformations needed by retained consumers. |
 | Quant strategy research | Prototype hypotheses, signals and models; compare scenarios, costs and attribution. | Versioned strategy logic, configuration, simulation/accounting and reproducible runners. |
 | Strategy monitoring | Inspect saved or available runtime reports, exposures, P&L, data freshness and drift. | Persistent monitoring, metric definitions, alert delivery and operational controls when implemented. |
+
+Use [market-data-capture.ipynb](../../examples/market-data-capture.ipynb) for the
+new native L3 connection, persistence, decoding and offline replay checkpoints
+under MRs 22–27. Bitfinex has real bounded capture evidence; Coinbase external
+acceptance requires the local Exchange credentials and eligibility.
 
 Use `examples/research-foundations.ipynb` for the connected real historical-data
 workflow: configuration, acquisition/cache, verified source inspection, clocks

@@ -6,6 +6,10 @@ live ingestion remain planned. Scope: immutable authored instrument metadata,
 source provenance, strict Binance event records, and one-line Tardis decoding.
 This page does not claim a dataset, HTTP request, or trading result.
 
+The new bounded native L3 capture envelope and its nullable source-clock contract
+are documented in [L3 collectors](l3-collectors.md). It reuses raw-object storage
+and exact serialization without changing these historical canonical event schemas.
+
 ## Boundary and module ownership
 
 The public package surface is
