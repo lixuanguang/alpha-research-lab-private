@@ -19,7 +19,7 @@ from alpha_research.data.live.replay import CaptureReplay
 from alpha_research.data.live.transport import FeedSocket, VenueTransport
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.venues.coinbase.auth import CoinbaseAccessError, CoinbaseCredentials
-from alpha_research.pipelines.live import collect, receive_frames
+from alpha_research.pipelines.live import collect, receive_frames, receive_snapshot
 from alpha_research.serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[4]
@@ -275,6 +275,32 @@ class TestCapture:
         await task
 
 
+class SnapshotSocket(ScriptedSocket):
+    """Keep the synthetic feed open until the snapshot precedes its final message."""
+
+    def __init__(self, frames: tuple[bytes, ...], snapshot_queued: asyncio.Event) -> None:
+        """Bind an explicit ordering barrier rather than relying on worker-thread speed.
+
+        Args:
+            frames: Complete finite source script.
+            snapshot_queued: Signal that the actual snapshot receiver enqueued its result.
+        """
+        super().__init__(frames)
+        self.remaining = len(frames)
+        self.snapshot_queued = snapshot_queued
+
+    async def recv(self) -> bytes:
+        """Deliver the final update only after the independent snapshot is queued.
+
+        Returns:
+            Next exact source frame.
+        """
+        if self.remaining == 1:
+            await self.snapshot_queued.wait()
+        self.remaining -= 1
+        return await super().recv()
+
+
 class CoinbaseScript(VenueTransport):
     """Exercise concurrent snapshot fetching while preserving streamed L3 receipt order."""
 
@@ -285,14 +311,29 @@ class CoinbaseScript(VenueTransport):
             config: Explicit Coinbase selection and bounded capture limits.
         """
         super().__init__(config)
-        self.socket = ScriptedSocket(
+        self.snapshot_queued = asyncio.Event()
+        self.socket = SnapshotSocket(
             (
                 (_ROOT / "tests/fixtures/l3/coinbase-schema.json").read_bytes(),
                 b'{"type":"subscriptions","channels":[{"name":"level3",'
                 b'"product_ids":["BTC-USD"]}]}',
                 *(b'["noop","BTC-USD","' + str(i).encode() + b'",null]' for i in range(8, 30)),
-            )
+            ),
+            self.snapshot_queued,
         )
+
+    async def enqueue_snapshot(
+        self, transport: VenueTransport, queue: asyncio.Queue[CaptureRecord], epoch: int
+    ) -> None:
+        """Signal the socket only after the real snapshot receiver has queued its input.
+
+        Args:
+            transport: The collector's selected synthetic REST source.
+            queue: The collector's actual bounded persistence queue.
+            epoch: Current connection epoch.
+        """
+        await receive_snapshot(transport, queue, epoch)
+        self.snapshot_queued.set()
 
     async def open(self, timeout: float) -> FeedSocket:
         """Return the bounded synthetic socket.
@@ -320,20 +361,27 @@ class TestCoinbaseCapture:
     def test_snapshot_acquisition_and_replay(self, tmp_path: Path) -> None:
         """A concurrent REST response bridges persisted compact updates with exact parity."""
         from_config = CaptureConfig.read(_ROOT / "configs/live/coinbase-btc-usd.json")
-        config = replace(from_config, retries=0, max_messages=25)
-        result = asyncio.run(
-            collect(
-                config,
-                tmp_path,
-                implementation_identity="a" * 64,
-                credentials=CoinbaseCredentials("fixture", b"fixture-secret", "fixture-passphrase"),
-                transport=CoinbaseScript(config),
+        config = replace(from_config, retries=0, max_messages=24)
+        transport = CoinbaseScript(config)
+        with patch("alpha_research.pipelines.live.receive_snapshot", transport.enqueue_snapshot):
+            result = asyncio.run(
+                collect(
+                    config,
+                    tmp_path,
+                    implementation_identity="a" * 64,
+                    credentials=CoinbaseCredentials(
+                        "fixture", b"fixture-secret", "fixture-passphrase"
+                    ),
+                    transport=transport,
+                )
             )
-        )
         assert result["snapshots"] == 1
         assert result["orders"] == 1
         assert result["replay_parity"] is True
         assert result["synchronized"] is True
+        assert result["gaps"] == []
+        assert result["stop_reason"] == "message_limit"
+        assert transport.socket.closed
         root = next(tmp_path.iterdir())
         journal = (root / "journal.jsonl").read_bytes()
         assert b"fixture-secret" not in journal

@@ -149,6 +149,27 @@ without changes. All network runs ended; no orders or service activation occurre
 
 ## Review commit sizes
 
+### Pre-merge CI correction
+
+The first [PR #30 source-validation run](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35055910733)
+reported 699 passes, three failures and three performance deselections. Two
+engineering assertions still expected 72 admitted dependencies and only the
+earlier runtime commands; they now include the admitted WebSocket dependency
+and `alpha-collect`. The Coinbase success fixture could disconnect before its
+threaded REST snapshot reached the persistence queue. An explicit event now
+holds its final source message until the actual snapshot receiver has queued
+its result, and the fixture ends at its message budget with no gaps. Collector
+runtime code and the verified notebook/runtime identities are unchanged.
+
+`uv run --frozen --no-editable pytest -q -m 'not performance'
+tests/engineering/test_dependency_admission.py
+tests/engineering/test_package_definition.py tests/unit/data/live/test_capture.py`
+passed all 51 tests. Changed-test Ruff and strict mypy passed, as did the
+repository engineering standards check. The complete hosted lane must pass
+on the corrected PR head before merge.
+
+### Production slices
+
 Production code-bearing physical lines against each parent, excluding blank
 lines, comments, docstrings and tests:
 

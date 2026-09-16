@@ -62,7 +62,10 @@ def test_policy_contains_only_retained_dependency_facts() -> None:
 def test_repository_validation_checks_lock_and_development_limits() -> None:
     """Accept frozen bytes during the allowance window without archived reports."""
     policy = validate_repository(REPOSITORY_ROOT, validation_date=date(2026, 9, 7))
-    assert len(policy.packages) == 72
+    assert len(policy.packages) == 73
+    assert any(
+        package.name == "websockets" and package.version == "16.0" for package in policy.packages
+    )
 
 
 def test_release_admission_remains_blocked_by_unverified_quantlib() -> None:
