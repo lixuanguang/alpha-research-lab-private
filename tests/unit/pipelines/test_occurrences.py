@@ -14,14 +14,20 @@ from msgspec.structs import replace
 
 # project library imports
 from alpha_research.configuration import Configuration, ResolvedManifest
+from alpha_research.data.eligibility import EligibilityAssertions
 from alpha_research.data.manifests import AcquisitionManifest
 from alpha_research.data.normalization import Occurrence
 from alpha_research.data.providers.binance.trades import ArchiveTrade
+from alpha_research.data.quality import QualityPolicy
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
 from alpha_research.data.revisions import Correction, RevisionConflictError, TradeRevision
-from alpha_research.pipelines.dataset import admit_saved_trades, iter_occurrences
+from alpha_research.pipelines.dataset import (
+    admit_saved_trades,
+    iter_occurrences,
+    validate_saved_partition,
+)
 from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
 
@@ -157,6 +163,61 @@ class TestPersistedOccurrences:
                 policy="reject",
                 corrections=(),
             )
+
+    def test_saved_quality_reports_failures_without_publishing_a_prefix(
+        self, tmp_path: Path, run: ResolvedManifest
+    ) -> None:
+        """Gate verified bytes, retain failure context and recover on an unchanged original."""
+        store = RawStore(tmp_path)
+        history = EligibilityAssertions.read(
+            _ROOT / "tests/fixtures/mr12/eligibility.json", catalog=run.catalog
+        )
+        policy = QualityPolicy(
+            use="exploratory", known_at=run.job.start, max_gap=timedelta(minutes=5)
+        )
+        good = self._save(tmp_path, run, (_FIRST + _FIRST + _SECOND,))
+        accepted = validate_saved_partition(
+            good, store, max_bytes=4096, policy=policy, eligibility=history
+        )
+        assert (accepted.invalid_count, accepted.gap_count, accepted.duplicate_count) == (0, 1, 1)
+        assert accepted.scope == "exploratory_degraded"
+        canonical = accepted.require_canonical()
+        for invalid in (b"NaN", b"Infinity", b"-1", b"0", b"broken"):
+            bad = self._save(
+                tmp_path, run, (_FIRST + _SECOND.replace(b"101.00", invalid) + _FIRST,)
+            )
+            rejected = validate_saved_partition(
+                bad, store, max_bytes=4096, policy=policy, eligibility=history
+            )
+            assert rejected.invalid_count == 1 and rejected.canonical is None
+            assert "row 1" in " ".join(rejected.reasons)
+            assert "unread remainder not validated" in " ".join(rejected.reasons)
+            with pytest.raises(ValueError, match="publication refused"):
+                rejected.require_canonical()
+            with store.open(
+                descriptor=bad.completed[0], request=SourceRequest.partition(run)[0]
+            ) as raw:
+                assert raw.read() == (tmp_path / "source.zip").read_bytes()
+        missing = validate_saved_partition(
+            AcquisitionManifest(run=run), store, max_bytes=4096, policy=policy, eligibility=history
+        )
+        assert missing.invalid_count == 1 and missing.canonical is None
+        assert "completion" in " ".join(missing.reasons)
+        assert (
+            validate_saved_partition(
+                good, store, max_bytes=4096, policy=policy, eligibility=history
+            ).require_canonical()
+            == canonical
+        )
+        saved_path = tmp_path / good.completed[0].sha256
+        saved_path.chmod(0o644)
+        saved_path.write_bytes(b"mutated")
+        assert (
+            validate_saved_partition(
+                good, store, max_bytes=4096, policy=policy, eligibility=history
+            ).canonical
+            is None
+        )
 
     def test_files_and_independent_bindings_cannot_collide(
         self, tmp_path: Path, run: ResolvedManifest

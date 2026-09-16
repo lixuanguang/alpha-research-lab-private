@@ -14,11 +14,13 @@ from typing import Literal
 
 # project library imports
 from alpha_research.configuration import Configuration, ResolvedManifest
+from alpha_research.data.eligibility import EligibilityAssertions
 from alpha_research.data.manifests import AcquisitionManifest
 from alpha_research.data.normalization import Occurrence
 from alpha_research.data.providers.binance.rows import BinanceArchiveRows
 from alpha_research.data.providers.binance.trades import ArchiveTrade
 from alpha_research.data.providers.tardis.decoder import TardisDecoder
+from alpha_research.data.quality import QualityPolicy, QualityReport
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
 from alpha_research.data.revisions import Correction, TradeRevision
@@ -39,6 +41,41 @@ class _InspectionArguments(argparse.Namespace):
     received: str
     ingested: str
     sequence: int
+
+
+def validate_saved_partition(
+    manifest: AcquisitionManifest,
+    store: RawStore,
+    *,
+    max_bytes: int,
+    policy: QualityPolicy,
+    eligibility: EligibilityAssertions,
+    corrections: tuple[Correction, ...] = (),
+) -> QualityReport:
+    """Route one saved partition through quality admission before publication.
+
+    Args:
+        manifest: One selected instrument/day acquisition, with original raw identity.
+        store: Immutable raw storage; originals remain retrievable after rejection.
+        max_bytes: Positive compressed/expanded byte cap for the complete archive.
+        policy: Declared use, eligibility cutoff and maximum observed silence.
+        eligibility: Retained assertions tied to the acquisition's exact catalog/units.
+        corrections: Explicit evidence linking economic versions within this partition.
+
+    Returns:
+        Scoped report with invalid/gap counts; require_canonical refuses rejected input.
+        A terminal read/decode failure rejects the whole partition, retaining its reason.
+
+    Raises:
+        ValueError: The selection spans multiple partitions or configuration is invalid.
+    """
+    requests = SourceRequest.partition(manifest.run)
+    if len(requests) != 1:
+        raise ValueError("quality requires exactly one selected instrument/source partition")
+    with closing(iter_occurrences(manifest, store, max_bytes=max_bytes)) as occurrences:
+        return policy.validate(
+            requests[0], occurrences, eligibility=eligibility, corrections=corrections
+        )
 
 
 def admit_saved_trades(
