@@ -348,6 +348,12 @@ recording and source-order replay only; it does not close these packages or M3.
 The Binance archive workflow and `docs/research/p1-baseline.md` remain reproducible
 historical work. No live recording changes the frozen historical experiment.
 
+The 2026-09-16 requested [OKX extension](okx-market-data.md) adds public BTC-USDT
+**L2** live books and separately identified historical L2 archives alongside this
+L3 focus. It reuses raw storage and bounded replay; archive records with no source
+sequence cannot establish continuity or automatically repair live gaps. The same
+prerequisites, publication requirements and deployment gates remain in force.
+
 | MR | Depends on | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- |
 | **22 — Bind and verify one live source** | 01, 03–04 | A provider/venue transport performs bounded subscription and frame receipt for one configured live data job; the live pipeline composes it. Define source/session identity, formats, clock precision, availability, permissions and stream-specific sequence guarantees. Own the [venue/product/stream scope](../architecture/platform-design.md#collection-scope-and-source-contracts), subscription acknowledgement, heartbeat/lifetime and verified rate-limit assumptions. Prefer direct venue inputs for execution-sensitive consumers; qualify any alternative explicitly. | Smallest permitted connection verifies actual framing/time assumptions; fixtures cover invalid subscription and unsupported combinations. Vendor archive capture is never invented as local live receipt. Each added stream has explicit coverage, decoder/quality support and source evidence before admission. |

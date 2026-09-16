@@ -1,5 +1,10 @@
 # Crypto L3 collector implementation record
 
+This record retains the original L3 implementation and eight-cell checkpoint
+evidence. The subsequent [OKX extension](okx-market-data.md) integrates L2 live
+and historical examples into the same maintained notebook and existing pipelines;
+its record owns the newer combined checkpoint evidence.
+
 Owner: repository founder. Date: 2026-09-16 (Singapore).
 Base: updated `main` at `a6cb23f1267a8f4c477a666a9dacf426215796b6`.
 Branch: `codex/crypto-l3-collectors`.

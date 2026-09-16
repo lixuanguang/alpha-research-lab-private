@@ -16,6 +16,11 @@ capture/replay evidence; Coinbase authenticated source acceptance awaits local
 Exchange key/secret/passphrase and account eligibility. This is live recording,
 not historical backfill.
 
+The requested [OKX integration](../../data/okx-market-data.md) adds public
+BTC-USDT **L2** live books and historical order-book archives with actual bounded
+acquisition and replay evidence. Its [notebook](../../../examples/market-data-capture.ipynb)
+keeps aggregate levels, missing historical sequence IDs and prefix coverage explicit.
+
 The preserved historical [notebook](../../../examples/research-foundations.ipynb) acquires
 Binance **spot individual trades** through the
 [configured job](../../../configs/data-jobs/binance-archive.json).

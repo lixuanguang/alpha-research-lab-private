@@ -10,6 +10,10 @@ historical backfill, dataset acceptance, a deployed service or an execution mode
 
 Use the installed `alpha-collect` command or the same package APIs in
 [market-data-capture.ipynb](../../examples/market-data-capture.ipynb).
+
+The same notebook now includes [OKX public L2](okx-market-data.md), explicitly
+distinguishing aggregate levels and historical source clocks from these L3
+order feeds. It uses the existing live and acquisition pipelines.
 The first configured native spot identities are separate listings:
 
 | Venue | Native symbol | Feed | Canonical listing ID | Depth |

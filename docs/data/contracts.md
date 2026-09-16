@@ -168,6 +168,11 @@ insufficient.
 
 ## Focused coverage
 
+The [OKX L2 contract](okx-market-data.md) owns its bounded live price levels and
+historical archive request. Historical download receipt is archive provenance,
+not an invented per-record market receipt time. Missing historical sequence IDs
+remain unknown; aggregate order counts are not individual order identities.
+
 The decoding boundary is covered by
 [`test_decoders.py`](../../tests/unit/data/test_decoders.py),
 [`test_tardis_decoder.py`](../../tests/unit/data/providers/tardis/test_tardis_decoder.py),
