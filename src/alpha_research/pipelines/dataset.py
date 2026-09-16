@@ -10,6 +10,7 @@ from collections.abc import Generator
 from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 # project library imports
 from alpha_research.configuration import Configuration, ResolvedManifest
@@ -20,7 +21,7 @@ from alpha_research.data.providers.binance.trades import ArchiveTrade
 from alpha_research.data.providers.tardis.decoder import TardisDecoder
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
-from alpha_research.data.revisions import TradeRevision
+from alpha_research.data.revisions import Correction, TradeRevision
 from alpha_research.data.venues.binance.codecs import MarketEventCodec
 from alpha_research.data.venues.binance.events import Trade
 from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
@@ -45,27 +46,31 @@ def admit_saved_trades(
     store: RawStore,
     *,
     max_bytes: int,
+    policy: Literal["reject", "evidenced"],
+    corrections: tuple[Correction, ...],
 ) -> tuple[TradeRevision, ...]:
-    """Read complete saved inputs and admit duplicate histories before return.
+    """Read complete saved inputs and admit duplicate/correction histories before return.
 
     Args:
         manifests: Explicit original and revised acquisitions for a bounded study.
         store: Verified immutable raw objects for every supplied acquisition.
         max_bytes: Positive compressed/expanded byte limit per archive.
+        policy: Explicit conflict rejection or evidenced correction admission.
+        corrections: Retained evidence linking the selected economic payload versions.
 
     Returns:
-        One envelope per economic trade, including duplicate lineage.
+        One envelope per economic trade, including duplicate lineage and predecessors.
         The complete batch resides in memory; no snapshot or quality acceptance is implied.
 
     Raises:
-        ValueError: A saved input or trade conflict fails admission.
+        ValueError: A saved input, trade conflict or correction evidence fails admission.
         OSError: A required saved input is missing or unreadable.
     """
     inputs: list[Occurrence] = []
     for manifest in manifests:
         with closing(iter_occurrences(manifest, store, max_bytes=max_bytes)) as occurrences:
             inputs.extend(occurrences)
-    return TradeRevision.admit(inputs)
+    return TradeRevision.admit(inputs, policy=policy, corrections=corrections)
 
 
 def iter_occurrences(

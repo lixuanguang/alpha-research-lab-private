@@ -47,3 +47,26 @@ Bounded in-memory batches only. Archive knowledge remains absent; no empirical
 availability, coverage, eligibility, quality, publication or P1 result is claimed.
 Revert this MR's commits before dependent consumers merge; raw objects and saved
 acquisition manifests are unchanged. Preserve the frozen P1 specification.
+
+### Correction review slice
+
+The second slice adds `Correction` with its first consumer, explicit `reject` and
+`evidenced` policies, immutable predecessor links and effective knowledge bounded
+by capture, predecessor and correction availability. Missing/invalid evidence,
+unknown links, multiple successors/predecessors, cycles and reversed correction
+clocks fail. Unknown original archive knowledge stays unknown; evidence may establish
+the corrected version's availability. The policy supports linear distinct-payload
+histories; an identical-payload reversion needs additional source revision evidence
+and fails rather than silently rewriting history.
+
+Production code-bearing changes against the duplicate slice `cbd54ff`:
+**103 additions + 6 deletions = 109**. The first consumer and all required validation
+stay in each independently usable slice. The combined MR is above the 150-line
+preference; splitting the review into these two working commits keeps both below it.
+
+The same four-file Ruff lint/format and strict-mypy checks passed. Focused tests in
+`tests/unit/data/test_revisions.py` and `tests/unit/pipelines/test_occurrences.py`
+passed **24 tests**, with no skips/deselections. The complete affected regression
+selection passed **109 tests, 1 integration deselection**. A retained external
+consumer at `tests/fixtures/mr10/admit_revisions.py` passes Ruff and strict mypy;
+its installed execution and the fresh-kernel NB 10 run are recorded below when run.
