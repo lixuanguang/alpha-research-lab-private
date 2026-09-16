@@ -67,9 +67,7 @@ codec = DomainCodec()
 catalog = codec.decode_json(
     Path("configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
 )
-history = EligibilityAssertions.read(
-    Path("tests/fixtures/mr11/eligibility.json"), catalog=catalog
-)
+history = EligibilityAssertions.read(Path("tests/fixtures/mr11/eligibility.json"), catalog=catalog)
 for assertion in history.assertions:
     print(assertion.state, assertion.ts_knowledge, assertion.evidence.basis)
 ```

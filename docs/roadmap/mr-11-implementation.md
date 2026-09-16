@@ -170,8 +170,28 @@ A housekeeping assertion initially assumed no old kernel directories existed;
 inspection identified three pre-existing September 13–14 directories. This run
 removed its own temporary kernel directory; the older artifacts were left untouched.
 
-The full local suite and hosted CI were not run; hosted merged-result checks remain
-required before merge. Unchanged acquisition, storage and decoder evidence is reused.
+At the initial local handoff, the full local suite and hosted CI had not been run;
+hosted merged-result checks remain required before merge. Unchanged acquisition,
+storage and decoder evidence is reused.
+
+### Hosted merge follow-up
+
+The founder requested merging on 2026-09-16. [PR #35](https://github.com/lixuanguang/alpha-research-lab-private/pull/35)
+was opened for the required hosted checks. The
+[first run](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35099419897)
+failed because the full formatter also checks Python snippets in Markdown: the
+component README's `EligibilityAssertions.read` call needed one-line wrapping.
+Ruff applied that documentation-only correction. Runtime and notebook source
+bytes are unchanged; the local wheel identity above records the pre-formatting
+README. The renewed hosted wheel checks cover the updated packaged README.
+
+```sh
+uv run --frozen --no-sync ruff format src/alpha_research/data/README.md
+uv run --frozen --no-sync ruff format --check src tests tools/governance/src tools/typing/stubs
+```
+
+The complete formatting scope passed after correction. Runtime tests and NB 11
+evidence remain applicable; current hosted results are retained on PR #35.
 
 ## Risks / reversal
 
