@@ -11,6 +11,7 @@ MR 07 adds the installed command and founder-selected Binance public daily archi
 MR 08 adds verified saved-row reading with exact bytes and unknown recorder coverage.
 MR 09 adds archive-trade decoding and stable occurrences from those saved inputs.
 MR 11 adds strict file-backed historical eligibility assertions with separate evidence clocks.
+MR 12 adds pure decision-time membership selection and retained, explicitly linked corrections.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -43,7 +44,7 @@ changing serialized events. Internal code imports from defining modules:
 | [`raw_objects.py`](raw_objects.py) | Immutable `RawObject` descriptors and bounded verification of exact saved bytes against an expected request |
 | [`manifests.py`](manifests.py) | Validated acquisition completion prefixes, write-ahead receipts and durable checkpoint replacement |
 | [`raw_store.py`](raw_store.py) | Content-addressed `RawStore` publication, verified reads and no-overwrite retry after interruption |
-| [`eligibility.py`](eligibility.py) | Strict file-backed membership assertions, evidence clocks and complete catalog/units linkage; retains exclusions without selecting a universe |
+| [`eligibility.py`](eligibility.py) | Strict file-backed membership, catalog/units linkage, bitemporal selection and append-only corrections; unknown and unsupported remain explicit |
 | [`providers/tardis/decoder.py`](providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, and blank-line disconnect handling; raw exchange JSON is passed to a payload decoder |
 | [`venues/binance/events.py`](venues/binance/events.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade`; shared validation runs before the Binance symbol rule and concrete validators add event invariants |
 | [`venues/binance/payloads.py`](venues/binance/payloads.py) | `BinancePayloadDecoder`, source envelope/payload schemas, cached source decoders, and payload-to-event mapping |
@@ -84,7 +85,52 @@ The [contract](../../../docs/data/contracts.md#historical-eligibility-assertions
 defines evidence/interval rules; [NB 11](../../../examples/research-foundations.ipynb)
 shows required failures. [Installed acceptance](../../../docs/roadmap/mr-11-implementation.md#installed-wheel-outside-the-checkout)
 copies these files outside the checkout and invokes the retained consumer there.
-MR 12 will select an as-of universe; this API does not make that decision.
+
+## Select membership at a decision
+
+MR 12 uses the same history object; queries and appends keep no mutable selection
+state. Continue the example above with the separate synthetic correction fixture:
+
+```python
+# standard library imports
+from datetime import UTC, datetime
+
+# project library imports
+from alpha_research.data.eligibility import EligibilityAssertion
+
+history = EligibilityAssertions.read(Path("tests/fixtures/mr12/eligibility.json"), catalog=catalog)
+members = []
+for instrument in catalog.instruments:
+    result = history.select(
+        instrument.instrument_id,
+        valid_at=datetime(2024, 6, 1, 2, tzinfo=UTC),
+        known_at=datetime(2024, 6, 1, 12, tzinfo=UTC),
+    )
+    if isinstance(result, EligibilityAssertion) and result.state == "included":
+        members.append(instrument.symbol)
+print(members)  # ['ETHUSDT']; before noon the same validity instant includes BTC too.
+```
+
+The result is an assertion with evidence/reason, `"unknown"` for uncovered known
+membership, or `"unsupported"` for an ID absent from the bound catalog. Treat only
+explicit inclusion as eligible. Both clocks require aware UTC, with a half-open
+valid interval and inclusive knowledge cutoff. Naive/non-UTC queries fail without
+changing history. Invalid input must be corrected before retrying.
+
+To record a correction, create an `EligibilityAssertion` with new evidence,
+strictly later knowledge and `supersedes=prior.identity`, then call
+`updated = history.append(correction)`. This returns a validated version-2 history;
+all predecessors remain available. The whole prior assertion retires when the
+correction becomes known, including any validity dates removed by the correction.
+Dangling, cross-member, same-time, unevidenced or branched corrections fail.
+Version-1 inputs remain supported; only version 2 admits corrections.
+
+The [selection contract](../../../docs/data/contracts.md#decision-time-selection-and-corrections-mr-12)
+defines precedence and unknown outcomes. [NB 12](../../../examples/research-foundations.ipynb)
+displays both clocks' boundaries and controlled failures; the
+[installed record](../../../docs/roadmap/mr-12-implementation.md) runs the same contract
+outside the checkout. This is synthetic membership evidence, without historical
+source authentication, quality acceptance or publication.
 
 ## Catalog and event identity
 

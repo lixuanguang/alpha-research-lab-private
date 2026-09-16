@@ -71,7 +71,7 @@ assigns ingestion, query/replay, simulation and operating proofs separately.
 ## Historical eligibility assertions (MR 11)
 
 [`EligibilityAssertions`](../../src/alpha_research/data/eligibility.py) reads a
-version-1 JSON file of immutable assertions plus its complete authored catalog.
+version-1 or version-2 JSON file of immutable assertions plus its complete authored catalog.
 `read(path, catalog=selected_catalog)` requires the complete catalog identity to
 match, including currencies, unit grids, ticks and authored evidence. Each canonical
 instrument must be present. This validates linkage without promoting catalog
@@ -87,7 +87,9 @@ may retain its earlier evidenced availability; validity alone never supplies kno
 
 All assertions survive in file order, including excluded/delisted members and
 exclusions beyond catalog validity. Nonempty half-open intervals must not overlap
-contradictorily for the same instrument, even with different knowledge times.
+contradictorily for the same instrument while their knowledge lifetimes overlap.
+Without an explicit version-2 correction, different knowledge times alone never
+resolve contradictory assertions.
 Adjacent intervals and overlapping agreement are retained. One evidence identity
 cannot carry inconsistent metadata. Missing identities, reasons or clocks, unknown
 fields/versions, malformed/unsafe nested values and files over one MiB fail closed.
@@ -98,10 +100,47 @@ proof: the reader neither fetches the referenced document nor verifies its conte
 Source-evidence admission still requires a trustworthy retained document supporting
 the claimed historical availability. The [synthetic fixture](../../tests/fixtures/mr11/eligibility.json)
 and NB 11 prove temporal validation only; empirical P1 eligibility remains unresolved.
-There is no selection, correction precedence, quality acceptance or publication here;
-MR 12 owns as-of selection and append-only corrections. The
+MR 12 adds the selection/correction contract below; quality acceptance and publication
+remain planned. The
 [usage example](../../src/alpha_research/data/README.md#read-historical-eligibility-assertions)
 and [acceptance record](../roadmap/mr-11-implementation.md) identify the consumer and checks.
+
+### Decision-time selection and corrections (MR 12)
+
+`history.select(instrument_id, valid_at=..., known_at=...)` is a pure query over
+validated history. Both clocks must be aware UTC: validity uses
+`valid_from <= valid_at < valid_to`, independently of inclusive
+`ts_knowledge <= known_at`. It returns the included/excluded assertion with its
+reason and evidence, `"unknown"` when no known active assertion covers the instant,
+or `"unsupported"` for an ID absent from the bound catalog. Callers form a universe
+only from results whose state is explicitly `included`. Catalog validity does not
+establish or filter historical membership; catalog/units acceptance remains a
+separate contract. Known exclusions may outlive the authored catalog interval.
+
+An assertion's `identity` hashes its canonical fields, evidence and optional
+`supersedes` link. `history.append(assertion)` returns a new version-2 history,
+preserving all original records and leaving the input unchanged. A correction
+names its retained predecessor's identity, belongs to the same instrument, has
+strictly later knowledge and distinct evidence identity, and cannot branch.
+The inherited evidence clocks still apply. Missing predecessors, unsafe records,
+unsupported schema versions and conflicting active assertions fail as a whole.
+File order never establishes correction precedence.
+
+At the correction's knowledge boundary the entire predecessor retires, even when
+the correction changes its validity interval. Dates removed from that interval
+become unknown unless another independent active assertion covers them; there is
+no fallback to the superseded assertion. Earlier cutoffs reconstruct the original.
+Successive corrections form a linear history with half-open knowledge lifetimes.
+Agreeing independent assertions remain retained; selection chooses latest knowledge,
+then greatest assertion identity for deterministic evidence attribution. Conflicts
+are checked over both validity and knowledge lifetimes, not just the final head.
+
+Version-1 files and their encoded field set remain supported (`supersedes=None`
+is omitted). Corrections require version 2, which old readers reject. Evidence
+authenticity remains external; these operations do not promote assumptions or
+synthetic fixtures into actual P1 membership proof. Validation and selection are
+bounded in-memory reference operations, with no large-history performance claim.
+See the [MR 12 record](../roadmap/mr-12-implementation.md) for installed and notebook evidence.
 
 ## Provenance, events, and wire values
 
