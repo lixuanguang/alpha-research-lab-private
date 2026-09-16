@@ -1090,6 +1090,16 @@ semantic checks below without rerunning behavioral notebooks.
 
 ## Local notebook workflow
 
+The [researcher-facing guide](../../examples/README.md) is the maintained entry
+point for choosing a research question and interpreting notebook outputs. Update
+it and the affected notebook explanations in the same change that adds a usable
+research capability: state inputs, observed behavior, limits and the next research
+action. Keep implementation ownership and acceptance here; keep setup and repair
+instructions in the [notebook operations guide](../../examples/notebook-operations.md).
+Notebook narratives follow question → sample/assumptions → action → observed output
+→ interpretation/limits → next question, with engineering checkpoint IDs retained
+for traceability. This presentation does not expand any MR's scope.
+
 Use long-lived notebooks organized by research activity under repository-root
 `examples/`. On 2026-09-14 the founder selected version control for maintained
 `.ipynb`, `.py` and `.md` examples, superseding the earlier local-only retention
