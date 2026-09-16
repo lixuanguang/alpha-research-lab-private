@@ -11,6 +11,7 @@ from tempfile import NamedTemporaryFile
 from typing import BinaryIO
 
 # project library imports
+from alpha_research.data.live.config import CaptureRequest
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.requests import SourceRequest
 
@@ -33,7 +34,9 @@ class RawStore:
         """
         self._root = root
 
-    def publish(self, source: Path, *, descriptor: RawObject, request: SourceRequest) -> Path:
+    def publish(
+        self, source: Path, *, descriptor: RawObject, request: SourceRequest | CaptureRequest
+    ) -> Path:
         """Stage, verify and durably publish saved bytes, or verify and reuse them.
 
         Args:
@@ -78,7 +81,7 @@ class RawStore:
             os.close(directory)
         return destination
 
-    def open(self, *, descriptor: RawObject, request: SourceRequest) -> BinaryIO:
+    def open(self, *, descriptor: RawObject, request: SourceRequest | CaptureRequest) -> BinaryIO:
         """Verify the complete published object before exposing a read-only stream.
 
         Args:
@@ -99,9 +102,12 @@ class RawStore:
         descriptor.verify(path, request=request)
         return path.open("rb")
 
-    def _object_path(self, descriptor: RawObject, request: SourceRequest) -> Path:
+    def _object_path(self, descriptor: RawObject, request: SourceRequest | CaptureRequest) -> Path:
         """Revalidate caller-owned metadata before using a digest as a filename."""
         descriptor.__post_init__()
-        if type(request) is not SourceRequest or request.identity != descriptor.request_identity:
+        if (
+            type(request) not in (SourceRequest, CaptureRequest)
+            or request.identity != descriptor.request_identity
+        ):
             raise ValueError("raw object request identity mismatch")
         return self._root / descriptor.sha256

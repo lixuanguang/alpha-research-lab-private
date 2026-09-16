@@ -1,0 +1,18 @@
+{
+  "venue": "coinbase",
+  "symbol": "BTC-USD",
+  "instrument_id": "218142de-d549-43bb-85ba-a174fd4f798f",
+  "base_currency": "BTC",
+  "quote_currency": "USD",
+  "channel": "level3",
+  "depth": 0,
+  "duration_seconds": 20,
+  "max_messages": 10000,
+  "max_bytes": 32000000,
+  "max_frame_bytes": 8000000,
+  "queue_capacity": 1024,
+  "max_orders": 100000,
+  "retries": 2,
+  "idle_seconds": 15,
+  "schema_version": "1"
+}

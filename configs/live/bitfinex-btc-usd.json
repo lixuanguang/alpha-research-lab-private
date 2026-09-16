@@ -1,0 +1,18 @@
+{
+  "venue": "bitfinex",
+  "symbol": "tBTCUSD",
+  "instrument_id": "c87d983f-e7ec-4e64-8d54-9f2be67a64b8",
+  "base_currency": "BTC",
+  "quote_currency": "USD",
+  "channel": "R0",
+  "depth": 25,
+  "duration_seconds": 20,
+  "max_messages": 10000,
+  "max_bytes": 32000000,
+  "max_frame_bytes": 8000000,
+  "queue_capacity": 1024,
+  "max_orders": 100000,
+  "retries": 2,
+  "idle_seconds": 15,
+  "schema_version": "1"
+}
