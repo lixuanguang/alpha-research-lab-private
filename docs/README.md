@@ -4,8 +4,11 @@ A monorepo growing toward institutional-grade multi-asset, multi-strategy resear
 production trading and monitoring. The implemented Python libraries cover
 instrument identity, venue calendars, financial units, exact serialization,
 event provenance, an authored reference catalog, bounded Tardis/Binance
-decoding and configured saved-fixture inspection. Acquisition, versioned datasets, simulation, accounting, risk
-enforcement, execution and deployment remain future work.
+decoding, historical acquisition and verified saved-row reading. Native Bitfinex
+and OKX order-book acquisition/replay are also available. Accepted versioned
+datasets, simulation, accounting, risk enforcement, execution and deployment
+remain future work. Start with the [quant researcher's guide](../examples/README.md)
+for current OKX/Bitfinex notebooks and the meaning of their outputs.
 One reproducible strategy baseline is the first delivery target; shared research,
 portfolio infrastructure and independently operated strategies are the destination.
 
@@ -16,8 +19,8 @@ unresolved. C0's decoder cleanup is implemented; no empirical result is claimed.
 
 The single [implementation roadmap](roadmap/README.md) groups every MR under its
 delivery milestone and includes pipeline ownership, acceptance and longer-term
-scope. M0/MR 01–02 is implemented in the current review candidate; see the
-[M0 commands and validation](roadmap/m0-implementation.md). MR 03 is next.
+scope. MR 08 is locally verified in its
+[review candidate](roadmap/mr-08-implementation.md); MR 09 follows its merge.
 The [platform design](architecture/platform-design.md) preserves intended module
 boundaries, interfaces, runtime lanes and scaling choices. Technical correctness,
 reproducibility and trading safety accompany the features that need them. Team

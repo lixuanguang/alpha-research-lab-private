@@ -4,6 +4,14 @@ Owner: repository founder. Status: implemented and locally verified on 2026-09-1
 review candidate on `codex/mr-08-saved-archive-rows`. M1 and P1 remain incomplete.
 The [roadmap row](README.md#raw-inputs-and-acquisition) owns scope and acceptance.
 
+Notebook routing update, 2026-09-16: the researcher examples now use existing OKX
+and Bitfinex order books following the founder's source-access request. The real
+Binance executions below are historical acceptance evidence; NB 08's synthetic
+checks moved to section 16 of
+[the offline lab](../../examples/foundation-contract-checks.ipynb). The
+[migration record](../../examples/notebook-operations.md#okx-and-bitfinex-migration-verification)
+identifies the new executions. Runtime behavior and the frozen P1 study are unchanged.
+
 ## Problem / change
 
 Saved Binance daily archives could be acquired and verified but their reusable

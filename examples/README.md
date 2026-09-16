@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-16 for the MR 08 implementation candidate.
+Owner: repository founder. Updated 2026-09-16 for the OKX/Bitfinex notebook migration.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -9,9 +9,9 @@ this guide explains what you can do, how to read the evidence and what remains o
 
 | What I want to understand | Open this notebook | What it gives me | What running it does |
 | --- | --- | --- | --- |
-| What historical trades do I have, and can I inspect the same inputs again? | [Historical trade-data exploration](research-foundations.ipynb) — start here | Original Binance rows, selected-hour observations, clock distinctions, exact amounts and visible data failures | Reuses the matching saved run; may download the configured day when the run is incomplete. Cache-only mode is available. |
+| What liquidity did my saved inputs show, and can I inspect them again? | [Saved order-book exploration](research-foundations.ipynb) — start here after acquisition | An OKX historical reconstruction summary, Bitfinex visible orders and spread, clock distinctions and visible data failures | Reads verified saved inputs only; no network or credentials. |
 | How could timing, units or damaged inputs change my conclusions? | [Data reliability lab](foundation-contract-checks.ipynb) — optional depth | Small synthetic examples of availability, arithmetic, wrong inputs, interruption and recovery | Offline; creates temporary test files and child processes. No provider access. |
-| What can I observe about the order book, and what happens across gaps? | [Order-book observations](market-data-capture.ipynb) — separate activity | Bounded live observations, saved reconstruction, gap examples and an OKX historical prefix | Contacts sources, records new data and downloads an archive. Coinbase live access depends on local eligible credentials. |
+| How do I obtain a new sample without exchange account credentials? | [Acquire OKX and Bitfinex books](market-data-capture.ipynb) — run first if you have no saved inputs | Bounded public live observations, saved reconstruction, gap examples and an OKX historical prefix | Records two new live samples and downloads an archive; an explicit saved-archive override avoids the download. |
 
 Read the question and output interpretation in each section before inspecting its
 code. Setup and implementation-heavy cells are collapsed in clients supporting
@@ -23,52 +23,80 @@ For interpreter setup, actual commands, cached-data controls and error recovery,
 use the [notebook operations guide](notebook-operations.md). Reading the saved
 notebook outputs does not start a download or collector.
 
-## What the historical workflow can do today
+## What data am I actually researching?
 
-You can choose the supported source and interval, obtain its original file,
-preserve that file, reopen it and inspect its rows with a trace back to their origin.
-The current maintained example studies **BTCUSDT spot trades on 1 June 2024,
-00:00–01:00 UTC**. Binance packages this source by day, so the notebook reads the
-whole daily archive and then selects the research hour.
+The maintained research examples now use **order books**, following the available
+OKX and Bitfinex implementations. They require no Binance access. A book describes
+displayed buying and selling interest; a trade records an executed transaction.
+These are different observations and support different research questions.
 
-The [MR 08 verified run](../docs/roadmap/mr-08-implementation.md) read 638,484 rows
-in that saved daily archive and selected 27,480 trades in the hour. These are
-observations from that identified run, not a required future row count or proof
-that every market trade was captured. Its source file, settings and original
-acquisition records remain together in the local working copy.
+| Sample | What I can inspect | What it does not tell me |
+| --- | --- | --- |
+| OKX BTC-USDT historical L2, 8 September 2026 | A verified daily archive and reconstruction summary for its first 10,000 records; reported depth is 400 price levels per side | Individual order IDs, source sequences, historical receipt times or proven continuity; this is a prefix, not the entire day. The current archive API does not return a price/feature table. |
+| Bitfinex BTC/USD recorded R0 | A bounded live sample, visible individual orders, exact prices/sizes and the spread at its final reconstructed state; configured depth is 25 | Earlier Bitfinex history, exchange timestamps in R0 messages, hidden orders, queue priority or executable fills. |
+| OKX BTC-USDT public live `books` | A bounded L2 sample with source timestamps, local receipt records and continuity checks | Individual orders or the full exchange book beyond the feed's depth. |
+
+The capture notebook uses the public [Bitfinex raw-book feed](https://docs.bitfinex.com/reference/ws-public-raw-books)
+and [OKX market-data APIs](https://www.okx.com/docs-v5/en/) without API keys
+(documentation checked 2026-09-16). Source availability can still depend on the
+endpoint and location; a denied request fails explicitly. There is no credential
+prompt or automatic switch to another venue.
+
+The samples differ in date, receipt interval, depth and quote currency: **USD is
+not USDT**, and sequential live captures are not simultaneous. Do not subtract
+their prices and label the result an arbitrage opportunity.
+
+The main notebook selects the latest completed saved input matching each maintained
+configuration, prints its identity and then verifies its bytes. For repeatability,
+pin the printed directories using the [operations guide](notebook-operations.md).
+A new capture is a new sample; it does not silently extend the previous recording.
+
+## What the raw-input stage provides
+
+The historical acquisition MRs provide the following foundations. Their original
+acceptance uses Tardis/Binance contracts; the existing native
+[Bitfinex collector](../docs/data/l3-collectors.md) and
+[OKX readers](../docs/data/okx-market-data.md) have their own capture/archive
+contracts and reuse shared storage. In particular, the resumable MR 06 checklist
+does not make an interrupted OKX download or live recording resumable.
 
 | Completed work | What I get as a researcher | Research problem it addresses |
 | --- | --- | --- |
 | MR 03: identify saved input | An exact content fingerprint and a record of which request the file belongs to | I can detect changed input and identify what an experiment used. |
 | MR 04: preserve originals | Complete saved files that repeated writes cannot silently replace | An interrupted save cannot expose half a file as ready for analysis. |
-| MR 05: controlled download | Explicit access, response, integrity and timeout failures | Failed acquisition cannot quietly masquerade as usable input. The original Tardis path has synthetic evidence; the actual current workflow uses Binance. |
+| MR 05: controlled download | Explicit access, response, integrity and timeout failures | Failed acquisition cannot quietly masquerade as usable input. The original Tardis path has synthetic evidence; MR 07 added the historical Binance path. |
 | MR 06: resume collection | A saved checklist of verified completed files | I can continue unfinished work without repeating completed downloads. The unfinished file may need downloading again. |
 | MR 07: run and observe acquisition | A documented command, saved settings and progress/status | I can tell what was requested, what was saved and why a run stopped. |
 | MR 08: inspect original rows | Exact row text, source order, row positions, file origins and research bounds | I can trace observations and see missing or malformed input without silent drops or invented observations. |
 
 The fixed [P1 experiment specification](../docs/research/p1-baseline.md) retains the
-sample, hypothesis and economic assumptions. These acquisition exercises do not
-change it or report a strategy result.
+Binance trade sample, hypothesis and economic assumptions. This notebook migration
+does not replace that sample with book data or report a strategy result. Its source
+access remains a separate unresolved research dependency for the frozen study.
+The [MR 08 record](../docs/roadmap/mr-08-implementation.md) retains the earlier
+verified Binance run (638,484 daily rows; 27,480 selected-hour trades). Its synthetic
+row-order and missing-input checks now live in section 16 of the offline lab,
+where they run without provider access.
 
 ## How to interpret the evidence
 
 **An unchanged file** means its bytes match the saved fingerprint. It does not
 establish that the provider observed every trade or that every value is correct.
 
-**A missing file** means an expected input is unavailable. **An empty CSV** means
-that particular file contains no rows. Neither establishes a quiet market.
-The Binance reader reports recorder coverage as **unknown**, including for a
-nonempty archive. Do not turn these outcomes into zero activity or padded prices.
+**A missing file** means an expected input is unavailable. **An empty input** does
+not establish a quiet market. In the OKX historical summary, `gaps=None` means
+continuity is unknown because source sequences are absent. A reconstructed book
+can be available while coverage remains unproven.
 
-**Trade time** describes when the source reports the trade occurred.
-**Local receipt and save times** describe acquiring this archive now. They do not
-establish when that observation became available to a historical strategy. The
-archive lacks the recorder/knowledge evidence needed to answer that separately.
+**Source time** describes the exchange's timestamp where supplied.
+**Local receipt and save times** describe the collector's observation or archive
+acquisition. Downloading an old OKX archive now does not establish historical
+knowledge time. Bitfinex R0 supplies receipt order and sequences, but no exchange
+timestamp in these messages. Do not substitute one clock for another.
 
-**Two rows with the same timestamp** keep their original order. That preserves
-what the source supplied; it does not establish a more precise arrival time.
-Likewise, avoiding repeated file downloads does not remove duplicate economic
-trades inside or across those files.
+**A live gap** makes the reconstructed book unavailable until synchronization is
+restored. A matching offline replay proves that the same saved messages produced
+the same states; it does not prove complete observation of the exchange.
 
 **Reopening the same saved input** helps reproduce an analysis. A later provider
 revision or different implementation/settings needs its own identity. Keep older
@@ -78,8 +106,8 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 
 | Research task | Current position |
 | --- | --- |
-| Inspect trade fields, timestamps, source order and a selected period | Available in the historical notebook; numerical/time previews remain exploratory. |
-| Check exact price × quantity values for small examples | Available through the existing financial-unit APIs; this is not an executed strategy ledger. |
+| Inspect historical book coverage and a bounded live book | Available in the main notebook: OKX prefix summary and Bitfinex visible prices/sizes/spread. |
+| Check exact price × quantity values for small examples | Available through financial-unit APIs in the offline lab; this is not an executed strategy ledger. |
 | Learn how timing, wrong instruments, corruption and interruption are handled | Available in the offline reliability lab. |
 | Inspect visible order-book observations and reconstruction | Available for the bounded collector examples, with each source's gaps and access limits reported separately. L2 aggregates price levels; L3 retains visible individual orders. Neither establishes fills or queue priority. |
 | Obtain consistently interpreted historical trade events | Next: MR 09, binding decoded observations to raw sources. |
@@ -112,7 +140,7 @@ Final holdouts are not exploratory notebook inputs.
 
 | Term in the code or output | Researcher's meaning |
 | --- | --- |
-| Raw object | The original saved source file, such as the ZIP archive. |
+| Raw object | The original saved source file, such as the OKX archive or recorded message journal. |
 | Partition | One requested piece of source data; here, one instrument's UTC day. |
 | Manifest | A saved record of the request, its inputs and completed files. |
 | SHA-256 / digest | A fingerprint used to detect changed bytes; it is not a completeness score. |
@@ -136,8 +164,7 @@ checkpoint IDs for traceability inside supporting notes, rather than making them
 the research narrative. Put execution/repair detail in the operations guide and
 shared calculations in the package once they become maintained behavior.
 
-The current notebook explanations and cell visibility were reorganized on
-2026-09-16. Executable cells, their order and prior outputs were preserved; their
-existing execution records identify the earlier runs. See the
-[verification note](notebook-operations.md#researcher-guide-verification) for this
-presentation change.
+The [migration verification](notebook-operations.md#okx-and-bitfinex-migration-verification)
+records fresh executions and limitations for these examples. The earlier
+[presentation verification](notebook-operations.md#researcher-guide-verification)
+is retained as historical evidence.

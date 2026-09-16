@@ -270,8 +270,10 @@ continue synthetic/storage/accounting work that does not depend on it. Do not
 mark permitted-source acquisition or P1 complete, purchase access, or substitute
 an unapproved provider to obtain a pass.
 
-MR 08's [implementation record](mr-08-implementation.md) records saved-row reading,
-installed-wheel verification and NB 08 in the primary notebook (sections 5 and 7).
+MR 08's [implementation record](mr-08-implementation.md) records saved-row reading
+and installed-wheel verification. Its original real-data notebook run is retained
+as historical evidence; NB 08's synthetic checks now run in section 16 of the
+offline contract-check notebook without provider access.
 Synthetic archives require no downloader. The reader retains raw rows and selection
 bounds; numeric/event decoding and the persisted dataset consumer remain MR 09.
 
@@ -1116,14 +1118,18 @@ owns the boundary between exploratory ideas and maintained package behavior.
 | Quant strategy research | Prototype hypotheses, signals and models; compare scenarios, costs and attribution. | Versioned strategy logic, configuration, simulation/accounting and reproducible runners. |
 | Strategy monitoring | Inspect saved or available runtime reports, exposures, P&L, data freshness and drift. | Persistent monitoring, metric definitions, alert delivery and operational controls when implemented. |
 
-Use [market-data-capture.ipynb](../../examples/market-data-capture.ipynb) for the
-new native L3 connection, persistence, decoding and offline replay checkpoints
-under MRs 22–27. Bitfinex has real bounded capture evidence; Coinbase external
-acceptance requires the local Exchange credentials and eligibility.
+Use [market-data-capture.ipynb](../../examples/market-data-capture.ipynb) for
+public Bitfinex R0 and OKX live books, persistence and offline replay, plus OKX
+historical archive acquisition. Coinbase implementation and tests remain available;
+its external acceptance still requires local Exchange credentials and eligibility,
+and it is no longer part of the default notebook route.
 
-Use `examples/research-foundations.ipynb` for the connected real historical-data
-workflow: configuration, acquisition/cache, verified source inspection, clocks
-and exact financial-unit previews. Its eight sections explain each operation.
+Following the founder's 2026-09-16 source-access request, use
+`examples/research-foundations.ipynb` for network-free inspection of saved OKX
+historical L2 and Bitfinex recorded R0 books: explicit sample identities, bounded
+reconstruction, visible orders/spread, clocks and controlled failures. Its eight
+sections explain each operation. This changes the exploratory notebook route,
+not the frozen P1 trade study, MR 08's source contract or later MR ownership.
 `examples/foundation-contract-checks.ipynb` retains the independent synthetic
 scenarios, reference checks and original numbered MR checkpoints. Both are
 maintained, executable notebooks; neither needs state from the other. The local
@@ -1137,12 +1143,13 @@ MR at a time. MR 00 has merged; C0 is implemented in this candidate. MR 01–02
 checkpoints are retained in section 10 of the companion contract-check notebook. MR 03's
 checkpoint is complete in section 11. MR 04's checkpoint is complete in section 12
 for its merged implementation. MR 05’s synthetic checkpoint is complete in
-section 13; actual Binance source verification is in the main notebook and the
-MR 07 follow-up record. MR 06’s synthetic
+section 13; earlier actual Binance verification is retained in notebook run
+snapshots and the MR 07/08 records. MR 06’s synthetic
 checkpoint is complete in section 14, including four abrupt process interruptions,
 manifest parity, completed-object rejection and bounded retry failures. MR 07’s
 synthetic checkpoint is complete in section 15: installed command/config identity,
 flushed progress, interruption/retry status, repeated input and damaged-object rejection.
+MR 08's synthetic row-order, empty/malformed and missing-input checks are in section 16.
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a

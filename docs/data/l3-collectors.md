@@ -14,6 +14,11 @@ Use the installed `alpha-collect` command or the same package APIs in
 The same notebook now includes [OKX public L2](okx-market-data.md), explicitly
 distinguishing aggregate levels and historical source clocks from these L3
 order feeds. It uses the existing live and acquisition pipelines.
+As of the 2026-09-16 notebook migration, its default route uses public Bitfinex
+and OKX only. Coinbase remains available through the installed collector and
+tests, with the access requirements below; the notebook no longer reads its
+credentials. Inspect saved OKX/Bitfinex inputs without network access in
+[research-foundations.ipynb](../../examples/research-foundations.ipynb).
 The first configured native spot identities are separate listings:
 
 | Venue | Native symbol | Feed | Canonical listing ID | Depth |
@@ -210,6 +215,7 @@ Checked 2026-09-15 UTC. Runtime `probe` also verified both configured listings.
 - [Coinbase WebSocket rate limits](https://docs.cdp.coinbase.com/exchange/websocket-feed/rate-limits):
   subscription and inbound message limits; this collector sends one subscription per epoch.
 
-The Binance historical acquisition command, existing historical notebooks and
+The Binance historical acquisition command and
 [P1 experiment specification](../research/p1-baseline.md) retain their original
-reproducible historical scope.
+scope. Earlier notebook attempts retain their historical meaning; current
+researcher examples use OKX and Bitfinex as described above.
