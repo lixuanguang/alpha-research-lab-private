@@ -17,10 +17,11 @@ native_python_packages = [
   "quantlib",
   "ruff",
   "tomli",
+  "websockets",
 ]
 
 [lock_digests]
-"uv.lock" = "1159199bc83be7a75b0ccd2df3a401f3239eda11e37892f5e32d3a88ecf5fc6d"
+"uv.lock" = "e6cd3a169ff4b6850bcb5b09e38c44e1179b0dc1fb7c6a9bd95d2c4a058595e4"
 
 [pip_audit]
 version = "2.10.1"
@@ -73,6 +74,7 @@ packages = [
   "pandas==3.0.5",
   "quantlib==1.43",
   "toolz==1.1.0",
+  "websockets==16.0",
 ]
 
 [[license_groups]]

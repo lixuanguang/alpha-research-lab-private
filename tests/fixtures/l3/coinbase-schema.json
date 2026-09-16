@@ -1,0 +1,47 @@
+{
+  "type": "level3",
+  "schema": {
+    "open": [
+      "type",
+      "product_id",
+      "sequence",
+      "order_id",
+      "side",
+      "price",
+      "size",
+      "time"
+    ],
+    "done": [
+      "type",
+      "product_id",
+      "sequence",
+      "order_id",
+      "time"
+    ],
+    "match": [
+      "type",
+      "product_id",
+      "sequence",
+      "maker_order_id",
+      "taker_order_id",
+      "price",
+      "size",
+      "time"
+    ],
+    "change": [
+      "type",
+      "product_id",
+      "sequence",
+      "order_id",
+      "price",
+      "size",
+      "time"
+    ],
+    "noop": [
+      "type",
+      "product_id",
+      "sequence",
+      "time"
+    ]
+  }
+}

@@ -86,3 +86,8 @@ data/gold/
 # -----------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
+
+# Bounded recordings and downloaded archives; maintained examples live elsewhere.
+/data/bitfinex/
+/data/coinbase/
+/data/okx/

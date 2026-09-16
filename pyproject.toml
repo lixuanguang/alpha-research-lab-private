@@ -14,9 +14,11 @@ dependencies = [
     "msgspec==0.21.1",
     "pydantic==2.13.5",
     "QuantLib==1.43",
+    "websockets==16.0",
 ]
 
 [project.scripts]
+alpha-collect = "alpha_research.pipelines.live:main"
 alpha-acquire = "alpha_research.pipelines.acquisition:main"
 alpha-inspect-fixture = "alpha_research.pipelines.dataset:main"
 

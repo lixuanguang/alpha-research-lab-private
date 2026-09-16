@@ -6,6 +6,10 @@ live ingestion remain planned. Scope: immutable authored instrument metadata,
 source provenance, strict Binance event records, and one-line Tardis decoding.
 This page does not claim a dataset, HTTP request, or trading result.
 
+The new bounded native L3 capture envelope and its nullable source-clock contract
+are documented in [L3 collectors](l3-collectors.md). It reuses raw-object storage
+and exact serialization without changing these historical canonical event schemas.
+
 ## Boundary and module ownership
 
 The public package surface is
@@ -163,6 +167,11 @@ both cases with column projection; matching only non-null instrument IDs is
 insufficient.
 
 ## Focused coverage
+
+The [OKX L2 contract](okx-market-data.md) owns its bounded live price levels and
+historical archive request. Historical download receipt is archive provenance,
+not an invented per-record market receipt time. Missing historical sequence IDs
+remain unknown; aggregate order counts are not individual order identities.
 
 The decoding boundary is covered by
 [`test_decoders.py`](../../tests/unit/data/test_decoders.py),

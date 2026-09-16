@@ -9,7 +9,19 @@ tables, ordered free first, with depth, quality evidence and API links. The
 expanded tables include imported candidates whose claims remain unverified;
 their labels distinguish them from the checks recorded in this guide.
 
-The current [notebook](../../../examples/research-foundations.ipynb) acquires
+The new native L3 workflow prioritizes **Bitfinex R0** and **Coinbase Exchange
+Level 3**. Start with the [capture notebook](../../../examples/market-data-capture.ipynb)
+and [collector guide](../../data/l3-collectors.md). Bitfinex has real bounded
+capture/replay evidence; Coinbase authenticated source acceptance awaits local
+Exchange key/secret/passphrase and account eligibility. This is live recording,
+not historical backfill.
+
+The requested [OKX integration](../../data/okx-market-data.md) adds public
+BTC-USDT **L2** live books and historical order-book archives with actual bounded
+acquisition and replay evidence. Its [notebook](../../../examples/market-data-capture.ipynb)
+keeps aggregate levels, missing historical sequence IDs and prefix coverage explicit.
+
+The preserved historical [notebook](../../../examples/research-foundations.ipynb) acquires
 Binance **spot individual trades** through the
 [configured job](../../../configs/data-jobs/binance-archive.json).
 [MR 07 evidence](../../roadmap/mr-07-implementation.md) covers that consumer.

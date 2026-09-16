@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import os
 import sys
+import tarfile
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -15,6 +16,8 @@ from http.client import HTTPSConnection
 from math import isfinite
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from uuid import uuid4
+from zlib import error as ZlibError
 
 # third party library imports
 import msgspec
@@ -29,6 +32,11 @@ from alpha_research.data.providers.transport import TransientFetchError
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
+from alpha_research.data.venues.okx.history_config import OKXArchiveRequest, OKXHistoryConfig
+from alpha_research.data.venues.okx.history_reader import OKXArchiveReader
+from alpha_research.data.venues.okx.history_store import OKXArchiveStore
+from alpha_research.data.venues.okx.history_transport import OKXHistoryTransport
+from alpha_research.pipelines.live import InstalledIdentity
 from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
 
@@ -311,6 +319,126 @@ def acquire(
     return state
 
 
+def acquire_history(
+    config: OKXHistoryConfig,
+    output: Path,
+    *,
+    implementation_identity: str,
+    transport: OKXHistoryTransport | None = None,
+) -> dict[str, object]:
+    """Compose public discovery, bounded download, complete-file validation and durable storage.
+
+    Args:
+        config: Explicit historical spot selection with hard resource ceilings.
+        output: Parent of a unique UUID-named archive directory.
+        implementation_identity: SHA-256 of the installed implementation.
+        transport: Optional injected public transport for deterministic failure tests.
+
+    Returns:
+        Saved-input identity, archive interval and independently repeatable prefix replay.
+
+    Raises:
+        TimeoutError: The finite download/validation budget is exhausted.
+        OSError: Acquisition or persistence fails; no complete manifest is created.
+    """
+    config.__post_init__()
+    source = transport if transport is not None else OKXHistoryTransport(config)
+    deadline = time.monotonic() + config.duration_seconds
+    index = source.index()
+    request = OKXArchiveRequest(
+        config=config,
+        implementation_identity=implementation_identity,
+        index_sha256=hashlib.sha256(index).hexdigest(),
+        url=config.select_url(index),
+        index_received=datetime.now(UTC),
+    )
+    store = OKXArchiveStore(output / str(uuid4()))
+    store.start(request, index)
+    destination = store.root / "download.part"
+    for attempt in range(config.retries + 1):
+        try:
+            source.download(request, destination, deadline)
+            break
+        except TransientFetchError, TimeoutError:
+            if attempt == config.retries or time.monotonic() >= deadline:
+                raise
+            destination.unlink(missing_ok=True)
+            time.sleep(min(1 << attempt, max(0, deadline - time.monotonic())))
+    received = datetime.now(UTC)
+    OKXArchiveReader(config).validate(destination, deadline)
+    descriptor = store.finish(request, received)
+    result = store.replay()
+    result["download_attempts"] = attempt + 1
+    result["saved_input_identity"] = descriptor.sha256
+    (store.root / "summary.json").write_bytes(DomainCodec().encode_json(result))
+    return result
+
+
+class ArchiveArguments(argparse.Namespace):
+    """Type the installed command's explicit public archive selection."""
+
+    action: str
+    config: Path
+    output: Path
+    archive: Path
+
+
+def archive_main(argv: list[str]) -> int:
+    """Run foreground public history discovery, single-day acquisition or offline replay.
+
+    Args:
+        argv: Arguments following the existing acquisition command's archive subcommand.
+
+    Returns:
+        Zero for success, two for invalid or failed archive work, or 130 for interruption.
+
+    Raises:
+        SystemExit: Argparse handles help and invalid syntax.
+    """
+    parser = argparse.ArgumentParser(
+        prog="alpha-acquire archive", description="Public native L2 archives (OKX 400-level spot)"
+    )
+    commands = parser.add_subparsers(dest="action", required=True)
+    for action in ("index", "fetch"):
+        command = commands.add_parser(action)
+        command.add_argument("--config", type=Path, required=True)
+        if action == "fetch":
+            command.add_argument("--output", type=Path, required=True)
+    replay = commands.add_parser("replay")
+    replay.add_argument("--archive", type=Path, required=True)
+    args = parser.parse_args(argv, namespace=ArchiveArguments())
+    try:
+        if args.action == "replay":
+            result = OKXArchiveStore(args.archive).replay()
+        else:
+            config = OKXHistoryConfig.read(args.config)
+            if args.action == "index":
+                raw = OKXHistoryTransport(config).index()
+                result = {
+                    "venue": "okx",
+                    "representation": "L2",
+                    "symbol": config.symbol,
+                    "url": config.select_url(raw),
+                    "index_sha256": hashlib.sha256(raw).hexdigest(),
+                }
+            else:
+                result = acquire_history(
+                    config, args.output, implementation_identity=InstalledIdentity.sha256()
+                )
+        print(DomainCodec().encode_json(result).decode(), flush=True)
+    except OSError, ValueError, EOFError, tarfile.TarError, ZlibError:
+        print(
+            "OKX history failed; incomplete files are not admitted as completed archives",
+            file=sys.stderr,
+        )
+        return 2
+    except KeyboardInterrupt:
+        print("Interrupted; no incomplete archive is admitted for replay", file=sys.stderr)
+        return 130
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Resolve a configured acquisition, resume its manifest and report terminal status.
 
@@ -326,7 +454,12 @@ def main(argv: list[str] | None = None) -> int:
         SystemExit: Argparse handles help and invalid argument syntax.
         OSError: A failed terminal report cannot be written to stderr.
     """
-    parser = argparse.ArgumentParser(description=__doc__)
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments[:1] == ["archive"]:
+        return archive_main(arguments[1:])
+    parser = argparse.ArgumentParser(
+        description=__doc__, epilog="For native L2 archives: alpha-acquire archive --help"
+    )
     for option in ("config", "catalog", "manifest", "store"):
         parser.add_argument(f"--{option}", type=Path, required=True)
     for option in ("job", "rights-reference"):
@@ -335,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout-seconds", type=float, required=True)
     parser.add_argument("--max-bytes", type=int, required=True)
     parser.add_argument("--retry-delays", nargs="*", type=float, default=list[float]((1.0, 2.0)))
-    args = parser.parse_args(argv, namespace=_AcquisitionArguments())
+    args = parser.parse_args(arguments, namespace=_AcquisitionArguments())
     output = _AcquisitionOutput()
     stage = "configuration"
     try:

@@ -12,7 +12,9 @@ from typing import Literal, Self
 import msgspec
 
 # project library imports
+from alpha_research.data.live.config import CaptureRequest
 from alpha_research.data.requests import SourceRequest
+from alpha_research.data.venues.okx.history_config import OKXArchiveRequest
 
 
 class RawObject(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
@@ -74,7 +76,7 @@ class RawObject(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
         cls,
         path: Path,
         *,
-        request: SourceRequest,
+        request: SourceRequest | CaptureRequest | OKXArchiveRequest,
         retrieval_reference: str,
         ts_received: datetime,
         ts_ingested: datetime,
@@ -95,7 +97,7 @@ class RawObject(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             ValueError: Request or descriptor metadata is invalid.
             OSError: The saved file cannot be opened or read.
         """
-        if type(request) is not SourceRequest:
+        if type(request) not in (SourceRequest, CaptureRequest, OKXArchiveRequest):
             raise ValueError("raw object requires a SourceRequest")
         request_identity = request.identity
         digest, size = cls._fingerprint(path)
@@ -108,7 +110,9 @@ class RawObject(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             ts_ingested=ts_ingested,
         )
 
-    def verify(self, path: Path, *, request: SourceRequest) -> Self:
+    def verify(
+        self, path: Path, *, request: SourceRequest | CaptureRequest | OKXArchiveRequest
+    ) -> Self:
         """Recheck metadata, request binding and all retained bytes without changing state.
 
         Args:
@@ -123,7 +127,10 @@ class RawObject(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields
             OSError: The saved file cannot be opened or read.
         """
         self.__post_init__()
-        if type(request) is not SourceRequest or request.identity != self.request_identity:
+        if (
+            type(request) not in (SourceRequest, CaptureRequest, OKXArchiveRequest)
+            or request.identity != self.request_identity
+        ):
             raise ValueError("raw object request identity mismatch")
         digest, size = self._fingerprint(path)
         if size != self.size_bytes:

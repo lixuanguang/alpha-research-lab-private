@@ -1,5 +1,28 @@
 # Research notebooks and examples
 
+## Native market-data capture and replay
+
+Start the new live-data workflow with [market-data-capture.ipynb](market-data-capture.ipynb).
+It records bounded Bitfinex R0 and, when local Exchange credentials are filled,
+Coinbase Level 3. It explains receipt clocks, exact decoding, durable inputs,
+visible-order replay and gaps. See the [collector guide](../docs/data/l3-collectors.md)
+for commands and `secrets/coinbase.secrets` setup.
+
+```sh
+uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/market-data-capture.ipynb
+```
+
+The same notebook also records **OKX BTC-USDT L2** through the existing live
+pipeline and acquires historical L2 archives through `pipelines/acquisition.py`.
+Its common evidence table keeps individual orders, aggregate levels, receipt
+clocks and historical source clocks distinct. See the
+[OKX guide](../docs/data/okx-market-data.md) for the `alpha-acquire archive`
+commands and explicit historical replay limits.
+
+The historical Binance workflow below and both existing notebooks retain their
+original historical and foundation-check roles.
+
+
 Maintained `.ipynb`, `.py` and `.md` files in this folder are versioned in Git.
 Generated run snapshots, checkpoints and kernel files remain ignored. This is the
 long-lived test bed for research questions and package-boundary experiments.
