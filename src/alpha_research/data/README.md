@@ -12,6 +12,7 @@ MR 08 adds verified saved-row reading with exact bytes and unknown recorder cove
 MR 09 adds archive-trade decoding and stable occurrences from those saved inputs.
 MR 11 adds strict file-backed historical eligibility assertions with separate evidence clocks.
 MR 12 adds pure decision-time membership selection and retained, explicitly linked corrections.
+MR 13 adds canonical partition quality, explicit degraded use and publication refusal.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -754,3 +755,32 @@ input; no mutable normalization checkpoint exists. Revisions, eligibility, quali
 snapshot publication and the dataset command remain MRs 10–16.
 See the [MR 09 evidence](../../../docs/roadmap/mr-09-implementation.md) and
 [NB 09](../../../examples/research-foundations.ipynb), section 9.
+
+## Validate a canonical partition (MR 13)
+
+Import `QualityPolicy` from [`quality.py`](quality.py). For saved Binance inputs,
+call `validate_saved_partition` from `alpha_research.pipelines.dataset` with one
+explicit acquisition manifest, its `RawStore`, the matching `EligibilityAssertions`,
+a positive archive byte cap and a policy. For an already decoded bounded batch,
+call `policy.validate(request, occurrences, eligibility=history, corrections=links)`.
+The latter admits multiple original/revised raw objects for the same exact request.
+
+The policy supplies `use="exploratory"` or `use="causal"`, an aware UTC `known_at`
+eligibility cutoff and positive `timedelta` `max_gap`. Inspect the returned
+`scope`, `reasons`, `invalid_count`, `gap_count` and `duplicate_count` before using
+`require_canonical()`. The gate raises on rejection, retaining the report; accepted
+bytes explicitly retain `exploratory_degraded` scope, all histories and limitations.
+There is no current source evidence sufficient for causal acceptance, even when
+the observed gap count is zero. This call creates no published dataset or snapshot.
+
+Original source bytes are re-decoded to reject changed clocks or values. Positive
+trade quantities are distinct from zero-quantity depth deletions. Repeated identical
+occurrences are idempotent; different duplicate origins survive. Wrong records and
+unevidenced conflicts return no bytes; terminal saved-reader failures reject the
+entire prefix and mark unread rows unvalidated. The originals remain in the store.
+See the [quality contract](../../../docs/data/contracts.md#canonical-partition-quality-mr-13)
+for interval, units, ordering and count semantics, and the
+[retained installed consumer](../../../tests/fixtures/mr13/validate_partition.py)
+for a complete synthetic saved-input example. NB 13 in
+[research-foundations.ipynb](../../../examples/research-foundations.ipynb) displays
+both declared uses and the required failures.

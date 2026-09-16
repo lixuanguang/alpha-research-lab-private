@@ -224,7 +224,7 @@ retains the batch's economic payloads and lineage for diagnostics. Correction
 records bind predecessor/replacement payload identities, UTC publication and
 availability, and a retained evidence reference. Missing, branched, dangling,
 cyclic or temporally reversed evidence fails. This is a pre-publication admission
-gate; dataset quality and snapshot publication still belong to later MRs.
+gate; MR 13 adds partition quality below, while snapshot publication remains MR 15.
 
 One returned head contributes once per economic key and embeds its immutable
 `previous` history. Serialize/reopen the entire envelope using `DomainCodec`.
@@ -241,6 +241,65 @@ additional source revision evidence and fails under this bounded policy. A refer
 is an assertion supplied by the caller, not independently fetched/verified proof.
 The [MR 10 record](../roadmap/mr-10-implementation.md) and NB 10 label their synthetic
 inputs explicitly. Shared as-of selection remains MR 17.
+
+## Canonical partition quality (MR 13)
+
+[`QualityPolicy`](../../src/alpha_research/data/quality.py) consumes a single
+`SourceRequest`, its original occurrences, linked eligibility history and optional
+MR 10 correction evidence. `use` explicitly selects exploratory or causal use;
+`known_at` is the fixed eligibility cutoff, and positive `max_gap` is an observed
+silence tolerance. The library keeps no mutable state between validations.
+[`validate_saved_partition`](../../src/alpha_research/pipelines/dataset.py) is the
+saved Binance archive consumer; it reads and verifies the entire selected source
+object before returning a report. Multiple selected source partitions fail at entry.
+
+The gate reuses record validation and source decoders to compare each occurrence
+with its original bytes. Wrong schema/binding/instrument/catalog units, altered
+values or capture clocks, nonfinite/nonpositive prices, off-grid prices and
+nonpositive trade base quantities reject the partition. Tick arithmetic uses exact
+ratios against the authored catalog. Publisher quote quantities remain source
+amounts; no undocumented rounding or product-equality rule is imposed. Existing
+L2 deletion quantity zero remains supported by the depth codec; this trade gate
+does not add L2 normalization or book-quality acceptance.
+
+Position/record index and event time (archive) or capture time (Tardis) must not
+regress within a raw object. Equal-time source order remains in retained occurrences;
+separate file traversal order does not matter. Exact repeated occurrences are
+idempotent. Economic duplicates contribute once with all distinct lineage; revision
+heads retain their full predecessors and effective availability through MR 10.
+There is no clock-adjustment option: a changed canonical capture must still match
+its original source bytes. Blank-line control proxies remain supplied context,
+not evidence of continuous capture. Controls keep their request binding.
+
+The selected half-open interval is checked at both edges and between distinct
+observation times. Each silence strictly greater than `max_gap`, plus each distinct
+disconnect, contributes to `gap_count`. Gaps describe observed silence, not proven
+loss. Consecutive trade IDs, nonempty files, duplicates and zero observed gaps do
+not establish recorder completeness. Eligibility is selected at every assertion
+validity boundary within the interval, including intervals without observations;
+all original assertions, exclusions, reasons and independent clocks are retained.
+
+`QualityReport.scope` is `exploratory_degraded` (accepted for that declared use) or
+`rejected`. Both supported input contracts lack complete recorder evidence and the
+catalog is authored, so this implementation cannot produce a fully valid causal
+partition. Exploratory use can retain gaps or unknown/excluded membership with
+explicit annotations; structural errors and unresolved trade revisions reject it.
+A rejected report has `canonical=None`; `require_canonical()` raises publication
+refusal with the reasons. No partial output is released after a reader failure.
+`invalid_count` counts observed invalid occurrences and terminal input failures;
+it does not count unread rows or classify an economic conflict as a malformed row.
+Raw bytes remain with the caller or immutable store, including after rejection.
+
+Accepted deterministic JSON bytes use schema `canonical-trade-partition-v1` and
+explicit scope, policy, complete request/catalog, eligibility history, selected
+membership segments, reasons, full revision heads and binding-scoped controls.
+Heads use MR 10's deterministic payload-identity order; source order is retained
+in occurrence positions. No event or assertion is forward-filled or replaced by
+its final sample value. Changed policies produce changed bytes. Reports are local
+validation results, not authenticated evidence or snapshot identities. MR 14 owns
+the dataset manifest reader/identity, MR 15 owns atomic publication, and MR 16 owns
+the installed dataset command. This bounded in-memory path has synthetic quality
+evidence and no large-partition performance or empirical P1 acceptance claim.
 
 ## Planned boundaries
 

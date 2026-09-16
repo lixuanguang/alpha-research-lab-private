@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-16 for MR 12 decision-time eligibility.
+Owner: repository founder. Updated 2026-09-16 for MR 13 partition quality.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -109,8 +109,17 @@ unchanged, then excludes BTC when the correction becomes known. Tables show befo
 at and after both clocks' boundaries, the half-open endpoint, unknown and unsupported
 outcomes, and four controlled failures. Only explicit inclusion enters the universe.
 The [MR 12 record](../docs/roadmap/mr-12-implementation.md) identifies the installed
-candidate. Next is MR 13's joint quality check over events, revisions, eligibility
-and coverage; selection alone does not produce an accepted dataset.
+candidate. Selection alone does not produce an accepted dataset.
+
+Section 13 adds NB 13: declare exploratory or causal use, inspect duplicate/gap
+counts and compare the resulting publication gates. The synthetic archive can
+produce deterministic **exploratory degraded** bytes with retained histories;
+its unknown recorder coverage and historical availability prevent causal admission.
+Seven examples refuse publication for required coverage, a foreign instrument,
+an unevidenced conflict, a rewritten capture clock, NaN/zero prices and zero trade
+quantity. Raw failures retain reasons and originals; there is no silent row drop
+or filled gap. See the [MR 13 record](../docs/roadmap/mr-13-implementation.md).
+The next step is MR 14's dataset manifest; atomic snapshot publication remains MR 15.
 
 ## How to interpret the evidence
 
