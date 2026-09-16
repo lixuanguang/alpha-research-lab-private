@@ -35,6 +35,7 @@ views of the same work, not separate backlogs.
 - [Delivery graph and completion rules](#completion-and-dependency-model)
 - [Completed foundations](#completed-foundations), [M0](#m0-minimal-runnable-foundation), [M1](#m1-validated-historical-ingestion), [M2](#m2-research-data-access-and-replay)
 - [M3](#m3-reliable-live-capture), [M4](#m4-reproducible-features-and-model-research), [M5 and E1](#m5-strategy-simulation-and-research-controls)
+- [Collector integration with shared datasets and replay](#collector-integration-with-shared-datasets-and-replay)
 - [Market-data expansion and hftbacktest lessons](#market-data-expansion-and-replay-lessons)
 - [R1 deployment prerequisite](#r1-trusted-artifact-before-first-deployment), [M6](#m6-papershadow-deployment), [M7](#m7-controlled-live-operation-and-expansion)
 - [P1 versus M5 acceptance](#p1-acceptance-map)
@@ -361,7 +362,7 @@ prerequisites, publication requirements and deployment gates remain in force.
 | **24 — Recover sessions without hiding gaps** | 23 | Pipeline connection lifecycle, backoff, resubscription, session epochs, bounded queues and source-specific gap/backfill reconciliation. Preserve duplicates as raw lineage and apply economic deduplication explicitly. Own recovery request coalescing, endpoint budgets, retry exhaustion and stale-session response rejection; MR 25 owns reconstruction validity. | Disconnect/reconnect, duplicate delivery and overload cannot silently lose accepted data. Unknown gaps stay visible; a later backfill cannot acquire an earlier knowledge timestamp. No global exactly-once claim. A gap during snapshot acquisition and rate-limited recovery retain an invalid affected state with a bounded recovery attempt. |
 | **25 — Apply continuous quality and recovery states** | 24, 10–15 | Reuse canonical validation/revision operations; add bounded lateness, freshness, watermark and recovery policy in cohesive data libraries consumed by the live pipeline. Publish valid segments/snapshots with their quality status. For L2 admission, implement the shared saved/live [book reconstruction contract](../architecture/platform-design.md#l2-synchronization-and-recovery): snapshot/update bridging, atomic messages, depth coverage, source continuity and restart identity. Split this substantial extension into reviewable slices under MR 25 when its consumer is selected. | Inject out-of-order/late events, stale progress, schema errors and relevant sequence gaps. Recovery cannot mark an invalid stream valid merely because the connection is open. Live book consumers remain disabled until the supported venue's resynchronization trace and bounded capture pass; an asynchronous REST request or decoded depth event is insufficient. Zero-quantity depth deletion remains distinct from invalid price/trade values. |
 | **26 — Supervise live health and responses** | 24–25 | Configure process liveness, advancing ingestion/persistence, freshness, queue pressure, reconnect/invalid counts and alert responses. Use existing telemetry tools behind bounded library adapters; supervision/response composition stays in pipelines. | Detect a live heartbeat with stalled data, loss of the process/collector and persistence failure. Test alert delivery and the declared response; alert failure does not block local protective behavior. |
-| **27 — Prove capture/replay parity** | 25–26, 20 | Complete the installed live workflow and replay its exact saved raw frames, receipt clocks and session transitions through the same normalization and downstream consumer. For admitted books, reuse MR 25 reconstruction and compare message-boundary state, coverage and cursors. | Captured-input replay reproduces admitted canonical events, quality transitions and consumer outputs. Demonstrate restart and duplicates on a permitted bounded capture; retain the first divergent event if comparison fails. A later vendor download is not substituted for this proof. |
+| **27 — Prove capture/replay parity** | 25–26, 20 | Complete the installed live workflow and replay its exact saved raw frames, receipt clocks and session transitions through the same normalization and downstream consumer. For admitted books, reuse MR 25 reconstruction and compare message-boundary state, coverage and cursors. Complete the named-source [collector integration checkpoint](#collector-integration-with-shared-datasets-and-replay). | Captured-input replay reproduces admitted canonical events, quality transitions and consumer outputs. Demonstrate restart and duplicates on a permitted bounded capture; retain the first divergent event if comparison fails. A later vendor download is not substituted for this proof. |
 
 Required quality states are `valid`, `degraded`, `stale`, `recovering` and
 `unavailable`, with reason, scope, transition time and last durable progress.
@@ -370,6 +371,26 @@ consumer opt-in and visible limitations. `stale`, `recovering` and `unavailable`
 block freshness-dependent decisions; resume requires the relevant synchronization
 and validation. Historical EDA may inspect retained data with its status. State
 names alone are insufficient: transition/recovery behavior is tested at the consumer.
+
+### Collector integration with shared datasets and replay
+
+**Planned; integration owner MR 25, completion owner MR 27.** The merged
+Bitfinex R0, Coinbase Exchange L3 and OKX L2 collectors preserve replayable source
+input; they do not yet publish shared canonical datasets or use MR 20 stepping.
+Complete the following ordered steps within the existing MR owners:
+
+| Step | Owner and prerequisite | Required pipeline result |
+| --- | --- | --- |
+| 1. Bind saved collector input | MR 25, reusing MR 01/09 contracts | Extend `pipelines/dataset.py` to select each supported saved capture/archive adapter. Bind native instrument/stream, raw digest, record position, message grouping and session/schema lineage to canonical occurrences. Retain order IDs for L3, aggregate levels for OKX, exact numbers, original clocks and explicit unknowns. Do not apply trade-ID deduplication to book lifecycles. |
+| 2. Admit and publish | MR 25, after MRs 10–15 | Reuse shared revision/quality operations and immutable dataset publication for declared supported book schemas and uses. Preserve depth, gaps and recovery state in the manifest/quality scope. Missing source evidence prevents the affected admission; a venue book snapshot alone is not a published dataset snapshot. |
+| 3. Replay the published input | MR 20 contracts through MR 27, after MR 17/19 | Feed retained canonical history into the shared ordered iterator, clock and resumable cursor. Preserve atomic L2/L3 messages, accepted book snapshot and recovery epoch across batches/restarts. Unknown historical availability remains explicit; download time cannot replace it. |
+| 4. Prove the integrated path | MR 27, retaining 25–26 and 20 prerequisites | Compare capture and saved-input processing through the same normalization, quality, reconstruction and downstream consumer. Verify canonical outputs, message-boundary state, gaps and cursor/resume parity; retain the first divergence. Extend `market-data-capture.ipynb` with snapshot/query/replay identities using real bounded Bitfinex and OKX inputs. Coinbase live acceptance remains blocked until Exchange access is verified. |
+
+OKX historical input also exercises saved-dataset/replay integration, but its
+missing source sequences cannot prove continuity or substitute for live parity.
+This checkpoint does not enlarge MR 08, renumber packages, complete M3 or change
+the Binance P1 baseline. Shared interfaces arrive with their existing consumers;
+the collector adapters follow them in MR 25/27.
 
 ### Market-data expansion and replay lessons
 
@@ -841,6 +862,12 @@ dataset pipeline     -> those saved inputs -> immutable canonical snapshot
 research pipeline    -> snapshot + frozen config -> trial record + net report
 ```
 
+The planned [collector handoff](#collector-integration-with-shared-datasets-and-replay)
+adds `pipelines/live.py` recordings and OKX historical acquisition as explicit
+saved inputs to `pipelines/dataset.py`; published history then feeds MR 19 queries
+and MR 20 replay. Current venue-specific replay remains a source-input check
+until MR 27 proves this shared path.
+
 These are orchestrator functions in the existing package, not mandatory services.
 Artifact arrows do not imply imports between pipelines. In particular, a saved
 snapshot research run does not implicitly acquire or rebuild data. The names
@@ -850,6 +877,7 @@ working workflow, not as an empty skeleton or a forwarding facade.
 | Pipeline owner | Explicit inputs and result | Coordination owned here | First working slice and growth |
 | --- | --- | --- | --- |
 | `pipelines/acquisition.py` | Resolved data-job/universe bindings, validated requests, permitted access reference, destination and clock → verified raw objects and acquisition manifest | Construct/reuse the configured provider transport; select partitions; sequence fetch, verification and durable publication; record original clocks; apply bounded retry and restart policy; expose progress/failure. | MR 05 fetches/stores one partition; MR 06 adds resume; MR 07 adds the installed acquisition command. |
+| `pipelines/live.py` | Explicit venue/stream configuration and bounded recording limits → durable captured input with session/gap metadata | Compose subscription, receipt, persistence and recovery; reuse shared canonical operations when admitted, preserving the durable boundary. | Bounded source capture/replay is implemented in the early MR 22–27 slice; MR 25 connects canonical dataset contracts and MR 27 proves shared replay parity. |
 | `pipelines/dataset.py` | Saved request/raw manifest and verified objects, resolved universe/catalog, eligibility evidence and explicit normalization/quality policy → immutable snapshot | Construct/reuse configured decoders; iterate frames; bind occurrences; apply revision, eligibility and quality operations; assemble/publish the snapshot and expose its quality report. | MR 02 starts fixture inspection; MR 09 adds persisted occurrences; 10–15 complete publication; MR 16 adds the validated-dataset command. |
 | `pipelines/research.py` | Resolved active strategy instances and saved input bindings, frozen strategy/execution parameters, seeds, trial and output locations → per-instance attempts and exact net reports | Select configured implementations; own each instance's clock/state; consume MR 20's event-stepping contract for observations, decisions, fills, costs and valuation; record outcomes and publish results. | E1 introduces the callable synthetic economic path with initial 33–42 behavior. MR 44 extends it with full saved-snapshot/trial composition; MR 45 adds durable reports; MR 46 adds the installed command. |
 

@@ -187,6 +187,10 @@ resting order state; it establishes neither queue priority, hidden liquidity,
 executable fills, nor a simulator. General MR 20 event-time stepping and canonical
 quality/publication remain separate roadmap prerequisites.
 
+The planned [shared dataset and replay integration](../roadmap/README.md#collector-integration-with-shared-datasets-and-replay)
+is an explicit MR 25/27 checkpoint, reusing MR 09–15 normalization/publication
+and MR 20 replay through the existing pipelines.
+
 ## Official protocol references
 
 Checked 2026-09-15 UTC. Runtime `probe` also verified both configured listings.
