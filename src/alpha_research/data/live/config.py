@@ -19,12 +19,12 @@ from alpha_research.serialization import DomainCodec
 class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
     """Select one native spot feed and hard resource limits for one invocation."""
 
-    venue: Literal["bitfinex", "coinbase"]
+    venue: Literal["bitfinex", "coinbase", "okx"]
     symbol: str
     instrument_id: InstrumentId
     base_currency: str
     quote_currency: str
-    channel: Literal["R0", "level3"]
+    channel: Literal["R0", "level3", "books"]
     depth: int
     duration_seconds: int
     max_messages: int
@@ -38,10 +38,10 @@ class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
 
     def __post_init__(self) -> None:
         """Reject unsupported modes, malformed identity and unbounded resource requests."""
-        if self.schema_version != "1" or self.venue not in ("bitfinex", "coinbase"):
+        if self.schema_version != "1" or self.venue not in ("bitfinex", "coinbase", "okx"):
             raise ValueError("unsupported capture schema or venue")
-        if self.channel != ("R0" if self.venue == "bitfinex" else "level3"):
-            raise ValueError("unsupported venue/channel; L3 is required")
+        if self.channel != {"bitfinex": "R0", "coinbase": "level3", "okx": "books"}[self.venue]:
+            raise ValueError("unsupported venue/channel")
         if not re.fullmatch(r"[A-Za-z0-9:-]{3,40}", self.symbol):
             raise ValueError("invalid native symbol")
         if self.venue == "bitfinex" and not self.symbol.startswith("t"):
@@ -52,10 +52,10 @@ class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
         ):
             raise ValueError("Bitfinex native pair must match configured currencies")
         if (
-            self.venue == "coinbase"
+            self.venue in ("coinbase", "okx")
             and self.symbol != f"{self.base_currency}-{self.quote_currency}"
         ):
-            raise ValueError("Coinbase native product must match configured currencies")
+            raise ValueError("native spot product must match configured currencies")
         if not isinstance(self.instrument_id, InstrumentId):
             raise ValueError("capture requires canonical instrument identity")
         if any(
@@ -78,12 +78,14 @@ class CaptureConfig(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
             raise ValueError("journal budget must leave room for frames and control records")
         if type(self.retries) is not int or not 0 <= self.retries <= 5:
             raise ValueError("retries must be between zero and five")
-        if type(self.depth) is not int or self.depth not in (
-            (1, 25, 100, 250) if self.venue == "bitfinex" else (0,)
+        if (
+            type(self.depth) is not int
+            or self.depth
+            not in ({"bitfinex": (1, 25, 100, 250), "coinbase": (0,), "okx": (400,)}[self.venue])
         ):
-            raise ValueError(
-                "Bitfinex needs a bounded depth; Coinbase needs the complete L3 snapshot"
-            )
+            raise ValueError("unsupported venue depth")
+        if self.venue == "okx" and self.max_orders != 800:
+            raise ValueError("OKX books requires the 800-entry aggregate level budget")
 
     @classmethod
     def read(cls, path: Path) -> CaptureConfig:
