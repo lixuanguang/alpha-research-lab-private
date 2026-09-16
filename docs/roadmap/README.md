@@ -11,13 +11,14 @@ MR 08 is merged in PR #32 at `f05ef18`; see its [implementation record](mr-08-im
 MR 09 is merged in PR #33 at `a66b49a`; see its [implementation record](mr-09-implementation.md).
 MR 10 is merged in PR #34 at `d88ba11`; see its [implementation record](mr-10-implementation.md).
 MR 11 is merged in PR #35 at `5b10f78`; see its [implementation record](mr-11-implementation.md).
-MR 12 is implemented and locally verified in its [review candidate](mr-12-implementation.md).
-MRs 13–62 and R1 remain planned except the bounded M3 collector slice below;
+MR 12 is merged in PR #36 at `210db65`; see its [implementation record](mr-12-implementation.md).
+MR 13 is implemented and locally verified in its [review candidate](mr-13-implementation.md).
+MRs 14–62 and R1 remain planned except the bounded M3 collector slice below;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 12](mr-12-implementation.md). The founder-authorized
+**Review [MR 13](mr-13-implementation.md). The founder-authorized
 [crypto L3 collector slice](crypto-l3-collectors.md) brings forward parts of MRs 22–27.
-MR 13 is the next historical ingestion package; it has not been started.**
+MR 14 is the next historical ingestion package; it has not been started.**
 The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
 preserves implementation through MR 07 and adds future collection, recovery and
 simulation acceptance within the existing MR owners. No additional implementation
@@ -74,7 +75,9 @@ lineage, earlier versions and effective knowledge; empirical archive revision ev
 MR 11 reads strict file-backed eligibility assertions with evidence clocks and catalog/units
 linkage, retaining exclusions. MR 12 selects membership using independent validity and
 knowledge cutoffs, retaining explicit corrections and unknown/unsupported outcomes;
-actual historical membership evidence remains unresolved.
+actual historical membership evidence remains unresolved. MR 13 composes partition quality,
+retained histories and deterministic exploratory bytes; unknown recorder coverage
+prevents causal admission. Dataset manifests and snapshot publication remain planned.
 The frozen uv build, strict source checks, CI and runtime wheel installation exist. Versioned datasets, strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
@@ -299,7 +302,9 @@ MR 10 supplies merged duplicate/correction admission in its [implementation reco
 including NB 10 in section 10 of the same notebook. MR 11 adds eligibility assertion
 reading and NB 11 in section 11; see its [implementation record](mr-11-implementation.md).
 MR 12 adds as-of selection, append-only corrections and NB 12 in section 12; see its
-[review candidate](mr-12-implementation.md). Quality and publication remain planned.
+[implementation record](mr-12-implementation.md). MR 13 adds partition validation and
+NB 13 in section 13; see its [review candidate](mr-13-implementation.md). Dataset
+manifests and atomic snapshot publication remain MRs 14–15.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -1186,6 +1191,10 @@ MR 12 adds section 12: independent validity/knowledge boundary tables, unchanged
 earlier universes, unknown/unsupported results and explicit correction failures.
 All 44 cells / 19 code cells passed against the installed candidate in its
 [implementation record](mr-12-implementation.md#fresh-kernel-nb-12).
+MR 13 adds section 13: duplicate/gap counts, explicit degraded scope, required coverage
+refusal, wrong instruments, conflicting corrections, invalid prices/quantities and
+future clock-rewrite rejection. Its fresh installed execution is recorded in the
+[MR 13 implementation record](mr-13-implementation.md#fresh-kernel-nb-13).
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
