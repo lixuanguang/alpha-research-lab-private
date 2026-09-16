@@ -158,6 +158,7 @@ they do not change what a source proves about the market.
 | Download failures | Offline lab, section 13 | [MR 05](../docs/roadmap/mr-05-implementation.md) |
 | Resuming collection | Offline lab, sections 14–15 | [MR 06](../docs/roadmap/mr-06-implementation.md), [MR 07](../docs/roadmap/mr-07-implementation.md) |
 | Equal-time rows, empty content and missing archives | Offline lab, section 16 | [MR 08](../docs/roadmap/mr-08-implementation.md) |
+| Decoded trades, raw origins and independent control scopes | Primary notebook, section 9 | [MR 09](../docs/roadmap/mr-09-implementation.md) |
 
 The numbered checkpoints and fixed synthetic examples remain intact. New activity
 notebooks should grow from working research needs; do not create empty fetching,
@@ -301,3 +302,16 @@ P1 remains byte-identical, SHA-256
 This proves accessible bounded book acquisition and saved reconstruction, not
 trade history, simultaneous cross-venue liquidity, complete coverage, fills or a
 strategy result. MR 09 remains the next roadmap MR; no part of it is implemented here.
+
+## MR 09 occurrence checkpoint
+
+The later MR 09 change adds section 9 to `research-foundations.ipynb`; its synthetic
+Binance trade and Tardis-control examples need no provider access. The earlier
+saved OKX/Bitfinex exploration remains intact. Run the whole notebook with the
+existing runner and pinned saved directories shown in the
+[MR 09 evidence record](../docs/roadmap/mr-09-implementation.md#fresh-kernel-nb-09).
+All 27 cells, including 12 code cells, passed in a fresh kernel against committed
+runtime `0969f01`. The notebook verified all 61 installed runtime files first.
+It displays distinct raw occurrences, exact source units, absent archive clocks,
+binding-scoped controls and explicit incompatible-input failures. MR 10 is next;
+no duplicate/correction or accepted-dataset workflow is implied.

@@ -1,4 +1,4 @@
-"""Inspect one explicit saved trade frame without acquisition or dataset publication."""
+"""Inspect saved fixtures and stream bound occurrences without dataset publication."""
 
 from __future__ import annotations
 
@@ -6,12 +6,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
+from collections.abc import Generator
+from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 
 # project library imports
 from alpha_research.configuration import Configuration, ResolvedManifest
+from alpha_research.data.manifests import AcquisitionManifest
+from alpha_research.data.normalization import Occurrence
+from alpha_research.data.providers.binance.rows import BinanceArchiveRows
+from alpha_research.data.providers.binance.trades import ArchiveTrade
 from alpha_research.data.providers.tardis.decoder import TardisDecoder
+from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
 from alpha_research.data.venues.binance.codecs import MarketEventCodec
 from alpha_research.data.venues.binance.events import Trade
@@ -30,6 +37,43 @@ class _InspectionArguments(argparse.Namespace):
     received: str
     ingested: str
     sequence: int
+
+
+def iter_occurrences(
+    manifest: AcquisitionManifest, store: RawStore, *, max_bytes: int
+) -> Generator[Occurrence]:
+    """Decode verified saved archive inputs under their retained resolved selection.
+
+    Args:
+        manifest: Explicit saved acquisition state containing resolved universe/bindings.
+        store: Immutable raw storage, protected by the caller from concurrent mutation.
+        max_bytes: Positive compressed/expanded byte cap per daily archive.
+
+    Yields:
+        Bound trades in partition/row order within the half-open research interval.
+
+    Raises:
+        ValueError: An incompatible binding, damaged input or malformed trade is encountered.
+        OSError: An expected completion or stored object is missing or unreadable.
+
+    Notes:
+        The MR 08 archive reader is the supported persisted adapter. Existing Tardis
+        fixtures use inspect_fixture. All rows are decoded before interval selection;
+        exhaust for complete validation, or close an abandoned prefix. No quality,
+        coverage, revision or publication acceptance follows from a yielded prefix.
+    """
+    for partition in BinanceArchiveRows.from_manifest(manifest):
+        with closing(partition.read(store, max_bytes=max_bytes)) as rows:
+            for row in rows:
+                event = ArchiveTrade.from_row(row, partition.request)
+                if row.selection_start <= event.ts_event < row.selection_end:
+                    yield Occurrence(
+                        request=partition.request,
+                        origin=row.origin,
+                        position=row.position,
+                        raw=row.payload,
+                        event=event,
+                    )
 
 
 def inspect_fixture(

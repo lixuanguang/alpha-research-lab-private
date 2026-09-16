@@ -143,10 +143,13 @@ semantics.
 
 ### Control scope through queries
 
-MR 09 retains the source, request/input binding and, where applicable,
-subscription/capture-session identity that determines a control event's affected
-scope. Carry that relationship in the occurrence envelope, input manifest or
-query-result quality metadata; the existing `Disconnect` type stays unchanged.
+MR 09's [`Occurrence`](../../src/alpha_research/data/normalization.py) retains the
+source, request/input binding and instrument subscription that determine a saved
+control event's affected scope. It binds exact raw digest, line position and bytes
+alongside the decoded record. The saved-file inputs have no live capture-session
+identity; later collector adapters must retain it where applicable. The existing
+`Disconnect` type stays unchanged. See the
+[implemented contract](../../src/alpha_research/data/README.md#decoded-raw-occurrences-mr-09).
 A null instrument or the `global` stream tag neither identifies the affected
 instruments nor makes the disconnect apply repository-wide.
 
