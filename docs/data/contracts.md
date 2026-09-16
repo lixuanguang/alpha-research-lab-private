@@ -68,6 +68,41 @@ fixture is not admission to the spot ledger or executable trading. The
 [milestone support contract](../roadmap/README.md#shared-configuration-and-support-contracts)
 assigns ingestion, query/replay, simulation and operating proofs separately.
 
+## Historical eligibility assertions (MR 11)
+
+[`EligibilityAssertions`](../../src/alpha_research/data/eligibility.py) reads a
+version-1 JSON file of immutable assertions plus its complete authored catalog.
+`read(path, catalog=selected_catalog)` requires the complete catalog identity to
+match, including currencies, unit grids, ticks and authored evidence. Each canonical
+instrument must be present. This validates linkage without promoting catalog
+`research_assumption` metadata to historical venue truth.
+
+Each assertion retains `[valid_from, valid_to)` UTC, `ts_knowledge`, an explicit
+`included` or `excluded` state, a reason and `EligibilityEvidence`. Evidence identifies
+a retained source document/revision and distinguishes `research_assumption`,
+`source_evidence` and `synthetic` bases. `available_at` cannot follow `recorded_at`;
+an authored assumption is available only at its recording time. Assertion knowledge
+cannot precede evidenced availability. A later recording of actual source evidence
+may retain its earlier evidenced availability; validity alone never supplies knowledge.
+
+All assertions survive in file order, including excluded/delisted members and
+exclusions beyond catalog validity. Nonempty half-open intervals must not overlap
+contradictorily for the same instrument, even with different knowledge times.
+Adjacent intervals and overlapping agreement are retained. One evidence identity
+cannot carry inconsistent metadata. Missing identities, reasons or clocks, unknown
+fields/versions, malformed/unsafe nested values and files over one MiB fail closed.
+An empty assertion tuple asserts nothing; the reader never infers eligibility.
+
+The evidence identity is a caller-supplied reference, not independently authenticated
+proof: the reader neither fetches the referenced document nor verifies its contents.
+Source-evidence admission still requires a trustworthy retained document supporting
+the claimed historical availability. The [synthetic fixture](../../tests/fixtures/mr11/eligibility.json)
+and NB 11 prove temporal validation only; empirical P1 eligibility remains unresolved.
+There is no selection, correction precedence, quality acceptance or publication here;
+MR 12 owns as-of selection and append-only corrections. The
+[usage example](../../src/alpha_research/data/README.md#read-historical-eligibility-assertions)
+and [acceptance record](../roadmap/mr-11-implementation.md) identify the consumer and checks.
+
 ## Provenance, events, and wire values
 
 [`EventProvenance`](../../src/alpha_research/core/events.py) is frozen schema
