@@ -132,6 +132,42 @@ to that orchestrator. The decoder and its parsing, validation, and codec
 dependencies remain library components without acquisition or persistence I/O.
 See the [pipeline call example](../../src/alpha_research/data/README.md#pipeline-use).
 
+## Trade duplicate and correction admission (MR 10)
+
+[`TradeRevision`](../../src/alpha_research/data/revisions.py) is the current bounded
+individual-trade admission envelope. Its economic key is source, venue, canonical
+instrument, stream and trade ID. Its payload identity retains every supported
+trade value, including exact source time/precision and archive quote quantity/flags;
+raw position, retrieval path and decimal formatting do not establish a new trade.
+All distinct original occurrences remain attached. Repeated identical occurrences
+are idempotent. Instrument-less controls are rejected by trade admission and keep
+their separate occurrence scope below.
+
+The [`admit_saved_trades`](../../src/alpha_research/pipelines/dataset.py) pipeline
+consumes complete saved acquisitions and an explicit `reject` or `evidenced` policy.
+Unresolved conflicts return no admitted result; `RevisionConflictError.revisions`
+retains the batch's economic payloads and lineage for diagnostics. Correction
+records bind predecessor/replacement payload identities, UTC publication and
+availability, and a retained evidence reference. Missing, branched, dangling,
+cyclic or temporally reversed evidence fails. This is a pre-publication admission
+gate; dataset quality and snapshot publication still belong to later MRs.
+
+One returned head contributes once per economic key and embeds its immutable
+`previous` history. Serialize/reopen the entire envelope using `DomainCodec`.
+Consumers must use the envelope's `ts_knowledge` and revision links; an embedded
+trade's original clock alone cannot establish corrected availability. Effective
+knowledge is bounded by original/own capture, previous effective knowledge and
+correction availability. Initial archive knowledge remains absent; explicit evidence
+can establish only the corrected version's availability. Acquisition clocks never
+substitute for missing market capture or historical publication evidence.
+
+This implementation retains the complete batch in memory and admits linear histories
+with distinct payload identities. A reversion to an identical prior payload requires
+additional source revision evidence and fails under this bounded policy. A reference
+is an assertion supplied by the caller, not independently fetched/verified proof.
+The [MR 10 record](../roadmap/mr-10-implementation.md) and NB 10 label their synthetic
+inputs explicitly. Shared as-of selection remains MR 17.
+
 ## Planned boundaries
 
 This candidate does not implement HTTP transport, checkpoints, raw-object or

@@ -159,6 +159,7 @@ they do not change what a source proves about the market.
 | Resuming collection | Offline lab, sections 14–15 | [MR 06](../docs/roadmap/mr-06-implementation.md), [MR 07](../docs/roadmap/mr-07-implementation.md) |
 | Equal-time rows, empty content and missing archives | Offline lab, section 16 | [MR 08](../docs/roadmap/mr-08-implementation.md) |
 | Decoded trades, raw origins and independent control scopes | Primary notebook, section 9 | [MR 09](../docs/roadmap/mr-09-implementation.md) |
+| Economic duplicates, correction clocks and earlier versions | Primary notebook, section 10 | [MR 10](../docs/roadmap/mr-10-implementation.md) |
 
 The numbered checkpoints and fixed synthetic examples remain intact. New activity
 notebooks should grow from working research needs; do not create empty fetching,
@@ -315,3 +316,20 @@ runtime `0969f01`. The notebook verified all 61 installed runtime files first.
 It displays distinct raw occurrences, exact source units, absent archive clocks,
 binding-scoped controls and explicit incompatible-input failures. MR 10 is next;
 no duplicate/correction or accepted-dataset workflow is implied.
+
+## MR 10 correction checkpoint
+
+Section 10 of `research-foundations.ipynb` now exercises economic duplicate admission
+and explicitly evidenced corrections. Use the existing runner and pinned saved
+OKX/Bitfinex directories; no source access or new acquisition is required. The
+[MR 10 evidence record](../docs/roadmap/mr-10-implementation.md#fresh-kernel-nb-10)
+retains the exact command and candidate identity. All **34 cells / 15 code cells**
+passed in a fresh kernel at runtime commit `27d8a2f`, after matching all **62 installed
+runtime files**. Successful attempt: `8e11de2d-a1ef-40a8-a286-3ac31b8d6e4f`.
+
+The notebook shows two origins contributing one trade despite an inserted row,
+unknown original archive knowledge, a separately evidenced corrected version, and
+the earlier captured price before a late correction becomes available. It displays
+unevidenced-conflict, missing-reference, invalid-clock and non-trade failures.
+These assertions are synthetic and do not establish empirical revision history.
+MR 11 is next; quality, snapshots and shared as-of queries remain future work.
