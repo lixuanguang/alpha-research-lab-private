@@ -1,0 +1,14 @@
+{
+  "symbol": "BTC-USDT",
+  "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+  "base_currency": "BTC",
+  "quote_currency": "USDT",
+  "day": "2026-09-08",
+  "max_bytes": 160000000,
+  "max_expanded_bytes": 1000000000,
+  "max_records": 10000,
+  "max_line_bytes": 1000000,
+  "duration_seconds": 180,
+  "timeout_seconds": 30,
+  "retries": 2
+}
