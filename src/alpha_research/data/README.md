@@ -9,6 +9,7 @@ verification; MR 04 adds durable raw-byte publication and verified reads.
 MRs 05–06 add bounded partition acquisition, durable manifests and sequential resume.
 MR 07 adds the installed command and founder-selected Binance public daily archive acquisition.
 MR 08 adds verified saved-row reading with exact bytes and unknown recorder coverage.
+MR 09 adds archive-trade decoding and stable occurrences from those saved inputs.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -556,15 +557,15 @@ microseconds from 2025), no recorder timestamp and no disconnect markers. Neithe
 today's local receipt nor an event-time simulation assumption establishes historical
 knowledge. Existing Tardis fixtures, source-capture decoding and their wire meanings
 are unchanged. The MR 08 reader is described below; MR 09 owns canonical row decoding
-and absent-capture provenance, with availability/quality consumers later.
+and absent-capture provenance below, with availability/quality consumers later.
 
 ## Saved Binance archive rows
 
 [`BinanceArchiveRows`](providers/binance/rows.py) selects expected daily partitions
 from an explicit `AcquisitionManifest` using its existing prefix validation.
-Its first consumers are primary notebook sections 5/7 and the retained
-[installed consumer](../../../tests/fixtures/mr08/read_saved.py); MR 09 will connect
-the persisted dataset pipeline. No acquisition or event decoder is constructed.
+Its consumers include the offline notebook's NB 08 checks, the retained
+[installed consumer](../../../tests/fixtures/mr08/read_saved.py) and MR 09's
+persisted dataset pipeline. The reader constructs no acquisition or event decoder.
 
 For an independently resolved `run`, explicit `manifest_path` and `store`:
 
@@ -603,8 +604,68 @@ raise `FileNotFoundError`. A valid archive with an empty CSV yields zero rows; z
 raw bytes are an invalid ZIP. Neither empty nor nonempty content supplies recorder
 evidence: `recorder_coverage` is always `"unknown"`. No disconnect, capture/knowledge
 timestamp or price padding is synthesized. Invalid input remains in immutable
-storage, with no checkpoint or dataset mutation. Correction, numeric/time decoding,
-eligibility, quality and publication retain their later roadmap owners.
+storage, with no checkpoint or dataset mutation. MR 09 adds numeric/time decoding
+below; correction, eligibility, quality and publication retain their later owners.
 
 The [MR 08 acceptance record](../../../docs/roadmap/mr-08-implementation.md)
 identifies the tested candidate, commands, notebook outputs and limitations.
+
+## Decoded raw occurrences (MR 09)
+
+[`iter_occurrences`](../pipelines/dataset.py) consumes an explicit saved
+`AcquisitionManifest` and `RawStore`. The manifest retains the resolved universe
+and source bindings. Its persisted adapter is the MR 08 Binance daily-trade reader;
+Tardis fixture inspection and public decoders retain their existing behavior.
+No acquisition is performed. With the saved manifest, independently retained `run`,
+`manifest_path` and `store` from the example above:
+
+```python
+# project library imports
+from alpha_research.pipelines.dataset import iter_occurrences
+
+manifest = AcquisitionManifest.read(manifest_path, run=run, store=store)
+for occurrence in iter_occurrences(manifest, store, max_bytes=64 * 1024 * 1024):
+    print(occurrence.identity, occurrence.position, occurrence.event)
+```
+
+[`ArchiveTrade.from_row`](providers/binance/trades.py) parses individual trades,
+preserving integer timestamps and their `ms`/`us` unit, exact `Decimal` price,
+base quantity, publisher quote quantity, trade ID and both flags. The timestamp
+unit follows the archive date (microseconds from 2025); it is never guessed by
+digit count. Malformed/nonfinite amounts, invalid flags, wrong units and timestamps
+outside the requested UTC day fail with the original row position. The pipeline
+decodes every row, then yields only the half-open research interval in original
+partition/row order, including equal timestamps and repeated trades.
+
+`ArchiveTrade.ts_source_received` and `.ts_knowledge` remain `None`. Acquisition
+receipt/ingestion remain on the raw origin. This separate tagged record preserves
+the captured `Trade`/`EventProvenance` invariants and wire schema. The existing
+`DomainCodec` caches strict typed schemas and emits decimal strings; its retained
+JSON-number input support parses exact decimal text without a binary float.
+Call constructors/validators before encoding unsafely modified objects, as required
+by that codec's validated-input contract.
+
+[`Occurrence`](normalization.py) retains the complete request and raw descriptor,
+exact row/line bytes, zero-based position, decoded record and `record_index` (zero
+for the current one-record adapters). Its message identity hashes schema, request
+identity, raw digest and position; occurrence identity also includes record index.
+Identical saved inputs reproduce identities. A different raw object or binding
+cannot collide merely because sequences restart at zero. These are positional
+occurrence identities, **not** MR 10 economic trade/revision keys. Original capture
+text and message grouping survive without changing `Disconnect`.
+
+For a Tardis trade or disconnect, supply its explicit request, raw descriptor,
+line bytes and sequence to `Occurrence`. It validates instrument/source, digest,
+sequence, acquisition clocks and capture partition. A null instrument/`global`
+control applies to that request's instrument subscription; it is not repository-wide.
+These saved-file bindings have no live session ID. Collector/session adapters and
+query propagation remain with their roadmap owners.
+
+Exhaust the iterator to validate all inputs; close an abandoned prefix. Missing
+completions/objects, incompatible bindings and corrupted or malformed inputs fail
+without mutating raw storage or the acquisition manifest. Empty archives yield no
+occurrences and prove no coverage. Rebuild after correcting/selecting explicit
+input; no mutable normalization checkpoint exists. Revisions, eligibility, quality,
+snapshot publication and the dataset command remain MRs 10–16.
+See the [MR 09 evidence](../../../docs/roadmap/mr-09-implementation.md) and
+[NB 09](../../../examples/research-foundations.ipynb), section 9.
