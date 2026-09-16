@@ -9,6 +9,10 @@ Start with the [notebook](../../examples/market-data-capture.ipynb).
 The [implementation record](../roadmap/okx-market-data.md) maps ownership and
 verification. Binance history and the frozen P1 baseline remain unchanged.
 
+The planned [shared dataset and replay integration](../roadmap/README.md#collector-integration-with-shared-datasets-and-replay)
+assigns OKX live and historical inputs to the same MR 25/27 checkpoint as the
+L3 collectors, preserving their distinct L2 and historical coverage limits.
+
 ## Verified source contracts
 
 Checked 2026-09-16 against official protocols and actual public responses:
