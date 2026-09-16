@@ -20,7 +20,8 @@ from alpha_research.data.providers.binance.trades import ArchiveTrade
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
-from alpha_research.pipelines.dataset import iter_occurrences
+from alpha_research.data.revisions import Correction, RevisionConflictError, TradeRevision
+from alpha_research.pipelines.dataset import admit_saved_trades, iter_occurrences
 from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
 
@@ -95,6 +96,67 @@ class TestPersistedOccurrences:
             assert item.origin == state.completed[0]
         with store.open(descriptor=state.completed[0], request=occurrences[0].request) as saved:
             assert saved.read() == (tmp_path / "source.zip").read_bytes()
+
+    def test_saved_duplicate_and_correction_admission(
+        self, tmp_path: Path, run: ResolvedManifest
+    ) -> None:
+        """Consume saved originals and shifted revisions completely before returning histories."""
+        store = RawStore(tmp_path)
+        first = self._save(tmp_path, run, (_FIRST,))
+        shifted = self._save(tmp_path, run, (_SECOND + _FIRST,))
+        heads = admit_saved_trades(
+            (first, shifted, first), store, max_bytes=4096, policy="reject", corrections=()
+        )
+        assert len(heads) == 2
+        duplicate = next(head for head in heads if head.key[-1] == 12)
+        assert len(duplicate.occurrences) == 2
+        assert {item.position for item in duplicate.occurrences} == {0, 1}
+        revised = self._save(tmp_path, run, (_SECOND + _FIRST.replace(b"100.00", b"102.00"),))
+        changed = tuple(iter_occurrences(revised, store, max_bytes=4096))[1]
+        evidence = Correction(
+            supersedes=duplicate.identity,
+            replacement=TradeRevision(occurrences=(changed,)).identity,
+            ts_published=run.job.start + timedelta(days=1),
+            ts_available=run.job.start + timedelta(days=1, seconds=1),
+            evidence_reference="synthetic:mr10-saved-revision",
+        )
+        with pytest.raises(RevisionConflictError):
+            admit_saved_trades(
+                (first, shifted, revised), store, max_bytes=4096, policy="evidenced", corrections=()
+            )
+        accepted = admit_saved_trades(
+            (first, shifted, revised),
+            store,
+            max_bytes=4096,
+            policy="evidenced",
+            corrections=(evidence,),
+        )
+        current = next(head for head in accepted if head.key[-1] == 12)
+        assert current.previous == duplicate and current.ts_knowledge == evidence.ts_available
+        assert _CODEC.decode_json(_CODEC.encode_json(current), TradeRevision) == current
+        assert (
+            admit_saved_trades(
+                (revised, first, shifted),
+                store,
+                max_bytes=4096,
+                policy="evidenced",
+                corrections=(evidence,),
+            )
+            == accepted
+        )
+        invalid = self._save(tmp_path, run, (_FIRST + _SECOND.replace(b"101.00", b"NaN"),))
+        with pytest.raises(ValueError, match="row 1"):
+            admit_saved_trades(
+                (first, invalid), store, max_bytes=4096, policy="reject", corrections=()
+            )
+        with pytest.raises(FileNotFoundError, match="completion"):
+            admit_saved_trades(
+                (first, AcquisitionManifest(run=run)),
+                store,
+                max_bytes=4096,
+                policy="reject",
+                corrections=(),
+            )
 
     def test_files_and_independent_bindings_cannot_collide(
         self, tmp_path: Path, run: ResolvedManifest

@@ -8,13 +8,14 @@ MR 06 is merged in PR #27 at `0e35496`. MR 07 is merged in PR #28 at `ddd1bfb`, 
 for installed acquisition, including the actual Binance public archive in its
 [review candidate](mr-07-implementation.md#binance-source-follow-up).
 MR 08 is merged in PR #32 at `f05ef18`; see its [implementation record](mr-08-implementation.md).
-MR 09 is implemented and locally verified in its [review candidate](mr-09-implementation.md).
-MRs 10–62 and R1 remain planned except the bounded M3 collector slice below;
+MR 09 is merged in PR #33 at `a66b49a`; see its [implementation record](mr-09-implementation.md).
+MR 10 is implemented and locally verified in its [review candidate](mr-10-implementation.md).
+MRs 11–62 and R1 remain planned except the bounded M3 collector slice below;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 09](mr-09-implementation.md). The founder-authorized
+**Review [MR 10](mr-10-implementation.md). The founder-authorized
 [crypto L3 collector slice](crypto-l3-collectors.md) brings forward parts of MRs 22–27.
-MR 10 is the next historical ingestion package after MR 09 merges.**
+MR 11 is the next historical ingestion package; it has not been started.**
 The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
 preserves implementation through MR 07 and adds future collection, recovery and
 simulation acceptance within the existing MR owners. No additional implementation
@@ -66,6 +67,8 @@ command with job/partition progress and terminal status. MR 08 streams verified
 Binance archive rows with raw origins and explicit unknown recorder coverage.
 MR 09 decodes individual archive trades into stable raw occurrences and retains
 binding-scoped controls, with capture/knowledge evidence explicitly absent for archives.
+MR 10 admits economic duplicates and explicitly evidenced corrections, retaining raw
+lineage, earlier versions and effective knowledge; empirical archive revision evidence remains open.
 The frozen uv build, strict source checks, CI and runtime wheel installation exist. Versioned datasets, strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
@@ -278,7 +281,7 @@ and installed-wheel verification. Its original real-data notebook run is retaine
 as historical evidence; NB 08's synthetic checks now run in section 16 of the
 offline contract-check notebook without provider access.
 Synthetic archives require no downloader. The reader retains raw rows and selection
-bounds; numeric/event decoding and the persisted dataset consumer remain MR 09.
+bounds; MR 09 subsequently delivered numeric/event decoding and the persisted consumer.
 
 ### Canonical datasets and publication
 
@@ -286,6 +289,8 @@ MR 09's [implementation record](mr-09-implementation.md) covers the saved-input
 consumer, exact archive trades, raw occurrence identities and NB 09 in section 9 of
 [research-foundations.ipynb](../../examples/research-foundations.ipynb). It does not
 claim duplicate/correction admission, quality acceptance or snapshot publication.
+MR 10 now supplies duplicate/correction admission in its [review candidate](mr-10-implementation.md),
+including NB 10 in section 10 of the same notebook. Quality and publication remain planned.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -1161,6 +1166,9 @@ MR 08's synthetic row-order, empty/malformed and missing-input checks are in sec
 MR 09's colliding-position, independent-binding and controlled-rejection checks are
 in section 9 of the primary research-foundations notebook; all cells were executed
 against the installed candidate described in its implementation record.
+MR 10 adds section 10: shifted-row duplicates, late corrections, retained earlier
+versions and explicit evidence failures. All 34 cells / 15 code cells passed against
+the installed candidate in its [implementation record](mr-10-implementation.md#fresh-kernel-nb-10).
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
@@ -1278,8 +1286,8 @@ The [C0 cleanup](#c0-remove-redundant-composition-before-adding-consumers)
 is implemented in the current checkpoint. M0/MRs 01–02 and MR 03 are merged.
 MR 05 is merged in PR #26, with source acceptance still open. MR 06 is merged
 in PR #27. MR 07 is merged in PR #28; MR 08 is merged in PR #32.
-MR 09 is locally verified in its [review candidate](mr-09-implementation.md).
-MR 10 follows its merge within the dependency-ordered
+MR 09 is merged in PR #33. MR 10 is locally verified in its
+[review candidate](mr-10-implementation.md); MR 11 is next within the dependency-ordered
 [milestone packages](#completion-and-dependency-model). Historical ingestion closes only with normalization, validation and publication; the earlier
 raw-download command remains a useful intermediate checkpoint. For each slice, record the input/output contract,
 affected modules and consumers, persisted identities, critical failure behavior,
