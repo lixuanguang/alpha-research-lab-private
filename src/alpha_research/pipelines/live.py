@@ -44,18 +44,30 @@ async def receive_frames(
         remaining: Maximum additional received WebSocket messages.
     """
     reason = "message_limit"
+    awaiting_pong = False
+    received = 0
     try:
-        for _ in range(remaining):
+        while received < remaining:
             budget = deadline - time.monotonic()
             if budget <= 0:
                 reason = "duration_limit"
                 break
             try:
-                async with asyncio.timeout(min(budget, config.idle_seconds)):
+                idle = (
+                    min(config.idle_seconds, 20) if config.venue == "okx" else config.idle_seconds
+                )
+                async with asyncio.timeout(min(budget, idle)):
                     message = await socket.recv()
             except TimeoutError:
+                if config.venue == "okx" and not awaiting_pong and time.monotonic() < deadline:
+                    async with asyncio.timeout(max(0, deadline - time.monotonic())):
+                        await socket.send("ping")
+                    awaiting_pong = True
+                    continue
                 reason = "duration_limit" if time.monotonic() >= deadline else "idle_timeout"
                 break
+            awaiting_pong = False
+            received += 1
             record = CaptureRecord(
                 kind="frame",
                 epoch=epoch,
@@ -70,7 +82,7 @@ async def receive_frames(
             except asyncio.QueueFull:
                 reason = "overload_unknown_loss"
                 break
-    except OSError, WebSocketException:
+    except OSError, WebSocketException, TimeoutError:
         reason = "disconnect_unknown_loss"
     await queue.put(
         CaptureRecord(kind="session_end", epoch=epoch, received_ns=time.time_ns(), reason=reason)
@@ -166,6 +178,13 @@ async def collect(
                             "prec": "R0",
                             "freq": "F0",
                             "len": str(config.depth),
+                        },
+                    )
+                elif config.venue == "okx":
+                    subscriptions = (
+                        {
+                            "op": "subscribe",
+                            "args": [{"channel": "books", "instId": config.symbol}],
                         },
                     )
                 else:

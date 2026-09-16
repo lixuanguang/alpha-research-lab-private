@@ -1,0 +1,18 @@
+{
+  "venue": "okx",
+  "symbol": "BTC-USDT",
+  "instrument_id": "4476df8e-6342-4417-839e-e41b88f41446",
+  "base_currency": "BTC",
+  "quote_currency": "USDT",
+  "channel": "books",
+  "depth": 400,
+  "duration_seconds": 20,
+  "max_messages": 10000,
+  "max_bytes": 32000000,
+  "max_frame_bytes": 8000000,
+  "queue_capacity": 1024,
+  "max_orders": 800,
+  "retries": 2,
+  "idle_seconds": 15,
+  "schema_version": "1"
+}

@@ -11,6 +11,7 @@ from alpha_research.data.live.config import CaptureConfig, CaptureRequest
 from alpha_research.data.live.journal import CaptureJournal, CaptureRecord
 from alpha_research.data.venues.bitfinex.book import BitfinexBook
 from alpha_research.data.venues.coinbase.book import CoinbaseBook
+from alpha_research.data.venues.okx.book import OKXBook
 from alpha_research.serialization import DomainCodec
 
 
@@ -24,7 +25,7 @@ class CaptureReplay:
             config: Validated native spot source selection and resource budgets.
         """
         self.config = config
-        self.book: BitfinexBook | CoinbaseBook = self._new_book()
+        self.book: BitfinexBook | CoinbaseBook | OKXBook = self._new_book()
         self.epoch = -1
         self.messages = 0
         self.updates = 0
@@ -38,8 +39,10 @@ class CaptureReplay:
         self._trace = hashlib.sha256()
         self._codec = DomainCodec()
 
-    def _new_book(self) -> BitfinexBook | CoinbaseBook:
+    def _new_book(self) -> BitfinexBook | CoinbaseBook | OKXBook:
         """Select the already configured venue's reconstruction contract."""
+        if self.config.venue == "okx":
+            return OKXBook(self.config.symbol)
         return (
             BitfinexBook(self.config)
             if self.config.venue == "bitfinex"
@@ -106,6 +109,18 @@ class CaptureReplay:
         Returns:
             Non-secret counts, clocks, gaps and reconstruction identities.
         """
+        counts: dict[str, object] = (
+            {
+                "representation": "L2",
+                "orders": None,
+                "levels": len(self.book.bids) + len(self.book.asks),
+                "max_levels": self.config.max_orders,
+                "sequence_resets": self.book.sequence_resets,
+                "source_time_unit": "unix_milliseconds",
+            }
+            if isinstance(self.book, OKXBook)
+            else {"orders": len(self.book.orders), "max_orders": self.config.max_orders}
+        )
         return {
             "venue": self.config.venue,
             "symbol": self.config.symbol,
@@ -117,9 +132,8 @@ class CaptureReplay:
             "updates": self.updates,
             "snapshots": self.snapshots,
             "heartbeats": self.heartbeats,
-            "orders": len(self.book.orders),
             "depth": self.config.depth,
-            "max_orders": self.config.max_orders,
+            **counts,
             "gaps": self.gaps,
             "synchronized": self.book.ready and not self.invalid,
             "ended": self.ended,

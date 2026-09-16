@@ -62,11 +62,11 @@ class VenueTransport:
         Returns:
             Bounded connection for the selected feed or synthetic session.
         """
-        url = (
-            "wss://api-pub.bitfinex.com/ws/2"
-            if self.config.venue == "bitfinex"
-            else "wss://ws-feed.exchange.coinbase.com"
-        )
+        url = {
+            "bitfinex": "wss://api-pub.bitfinex.com/ws/2",
+            "coinbase": "wss://ws-feed.exchange.coinbase.com",
+            "okx": "wss://ws.okx.com:8443/ws/v5/public",
+        }[self.config.venue]
         return await connect(
             url,
             open_timeout=min(timeout, 10),
@@ -93,6 +93,25 @@ class VenueTransport:
             listings = Wire.array(Wire.decode(raw))
             if not listings or self.config.symbol[1:] not in Wire.array(listings[0]):
                 raise ValueError("Bitfinex native spot pair unavailable")
+        elif self.config.venue == "okx":
+            raw = self._get(
+                "www.okx.com",
+                f"/api/v5/public/instruments?instType=SPOT&instId={self.config.symbol}",
+            )
+            response = Wire.mapping(Wire.decode(raw))
+            products = Wire.array(response.get("data"))
+            if response.get("code") != "0" or len(products) != 1:
+                raise ValueError("OKX native spot product unavailable")
+            product = Wire.mapping(products[0])
+            expected = {
+                "instId": self.config.symbol,
+                "instType": "SPOT",
+                "state": "live",
+                "baseCcy": self.config.base_currency,
+                "quoteCcy": self.config.quote_currency,
+            }
+            if any(product.get(key) != value for key, value in expected.items()):
+                raise ValueError("OKX native spot identity differs from configuration")
         else:
             raw = self._get("api.exchange.coinbase.com", f"/products/{self.config.symbol}")
             product = Wire.mapping(Wire.decode(raw))
