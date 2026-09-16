@@ -20,7 +20,7 @@ from alpha_research.data.providers.binance.trades import ArchiveTrade
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
-from alpha_research.pipelines.dataset import iter_occurrences
+from alpha_research.pipelines.dataset import admit_saved_trades, iter_occurrences
 from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
 
@@ -95,6 +95,17 @@ class TestPersistedOccurrences:
             assert item.origin == state.completed[0]
         with store.open(descriptor=state.completed[0], request=occurrences[0].request) as saved:
             assert saved.read() == (tmp_path / "source.zip").read_bytes()
+
+    def test_saved_duplicate_admission(self, tmp_path: Path, run: ResolvedManifest) -> None:
+        """Consume saved originals and shifted duplicates completely before returning histories."""
+        store = RawStore(tmp_path)
+        first = self._save(tmp_path, run, (_FIRST,))
+        shifted = self._save(tmp_path, run, (_SECOND + _FIRST,))
+        heads = admit_saved_trades((first, shifted, first), store, max_bytes=4096)
+        assert len(heads) == 2
+        duplicate = next(head for head in heads if head.key[-1] == 12)
+        assert len(duplicate.occurrences) == 2
+        assert {item.position for item in duplicate.occurrences} == {0, 1}
 
     def test_files_and_independent_bindings_cannot_collide(
         self, tmp_path: Path, run: ResolvedManifest

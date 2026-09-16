@@ -20,6 +20,7 @@ from alpha_research.data.providers.binance.trades import ArchiveTrade
 from alpha_research.data.providers.tardis.decoder import TardisDecoder
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
+from alpha_research.data.revisions import TradeRevision
 from alpha_research.data.venues.binance.codecs import MarketEventCodec
 from alpha_research.data.venues.binance.events import Trade
 from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
@@ -37,6 +38,34 @@ class _InspectionArguments(argparse.Namespace):
     received: str
     ingested: str
     sequence: int
+
+
+def admit_saved_trades(
+    manifests: tuple[AcquisitionManifest, ...],
+    store: RawStore,
+    *,
+    max_bytes: int,
+) -> tuple[TradeRevision, ...]:
+    """Read complete saved inputs and admit duplicate histories before return.
+
+    Args:
+        manifests: Explicit original and revised acquisitions for a bounded study.
+        store: Verified immutable raw objects for every supplied acquisition.
+        max_bytes: Positive compressed/expanded byte limit per archive.
+
+    Returns:
+        One envelope per economic trade, including duplicate lineage.
+        The complete batch resides in memory; no snapshot or quality acceptance is implied.
+
+    Raises:
+        ValueError: A saved input or trade conflict fails admission.
+        OSError: A required saved input is missing or unreadable.
+    """
+    inputs: list[Occurrence] = []
+    for manifest in manifests:
+        with closing(iter_occurrences(manifest, store, max_bytes=max_bytes)) as occurrences:
+            inputs.extend(occurrences)
+    return TradeRevision.admit(inputs)
 
 
 def iter_occurrences(
