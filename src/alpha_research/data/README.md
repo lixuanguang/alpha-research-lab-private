@@ -10,6 +10,7 @@ MRs 05–06 add bounded partition acquisition, durable manifests and sequential 
 MR 07 adds the installed command and founder-selected Binance public daily archive acquisition.
 MR 08 adds verified saved-row reading with exact bytes and unknown recorder coverage.
 MR 09 adds archive-trade decoding and stable occurrences from those saved inputs.
+MR 11 adds strict file-backed historical eligibility assertions with separate evidence clocks.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -42,10 +43,48 @@ changing serialized events. Internal code imports from defining modules:
 | [`raw_objects.py`](raw_objects.py) | Immutable `RawObject` descriptors and bounded verification of exact saved bytes against an expected request |
 | [`manifests.py`](manifests.py) | Validated acquisition completion prefixes, write-ahead receipts and durable checkpoint replacement |
 | [`raw_store.py`](raw_store.py) | Content-addressed `RawStore` publication, verified reads and no-overwrite retry after interruption |
+| [`eligibility.py`](eligibility.py) | Strict file-backed membership assertions, evidence clocks and complete catalog/units linkage; retains exclusions without selecting a universe |
 | [`providers/tardis/decoder.py`](providers/tardis/decoder.py) | Tardis line framing, capture-time parsing, provenance construction, and blank-line disconnect handling; raw exchange JSON is passed to a payload decoder |
 | [`venues/binance/events.py`](venues/binance/events.py) | `BinanceMarketEvent`, `DepthSnapshot`, `DepthUpdate`, and `Trade`; shared validation runs before the Binance symbol rule and concrete validators add event invariants |
 | [`venues/binance/payloads.py`](venues/binance/payloads.py) | `BinancePayloadDecoder`, source envelope/payload schemas, cached source decoders, and payload-to-event mapping |
 | [`venues/binance/codecs.py`](venues/binance/codecs.py) | The closed `MarketEvent` union and reusable strict `MarketEventCodec` |
+
+## Read historical eligibility assertions
+
+Use the defining-module API with an explicitly selected catalog. From the repository
+root, the following reads the retained synthetic example against an installed package:
+
+```python
+# standard library imports
+from pathlib import Path
+
+# project library imports
+from alpha_research.data.eligibility import EligibilityAssertions
+from alpha_research.reference_data import CatalogSnapshot
+from alpha_research.serialization import DomainCodec
+
+codec = DomainCodec()
+catalog = codec.decode_json(
+    Path("configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
+)
+history = EligibilityAssertions.read(Path("tests/fixtures/mr11/eligibility.json"), catalog=catalog)
+for assertion in history.assertions:
+    print(assertion.state, assertion.ts_knowledge, assertion.evidence.basis)
+```
+
+The four retained assertions compare 2026-authored knowledge with synthetic
+2024 availability, and keep a hypothetical delisting exclusion. The source document
+identity and clocks are explicit author attestations; the reader does not fetch or
+authenticate source evidence. It reuses `DomainCodec` for exact round trips and
+validates the complete selected catalog before returning any history. Missing files
+raise `OSError`; invalid files or linkage raise `ValueError`. A failed read retains no
+partial state, so correcting the input and calling `read` again is sufficient.
+
+The [contract](../../../docs/data/contracts.md#historical-eligibility-assertions-mr-11)
+defines evidence/interval rules; [NB 11](../../../examples/research-foundations.ipynb)
+shows required failures. [Installed acceptance](../../../docs/roadmap/mr-11-implementation.md#installed-wheel-outside-the-checkout)
+copies these files outside the checkout and invokes the retained consumer there.
+MR 12 will select an as-of universe; this API does not make that decision.
 
 ## Catalog and event identity
 

@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-16 for MR 10 duplicate and correction admission.
+Owner: repository founder. Updated 2026-09-16 for MR 11 eligibility assertion reading.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -70,6 +70,7 @@ does not make an interrupted OKX download or live recording resumable.
 | MR 08: inspect original rows | Exact row text, source order, row positions, file origins and research bounds | I can trace observations and see missing or malformed input without silent drops or invented observations. |
 | MR 09: decode and trace occurrences | Exact archive trades, raw origins and stable identities across rebuilds, including separate input scopes | Repeated sequence numbers cannot confuse two files or make a disconnect apply to unrelated input. |
 | MR 10: admit duplicates and corrections | One economic trade with all duplicate origins and explicitly evidenced predecessor versions | Inserted rows cannot create new trades, and a late correction cannot erase an earlier version. |
+| MR 11: read eligibility assertions | Retained membership, evidence identities and independent valid/knowledge clocks tied to the selected catalog | A 2026-authored assumption cannot be backdated to the historical sample; excluded members remain visible. |
 
 The fixed [P1 experiment specification](../docs/research/p1-baseline.md) retains the
 Binance trade sample, hypothesis and economic assumptions. This notebook migration
@@ -91,8 +92,17 @@ Section 10 adds NB 10: shifted-row duplicates, an explicitly evidenced late corr
 and reconstruction before/at its availability boundary. The evidence is **synthetic**;
 it does not fill in missing historical archive knowledge. Invalid evidence and
 unevidenced conflicts fail. The [MR 10 record](../docs/roadmap/mr-10-implementation.md)
-identifies the installed candidate and required failures. The next research question
-is historical eligibility (MR 11), which remains unimplemented.
+identifies the installed candidate and required failures.
+
+Section 11 adds NB 11: read the synthetic eligibility file and compare a
+2026-authored assumption with synthetic evidence modeling availability in the 2024
+sample. The table retains a hypothetical delisting, its reason and evidence identity.
+Missing evidence, backdated knowledge/assumption availability, contradictory overlap
+and changed catalog units are visibly rejected. The
+[MR 11 record](../docs/roadmap/mr-11-implementation.md) records the fresh installed run.
+These are supplied evidence attestations, not authenticated Binance documents;
+the frozen P1 historical eligibility gap remains open. The next research question
+is which assertion applies at a decision, with explicit unknown outcomes (MR 12).
 
 ## How to interpret the evidence
 
@@ -128,7 +138,8 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Inspect visible order-book observations and reconstruction | Available for the bounded collector examples, with each source's gaps and access limits reported separately. L2 aggregates price levels; L3 retains visible individual orders. Neither establishes fills or queue priority. |
 | Obtain consistently interpreted historical trade events | MR 09 supplies a saved Binance archive iterator with exact values and raw-origin identities. Historical availability and accepted dataset publication remain open. |
 | Treat duplicate trades and corrections consistently | MR 10 supplies bounded in-memory admission, complete duplicate lineage and linear evidenced correction histories. Original archive knowledge remains unknown; accepted dataset publication is still ahead. |
-| Establish the historically eligible research universe | MR 11–12. Today's instrument catalog is not historical eligibility evidence. |
+| Inspect historical membership assertions | MR 11 reads evidence-labeled histories without dropping excluded members. Today's catalog is still an authored assumption. |
+| Establish the historically eligible research universe | MR 12 will select assertions by validity and knowledge. Actual historical evidence is still required for empirical P1 acceptance. |
 | Decide whether the data meets the experiment's quality requirements | MR 13. Unknown required coverage or eligibility cannot silently pass. |
 | Save and reopen an accepted, versioned research dataset | MR 14–16. This adds dataset-level acceptance beyond saved source files. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |

@@ -1,0 +1,98 @@
+{
+  "schema_version": "1",
+  "catalog": {
+    "evidence": "Authored local research assumptions rebound to Binance public spot trade archives on 2026-09-15; not historical exchange filters or point-in-time venue truth.",
+    "instruments": [
+      {
+        "instrument_id": "11111111-1111-4111-8111-111111111111",
+        "metadata_basis": "research_assumption",
+        "price_tick": "0.01",
+        "product": "spot",
+        "quote_currency": {
+          "code": "USDT",
+          "minor_unit": "0.00000001"
+        },
+        "source": "binance.archive.spot",
+        "symbol": "BTCUSDT",
+        "valid_from": "2024-06-01T00:00:00Z",
+        "valid_to": "2024-06-02T00:00:00Z",
+        "venue": "binance"
+      },
+      {
+        "instrument_id": "22222222-2222-4222-8222-222222222222",
+        "metadata_basis": "research_assumption",
+        "price_tick": "0.01",
+        "product": "spot",
+        "quote_currency": {
+          "code": "USDT",
+          "minor_unit": "0.00000001"
+        },
+        "source": "binance.archive.spot",
+        "symbol": "ETHUSDT",
+        "valid_from": "2024-06-01T00:00:00Z",
+        "valid_to": "2024-06-02T00:00:00Z",
+        "venue": "binance"
+      }
+    ],
+    "recorded_at": "2026-09-15T09:44:05Z",
+    "schema_version": "1"
+  },
+  "assertions": [
+    {
+      "instrument_id": "11111111-1111-4111-8111-111111111111",
+      "valid_from": "2024-06-01T00:00:00Z",
+      "valid_to": "2024-06-02T00:00:00Z",
+      "ts_knowledge": "2026-09-16T00:00:00Z",
+      "state": "included",
+      "reason": "Authored 2026 research assumption; no historical membership proof.",
+      "evidence": {
+        "identity": "synthetic:mr11:authored-assumption-v1",
+        "basis": "research_assumption",
+        "recorded_at": "2026-09-16T00:00:00Z",
+        "available_at": "2026-09-16T00:00:00Z"
+      }
+    },
+    {
+      "instrument_id": "11111111-1111-4111-8111-111111111111",
+      "valid_from": "2024-06-01T00:00:00Z",
+      "valid_to": "2024-06-02T00:00:00Z",
+      "ts_knowledge": "2024-06-01T00:00:00Z",
+      "state": "included",
+      "reason": "Synthetic evidence models membership known at the start of the sample.",
+      "evidence": {
+        "identity": "synthetic:mr11:sample-announcement-v1",
+        "basis": "synthetic",
+        "recorded_at": "2026-09-16T00:00:00Z",
+        "available_at": "2024-06-01T00:00:00Z"
+      }
+    },
+    {
+      "instrument_id": "22222222-2222-4222-8222-222222222222",
+      "valid_from": "2024-06-01T00:00:00Z",
+      "valid_to": "2024-06-01T12:00:00Z",
+      "ts_knowledge": "2024-06-01T00:00:00Z",
+      "state": "included",
+      "reason": "Synthetic member retained before its hypothetical delisting.",
+      "evidence": {
+        "identity": "synthetic:mr11:sample-announcement-v1",
+        "basis": "synthetic",
+        "recorded_at": "2026-09-16T00:00:00Z",
+        "available_at": "2024-06-01T00:00:00Z"
+      }
+    },
+    {
+      "instrument_id": "22222222-2222-4222-8222-222222222222",
+      "valid_from": "2024-06-01T12:00:00Z",
+      "valid_to": "2024-06-03T00:00:00Z",
+      "ts_knowledge": "2024-06-01T00:00:00Z",
+      "state": "excluded",
+      "reason": "Synthetic delisting; retain the excluded member beyond catalog validity.",
+      "evidence": {
+        "identity": "synthetic:mr11:sample-announcement-v1",
+        "basis": "synthetic",
+        "recorded_at": "2026-09-16T00:00:00Z",
+        "available_at": "2024-06-01T00:00:00Z"
+      }
+    }
+  ]
+}
