@@ -1,10 +1,9 @@
 # MR 14 — Validate and identify a dataset manifest
 
-Owner: repository founder. Status: implemented and locally verified for review on
+Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-17. Branch: `codex/mr-14-dataset-manifest`. Base: freshly fetched `main`
 at `7ef4892`, which merges prerequisite MR 13 in PR #37. Runtime and regression
-fixture commit: `cfd52b0`. The user subsequently requested merge to main;
-the authoritative hosted merged-result lane remains required before that merge.
+fixture commit: `cfd52b0`.
 
 ## Problem / change
 
@@ -183,5 +182,3 @@ Revert this MR before dependent consumers merge, retaining raw/manifests/canonic
 working files and selecting compatible code for old formats. There is no stored-data
 migration, deletion or operational rollback. Existing source and raw-storage evidence
 is reused; the affected composed installed path is renewed above.
-
-**Next: MR 15 — Publish and reopen one snapshot atomically.** It has not been started.

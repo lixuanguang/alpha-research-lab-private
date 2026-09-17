@@ -1,10 +1,9 @@
 # MR 15 — Publish and reopen one snapshot atomically
 
-Owner: repository founder. Status: implemented and locally verified for review on
+Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-17. Branch: `codex/mr-15-atomic-snapshots`. Base: freshly fetched `main`
 at `746e002`, which merges prerequisite MR 14 in PR #38. Runtime and regression
-fixture commit: `847c7ce`. Hosted merged-result CI remains required before merge;
-this candidate has not been pushed or merged.
+fixture commit: `847c7ce`.
 
 ## Problem / change
 
@@ -179,5 +178,3 @@ Revert this MR before dependent consumers merge, retaining all snapshots and raw
 inputs; select compatible code to reopen stored snapshots. No stored-data migration,
 removal or operational rollback is needed. Existing acquisition/source evidence is
 reused; the changed installed publication path and complete notebook are renewed.
-
-**Next: MR 16 — Publish and inspect a validated dataset.** It has not been started.

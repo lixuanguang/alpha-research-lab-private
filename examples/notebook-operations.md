@@ -111,24 +111,6 @@ The kernel requires `ipykernel` and the installed runtime package.
 `nbclient`/`nbformat` are runner tooling, so their absence from an interactive
 kernel is permitted and recorded accurately in the notebook table.
 
-On 2026-09-14, interactive imports failed because all 33 expected installed
-package files were missing and only renamed duplicates remained under
-`site-packages`. The existing verified M0 wheel was reinstalled with
-`--no-deps --link-mode copy`; all 33 files then matched it exactly. The cause of
-the file renaming was not established. Restart a previously opened kernel after
-repairing its installation, since it may retain the failed namespace import in
-memory. The saved interactive failure is retained under
-`examples/runs/research-foundations/`.
-
-On 2026-09-15, the MR 04 editor run used an older `.venv` installation missing
-`data/raw_store.py`; the separate clean verification environment already had it.
-The same candidate wheel was installed into `.venv` with `--no-deps --reinstall
---link-mode copy`. Twenty stale renamed runtime duplicates were quarantined, and
-all 34 expected runtime files then matched the source and wheel exactly. All 13
-cells passed using `--kernel-python .venv/bin/python`, preserving the editor's
-ipykernel 7.3.0. The [MR 04 repair record](../docs/roadmap/mr-04-implementation.md#editor-environment-repair-before-merge)
-contains the commands and retained attempt identity.
-
 After switching to source that adds or changes a module, refresh the installed
 candidate in the interpreter selected by the editor, then restart that kernel and
 run all cells. `--no-sync` only preserves an existing installation; it does not
@@ -136,13 +118,11 @@ install new source. The package version remains `0.1.0` across these MRs, so che
 installed file identity instead of treating the version string as proof that the
 current candidate is installed.
 
-During MR 05 verification, four byte-identical ` 2` copies in the checkout and
-35 such files in the installed runtime package were quarantined outside the
-checkout. The verified MR 05 wheel contains no duplicate names; reinstalling it
-restored exact agreement for all 37 package files. The cause of the copies was not
-established. The [MR 05 cleanup record](../docs/roadmap/mr-05-implementation.md#duplicate-file-cleanup)
-identifies the reversible quarantine and installation command.
-
+Historical environment failures and repairs are retained in the
+[M0 import record](../docs/roadmap/m0-implementation.md#interactive-notebook-import-repair),
+[MR 04 record](../docs/roadmap/mr-04-implementation.md#editor-environment-repair-before-merge)
+and [MR 05 record](../docs/roadmap/mr-05-implementation.md#duplicate-file-cleanup).
+Those local installation incidents do not describe the current installed candidate.
 
 ## Where the detailed checks live
 

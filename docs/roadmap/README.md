@@ -1,38 +1,18 @@
 # Platform implementation roadmap
 
-Owner: repository founder. Consolidated 2026-09-14. MR 00 and C0 are complete;
-MRs 01–02 are merged in the M0 delivery. MR 03 is merged in PR #24 at `bf3fb99`.
-MR 04 is merged in PR #25 at `b136b36`. MR 05 is merged in PR #26 at `48bf9b7`;
-its Tardis source probe was not performed; the founder later selected Binance archives below.
-MR 06 is merged in PR #27 at `0e35496`. MR 07 is merged in PR #28 at `ddd1bfb`, with evidence
-for installed acquisition, including the actual Binance public archive in its
-[review candidate](mr-07-implementation.md#binance-source-follow-up).
-MR 08 is merged in PR #32 at `f05ef18`; see its [implementation record](mr-08-implementation.md).
-MR 09 is merged in PR #33 at `a66b49a`; see its [implementation record](mr-09-implementation.md).
-MR 10 is merged in PR #34 at `d88ba11`; see its [implementation record](mr-10-implementation.md).
-MR 11 is merged in PR #35 at `5b10f78`; see its [implementation record](mr-11-implementation.md).
-MR 12 is merged in PR #36 at `210db65`; see its [implementation record](mr-12-implementation.md).
-MR 13 is merged in PR #37 at `7ef4892`; see its [implementation record](mr-13-implementation.md).
-MR 14 is merged in PR #38 at `746e002`; see its [implementation record](mr-14-implementation.md).
-MR 15 is merged in PR #39 at `69a45eb`; see its [implementation record](mr-15-implementation.md).
-MR 16 is implemented and locally verified in its [review candidate](mr-16-implementation.md).
-MRs 17–62 and R1 remain planned except the bounded M3 collector slice below;
-no M1–M7 completion or P1 result is claimed.
+Owner: repository founder. Status checked against merged `main` at `95e1a14`
+on 2026-09-17. MR 00, C0 and MRs 01–16 are merged; their
+[acceptance records](#merged-implementation-records) retain tested revisions and limitations.
+MRs 17–62 and R1 remain planned except the bounded
+[crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
+MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Review [MR 16](mr-16-implementation.md). The founder-authorized
-[crypto L3 collector slice](crypto-l3-collectors.md) brings forward parts of MRs 22–27.
-MR 17 is the next reference-reader package; it has not been started.**
-The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
-preserves implementation through MR 07 and adds future collection, recovery and
-simulation acceptance within the existing MR owners. No additional implementation
-or milestone completion is claimed.
-The 2026-09-15 founder-authorized Binance source amendment supersedes the Tardis
-access prerequisite for P1. Historical eligibility, revision availability and
-coverage acceptance remain open; raw download is not dataset or P1 acceptance.
-M0 resolves configured inputs and runs an installed fixture consumer. Follow the
-dependency graph through verified saved inputs, reference query/replay and E1. Keep MR 05's source
-feasibility investigation early. The frozen sample, strategy and cost assumptions
-remain in the [P1 experiment specification](../research/p1-baseline.md).
+**Next: MR 17 — Read point events as of a cutoff. It has not been started.**
+The founder-authorized Binance source amendment of 2026-09-15 supersedes the
+Tardis access prerequisite for P1. The saved sample has passed MR 16 publication
+with exploratory degraded scope; historical eligibility, revision availability
+and coverage acceptance remain open. The frozen sample, strategy and cost
+assumptions remain in the [P1 experiment specification](../research/p1-baseline.md).
 
 Use the identifiers as follows: **M0–M7** are usable delivery milestones;
 **MR 00–62 and R1** are the implementation packages defined once under their
@@ -61,34 +41,20 @@ are the first usable data deliveries; one reproducible strategy then exercises
 the shared research/accounting foundations. These narrow deliveries retain
 extension boundaries for the broader platform.
 
-Today the runtime contains instrument identity, venue calendars, financial units,
-exact serialization, event provenance, an authored reference catalog, bounded
-Tardis/Binance event decoding, configured fixture inspection and saved raw-object
-description/verification with durable content-addressed publication and verified
-reads. A bounded Tardis partition fetch composes these storage contracts with
-explicit access admission, HTTP/gzip checks and progress/failure reports. Its
-evidence remains synthetic; MR 07 adds actual Binance daily ZIP/checksum acquisition. MR 06 adds a durable acquisition manifest,
-sequential restart and bounded transient retry. MR 07 adds the installed acquisition
-command with job/partition progress and terminal status. MR 08 streams verified
-Binance archive rows with raw origins and explicit unknown recorder coverage.
-MR 09 decodes individual archive trades into stable raw occurrences and retains
-binding-scoped controls, with capture/knowledge evidence explicitly absent for archives.
-MR 10 admits economic duplicates and explicitly evidenced corrections, retaining raw
-lineage, earlier versions and effective knowledge; empirical archive revision evidence remains open.
-MR 11 reads strict file-backed eligibility assertions with evidence clocks and catalog/units
-linkage, retaining exclusions. MR 12 selects membership using independent validity and
-knowledge cutoffs, retaining explicit corrections and unknown/unsupported outcomes;
-actual historical membership evidence remains unresolved. MR 13 composes partition quality,
-retained histories and deterministic exploratory bytes; unknown recorder coverage
-prevents causal admission. MR 14 binds admitted partitions and resolved evidence into
-versioned dataset manifests and verifies their saved bytes. MR 15 stages verified
-canonical partitions and their manifest, publishes one atomic local snapshot and
-reopens only an explicit identity while retaining the original raw store.
-MR 16 exposes installed dataset publication/inspection with quality counts, explicit
-IDs and persistence/failure reports; permitted-source empirical evidence remains limited.
-The frozen uv build, strict source checks, CI and runtime wheel installation exist. Strategy
-runners, accounting, simulation, execution, deployment and monitoring are planned.
-The current native dependency restriction is recorded in the
+The implemented libraries cover instrument identity, venue calendars, exact
+financial values and serialization, source provenance, configured acquisition and
+verified raw storage. The dataset path adds decoded occurrences, duplicate and
+correction histories, bitemporal eligibility, quality reports and atomic snapshots
+with installed publish/inspect commands. Native book collection/replay has its
+[source-specific scope](crypto-l3-collectors.md). The
+[architecture overview](../architecture/README.md) and
+[data guide](../../src/alpha_research/data/README.md) describe current interfaces.
+
+Tardis transport evidence remains synthetic; permitted Binance archives retain
+unknown historical eligibility, coverage and revision availability. Their current
+publication scope is exploratory degraded. The frozen uv build, source checks,
+CI and wheel installation exist; strategy runners, accounting, simulation,
+execution and deployment remain planned. The native release restriction is in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
 
 This single roadmap owns delivery order, MR definitions, pipeline/library
@@ -230,7 +196,7 @@ subsequent valid lines. This cleanup adds no acquisition or dataset functionalit
 
 ## M0: Minimal runnable foundation
 
-**Status: implemented and locally verified for M0.** The [M0 implementation record](m0-implementation.md)
+**Status: merged in PR #23 at `80b5bc6`.** The [M0 implementation record](m0-implementation.md)
 contains commands, review slices, installed-consumer and notebook evidence, and
 limitations. MR 01 supplies scoped data-job parsing, capability validation and
 resolved run identity. It does not require strategy or deployment schemas before those consumers.
@@ -255,24 +221,13 @@ statistical anomaly detection and automatic repair are later, consumer-driven wo
 
 ### Raw inputs and acquisition
 
-MR 03's [implementation record](mr-03-implementation.md) contains the local
-saved-byte verification, installed-consumer and NB 03 evidence. MR 03 is merged.
-MR 04's [merged implementation](mr-04-implementation.md) adds durable raw-byte
-storage, interrupted-publication recovery and NB 04 evidence. MR 05’s
-[merged implementation](mr-05-implementation.md) adds the one-partition callable and
-NB 05 synthetic evidence. MR 06’s [merged implementation](mr-06-implementation.md) adds
-validated manifests, checkpoint recovery and bounded transient retry with NB 06.
-MR 07’s [review candidate](mr-07-implementation.md) adds the installed command
-and observable resume. Synthetic NB 07 is retained in section 15 of
-[foundation-contract-checks.ipynb](../../examples/foundation-contract-checks.ipynb).
-[research-foundations.ipynb](../../examples/research-foundations.ipynb) now connects
-actual Binance public daily trade acquisition, verifies publisher
-SHA-256 and ZIP CRC, and inspects the selected hour. The founder authorized this
-source-contract amendment on 2026-09-15 and chose ignored local data storage.
-See the [P1 amendment](../research/p1-baseline.md) and
-[recorded verification](mr-07-implementation.md#binance-source-follow-up). This
-changes source-specific deliverables below, not MR dependencies or the later
-ownership of canonical decoding, eligibility, availability, quality or publication.
+MRs 03–08 are merged; the [record index](#merged-implementation-records)
+links their installed-consumer and notebook evidence. The original Tardis probe
+was not performed. The founder authorized Binance public daily archives and
+ignored local storage on 2026-09-15; the
+[actual acquisition record](mr-07-implementation.md#binance-source-follow-up)
+retains publisher SHA-256, ZIP integrity and selected-hour evidence. This source
+amendment preserves MR dependencies and later canonical-data ownership.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -293,30 +248,14 @@ continue synthetic/storage/accounting work that does not depend on it. Do not
 mark permitted-source acquisition or P1 complete, purchase access, or substitute
 an unapproved provider to obtain a pass.
 
-MR 08's [implementation record](mr-08-implementation.md) records saved-row reading
-and installed-wheel verification. Its original real-data notebook run is retained
-as historical evidence; NB 08's synthetic checks now run in section 16 of the
-offline contract-check notebook without provider access.
-Synthetic archives require no downloader. The reader retains raw rows and selection
-bounds; MR 09 subsequently delivered numeric/event decoding and the persisted consumer.
-
 ### Canonical datasets and publication
 
-MR 09's [implementation record](mr-09-implementation.md) covers the saved-input
-consumer, exact archive trades, raw occurrence identities and NB 09 in section 9 of
-[research-foundations.ipynb](../../examples/research-foundations.ipynb). It does not
-claim duplicate/correction admission, quality acceptance or snapshot publication.
-MR 10 supplies merged duplicate/correction admission in its [implementation record](mr-10-implementation.md),
-including NB 10 in section 10 of the same notebook. MR 11 adds eligibility assertion
-reading and NB 11 in section 11; see its [implementation record](mr-11-implementation.md).
-MR 12 adds as-of selection, append-only corrections and NB 12 in section 12; see its
-[implementation record](mr-12-implementation.md). MR 13 adds partition validation and
-NB 13 in section 13; see its [implementation record](mr-13-implementation.md). MR 14
-adds dataset manifest identity and verified reading with NB 14 in section 14; see
-its [implementation record](mr-14-implementation.md). MR 15 adds atomic publication
-and explicit-ID reopening with NB 15 in section 15; see its
-[implementation record](mr-15-implementation.md). MR 16 adds installed publish/inspect
-commands and NB 16 in section 16; see its [review candidate](mr-16-implementation.md).
+MRs 09–16 are merged, with checkpoints 09–16 in
+[research-foundations.ipynb](../../examples/research-foundations.ipynb).
+The [record index](#merged-implementation-records) links each tested revision;
+[current command usage](../../src/alpha_research/data/README.md#publish-and-inspect-from-the-command-line-mr-16)
+belongs to the data library guide. Published exploratory snapshots do not close
+historical coverage, eligibility or causal-availability acceptance.
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -469,8 +408,7 @@ data collection expansion can precede executable venue onboarding in MR 58.
 | Operational parity and venue admission | 27/50–52/57–60 | The same strategy contract produces attributable input/decision/order/state traces. Diagnose the first discrepancy; qualify the actual venue adapter independently of an external project's advertised features. |
 | Storage and burst/query scale | Conditional 18 and P6; 23/24 own durable capture and consumer recovery | Evaluate Kafka/ClickHouse only against the [declared workload](../architecture/platform-design.md#storage-and-performance-decisions), exact-value/revision parity and failure behavior. Record adoption or deferral and measurements; neither service is a P1 prerequisite. |
 
-Immediate delivery remains **MR 08 → MR 09 → historical validation/publication**
-with the existing eligibility/revision dependencies. M3's first trade path can
+The next delivery is the MR 17 reference reader. M3's first trade path can
 start from its declared prerequisites; stream expansion has explicit additional
 acceptance. Book simulation is needed only for a consumer whose hypothesis uses
 book/queue behavior. Treat expansion and benchmarking as visible work when
@@ -870,13 +808,6 @@ allowed reuse of its completed execution. Ownership inspection found 113 classes
 and no module-level functions, nested functions or lambdas across 26 runtime
 Python files. No further runtime refactoring was needed.
 
-Documentation cleanup validation on 2026-09-14: `uv run --frozen
-alpha-governance-architecture` passed for 16 documents. Explicit component README
-link/example checks and `uv run --frozen python -m
-alpha_research_governance.wheel_smoke` passed. Retired-path inspection and
-`git diff --check` passed. Only Markdown changed; the preceding runtime test
-evidence is reused, with fresh wheel validation covering the packaged README.
-
 | Migration area | Required outcome |
 | --- | --- |
 | Development tooling, tests and maintained snippets | Move reusable behavior and helpers to cohesive classes, retain actual orchestration entry functions, and preserve test/fixture discovery, isolation and callback contracts. Native stubs continue to describe upstream signatures. |
@@ -1166,9 +1097,10 @@ and it is no longer part of the default notebook route.
 Following the founder's 2026-09-16 source-access request, use
 `examples/research-foundations.ipynb` for network-free inspection of saved OKX
 historical L2 and Bitfinex recorded R0 books: explicit sample identities, bounded
-reconstruction, visible orders/spread, clocks and controlled failures. Its eight
-sections explain each operation. This changes the exploratory notebook route,
-not the frozen P1 trade study, MR 08's source contract or later MR ownership.
+reconstruction, visible orders/spread, clocks and controlled failures. Its first
+eight sections explain those operations; subsequent sections cover the dataset
+checkpoints. This changes the exploratory notebook route, not the frozen P1 trade
+study, MR 08's source contract or later MR ownership.
 `examples/foundation-contract-checks.ipynb` retains the independent synthetic
 scenarios, reference checks and original numbered MR checkpoints. Both are
 maintained, executable notebooks; neither needs state from the other. The local
@@ -1178,46 +1110,12 @@ Split or move its sections into these activity notebooks as actual work grows;
 do not create empty notebooks or fictional fetching/monitoring capabilities now.
 Each MR names the notebook and relevant scenario/section it exercised. Notebook
 lifetime follows the research activity, while package changes remain one bounded
-MR at a time. MR 00 has merged; C0 is implemented in this candidate. MR 01–02
-checkpoints are retained in section 10 of the companion contract-check notebook. MR 03's
-checkpoint is complete in section 11. MR 04's checkpoint is complete in section 12
-for its merged implementation. MR 05’s synthetic checkpoint is complete in
-section 13; earlier actual Binance verification is retained in notebook run
-snapshots and the MR 07/08 records. MR 06’s synthetic
-checkpoint is complete in section 14, including four abrupt process interruptions,
-manifest parity, completed-object rejection and bounded retry failures. MR 07’s
-synthetic checkpoint is complete in section 15: installed command/config identity,
-flushed progress, interruption/retry status, repeated input and damaged-object rejection.
-MR 08's synthetic row-order, empty/malformed and missing-input checks are in section 16.
-MR 09's colliding-position, independent-binding and controlled-rejection checks are
-in section 9 of the primary research-foundations notebook; all cells were executed
-against the installed candidate described in its implementation record.
-MR 10 adds section 10: shifted-row duplicates, late corrections, retained earlier
-versions and explicit evidence failures. All 34 cells / 15 code cells passed against
-the installed candidate in its [implementation record](mr-10-implementation.md#fresh-kernel-nb-10).
-MR 11 adds section 11: authored assumptions versus synthetic in-sample evidence, retained
-delisting and missing/backdated/conflicting evidence or changed-unit failures. All
-39 cells / 17 code cells passed against the installed candidate in its
-[implementation record](mr-11-implementation.md#fresh-kernel-nb-11).
-MR 12 adds section 12: independent validity/knowledge boundary tables, unchanged
-earlier universes, unknown/unsupported results and explicit correction failures.
-All 44 cells / 19 code cells passed against the installed candidate in its
-[implementation record](mr-12-implementation.md#fresh-kernel-nb-12).
-MR 13 adds section 13: duplicate/gap counts, explicit degraded scope, required coverage
-refusal, wrong instruments, conflicting corrections, invalid prices/quantities and
-future clock-rewrite rejection. Its fresh installed execution is recorded in the
-[MR 13 implementation record](mr-13-implementation.md#fresh-kernel-nb-13).
-MR 14 adds section 14: repeatable rebuilds, policy-sensitive hashes, relocated saved
-inputs, unknown-version/scope rejection and missing-byte failures. Its installed
-execution evidence is recorded in the [MR 14 record](mr-14-implementation.md#fresh-kernel-nb-14).
-MR 15 adds section 15: prepublication failure, explicit-ID reader refusal,
-successful retry and reopening, prior-snapshot survival across a later failed and
-successful build, and mutable-tag rejection. Its installed execution is recorded
-in the [MR 15 record](mr-15-implementation.md#fresh-kernel-nb-15).
-MR 16 adds section 16: installed command progress, duplicate-range reuse, explicit-ID
-inspection, wrong schema/instrument/time/units, required coverage rejection and
-abrupt publication interruption/retry. Its fresh-kernel evidence is recorded in the
-[MR 16 record](mr-16-implementation.md#fresh-kernel-nb-16).
+MR at a time. MR 00 and C0 are complete. M0 and NB 03–08 remain in sections 10–16 of
+`foundation-contract-checks.ipynb`; NB 09–16 are sections 9–16 of
+`research-foundations.ipynb`. The [researcher's guide](../../examples/README.md)
+explains current outputs. Historical cell counts, tested source hashes, successful
+and failed attempts live in the [owning records](#merged-implementation-records),
+not in this workflow.
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
@@ -1309,8 +1207,9 @@ rollback appear successful. No service migration or trading rollback is implied.
 Each milestone closes with its documented installed command or notebook-plus-
 package workflow, supported config/input identities, selected failure scenarios,
 actual results and remaining operational/data limitations in the existing MR/run
-records. Except for the implemented M0 fixture command, future workflow commands
-above remain planned. Add exact commands to owning component docs when implemented.
+records. Current fixture, acquisition, collection and dataset commands are listed
+in the [documentation home](../README.md); add usage to owning component docs
+when a consumer is implemented.
 
 Tests, telemetry and recovery are delivered with the MR that introduces the
 behavior; the final integration package connects and verifies them. Reuse shared
@@ -1327,22 +1226,40 @@ runtime/artifact boundaries need their affected proofs. Counts and status change
 with actual delivery, while every retained requirement has an owning MR or an
 explicitly applicable later capability.
 
+### Merged implementation records
+
+These are historical acceptance records for the identified candidates, not current
+quickstarts or claims that those tests covered later code. Retain their source and
+artifact identities, commands, failures and limitations; local `/private/tmp/` and
+ignored run paths are not durable archives. Git history retains superseded
+procedural notes. Current usage belongs in component guides and examples.
+
+| Delivery / acceptance record | Merged PR | Main merge |
+| --- | --- | --- |
+| [M0 / MRs 01–02](m0-implementation.md) | #23 | `80b5bc6` |
+| [MR 03](mr-03-implementation.md) | #24 | `bf3fb99` |
+| [MR 04](mr-04-implementation.md) | #25 | `b136b36` |
+| [MR 05](mr-05-implementation.md) | #26 | `48bf9b7` |
+| [MR 06](mr-06-implementation.md) | #27 | `0e35496` |
+| [MR 07](mr-07-implementation.md) | #28 | `ddd1bfb` |
+| [MR 08](mr-08-implementation.md) | #32 | `f05ef18` |
+| [MR 09](mr-09-implementation.md) | #33 | `a66b49a` |
+| [MR 10](mr-10-implementation.md) | #34 | `d88ba11` |
+| [MR 11](mr-11-implementation.md) | #35 | `5b10f78` |
+| [MR 12](mr-12-implementation.md) | #36 | `210db65` |
+| [MR 13](mr-13-implementation.md) | #37 | `7ef4892` |
+| [MR 14](mr-14-implementation.md) | #38 | `746e002` |
+| [MR 15](mr-15-implementation.md) | #39 | `69a45eb` |
+| [MR 16](mr-16-implementation.md) | #40 | `95e1a14` |
+
 ## How to execute and maintain the plan
 
-The bounded governance cleanup is complete, and
-[MR 00](../research/p1-baseline.md) has frozen the first source and hypothesis.
-The [C0 cleanup](#c0-remove-redundant-composition-before-adding-consumers)
-is implemented in the current checkpoint. M0/MRs 01–02 and MR 03 are merged.
-MR 05 is merged in PR #26, with source acceptance still open. MR 06 is merged
-in PR #27. MR 07 is merged in PR #28; MR 08 is merged in PR #32.
-MR 09 is merged in PR #33; MR 10 is merged in PR #34; MR 11 is merged in PR #35.
-MR 12 is locally verified in its [review candidate](mr-12-implementation.md);
-MR 13 is next within the dependency-ordered
-[milestone packages](#completion-and-dependency-model). Historical ingestion closes only with normalization, validation and publication; the earlier
-raw-download command remains a useful intermediate checkpoint. For each slice, record the input/output contract,
-affected modules and consumers, persisted identities, critical failure behavior,
-selected tests and a working command or artifact. Update its status here when
-that evidence exists. Keep future work explicitly planned.
+Use the [current status](#platform-implementation-roadmap) and dependency-ordered
+[milestone packages](#completion-and-dependency-model) to select work. For each
+slice, record the input/output contract, affected modules and consumers,
+persisted identities, critical failure behavior, selected tests and a working
+command or artifact. Update status when that evidence exists. Keep future work
+explicitly planned.
 
 During local development run only relevant tests and static checks; hosted CI
 retains the complete required lane. Existing commands are listed in the
@@ -1612,96 +1529,37 @@ Implementation reuse follows the [platform dependency and simulator boundary](..
 
 ## Historical review evidence
 
-Market-data documentation consolidation, 2026-09-15: based on `db3a552` plus
-this task's preceding roadmap refinement. Moved the standalone note's eight
-content sections into this roadmap and the platform design, then removed the
-note. MR scope, acceptance and the pinned source assessment now live here;
-source/recovery/replay contracts and infrastructure decisions live in the platform
-design. A paragraph comparison confirms all eight sections and 17 external source
-URLs are retained. All 64 MR definitions and dependencies are unchanged from the
-preceding refinement apart from link destinations, and the P1 acceptance map is
-unchanged. `uv run --frozen alpha-governance-architecture` passes for 25 documents;
-`git diff --check` passes. No remaining documentation references point to the
-removed note. Runtime, dependencies, executable examples and packaged
-`docs/README.md` are unchanged; prior behavioral evidence remains applicable.
+The superseded 2026-09-14/15 consolidation diaries and historical command results
+remain in [Git history](https://github.com/lixuanguang/alpha-research-lab-private/blob/95e1a14bf01089d41268c95b922b8375c11fc4e0/docs/roadmap/README.md#historical-review-evidence).
+Their design decisions are incorporated in the owning MR rows,
+[platform contracts](../architecture/platform-design.md#collection-scope-and-source-contracts)
+and [source assessment](#hftbacktest-implementation-review). Those reviews did
+not establish runtime, empirical or deployment acceptance. The arithmetic checks
+at `778f86c` retained `1/10003`, basis release `302/3`, remainder `604/3` and the
+`0.205` rounding tie at Decimal precisions 6, 28 and 60. The heading-link repair
+retained four reproduced failures and 12 passing regression tests; its maintained
+coverage is in `tests/engineering/test_architecture_governance.py`.
 
-Market-data/replay refinement, 2026-09-15: runtime baseline
-`94d0fc13889862692a61f55be869645bd4389e8e`; final documentation checks also include
-the independently committed data-source documentation at `ad7dd19`. Updated
-this roadmap and the platform-design links, and added a focused assessment,
-subsequently consolidated into the [platform contracts](../architecture/platform-design.md#collection-scope-and-source-contracts)
-and [source review above](#hftbacktest-implementation-review). A structural
-comparison retains all 64 owning definitions (MR 00–62 and R1), leaves MR 00–08,
-MR 49 and the P1 acceptance map unchanged, and changes only MR 51's dependency
-wording to distinguish offline pure contracts from its paper runtime.
-`uv run --frozen alpha-governance-architecture` passes for 26 documents;
-`git diff --check` passes. One checker retry required uv cache access after a
-sandbox denial. Runtime, tests, the frozen experiment and dependencies are
-unchanged; no behavioral suite, external simulator build, benchmark or live
-collection was run for these prose changes. The pinned external source was
-inspected statically; its features do not establish our implementation acceptance.
+Documentation cleanup, 2026-09-17, based on `95e1a14`: removed duplicated progress
+and superseded procedural notes, retained the implementation evidence, and updated
+current overviews through MR 16. Commands run in the frozen CPython 3.14.7 environment:
 
-Earlier entries describe revisions before this consolidation; their document
-counts and unchanged-file statements refer to those candidates.
+```sh
+uv run --frozen --no-sync alpha-governance-architecture
+uv run --frozen --no-sync python /private/tmp/docs-cleanup-validation/check_docs.py
+uv run --frozen --no-sync uv build --no-build-isolation --wheel --no-sources . --out-dir /private/tmp/docs-cleanup-validation/dist
+uv run --frozen --no-sync python /private/tmp/docs-cleanup-validation/check_wheel.py
+git diff --check
+```
 
-Documentation review, 2026-09-14: these edits are based on
-`778f86c64cc82a25f63ced935e6b797358da4b9e`. `uv run --frozen
-alpha-governance-architecture` passes for all 18 documents under `docs/`, and
-`git diff --check` passes. Independent Python `Fraction`/`Decimal` calculations
-confirm `1/10003`, basis release `302/3` and remainder `604/3`, exact attribution,
-and the `0.205` rounding tie at Decimal precisions 6, 28 and 60. Dependency and
-completion rows were checked against their owning contracts. Runtime source,
-tests, lock, dependency-policy TOML and packaged `docs/README.md` are unchanged; no
-research, deployment, new consumer or end-to-end acceptance is claimed.
-
-Follow-up review, 2026-09-14: clarified scoped control propagation, chronological
-stepping/revision history and batch invariance, intent rejection versus run
-completion, and the architecture overview's order/cost wording. The same local
-link and diff checks pass. A focused documentation check confirms one owning row
-for each MR 00–62 and R1, and MR 49 dependency coverage of every baseline
-acceptance owner. The prior arithmetic verification remains applicable because
-its contract is unchanged; new consumer scenarios are planned evidence in the
-existing MRs/E1, not executed runtime tests. MR 01–02 remain the next delivery.
-
-Consolidation, 2026-09-14, based on `75961ebcd8def06265c3ee5acc1edf62c8f0eff2`:
-combined the roadmap index, P1 implementation details and capability milestones
-here, removed the two superseded files and updated their incoming links. All
-64 owning definitions (MR 00–62 and R1) retain their dependencies, behavior and
-acceptance wording, with only link destinations changed. The baseline/M5
-acceptance map, library ownership, notebook workflow and validation contract were
-compared with the prior files; each MR is under its owning milestone or prerequisite.
-`uv run --frozen alpha-governance-architecture` passes for 16 documents; explicit
-component README validation brings the checked total to 17. `git diff --check`,
-`make build` and `uv run --frozen python -m alpha_research_governance.wheel_smoke`
-pass. The built wheel's UTF-8 metadata description matches the updated
-`docs/README.md`. The first build attempt was blocked by sandbox access to uv's
-cache and passed with access; an initial metadata comparison used ASCII decoding
-and passed after the verification script decoded UTF-8. Runtime source, tests,
-lock and dependency policy are unchanged. No implementation or empirical
-acceptance is claimed by this documentation consolidation.
-
-Navigation and fee-policy follow-up, 2026-09-14: changed the ten MR 00/M0–M7/R1
-headings to colons, preserving incoming fragments, and linked the independent
-example to the settled fee-excluded cost-basis policy. The earlier link-check
-pass did not establish GitHub anchor conformance: the checker collapsed adjacent
-hyphens. It now preserves each space-derived or existing hyphen under
-[GitHub's section-link rules](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#section-links).
-The focused regression selection first reproduced four failures; after the
-checker correction, `uv run --frozen --no-editable pytest -q
-tests/engineering/test_architecture_governance.py` passes all 12 tests.
-Changed-file Ruff lint/format and strict mypy, the engineering standards checker,
-the architecture checker and `git diff --check` pass. Explicit component README
-validation brings link coverage to 17 documents. All 64 MR definitions and their
-dependencies remain unchanged. The checker/test change does not alter runtime
-wheel inputs; the earlier runtime build and installed-wheel evidence is reused.
-
-OOP policy adoption, 2026-09-14, based on
-`8b0ba043d4b51b0d868dcdde4c45dae87537b963`: updated the engineering guide and
-aligned architecture, roadmap, workflow, data and typing documentation. Existing
-function APIs and automated enforcement remain pending migration. The existing
-`ArchitectureGovernanceService.validate_local_links` passes for all 19 Markdown
-files, explicitly including both component READMEs and the PR template;
-`git diff --check` passes. Comparison with the base preserves all 64 MR IDs,
-dependencies and acceptance criteria; only MR 36's implementation wording changes
-to strategy classes with pure decision methods. Only Markdown files changed;
-runtime tests were not rerun for this documentation update.
+All 54 tracked Markdown files passed explicit link validation. All 64 MR rows,
+ownership/review contracts, the frozen P1 bytes and 178 historical hashes/attempt
+identities were preserved. The local wheel verifier confirmed UTF-8 README metadata,
+69 unchanged remaining wheel entries, the existing isolated installed-wheel smoke
+and all four CLI `--help` commands outside the checkout. Its initial metadata
+comparison failed because the verifier used ASCII decoding; explicit UTF-8 passed
+without rebuilding. The wheel SHA-256 is
+`a50ff128bae7b1e9ce04d099dd1032d398ad16fe2971889ca0c033a86d5dd9a1`.
+The temporary verification scripts/artifacts are local only. Runtime, tests, lock,
+configurations and notebook cells are unchanged; behavioral/notebook evidence is
+reused, with no new research run or full local suite claimed.

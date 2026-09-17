@@ -1,11 +1,12 @@
 # MR 16 — Publish and inspect a validated dataset
 
-Owner: repository founder. Status: implemented and locally verified for review on
+Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-17. Branch: `codex/mr-16-dataset-command`. Base: freshly fetched `main`
 at `69a45eb`, merging MR 15 in PR #39. Prerequisites MRs 07–15 are ancestors of
 that base (`ddd1bfb`, `f05ef18`, `a66b49a`, `d88ba11`, `5b10f78`, `210db65`,
 `7ef4892`, `746e002`, `127efa9`). Runtime/fixture commit: `f3cdf01`.
-Hosted complete CI remains required before merge; this candidate is not pushed or merged.
+Merged in PR #40 at `95e1a14` after all three hosted checks passed. The
+commands and artifact identities below describe the pre-merge candidate.
 
 ## Problem / change
 

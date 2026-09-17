@@ -1,7 +1,7 @@
 # MR 09 — Decoded raw occurrences
 
-Owner: repository founder. Status: implemented and locally verified on 2026-09-16;
-awaiting review and hosted merge checks. This record covers only
+Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-16.
+This record covers only
 [MR 09](README.md#canonical-datasets-and-publication).
 
 ## Problem / change
@@ -179,5 +179,3 @@ Revert this branch before dependent consumers merge. There is no existing stored
 schema migration or mutable service state to undo; retain raw inputs/manifests and
 run attempts. Once later consumers adopt occurrences, revert/select compatible
 dependent code together.
-
-**Next: MR 10 — Admit duplicates and corrections explicitly.** It has not been started.

@@ -1,6 +1,6 @@
 # MR 05: One bounded Tardis partition
 
-Owner: repository founder. Status: implemented and locally verified with synthetic
+Owner: repository founder. Historical validation: implemented and locally verified with synthetic
 responses on 2026-09-15, on `codex/mr-05-tardis-partition`. **Permitted-source
 acceptance remains open:** no rights admission or protected retention location
 was supplied, so no source-data request was made. This record covers MR 05 only.
@@ -147,8 +147,10 @@ credentials were added.
 
 ### Source feasibility investigation — open acceptance boundary
 
-Primary documentation was checked on 2026-09-15; no private/source endpoint was
-probed and no credential was read. The frozen specification explicitly requires
+This investigation remains unresolved for Tardis; the later
+[Binance source amendment](mr-07-implementation.md#binance-source-follow-up)
+supersedes it for P1. Primary documentation was checked on 2026-09-15; no private
+source endpoint was probed and no credential was read. The frozen specification explicitly requires
 rights evidence before source access. The user was asked for the dated admission
 and protected location; neither was supplied during implementation.
 
@@ -167,24 +169,13 @@ not substitute another provider, buy access, or modify the frozen experiment.
 
 ### Duplicate-file cleanup
 
-During final verification four untracked ` 2` copies appeared in the checkout:
-the MR 04 record, raw store, storage test and interruption fixture. Each matched
-its original byte-for-byte. They were moved to
-`/private/tmp/mr05-verification/duplicate-quarantine/`, preserving originals and
-recording paths/digests in `manifest.json`. A further 35 such files in the local
-installed `alpha_research` package were quarantined there: 32 identical and three
-older/different copies, all preserved. Their origin was not established.
-
-```sh
-uv pip install --python .venv/bin/python --no-deps --reinstall --link-mode copy \
-  /private/tmp/mr05-verification/wheels/alpha_research_lab-0.1.0-py3-none-any.whl
-```
-
-All 37 installed package files then matched the verified wheel; the wheel itself
-contains no duplicate names. No duplicate remains in the owned checkout paths or
-installed runtime package. The final notebook was refreshed after this cleanup.
-The maintained example files remain tracked; generated snapshots and the
-reversible duplicate quarantine are excluded from the implementation commit.
+Four byte-identical checkout copies and 35 installed runtime copies (32 identical,
+three older/different) were quarantined under
+`/private/tmp/mr05-verification/duplicate-quarantine/`, with paths and digests in
+`manifest.json`. Their origin was not established. Reinstalling the verified
+MR 05 wheel with `--no-deps --reinstall --link-mode copy` restored all 37 package
+files; the wheel contained no duplicate names. Original evidence and the reversible
+quarantine were retained locally. The notebook was refreshed after repair.
 
 ## Risks / reversal
 
@@ -197,5 +188,4 @@ QuantLib's existing release restriction remains; this is development evidence.
 
 Revert this isolated change before dependent consumers merge; keep existing raw
 objects and historical notebook attempts. No service/schema migration or trading
-activation is involved. **Next: MR 06 — acquisition manifest and resume**, after
-MR 05 merges, retaining the source-evidence limits. MR 06/07/08 work was not started.
+activation is involved.
