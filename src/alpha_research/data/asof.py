@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # standard library imports
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import ClassVar, Literal
@@ -33,7 +34,9 @@ class _Partition(_ReferenceRecord, frozen=True, kw_only=True):
     """Decode the existing canonical format and reproduce its complete admission."""
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
-    _wire: ClassVar[msgspec.json.Decoder[object]] = msgspec.json.Decoder(object)
+    _wire: ClassVar[msgspec.json.Decoder[dict[str, msgspec.Raw]]] = msgspec.json.Decoder(
+        dict[str, msgspec.Raw]
+    )
     schema_version: Literal["canonical-trade-partition-v1"]
     scope: Literal["exploratory_degraded"]
     policy: QualityPolicy
@@ -75,6 +78,8 @@ class _Partition(_ReferenceRecord, frozen=True, kw_only=True):
             eligibility=self.eligibility,
             corrections=tuple(corrections.values()),
         )
+        # Both encodings use the same sorted domain codec. Compare field bytes
+        # without allocating two additional trees of nested Python dictionaries.
         if self._wire.decode(report.require_canonical()) != (
             self._wire.decode(self._codec.encode_json(self))
         ):
@@ -145,6 +150,7 @@ class AsOfSelector:
                     )
                 heads.add(head.key)
         self._history = canonical
+        self._partitions = partitions
         self._precedence = precedence
 
     @property
@@ -235,8 +241,7 @@ class AsOfSelector:
                 "as-of selection requires a positive window and unique supported instruments"
             )
         selected: dict[EconomicOrder, PointEvent] = {}
-        for payload in self._history:
-            partition = self._codec.decode_json(payload, _Partition)
+        for partition in self._partitions:
             request = partition.request
             if request.instrument.instrument_id not in instruments:
                 continue
@@ -266,7 +271,9 @@ class AsOfSelector:
                     and event.provenance.valid_from <= end
                 ):
                     self._insert(selected, control, event.provenance.ts_knowledge, (control,))
-        return tuple(selected[key] for key in sorted(selected))
+        # Caller mutation, including unsafe struct mutation, cannot poison later
+        # queries. Admission remains cached only behind this ownership boundary.
+        return deepcopy(tuple(selected[key] for key in sorted(selected)))
 
     def _insert(
         self,

@@ -341,3 +341,57 @@ retained separately. Final checks passed notebook schema, syntax, sequential
 execution, source digest, saved-run equality, 56 local links, Ruff lint/format and
 the architecture link check. Detailed runtime regressions remain in the test suite;
 this walkthrough does not add LOB publication or empirical historical evidence.
+
+## MR 18 query workload
+
+Section 9 of `research-foundations.ipynb` recomputes the backend decision from the
+small retained measurement record. It checks installed runtime, lock and benchmark
+driver fingerprints; it does not silently rerun the expensive representative
+benchmark. Sections 7–8 still execute the synthetic correction, scoped-control,
+cancellation, invalid-clock, byte-limit and mutable-ID examples in the fresh kernel.
+
+The [MR 18 record](../docs/roadmap/mr-18-implementation.md) owns the preregistered
+workload, accepted proposed budgets, observed results and limitations. The standalone
+[driver](query_workload.py) requires macOS (its process high-water RSS is in bytes),
+an installed candidate, and a directory containing the retained `raw/` and
+`snapshots/` stores. It reads existing inputs only; it does not fetch data, rewrite
+availability, publish snapshots or introduce a backend. Use the recorded snapshot,
+not a latest alias. Missing bytes fail explicitly.
+
+To repeat against an isolated candidate, build/install with the frozen wheel-smoke
+procedure recorded in MR 18, copy `query_workload.py` outside the checkout, and run
+from that directory. Keep other tests/notebooks idle during timing:
+
+```sh
+cd /private/tmp/mr18-validation
+./reuse-installed/venv/bin/python -I query_workload.py permitted timing > reuse-timing-1.jsonl
+./reuse-installed/venv/bin/python -I query_workload.py permitted timing > reuse-timing-2.jsonl
+./reuse-installed/venv/bin/python -I query_workload.py permitted timing > reuse-timing-3.jsonl
+./reuse-installed/venv/bin/python -I query_workload.py permitted io > reuse-reads.jsonl
+```
+
+Each timing process fully verifies and loads once, then measures ten serial cycles
+of three queries. The separate I/O process counts returned binary bytes including
+raw verification and ZIP access; its instrumented times are excluded from acceptance.
+Retain every attempt. Compute nearest-rank percentiles across all thirty observations
+per query and compare all three loads and process RSS peaks with the fixed budgets.
+Do not relabel the OS file cache as cold or infer device traffic from application
+read counts. The full-hour history query returns 27,480 revisions; its cutoff returns
+zero eligible trades with degraded evidence. Neither result proves historical
+availability or membership.
+
+Local bulk inputs and generated run snapshots remain outside Git. Maintained
+Python, Markdown and notebook sources stay tracked; the small measurement summary
+under `docs/roadmap/` contains identities, counts and timings, not raw market rows.
+
+The optional columnar experiment requires `duckdb==1.5.5` only in an isolated
+`uv run --with` environment; the normal notebook and installed reference reader do
+not require it. Copy `query_columnar_candidate.py` outside the checkout. Its
+`convert`, `scan`, `verify` and `io` operations take the same input directory.
+`convert` refuses an existing output; preserve each failed candidate in a separate
+experiment directory before retrying. `verify` compares every complete revision
+payload with canonical source bytes and checks exact codec round trips. `io` saves
+DuckDB profiles separately from timings. The Parquet scan is a bounded experiment,
+not a supported backend: it does not implement cutoff, controls, membership or
+verified loading, and its metrics must not be presented as end-to-end query parity.
+The MR record retains the executed commands, failed attempts and admission decision.
