@@ -1,7 +1,7 @@
 # MR 10 — Trade duplicate and correction admission
 
-Owner: repository founder. Status: implemented and locally verified on 2026-09-16;
-awaiting review and hosted merge checks. This record covers only
+Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-16.
+This record covers only
 [MR 10](README.md#canonical-datasets-and-publication).
 
 ## Problem / change
@@ -185,5 +185,3 @@ SHA-256 `7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`.
 Revert this MR's commits before dependent consumers merge. Raw objects, acquisition
 manifests and previous notebook attempts need no migration or deletion. After later
 adoption, revert/select compatible dependent code together.
-
-**Next: MR 11 — Read historical eligibility assertions.** It has not been started.

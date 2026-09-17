@@ -1,6 +1,6 @@
 # MR 06: Resume the acquisition manifest
 
-Owner: repository founder. Status: implemented and locally verified on 2026-09-15
+Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-15
 on `codex/mr-06-acquisition-resume`. This record covers synthetic MR 06 acceptance;
 MR 05's permitted-source and historical-evidence boundaries remain open.
 
@@ -198,5 +198,3 @@ iteration/validation and dataset publication remain with their owning later MRs.
 Revert this isolated branch before dependent consumers merge, retaining raw objects,
 manifest files and historical attempts. Unknown schema/run identities fail visibly;
 no data deletion, service migration or trading activation is part of reversal.
-**Next: MR 07 — Make acquisition usable and observable**, after MR 06 merges.
-MR 07 was not started.

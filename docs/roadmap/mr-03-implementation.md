@@ -1,6 +1,6 @@
 # MR 03 implementation and local acceptance
 
-Owner: repository founder. Status: implemented and locally verified review
+Owner: repository founder. Historical validation: implemented and locally verified review
 candidate, 2026-09-15 (Asia/Singapore). Branch:
 `codex/mr-03-raw-object-verification`. The [roadmap](README.md#raw-inputs-and-acquisition)
 remains the sole authority for ownership, dependencies and acceptance.
@@ -27,7 +27,7 @@ owns the callable contract, errors and limits.
 Fetched `origin` and fast-forwarded `main` before creating the branch. The base
 is `80b5bc64c91fc57f16e4bb19a163a930cc208946`, which merges PR #23 and MR 01's
 configuration/request implementation (commit `17940b2`). MR 03 depends only on
-MR 01; its prerequisite is merged. MR 04 and later work were not started.
+MR 01; its prerequisite is merged.
 
 Changes comprise one runtime module, its
 [focused tests](../../tests/unit/data/test_raw_objects.py), component/roadmap
@@ -180,5 +180,3 @@ The existing QuantLib release restriction remains in force.
 
 Revert this MR's runtime module, tests, notebook section and documentation together
 before downstream consumers merge; no stored objects or service state need removal.
-The next roadmap package is **MR 04 — Publish raw bytes durably**, after MR 03
-merges. It has not been started.

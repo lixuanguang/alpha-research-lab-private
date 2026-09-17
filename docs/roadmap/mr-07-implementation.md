@@ -1,6 +1,6 @@
 # MR 07: Make acquisition usable and observable
 
-Owner: repository founder. Status: implemented and locally verified on 2026-09-15
+Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-15
 on `codex/mr-07-acquisition-cli`. The original delivery below covers synthetic
 installed-command acceptance at `dbd94b9`. The separately reviewable
 [Binance source follow-up](#binance-source-follow-up) adds the founder-authorized
@@ -190,7 +190,6 @@ No semantic frame reader, canonical publication, research or trading behavior wa
 Revert this isolated branch before dependent consumers merge, retaining raw bytes,
 manifest/config files and prior attempts. Existing code-bound manifests reject a
 changed implementation identity; no automatic migration or deletion is introduced.
-**Next: MR 08 — Read saved raw frames with explicit gaps.** MR 08 was not started.
 
 
 ## Binance source follow-up
@@ -335,8 +334,7 @@ Downloads buffer compressed bytes within the explicit bound; this is not a
 large-universe streaming collector. ZIP integrity is not CSV/canonical quality,
 complete market coverage, eligibility or revision-availability evidence. The
 source-capture Tardis entitlement question is superseded for this case, not resolved
-for other Tardis uses. **Next: MR 08**, saved archive reading with explicit missing
-and unknown-coverage outcomes. No later MR was started.
+for other Tardis uses.
 
 
 Final artifact command (no concurrent environment synchronization):
@@ -369,102 +367,39 @@ preview and rejects changed bytes and a mismatched publisher checksum.
 
 ## Notebook flow review and connection
 
-Scope: founder-requested review and connection of the actual historical-data
-parts after `5b23cdc`, on the same MR 07 branch. Review profile: market data,
-risk tier 2, offline research; the affected contracts are source identity,
-actual-versus-synthetic evidence, storage recovery, clocks and exact units.
-No live streaming or trading boundary is activated.
+The post-`5b23cdc` review separated actual-data exploration from synthetic
+checkpoints, added missing independent imports, repaired new-directory creation
+and allowed cache-only inspection. The original Binance notebook route has since
+been replaced by the [current researcher workflow](../../examples/README.md).
+The [full historical review](https://github.com/lixuanguang/alpha-research-lab-private/blob/95e1a14bf01089d41268c95b922b8375c11fc4e0/docs/roadmap/mr-07-implementation.md#notebook-flow-review-and-connection)
+retains the old cell-by-cell route and commands; they are not current instructions.
 
-### Findings addressed
-
-- **P2, reliability/usability:** the former real-data section followed 19 synthetic
-  code cells and relied on setup from those demonstrations. In particular,
-  `mr07-binance-failures` used `HTTPSConnection`, `TemporaryDirectory` and `patch`
-  imported in earlier synthetic sections. Running the actual workflow by itself
-  could fail with missing names. The main notebook now declares its own imports
-  and carries one resolved run/checkpoint through all eight explained sections.
-- **P2, first-use reliability:** `_NotebookArchiveFiles.directory` required an
-  existing parent. A fresh checkout or new nested destination could fail before
-  acquisition. The notebook helper now creates missing private ancestors and
-  synchronizes each directory entry; a fresh nested path and repeat both pass.
-- **Usability improvement:** disabling downloads previously skipped all actual
-  inspection, even with a complete saved archive. `ALPHA_BINANCE_DOWNLOAD=0` now
-  verifies and reads cached real data; absent/incomplete cache fails with an
-  explicit recovery instruction and creates no data directory.
-
-The [main notebook](../../examples/research-foundations.ipynb) now has **10 code
-cells**: installed environment, actual config/catalog selection, acquisition or
-cached read, descriptor/clocks, the selected real hour, exact C03 financial values,
-repeat/rejections and summary. Every stage explains its inputs, work and output.
-It inspects 27,480 selected trades from the same saved ZIP and applies
-`Price.amount(Quantity)` and `DomainCodec` to three actual preview rows. Their
-exact quote amounts match the source quote-quantity fields: `66.86460990`,
-`47.95340710`, `79.69721180` USDT. This is a preview comparison, not a full
-canonical-data validation, simulated fill or strategy result.
-
-The [companion notebook](../../examples/foundation-contract-checks.ipynb) preserves
-all 44 original foundation/checkpoint cells, including **19 code cells**, fixed
-hand-ledger assertions and existing synthetic process fixtures. Only its own
-path and navigation references changed. A real successful source cannot exercise
-capture rounding, disconnects, process death or bad authentication on demand;
-those tests remain explicit synthetic demonstrations. The main path retains two
-controlled failures on copies/injected checksums of the actual archive.
-
-No production Python, configuration, baseline, lockfile, dependency or ignore rule
-changes are needed: **0 production code-bearing changed lines** for this review
-follow-up. MR 08 remains unstarted; archive inspection stays notebook-local.
-Updated guide/roadmap links locate the moved numbered checkpoints. Prior attempt
-records above describe the original notebook layout and are not rewritten.
+No runtime, configuration, baseline, lock or ignore-rule changes were made.
+The same archive yielded 27,480 selected trades; three exact `Price.amount(Quantity)`
+preview comparisons matched `66.86460990`, `47.95340710`, `79.69721180` USDT.
+This was a preview, not canonical validation, simulated fills or a strategy result.
+Earlier runtime acceptance was reused; no archive download or new source claim
+was needed. The 44 original companion cells, including 19 code cells, were retained.
 
 ### Verification
 
-Commands used the existing installed candidate with `--no-sync` to avoid changing
-an environment while its kernels/child processes were running:
-
-```sh
-uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' \
-  --with 'nbformat==5.10.4' python examples/run_notebook.py
-uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' \
-  --with 'nbformat==5.10.4' python examples/run_notebook.py examples/foundation-contract-checks.ipynb
-ALPHA_BINANCE_DOWNLOAD=0 uv run --frozen --no-sync --with 'nbclient==0.10.4' \
-  --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py
-uv run --frozen --no-sync ruff check examples/research-foundations.ipynb
-uv run --frozen --no-sync ruff format --check examples/research-foundations.ipynb
-uv run --frozen --no-sync alpha-governance-architecture
-uv run --frozen --no-sync python /private/tmp/mr07-verification/check_links.py
-```
-
-The connected real-data run and the independent companion both pass from fresh
-kernels against the installed runtime. Real cache-only run
-`778a2048-91df-4270-bccd-65085c1ce94c` passed all 10 cells. Adding
-`ALPHA_BINANCE_DIRECTORY=/private/tmp/mr07-notebook-flow/absent-cache` deliberately
-failed at acquisition with `FileNotFoundError`, attempt
-`7fb7a868-8ab2-4321-8290-c18a595e8371`; no source request or data directory was
-created. The existing runtime's focused test and installed-consumer evidence above
-is reused because runtime behavior is unchanged; this follow-up did not rerun
-all package tests or assert new publisher/coverage evidence. The main notebook's
-lint/format checks pass; the unchanged synthetic code retains its prior style.
-
-The review skill's default implementation delegation used one
-`gpt-5.6-luna` agent at `max` for the companion and its README. The main agent
-implemented the connected notebook, inspected the actual companion diff and
-performed the integrated fresh-kernel and link verification. No additional
-code findings remain in this bounded notebook review. Historical eligibility,
-knowledge/revision availability, full market coverage and canonical publication
-remain the explicit future-work limits; no value or source timestamp is invented.
-
-Final current-source notebook evidence:
+Fresh kernels used the installed candidate with `uv run --frozen --no-sync`,
+nbclient 0.10.4, ipykernel 7.2.0 and nbformat 5.10.4 through
+`examples/run_notebook.py` for each notebook. Main-notebook Ruff lint/format and
+architecture/local-link checks passed. `ALPHA_BINANCE_DOWNLOAD=0` passed 10 code
+cells in attempt `778a2048-91df-4270-bccd-65085c1ce94c`. An absent cache at
+`/private/tmp/mr07-notebook-flow/absent-cache` produced `FileNotFoundError` in
+attempt `7fb7a868-8ab2-4321-8290-c18a595e8371`, without requests or directory creation.
 
 | Notebook | Code cells passed | Attempt | Source SHA-256 |
 | --- | --- | --- | --- |
 | `research-foundations.ipynb` | 10 | `fc36c320-8a26-4c66-b408-d4a441365726` | `8544111c8caadf5460732031dcaf3f1549be1b048bf0d1dc06c24d632cebf45c` |
 | `foundation-contract-checks.ipynb` | 19 | `aa3cd64a-f768-4be5-adf2-973afcb9c5e9` | `45439a9d2364eb78e591b7478377b5c518b2ea26fdad3c7ee3b5b631d0f033e2` |
 
-The final companion navigation edit was recovered from its verified executed
-snapshot after a malformed metadata edit, then parsed and fully rerun. Final
-source hashes match execution metadata and all expected cells are executed;
-no uncaught errors remain. The actual archive digest and P1 baseline hash remain
-unchanged. No new archive download was needed for this review.
+A malformed companion metadata edit was recovered from its verified snapshot and
+fully rerun; final sources matched execution metadata with no cell errors.
+Historical eligibility, knowledge/revision availability and full market coverage
+remained unresolved. These attempts describe the earlier notebook layout.
 
 ## Pull request CI follow-up
 

@@ -1,6 +1,6 @@
 # MR 12 — Select the universe as of a decision
 
-Owner: repository founder. Status: implemented and locally verified for review on
+Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-16. Branch: `codex/mr-12-as-of-eligibility`. Base: updated `main` at
 `5b10f78`, matching fetched `origin/main`. Prerequisite MR 11 merged in PR #35 at
 that base. Runtime, fixture and consumer commit: `774cff9`.
@@ -171,5 +171,3 @@ SHA-256 `7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`.
 Revert this MR before dependent consumers merge. Preserve version-2 histories;
 older code rejects them, so select compatible code and version-1 inputs together
 if reverting a consumer. No stored data deletion or service migration is needed.
-
-**Next: MR 13 — Validate a canonical partition.** It has not been started.

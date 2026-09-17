@@ -4,23 +4,25 @@ A monorepo growing toward institutional-grade multi-asset, multi-strategy resear
 production trading and monitoring. The implemented Python libraries cover
 instrument identity, venue calendars, financial units, exact serialization,
 event provenance, an authored reference catalog, bounded Tardis/Binance
-decoding, historical acquisition and verified saved-row reading. Native Bitfinex
-and OKX order-book acquisition/replay are also available. Accepted versioned
-datasets, simulation, accounting, risk enforcement, execution and deployment
-remain future work. Start with the [quant researcher's guide](../examples/README.md)
+decoding, historical acquisition, saved-row reading, eligibility selection and
+validated dataset publication/reopening with explicit quality scope. Native
+Bitfinex and OKX order-book acquisition/replay are also available. Causal dataset
+acceptance, point-in-time dataset queries, simulation, accounting, risk enforcement,
+execution and deployment remain future work. Start with the [quant researcher's guide](../examples/README.md)
 for current OKX/Bitfinex notebooks and the meaning of their outputs.
 One reproducible strategy baseline is the first delivery target; shared research,
 portfolio infrastructure and independently operated strategies are the destination.
 
-The [P1 experiment specification](research/p1-baseline.md) has merged: Tardis raw
-Binance BTCUSDT spot trades with a fixed one-minute positive-return baseline.
-Access, retention rights and historical eligibility/revision evidence remain
-unresolved. C0's decoder cleanup is implemented; no empirical result is claimed.
+The [P1 experiment specification](research/p1-baseline.md) selects Binance public
+BTCUSDT spot-trade archives and a fixed one-minute positive-return baseline.
+The permitted saved hour has passed dataset publication with exploratory degraded
+scope. Historical eligibility, coverage and revision-availability evidence remain
+unresolved; no empirical strategy result is claimed.
 
 The single [implementation roadmap](roadmap/README.md) groups every MR under its
 delivery milestone and includes pipeline ownership, acceptance and longer-term
-scope. MR 08 is locally verified in its
-[review candidate](roadmap/mr-08-implementation.md); MR 09 follows its merge.
+scope. MRs 00–16 are merged; MR 17 adds point-event reading as of a cutoff.
+The roadmap indexes the retained implementation and acceptance records.
 The [platform design](architecture/platform-design.md) preserves intended module
 boundaries, interfaces, runtime lanes and scaling choices. Technical correctness,
 reproducibility and trading safety accompany the features that need them. Team
@@ -58,6 +60,9 @@ record what ran. `make check` remains the complete check entry point.
 | Command | Use |
 | --- | --- |
 | `alpha-inspect-fixture --help` | Inspect one saved trade frame through an explicitly configured job |
+| `alpha-acquire --help` | Acquire and resume supported historical source partitions |
+| `alpha-dataset --help` | Publish validated saved acquisitions and inspect an explicit snapshot ID |
+| `alpha-collect --help` | Capture supported live market-data sources within their declared source contracts |
 | `make check` | Complete source checks and isolated wheel smoke |
 | `make format`, `make format-check`, `make lint` | Python formatting and linting |
 | `make typecheck` | Strict typing across source, tools, tests and owned native stubs |
@@ -99,8 +104,8 @@ the QuantLib release restriction.
 | [Instrument identity](architecture/instrument-identity.md), [venue calendars](architecture/venue-calendar.md), [financial units](architecture/financial-units.md) | Implemented domain contracts and golden datasets |
 | [Data contracts](data/contracts.md), [point-in-time semantics](data/point-in-time-semantics.md), [data library](../src/alpha_research/data/README.md) | Implemented events, decoding, provenance and current construction example |
 
-Data ingestion, backtesting, paper/replay, deployment, activation, monitoring and
-stop commands are planned. Follow the roadmap and add commands here as those
-capabilities are implemented and tested. Keep actual release identities, data
-provenance and unresolved dependency evidence; no current result grants live
-readiness.
+The [data command reference](../src/alpha_research/data/README.md) and
+[collector guide](data/l3-collectors.md) own command usage and limits. Backtesting,
+paper trading, deployment, activation and trading stop commands remain planned.
+Keep actual release identities, data provenance and unresolved dependency
+evidence; no current result grants live readiness.

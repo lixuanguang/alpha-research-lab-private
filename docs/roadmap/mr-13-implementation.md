@@ -1,6 +1,6 @@
 # MR 13 — Validate a canonical partition
 
-Owner: repository founder. Status: implemented and locally verified for review on
+Owner: repository founder. Historical validation: implemented and locally verified for review on
 2026-09-16. Branch: `codex/mr-13-partition-quality`. Base: updated `main` at
 `210db65`, matching freshly fetched `origin/main`. Prerequisites are merged:
 MR 09 / PR #33 (`a66b49a`), MR 10 / PR #34 (`d88ba11`), MR 11 / PR #35
@@ -205,5 +205,3 @@ SHA-256 `7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`.
 Revert this MR before dependent consumers merge; preserve any canonical bytes as
 schema-versioned exploratory artifacts and select compatible code if reopening
 them. No stored data deletion, service migration or operational rollback is needed.
-
-**Next: MR 14 — Validate and identify a dataset manifest.** It has not been started.

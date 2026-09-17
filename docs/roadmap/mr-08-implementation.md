@@ -1,6 +1,6 @@
 # MR 08 — Read saved raw frames with explicit gaps
 
-Owner: repository founder. Status: implemented and locally verified on 2026-09-16;
+Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-16;
 review candidate on `codex/mr-08-saved-archive-rows`. M1 and P1 remain incomplete.
 The [roadmap row](README.md#raw-inputs-and-acquisition) owns scope and acceptance.
 
@@ -210,6 +210,3 @@ Revert this branch before dependent consumers merge. It changes no stored schema
 configuration, dependency or existing decoder and migrates no data. Retain raw
 objects, manifests and execution attempts. After MR 09 consumes the API, revert
 or select compatible dependent code together.
-
-**Next: MR 09 — Bind decoded events to raw occurrences**, after MR 08 merges.
-MR 09 has not been started.

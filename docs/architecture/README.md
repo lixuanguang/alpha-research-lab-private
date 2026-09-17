@@ -3,28 +3,29 @@
 This page is the current architecture overview for the Alpha Research Python
 workspace. The long-term destination is an institutional-grade monorepo for
 multi-asset, multi-strategy research, productionization, and monitoring. The
-repository currently implements three domain foundations: [instrument
+repository implements three domain foundations: [instrument
 identity](instrument-identity.md), [venue calendars](venue-calendar.md), and
 [financial units](financial-units.md), plus exact serialization, provenance,
-reference-catalog, and bounded Binance event/decoder foundations. Data
-acquisition, point-in-time dataset construction, simulation, portfolio and risk
-enforcement, order execution, deployment, and live monitoring are planned
-capabilities; their absence is not hidden by the target model below. See the
+reference-catalog and bounded Binance event/decoder foundations. Historical
+acquisition, occurrence/revision admission, bitemporal eligibility selection,
+quality validation and atomic dataset publication/reopening are implemented.
+Native Bitfinex/OKX acquisition and book replay are also available. Dataset queries
+as of a cutoff, simulation, portfolio and risk enforcement, order execution,
+deployment and live trading monitoring remain planned. See the
 [platform design](platform-design.md) for the future module boundaries,
 lifecycles, runtime lanes, and scaling triggers.
 
 The locked `msgspec` dependency supports the exact serialization boundary for
-financial values and the bounded canonical Binance event records in this
-candidate. Those records use frozen `msgspec.Struct` values with cached strict
-typed codecs. Quote, order-intent, execution, configuration, report, acquisition,
-and replay consumers remain planned; the established C01, C02 and C03 foundation
-contracts remain preserved.
+financial values, canonical market-data records, configuration, acquisition and
+dataset records. These use frozen `msgspec.Struct` values with cached strict
+typed codecs. Order-intent and execution consumers remain planned; the established
+C01, C02 and C03 foundation contracts remain preserved.
 
 The [platform roadmap](../roadmap/README.md) selects the next work. The retired
-blueprint and package catalog remain in Git history. MR 01–02 first deliver a
-configured installed fixture consumer, followed by versioned data and reference
-query/replay. E1 then starts the economic path toward the reproducible costed
-baseline; the same strategy logic later serves paper operation.
+blueprint and package catalog remain in Git history. MRs 01–16 deliver the
+configured fixture consumer and versioned dataset publication; MR 17 begins
+reference dataset queries as of a cutoff. E1 then starts the economic path toward
+the reproducible costed baseline; the same strategy logic later serves paper operation.
 
 The full monorepo is one source tree with multiple deployables and release
 cadences. Shared economic semantics are canonical; strategy variants, asset
@@ -49,10 +50,11 @@ owns detailed order. R1 precedes any actual deployment, including a collector
 pulled forward for a concrete data need. Operational controls accompany their
 runtime and must pass before activation.
 
-The domain, provenance, reference and decoding foundations exist today; the
-configured workflow and versioned dataset above do not. Keep research code dependent on those
-contracts, and add a data or
-broker adapter only when an actual workload needs it. Do not introduce a service
+The fixture and dataset publication workflows exist today. Published snapshots
+retain declared quality scope; current archive evidence supports exploratory
+degraded use, not causal dataset acceptance. Keep research code dependent on the
+implemented contracts, and add a data or broker adapter only when an actual
+workload needs it. Do not introduce a service
 mesh, event bus, schema platform, or distributed build system without a measured
 requirement.
 
@@ -107,10 +109,11 @@ interpretation. Portfolio construction emits targets; execution turns an
 intent into orders only after an independent risk boundary. Cross-process
 interfaces will use versioned schemas when such a boundary is introduced.
 
-The graph describes the current candidate after
+This graph focuses on the foundations retained after
 [C0](../roadmap/README.md#existing-abstractions-to-retain-or-retire).
-Callers construct the framing and payload decoders directly. The planned dataset
-pipeline will own that composition; no pipeline is implemented yet.
+The [dataset pipeline](../../src/alpha_research/pipelines/dataset.py) composes
+decoders and the saved-input validation/publication libraries. The
+[data library guide](../../src/alpha_research/data/README.md) describes those consumers.
 
 ## Implemented domain contracts
 
@@ -122,7 +125,8 @@ golden/property evidence.
 | C01 | [Instrument identity and temporal symbology](instrument-identity.md) | Stable canonical IDs, validity-dated mappings, correction history, and explicit UTC resolution |
 | C02 | [Venue calendars and market status](venue-calendar.md) | Versioned bounded snapshots, UTC half-open sessions, DST-safe state, and fail-closed overrides |
 | C03 | [Financial units and conventions](financial-units.md) | Dimension-safe exact arithmetic, explicit rounding, and an isolated date-based convention adapter |
-| Data foundation | [Market-data contracts](../data/contracts.md) | Exact authored instrument metadata, source provenance, immutable Binance event records, and strict capture decoding; acquisition remains planned |
+| Historical data | [Market-data contracts](../data/contracts.md) | Exact metadata/events, verified acquisition, occurrence/revision lineage, eligibility selection, quality reports and immutable snapshots with explicit use scope |
+| Native books | [Collector contracts](../data/l3-collectors.md), [OKX data](../data/okx-market-data.md) | Source-specific capture, persistence, recovery and bounded offline replay |
 
 The contracts preserve strict external validation, immutable values, explicit
 time semantics, and independent hand-calculated or declared goldens. Their
@@ -219,7 +223,7 @@ review triggers and reversal requirements:
 
 | Decision | Current constraint |
 | --- | --- |
-| Serialization boundary | Financial values and bounded canonical Binance event records use the [engineering serialization requirements](../coding_standards/README.md#classes-records-errors-and-resources); later configuration, reports, quote/order-intent and execution records remain planned. Pydantic remains available for cold administration and the C01/C02/C03 foundation APIs. |
+| Serialization boundary | Financial values, market-data/configuration records, acquisition manifests and dataset reports use the [engineering serialization requirements](../coding_standards/README.md#classes-records-errors-and-resources). Order-intent and execution records remain planned. Pydantic remains available for cold administration and the C01/C02/C03 foundation APIs. |
 | Instrument identity models | C01 keeps strict immutable models while preserving its public constructors, temporal mappings, and graph invariants. |
 | Venue calendar adapter | C02 owns UTC/session semantics and uses `exchange_calendars` only behind a versioned adapter. |
 | [Wheel-only development allowance](dependency-admission.md#wheel-only-development-allowance) | An exact native package may receive an expiring development/CI allowance; its unverified source binding blocks release. |

@@ -1,6 +1,6 @@
 # M0 implementation and local acceptance
 
-Owner: repository founder. Status: implemented and locally verified; commit, push
+Owner: repository founder. Historical validation: implemented and locally verified; commit, push
 and merge authorized by the founder on 2026-09-14. Implementation branch:
 `codex/mr-01-02-configured-fixture`.
 The [roadmap](README.md#m0-minimal-runnable-foundation) remains the sole authority
@@ -172,12 +172,8 @@ installed CLI success/wrong-instrument/unknown-binding/invalid-time cases.
 ```sh
 uv run --frozen --no-editable --with 'nbclient==0.10.4' \
   --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py
-git ls-files -- examples/ '*.ipynb'
-git check-ignore examples/research-foundations.ipynb examples/run_notebook.py
 ```
 
-At this initial validation, the tracked-notebook query was empty and examples
-were ignored. The subsequent founder decision below supersedes that retention rule.
 Each attempt starts a fresh kernel and shuts it down. Notebook tooling is separately
 identified and did not change the project lock. The initial failed attempt
 `38ada143-6720-49da-b8e3-417784beae93` is retained: library scenarios passed, then
@@ -211,32 +207,16 @@ wheel smoke. Complete command/output and file identities are in the local
 
 ### Interactive notebook import repair
 
-A subsequent editor run reproduced an import failure in `.venv/bin/python`:
-all 33 expected installed `alpha_research` files were missing, while renamed
-copies such as `__init__ 2.py` remained. Python therefore loaded namespace
-packages without decoder exports. The source and verified wheel were intact;
-the cause of the file renaming was not established. Restored the existing wheel:
-
-```sh
-uv pip install --python .venv/bin/python --no-deps --reinstall --link-mode copy \
-  /private/tmp/m0-final-verification/wheels/alpha_research_lab-0.1.0-py3-none-any.whl
-uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
-  python examples/run_notebook.py --kernel-python .venv/bin/python
-```
-
-All 33 expected installed files matched the verified wheel after repair.
-The notebook now records only tooling actually installed in its kernel, permitting
-an interactive environment without the separate runner's `nbclient`/`nbformat`.
-The example runner accepts `--kernel-python` to exercise the editor's exact
-interpreter. Attempt `0828cf38-bc7f-48b3-aa1b-6bc0b78d634b` completed all 11 code
-cells using `.venv/bin/python` with the editor's installed `ipykernel==7.3.0`.
-The new notebook source digest is
+The editor's `.venv` contained renamed duplicates instead of all 33 expected
+runtime files, causing namespace-package import failures. Reinstalling the verified
+wheel with `--no-deps --reinstall --link-mode copy` restored exact file identity;
+the cause of renaming was not established. Runtime, wheel, catalog and lock were
+unchanged. The failure remains in local ignored `examples/runs/research-foundations/`.
+Fresh-kernel attempt `0828cf38-bc7f-48b3-aa1b-6bc0b78d634b` passed all 11 code
+cells with `.venv/bin/python` and ipykernel 7.3.0; notebook source SHA-256:
 `77957737d7d2818310747f6bedde6b261d6fc84ce970e3d2ef88b9d861b25918`.
-The earlier pinned-tooling evidence and the saved interactive failure remain
-retained under ignored `examples/runs/research-foundations/`. Restart an already
-open kernel after installation repair to clear cached namespace modules. Runtime
-source, wheel, catalog, frozen experiment and project lock did not change; their
-preceding test evidence is reused.
+Current environment repair instructions live in the
+[notebook operations guide](../../examples/notebook-operations.md).
 
 ## Risks / reversal
 
@@ -256,23 +236,11 @@ consumer and its tests/docs together; no stored data, service or state migration
 is involved. Commit, push and merge were subsequently authorized; their actual revision and
 hosted-check results are recorded in the pull request.
 
-Next: **MR 03**, immutable saved raw-object descriptors and a callable byte verifier,
-followed by MR 04 durable publication. Keep MR 05 source feasibility early as the
-roadmap requires; this fixture acceptance does not close its external evidence gate.
-
 ## Versioned examples and merge preparation
 
-The founder subsequently requested committing and pushing M0, merging it to
-`main`, and tracking maintained `.ipynb`, `.py` and `.md` files in `examples/`.
-The root ignore rule now excludes only generated run snapshots and kernel files;
-notebook checkpoints remain covered by the existing rule. This supersedes the
-local-only retention instructions above and in the prior notebook workflow.
-The maintained foundation notebook, its runner and its Markdown guide ship with
-this change. Existing generated successful/failed snapshots remain local.
-
-The runtime behavior, verified wheel and frozen experiment are unchanged by this
-retention decision. The full configured check lane and hosted merged-result CI
-are required before merge; final results are retained in the pull request.
+The founder selected tracking maintained `.ipynb`, `.py` and `.md` examples;
+generated snapshots, kernel files and checkpoints remain ignored. This superseded
+the initial local-only notebook policy without changing runtime or wheel bytes.
 
 Pre-merge local validation completed in a separate environment, preserving the
 editor kernel installation:

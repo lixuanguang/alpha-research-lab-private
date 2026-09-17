@@ -1,7 +1,7 @@
 # MR 11 — Historical eligibility assertion reading
 
-Owner: repository founder. Status: implemented and locally verified on 2026-09-16;
-awaiting review and hosted merge checks. Scope is only
+Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-16.
+Scope is only
 [MR 11](README.md#canonical-datasets-and-publication).
 
 ## Problem / change
@@ -206,5 +206,3 @@ SHA-256 `7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`.
 Revert this MR's commits before dependent consumers merge. No existing files,
 datasets or source evidence need migration or deletion. After later adoption,
 revert/select compatible dependent code and assertion files together.
-
-**Next: MR 12 — Select the universe as of a decision.** It has not been started.

@@ -1,6 +1,6 @@
 # MR 04: Durable raw-byte publication
 
-Owner: repository founder. Status: implemented and locally verified on 2026-09-15
+Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-15
 for review on `codex/mr-04-durable-raw-store`. This record covers MR 04 only;
 acquisition, manifests and dataset validity remain planned.
 
@@ -26,7 +26,7 @@ owns the callable contract, filesystem prerequisites, errors and recovery steps.
 Fetched `origin`; `main` already equaled updated `origin/main` at
 `bf3fb991bdf13889ef116e9111106317224fc6b7`. This merge of PR #24 contains MR 03
 implementation `1236da5`; ancestry was checked before creating the MR 04 branch.
-MR 04's sole prerequisite is merged. MR 05 has not been started.
+MR 04's sole prerequisite is merged.
 
 Against that base: **51 added production code-bearing lines, 0 deleted, total 51**.
 This includes imports, declarations, annotations and executable method bodies;
@@ -171,46 +171,22 @@ small synthetic outputs; no credentials or restricted data are retained.
 
 ### Editor environment repair before merge
 
-On 2026-09-15, the user's editor reproduced the import problem in the repository
-`.venv`: `data/raw_store.py` was missing. The existing 33 expected files matched
-source, but 20 renamed duplicate Python/JSON/typing files remained from the
-previous environment issue. This distinguished the editor installation from the
-successful clean-environment run above. The user's failed notebook output was
-preserved under ignored `examples/runs/research-foundations/` as
-`mr04-editor-missing-raw-store.ipynb`; its cell sources matched the committed
-candidate exactly.
+On 2026-09-15 the editor installation lacked `data/raw_store.py`, despite the
+successful clean-environment run. The failed output remains at local ignored
+`examples/runs/research-foundations/mr04-editor-missing-raw-store.ipynb`.
+Rebuilding with Hatchling 1.32.0 reproduced wheel SHA-256
+`0d780b2020ff17c4607adf2b00b1eda01dcbe372c363c72081f1748641d73538`.
+Reinstallation with `--no-deps --reinstall --link-mode copy` restored all 34 files;
+20 renamed duplicates were retained in
+`/private/tmp/mr04-notebook-repair/duplicate-runtime-files/`, indexed by
+`quarantined-files.json`. Their origin was not established.
 
-Rebuilt with the installed pinned Hatchling 1.32.0; the wheel SHA-256 was exactly
-`0d780b2020ff17c4607adf2b00b1eda01dcbe372c363c72081f1748641d73538`, matching the
-originally tested candidate. Reinstalled only that wheel into `.venv`, preserving
-its runtime dependencies and ipykernel 7.3.0. Moved the 20 extra runtime files into
-`/private/tmp/mr04-notebook-repair/duplicate-runtime-files/`, with their names and
-SHA-256 values in `quarantined-files.json`. They were retained, not deleted. All 34
-runtime files then matched the source and wheel, with no extra runtime inputs.
-
-```sh
-.venv/bin/python -m hatchling build -t wheel \
-  -d /private/tmp/mr04-notebook-repair/wheels
-uv pip install --python .venv/bin/python --no-deps --reinstall --link-mode copy \
-  /private/tmp/mr04-notebook-repair/wheels/alpha_research_lab-0.1.0-py3-none-any.whl
-uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' \
-  python examples/run_notebook.py --kernel-python .venv/bin/python
-```
-
-Attempt `92d41cf8-f517-4ff3-969e-f28790bd138c` passed all **13 code cells** in a
-fresh `.venv/bin/python` kernel on CPython 3.14.7 / macOS 27.0 arm64. The runner
-shut down its kernel. The maintained notebook now contains this editor-interpreter
-run's successful outputs. Its source hash remains
-`8a3e0ba5c3950a045ee2576046564ccd7142ab6c5f7257787ff889d04237b006`; the runtime
-input diff against committed `caec320` is empty. Existing product tests and wheel
-acceptance are reused because runtime source and wheel bytes are unchanged.
-An already-open interactive kernel must be restarted to discard cached imports.
-The cause of the renamed duplicates remains unestablished.
-
-The preserved ipykernel 7.3.0 emitted a warning about unencrypted local TCP kernel
-transport; the run completed without cell errors. No kernel transport setting was
-changed. Cache-access failures succeeded on authorized retry. The merge was paused
-at the user's request; no PR or main-branch merge had occurred at repair time.
+Attempt `92d41cf8-f517-4ff3-969e-f28790bd138c` passed 13 code cells via
+`examples/run_notebook.py --kernel-python .venv/bin/python`, on CPython 3.14.7 /
+macOS 27.0 arm64 with ipykernel 7.3.0. Notebook source SHA-256 remained
+`8a3e0ba5c3950a045ee2576046564ccd7142ab6c5f7257787ff889d04237b006`;
+runtime was unchanged from `caec320`. Current repair instructions belong in the
+[notebook operations guide](../../examples/notebook-operations.md).
 
 ## Risks / reversal
 
@@ -229,5 +205,4 @@ merge. QuantLib's existing release restriction remains in force.
 
 Revert this module, tests, NB 04 and documentation together before dependent
 consumers merge. Existing raw files can be retained and verified by MR 03; this
-slice adds no service or acquisition state requiring migration. The next package
-is **MR 05 — Fetch one provider partition**, after MR 04 merges. It has not started.
+slice adds no service or acquisition state requiring migration.
