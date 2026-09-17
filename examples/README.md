@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-17 for MR 19 bounded reference queries.
+Owner: repository founder. Updated 2026-09-17 for MR 18 query-workload evaluation.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has eight sections:
+The current notebook has nine sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -96,6 +96,7 @@ The current notebook has eight sections:
 | 6: publication and verification | Call `publish_dataset`, reopen by explicit snapshot ID, check CLI/Python parity and compare identities after changing one input's policy. Unknown archive availability remains unavailable to cutoff selection. |
 | 7: cutoff selection | Use a captured synthetic trade to show the original price, a late correction at its availability boundary and a later membership change, while retaining earlier query results. |
 | 8: bounded query batches | Project prices with scoped controls and quality evidence, compare late corrections, retain replay chains, and exercise cancellation and required refusals. |
+| 9: measured query workload | Recompute the MR 18 decision from retained installed measurements of 27,480 permitted trade observations; distinguish these measurements from synthetic correctness examples. |
 
 The generic composition boundary is in place. Installed saved-input publication
 currently supports trade archives; actual LOB adapters are planned for MR 25.
@@ -145,7 +146,7 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Preserve a completed dataset across interrupted later builds | MR 15 publishes one atomic local snapshot and reopens by explicit ID, with retained raw inputs and unchanged degraded quality. |
 | Inspect publication through an installed dataset command | MR 16 publishes saved acquisitions and reopens an explicit ID, reporting degraded quality, invalid/gap/duplicate counts and persistence status. |
 | Select the revisions knowable at a cutoff | Section 7 uses the installed as-of selector, showing late correction and eligibility boundaries; detailed ordering/control cases remain in the tests. Unknown archive knowledge remains unavailable; full quality/history stays separate from selected events. |
-| Consume bounded price batches with query identity | MR 19 supplies a reference reader with an explicit aggregate canonical-byte budget, mandatory scoped controls/quality and distinct cutoff/history modes. Batch size bounds output rows; it does not bound total process memory. |
+| Consume bounded price batches with query identity | MR 19 supplies a reference reader with an explicit aggregate canonical-byte budget, mandatory scoped controls/quality and distinct cutoff/history modes. MR 18 reuses admitted partitions and isolates returned records/evidence. Batch size bounds output rows; it does not bound total process memory. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |
 
 ## A useful way to work through a notebook
@@ -206,5 +207,10 @@ correction availability. Inspect the BTC disconnect in a price-only projection a
 the retained original/correction chain after membership withdrawal. The
 [MR 19 record](../docs/roadmap/mr-19-implementation.md) retains execution evidence,
 measured memory/read counts and the reference reader's aggregate-input limit.
-The next useful capability is MR 20 shared event stepping. A new query backend
-(MR 18) remains conditional on a measured need; neither is implemented here.
+Section 9 adds the [MR 18 workload evaluation](../docs/roadmap/mr-18-implementation.md).
+The original reader exceeded the accepted offline memory and latency budgets. A
+bounded Parquet experiment and reference admission-reuse candidate are measured
+separately; the record owns the final backend decision and its limits. The notebook
+uses retained timing evidence and runs its synthetic contract/failure cases afresh.
+It does not require a new Binance download or a DuckDB installation. The next useful
+capability is MR 20 shared event stepping; it is not implemented here.

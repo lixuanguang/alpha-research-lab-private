@@ -90,6 +90,12 @@ def main() -> None:
             }
             print(json.dumps(record), flush=True)
             return
+        source_revisions: tuple[msgspec.Raw, ...] = ()
+        if operation == "verify":
+            fields = msgspec.json.decode(canonical.read_bytes(), type=dict[str, msgspec.Raw])
+            source_revisions = msgspec.json.decode(
+                fields["revisions"], type=tuple[msgspec.Raw, ...]
+            )
         expected: dict[str, tuple[int, str]] = {}
         for repetition in range(10 if operation == "scan" else 1):
             for name, end in (
@@ -119,6 +125,11 @@ def main() -> None:
                             or not isinstance(quantity, str)
                         ):
                             raise ValueError("candidate changed exact string columns")
+                        if operation == "verify" and name == "hour_history":
+                            if raw.encode() != bytes(source_revisions[rows]):
+                                raise ValueError(
+                                    "Parquet changed a complete source revision payload"
+                                )
                         revision = codec.decode_json(raw, TradeRevision)
                         if revision.previous is not None or revision.ts_knowledge is not None:
                             raise ValueError(
@@ -126,7 +137,7 @@ def main() -> None:
                             )
                         event = revision.occurrences[0].event
                         # Candidate scope is this archive, not captured controls or LOB data.
-                        if (
+                        if operation == "verify" and (
                             codec.decode_json(codec.encode_json(revision), TradeRevision)
                             != revision
                         ):
