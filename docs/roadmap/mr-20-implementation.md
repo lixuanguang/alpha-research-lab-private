@@ -1,7 +1,9 @@
 # MR 20 — Replay with shared event stepping
 
 Owner: repository founder. Status: implemented and locally verified for review on
-2026-09-17. Branch: `codex/mr-20-event-stepping`. Base: fetched `main` at
+2026-09-17. Branch: `codex/mr-20-event-stepping`.
+[PR #46](https://github.com/lixuanguang/alpha-research-lab-private/pull/46)
+records hosted checks and the merge status. Base: fetched `main` at
 `f37c07d`; MR 19, the sole prerequisite, merged at `0898d0a` through PR #44 and
 is an ancestor of the base. Tested runtime:
 `67ff51d9106d3e1425ebf43f5047953273c20014`. The NB 20 source digest below
