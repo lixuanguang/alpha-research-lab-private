@@ -21,7 +21,7 @@ from alpha_research.configuration import Configuration
 from alpha_research.data.datasets import DatasetManifest
 from alpha_research.data.eligibility import EligibilityAssertions
 from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.quality import QualityPolicy
+from alpha_research.data.quality import QualityPolicy, QualityReport
 from alpha_research.data.raw_objects import RawObject
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
@@ -33,6 +33,21 @@ from alpha_research.serialization import DomainCodec
 _ROOT = Path(__file__).parents[3]
 _CODEC = DomainCodec()
 _LIMIT = 262_144
+
+
+class _QualitySink:
+    """Retain verified reports and optionally fail the caller's reporting boundary."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        """Start an isolated report collection with an optional sink failure."""
+        self.reports: list[tuple[str, QualityReport]] = []
+        self.fail = fail
+
+    def report(self, identity: str, outcome: QualityReport) -> None:
+        """Keep one reproduced partition result or propagate a failed sink."""
+        if self.fail:
+            raise OSError("report sink unavailable")
+        self.reports.append((identity, outcome))
 
 
 class _SyncFailure:
@@ -174,6 +189,30 @@ class TestSnapshotStore:
         for partition, payload in zip(manifest.partitions, payloads, strict=True):
             path = root / identity / partition.sha256
             assert path.read_bytes() == payload and path.stat().st_mode & 0o222 == 0
+
+    def test_read_reports_only_verified_partitions_and_propagates_sink_failure(
+        self, tmp_path: Path, inputs: tuple[DatasetManifest, tuple[bytes, ...], RawStore]
+    ) -> None:
+        """Reuse reproduced quality without allowing reports to acknowledge a damaged snapshot."""
+        manifest, payloads, raw = inputs
+        root = tmp_path / "snapshots"
+        store = SnapshotStore(root, raw)
+        identity = store.publish(manifest, payloads, max_bytes=_LIMIT)
+        sink = _QualitySink()
+        assert store.read(identity, max_bytes=_LIMIT, report=sink.report) == manifest
+        assert [key for key, _ in sink.reports] == [
+            item.acquisition.run.identity for item in manifest.partitions
+        ]
+        assert tuple(report.require_canonical() for _, report in sink.reports) == payloads
+        with pytest.raises(OSError, match="report sink"):
+            store.read(identity, max_bytes=_LIMIT, report=_QualitySink(fail=True).report)
+        damaged = root / identity / manifest.partitions[1].sha256
+        damaged.chmod(0o644)
+        damaged.write_bytes(b"damaged")
+        sink.reports.clear()
+        with pytest.raises(ValueError, match="SHA-256"):
+            store.read(identity, max_bytes=_LIMIT, report=sink.report)
+        assert [key for key, _ in sink.reports] == [manifest.partitions[0].acquisition.run.identity]
 
     @pytest.mark.parametrize("limit", [0, -1, True, 10])
     def test_invalid_limits_never_publish(

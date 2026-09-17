@@ -8,28 +8,23 @@ import hashlib
 import sys
 from collections.abc import Callable, Generator, Mapping
 from contextlib import closing
-from datetime import datetime, timedelta
-from itertools import combinations
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
 # project library imports
 from alpha_research.configuration import Configuration, ResolvedManifest
-from alpha_research.data.datasets import DatasetManifest, DatasetPartition
+from alpha_research.data.datasets import DatasetInput, DatasetManifest, DatasetPartition
 from alpha_research.data.eligibility import EligibilityAssertions
+from alpha_research.data.events import MarketEventRecord
 from alpha_research.data.manifests import AcquisitionManifest
 from alpha_research.data.normalization import Occurrence
-from alpha_research.data.providers.binance.rows import BinanceArchiveRows
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.providers.tardis.decoder import TardisDecoder
+from alpha_research.data.providers.catalog import SourceAdapters
 from alpha_research.data.quality import QualityPolicy, QualityReport
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
 from alpha_research.data.revisions import Correction, TradeRevision
 from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.data.venues.binance.codecs import MarketEventCodec
-from alpha_research.data.venues.binance.events import Trade
-from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
 from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
 
@@ -47,25 +42,34 @@ class _InspectionArguments(argparse.Namespace):
 
 
 def publish_dataset(
-    acquisitions: tuple[AcquisitionManifest, ...],
+    acquisitions: tuple[DatasetInput, ...] | tuple[AcquisitionManifest, ...],
     store: RawStore,
     destination: Path,
     *,
     max_bytes: int,
-    policy: QualityPolicy,
-    eligibility: EligibilityAssertions,
-    corrections: Mapping[str, tuple[Correction, ...]],
+    policy: QualityPolicy | None = None,
+    eligibility: EligibilityAssertions | None = None,
+    corrections: Mapping[str, tuple[Correction, ...]] | None = None,
+    report: Callable[[str, QualityReport], None] | None = None,
+    progress: Callable[[Literal["started", "complete"], DatasetManifest], None] | None = None,
 ) -> str:
     """Admit all selected inputs and atomically publish one complete snapshot.
 
     Args:
-        acquisitions: Ordered complete single-partition acquisitions to admit.
+        acquisitions: Ordered DatasetInput records with per-source evidence, or complete
+            single-partition acquisitions using shared evidence. Exact repeats are reused
+            in first-seen order; nonidentical overlaps within a source/stream are rejected.
         store: Retained immutable raw objects needed by publication and later reads.
         destination: Existing, durably provisioned snapshot store directory.
         max_bytes: Positive per-file limit, including expanded archive bytes.
-        policy: Declared use, knowledge cutoff and gap tolerance.
-        eligibility: Complete retained eligibility history matching the catalog.
-        corrections: Explicit correction evidence by resolved acquisition identity.
+        policy: Shared declared use, knowledge cutoff and gap tolerance for acquisitions.
+        eligibility: Shared retained eligibility history for acquisitions' catalog.
+        corrections: Shared correction map by run identity. Omit all three shared inputs
+            when supplying DatasetInput records; each retains its own evidence instead.
+        report: Optional synchronous quality sink, called before each admission gate.
+        progress: Optional publication sink receiving the candidate manifest at started,
+            then complete only after verified reopening and durable acknowledgement.
+            Callback failures propagate; a failed completion sink may leave a snapshot.
 
     Returns:
         Published dataset SHA-256 for explicit reopening with SnapshotStore.read.
@@ -81,30 +85,37 @@ def publish_dataset(
         policy=policy,
         eligibility=eligibility,
         corrections=corrections,
+        report=report,
     )
-    return SnapshotStore(destination, store).publish(manifest, payloads, max_bytes=max_bytes)
+    if progress is not None:
+        progress("started", manifest)
+    identity = SnapshotStore(destination, store).publish(manifest, payloads, max_bytes=max_bytes)
+    if progress is not None:
+        progress("complete", manifest)
+    return identity
 
 
 def assemble_dataset(
-    acquisitions: tuple[AcquisitionManifest, ...],
+    acquisitions: tuple[DatasetInput, ...] | tuple[AcquisitionManifest, ...],
     store: RawStore,
     *,
     max_bytes: int,
-    policy: QualityPolicy,
-    eligibility: EligibilityAssertions,
-    corrections: Mapping[str, tuple[Correction, ...]],
+    policy: QualityPolicy | None = None,
+    eligibility: EligibilityAssertions | None = None,
+    corrections: Mapping[str, tuple[Correction, ...]] | None = None,
     report: Callable[[str, QualityReport], None] | None = None,
 ) -> tuple[DatasetManifest, tuple[bytes, ...]]:
     """Admit saved partitions and assemble their manifest without publishing files.
 
     Args:
-        acquisitions: Ordered complete single-partition acquisitions for this dataset.
+        acquisitions: Ordered DatasetInput records retaining each source's admission
+            evidence, or complete single-partition acquisitions using shared evidence.
         store: Existing immutable raw objects, verified before admission.
         max_bytes: Positive compressed/expanded byte cap per raw archive.
-        policy: Shared declared exploratory use, knowledge cutoff and gap tolerance.
-        eligibility: Complete retained eligibility history matching the selected catalog.
-        corrections: Evidence by resolved acquisition run identity; use an empty mapping
-            when there are no corrections. Unknown mapping keys fail before reading.
+        policy: Shared declared use, knowledge cutoff and gap tolerance for acquisitions.
+        eligibility: Shared retained history matching the acquisitions' catalog.
+        corrections: Shared correction map by run identity; use an empty mapping when
+            absent. Omit all shared evidence when supplying DatasetInput records.
         report: Optional synchronous sink called with each run identity and quality outcome
             before its publication gate. Sink failures propagate without publication.
 
@@ -113,20 +124,21 @@ def assemble_dataset(
         The caller may save these working files; atomic snapshot publication is separate.
 
     Raises:
-        ValueError: A partition is rejected, repeated, incomplete or incompatibly bound.
+        ValueError: A partition is rejected, conflicting, incomplete or incompatibly bound.
     """
-    if set(corrections) - {item.run.identity for item in acquisitions}:
-        raise ValueError("dataset correction evidence names an unselected acquisition")
+    inputs = DatasetInput.resolve(
+        acquisitions, policy=policy, eligibility=eligibility, corrections=corrections
+    )
     partitions: list[DatasetPartition] = []
     payloads: list[bytes] = []
-    for acquisition in acquisitions:
-        evidence = corrections.get(acquisition.run.identity, ())
+    for selected in inputs:
+        acquisition, evidence = selected.acquisition, selected.corrections
         outcome = validate_saved_partition(
             acquisition,
             store,
             max_bytes=max_bytes,
-            policy=policy,
-            eligibility=eligibility,
+            policy=selected.policy,
+            eligibility=selected.eligibility,
             corrections=evidence,
         )
         if report is not None:
@@ -136,8 +148,8 @@ def assemble_dataset(
             DatasetPartition(
                 sha256=hashlib.sha256(canonical).hexdigest(),
                 acquisition=acquisition,
-                policy=policy,
-                eligibility=eligibility,
+                policy=selected.policy,
+                eligibility=selected.eligibility,
                 corrections=evidence,
             )
         )
@@ -238,18 +250,9 @@ def iter_occurrences(
         exhaust for complete validation, or close an abandoned prefix. No quality,
         coverage, revision or publication acceptance follows from a yielded prefix.
     """
-    for partition in BinanceArchiveRows.from_manifest(manifest):
-        with closing(partition.read(store, max_bytes=max_bytes)) as rows:
-            for row in rows:
-                event = ArchiveTrade.from_row(row, partition.request)
-                if row.selection_start <= event.ts_event < row.selection_end:
-                    yield Occurrence(
-                        request=partition.request,
-                        origin=row.origin,
-                        position=row.position,
-                        raw=row.payload,
-                        event=event,
-                    )
+    for reader in SourceAdapters.saved(manifest):
+        with closing(reader.read(store, max_bytes=max_bytes)) as occurrences:
+            yield from occurrences
 
 
 def inspect_fixture(
@@ -259,7 +262,7 @@ def inspect_fixture(
     local_received: datetime,
     local_ingested: datetime,
     source_sequence: int,
-) -> tuple[SourceRequest, Trade, str]:
+) -> tuple[SourceRequest, MarketEventRecord, str]:
     """Read a bounded saved frame, compose the decoders and bind its source request.
 
     Args:
@@ -288,29 +291,14 @@ def inspect_fixture(
     if not line or "\n" in line or "\r" in line:
         raise ValueError("fixture must contain exactly one nonblank trade frame")
     digest = hashlib.sha256(payload).hexdigest()
-    decoder = TardisDecoder(
-        BinancePayloadDecoder(manifest.instruments), source_id=manifest.instruments[0].source
-    )
-    event = decoder.decode_line(
+    decoder = SourceAdapters.fixture(manifest)
+    request, event = decoder.decode(
         line,
         source_sequence=source_sequence,
         local_received=local_received,
         local_ingested=local_ingested,
         source_digest=digest,
     )
-    if not isinstance(event, Trade):
-        raise ValueError("configured stream is trade; fixture contains a different event kind")
-    capture = event.provenance.ts_source_received
-    if capture is None or not manifest.job.start <= capture < manifest.job.end:
-        raise ValueError("fixture capture timestamp is outside the configured half-open interval")
-    request = SourceRequest(
-        manifest=manifest,
-        instrument=next(
-            item for item in manifest.instruments if item.instrument_id == event.instrument_id
-        ),
-        offset_minutes=(capture - manifest.job.start) // timedelta(minutes=1),
-    )
-    MarketEventCodec.validate(event)
     return request, event, digest
 
 
@@ -321,9 +309,10 @@ class _DatasetArguments(argparse.Namespace):
     store: Path
     snapshots: Path
     max_bytes: int
-    manifests: list[Path]
-    policy: Path
-    eligibility: Path
+    manifests: list[Path] | None
+    inputs: list[Path] | None
+    policy: Path | None
+    eligibility: Path | None
     correction: list[list[str]]
     snapshot_id: str
 
@@ -365,6 +354,20 @@ class _DatasetOutput:
             reasons=report.reasons,
         )
 
+    def publication(
+        self, status: Literal["started", "complete"], manifest: DatasetManifest
+    ) -> None:
+        """Report the candidate before persistence and acknowledge verified durable completion."""
+        self.stage = "publish"
+        self.snapshot_id = manifest.identity
+        if status == "started":
+            self.emit("started", partitions=len(manifest.partitions))
+        else:
+            self.emit("persisted")
+            self.emit(
+                "complete", scope=manifest.scope, partitions=len(manifest.partitions), exit_code=0
+            )
+
 
 def dataset_main(argv: list[str] | None = None) -> int:
     """Publish saved acquisitions or inspect an explicitly selected immutable snapshot.
@@ -391,9 +394,11 @@ def dataset_main(argv: list[str] | None = None) -> int:
             command.add_argument(f"--{option}", type=Path, required=True)
         command.add_argument("--max-bytes", type=int, required=True)
         if action == "publish":
-            command.add_argument("--manifests", type=Path, nargs="+", required=True)
+            selection = command.add_mutually_exclusive_group(required=True)
+            selection.add_argument("--manifests", type=Path, nargs="+")
+            selection.add_argument("--inputs", type=Path, nargs="+")
             for option in ("policy", "eligibility"):
-                command.add_argument(f"--{option}", type=Path, required=True)
+                command.add_argument(f"--{option}", type=Path)
             command.add_argument(
                 "--correction", nargs=2, action="append", default=list[list[str]]()
             )
@@ -405,63 +410,57 @@ def dataset_main(argv: list[str] | None = None) -> int:
         if args.max_bytes <= 0:
             raise ValueError("max_bytes must be positive")
         raw = RawStore(args.store)
-        snapshots = SnapshotStore(args.snapshots, raw)
         output.emit("started", action=args.action)
         if args.action == "publish":
-            policy = args.read(args.policy, QualityPolicy)
-            eligibility = args.read(args.eligibility, EligibilityAssertions)
-            corrections: dict[str, tuple[Correction, ...]] = {}
-            for run_identity, path in args.correction:
-                corrections[run_identity] = (
-                    *corrections.get(run_identity, ()),
-                    args.read(Path(path), Correction),
-                )
+            policy: QualityPolicy | None = None
+            eligibility: EligibilityAssertions | None = None
+            corrections: dict[str, tuple[Correction, ...]] | None = None
+            if args.inputs is not None:
+                if args.policy is not None or args.eligibility is not None or args.correction:
+                    raise ValueError("--inputs retains its own policy, eligibility and corrections")
+            else:
+                if args.policy is None or args.eligibility is None or args.manifests is None:
+                    raise ValueError("--manifests requires --policy and --eligibility")
+                policy = args.read(args.policy, QualityPolicy)
+                eligibility = args.read(args.eligibility, EligibilityAssertions)
+                corrections = {}
+                for run_identity, path in args.correction:
+                    corrections[run_identity] = (
+                        *corrections.get(run_identity, ()),
+                        args.read(Path(path), Correction),
+                    )
             output.stage = "normalize"
             output.emit("started")
-            acquisitions = [args.read(path, AcquisitionManifest) for path in args.manifests]
-            unique = {DomainCodec().encode_json(item): item for item in acquisitions}
-            for left, right in combinations(unique.values(), 2):
-                if (
-                    left.run.job.start < right.run.job.end
-                    and right.run.job.start < left.run.job.end
-                    and {item.instrument_id for item in left.run.instruments}
-                    & {item.instrument_id for item in right.run.instruments}
-                ):
-                    raise ValueError("overlapping acquisitions require identical saved manifests")
-            manifest, payloads = assemble_dataset(
-                tuple(unique.values()),
+            acquisitions: tuple[DatasetInput, ...] | tuple[AcquisitionManifest, ...]
+            if args.inputs is not None:
+                acquisitions = tuple(args.read(path, DatasetInput) for path in args.inputs)
+            elif args.manifests is not None:
+                acquisitions = tuple(
+                    args.read(path, AcquisitionManifest) for path in args.manifests
+                )
+            else:
+                raise ValueError("publication requires explicit saved inputs")
+            publish_dataset(
+                acquisitions,
                 raw,
+                args.snapshots,
                 max_bytes=args.max_bytes,
                 policy=policy,
                 eligibility=eligibility,
                 corrections=corrections,
                 report=output.quality,
+                progress=output.publication,
             )
-            output.snapshot_id = manifest.identity
-            output.stage = "publish"
-            output.emit("started", partitions=len(manifest.partitions))
-            snapshots.publish(manifest, payloads, max_bytes=args.max_bytes)
-            output.emit("persisted")
         else:
             output.snapshot_id = args.snapshot_id
-        output.stage = "reopen"
-        output.emit("started")
-        manifest = snapshots.read(output.snapshot_id, max_bytes=args.max_bytes)
-        if args.action == "inspect":
-            for part in manifest.partitions:
-                outcome = validate_saved_partition(
-                    part.acquisition,
-                    raw,
-                    max_bytes=args.max_bytes,
-                    policy=part.policy,
-                    eligibility=part.eligibility,
-                    corrections=part.corrections,
-                )
-                output.quality(part.acquisition.run.identity, outcome)
-                outcome.require_canonical()
-        output.emit(
-            "complete", scope=manifest.scope, partitions=len(manifest.partitions), exit_code=0
-        )
+            output.stage = "reopen"
+            output.emit("started")
+            manifest = SnapshotStore(args.snapshots, raw).read(
+                args.snapshot_id, max_bytes=args.max_bytes, report=output.quality
+            )
+            output.emit(
+                "complete", scope=manifest.scope, partitions=len(manifest.partitions), exit_code=0
+            )
     except (Exception, KeyboardInterrupt) as error:
         status = 2 if output.stage == "configuration" else 3
         if isinstance(error, OSError) or not isinstance(error, (ValueError, TypeError)):

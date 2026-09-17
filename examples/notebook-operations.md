@@ -138,11 +138,14 @@ they do not change what a source proves about the market.
 | Download failures | Offline lab, section 13 | [MR 05](../docs/roadmap/mr-05-implementation.md) |
 | Resuming collection | Offline lab, sections 14–15 | [MR 06](../docs/roadmap/mr-06-implementation.md), [MR 07](../docs/roadmap/mr-07-implementation.md) |
 | Equal-time rows, empty content and missing archives | Offline lab, section 16 | [MR 08](../docs/roadmap/mr-08-implementation.md) |
-| Decoded trades, raw origins and independent control scopes | Primary notebook, section 9 | [MR 09](../docs/roadmap/mr-09-implementation.md) |
-| Economic duplicates, correction clocks and earlier versions | Primary notebook, section 10 | [MR 10](../docs/roadmap/mr-10-implementation.md) |
+| Separate dataset inputs, duplicates and quality scope | Primary notebook, sections 5–6; [dataset tests](../tests/unit/data/test_datasets.py) | [MR 09](../docs/roadmap/mr-09-implementation.md), [MR 13](../docs/roadmap/mr-13-implementation.md), [MR 14](../docs/roadmap/mr-14-implementation.md) |
+| Atomic publication and installed commands | Primary notebook, section 6; [snapshot tests](../tests/unit/data/test_snapshots.py) | [MR 15](../docs/roadmap/mr-15-implementation.md), [MR 16](../docs/roadmap/mr-16-implementation.md) |
+| Corrections, membership and cutoff selection | Primary notebook, section 7; [as-of tests](../tests/unit/data/test_asof.py) | [MR 10](../docs/roadmap/mr-10-implementation.md), [MR 12](../docs/roadmap/mr-12-implementation.md), [MR 17](../docs/roadmap/mr-17-implementation.md) |
 
-The numbered checkpoints and fixed synthetic examples remain intact. New activity
-notebooks should grow from working research needs; do not create empty fetching,
+Historical checkpoint records below describe the notebook at each tested revision.
+The current primary notebook combines NB 09–17 into sections 5–7; fixed fixtures and
+engineering tests retain the detailed cases. New activity notebooks should grow
+from working research needs; do not create empty fetching,
 EDA, strategy or monitoring notebooks to represent planned capabilities.
 
 ## Researcher guide verification
@@ -313,3 +316,28 @@ the earlier captured price before a late correction becomes available. It displa
 unevidenced-conflict, missing-reference, invalid-clock and non-trade failures.
 These assertions are synthetic and do not establish empirical revision history.
 MR 11 is next; quality, snapshots and shared as-of queries remain future work.
+
+
+## Connected dataset walkthrough verification
+
+On 2026-09-17 the primary notebook was condensed from **69 cells / 29 code cells**
+to **29 cells / 15 code cells** (1,647 to 604 code lines). It retains the saved book
+exploration and combines NB 09–17 into per-input evidence, publication, verified
+reading and cutoff selection. The other maintained notebooks and P1 are unchanged.
+
+The existing runner passed every cell in a fresh CPython 3.14.7 kernel, with the
+same explicit OKX and Bitfinex directories shown above. It verified all **72 installed
+runtime files** against the working candidate based on `3deb34b966adf1f66e4eb79551375283c45300f0`.
+No source access or new book acquisition occurred. Final attempt:
+`06e4bde5-aa91-41a7-bb38-1d94aadfe4fb`; notebook source SHA-256:
+`f6aee23f52ea2c243e340f6995aa86ef62f4db71486216bdf4f5d419d2a5d7bb`.
+The working notebook and ignored run snapshot retain the execution and runtime
+identities. Synthetic files are removed by the notebook's final cell.
+
+The earlier condensation attempt `f4a9c0e7-532c-4115-ab48-74cd4b32be4e` failed when
+the shortened disconnect example appended a record after capture end. The example
+now reconstructs up to that boundary before injecting the gap; the failed run is
+retained separately. Final checks passed notebook schema, syntax, sequential
+execution, source digest, saved-run equality, 56 local links, Ruff lint/format and
+the architecture link check. Detailed runtime regressions remain in the test suite;
+this walkthrough does not add LOB publication or empirical historical evidence.

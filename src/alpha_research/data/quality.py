@@ -12,14 +12,11 @@ from typing import ClassVar, Literal
 # project library imports
 from alpha_research.data.eligibility import EligibilityAssertion, EligibilityAssertions
 from alpha_research.data.events import Disconnect, MarketEventRecord
+from alpha_research.data.inputs import OccurrenceVerifier
 from alpha_research.data.normalization import Occurrence
-from alpha_research.data.providers.binance.rows import ArchiveRow
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.providers.tardis.decoder import TardisDecoder
+from alpha_research.data.providers.catalog import SourceAdapters
 from alpha_research.data.requests import SourceRequest
 from alpha_research.data.revisions import Correction, TradeRevision
-from alpha_research.data.venues.binance.events import DepthSnapshot, DepthUpdate, Trade
-from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
 from alpha_research.reference_data import _ReferenceRecord
 from alpha_research.serialization import DomainCodec
 
@@ -143,17 +140,12 @@ class QualityPolicy(_ReferenceRecord, frozen=True, kw_only=True):
         order: dict[str, tuple[int, int, datetime]] = {}
         times: set[datetime] = {start, end}
         invalid_count = 0
-        decoder = (
-            TardisDecoder(
-                BinancePayloadDecoder(request.manifest.instruments), request.instrument.source
-            )
-            if request.manifest.job.provider == "tardis"
-            else None
-        )
+        unknown_availability = False
+        verifier = SourceAdapters.verifier(request)
         try:
             for index, item in enumerate(occurrences):
                 try:
-                    instant = self._check_occurrence(item, request, decoder)
+                    instant, knowledge = self._check_occurrence(item, request, verifier)
                     if not start <= instant < end and not (
                         isinstance(item.event, Disconnect) and instant == end
                     ):
@@ -172,6 +164,8 @@ class QualityPolicy(_ReferenceRecord, frozen=True, kw_only=True):
                     order[item.origin.sha256] = key
                     retained[identity] = item
                     times.add(instant)
+                    if not isinstance(item.event, Disconnect) and knowledge is None:
+                        unknown_availability = True
                 except (ValueError, TypeError, OverflowError) as error:
                     invalid_count += 1
                     errors.append(f"input {index}: {error}")
@@ -214,11 +208,7 @@ class QualityPolicy(_ReferenceRecord, frozen=True, kw_only=True):
         for left, right, selected in membership:
             if not isinstance(selected, EligibilityAssertion) or selected.state != "included":
                 reasons.append(f"eligibility {left.isoformat()}..{right.isoformat()}: {selected}")
-        if any(
-            item.event.ts_knowledge is None
-            for item in trades
-            if isinstance(item.event, ArchiveTrade)
-        ):
+        if unknown_availability:
             reasons.append("original trade availability unknown")
         versions = {TradeRevision(occurrences=(item,)).identity for item in trades}
         duplicate_count = len(trades) - len(versions)
@@ -251,53 +241,20 @@ class QualityPolicy(_ReferenceRecord, frozen=True, kw_only=True):
     def _check_occurrence(
         item: Occurrence,
         request: SourceRequest,
-        decoder: TardisDecoder[Trade | DepthSnapshot | DepthUpdate] | None,
-    ) -> datetime:
+        verifier: OccurrenceVerifier,
+    ) -> tuple[datetime, datetime | None]:
         """Re-decode original bytes to reject altered units, values or retroactive clocks."""
         if type(item) is not Occurrence:
             raise TypeError("quality requires an Occurrence")
         item.__post_init__()
         if item.request.identity != request.identity:
             raise ValueError("occurrence differs from selected partition/instrument/units")
+        instant, knowledge = verifier.check(item)
         event = item.event
-        if isinstance(event, ArchiveTrade):
-            original = ArchiveTrade.from_row(
-                ArchiveRow(
-                    origin=item.origin,
-                    position=item.position,
-                    payload=item.raw,
-                    selection_start=request.manifest.job.start,
-                    selection_end=request.manifest.job.end,
-                ),
-                request,
-            )
-            if original != event:
-                raise ValueError("canonical archive event differs from original bytes")
-            instant = event.ts_event
-        else:
-            if decoder is None:
-                raise ValueError("captured event requires its source decoder")
-            original_capture = decoder.decode_line(
-                item.raw.decode().removesuffix("\n").removesuffix("\r"),
-                source_sequence=item.position,
-                local_received=item.origin.ts_received,
-                local_ingested=item.origin.ts_ingested,
-                source_digest=item.origin.sha256,
-                disconnect_capture_time=event.provenance.ts_source_received,
-                disconnect_capture_reason=event.capture_proxy_reason
-                if isinstance(event, Disconnect)
-                else "next_source_capture",
-            )
-            if original_capture != event:
-                raise ValueError("canonical capture differs from original bytes/clocks")
-            capture = event.provenance.ts_source_received
-            if capture is None:
-                raise ValueError("captured occurrence has no source capture")
-            instant = capture
         if not isinstance(event, Disconnect):
             MarketEventRecord._validate_decimal(
                 event.quantity, field_name="trade quantity", allow_zero=False
             )
             if (Fraction(event.price) / Fraction(request.instrument.price_tick)).denominator != 1:
                 raise ValueError("trade price is off the authored instrument tick grid")
-        return instant
+        return instant, knowledge

@@ -18,6 +18,7 @@ import pytest
 # project library imports
 from alpha_research.configuration import Configuration
 from alpha_research.data.venues.binance.codecs import MarketEventCodec
+from alpha_research.data.venues.binance.events import Trade
 from alpha_research.pipelines.dataset import inspect_fixture, main
 from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
@@ -53,6 +54,7 @@ class TestFixtureInspection:
         request, event, digest = inspect_fixture(
             manifest, fixture, local_received=_RECEIVED, local_ingested=_INGESTED, source_sequence=4
         )
+        assert isinstance(event, Trade)
         assert event.symbol == symbol
         assert event.price == Decimal(price)
         assert request.instrument.instrument_id == event.instrument_id

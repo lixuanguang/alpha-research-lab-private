@@ -15,6 +15,7 @@ from msgspec.structs import replace
 
 # project library imports
 from alpha_research.configuration import Configuration
+from alpha_research.data.datasets import DatasetInput
 from alpha_research.data.eligibility import EligibilityAssertions
 from alpha_research.data.manifests import AcquisitionManifest
 from alpha_research.data.quality import QualityPolicy
@@ -23,7 +24,7 @@ from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
 from alpha_research.data.revisions import Correction, TradeRevision
 from alpha_research.data.snapshots import SnapshotStore
-from alpha_research.pipelines.dataset import dataset_main, iter_occurrences
+from alpha_research.pipelines.dataset import dataset_main, iter_occurrences, publish_dataset
 from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
 
@@ -135,7 +136,6 @@ class TestDatasetCommand:
             "validated",
             "started",
             "persisted",
-            "started",
             "complete",
         ]
         identity = str(records[-1]["snapshot_id"])
@@ -154,6 +154,59 @@ class TestDatasetCommand:
             next(row for row in inspected if row["status"] == "validated")["duplicate_count"] == 1
         )
         assert inspected[-1]["snapshot_id"] == identity
+
+    def test_per_input_evidence_matches_python_publication(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Use the same ordered inputs and publication contract through Python and the CLI."""
+        arguments = self._inputs(tmp_path)
+        self._inputs(tmp_path, symbol="ETHUSDT")
+        policy = _CODEC.decode_json((tmp_path / "policy.json").read_bytes(), QualityPolicy)
+        history = _CODEC.decode_json(
+            (tmp_path / "eligibility.json").read_bytes(), EligibilityAssertions
+        )
+        selected = tuple(
+            DatasetInput(
+                acquisition=_CODEC.decode_json(
+                    (tmp_path / f"{symbol}.json").read_bytes(), AcquisitionManifest
+                ),
+                policy=replace(policy, max_gap=timedelta(minutes=30 + index)),
+                eligibility=history,
+            )
+            for index, symbol in enumerate(("BTCUSDT", "ETHUSDT"))
+        )
+        paths = []
+        for index, item in enumerate(selected):
+            path = tmp_path / f"input-{index}.json"
+            path.write_bytes(_CODEC.encode_json(item))
+            paths.append(str(path))
+        command = [*arguments[: arguments.index("--policy")], "--inputs", *paths]
+        assert dataset_main(command) == 0
+        identity = str(self._records(capsys.readouterr().out)[-1]["snapshot_id"])
+        assert (
+            publish_dataset(
+                (*selected, selected[0]),
+                RawStore(tmp_path / "raw"),
+                tmp_path / "snapshots",
+                max_bytes=_LIMIT,
+            )
+            == identity
+        )
+        manifest = SnapshotStore(tmp_path / "snapshots", RawStore(tmp_path / "raw")).read(
+            identity, max_bytes=_LIMIT
+        )
+        assert tuple(part.policy for part in manifest.partitions) == tuple(
+            item.policy for item in selected
+        )
+        assert dataset_main([*command, "--policy", str(tmp_path / "policy.json")]) == 2
+        assert "retains its own" in capsys.readouterr().err
+        with pytest.raises(ValueError, match="overlapping acquisitions"):
+            publish_dataset(
+                (selected[0], replace(selected[0], policy=selected[1].policy)),
+                RawStore(tmp_path / "raw"),
+                tmp_path / "snapshots",
+                max_bytes=_LIMIT,
+            )
 
     def test_second_instrument_and_late_failure_expose_no_prefix(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

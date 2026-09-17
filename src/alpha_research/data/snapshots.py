@@ -7,12 +7,14 @@ import errno
 import os
 import re
 import stat
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import ClassVar
 
 # project library imports
 from alpha_research.data.datasets import DatasetManifest
+from alpha_research.data.quality import QualityReport
 from alpha_research.data.raw_store import RawStore
 from alpha_research.serialization import DomainCodec
 
@@ -81,12 +83,21 @@ class SnapshotStore:
         self._sync_directory(self._root)
         return identity
 
-    def read(self, identity: str, *, max_bytes: int) -> DatasetManifest:
+    def read(
+        self,
+        identity: str,
+        *,
+        max_bytes: int,
+        report: Callable[[str, QualityReport], None] | None = None,
+    ) -> DatasetManifest:
         """Reopen a complete snapshot by explicit content identity, never a mutable tag.
 
         Args:
             identity: Independently retained lowercase dataset SHA-256.
             max_bytes: Positive per-file limit for manifest, canonical and raw bytes.
+            report: Optional synchronous sink for verified partition quality, using the
+                admission already reproduced during this read. Failures propagate and
+                no whole-snapshot success follows unless every partition verifies.
 
         Returns:
             Manifest after every referenced canonical and raw input verifies.
@@ -97,9 +108,16 @@ class SnapshotStore:
         """
         if type(identity) is not str or re.fullmatch(r"[0-9a-f]{64}", identity) is None:
             raise ValueError("snapshot requires an explicit lowercase SHA-256 identity")
-        return self._read(self._root / identity, identity, max_bytes)
+        return self._read(self._root / identity, identity, max_bytes, report=report)
 
-    def _read(self, directory: Path, identity: str, max_bytes: int) -> DatasetManifest:
+    def _read(
+        self,
+        directory: Path,
+        identity: str,
+        max_bytes: int,
+        *,
+        report: Callable[[str, QualityReport], None] | None = None,
+    ) -> DatasetManifest:
         """Verify staging or published bytes through the existing manifest boundary."""
         if not stat.S_ISDIR(directory.lstat().st_mode):
             raise ValueError("snapshot must be a directory, not a symlink")
@@ -112,6 +130,7 @@ class SnapshotStore:
             partitions=directory,
             store=self._raw,
             max_bytes=max_bytes,
+            report=report,
         )
 
     @staticmethod
