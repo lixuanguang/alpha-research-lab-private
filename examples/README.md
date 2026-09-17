@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-17 for the connected dataset walkthrough after MR 17.
+Owner: repository founder. Updated 2026-09-17 for MR 19 bounded reference queries.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has seven sections:
+The current notebook has eight sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -95,6 +95,7 @@ The current notebook has seven sections:
 | 5: dataset inputs | Bind each saved acquisition to its own policy and eligibility history with `DatasetInput`. The example uses two synthetic trade inputs; assembly preserves separate partitions. |
 | 6: publication and verification | Call `publish_dataset`, reopen by explicit snapshot ID, check CLI/Python parity and compare identities after changing one input's policy. Unknown archive availability remains unavailable to cutoff selection. |
 | 7: cutoff selection | Use a captured synthetic trade to show the original price, a late correction at its availability boundary and a later membership change, while retaining earlier query results. |
+| 8: bounded query batches | Project prices with scoped controls and quality evidence, compare late corrections, retain replay chains, and exercise cancellation and required refusals. |
 
 The generic composition boundary is in place. Installed saved-input publication
 currently supports trade archives; actual LOB adapters are planned for MR 25.
@@ -144,6 +145,7 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Preserve a completed dataset across interrupted later builds | MR 15 publishes one atomic local snapshot and reopens by explicit ID, with retained raw inputs and unchanged degraded quality. |
 | Inspect publication through an installed dataset command | MR 16 publishes saved acquisitions and reopens an explicit ID, reporting degraded quality, invalid/gap/duplicate counts and persistence status. |
 | Select the revisions knowable at a cutoff | Section 7 uses the installed as-of selector, showing late correction and eligibility boundaries; detailed ordering/control cases remain in the tests. Unknown archive knowledge remains unavailable; full quality/history stays separate from selected events. |
+| Consume bounded price batches with query identity | MR 19 supplies a reference reader with an explicit aggregate canonical-byte budget, mandatory scoped controls/quality and distinct cutoff/history modes. Batch size bounds output rows; it does not bound total process memory. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |
 
 ## A useful way to work through a notebook
@@ -198,10 +200,11 @@ records fresh executions and limitations for these examples. The earlier
 [presentation verification](notebook-operations.md#researcher-guide-verification)
 is retained as historical evidence.
 
-MR 17 adds a network-free point-event exercise in section 17 of the main notebook.
-Start with the retained synthetic captures and explicit published snapshot ID;
-compare prices before publication, at availability and after a membership correction,
-then inspect boundary controls and required failures. The
-[MR 17 record](../docs/roadmap/mr-17-implementation.md) retains execution evidence.
-The next useful capability is MR 19 bounded queries, after MR 17 merges; a new
-query backend (MR 18) requires a measured need. Neither is implemented here.
+MR 19 adds the network-free query exercise in section 8. Start with the explicit
+published snapshot ID, then compare the captured synthetic prices before and after
+correction availability. Inspect the BTC disconnect in a price-only projection and
+the retained original/correction chain after membership withdrawal. The
+[MR 19 record](../docs/roadmap/mr-19-implementation.md) retains execution evidence,
+measured memory/read counts and the reference reader's aggregate-input limit.
+The next useful capability is MR 20 shared event stepping. A new query backend
+(MR 18) remains conditional on a measured need; neither is implemented here.
