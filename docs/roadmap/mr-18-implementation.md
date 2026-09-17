@@ -68,3 +68,43 @@ This workload cannot qualify depth analytics, concurrency, sustained ingestion,
 implementation changes are planned for a deferral. Reversal removes the benchmark
 and record; existing snapshots remain readable. Stop after MR 18; next is
 **MR 20 — Replay with shared event stepping**.
+
+### Reference failure and bounded candidate protocol
+
+The first reference open took **155.167771 s**, with **1,261,649,920 bytes** peak RSS.
+The first minute-history query took **85.890403 s**, returning **1,236 rows / 5 batches**,
+and raised process high-water RSS to **1,267,417,088 bytes**. Memory alone violates
+the fixed acceptance rule. Remaining timing repetitions were interrupted (exit 130)
+during the first hour-history query to avoid an already-disqualified, roughly
+45-minute repetition plan. This is an explicit protocol deviation; no completed
+reference p95 or warm-performance claim is made. A separate instrumentation run
+still consumes all three queries and retains actual read counts and result identities.
+
+Before candidate measurement, select **DuckDB 1.5.5 + ZSTD Parquet**, one file for
+this one partition, source-position order, 2,048-row groups, one engine thread,
+512 MiB engine memory setting (not a process RSS limit). Retain each complete revision
+JSON plus exact VARCHAR price/quantity and a UTC timestamp index. The native scan
+experiment reads/decodes full revision payloads in 256-row batches, validates exact
+projection and revision codec round trips, and fingerprints output in source order.
+Use the same minute/hour windows and thirty observations each (three fresh processes,
+ten repetitions); instrument native scan bytes separately with DuckDB's profiler.
+Measure conversion separately. Cutoff/control/eligibility selection is **not**
+implemented in this storage experiment, so it cannot replace `QueryReader` by itself.
+
+The hypothesis is that a compact columnar representation reduces storage/read cost
+and makes the selected exact history scans feasible. Fast native scans alone are
+insufficient: the full verified input/semantic contract, including source verification,
+revisions, eligibility, controls, immutable identity and recovery, must fit the budget
+before backend admission. Preserve the existing verified reader as the conservative
+end-to-end boundary; its known memory cost cannot be subtracted from candidate
+qualification. No dependency is added to runtime metadata or the lock for this
+pre-admission experiment. Broader validation redesign is not silently accepted as
+part of a scan benchmark.
+
+The [DuckDB Python API](https://duckdb.org/docs/stable/clients/python/overview),
+[Parquet documentation](https://duckdb.org/docs/current/data/parquet/overview) and
+[conversion rules](https://duckdb.org/docs/current/clients/python/conversion) were
+checked on 2026-09-17. Dependency admission would additionally require the repository's
+[artifact/license/platform/source and vulnerability checks](../architecture/dependency-admission.md),
+plus maintained adapter typing and cross-platform installed parity. A single-user
+trade workload supplies no reason to introduce ClickHouse or a service here.
