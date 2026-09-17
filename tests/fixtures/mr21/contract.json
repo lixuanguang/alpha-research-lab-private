@@ -1,0 +1,29 @@
+{
+  "family": "synthetic_future",
+  "instrument_id": "33333333-3333-4333-8333-333333333333",
+  "economic_root": "44444444-4444-4444-8444-444444444444",
+  "quantity": {
+    "value": "2",
+    "dimension": {
+      "instrument_id": {
+        "uuid_value": "33333333-3333-4333-8333-333333333333"
+      },
+      "kind": "contract"
+    }
+  },
+  "price": {
+    "value": "4200.25",
+    "currency": {
+      "code": "USD",
+      "minor_unit": "0.01"
+    },
+    "per": {
+      "instrument_id": {
+        "uuid_value": "33333333-3333-4333-8333-333333333333"
+      },
+      "kind": "base_unit"
+    }
+  },
+  "units_per_contract": "50",
+  "ts_knowledge": "2024-06-01T00:00:10Z"
+}

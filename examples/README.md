@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-17 for MR 20 shared event stepping.
+Owner: repository founder. Updated 2026-09-18 for MR 21 configured EDA and extension boundaries.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has ten sections:
+The current notebook has eleven sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -98,6 +98,7 @@ The current notebook has ten sections:
 | 8: bounded query batches | Project prices with scoped controls and quality evidence, compare late corrections, retain replay chains, and exercise cancellation and required refusals. |
 | 9: measured query workload | Recompute the MR 18 decision from retained installed measurements of 27,480 permitted trade observations; distinguish these measurements from synthetic correctness examples. |
 | 10: chronological replay | Step the retained original, gap and correction at their availability; compare batches, inspect phase order, resume a serialized cursor and reject incompatible checkpoints. |
+| 11: configured EDA | Select six synthetic revisions across two instruments, retain exact summaries and attempt observations, plot the three-second business interval and inspect standalone replay. Exercise a synthetic contract projection and unsupported capability refusals. |
 
 The generic composition boundary is in place. Installed saved-input publication
 currently supports trade archives; actual LOB adapters are planned for MR 25.
@@ -214,5 +215,16 @@ The original reader exceeded the accepted offline memory and latency budgets. A
 bounded Parquet experiment and reference admission-reuse candidate are measured
 separately; the record owns the final backend decision and its limits. The notebook
 uses retained timing evidence and runs its synthetic contract/failure cases afresh.
-It does not require a new Binance download or a DuckDB installation. The next useful
-capability is MR 20 shared event stepping; it is not implemented here.
+It does not require a new Binance download or a DuckDB installation. MR 20 shared
+stepping is exercised in section 10. Section 11 adds MR 21 configured
+EDA through the same installed libraries and a fresh standalone consumer. It retains
+query/summary identities, per-instrument counts and price ranges, query/total duration,
+process peak RSS and OS input-block observations. The consumer separately counts
+actual snapshot/raw file opens; zero OS blocks can reflect caching. This tiny example
+is not a performance qualification.
+
+The explicit synthetic future fixture uses contract units and a 50-unit multiplier
+at the neutral projection boundary. It grants no derivative snapshot, lifecycle,
+valuation or execution support. The [MR 21 record](../docs/roadmap/mr-21-implementation.md)
+retains installed and notebook evidence and exact refusals. Next roadmap work is
+MR 22 after MR 21 merges; it is not started here.
