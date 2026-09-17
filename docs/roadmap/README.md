@@ -11,7 +11,9 @@ through PR #45; columnar backend admission is explicitly deferred for that workl
 MR 20's [shared stepping and cursor](mr-20-implementation.md) merged through
 [PR #46](https://github.com/lixuanguang/alpha-research-lab-private/pull/46).
 MR 21's [configured EDA and extension exercise](mr-21-implementation.md) is
-implemented locally for review; hosted merge acceptance remains pending.
+implemented and locally verified;
+[PR #47](https://github.com/lixuanguang/alpha-research-lab-private/pull/47)
+tracks hosted merge acceptance.
 MRs 22–62 and R1 remain planned except the bounded
 [crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
 MRs 22–27. No M1–M7 completion or P1 result is claimed.

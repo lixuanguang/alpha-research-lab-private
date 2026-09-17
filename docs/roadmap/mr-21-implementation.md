@@ -5,7 +5,8 @@ Owner: repository founder. Status: implemented and locally verified for review o
 updated `main` at `f8ef338`. Prerequisites MR 19 (`0898d0a`, PR #44) and MR 20
 (`f8ef338`, PR #46) are merged ancestors. The [roadmap row](README.md#m2-research-data-access-and-replay)
 owns scope; this record describes the tested candidate and its limitations.
-Hosted full CI and merge remain pending.
+[PR #47](https://github.com/lixuanguang/alpha-research-lab-private/pull/47)
+retains the hosted checks and merge status. Tested implementation: `900a0a5`.
 
 ## Problem / change
 
