@@ -6,9 +6,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
-from collections.abc import Generator, Mapping
+from collections.abc import Callable, Generator, Mapping
 from contextlib import closing
 from datetime import datetime, timedelta
+from itertools import combinations
 from pathlib import Path
 from typing import Literal
 
@@ -92,6 +93,7 @@ def assemble_dataset(
     policy: QualityPolicy,
     eligibility: EligibilityAssertions,
     corrections: Mapping[str, tuple[Correction, ...]],
+    report: Callable[[str, QualityReport], None] | None = None,
 ) -> tuple[DatasetManifest, tuple[bytes, ...]]:
     """Admit saved partitions and assemble their manifest without publishing files.
 
@@ -103,6 +105,8 @@ def assemble_dataset(
         eligibility: Complete retained eligibility history matching the selected catalog.
         corrections: Evidence by resolved acquisition run identity; use an empty mapping
             when there are no corrections. Unknown mapping keys fail before reading.
+        report: Optional synchronous sink called with each run identity and quality outcome
+            before its publication gate. Sink failures propagate without publication.
 
     Returns:
         Manifest and corresponding canonical bytes, only after every partition passes.
@@ -117,14 +121,17 @@ def assemble_dataset(
     payloads: list[bytes] = []
     for acquisition in acquisitions:
         evidence = corrections.get(acquisition.run.identity, ())
-        canonical = validate_saved_partition(
+        outcome = validate_saved_partition(
             acquisition,
             store,
             max_bytes=max_bytes,
             policy=policy,
             eligibility=eligibility,
             corrections=evidence,
-        ).require_canonical()
+        )
+        if report is not None:
+            report(acquisition.run.identity, outcome)
+        canonical = outcome.require_canonical()
         partitions.append(
             DatasetPartition(
                 sha256=hashlib.sha256(canonical).hexdigest(),
@@ -305,6 +312,172 @@ def inspect_fixture(
     )
     MarketEventCodec.validate(event)
     return request, event, digest
+
+
+class _DatasetArguments(argparse.Namespace):
+    """Type explicit saved inputs and enforce bounded strict file decoding."""
+
+    action: str
+    store: Path
+    snapshots: Path
+    max_bytes: int
+    manifests: list[Path]
+    policy: Path
+    eligibility: Path
+    correction: list[list[str]]
+    snapshot_id: str
+
+    def read[T](self, path: Path, target: type[T]) -> T:
+        """Read one required input without treating absence as an empty acquisition."""
+        with path.open("rb") as source:
+            payload = source.read(self.max_bytes + 1)
+        if len(payload) > self.max_bytes:
+            raise ValueError(f"{path.name} exceeds max_bytes")
+        return DomainCodec().decode_json(payload, target)
+
+
+class _DatasetOutput:
+    """Emit flushed command progress without serializing canonical observations."""
+
+    def __init__(self) -> None:
+        """Initialize attempt-local progress; an unacknowledged ID is only a candidate."""
+        self.stage: str = "configuration"
+        self.snapshot_id: str | None = None
+
+    def emit(self, status: str, **fields: object) -> None:
+        """Write a safe JSON record to the status-appropriate stream."""
+        record = {"stage": self.stage, "status": status, "snapshot_id": self.snapshot_id, **fields}
+        print(
+            DomainCodec().encode_json(record).decode(),
+            file=sys.stderr if status in {"failed", "interrupted"} else sys.stdout,
+            flush=True,
+        )
+
+    def quality(self, run_identity: str, report: QualityReport) -> None:
+        """Expose each complete or rejected partition's counts and evidence limitations."""
+        self.emit(
+            "rejected" if report.scope == "rejected" else "validated",
+            run_identity=run_identity,
+            scope=report.scope,
+            invalid_count=report.invalid_count,
+            gap_count=report.gap_count,
+            duplicate_count=report.duplicate_count,
+            reasons=report.reasons,
+        )
+
+
+def dataset_main(argv: list[str] | None = None) -> int:
+    """Publish saved acquisitions or inspect an explicitly selected immutable snapshot.
+
+    Args:
+        argv: Command arguments, or process arguments when omitted. Publish accepts
+            complete single-partition manifests; exact repeated manifests are reused.
+            Correction pairs bind one strict evidence file to its retained run identity.
+
+    Returns:
+        Zero only after verified reopening, two for configuration, three for admission,
+        four for I/O/unexpected failure, or 130 for interruption. Failed publication can
+        leave a complete visible snapshot; retry the same command to acknowledge it.
+
+    Raises:
+        SystemExit: Argparse handles help or invalid syntax.
+        OSError: An unwritable terminal report propagates.
+    """
+    parser = argparse.ArgumentParser(description=__doc__, prog="alpha-dataset")
+    commands = parser.add_subparsers(dest="action", required=True)
+    for action in ("publish", "inspect"):
+        command = commands.add_parser(action)
+        for option in ("store", "snapshots"):
+            command.add_argument(f"--{option}", type=Path, required=True)
+        command.add_argument("--max-bytes", type=int, required=True)
+        if action == "publish":
+            command.add_argument("--manifests", type=Path, nargs="+", required=True)
+            for option in ("policy", "eligibility"):
+                command.add_argument(f"--{option}", type=Path, required=True)
+            command.add_argument(
+                "--correction", nargs=2, action="append", default=list[list[str]]()
+            )
+        else:
+            command.add_argument("--snapshot-id", required=True)
+    args = parser.parse_args(argv, namespace=_DatasetArguments())
+    output = _DatasetOutput()
+    try:
+        if args.max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
+        raw = RawStore(args.store)
+        snapshots = SnapshotStore(args.snapshots, raw)
+        output.emit("started", action=args.action)
+        if args.action == "publish":
+            policy = args.read(args.policy, QualityPolicy)
+            eligibility = args.read(args.eligibility, EligibilityAssertions)
+            corrections: dict[str, tuple[Correction, ...]] = {}
+            for run_identity, path in args.correction:
+                corrections[run_identity] = (
+                    *corrections.get(run_identity, ()),
+                    args.read(Path(path), Correction),
+                )
+            output.stage = "normalize"
+            output.emit("started")
+            acquisitions = [args.read(path, AcquisitionManifest) for path in args.manifests]
+            unique = {DomainCodec().encode_json(item): item for item in acquisitions}
+            for left, right in combinations(unique.values(), 2):
+                if (
+                    left.run.job.start < right.run.job.end
+                    and right.run.job.start < left.run.job.end
+                    and {item.instrument_id for item in left.run.instruments}
+                    & {item.instrument_id for item in right.run.instruments}
+                ):
+                    raise ValueError("overlapping acquisitions require identical saved manifests")
+            manifest, payloads = assemble_dataset(
+                tuple(unique.values()),
+                raw,
+                max_bytes=args.max_bytes,
+                policy=policy,
+                eligibility=eligibility,
+                corrections=corrections,
+                report=output.quality,
+            )
+            output.snapshot_id = manifest.identity
+            output.stage = "publish"
+            output.emit("started", partitions=len(manifest.partitions))
+            snapshots.publish(manifest, payloads, max_bytes=args.max_bytes)
+            output.emit("persisted")
+        else:
+            output.snapshot_id = args.snapshot_id
+        output.stage = "reopen"
+        output.emit("started")
+        manifest = snapshots.read(output.snapshot_id, max_bytes=args.max_bytes)
+        if args.action == "inspect":
+            for part in manifest.partitions:
+                outcome = validate_saved_partition(
+                    part.acquisition,
+                    raw,
+                    max_bytes=args.max_bytes,
+                    policy=part.policy,
+                    eligibility=part.eligibility,
+                    corrections=part.corrections,
+                )
+                output.quality(part.acquisition.run.identity, outcome)
+                outcome.require_canonical()
+        output.emit(
+            "complete", scope=manifest.scope, partitions=len(manifest.partitions), exit_code=0
+        )
+    except (Exception, KeyboardInterrupt) as error:
+        status = 2 if output.stage == "configuration" else 3
+        if isinstance(error, OSError) or not isinstance(error, (ValueError, TypeError)):
+            status = 4
+        if isinstance(error, KeyboardInterrupt):
+            status = 130
+        output.emit(
+            "interrupted" if status == 130 else "failed",
+            exit_code=status,
+            error_type=type(error).__name__,
+            diagnostic=str(error),
+            recovery="Check inputs/policy and retained stores, then retry the same command; "
+            "an unacknowledged publication may be complete. Inspect only its explicit ID.",
+        )
+        return status
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
