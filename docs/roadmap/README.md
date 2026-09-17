@@ -1,6 +1,6 @@
 # Platform implementation roadmap
 
-Owner: repository founder. Status checked against merged `main` at `0898d0a`
+Owner: repository founder. Status checked against merged `main` at `f37c07d`
 on 2026-09-17. MR 00, C0 and MRs 01–17 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
@@ -8,11 +8,14 @@ MR 19 merged through [PR #44](https://github.com/lixuanguang/alpha-research-lab-
 its [acceptance record](mr-19-implementation.md) retains verification and limitations.
 MR 18's [workload evaluation and reference reuse](mr-18-implementation.md) are locally
 verified for review; columnar backend admission is explicitly deferred for that workload.
-MRs 20–62 and R1 remain planned except the bounded
+MR 20's [shared stepping and cursor](mr-20-implementation.md) are implemented
+locally for review; hosted merge acceptance is still pending.
+MRs 21–62 and R1 remain planned except the bounded
 [crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
 MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Next implementation: MR 20 — Replay with shared event stepping**. MR 19 delivers
+**Next implementation after MR 20 merges: MR 21 — Exercise EDA and extension boundaries**.
+MR 20 delivers shared chronological stepping and completed-step cursors. MR 19 delivers
 bounded reference queries with separate cutoff and retained-history modes. MR 18
 retains the reference reader after measured admission reuse meets the selected
 workload; a columnar backend remains conditional on a consumer requiring it.
@@ -1120,7 +1123,8 @@ Each MR names the notebook and relevant scenario/section it exercised. Notebook
 lifetime follows the research activity, while package changes remain one bounded
 MR at a time. MR 00 and C0 are complete. M0 and NB 03–08 remain in sections 10–16 of
 `foundation-contract-checks.ipynb`; NB 09–17 are retained in the connected dataset
-walkthrough (sections 5–7) of `research-foundations.ipynb`; NB 19 is section 8; NB 18 workload evaluation is section 9.
+walkthrough (sections 5–7) of `research-foundations.ipynb`; NB 19 is section 8; NB 18 workload evaluation is section 9; NB 20 shared
+stepping and cursor recovery is section 10.
 The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),
