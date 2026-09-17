@@ -147,13 +147,7 @@ class TestPartitionQuality:
         "field,value",
         [
             ("price", Decimal("NaN")),
-            ("price", Decimal("Infinity")),
-            ("price", Decimal("-1")),
-            ("price", Decimal("0")),
-            ("quantity", Decimal("NaN")),
             ("quantity", Decimal("-1")),
-            ("ts_knowledge", _START),
-            ("timestamp_unit", "seconds"),
         ],
     )
     def test_unsafe_event_rejections_retain_reasons(

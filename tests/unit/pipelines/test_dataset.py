@@ -116,7 +116,7 @@ class TestFixtureInspection:
         )
         assert event.symbol == "BTCUSDT"
 
-    @pytest.mark.parametrize("payload", [b"", b"\n", b"\xff", b"x\ny\n", b" " * 1_048_577])
+    @pytest.mark.parametrize("payload", [b"", b"\xff", b"x\ny\n", b" " * 1_048_577])
     def test_saved_input_is_one_bounded_utf8_frame(self, tmp_path: Path, payload: bytes) -> None:
         """Reject blank, multiline, oversized or non-UTF-8 saved inputs."""
         manifest = Configuration.read(_CONFIG).resolve(

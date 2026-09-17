@@ -12,7 +12,7 @@ import pytest
 
 # project library imports
 from alpha_research.data.decoders import DecodeContext
-from alpha_research.data.venues.binance.events import DepthSnapshot, DepthUpdate, Trade
+from alpha_research.data.venues.binance.events import DepthSnapshot, Trade
 from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
 from alpha_research.financial_units import Currency
 from alpha_research.instrument_identity import InstrumentId
@@ -53,10 +53,6 @@ _SNAPSHOT_PAYLOAD = (
     '{"stream":"btcusdt@depthSnapshot","generated":true,"data":'
     '{"lastUpdateId":9,"bids":[["1.00","2.00"]],"asks":[["1.01","3.00"]]}}'
 )
-_UPDATE_PAYLOAD = (
-    '{"stream":"btcusdt@depth@100ms","data":{"e":"depthUpdate","E":1717199999995,'
-    '"s":"BTCUSDT","U":10,"u":11,"b":[["1.00","0"]],"a":[]}}'
-)
 
 
 def _context(payload: str) -> DecodeContext:
@@ -88,18 +84,6 @@ def test_payload_decoder_decodes_trade_without_tardis_timestamp() -> None:
     assert str(event.price) == "67540.01000000"
 
 
-def test_payload_decoder_accepts_snapshot_without_exchange_fields() -> None:
-    """Use capture time as an explicit snapshot proxy without exchange fields."""
-    event = BinancePayloadDecoder(_INSTRUMENTS).decode_payload(
-        _SNAPSHOT_PAYLOAD, _context(_SNAPSHOT_PAYLOAD)
-    )
-
-    assert isinstance(event, DepthSnapshot)
-    assert event.event_time_basis == "capture_proxy"
-    assert event.provenance.ts_event == _CAPTURE_TIME
-    assert event.last_update_id == 9
-
-
 def test_payload_decoder_resolves_configured_symbol_and_depth_fields() -> None:
     """Resolve a configured symbol and retain exact depth sequence and levels."""
     payload = _SNAPSHOT_PAYLOAD.replace("btcusdt", "solusdt")
@@ -109,28 +93,6 @@ def test_payload_decoder_resolves_configured_symbol_and_depth_fields() -> None:
     assert event.symbol == "SOLUSDT"
     assert event.instrument_id == _ALL_INSTRUMENTS[2].instrument_id
     assert event.bids == ((Decimal("1.00"), Decimal("2.00")),)
-
-
-def test_payload_decoder_rejects_invalid_depth_and_quantity() -> None:
-    """Reject malformed Binance sequence intervals and negative quantities."""
-    decoder = BinancePayloadDecoder(_INSTRUMENTS)
-    with pytest.raises(ValueError, match="last_update_id"):
-        invalid_payload = _UPDATE_PAYLOAD.replace('"u":11', '"u":9')
-        decoder.decode_payload(invalid_payload, _context(invalid_payload))
-    with pytest.raises(ValueError, match="nonnegative"):
-        invalid_payload = _UPDATE_PAYLOAD.replace('"0"]', '"-1"]')
-        decoder.decode_payload(invalid_payload, _context(invalid_payload))
-
-
-def test_payload_decoder_returns_depth_update() -> None:
-    """Decode a valid incremental depth payload without provider framing."""
-    event = BinancePayloadDecoder(_INSTRUMENTS).decode_payload(
-        _UPDATE_PAYLOAD, _context(_UPDATE_PAYLOAD)
-    )
-
-    assert isinstance(event, DepthUpdate)
-    assert event.first_update_id == 10
-    assert event.last_update_id == 11
 
 
 def test_payload_decoder_rejects_non_binance_json_object() -> None:

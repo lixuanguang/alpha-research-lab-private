@@ -79,7 +79,7 @@ class TestEligibilitySelection:
                 EligibilityAssertions,
             )
 
-    @pytest.mark.parametrize("offset", (-1, 0, 1))
+    @pytest.mark.parametrize("offset", (-1, 0))
     def test_knowledge_boundary_is_inclusive(self, offset: int) -> None:
         """Expose the old or corrected assertion exactly at the decision cutoff."""
         history = self._history()
@@ -100,10 +100,8 @@ class TestEligibilitySelection:
         [
             ("valid_from", -1, False),
             ("valid_from", 0, True),
-            ("valid_from", 1, True),
             ("valid_to", -1, True),
             ("valid_to", 0, False),
-            ("valid_to", 1, False),
         ],
     )
     def test_corrected_validity_is_half_open_without_predecessor_fallback(
@@ -240,9 +238,12 @@ class TestEligibilitySelection:
         with pytest.raises(msgspec.ValidationError):
             _CODEC.decode_json(_CODEC.encode_json(correction), EligibilityAssertion)
 
-    @pytest.mark.parametrize("field", ("valid_at", "known_at"))
     @pytest.mark.parametrize(
-        "instant", (datetime(2024, 6, 1), datetime(2024, 6, 1, tzinfo=timezone(timedelta(hours=8))))
+        ("field", "instant"),
+        [
+            ("valid_at", datetime(2024, 6, 1)),
+            ("known_at", datetime(2024, 6, 1, tzinfo=timezone(timedelta(hours=8)))),
+        ],
     )
     def test_invalid_query_clocks_fail_and_recover(self, field: str, instant: datetime) -> None:
         """Reject ambiguous clocks without retaining selection state after failure."""

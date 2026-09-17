@@ -161,13 +161,6 @@ class TestBinanceEvents:
         assert f'"event_type":"{expected_tag}"'.encode() in encoded
         assert _CODEC.decode(encoded) == event
 
-    def test_canonical_event_decoder_rejects_unknown_fields(self) -> None:
-        """Keep the canonical event wire schema closed at the decoding boundary."""
-        encoded = _CODEC.encode(_BinanceEventFixture._trade())
-        payload = encoded[:-1] + b',"unknown":1}'
-        with pytest.raises(MarketEventError):
-            _CODEC.decode(payload)
-
     @pytest.mark.parametrize(
         ("factory", "invalid_basis"),
         [

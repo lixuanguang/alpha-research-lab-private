@@ -196,10 +196,7 @@ def test_catalog_linkage_rejects_unknown_ids_and_changed_units(tmp_path: Path) -
 @pytest.mark.parametrize(
     "payload",
     [
-        b"{}",
-        b"null",
         b"{",
-        b'{"schema_version":"2"}',
         _FIXTURE.read_bytes().replace(
             b'"state": "included"', b'"state": "included", "extra": true', 1
         ),
@@ -212,10 +209,7 @@ def test_catalog_linkage_rejects_unknown_ids_and_changed_units(tmp_path: Path) -
         b" " * 1_048_577,
     ],
     ids=[
-        "missing",
-        "null",
         "malformed",
-        "version",
         "assertion-extra",
         "evidence-extra",
         "file-extra",

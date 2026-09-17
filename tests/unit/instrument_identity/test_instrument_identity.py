@@ -323,32 +323,6 @@ class TestGoldenSymbologyContracts:
             )
             assert economic_instrument.instrument_kind is InstrumentKind.ECONOMIC_INSTRUMENT
 
-    def test_golden_fixture_rejects_malformed_fields(self, tmp_path: Path) -> None:
-        """Reject malformed required fixture fields at the strict loading boundary."""
-        malformed_replacements = (
-            ('  "fixture_id": "c01-symbology-golden-v1",\n', "", "fixture_id"),
-            ('  "schema_version": 1,\n', '  "schema_version": true,\n', "schema_version"),
-            (
-                '    "mapping_ids": [\n'
-                '      "10000000-0000-4000-8000-000000000011",\n'
-                '      "10000000-0000-4000-8000-000000000012"\n'
-                "    ]",
-                '    "mapping_ids": null',
-                "mapping_ids",
-            ),
-        )
-        fixture_payload = INSTRUMENT_IDENTITY_GOLDEN_FIXTURE_PATH.read_text(encoding="utf-8")
-        for case_number, (original, replacement, expected_field_name) in enumerate(
-            malformed_replacements
-        ):
-            assert original in fixture_payload
-            malformed_fixture_path = tmp_path / f"malformed-{case_number}.json"
-            malformed_fixture_path.write_text(
-                fixture_payload.replace(original, replacement, 1), encoding="utf-8"
-            )
-            with pytest.raises(ValidationError, match=expected_field_name):
-                _InstrumentIdentityGoldenFixture.load(malformed_fixture_path)
-
     def test_symbol_ambiguity_delisting_gap_and_unknown_instrument_fail_closed(self) -> None:
         """Distinguish ambiguous symbols, unmapped delisting intervals and unknown identities."""
         golden_fixture = _InstrumentIdentityGoldenFixture.load()

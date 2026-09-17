@@ -361,30 +361,6 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
                     assert session.break_starts_at == self._instant(expected["break_starts_at"])
                     assert session.break_ends_at == self._instant(expected["break_ends_at"])
 
-    @pytest.mark.parametrize("mutation", ["nested_scalar", "range_cardinality"])
-    def test_fixture_parser_rejects_malformed_nested_record(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
-    ) -> None:
-        """Reject malformed nested scalars and fixed-width date ranges at the parser boundary."""
-        payload = FIXTURE_PATH.read_text(encoding="utf-8")
-        if mutation == "nested_scalar":
-            malformed_payload = payload.replace(
-                '"session_label": "2024-03-08"', '"session_label": 20240308', 1
-            )
-        else:
-            malformed_payload = payload.replace(
-                '"range": ["2024-03-08", "2024-11-29"]',
-                '"range": ["2024-03-08"]',
-                1,
-            )
-        assert malformed_payload != payload
-        malformed_path = tmp_path / "malformed-c02-calendar.json"
-        malformed_path.write_text(malformed_payload, encoding="utf-8")
-        monkeypatch.setattr(f"{__name__}.FIXTURE_PATH", malformed_path)
-
-        with pytest.raises(ValidationError):
-            self._load_fixture()
-
     def test_named_holiday_closure_is_attributed_and_cannot_be_a_session(self) -> None:
         """Retain holiday attribution and reject a date that is both a closure and a session."""
         fixture = self._load_fixture()

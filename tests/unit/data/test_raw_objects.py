@@ -156,7 +156,9 @@ class TestRawObject:
         )
         raw_object.verify(tmp_path / "saved.bin", request=renamed)
 
-    @pytest.mark.parametrize("payload", [b"", b"\x00\xff\r\n" * 262_145])
+    @pytest.mark.parametrize(
+        "payload", [b"", b"\x00\xff\r\n" * 262_145], ids=["empty", "multiple-chunks"]
+    )
     def test_empty_and_multichunk_binary_files(
         self, tmp_path: Path, source_request: SourceRequest, payload: bytes
     ) -> None:

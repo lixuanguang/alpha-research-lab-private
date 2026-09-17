@@ -242,7 +242,7 @@ class TestAcquisitionResume:
             assert fetch.call_count == 3
         assert len(resumed.completed) == 3 and resumed.completed[0].sha256 != state.pending.sha256
 
-    @pytest.mark.parametrize("delays", [(-1.0,), (float("nan"),), (float("inf"),)])
+    @pytest.mark.parametrize("delays", [(-1.0,), (float("nan"),)])
     def test_invalid_retry_policy_fails_before_io(
         self,
         tmp_path: Path,

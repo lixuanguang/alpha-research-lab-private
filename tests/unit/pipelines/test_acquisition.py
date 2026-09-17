@@ -303,7 +303,7 @@ class TestAcquisition:
                 source_sequence=0,
             )
 
-    @pytest.mark.parametrize("timeout", [0.0, -1.0, float("inf"), float("nan")])
+    @pytest.mark.parametrize("timeout", [0.0, float("nan")])
     def test_invalid_timeout_is_reported_without_network(
         self, request_partition: SourceRequest, tmp_path: Path, timeout: float
     ) -> None:

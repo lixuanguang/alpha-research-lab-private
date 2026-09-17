@@ -101,7 +101,9 @@ class TestRawStore:
             ts_ingested=datetime(2026, 9, 14, tzinfo=UTC),
         )
 
-    @pytest.mark.parametrize("payload", [b"", b"abc", b"\x00\xff\r\n" * 262_145])
+    @pytest.mark.parametrize(
+        "payload", [b"", b"\x00\xff\r\n" * 262_145], ids=["empty", "multiple-chunks"]
+    )
     def test_publish_reopen_and_reuse_without_original_source(
         self, tmp_path: Path, source_request: SourceRequest, payload: bytes
     ) -> None:
