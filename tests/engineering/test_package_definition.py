@@ -107,13 +107,19 @@ class TestPackageDefinitionContracts:
         assert runtime_scripts == {
             "alpha-acquire": "alpha_research.pipelines.acquisition:main",
             "alpha-collect": "alpha_research.pipelines.live:main",
+            "alpha-dataset": "alpha_research.pipelines.dataset:dataset_main",
             "alpha-inspect-fixture": "alpha_research.pipelines.dataset:main",
         }
         installed_commands = {
             entry.name
             for entry in importlib.metadata.distribution("alpha-research-lab").entry_points
         }
-        assert installed_commands == {"alpha-acquire", "alpha-collect", "alpha-inspect-fixture"}
+        assert installed_commands == {
+            "alpha-acquire",
+            "alpha-collect",
+            "alpha-dataset",
+            "alpha-inspect-fixture",
+        }
 
     def test_wheel_smoke_is_the_build_install_boundary(self) -> None:
         """Require the root interface to invoke the isolated installed-wheel smoke."""

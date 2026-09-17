@@ -432,3 +432,25 @@ and [`test_binance_decoder.py`](../../tests/unit/data/venues/binance/test_binanc
 These tests cover the library boundary; the
 [P1 acceptance map](../roadmap/README.md#p1-acceptance-map)
 identifies the remaining end-to-end requirements.
+
+## Installed dataset command (MR 16)
+
+`alpha-dataset publish` composes strict saved acquisitions, declared quality and
+eligibility/correction evidence, admission, atomic publication and verified reopen.
+`alpha-dataset inspect` requires an explicit snapshot SHA-256 and verifies all
+retained inputs before completion. The command reuses the preceding MR 10–15
+contracts; it creates no additional canonical format or historical evidence.
+
+Exact repeated manifests are idempotent. Nonidentical overlapping instrument/time
+selections are rejected rather than published as duplicate partitions. The current
+consumer accepts one instrument/day per acquisition, with multiple compatible
+acquisitions in a dataset. Wrong schema, binding, time, units or required coverage
+cannot produce an apparently valid snapshot. Exploratory gaps remain visibly
+`exploratory_degraded`; causal use fails on unknown required evidence.
+
+Flushed partition reports retain invalid/gap/duplicate counts and reasons before
+admission. Persistence stages distinguish a candidate ID, durable acknowledgement
+and completed verification. Failure after rename may leave a complete snapshot;
+retry verifies and synchronizes it. The [command guide](../../src/alpha_research/data/README.md#publish-and-inspect-from-the-command-line-mr-16)
+owns arguments, file preparation, exit codes and recovery. Actual commands and
+limitations are in the [MR 16 record](../roadmap/mr-16-implementation.md).
