@@ -1,4 +1,4 @@
-"""Inspect saved fixtures and stream bound occurrences without dataset publication."""
+"""Inspect fixtures and compose saved-input admission through atomic snapshot publication."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from alpha_research.data.quality import QualityPolicy, QualityReport
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
 from alpha_research.data.revisions import Correction, TradeRevision
+from alpha_research.data.snapshots import SnapshotStore
 from alpha_research.data.venues.binance.codecs import MarketEventCodec
 from alpha_research.data.venues.binance.events import Trade
 from alpha_research.data.venues.binance.payloads import BinancePayloadDecoder
@@ -42,6 +43,45 @@ class _InspectionArguments(argparse.Namespace):
     received: str
     ingested: str
     sequence: int
+
+
+def publish_dataset(
+    acquisitions: tuple[AcquisitionManifest, ...],
+    store: RawStore,
+    destination: Path,
+    *,
+    max_bytes: int,
+    policy: QualityPolicy,
+    eligibility: EligibilityAssertions,
+    corrections: Mapping[str, tuple[Correction, ...]],
+) -> str:
+    """Admit all selected inputs and atomically publish one complete snapshot.
+
+    Args:
+        acquisitions: Ordered complete single-partition acquisitions to admit.
+        store: Retained immutable raw objects needed by publication and later reads.
+        destination: Existing, durably provisioned snapshot store directory.
+        max_bytes: Positive per-file limit, including expanded archive bytes.
+        policy: Declared use, knowledge cutoff and gap tolerance.
+        eligibility: Complete retained eligibility history matching the catalog.
+        corrections: Explicit correction evidence by resolved acquisition identity.
+
+    Returns:
+        Published dataset SHA-256 for explicit reopening with SnapshotStore.read.
+
+    Raises:
+        ValueError: Any selected input or admission contract fails.
+        OSError: Persistence fails; retry verifies any already visible complete snapshot.
+    """
+    manifest, payloads = assemble_dataset(
+        acquisitions,
+        store,
+        max_bytes=max_bytes,
+        policy=policy,
+        eligibility=eligibility,
+        corrections=corrections,
+    )
+    return SnapshotStore(destination, store).publish(manifest, payloads, max_bytes=max_bytes)
 
 
 def assemble_dataset(
