@@ -922,3 +922,75 @@ verify and synchronize it. Preserve both stores and earlier snapshots.
 The [MR 16 implementation record](../../../docs/roadmap/mr-16-implementation.md)
 records installed synthetic/retained-source results and NB 16. The fixture inspector
 `alpha-inspect-fixture` is unchanged. MR 17 owns event selection as of a cutoff.
+
+## Select point events at a cutoff (MR 17)
+
+`AsOfSelector` in `data/asof.py` reads an explicitly identified snapshot or a tuple
+of existing admitted canonical partition bytes. It reuses `SnapshotStore`, the
+strict cached codecs and the quality/revision/eligibility gates. The notebook and
+installed consumer exercise the same selection method:
+
+```python
+from alpha_research.data.asof import AsOfSelector
+
+# snapshot_directory, raw_store, snapshot_id and request are explicit saved inputs.
+binding = (request.instrument.source, request.manifest.job.stream, request.instrument.instrument_id)
+selector = AsOfSelector.read(
+    snapshot_directory,
+    raw_store,
+    identity=snapshot_id,
+    max_bytes=262_144,
+    precedence=(binding,),
+)
+events = selector.select(
+    (request.instrument.instrument_id,),
+    start=request.manifest.job.start,
+    end=request.manifest.job.end,
+    known_at=decision_time,
+)
+retained_history = selector.history
+```
+
+The caller freezes precedence as an ordered tuple of source ID, stream and
+instrument subscription, covering each retained binding exactly once. It is an
+explicit input, not inferred from file order or content digests. Selection orders
+by effective knowledge, binding precedence, partition start and source position
+(including record index). Equal-time ambiguity, overlapping partitions of one
+binding and competing economic heads fail and require reconciliation upstream.
+Independent bindings have configured precedence, not an asserted global arrival order.
+
+Selection first walks back from each revision head to the latest version whose
+effective knowledge is no later than `known_at`. It then checks the half-open
+business window and membership at that point's business instant and the independent
+cutoff. Captured points use the earliest retained `valid_from` of their duplicate
+occurrences; archives use event time. It does not forward-fill one-microsecond
+point validity or test availability at `(decision_time, decision_time)`. A known
+correction moved outside the window or excluded by membership never falls back
+to its retired predecessor. Unknown archive knowledge selects no version; download
+and event time are never substituted. This API does not implement an assumed-time
+policy or certify historical eligibility.
+
+The immutable returned tuple contains `TradeRevision` envelopes and applicable
+`Occurrence` controls in economic order. Inspect a trade envelope's effective
+`ts_knowledge`, not only its embedded original event clock. Disconnect occurrences
+retain the source/request/instrument binding despite null event instrument IDs.
+Known controls before the window start survive as boundary state, and a known
+terminal control at the exclusive market endpoint is retained. Unrelated bindings'
+controls are excluded. Applying observation invalidation or canceling intents is
+owned by later consumers.
+
+`history` remains the complete immutable canonical bytes, with degraded scope,
+quality policy/reasons, eligibility histories, controls and revision predecessors.
+Keep these quality annotations with any downstream interpretation. They contain
+future information and are distinct from the selected event tuple; never use a
+terminal-cutoff projection as replay history or treat an empty result as valid
+coverage. Each call reconstructs a private validated view, so unsafe mutation of
+an earlier returned record cannot affect subsequent queries.
+
+This is a bounded in-memory reference API, without column projection, batching,
+query identities, cancellation, event stepping or a performance claim. Those
+consumers remain MR 19/20; MR 18 requires a measured workload. Snapshot publication
+currently supports archive inputs; captured trades and scoped controls are tested
+using admitted synthetic canonical bytes, without extending publication support.
+See the [acceptance record](../../../docs/roadmap/mr-17-implementation.md) and
+[notebook section 17](../../../examples/research-foundations.ipynb).

@@ -180,6 +180,7 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Identify admitted partitions and verify their saved files | MR 14 supplies deterministic manifest identity and verified reading, retaining exploratory degraded scope. |
 | Preserve a completed dataset across interrupted later builds | MR 15 publishes one atomic local snapshot and reopens by explicit ID, with retained raw inputs and unchanged degraded quality. |
 | Inspect publication through an installed dataset command | MR 16 publishes saved acquisitions and reopens an explicit ID, reporting degraded quality, invalid/gap/duplicate counts and persistence status. |
+| Select the revisions knowable at a cutoff | Section 17 uses the installed as-of selector, showing late correction/eligibility boundaries, equal-capture order and applicable disconnects. Unknown archive knowledge remains unavailable; full quality/history stays separate from selected events. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |
 
 ## A useful way to work through a notebook
@@ -233,3 +234,11 @@ The [migration verification](notebook-operations.md#okx-and-bitfinex-migration-v
 records fresh executions and limitations for these examples. The earlier
 [presentation verification](notebook-operations.md#researcher-guide-verification)
 is retained as historical evidence.
+
+MR 17 adds a network-free point-event exercise in section 17 of the main notebook.
+Start with the retained synthetic captures and explicit published snapshot ID;
+compare prices before publication, at availability and after a membership correction,
+then inspect boundary controls and required failures. The
+[MR 17 record](../docs/roadmap/mr-17-implementation.md) retains execution evidence.
+The next useful capability is MR 19 bounded queries, after MR 17 merges; a new
+query backend (MR 18) requires a measured need. Neither is implemented here.

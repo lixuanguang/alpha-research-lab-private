@@ -82,10 +82,12 @@ candidate.
 
 ### Planned economic ordering and event stepping
 
-Decision date: 2026-09-14. MR 17 supplies the economic order and MR 20 owns a
+Decision date: 2026-09-14. MR 17 now supplies the reference economic order through
+[`AsOfSelector`](../../src/alpha_research/data/asof.py); MR 20 owns a planned
 small reusable event iterator and scheduled-step operation, consumed by both
-replay and research pipelines. This is planned consumer behavior; the current
-decoder's provenance and occurrence identities remain unchanged.
+replay and research pipelines. Event stepping remains planned; the decoder's provenance and occurrence identities
+remain unchanged. The [MR 17 guide](../../src/alpha_research/data/README.md#select-point-events-at-a-cutoff-mr-17)
+defines the implemented cutoff projection and its separate retained history.
 
 Order admitted events by effective knowledge time, then predefined source/stream
 precedence, stable logical partition/session order and source-local sequence.

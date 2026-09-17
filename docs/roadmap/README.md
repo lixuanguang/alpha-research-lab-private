@@ -3,11 +3,16 @@
 Owner: repository founder. Status checked against merged `main` at `95e1a14`
 on 2026-09-17. MR 00, C0 and MRs 01–16 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
-MRs 17–62 and R1 remain planned except the bounded
+MR 17 implementation and acceptance are complete; [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42)
+tracks its merge result. MRs 18–62 and R1 remain planned except the bounded
 [crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
 MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Next: MR 17 — Read point events as of a cutoff. It has not been started.**
+**Next implementation: MR 19 — Query selected data in bounded batches**, after
+MR 17 merges. MR 17 delivers the reference cutoff selector; its
+[implementation record](mr-17-implementation.md) retains acceptance and limitations.
+MR 18 remains conditional on a measured workload and depends on MR 19. No later
+MR is implemented here.
 The founder-authorized Binance source amendment of 2026-09-15 supersedes the
 Tardis access prerequisite for P1. The saved sample has passed MR 16 publication
 with exploratory degraded scope; historical eligibility, revision availability
@@ -1111,7 +1116,7 @@ do not create empty notebooks or fictional fetching/monitoring capabilities now.
 Each MR names the notebook and relevant scenario/section it exercised. Notebook
 lifetime follows the research activity, while package changes remain one bounded
 MR at a time. MR 00 and C0 are complete. M0 and NB 03–08 remain in sections 10–16 of
-`foundation-contract-checks.ipynb`; NB 09–16 are sections 9–16 of
+`foundation-contract-checks.ipynb`; NB 09–17 are sections 9–17 of
 `research-foundations.ipynb`. The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),
