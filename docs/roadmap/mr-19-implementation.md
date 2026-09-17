@@ -1,6 +1,8 @@
 # MR 19 — Query selected data in bounded batches
 
 Owner: repository founder. Status: implemented and locally verified for review on 2026-09-17. Branch: `codex/mr-19-bounded-query`.
+[PR #44](https://github.com/lixuanguang/alpha-research-lab-private/pull/44) retains
+subsequent hosted checks and the merge result.
 Base: freshly fetched `main` at `f4cb239`. Tested implementation: `e4dbe6a`
 (`e4dbe6a859da5f1472f2739324b8b4ea53b79754`). MR 17, the sole prerequisite, merged
 through PR #42 at `3deb34b`, an ancestor of that base. MR 18 is conditional and
@@ -169,8 +171,9 @@ tested implementation, so their behavioral results are reused.
 
 The P1 specification remains byte-for-byte unchanged, SHA-256
 `7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d`.
-No full local `make check` or hosted CI result is claimed; required hosted merge
-gates remain pending. Work stops at MR 19.
+The local checks above do not claim a full local `make check` or a hosted CI result.
+PR #44 retains subsequent required hosted verification and the actual merge result.
+Work stops at MR 19.
 
 ## Risks / reversal
 
@@ -185,7 +188,7 @@ Published snapshots still support the existing archive path. Captured trades and
 instrument-less controls use admitted synthetic canonical fixtures. No new source
 acceptance, historical membership, complete coverage, M2 completion, P1 result,
 deployment or release acceptance is claimed. The existing QuantLib release
-restriction remains unchanged. Hosted full merge checks remain required.
+restriction remains unchanged. Hosted full merge checks remain required before merge.
 
 Revert this branch before dependent consumers merge; no stored-data migration or
 deletion is needed. Preserve raw objects and prior snapshot/history identities.

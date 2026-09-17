@@ -4,8 +4,9 @@ Owner: repository founder. Status checked against merged `main` at `f4cb239`
 on 2026-09-17. MR 00, C0 and MRs 01–17 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
-MR 19 implementation is complete on its review branch; its
-[acceptance record](mr-19-implementation.md) records verification and limitations.
+MR 19 implementation and local acceptance are complete;
+[PR #44](https://github.com/lixuanguang/alpha-research-lab-private/pull/44) tracks hosted checks and its merge result.
+The [acceptance record](mr-19-implementation.md) records verification and limitations.
 MRs 18 and 20–62 and R1 remain planned except the bounded
 [crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
 MRs 22–27. No M1–M7 completion or P1 result is claimed.
