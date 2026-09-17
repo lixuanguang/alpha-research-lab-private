@@ -14,6 +14,7 @@ MR 11 adds strict file-backed historical eligibility assertions with separate ev
 MR 12 adds pure decision-time membership selection and retained, explicitly linked corrections.
 MR 13 adds canonical partition quality, explicit degraded use and publication refusal.
 MR 14 adds versioned dataset manifests, deterministic identity and saved-input verification.
+MR 15 adds atomic local snapshot publication and verified reopening by explicit identity.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -45,6 +46,7 @@ changing serialized events. Internal code imports from defining modules:
 | [`decoders.py`](decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol for source-independent payload decoding |
 | [`raw_objects.py`](raw_objects.py) | Immutable `RawObject` descriptors and bounded verification of exact saved bytes against an expected request |
 | [`datasets.py`](datasets.py) | Ordered dataset identity, retained admission inputs and verified saved-manifest reading |
+| [`snapshots.py`](snapshots.py) | Atomic directory publication, immutable retry and explicit-ID snapshot reopening |
 | [`manifests.py`](manifests.py) | Validated acquisition completion prefixes, write-ahead receipts and durable checkpoint replacement |
 | [`raw_store.py`](raw_store.py) | Content-addressed `RawStore` publication, verified reads and no-overwrite retry after interruption |
 | [`eligibility.py`](eligibility.py) | Strict file-backed membership, catalog/units linkage, bitemporal selection and append-only corrections; unknown and unsupported remain explicit |
@@ -816,4 +818,41 @@ archive per partition, not a query API or an atomic snapshot. The
 explains identity and version semantics; the
 [isolated consumer](../../../tests/fixtures/mr14/identify_dataset.py) and NB 14 in
 [research-foundations.ipynb](../../../examples/research-foundations.ipynb) provide
-complete saved-input examples. MR 15 owns atomic publication.
+complete saved-input examples. Atomic publication follows below.
+
+## Publish and reopen an atomic snapshot (MR 15)
+
+Call `publish_dataset(acquisitions, raw_store, destination, max_bytes=limit,
+policy=policy, eligibility=history, corrections=corrections)` from
+`alpha_research.pipelines.dataset`. Inputs match `assemble_dataset`; `destination`
+is an existing, durably provisioned snapshot directory. The result is the explicit
+dataset SHA-256 after all selected partitions pass admission and publication succeeds.
+Keep that ID with the research inputs. Reopen using
+`SnapshotStore(destination, raw_store).read(identity, max_bytes=limit)` from
+[`snapshots.py`](snapshots.py). The reader verifies every canonical/raw file and
+repeats admission before returning the manifest. `latest` and filesystem paths
+cannot stand in for the ID. No CLI change is included; MR 16 owns that consumer.
+
+For an already assembled manifest and ordered canonical tuple, use
+`snapshots.publish(manifest, payloads, max_bytes=limit)`. A hidden directory stages
+its synchronized files; one directory rename publishes all of them together.
+Identical retries verify and reuse the existing snapshot. A changed policy yields
+a new identity while the old snapshot stays readable. Missing or damaged retained
+inputs fail visibly and are never overwritten by a retry.
+
+Keep both stores and their ancestors stable and protected from external changes.
+Raw inputs remain in the existing raw store; the snapshot stores canonical files
+and the manifest, including the original raw descriptors. The byte cap applies
+per file, including expanded raw input. This remains a bounded in-memory reference
+consumer. Same-filesystem atomic rename and file/directory synchronization must be
+supported. After a reported failure, retry the same inputs: before rename no
+snapshot is visible, while after rename a complete snapshot may need its parent
+synchronization acknowledged. Abrupt process exits can leave hidden staging
+directories; no garbage collection is introduced.
+
+The [snapshot contract](../../../docs/data/contracts.md#atomic-local-snapshots-mr-15),
+[isolated installed consumer](../../../tests/fixtures/mr15/publish_snapshot.py) and
+NB 15 in [research-foundations.ipynb](../../../examples/research-foundations.ipynb)
+show interruption, retry and prior-snapshot preservation. These synthetic snapshots
+retain exploratory degraded scope; they do not establish empirical coverage,
+historical eligibility, M1 completion or P1 acceptance.
