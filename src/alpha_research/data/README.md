@@ -15,6 +15,7 @@ MR 12 adds pure decision-time membership selection and retained, explicitly link
 MR 13 adds canonical partition quality, explicit degraded use and publication refusal.
 MR 14 adds versioned dataset manifests, deterministic identity and saved-input verification.
 MR 15 adds atomic local snapshot publication and verified reopening by explicit identity.
+MR 16 exposes saved-acquisition publication and quality inspection through installed commands.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -831,7 +832,7 @@ Keep that ID with the research inputs. Reopen using
 `SnapshotStore(destination, raw_store).read(identity, max_bytes=limit)` from
 [`snapshots.py`](snapshots.py). The reader verifies every canonical/raw file and
 repeats admission before returning the manifest. `latest` and filesystem paths
-cannot stand in for the ID. No CLI change is included; MR 16 owns that consumer.
+cannot stand in for the ID. The MR 16 command below exposes this consumer.
 
 For an already assembled manifest and ordered canonical tuple, use
 `snapshots.publish(manifest, payloads, max_bytes=limit)`. A hidden directory stages
@@ -856,3 +857,68 @@ NB 15 in [research-foundations.ipynb](../../../examples/research-foundations.ipy
 show interruption, retry and prior-snapshot preservation. These synthetic snapshots
 retain exploratory degraded scope; they do not establish empirical coverage,
 historical eligibility, M1 completion or P1 acceptance.
+
+## Publish and inspect from the command line (MR 16)
+
+`alpha-dataset` consumes saved `alpha-acquire` manifests and their retained raw
+store. It does not download data or resolve a mutable latest tag. Install the
+candidate with `uv sync --frozen --no-editable`, then use an existing snapshot
+store directory on a filesystem supporting the MR 15 synchronization/rename contract.
+
+Prepare a strict `QualityPolicy` JSON file with `DomainCodec.encode_json`, for example
+`QualityPolicy(use="exploratory", known_at=sample_start, max_gap=timedelta(seconds=30))`.
+The cutoff is an explicit UTC decision time; gap tolerance measures observed silence,
+not recorder completeness. Supply a strict `EligibilityAssertions` JSON file with
+the same catalog as the acquisition. Empty assertions retain unknown membership;
+never substitute synthetic assertions for actual historical evidence. NB 16 demonstrates
+preparing these files and inspecting their consequences without network access.
+
+```sh
+alpha-dataset publish \
+  --manifests /saved/acquisition.json \
+  --store /saved/raw --snapshots /saved/snapshots \
+  --policy /saved/policy.json --eligibility /saved/eligibility.json \
+  --max-bytes 268435456
+alpha-dataset inspect \
+  --snapshot-id <explicit-lowercase-sha256-from-complete-record> \
+  --store /saved/raw --snapshots /saved/snapshots --max-bytes 268435456
+```
+
+These are command shapes; replace paths, selected ID and resource limit with the
+retained inputs for the run. `max_bytes` bounds each declaration, manifest, canonical
+file and compressed/expanded raw archive; it is not a total-memory limit. The
+current reference implementation retains admitted partitions in memory and may
+verify them several times during publication/reopening. It is not a scalable query API.
+
+`--manifests` accepts several complete single-instrument/day acquisitions. Exact
+repeated manifests are reused in first-seen order. Nonidentical acquisitions whose
+instrument/time selections overlap fail instead of adding duplicate economics.
+Multi-instrument acquisition splitting and arbitrary overlap reconciliation are
+unsupported. Within a partition, MR 10 retains duplicate lineage and evidenced
+correction histories. Supply each correction as
+`--correction <resolved-acquisition-run-sha256> /saved/correction.json`; it is a
+strict `Correction` record. Omission means no correction evidence; conflicts and
+unknown run keys fail. No correction/availability policy is silently relaxed.
+
+Every JSON line is flushed. Normalization emits one quality report per reached
+partition, including `run_identity`, `scope`, `invalid_count`, `gap_count`,
+`duplicate_count` and retained `reasons`, before its publication gate. Invalid
+counts cover observed failures, not unread records following a terminal error.
+Zero gaps do not prove recorder coverage. Rejected late partitions cannot expose
+an accepted dataset prefix. Exploratory gaps remain explicitly degraded; causal
+coverage requirements reject the current archive inputs.
+
+Publication reports its candidate snapshot ID before persistence; `persisted`
+acknowledges synchronization and `complete` follows verified reopening. Inspection
+verifies raw/canonical bytes and reports quality using the embedded policies and
+histories, without the original build-time policy or acquisition files. Exit codes
+are 0 for completion, 2 for configuration/usage, 3 for admission/verification, 4
+for I/O/unexpected failure and 130 for a handled keyboard interruption. Failure
+records go to stderr and include stage, error type, diagnostic and recovery guidance.
+Abrupt process death may leave only the last progress record. A failed publication
+can leave a complete visible snapshot after rename; repeat the same command to
+verify and synchronize it. Preserve both stores and earlier snapshots.
+
+The [MR 16 implementation record](../../../docs/roadmap/mr-16-implementation.md)
+records installed synthetic/retained-source results and NB 16. The fixture inspector
+`alpha-inspect-fixture` is unchanged. MR 17 owns event selection as of a cutoff.

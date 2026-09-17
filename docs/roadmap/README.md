@@ -14,13 +14,14 @@ MR 11 is merged in PR #35 at `5b10f78`; see its [implementation record](mr-11-im
 MR 12 is merged in PR #36 at `210db65`; see its [implementation record](mr-12-implementation.md).
 MR 13 is merged in PR #37 at `7ef4892`; see its [implementation record](mr-13-implementation.md).
 MR 14 is merged in PR #38 at `746e002`; see its [implementation record](mr-14-implementation.md).
-MR 15 is implemented and locally verified in its [review candidate](mr-15-implementation.md).
-MRs 16–62 and R1 remain planned except the bounded M3 collector slice below;
+MR 15 is merged in PR #39 at `69a45eb`; see its [implementation record](mr-15-implementation.md).
+MR 16 is implemented and locally verified in its [review candidate](mr-16-implementation.md).
+MRs 17–62 and R1 remain planned except the bounded M3 collector slice below;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 15](mr-15-implementation.md). The founder-authorized
+**Review [MR 16](mr-16-implementation.md). The founder-authorized
 [crypto L3 collector slice](crypto-l3-collectors.md) brings forward parts of MRs 22–27.
-MR 16 is the next historical ingestion package; it has not been started.**
+MR 17 is the next reference-reader package; it has not been started.**
 The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
 preserves implementation through MR 07 and adds future collection, recovery and
 simulation acceptance within the existing MR owners. No additional implementation
@@ -83,7 +84,9 @@ prevents causal admission. MR 14 binds admitted partitions and resolved evidence
 versioned dataset manifests and verifies their saved bytes. MR 15 stages verified
 canonical partitions and their manifest, publishes one atomic local snapshot and
 reopens only an explicit identity while retaining the original raw store.
-The frozen uv build, strict source checks, CI and runtime wheel installation exist. Dataset commands, strategy
+MR 16 exposes installed dataset publication/inspection with quality counts, explicit
+IDs and persistence/failure reports; permitted-source empirical evidence remains limited.
+The frozen uv build, strict source checks, CI and runtime wheel installation exist. Strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
@@ -312,7 +315,8 @@ NB 13 in section 13; see its [implementation record](mr-13-implementation.md). M
 adds dataset manifest identity and verified reading with NB 14 in section 14; see
 its [implementation record](mr-14-implementation.md). MR 15 adds atomic publication
 and explicit-ID reopening with NB 15 in section 15; see its
-[review candidate](mr-15-implementation.md).
+[implementation record](mr-15-implementation.md). MR 16 adds installed publish/inspect
+commands and NB 16 in section 16; see its [review candidate](mr-16-implementation.md).
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -1210,6 +1214,10 @@ MR 15 adds section 15: prepublication failure, explicit-ID reader refusal,
 successful retry and reopening, prior-snapshot survival across a later failed and
 successful build, and mutable-tag rejection. Its installed execution is recorded
 in the [MR 15 record](mr-15-implementation.md#fresh-kernel-nb-15).
+MR 16 adds section 16: installed command progress, duplicate-range reuse, explicit-ID
+inspection, wrong schema/instrument/time/units, required coverage rejection and
+abrupt publication interruption/retry. Its fresh-kernel evidence is recorded in the
+[MR 16 record](mr-16-implementation.md#fresh-kernel-nb-16).
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
