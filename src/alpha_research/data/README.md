@@ -1045,7 +1045,8 @@ complete raw/canonical verification. Its constructor also accepts admitted canon
 bytes for synthetic captured-input exercises. `max_bytes` bounds each verified file
 and the **sum of retained canonical bytes**. Oversized reference inputs fail; the
 reader does not stream an arbitrarily large dataset or impose a process RSS limit.
-Memory includes retained bytes, decoded selection and evidence. Files close before
+Memory includes retained bytes, cached admitted partitions, selected rows and copied
+evidence. Files close before
 `read` returns; subsequent queries do no file I/O.
 
 ```python
@@ -1107,8 +1108,12 @@ mode. Batch size and cancellation do not change semantic identity. A cooperative
 `cancelled` predicate raises `InterruptedError` before selection or between batches;
 `close()` ends iteration and releases local selection state. Loading/selection are
 synchronous bounded reference operations, not interruptible mid-validation. Repeated
-queries reconstruct private views; unsafe mutation of a returned record cannot
-change the reader's retained bytes or a later query.
+queries reuse the admitted private partitions and copy returned records/evidence;
+unsafe mutation of a result cannot change a later query. History copies records
+as each output batch is built. Admission still runs completely when the reader is
+constructed; caching never invents knowledge or bypasses snapshot verification.
+MR 18 measures this reference optimization and the separate pre-admission Parquet
+experiment in its [workload record](../../../docs/roadmap/mr-18-implementation.md).
 
 See [NB 19, section 8](../../../examples/research-foundations.ipynb),
 [focused tests](../../../tests/unit/data/test_query.py), and the

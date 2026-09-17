@@ -8,11 +8,13 @@ import json
 import os
 import resource
 import sys
+from itertools import batched
 from pathlib import Path
 from time import perf_counter
 
 # third party library imports
 import duckdb
+import msgspec
 
 # project library imports
 from alpha_research.data.providers.binance.trades import ArchiveTrade
@@ -31,8 +33,8 @@ def main() -> None:
         ValueError: Arguments, source identity, round trips or query content differ.
     """
     root, operation = Path(sys.argv[1]).resolve(), sys.argv[2]
-    if sys.platform != "darwin" or operation not in ("convert", "scan", "io"):
-        raise ValueError("requires macOS RSS units and operation convert, scan or io")
+    if sys.platform != "darwin" or operation not in ("convert", "scan", "io", "verify"):
+        raise ValueError("requires macOS RSS units and operation convert, scan, io or verify")
     snapshot = "c0f8f3953dee8a15a79d1e9a597e37220c094b3d3c555c8f06d0ec366d3ed278"
     canonical = (
         root
@@ -51,18 +53,25 @@ def main() -> None:
                 raise ValueError("canonical digest mismatch")
             if destination.exists():
                 raise ValueError("retain the previous candidate; use a new experiment directory")
+            # Split with the existing codec before native insertion: one giant JSON
+            # object exceeded DuckDB's fixed memory budget on the first attempt.
+            fields = msgspec.json.decode(canonical.read_bytes(), type=dict[str, msgspec.Raw])
+            revisions = msgspec.json.decode(fields["revisions"], type=tuple[msgspec.Raw, ...])
             connection.execute(
-                "CREATE TABLE candidate AS SELECT ordinality AS position, "
-                "revision::VARCHAR AS revision, "
-                "json_extract_string(revision, '$.occurrences[0].event.ts_event') "
-                "::TIMESTAMPTZ AS business_time, "
-                "json_extract_string(revision, '$.occurrences[0].event.price') AS price, "
-                "json_extract_string(revision, '$.occurrences[0].event.quantity') AS quantity "
-                "FROM read_json_objects(?, maximum_object_size=134217728) source, "
-                "UNNEST(json_extract(source.json, '$.revisions')::JSON[]) "
-                "WITH ORDINALITY AS items(revision, ordinality)",
-                [str(canonical)],
+                "CREATE TABLE candidate (position BIGINT, revision VARCHAR, "
+                "business_time BIGINT, price VARCHAR, quantity VARCHAR)"
             )
+            for chunk in batched(enumerate(revisions), 256):
+                connection.executemany(
+                    "INSERT INTO candidate SELECT position, revision, "
+                    "json_extract_string(revision, '$.occurrences[0].event.timestamp')::BIGINT * "
+                    "CASE json_extract_string(revision, '$.occurrences[0].event.timestamp_unit') "
+                    "WHEN 'ms' THEN 1000 WHEN 'us' THEN 1 ELSE error('unknown clock unit') END, "
+                    "json_extract_string(revision, '$.occurrences[0].event.price'), "
+                    "json_extract_string(revision, '$.occurrences[0].event.quantity') "
+                    "FROM (SELECT ?::BIGINT AS position, ?::VARCHAR AS revision)",
+                    [(position, bytes(revision).decode()) for position, revision in chunk],
+                )
             staging = destination.with_suffix(".staging.parquet")
             connection.execute(
                 "COPY (SELECT * FROM candidate ORDER BY position) TO ? "
@@ -82,10 +91,10 @@ def main() -> None:
             print(json.dumps(record), flush=True)
             return
         expected: dict[str, tuple[int, str]] = {}
-        for repetition in range(1 if operation == "io" else 10):
+        for repetition in range(10 if operation == "scan" else 1):
             for name, end in (
-                ("minute_history", "2024-06-01T00:01:00Z"),
-                ("hour_history", "2024-06-01T01:00:00Z"),
+                ("minute_history", 1717200060000000),
+                ("hour_history", 1717203600000000),
             ):
                 if operation == "io":
                     connection.execute("SET enable_profiling = 'json'")
@@ -97,7 +106,7 @@ def main() -> None:
                 connection.execute(
                     "SELECT revision, price, quantity FROM read_parquet(?) "
                     "WHERE business_time >= ? AND business_time < ? ORDER BY position",
-                    [str(destination), "2024-06-01T00:00:00Z", end],
+                    [str(destination), 1717200000000000, end],
                 )
                 while True:
                     batch: list[tuple[object, ...]] = connection.fetchmany(256)

@@ -257,3 +257,13 @@ class TestQueryReader:
         assert AsOfSelector((payload,), precedence=(fixture._binding(request),)).history == (
             payload,
         )
+
+    def test_returned_evidence_cannot_mutate_cached_admission(self) -> None:
+        """Unsafe mutations of returned policy and membership cannot alter later queries."""
+        reader = self._reader()
+        first = list(self._batches(reader))
+        expected = list(self._batches(reader))
+        evidence = first[0].evidence[0]
+        force_setattr(evidence.policy, "max_gap", timedelta(0))
+        force_setattr(evidence.eligibility.assertions[0], "state", "excluded")
+        assert list(self._batches(reader)) == expected

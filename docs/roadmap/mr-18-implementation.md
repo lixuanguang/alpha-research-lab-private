@@ -85,7 +85,8 @@ this one partition, source-position order, 2,048-row groups, one engine thread,
 512 MiB engine memory setting (not a process RSS limit). Retain each complete revision
 JSON plus exact VARCHAR price/quantity and a UTC timestamp index. The native scan
 experiment reads/decodes full revision payloads in 256-row batches, validates exact
-projection and revision codec round trips, and fingerprints output in source order.
+projection and fingerprints output in source order. A separate untimed verification
+pass checks full revision codec round trips so these extra checks do not distort query latency.
 Use the same minute/hour windows and thirty observations each (three fresh processes,
 ten repetitions); instrument native scan bytes separately with DuckDB's profiler.
 Measure conversion separately. Cutoff/control/eligibility selection is **not**
@@ -108,3 +109,23 @@ checked on 2026-09-17. Dependency admission would additionally require the repos
 [artifact/license/platform/source and vulnerability checks](../architecture/dependency-admission.md),
 plus maintained adapter typing and cross-platform installed parity. A single-user
 trade workload supplies no reason to introduce ClickHouse or a service here.
+
+### Reference reuse candidate registered before remeasurement
+
+The bounded Parquet scan shows promising storage/query costs but does not replace
+verified loading or implement the entire query contract. Test the cheaper admitted-
+partition reuse candidate under the **same** workload, repetitions and budgets
+before any dependency admission. Complete admission stays at reader construction;
+`AsOfSelector` caches its admitted partitions and deep-copies selected results.
+`QueryReader` copies evidence and history rows at the output-batch boundary. Thus
+returned unsafe mutations cannot poison later queries. Canonical admission compares
+deterministically encoded fields as raw JSON bytes rather than allocating two
+additional complete Python dictionary trees. No value, clock, revision, membership,
+control, identity or persistence rule changes.
+
+Before measurement, **113 focused tests passed, 3 unchanged process-interruption
+integration tests deselected**, and changed source/test Ruff/format/strict mypy checks
+passed. Existing unsafe revision-mutation checks pass; a new regression mutates
+returned policy/membership and confirms subsequent queries remain identical.
+The candidate remains conditional until an installed wheel meets the original
+budgets. Failed baseline/candidate attempts remain part of this record.

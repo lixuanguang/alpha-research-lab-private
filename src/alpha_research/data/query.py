@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 from collections.abc import Callable, Generator
+from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
 from itertools import batched
@@ -69,7 +70,7 @@ class QueryReader:
     """Own verified reference bytes with an explicit aggregate memory-input budget.
 
     No files remain open after read. Memory is proportional to the capped canonical
-    input plus decoded reference selection, not just batch size. External store
+    input plus cached admitted partitions and selection, not just batch size. External store
     mutation remains excluded during read under SnapshotStore's contract.
     """
 
@@ -195,15 +196,14 @@ class QueryReader:
         selected = self._selector.select(instruments, start=start, end=end, known_at=known_at)
         partitions = tuple(
             partition
-            for payload in self._selector.history
-            if (
-                partition := self._codec.decode_json(payload, _Partition)
-            ).request.instrument.instrument_id
-            in instruments
+            for partition in self._selector._partitions
+            if partition.request.instrument.instrument_id in instruments
         )
-        evidence = tuple(
-            QueryEvidence(p.request, p.scope, p.policy, p.eligibility, p.reasons)
-            for p in partitions
+        evidence = deepcopy(
+            tuple(
+                QueryEvidence(p.request, p.scope, p.policy, p.eligibility, p.reasons)
+                for p in partitions
+            )
         )
         if mode == "history":
             selected = tuple(self._history(partitions, start, end, known_at)) + tuple(
@@ -226,7 +226,10 @@ class QueryReader:
         ).hexdigest()
         for chunk in batched(selected, batch_size) if selected else ((),):
             self._check_cancelled(cancelled)
-            rows = tuple(self._project(item, columns) for item in chunk)
+            rows = tuple(
+                self._project(deepcopy(item) if mode == "history" else item, columns)
+                for item in chunk
+            )
             yield QueryBatch(identity, mode, columns, rows, evidence)
 
     @staticmethod
