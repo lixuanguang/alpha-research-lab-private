@@ -934,15 +934,18 @@ installed consumer exercise the same selection method:
 from alpha_research.data.asof import AsOfSelector
 
 # snapshot_directory, raw_store, snapshot_id and request are explicit saved inputs.
-binding = (request.instrument.source, request.manifest.job.stream,
-           request.instrument.instrument_id)
+binding = (request.instrument.source, request.manifest.job.stream, request.instrument.instrument_id)
 selector = AsOfSelector.read(
-    snapshot_directory, raw_store, identity=snapshot_id,
-    max_bytes=262_144, precedence=(binding,),
+    snapshot_directory,
+    raw_store,
+    identity=snapshot_id,
+    max_bytes=262_144,
+    precedence=(binding,),
 )
 events = selector.select(
     (request.instrument.instrument_id,),
-    start=request.manifest.job.start, end=request.manifest.job.end,
+    start=request.manifest.job.start,
+    end=request.manifest.job.end,
     known_at=decision_time,
 )
 retained_history = selector.history

@@ -175,6 +175,36 @@ checks above confirm that only run snapshots, kernel files and checkpoints are
 ignored; no ignore policy changed. Code, compact synthetic outputs and metadata were
 reviewed before commits. Generated runs remain local-only under `examples/runs/`.
 
+### Hosted formatting follow-up before merge
+
+The first final-head CI attempt at `04afdf4` failed the source-validation format
+step in [run 35201491710](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35201491710).
+Ruff's configured directory scope also formats Python snippets in Markdown; the
+new `src/alpha_research/data/README.md` example had been omitted from the earlier
+explicit-path format command. Only that snippet's whitespace changed. Full
+configured formatting now passes for **152 files**:
+
+```sh
+uv run --frozen --no-sync ruff format src/alpha_research/data/README.md
+uv run --frozen --no-sync ruff format --check src tests tools/governance/src tools/typing/stubs
+uv run --frozen --no-sync alpha-governance-architecture
+uv run --frozen --no-editable uv build --no-build-isolation --wheel --no-sources . --out-dir /private/tmp/mr17-merge/dist
+uv run --frozen --no-sync python /private/tmp/mr17-merge/verify_formatted_wheel.py
+```
+
+All passed. The temporary verifier compared ZIP entries against the earlier wheel:
+only the component README and wheel `RECORD` changed. It repeated the existing
+hash-locked wheel smoke in `/private/tmp/mr17-merge/installed/`, compared all **68
+package files** with source, and ran the retained external consumer with `-I`.
+The six cutoff counts remain **0, 0, 0, 2, 1, 0**; exact round trips, preserved
+history, mutable-ID refusal and tamper rejection passed. This new fixture attempt's
+snapshot is `dc15340075c65aafd0d034683f32e49596bd7a812dc3a9ba6e7b51ff7521fb97`.
+Final formatted wheel SHA-256:
+`15dea57e9a0fb9d6149af5833dc4e5a0cd6f6d621167b0b3da586bb0ca892f42`.
+Runtime, tests, notebook cells/outputs, lock and P1 bytes are unchanged; their
+existing behavioral/notebook evidence remains applicable. PR #42 retains the
+subsequent required hosted results; this failure is not reported as a passed gate.
+
 ## Risks / reversal
 
 Bounded in-memory reference behavior only. Selection reconstructs validated private
