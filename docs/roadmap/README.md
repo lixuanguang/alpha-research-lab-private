@@ -1,18 +1,19 @@
 # Platform implementation roadmap
 
-Owner: repository founder. Status checked against merged `main` at `95e1a14`
-on 2026-09-17. MR 00, C0 and MRs 01–16 are merged; their
+Owner: repository founder. Status checked against merged `main` at `f4cb239`
+on 2026-09-17. MR 00, C0 and MRs 01–17 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
-MR 17 implementation and acceptance are complete; [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42)
-tracks its merge result. MRs 18–62 and R1 remain planned except the bounded
+MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
+MR 19 implementation is complete on its review branch; its
+[acceptance record](mr-19-implementation.md) records verification and limitations.
+MRs 18 and 20–62 and R1 remain planned except the bounded
 [crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
 MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Next implementation: MR 19 — Query selected data in bounded batches**, after
-MR 17 merges. MR 17 delivers the reference cutoff selector; its
-[implementation record](mr-17-implementation.md) retains acceptance and limitations.
-MR 18 remains conditional on a measured workload and depends on MR 19. No later
-MR is implemented here.
+**Next implementation: MR 20 — Replay with shared event stepping**, after
+MR 19 merges. MR 19 delivers bounded reference queries with separate cutoff and
+retained-history modes. MR 18 remains conditional on a measured workload and
+depends on MR 19. No later MR is implemented here.
 The founder-authorized Binance source amendment of 2026-09-15 supersedes the
 Tardis access prerequisite for P1. The saved sample has passed MR 16 publication
 with exploratory degraded scope; historical eligibility, revision availability
@@ -1102,9 +1103,8 @@ and it is no longer part of the default notebook route.
 Following the founder's 2026-09-16 source-access request, use
 `examples/research-foundations.ipynb` for network-free inspection of saved OKX
 historical L2 and Bitfinex recorded R0 books: explicit sample identities, bounded
-reconstruction, visible orders/spread, clocks and controlled failures. Its first
-eight sections explain those operations; subsequent sections cover the dataset
-checkpoints. This changes the exploratory notebook route, not the frozen P1 trade
+reconstruction, visible orders/spread, clocks and controlled failures. Sections 1–4 explain those operations; sections 5–8 cover the dataset
+and query checkpoints. This changes the exploratory notebook route, not the frozen P1 trade
 study, MR 08's source contract or later MR ownership.
 `examples/foundation-contract-checks.ipynb` retains the independent synthetic
 scenarios, reference checks and original numbered MR checkpoints. Both are
@@ -1116,8 +1116,9 @@ do not create empty notebooks or fictional fetching/monitoring capabilities now.
 Each MR names the notebook and relevant scenario/section it exercised. Notebook
 lifetime follows the research activity, while package changes remain one bounded
 MR at a time. MR 00 and C0 are complete. M0 and NB 03–08 remain in sections 10–16 of
-`foundation-contract-checks.ipynb`; NB 09–17 are sections 9–17 of
-`research-foundations.ipynb`. The [researcher's guide](../../examples/README.md)
+`foundation-contract-checks.ipynb`; NB 09–17 are retained in the connected dataset
+walkthrough (sections 5–7) of `research-foundations.ipynb`; NB 19 is section 8.
+The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),
 not in this workflow.

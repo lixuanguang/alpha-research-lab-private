@@ -1031,9 +1031,87 @@ coverage. Each call reconstructs a private validated view, so unsafe mutation of
 an earlier returned record cannot affect subsequent queries.
 
 This is a bounded in-memory reference API, without column projection, batching,
-query identities, cancellation, event stepping or a performance claim. Those
-consumers remain MR 19/20; MR 18 requires a measured workload. Snapshot publication
+query identities, cancellation, event stepping or a performance claim. The MR 19 query consumer below adds bounded batches; MR 20 owns event stepping.
+MR 18 requires a measured workload. Snapshot publication
 currently supports archive inputs; captured trades and scoped controls are tested
 using admitted synthetic canonical bytes, without extending publication support.
 See the [acceptance record](../../../docs/roadmap/mr-17-implementation.md) and
-[notebook section 17](../../../examples/research-foundations.ipynb).
+[notebook section 7](../../../examples/research-foundations.ipynb).
+
+## Bounded reference queries (MR 19)
+
+`QueryReader` in `data/query.py` opens an explicit snapshot ID through the existing
+complete raw/canonical verification. Its constructor also accepts admitted canonical
+bytes for synthetic captured-input exercises. `max_bytes` bounds each verified file
+and the **sum of retained canonical bytes**. Oversized reference inputs fail; the
+reader does not stream an arbitrarily large dataset or impose a process RSS limit.
+Memory includes retained bytes, decoded selection and evidence. Files close before
+`read` returns; subsequent queries do no file I/O.
+
+```python
+from contextlib import closing
+
+from alpha_research.data.query import QueryMarketRow, QueryReader
+
+query = QueryReader.read(
+    snapshot_directory,
+    raw_store,
+    identity=snapshot_id,
+    max_bytes=262_144,
+    precedence=(binding,),
+)
+with closing(
+    query.batches(
+        (request.instrument.instrument_id,),
+        start=request.manifest.job.start,
+        end=request.manifest.job.end,
+        known_at=decision_time,
+        columns=("price", "quantity", "ts_knowledge"),
+        batch_size=32,
+    )
+) as batches:
+    for batch in batches:
+        for row in batch.rows:
+            if isinstance(row, QueryMarketRow):
+                source, stream, instrument = row.binding
+                price, quantity, effective_knowledge = row.values
+            else:
+                control = row  # Full Occurrence: binding, clocks, reason and raw lineage.
+```
+
+Available market columns are `identity`, `ts_knowledge`, `price`, `quantity` and
+`revision`. Values remain exact `Decimal`/UTC/domain records; `row.binding` always
+identifies their source, stream and instrument. `batch.evidence` retains selected
+bindings' request/unit definitions, exploratory degraded scope, policy, reasons and
+complete membership history. These are in-process typed result containers, not a
+new wire format. Original event/revision codecs remain authoritative.
+
+Cutoff mode delegates eligibility, revision selection and ordering to `AsOfSelector`
+**before** projecting columns. A price-only query still returns applicable full
+control occurrences, including boundary state; unrelated bindings' controls are
+absent. Controls count toward `batch_size`. An empty selection emits one empty
+batch with its evidence, never a coverage-success claim.
+
+`mode="history"` requires the `revision` column. It returns retained chains through
+the inclusive knowledge bound, including unknown-availability originals, along with
+full membership evidence and applicable known controls. A chain touching the business
+window keeps a later correction that retires its earlier in-window value. Terminal
+membership exclusions do not erase that history. Unknown originals remain unusable
+until actual evidence permits selection. History is **replay input, not an eligible
+cutoff projection**; its partition/head order is not chronological replay order.
+MR 20 owns ordering, membership application and shared event stepping.
+
+Every batch carries a versioned query SHA-256 covering input/snapshot identity,
+precedence, selected instruments, business bounds, knowledge cutoff, columns and
+mode. Batch size and cancellation do not change semantic identity. A cooperative
+`cancelled` predicate raises `InterruptedError` before selection or between batches;
+`close()` ends iteration and releases local selection state. Loading/selection are
+synchronous bounded reference operations, not interruptible mid-validation. Repeated
+queries reconstruct private views; unsafe mutation of a returned record cannot
+change the reader's retained bytes or a later query.
+
+See [NB 19, section 8](../../../examples/research-foundations.ipynb),
+[focused tests](../../../tests/unit/data/test_query.py), and the
+[acceptance record](../../../docs/roadmap/mr-19-implementation.md) for measured
+memory/read counts, installed-consumer evidence and limitations. No columnar backend,
+EDA runner, replay clock or new publication adapter is introduced.
