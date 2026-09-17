@@ -454,3 +454,28 @@ and completed verification. Failure after rename may leave a complete snapshot;
 retry verifies and synchronizes it. The [command guide](../../src/alpha_research/data/README.md#publish-and-inspect-from-the-command-line-mr-16)
 owns arguments, file preparation, exit codes and recovery. Actual commands and
 limitations are in the [MR 16 record](../roadmap/mr-16-implementation.md).
+
+## Point-event cutoff projection (MR 17)
+
+`AsOfSelector` consumes verified snapshot partitions or admitted canonical bytes,
+revalidates their existing quality contract, and preserves full immutable history.
+Its [API guide](../../src/alpha_research/data/README.md#select-point-events-at-a-cutoff-mr-17)
+owns invocation, precedence, window semantics, control boundary behavior and limits.
+Availability is filtered before terminal revision, business-window and eligibility
+selection. Unknown original archive availability is not inferred from event time,
+local receipt or ingestion. A later evidenced version may be known even when its
+original remains unavailable. Corrections and eligibility revisions cannot rewrite
+an earlier cutoff; no ineligible successor falls back to its superseded original.
+
+Returned controls retain applicable request/subscription scope, including known
+state preceding the query window. Complete quality, membership and revision history
+remains separately retained; it is not a cutoff projection. Economic output order
+uses effective knowledge, explicit source/stream/subscription precedence, partition
+start and source position. Content hashes only identify lineage. Ambiguous ties,
+overlapping binding intervals and competing heads require upstream reconciliation.
+
+The reference implementation and NB 17 have synthetic causality/control evidence
+and an actual installed published-archive consumer. This does not extend the
+archive-only snapshot publication boundary to captured or collector data, establish
+historical P1 availability, or implement MR 19 queries/MR 20 replay. The
+[MR 17 record](../roadmap/mr-17-implementation.md) retains actual validation.
