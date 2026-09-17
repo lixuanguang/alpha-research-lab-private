@@ -1,6 +1,6 @@
 # Notebook setup, execution and troubleshooting
 
-Owner: repository founder. Updated 2026-09-16. This is the supporting operations
+Owner: repository founder. Updated 2026-09-18 for MR 21. This is the supporting operations
 guide. Start with the [researcher's guide](README.md) to choose a question and
 understand the data. The [roadmap](../docs/roadmap/README.md#local-notebook-workflow)
 owns notebook retention and acceptance; this page explains the existing tools.
@@ -57,7 +57,7 @@ the explicit paths make the selected route reviewable.
 Primary saved-input workflow (no network):
 
 ```sh
-uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations.ipynb
+uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' --with 'matplotlib==3.10.8' python examples/run_notebook.py examples/research-foundations.ipynb
 ```
 
 Offline detailed boundary companion:
@@ -107,7 +107,8 @@ No new project runtime dependencies or `sys.path` changes are needed.
 
 ## Interactive kernel and import repair
 
-The kernel requires `ipykernel` and the installed runtime package.
+The kernel requires `ipykernel` and the installed runtime package. The primary
+notebook also requires `matplotlib==3.10.8` for its MR 21 synthetic EDA plot.
 `nbclient`/`nbformat` are runner tooling, so their absence from an interactive
 kernel is permitted and recorded accurately in the notebook table.
 
@@ -122,7 +123,12 @@ Historical environment failures and repairs are retained in the
 [M0 import record](../docs/roadmap/m0-implementation.md#interactive-notebook-import-repair),
 [MR 04 record](../docs/roadmap/mr-04-implementation.md#editor-environment-repair-before-merge)
 and [MR 05 record](../docs/roadmap/mr-05-implementation.md#duplicate-file-cleanup).
-Those local installation incidents do not describe the current installed candidate.
+MR 21 found extra duplicate runtime files in the existing development environment;
+its final acceptance uses a clean external wheel installation. The primary notebook
+now compares the complete installed runtime file set as well as file bytes, and
+selects the dataset command beside the kernel interpreter rather than from `PATH`.
+If that inventory check fails, use a clean wheel environment and restart; do not
+interpret a matching package version or matching subset of files as acceptance.
 
 ## Where the detailed checks live
 
@@ -425,3 +431,25 @@ revision and against the installed candidate. The added replay module was not
 measured by MR 18. If a measured file changes, investigate and renew the relevant
 measurement instead of replacing its recorded hash. Generated attempt snapshots
 and transient kernel files remain ignored; maintained example sources stay tracked.
+
+
+## MR 21 configured EDA and clean-kernel acceptance
+
+Section 11 publishes six synthetic corrected observations across two instruments,
+calls the installed `inspect_eda` entry, plots the bounded event interval and reads
+standalone replay/extension evidence. The normal runner uses separate pinned
+Matplotlib tooling; no runtime dependency or lockfile change is required.
+
+For an external wheel kernel, install the locked runtime wheel as described in the
+[MR 21 record](../docs/roadmap/mr-21-implementation.md), add explicitly pinned kernel
+tooling to that temporary environment, and point the existing runner at it:
+
+```sh
+uv pip install --python /private/tmp/mr21-validation/installed/venv/bin/python --only-binary=:all: 'ipykernel==7.2.0' 'matplotlib==3.10.8'
+ALPHA_OKX_ARCHIVE_DIRECTORY=data/okx/history/802967bb-05eb-4b7b-9c90-2c964f22e41f ALPHA_BITFINEX_CAPTURE_DIRECTORY=data/bitfinex/a5116c5a-b7d6-4e2b-9ee6-c79839c80f43 uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations.ipynb --kernel-python /private/tmp/mr21-validation/installed/venv/bin/python
+```
+
+Those saved book paths are the actual acceptance inputs; select compatible retained
+paths explicitly on another machine. The external wheel and generated synthetic
+stores are local acceptance artifacts, not a release archive. The owning MR record
+retains the successful/failed attempts, hashes, observations and environment limits.

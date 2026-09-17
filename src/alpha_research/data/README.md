@@ -1118,8 +1118,8 @@ experiment in its [workload record](../../../docs/roadmap/mr-18-implementation.m
 See [NB 19, section 8](../../../examples/research-foundations.ipynb),
 [focused tests](../../../tests/unit/data/test_query.py), and the
 [acceptance record](../../../docs/roadmap/mr-19-implementation.md) for measured
-memory/read counts, installed-consumer evidence and limitations. No columnar backend,
-EDA runner, replay clock or new publication adapter is introduced.
+memory/read counts, installed-consumer evidence and limitations. MR 19 introduces
+no columnar backend or publication adapter; EDA and replay consumers follow below.
 
 
 ## Chronological event stepping (MR 20)
@@ -1173,4 +1173,52 @@ and failure context without a second telemetry framework.
 same operation. This trade/control scope rejects unsupported canonical book
 inputs. L2/L3 publication/adapters and accepted-snapshot/recovery-epoch state
 remain with the later collector consumers. E1/MR 44 own economic batch/resume
-proofs; MR 21 is the next EDA/extension workflow.
+proofs; MR 21 consumes this boundary for standalone EDA replay.
+
+
+## Configured EDA and extension boundaries (MR 21)
+
+`pipelines.eda.inspect_eda(config, snapshots, raw, report=..., consume=...)` is the
+installed Python orchestration entry. Supply a strict `data.eda.EdaQuery` JSON
+file, an explicit saved snapshot root and its retained `RawStore`. The schema
+requires snapshot SHA-256, complete binding precedence, selected instruments,
+UTC business bounds `[start, end)`, inclusive `known_at`, columns, cutoff/history
+mode, batch size and canonical-byte limit. Unknown fields/capabilities fail; this
+entry neither acquires data nor discovers a mutable latest snapshot. The current
+selection limit reuses `Universe`'s 32-instrument bound.
+
+The required synchronous `report` callback owns retention. Append its records to
+an attempt-specific JSON-lines file with `DomainCodec`; keep the final `complete`
+record, which includes resolved config and its identity, installed implementation
+identity, semantic query/summary identities and full scoped quality/unit/membership
+evidence. Timing and batch-size observations are excluded from semantic identities.
+The config identity intentionally includes delivery/budget choices. Failed reads,
+invalid config and observer failures emit `failed` with stage, duration and reason,
+then propagate; no partial query summary is declared complete. If the report sink
+itself fails, delivery cannot be guaranteed: repair it and rerun. Input snapshots
+remain immutable; the pipeline owns no persistent mutable analysis state.
+
+`QuerySummary.collect` consumes the same projected batches in the notebook and
+standalone workflow. It retains per-binding row counts and exact min/max prices
+when projected; quantities/currencies are never summed across instruments. Controls
+remain counted and hashed with full lineage. An empty query still retains its
+evidence. History summarizes retained heads, not every predecessor or an eligible
+economic projection. `Replay` expands versions using their actual availability.
+The optional `consume` callback receives each batch for plotting/export and must
+not mutate it; any buffering there belongs to the consumer.
+
+Reports include total/query duration, rows, controls, batches, largest batch,
+process lifetime peak RSS bytes (macOS/Linux) and OS input-block delta. RSS is not
+per-query allocation; input blocks are not application reads and can be zero with
+cached inputs. Snapshot admission still verifies full saved inputs; projection
+claims no I/O pushdown. The reader's canonical-byte cap is not an RSS bound.
+
+The [standalone consumer](../../../tests/fixtures/mr21/eda_consumer.py) builds a
+small deterministic synthetic archive, publishes two instruments, retains EDA
+records and replays outside Jupyter. [NB 21](../../../examples/research-foundations.ipynb)
+plots the same bounded interval. The [contract fixture](../../../tests/fixtures/mr21/contract.json)
+exercises neutral identity, exact quantity/multiplier and projected-batch summaries
+only, with no spot-record coercion. It is not admitted to the spot reader/replay;
+unsupported source products, lifecycle/adapter fields and unit combinations fail.
+See the [acceptance record](../../../docs/roadmap/mr-21-implementation.md) for
+commands, observations, justified review size and remaining scope.

@@ -1,20 +1,25 @@
 # Platform implementation roadmap
 
-Owner: repository founder. Status checked against merged `main` at `f37c07d`
+Owner: repository founder. Status checked against merged `main` at `f8ef338`
 on 2026-09-17. MR 00, C0 and MRs 01–17 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
 MR 19 merged through [PR #44](https://github.com/lixuanguang/alpha-research-lab-private/pull/44);
 its [acceptance record](mr-19-implementation.md) retains verification and limitations.
-MR 18's [workload evaluation and reference reuse](mr-18-implementation.md) are locally
-verified for review; columnar backend admission is explicitly deferred for that workload.
-MR 20's [shared stepping and cursor](mr-20-implementation.md) are implemented
-locally for review; hosted merge acceptance is still pending.
-MRs 21–62 and R1 remain planned except the bounded
+MR 18's [workload evaluation and reference reuse](mr-18-implementation.md) merged
+through PR #45; columnar backend admission is explicitly deferred for that workload.
+MR 20's [shared stepping and cursor](mr-20-implementation.md) merged through
+[PR #46](https://github.com/lixuanguang/alpha-research-lab-private/pull/46).
+MR 21's [configured EDA and extension exercise](mr-21-implementation.md) is
+implemented locally for review; hosted merge acceptance remains pending.
+MRs 22–62 and R1 remain planned except the bounded
 [crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
 MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Next implementation after MR 20 merges: MR 21 — Exercise EDA and extension boundaries**.
+**Next implementation after MR 21 merges: MR 22 — Bind and verify one live source**.
+MR 21 delivers configured multi-instrument summaries, retained attempt observations,
+a bounded plot and standalone replay, plus an explicit synthetic contract projection
+with unsupported capability refusals.
 MR 20 delivers shared chronological stepping and completed-step cursors. MR 19 delivers
 bounded reference queries with separate cutoff and retained-history modes. MR 18
 retains the reference reader after measured admission reuse meets the selected
@@ -1124,7 +1129,8 @@ lifetime follows the research activity, while package changes remain one bounded
 MR at a time. MR 00 and C0 are complete. M0 and NB 03–08 remain in sections 10–16 of
 `foundation-contract-checks.ipynb`; NB 09–17 are retained in the connected dataset
 walkthrough (sections 5–7) of `research-foundations.ipynb`; NB 19 is section 8; NB 18 workload evaluation is section 9; NB 20 shared
-stepping and cursor recovery is section 10.
+stepping and cursor recovery is section 10; NB 21 configured EDA and extension
+boundaries is section 11.
 The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),
@@ -1266,6 +1272,8 @@ procedural notes. Current usage belongs in component guides and examples.
 | [MR 16](mr-16-implementation.md) | #40 | `95e1a14` |
 | [MR 17](mr-17-implementation.md) | #42 | `3deb34b` |
 | [MR 19](mr-19-implementation.md) | #44 | `0898d0a` |
+| [MR 18](mr-18-implementation.md) | #45 | `f37c07d` |
+| [MR 20](mr-20-implementation.md) | #46 | `f8ef338` |
 
 ## How to execute and maintain the plan
 
