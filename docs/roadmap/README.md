@@ -3,14 +3,16 @@
 Owner: repository founder. Status checked against merged `main` at `95e1a14`
 on 2026-09-17. MR 00, C0 and MRs 01–16 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
-MR 17 is implemented on its review branch; MRs 18–62 and R1 remain planned except the bounded
+MR 17 implementation and acceptance are complete; [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42)
+tracks its merge result. MRs 18–62 and R1 remain planned except the bounded
 [crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
 MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Current review: MR 17 — Read point events as of a cutoff.** The
-[implementation record](mr-17-implementation.md) covers this candidate. After MR 17
-merges, the next dependency-ready package is MR 19; MR 18 remains conditional on
-a measured workload and depends on MR 19. No later MR is implemented here.
+**Next implementation: MR 19 — Query selected data in bounded batches**, after
+MR 17 merges. MR 17 delivers the reference cutoff selector; its
+[implementation record](mr-17-implementation.md) retains acceptance and limitations.
+MR 18 remains conditional on a measured workload and depends on MR 19. No later
+MR is implemented here.
 The founder-authorized Binance source amendment of 2026-09-15 supersedes the
 Tardis access prerequisite for P1. The saved sample has passed MR 16 publication
 with exploratory degraded scope; historical eligibility, revision availability

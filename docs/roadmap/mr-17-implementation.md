@@ -1,6 +1,8 @@
 # MR 17 — Read point events as of a cutoff
 
-Owner: repository founder. Status: implemented for review on 2026-09-17, not merged.
+Owner: repository founder. Historical validation: implemented and locally verified
+for review on 2026-09-17. [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42)
+retains the hosted checks and merge result.
 Branch: `codex/mr-17-asof-point-events`. Base: freshly fetched `main` at `1b02d5c`.
 Required merges MR 10 (`d88ba11`), MR 12 (`210db65`) and MR 15 (`69a45eb`) are
 ancestors of that base. Committed implementation and retained fixture: `972b111`
@@ -179,8 +181,9 @@ Bounded in-memory reference behavior only. Selection reconstructs validated priv
 views for each call, keeping unsafe mutation of returned records from affecting
 later queries. There is no throughput/memory benchmark, column projection, batch
 iteration, cancellation, cursor, event stepping, observation invalidation, fills or
-strategy result. The full hosted merge lane remains required before merge; no full
-local `make check` or hosted result is claimed by these focused checks.
+strategy result. The full hosted merge lane remains required before merge; no full local
+`make check` or hosted result is claimed by the earlier focused checks above.
+The linked PR owns subsequent hosted validation and the actual merge result.
 
 Published snapshots remain archive-only. Captured-trade/control evidence uses
 admitted synthetic partitions, not expanded Tardis or collector publication support.
