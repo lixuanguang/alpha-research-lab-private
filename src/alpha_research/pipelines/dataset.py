@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,6 +14,7 @@ from typing import Literal
 
 # project library imports
 from alpha_research.configuration import Configuration, ResolvedManifest
+from alpha_research.data.datasets import DatasetManifest, DatasetPartition
 from alpha_research.data.eligibility import EligibilityAssertions
 from alpha_research.data.manifests import AcquisitionManifest
 from alpha_research.data.normalization import Occurrence
@@ -41,6 +42,63 @@ class _InspectionArguments(argparse.Namespace):
     received: str
     ingested: str
     sequence: int
+
+
+def assemble_dataset(
+    acquisitions: tuple[AcquisitionManifest, ...],
+    store: RawStore,
+    *,
+    max_bytes: int,
+    policy: QualityPolicy,
+    eligibility: EligibilityAssertions,
+    corrections: Mapping[str, tuple[Correction, ...]],
+) -> tuple[DatasetManifest, tuple[bytes, ...]]:
+    """Admit saved partitions and assemble their manifest without publishing files.
+
+    Args:
+        acquisitions: Ordered complete single-partition acquisitions for this dataset.
+        store: Existing immutable raw objects, verified before admission.
+        max_bytes: Positive compressed/expanded byte cap per raw archive.
+        policy: Shared declared exploratory use, knowledge cutoff and gap tolerance.
+        eligibility: Complete retained eligibility history matching the selected catalog.
+        corrections: Evidence by resolved acquisition run identity; use an empty mapping
+            when there are no corrections. Unknown mapping keys fail before reading.
+
+    Returns:
+        Manifest and corresponding canonical bytes, only after every partition passes.
+        The caller may save these working files; atomic snapshot publication is separate.
+
+    Raises:
+        ValueError: A partition is rejected, repeated, incomplete or incompatibly bound.
+    """
+    if set(corrections) - {item.run.identity for item in acquisitions}:
+        raise ValueError("dataset correction evidence names an unselected acquisition")
+    partitions: list[DatasetPartition] = []
+    payloads: list[bytes] = []
+    for acquisition in acquisitions:
+        evidence = corrections.get(acquisition.run.identity, ())
+        canonical = validate_saved_partition(
+            acquisition,
+            store,
+            max_bytes=max_bytes,
+            policy=policy,
+            eligibility=eligibility,
+            corrections=evidence,
+        ).require_canonical()
+        partitions.append(
+            DatasetPartition(
+                sha256=hashlib.sha256(canonical).hexdigest(),
+                acquisition=acquisition,
+                policy=policy,
+                eligibility=eligibility,
+                corrections=evidence,
+            )
+        )
+        payloads.append(canonical)
+    return DatasetManifest(
+        normalization_identity=Configuration._implementation_identity(),
+        partitions=tuple(partitions),
+    ), tuple(payloads)
 
 
 def validate_saved_partition(
