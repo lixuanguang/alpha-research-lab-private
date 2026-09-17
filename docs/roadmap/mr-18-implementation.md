@@ -2,6 +2,8 @@
 
 Owner: repository founder. Status: implemented and locally verified for review on
 2026-09-17; **columnar backend deferred for the measured workload**, not implemented.
+[PR #45](https://github.com/lixuanguang/alpha-research-lab-private/pull/45) retains
+subsequent hosted checks and the merge result.
 Branch: `codex/mr-18-query-backend`. Base: freshly fetched `main`
 `0898d0a532235b68972590526ce92673b6f8bfee`. Prerequisites MR 14 (`746e002`, PR #38),
 MR 15 (`69a45eb`, PR #39), MR 17 (`3deb34b`, PR #42) and MR 19 (`0898d0a`, PR #44)
