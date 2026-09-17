@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-17 for MR 16 dataset commands.
+Owner: repository founder. Updated 2026-09-17 for the connected dataset walkthrough after MR 17.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -9,7 +9,7 @@ this guide explains what you can do, how to read the evidence and what remains o
 
 | What I want to understand | Open this notebook | What it gives me | What running it does |
 | --- | --- | --- | --- |
-| What liquidity did my saved inputs show, and can I inspect them again? | [Saved order-book exploration](research-foundations.ipynb) — start here after acquisition | An OKX historical reconstruction summary, Bitfinex visible orders and spread, clock distinctions and visible data failures | Reads verified saved inputs only; no network or credentials. |
+| What did my saved inputs show, and how do I build and query a dataset? | [Saved inputs to a research dataset](research-foundations.ipynb) — start here after acquisition | Real book reconstruction, one generic publication workflow with separate synthetic inputs, and cutoff selection | Reads saved books and creates temporary synthetic datasets; no network or credentials. |
 | How could timing, units or damaged inputs change my conclusions? | [Data reliability lab](foundation-contract-checks.ipynb) — optional depth | Small synthetic examples of availability, arithmetic, wrong inputs, interruption and recovery | Offline; creates temporary test files and child processes. No provider access. |
 | How do I obtain a new sample without exchange account credentials? | [Acquire OKX and Bitfinex books](market-data-capture.ipynb) — run first if you have no saved inputs | Bounded public live observations, saved reconstruction, gap examples and an OKX historical prefix | Records two new live samples and downloads an archive; an explicit saved-archive override avoids the download. |
 
@@ -81,64 +81,27 @@ verified Binance run (638,484 daily rows; 27,480 selected-hour trades). Its synt
 row-order and missing-input checks now live in section 16 of the offline lab,
 where they run without provider access.
 
-Section 9 of [research-foundations.ipynb](research-foundations.ipynb) adds NB 09:
-small **synthetic Binance trades** and Tardis controls, without Binance access.
-It displays equal-time row order, colliding sequence numbers across files and
-independent bindings, absent capture/knowledge clocks and explicit wrong-binding
-rejections. This exercise is separate from the real OKX/Bitfinex book observations.
-The [MR 09 record](../docs/roadmap/mr-09-implementation.md) identifies its tested state.
+## Follow the connected dataset walkthrough
 
-Section 10 adds NB 10: shifted-row duplicates, an explicitly evidenced late correction,
-and reconstruction before/at its availability boundary. The evidence is **synthetic**;
-it does not fill in missing historical archive knowledge. Invalid evidence and
-unevidenced conflicts fail. The [MR 10 record](../docs/roadmap/mr-10-implementation.md)
-identifies the installed candidate and required failures.
+The main notebook condenses the former NB 09–17 milestone exercises into one
+workflow. Repeated archive setup and exhaustive negative cases remain in the
+[unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
+The current notebook has seven sections:
 
-Section 11 adds NB 11: read the synthetic eligibility file and compare a
-2026-authored assumption with synthetic evidence modeling availability in the 2024
-sample. The table retains a hypothetical delisting, its reason and evidence identity.
-Missing evidence, backdated knowledge/assumption availability, contradictory overlap
-and changed catalog units are visibly rejected. The
-[MR 11 record](../docs/roadmap/mr-11-implementation.md) records the fresh installed run.
-These are supplied evidence attestations, not authenticated Binance documents;
-the frozen P1 historical eligibility gap remains open.
+| Sections | Question and evidence |
+| --- | --- |
+| 1–2: implementation and inputs | Verify the installed runtime, record its identity and pin the saved books. |
+| 3–4: reconstruction and clocks | Inspect the OKX historical prefix and Bitfinex visible orders, repeat the state trace and observe a disconnect. |
+| 5: dataset inputs | Bind each saved acquisition to its own policy and eligibility history with `DatasetInput`. The example uses two synthetic trade inputs; assembly preserves separate partitions. |
+| 6: publication and verification | Call `publish_dataset`, reopen by explicit snapshot ID, check CLI/Python parity and compare identities after changing one input's policy. Unknown archive availability remains unavailable to cutoff selection. |
+| 7: cutoff selection | Use a captured synthetic trade to show the original price, a late correction at its availability boundary and a later membership change, while retaining earlier query results. |
 
-Section 12 adds NB 12: select membership with independent validity and knowledge
-cutoffs. The synthetic late listing correction leaves the earlier BTC+ETH universe
-unchanged, then excludes BTC when the correction becomes known. Tables show before,
-at and after both clocks' boundaries, the half-open endpoint, unknown and unsupported
-outcomes, and four controlled failures. Only explicit inclusion enters the universe.
-The [MR 12 record](../docs/roadmap/mr-12-implementation.md) identifies the installed
-candidate. Selection alone does not produce an accepted dataset.
-
-Section 13 adds NB 13: declare exploratory or causal use, inspect duplicate/gap
-counts and compare the resulting publication gates. The synthetic archive can
-produce deterministic **exploratory degraded** bytes with retained histories;
-its unknown recorder coverage and historical availability prevent causal admission.
-Seven examples refuse publication for required coverage, a foreign instrument,
-an unevidenced conflict, a rewritten capture clock, NaN/zero prices and zero trade
-quantity. Raw failures retain reasons and originals; there is no silent row drop
-or filled gap. See the [MR 13 record](../docs/roadmap/mr-13-implementation.md).
-Section 14 adds NB 14: rebuild a synthetic dataset twice, change its gap policy,
-and compare manifest/canonical hashes. The reader verifies raw and canonical files,
-retained quality scope and resolved references. Tables show matching repeat hashes,
-a changed-policy identity and failures for unknown versions, causal scope, changed
-identity and missing bytes. Relocating and restoring the same files preserves identity.
-See the [MR 14 record](../docs/roadmap/mr-14-implementation.md).
-Section 15 adds NB 15: interrupt publication before its atomic boundary, inspect
-the absent snapshot, then complete the pipeline and reopen by explicit SHA-256.
-The table shows the earlier dataset remains readable during a later failed build
-and after a changed-policy snapshot publishes. Repeated publication preserves the
-same identity, while a mutable `latest` tag is rejected. Keep the original raw
-store available: reopening verifies it alongside the manifest and canonical files.
-See the [MR 15 record](../docs/roadmap/mr-15-implementation.md).
-Section 16 adds NB 16: invoke the installed publish and inspect commands outside the
-checkout, repeat a saved range, and inspect quality counts and persistence stages.
-Wrong schema/instrument/time/units and required coverage fail visibly. An abruptly
-terminated publisher exposes no partial ID; retry succeeds while the earlier snapshot
-remains readable. The report stays exploratory degraded. See the
-[MR 16 record](../docs/roadmap/mr-16-implementation.md). The next research action is
-MR 17's reader for event revisions and eligibility known at a chosen cutoff.
+The generic composition boundary is in place. Installed saved-input publication
+currently supports trade archives; actual LOB adapters are planned for MR 25.
+Future source combinations retain distinct source/venue streams within one dataset.
+The real OKX/Bitfinex book readers still have separate capture/archive formats.
+This walkthrough supplies no empirical historical membership or revision evidence
+and leaves the frozen P1 source-access gap open.
 
 ## How to interpret the evidence
 
@@ -172,15 +135,15 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Check exact price × quantity values for small examples | Available through financial-unit APIs in the offline lab; this is not an executed strategy ledger. |
 | Learn how timing, wrong instruments, corruption and interruption are handled | Available in the offline reliability lab. |
 | Inspect visible order-book observations and reconstruction | Available for the bounded collector examples, with each source's gaps and access limits reported separately. L2 aggregates price levels; L3 retains visible individual orders. Neither establishes fills or queue priority. |
-| Obtain consistently interpreted historical trade events | MR 09 supplies a saved Binance archive iterator with exact values and raw-origin identities. Historical availability and accepted dataset publication remain open. |
-| Treat duplicate trades and corrections consistently | MR 10 supplies bounded in-memory admission, complete duplicate lineage and linear evidenced correction histories. Original archive knowledge remains unknown; accepted dataset publication is still ahead. |
+| Obtain consistently interpreted historical trade events | MR 09 supplies a saved Binance archive iterator with exact values and raw-origin identities. Exploratory publication is available; historical availability remains unknown. |
+| Treat duplicate trades and corrections consistently | MR 10 supplies bounded in-memory admission, complete duplicate lineage and linear evidenced correction histories. Original archive knowledge remains unknown; exploratory datasets retain that limitation. |
 | Inspect historical membership assertions | MR 11 reads evidence-labeled histories without dropping excluded members. Today's catalog is still an authored assumption. |
 | Establish the historically eligible research universe | MR 12 selects by independent validity and knowledge, preserving corrections and explicit unknown/unsupported outcomes. Actual historical evidence is still required for empirical P1 acceptance. |
 | Decide whether the data meets the experiment's quality requirements | MR 13. Unknown required coverage or eligibility cannot silently pass. |
 | Identify admitted partitions and verify their saved files | MR 14 supplies deterministic manifest identity and verified reading, retaining exploratory degraded scope. |
 | Preserve a completed dataset across interrupted later builds | MR 15 publishes one atomic local snapshot and reopens by explicit ID, with retained raw inputs and unchanged degraded quality. |
 | Inspect publication through an installed dataset command | MR 16 publishes saved acquisitions and reopens an explicit ID, reporting degraded quality, invalid/gap/duplicate counts and persistence status. |
-| Select the revisions knowable at a cutoff | Section 17 uses the installed as-of selector, showing late correction/eligibility boundaries, equal-capture order and applicable disconnects. Unknown archive knowledge remains unavailable; full quality/history stays separate from selected events. |
+| Select the revisions knowable at a cutoff | Section 7 uses the installed as-of selector, showing late correction and eligibility boundaries; detailed ordering/control cases remain in the tests. Unknown archive knowledge remains unavailable; full quality/history stays separate from selected events. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |
 
 ## A useful way to work through a notebook

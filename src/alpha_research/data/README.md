@@ -46,6 +46,9 @@ changing serialized events. Internal code imports from defining modules:
 | [`events.py`](events.py) | Frozen `TaggedEvent` and `MarketEventRecord` templates, shared field validation, and `Disconnect` |
 | [`decoders.py`](decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol for source-independent payload decoding |
 | [`raw_objects.py`](raw_objects.py) | Immutable `RawObject` descriptors and bounded verification of exact saved bytes against an expected request |
+| [`inputs.py`](inputs.py) | Source-neutral saved-partition, fixture and occurrence-verification contracts |
+| [`providers/catalog.py`](providers/catalog.py) | Explicit installed source capabilities; provider and venue selection stays inside adapters |
+| [`providers/binance/occurrences.py`](providers/binance/occurrences.py) | Archive row decoding, half-open selection, original lineage and reader cleanup, shared by assembly and verification |
 | [`datasets.py`](datasets.py) | Ordered dataset identity, retained admission inputs and verified saved-manifest reading |
 | [`snapshots.py`](snapshots.py) | Atomic directory publication, immutable retry and explicit-ID snapshot reopening |
 | [`manifests.py`](manifests.py) | Validated acquisition completion prefixes, write-ahead receipts and durable checkpoint replacement |
@@ -793,6 +796,28 @@ both declared uses and the required failures.
 
 ## Identify and verify a dataset manifest (MR 14)
 
+The assembly boundary accepts an ordered tuple of `DatasetInput` records from
+[`datasets.py`](datasets.py). Each record retains its own `acquisition`, `policy`,
+`eligibility` and `corrections`. This allows independently evidenced inputs to share
+one dataset without substituting one catalog, cutoff or correction history for
+another. Both `assemble_dataset(inputs, raw_store, max_bytes=limit)` and
+`publish_dataset(inputs, raw_store, destination, max_bytes=limit)` consume this form.
+Do not also supply shared policy/evidence arguments with these records.
+Both entry points reuse exact repeated selections in first-seen order and reject
+nonidentical overlaps within the same source, stream and instrument before reading.
+
+Dataset assembly and reopening use the source-neutral reader contract selected by
+the installed provider catalog. Provider/venue decoding stays under `providers/`
+and `venues/`; a future source does not require a branch in either workflow.
+Partitions retain their source, stream, instrument, raw ordering and quality evidence.
+Independent streams are not merged into a consolidated cross-venue book.
+The currently installed saved adapter and version-1 canonical format still support
+archive trades only. MR 25 owns actual LOB adapters, book admission and the versioned
+canonical/manifest extension needed for book partitions; configuration alone cannot
+enable them. MR 19/20 own later query/replay composition.
+
+The existing shared-evidence call remains supported:
+
 Call `assemble_dataset` from `alpha_research.pipelines.dataset` with an ordered tuple
 of complete single-partition acquisitions, their `RawStore`, a positive raw byte
 cap, shared `QualityPolicy`/`EligibilityAssertions`, and correction evidence keyed
@@ -828,11 +853,21 @@ policy=policy, eligibility=history, corrections=corrections)` from
 `alpha_research.pipelines.dataset`. Inputs match `assemble_dataset`; `destination`
 is an existing, durably provisioned snapshot directory. The result is the explicit
 dataset SHA-256 after all selected partitions pass admission and publication succeeds.
+This is also the workflow used by `alpha-dataset publish`. Exact repeated inputs
+are reused in first-seen order; nonidentical overlapping selections within the same
+source/stream/instrument fail. The optional `report(run_identity, quality)` sink
+receives admission outcomes, and `progress(status, manifest)` receives `started`
+with the candidate identity and `complete` only after durable publication and
+verified reopening. A callback failure propagates, including after publication.
 Keep that ID with the research inputs. Reopen using
 `SnapshotStore(destination, raw_store).read(identity, max_bytes=limit)` from
 [`snapshots.py`](snapshots.py). The reader verifies every canonical/raw file and
 repeats admission before returning the manifest. `latest` and filesystem paths
 cannot stand in for the ID. The MR 16 command below exposes this consumer.
+An optional `report(run_identity, quality)` sink on `SnapshotStore.read` or
+`DatasetManifest.read` receives each reproduced report after its canonical bytes
+match. Inspection uses those reports directly. An earlier partition's report does
+not certify a later partition or the complete dataset.
 
 For an already assembled manifest and ordered canonical tuple, use
 `snapshots.publish(manifest, payloads, max_bytes=limit)`. A hidden directory stages
@@ -900,6 +935,12 @@ correction histories. Supply each correction as
 strict `Correction` record. Omission means no correction evidence; conflicts and
 unknown run keys fail. No correction/availability policy is silently relaxed.
 
+Alternatively, use `--inputs /saved/input-a.json /saved/input-b.json` with strict
+`DatasetInput` JSON records encoded by `DomainCodec`. Each embeds its acquisition,
+policy, eligibility and corrections. This option replaces `--manifests`, `--policy`,
+`--eligibility` and `--correction`; mixing the two selection styles fails. The same
+installed adapter and canonical-format limits apply to both forms.
+
 Every JSON line is flushed. Normalization emits one quality report per reached
 partition, including `run_identity`, `scope`, `invalid_count`, `gap_count`,
 `duplicate_count` and retained `reasons`, before its publication gate. Invalid
@@ -909,7 +950,9 @@ an accepted dataset prefix. Exploratory gaps remain explicitly degraded; causal
 coverage requirements reject the current archive inputs.
 
 Publication reports its candidate snapshot ID before persistence; `persisted`
-acknowledges synchronization and `complete` follows verified reopening. Inspection
+acknowledges synchronization and `complete` follows the publisher's verified reopening.
+Both records use stage `publish`; publication no longer starts another `reopen`
+pass after the publisher has already verified the final snapshot. Inspection
 verifies raw/canonical bytes and reports quality using the embedded policies and
 histories, without the original build-time policy or acquisition files. Exit codes
 are 0 for completion, 2 for configuration/usage, 3 for admission/verification, 4

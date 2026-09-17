@@ -5,8 +5,9 @@ from __future__ import annotations
 # standard library imports
 import hashlib
 import re
-from collections.abc import Generator
+from collections.abc import Callable, Mapping
 from contextlib import closing
+from itertools import combinations
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -16,14 +17,114 @@ import msgspec
 # project library imports
 from alpha_research.data.eligibility import EligibilityAssertions
 from alpha_research.data.manifests import AcquisitionManifest
-from alpha_research.data.normalization import Occurrence
-from alpha_research.data.providers.binance.rows import BinanceArchiveRows
-from alpha_research.data.providers.binance.trades import ArchiveTrade
-from alpha_research.data.quality import QualityPolicy
+from alpha_research.data.providers.catalog import SourceAdapters
+from alpha_research.data.quality import QualityPolicy, QualityReport
 from alpha_research.data.raw_store import RawStore
 from alpha_research.data.requests import SourceRequest
 from alpha_research.data.revisions import Correction
 from alpha_research.serialization import DomainCodec
+
+
+class DatasetInput(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
+    """Bind one saved input to its own admission policy, catalog evidence and corrections.
+
+    Assembly preserves each source/stream partition independently. This selection
+    record does not merge economic streams or grant support to an uninstalled adapter.
+    """
+
+    acquisition: AcquisitionManifest
+    policy: QualityPolicy
+    eligibility: EligibilityAssertions
+    corrections: tuple[Correction, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Require explicit typed admission inputs without admitting their observations.
+
+        Raises:
+            ValueError: An input or evidence record has an unsupported type.
+        """
+        if (
+            type(self.acquisition) is not AcquisitionManifest
+            or type(self.policy) is not QualityPolicy
+            or type(self.eligibility) is not EligibilityAssertions
+            or type(self.corrections) is not tuple
+            or any(type(item) is not Correction for item in self.corrections)
+        ):
+            raise ValueError("dataset input requires typed acquisition and admission evidence")
+
+    @classmethod
+    def resolve(
+        cls,
+        selections: tuple[DatasetInput, ...] | tuple[AcquisitionManifest, ...],
+        *,
+        policy: QualityPolicy | None,
+        eligibility: EligibilityAssertions | None,
+        corrections: Mapping[str, tuple[Correction, ...]] | None,
+    ) -> tuple[DatasetInput, ...]:
+        """Resolve per-input evidence or the existing explicit shared-evidence selection.
+
+        Args:
+            selections: Ordered per-input records, or acquisitions using shared evidence.
+            policy: Shared policy only for an acquisition selection.
+            eligibility: Shared catalog evidence only for an acquisition selection.
+            corrections: Shared-selection correction map by acquisition run identity.
+
+        Returns:
+            Unique inputs in first-seen order, with independent source/stream bindings
+            and one unambiguous admission policy for each acquisition.
+
+        Raises:
+            ValueError: Selection styles are mixed, shared evidence is missing, or
+                correction keys name an unselected acquisition, or nonidentical
+                selections overlap within one source/stream/instrument.
+        """
+        if type(selections) is not tuple:
+            raise ValueError("dataset selections must be an ordered tuple")
+        if policy is None and eligibility is None and corrections is None:
+            if any(not isinstance(item, cls) for item in selections):
+                raise ValueError(
+                    "acquisitions require explicit policy, eligibility and corrections"
+                )
+            inputs = tuple(item for item in selections if isinstance(item, cls))
+        elif (
+            policy is None
+            or eligibility is None
+            or corrections is None
+            or any(not isinstance(item, AcquisitionManifest) for item in selections)
+        ):
+            raise ValueError("use per-input evidence or complete shared evidence, not both")
+        else:
+            acquisitions = tuple(
+                item for item in selections if isinstance(item, AcquisitionManifest)
+            )
+            if set(corrections) - {item.run.identity for item in acquisitions}:
+                raise ValueError("dataset correction evidence names an unselected acquisition")
+            inputs = tuple(
+                cls(
+                    acquisition=item,
+                    policy=policy,
+                    eligibility=eligibility,
+                    corrections=corrections.get(item.run.identity, ()),
+                )
+                for item in acquisitions
+            )
+        unique = {DomainCodec().encode_json(item): item for item in inputs}
+        for left, right in combinations(unique.values(), 2):
+            left_run, right_run = left.acquisition.run, right.acquisition.run
+            if (
+                left_run.job.start < right_run.job.end
+                and right_run.job.start < left_run.job.end
+                and {
+                    (item.source, left_run.job.stream, item.instrument_id)
+                    for item in left_run.instruments
+                }
+                & {
+                    (item.source, right_run.job.stream, item.instrument_id)
+                    for item in right_run.instruments
+                }
+            ):
+                raise ValueError("overlapping acquisitions require identical saved manifests")
+        return tuple(unique.values())
 
 
 class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
@@ -62,30 +163,15 @@ class DatasetPartition(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown
             len(SourceRequest.partition(self.acquisition.run)) != 1
             or len(self.acquisition.completed) != 1
             or self.acquisition.pending is not None
-            or self.acquisition.run.job.provider != "binance-archive"
             or self.acquisition.run.catalog.identity != self.eligibility.catalog.identity
             or self.policy.use != "exploratory"
         ):
             raise ValueError("dataset requires one complete exploratory archive partition")
+        SourceAdapters.saved(self.acquisition)
         for correction in self.corrections:
             if type(correction) is not Correction:
                 raise ValueError("dataset corrections require explicit evidence records")
             correction.__post_init__()
-
-    def _occurrences(self, store: RawStore, max_bytes: int) -> Generator[Occurrence]:
-        """Reconstruct the retained input to verify admission independently of saved claims."""
-        partition = BinanceArchiveRows.from_manifest(self.acquisition)[0]
-        with closing(partition.read(store, max_bytes=max_bytes)) as rows:
-            for row in rows:
-                event = ArchiveTrade.from_row(row, partition.request)
-                if row.selection_start <= event.ts_event < row.selection_end:
-                    yield Occurrence(
-                        request=partition.request,
-                        origin=row.origin,
-                        position=row.position,
-                        raw=row.payload,
-                        event=event,
-                    )
 
 
 class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
@@ -147,7 +233,14 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
 
     @classmethod
     def read(
-        cls, path: Path, *, identity: str, partitions: Path, store: RawStore, max_bytes: int
+        cls,
+        path: Path,
+        *,
+        identity: str,
+        partitions: Path,
+        store: RawStore,
+        max_bytes: int,
+        report: Callable[[str, QualityReport], None] | None = None,
     ) -> DatasetManifest:
         """Verify a selected manifest, canonical files and raw inputs before returning it.
 
@@ -157,6 +250,9 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
             partitions: Directory of canonical files named by their lowercase digest.
             store: Raw objects under the caller's exclusion of mutation during this read.
             max_bytes: Positive per-file limit for manifest, canonical and raw/expanded bytes.
+            report: Optional synchronous sink for each reproduced, byte-matched partition's
+                run identity and quality report. Callback failures propagate; earlier
+                partition reports do not certify a later partition or the whole snapshot.
 
         Returns:
             Validated manifest after every partition reproduces its declared quality scope.
@@ -183,13 +279,16 @@ class DatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_
                 or hashlib.sha256(canonical).hexdigest() != partition.sha256
             ):
                 raise ValueError("canonical partition size or SHA-256 mismatch")
-            with closing(partition._occurrences(store, max_bytes)) as occurrences:
-                report = partition.policy.validate(
+            reader = SourceAdapters.saved(partition.acquisition)[0]
+            with closing(reader.read(store, max_bytes=max_bytes)) as occurrences:
+                outcome = partition.policy.validate(
                     SourceRequest.partition(partition.acquisition.run)[0],
                     occurrences,
                     eligibility=partition.eligibility,
                     corrections=partition.corrections,
                 )
-            if report.require_canonical() != canonical:
+            if outcome.require_canonical() != canonical:
                 raise ValueError("canonical partition differs from retained admission inputs")
+            if report is not None:
+                report(partition.acquisition.run.identity, outcome)
         return manifest

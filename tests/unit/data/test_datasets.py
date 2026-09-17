@@ -15,7 +15,7 @@ from msgspec.structs import force_setattr, replace
 
 # project library imports
 from alpha_research.configuration import Configuration
-from alpha_research.data.datasets import DatasetManifest
+from alpha_research.data.datasets import DatasetInput, DatasetManifest
 from alpha_research.data.eligibility import EligibilityAssertions
 from alpha_research.data.manifests import AcquisitionManifest
 from alpha_research.data.quality import QualityPolicy
@@ -38,13 +38,19 @@ class TestDatasetManifest:
 
     @staticmethod
     def _acquisition(
-        root: Path, *, symbol: str = "BTCUSDT", content: bytes = _RAW
+        root: Path,
+        *,
+        symbol: str = "BTCUSDT",
+        content: bytes = _RAW,
+        catalog_evidence: str | None = None,
     ) -> AcquisitionManifest:
         """Save deterministic source bytes for one resolved instrument without source access."""
         config = Configuration.read(_ROOT / "configs/data-jobs/binance-archive.json")
         catalog = _CODEC.decode_json(
             (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
         )
+        if catalog_evidence is not None:
+            catalog = replace(catalog, evidence=catalog_evidence)
         run = config.resolve("btc-archive", catalog)
         instrument = next(item for item in catalog.instruments if item.symbol == symbol)
         run = replace(run, instruments=(instrument,))
@@ -106,6 +112,51 @@ class TestDatasetManifest:
             store=RawStore(root),
             max_bytes=max_bytes,
         )
+
+    def test_per_input_catalogs_and_policy_survive_assembly_and_reopening(
+        self, tmp_path: Path
+    ) -> None:
+        """Keep independent partition evidence instead of applying one catalog to every input."""
+        first = self._acquisition(tmp_path)
+        second = self._acquisition(
+            tmp_path, symbol="ETHUSDT", catalog_evidence="synthetic:independent-source-catalog"
+        )
+        history = _CODEC.decode_json(
+            (_ROOT / "tests/fixtures/mr12/eligibility.json").read_bytes(), EligibilityAssertions
+        )
+        selected = tuple(
+            DatasetInput(
+                acquisition=acquisition,
+                policy=QualityPolicy(
+                    use="exploratory",
+                    known_at=acquisition.run.job.start,
+                    max_gap=timedelta(minutes=30 + index),
+                ),
+                eligibility=replace(history, catalog=acquisition.run.catalog),
+            )
+            for index, acquisition in enumerate((first, second))
+        )
+        manifest, payloads = assemble_dataset(selected, RawStore(tmp_path), max_bytes=_LIMIT)
+        assert tuple(part.acquisition for part in manifest.partitions) == (first, second)
+        assert tuple(part.eligibility for part in manifest.partitions) == tuple(
+            item.eligibility for item in selected
+        )
+        assert len({part.eligibility.catalog.identity for part in manifest.partitions}) == 2
+        self._save(tmp_path, manifest, payloads)
+        assert self._read(tmp_path, manifest) == manifest
+        with pytest.raises(ValueError, match="not both"):
+            assemble_dataset(
+                selected, RawStore(tmp_path), max_bytes=_LIMIT, policy=selected[0].policy
+            )
+        with pytest.raises(ValueError, match="explicit policy"):
+            assemble_dataset((first,), RawStore(tmp_path), max_bytes=_LIMIT)
+        legacy = self._build(tmp_path, (first,))
+        per_input = DatasetInput(
+            acquisition=first,
+            policy=legacy[0].partitions[0].policy,
+            eligibility=legacy[0].partitions[0].eligibility,
+        )
+        assert assemble_dataset((per_input,), RawStore(tmp_path), max_bytes=_LIMIT) == legacy
 
     def test_rebuild_order_roundtrip_and_relocation(self, tmp_path: Path) -> None:
         """Keep equivalent saved inputs stable and bind the ordered full resolved universe."""
@@ -279,8 +330,7 @@ class TestDatasetManifest:
         bad = self._acquisition(tmp_path, symbol="ETHUSDT", content=_RAW.replace(b"100.00", b"NaN"))
         with pytest.raises(ValueError, match="publication refused"):
             self._build(tmp_path, (good, bad))
-        with pytest.raises(ValueError, match="duplicate"):
-            self._build(tmp_path, (good, good))
+        assert self._build(tmp_path, (good, good)) == self._build(tmp_path, (good,))
         manifest, _ = self._build(tmp_path, (good,))
         policy, history = manifest.partitions[0].policy, manifest.partitions[0].eligibility
         for acquisitions, corrections, use in (
