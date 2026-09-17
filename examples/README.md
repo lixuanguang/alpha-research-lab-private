@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-16 for MR 13 partition quality.
+Owner: repository founder. Updated 2026-09-17 for MR 14 dataset manifest identity.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -119,7 +119,13 @@ Seven examples refuse publication for required coverage, a foreign instrument,
 an unevidenced conflict, a rewritten capture clock, NaN/zero prices and zero trade
 quantity. Raw failures retain reasons and originals; there is no silent row drop
 or filled gap. See the [MR 13 record](../docs/roadmap/mr-13-implementation.md).
-The next step is MR 14's dataset manifest; atomic snapshot publication remains MR 15.
+Section 14 adds NB 14: rebuild a synthetic dataset twice, change its gap policy,
+and compare manifest/canonical hashes. The reader verifies raw and canonical files,
+retained quality scope and resolved references. Tables show matching repeat hashes,
+a changed-policy identity and failures for unknown versions, causal scope, changed
+identity and missing bytes. Relocating and restoring the same files preserves identity.
+See the [MR 14 record](../docs/roadmap/mr-14-implementation.md). These working files
+have no atomic snapshot visibility; that is the next research question in MR 15.
 
 ## How to interpret the evidence
 
@@ -158,7 +164,8 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Inspect historical membership assertions | MR 11 reads evidence-labeled histories without dropping excluded members. Today's catalog is still an authored assumption. |
 | Establish the historically eligible research universe | MR 12 selects by independent validity and knowledge, preserving corrections and explicit unknown/unsupported outcomes. Actual historical evidence is still required for empirical P1 acceptance. |
 | Decide whether the data meets the experiment's quality requirements | MR 13. Unknown required coverage or eligibility cannot silently pass. |
-| Save and reopen an accepted, versioned research dataset | MR 14–16. This adds dataset-level acceptance beyond saved source files. |
+| Identify admitted partitions and verify their saved files | MR 14 supplies deterministic manifest identity and verified reading, retaining exploratory degraded scope. |
+| Publish and reopen an accepted, versioned research snapshot | MRs 15–16 add atomic publication and the dataset command. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |
 
 ## A useful way to work through a notebook

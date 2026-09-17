@@ -13,6 +13,7 @@ MR 09 adds archive-trade decoding and stable occurrences from those saved inputs
 MR 11 adds strict file-backed historical eligibility assertions with separate evidence clocks.
 MR 12 adds pure decision-time membership selection and retained, explicitly linked corrections.
 MR 13 adds canonical partition quality, explicit degraded use and publication refusal.
+MR 14 adds versioned dataset manifests, deterministic identity and saved-input verification.
 Local-book reconstruction, replay and live feeds remain planned consumers.
 
 The current public package surface is defined by
@@ -43,6 +44,7 @@ changing serialized events. Internal code imports from defining modules:
 | [`events.py`](events.py) | Frozen `TaggedEvent` and `MarketEventRecord` templates, shared field validation, and `Disconnect` |
 | [`decoders.py`](decoders.py) | Neutral `DecodeContext` and `PayloadDecoder` protocol for source-independent payload decoding |
 | [`raw_objects.py`](raw_objects.py) | Immutable `RawObject` descriptors and bounded verification of exact saved bytes against an expected request |
+| [`datasets.py`](datasets.py) | Ordered dataset identity, retained admission inputs and verified saved-manifest reading |
 | [`manifests.py`](manifests.py) | Validated acquisition completion prefixes, write-ahead receipts and durable checkpoint replacement |
 | [`raw_store.py`](raw_store.py) | Content-addressed `RawStore` publication, verified reads and no-overwrite retry after interruption |
 | [`eligibility.py`](eligibility.py) | Strict file-backed membership, catalog/units linkage, bitemporal selection and append-only corrections; unknown and unsupported remain explicit |
@@ -784,3 +786,34 @@ for interval, units, ordering and count semantics, and the
 for a complete synthetic saved-input example. NB 13 in
 [research-foundations.ipynb](../../../examples/research-foundations.ipynb) displays
 both declared uses and the required failures.
+
+
+## Identify and verify a dataset manifest (MR 14)
+
+Call `assemble_dataset` from `alpha_research.pipelines.dataset` with an ordered tuple
+of complete single-partition acquisitions, their `RawStore`, a positive raw byte
+cap, shared `QualityPolicy`/`EligibilityAssertions`, and correction evidence keyed
+by `acquisition.run.identity` (an empty mapping when absent). It returns a
+`DatasetManifest` and an equally ordered tuple of canonical bytes after every
+quality gate passes. It performs no file writes or snapshot publication.
+
+For working-file verification, serialize the manifest with `DomainCodec`, retain
+its `identity` independently, and save each canonical payload under its entry's
+`sha256` filename. Import `DatasetManifest` from [`datasets.py`](datasets.py) and
+call `DatasetManifest.read(path, identity=expected, partitions=directory,
+store=raw_store, max_bytes=limit)`. The limit applies per manifest, canonical file
+and compressed/expanded raw archive, so allow enough for the retained full histories.
+Missing files, unknown versions, wrong identity, damaged bytes and mismatched
+quality admission fail; restore the expected bytes before retrying. Local paths
+and build time are not semantic fields. Original evidence clocks are retained.
+
+The reader reuses existing archive, occurrence, eligibility and quality contracts.
+It verifies all raw/canonical files and reproduces admission before returning the
+manifest. Only `exploratory_degraded` is supported; historical evidence limitations
+remain visible. This is a bounded in-memory reference path with one saved raw
+archive per partition, not a query API or an atomic snapshot. The
+[manifest contract](../../../docs/data/contracts.md#dataset-manifest-identity-and-verification-mr-14)
+explains identity and version semantics; the
+[isolated consumer](../../../tests/fixtures/mr14/identify_dataset.py) and NB 14 in
+[research-foundations.ipynb](../../../examples/research-foundations.ipynb) provide
+complete saved-input examples. MR 15 owns atomic publication.

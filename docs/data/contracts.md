@@ -301,12 +301,55 @@ the dataset manifest reader/identity, MR 15 owns atomic publication, and MR 16 o
 the installed dataset command. This bounded in-memory path has synthetic quality
 evidence and no large-partition performance or empirical P1 acceptance claim.
 
+## Dataset manifest identity and verification (MR 14)
+
+`DatasetManifest` version `1` binds an **ordered** tuple of `DatasetPartition`
+records. Each entry retains the canonical SHA-256, complete acquisition manifest,
+quality policy, eligibility history and correction evidence. The acquisition embeds
+the actual resolved job, selected instruments/universe, catalog and raw descriptors;
+names never stand in for this content. The manifest also binds the normalization
+runtime identity, canonical schema, correction policy, availability policy and
+`exploratory_degraded` scope. `DomainCodec` supplies strict cached decoding and
+canonical serialization; unknown fields or unsupported versions/scopes fail.
+
+Semantic identity is SHA-256 over this canonical manifest representation. Rebuild
+wall clocks and local paths are caller metadata outside the manifest. Original raw
+receipt/ingestion and reference/evidence clocks remain semantic provenance. JSON
+whitespace and relocating saved files do not change identity. Reordering partitions,
+changing resolved references, code or admission policy does change identity. Version 1
+fixes `canonical-trade-partition-v1`, `evidenced-v1` corrections and
+`original-or-evidenced-later-v1` availability; other versions require implementation
+and cannot be accepted by changing a label.
+
+`assemble_dataset` consumes ordered, complete, single-partition Binance acquisitions
+with shared quality/eligibility inputs and corrections keyed by resolved run identity.
+It calls the existing quality gate and returns the manifest plus corresponding bytes
+only after all partitions pass. Empty/duplicate selections, unused correction keys,
+rejected use or a failed later partition return no assembled prefix. The callable
+writes no files and preserves raw inputs.
+
+`DatasetManifest.read` requires an independently retained expected identity, an
+explicit canonical directory, raw store and positive byte cap. It reads canonical
+files by digest, verifies every referenced file, reconstructs source occurrences and
+repeats quality admission, comparing the exact resulting canonical bytes. A forged
+scope or altered canonical content fails even when its file digest is recomputed.
+The cap bounds each manifest, canonical file and compressed/expanded archive; the
+reference implementation retains bounded partitions/results in memory. The caller
+excludes concurrent external file mutation, as required by `RawStore`.
+
+This is integrity/admission verification, not source authentication or a release
+attestation. It retains all eligibility exclusions and revision predecessors and
+never upgrades unknown historical coverage/availability. The saved-input path uses
+one completed raw archive per canonical partition; combining separately acquired
+revision archives remains outside this bounded consumer. Atomic visibility and
+reopening a published snapshot belong to MR 15; queries and the installed dataset
+command remain later consumers. See the [MR 14 record](../roadmap/mr-14-implementation.md).
+
 ## Planned boundaries
 
-This candidate does not implement HTTP transport, checkpoints, raw-object or
-dataset manifests, an order book, a research configuration loader, accounting,
-strategy, replay, report persistence, or operational feed support. Those later
-boundaries must add their own contracts and evidence while preserving these
+Event codecs alone do not provide acquisition, manifests, snapshot publication,
+research configuration, accounting, strategy or operational workflows. Their
+consumers must add their own contracts and evidence while preserving these
 event tags, exact numeric values, source text, provenance, and capture-proxy
 semantics.
 
