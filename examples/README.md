@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-17 for MR 18 query-workload evaluation.
+Owner: repository founder. Updated 2026-09-17 for MR 20 shared event stepping.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has nine sections:
+The current notebook has ten sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -97,6 +97,7 @@ The current notebook has nine sections:
 | 7: cutoff selection | Use a captured synthetic trade to show the original price, a late correction at its availability boundary and a later membership change, while retaining earlier query results. |
 | 8: bounded query batches | Project prices with scoped controls and quality evidence, compare late corrections, retain replay chains, and exercise cancellation and required refusals. |
 | 9: measured query workload | Recompute the MR 18 decision from retained installed measurements of 27,480 permitted trade observations; distinguish these measurements from synthetic correctness examples. |
+| 10: chronological replay | Step the retained original, gap and correction at their availability; compare batches, inspect phase order, resume a serialized cursor and reject incompatible checkpoints. |
 
 The generic composition boundary is in place. Installed saved-input publication
 currently supports trade archives; actual LOB adapters are planned for MR 25.
@@ -147,6 +148,7 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Inspect publication through an installed dataset command | MR 16 publishes saved acquisitions and reopens an explicit ID, reporting degraded quality, invalid/gap/duplicate counts and persistence status. |
 | Select the revisions knowable at a cutoff | Section 7 uses the installed as-of selector, showing late correction and eligibility boundaries; detailed ordering/control cases remain in the tests. Unknown archive knowledge remains unavailable; full quality/history stays separate from selected events. |
 | Consume bounded price batches with query identity | MR 19 supplies a reference reader with an explicit aggregate canonical-byte budget, mandatory scoped controls/quality and distinct cutoff/history modes. MR 18 reuses admitted partitions and isolates returned records/evidence. Batch size bounds output rows; it does not bound total process memory. |
+| Advance a reproducible source clock | MR 20 replays admitted trade/control history in availability/source order. Equal-time sources precede expiry, fill, decision and mark callbacks. Completed cursors bind inputs/configuration; consumer state and schedules must be saved alongside them. No economics or book replay adapter is implied. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |
 
 ## A useful way to work through a notebook

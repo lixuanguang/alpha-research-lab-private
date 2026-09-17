@@ -1120,3 +1120,57 @@ See [NB 19, section 8](../../../examples/research-foundations.ipynb),
 [acceptance record](../../../docs/roadmap/mr-19-implementation.md) for measured
 memory/read counts, installed-consumer evidence and limitations. No columnar backend,
 EDA runner, replay clock or new publication adapter is introduced.
+
+
+## Chronological event stepping (MR 20)
+
+`Replay` in `data/replay.py` consumes an admitted `QueryReader`, explicit instrument
+and business bounds, inclusive terminal knowledge time, resolved consumer
+configuration SHA-256 and query batch size. It expands retained revision chains
+and reuses `AsOfSelector`'s knowledge/precedence/partition/source-position ordering.
+Unknown original availability is unschedulable; a later evidenced revision retains
+its own availability. Applicable instrument-less controls keep their binding.
+Ambiguous source positions fail before any step. The query reader and all existing
+wire formats remain unchanged.
+
+Call `step(scheduled_at, consume)` in a loop. Supply the earliest outstanding
+consumer decision, expiry or additional fill-eligibility time, recomputed after
+each completed step; use terminal if there is no earlier wakeup. The clock moves
+to the earliest of that wakeup, next source availability and terminal. Callback
+arguments are `(phase, UTC_clock, event_or_none)`: every equal-time `source` event
+is delivered first, followed by `expiry`, `fill`, `decision`, `mark`. The consumer
+executes only due decisions and uses its owning libraries for expiry, eligibility,
+risk, fills and valuation. In particular, phase callbacks are not implemented
+orders or fills. Do not use a newly created decision to fill at its own timestamp.
+
+The initial `cursor` is `None`: reading ahead does not advance knowledge. Each
+successful step returns a frozen `ReplayCursor`; terminal is processed once and
+later calls return `None`. Source callbacks are isolated copies. Complete
+membership and quality evidence remains available through `evidence`; callers
+use the cutoff selector at the current clock to evaluate eligible observations.
+Evidence is retained history, not advance permission to use future assertions.
+
+Serialize cursors with the existing cached `DomainCodec`. Identity binds the
+query (including selected snapshot, bounds and precedence), resolved consumer
+configuration and `reference-replay-v1` ordering/phase policy. Position is the last
+complete logical source key, never a digest tie-breaker. Restore the cursor with
+the consumer's observations, pending intents, outstanding schedule, applied-fill
+identities and ledger. Resume checks identity, clock and completion of all source
+positions through that clock; it cannot certify external state it does not own.
+A callback failure propagates and blocks further stepping/checkpointing of that
+instance. Recover both consumer state and a new replay from the last completed
+checkpoint. Reentrant calls, naive clocks and repeated/backward wakeups fail.
+
+The reference materializes selected history and its sorted index within the
+reader's aggregate canonical-byte budget; memory is proportional to bounded input,
+not to batch size. It performs no source I/O during stepping. Cancellation is
+cooperative during query admission; a consumer can abort a step by raising, with
+the same incomplete-step recovery rule. Cursor/phase callbacks expose progress
+and failure context without a second telemetry framework.
+
+[NB 20](../../../examples/research-foundations.ipynb) and the
+[installed consumer](../../../tests/fixtures/mr20/replay_consumer.py) exercise the
+same operation. This trade/control scope rejects unsupported canonical book
+inputs. L2/L3 publication/adapters and accepted-snapshot/recovery-epoch state
+remain with the later collector consumers. E1/MR 44 own economic batch/resume
+proofs; MR 21 is the next EDA/extension workflow.

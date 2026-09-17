@@ -395,3 +395,33 @@ DuckDB profiles separately from timings. The Parquet scan is a bounded experimen
 not a supported backend: it does not implement cutoff, controls, membership or
 verified loading, and its metrics must not be presented as end-to-end query parity.
 The MR record retains the executed commands, failed attempts and admission decision.
+
+
+## MR 20 shared stepping checkpoint
+
+Section 10 of `research-foundations.ipynb` adds shared chronological trade/control
+stepping to the existing saved-input walkthrough. It needs the same saved OKX and
+Bitfinex directories, an installed candidate and the pinned separate notebook
+tooling. Run the complete notebook with the command in the
+[MR 20 acceptance record](../docs/roadmap/mr-20-implementation.md#fresh-kernel-nb-20).
+No additional source acquisition, runtime dependency or kernel path patch is needed.
+
+The final run passed **45 cells / 23 code cells**, including installed import/byte
+verification, the new phase trace and cursor failures. It shows the original
+capture at 0.004103 seconds, an explicit 1.5-second wakeup, gap at second 2 and
+correction at second 10. Batch sizes 1/8 and restored consumer-prefix/suffix traces
+agree. The first attempt confused a query cutoff with capture time; its separate
+failed snapshot and the corrected successful attempt are identified in the record.
+
+A cursor is valid only after every phase of its step completes. Save it with the
+consumer state and earliest outstanding schedule. On callback failure, discard
+the partial replay/consumer state and restore both from the last completed step.
+Changing selected input, query bounds, consumer configuration or ordering policy
+requires a fresh run; an incompatible cursor is refused. This is source replay,
+not a strategy ledger, fill implementation or durable account checkpoint.
+
+Section 9 continues to verify MR 18's measured files at their historical Git
+revision and against the installed candidate. The added replay module was not
+measured by MR 18. If a measured file changes, investigate and renew the relevant
+measurement instead of replacing its recorded hash. Generated attempt snapshots
+and transient kernel files remain ignored; maintained example sources stay tracked.
