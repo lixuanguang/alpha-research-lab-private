@@ -47,11 +47,11 @@ with the operation that consumes them; no later runner or schema is scaffolded.
 
 ## Validation result
 
-CPython 3.14.7, macOS arm64. The final focused command ran **88 tests**, with
+CPython 3.14.7, macOS arm64. The final focused command ran **89 tests**, with
 **no skips or deselections**:
 
 ```sh
-uv run --frozen --no-editable pytest -q tests/unit/data/test_replay.py tests/unit/data/test_query.py tests/unit/data/test_asof.py tests/unit/data/test_revisions.py tests/unit/data/test_eligibility_selection.py --tb=short
+uv run --frozen --no-editable pytest -q tests/unit/data/test_event_stepping.py tests/unit/data/test_query.py tests/unit/data/test_asof.py tests/unit/data/test_revisions.py tests/unit/data/test_eligibility_selection.py tests/unit/data/live/test_replay.py --tb=short
 ```
 
 The 13 new replay cases cover original/gap/correction availability, explicit
@@ -67,9 +67,9 @@ no network, source acquisition or economic result was needed for this scope.
 These relevant static and documentation checks passed:
 
 ```sh
-uv run --frozen --no-sync ruff check src/alpha_research/data/replay.py tests/unit/data/test_replay.py tests/fixtures/mr20/replay_consumer.py examples/research-foundations.ipynb
-uv run --frozen --no-sync ruff format --check src/alpha_research/data/replay.py tests/unit/data/test_replay.py tests/fixtures/mr20/replay_consumer.py examples/research-foundations.ipynb
-uv run --frozen --no-sync mypy --strict src/alpha_research/data/replay.py tests/unit/data/test_replay.py tests/unit/data/test_query.py tests/unit/data/test_asof.py tests/fixtures/mr20/replay_consumer.py
+uv run --frozen --no-sync ruff check src/alpha_research/data/replay.py tests/unit/data/test_event_stepping.py tests/fixtures/mr20/replay_consumer.py examples/research-foundations.ipynb
+uv run --frozen --no-sync ruff format --check src/alpha_research/data/replay.py tests/unit/data/test_event_stepping.py tests/fixtures/mr20/replay_consumer.py examples/research-foundations.ipynb
+uv run --frozen --no-sync mypy --strict src tests tools/governance/src tools/typing/stubs
 uv run --frozen --no-sync alpha-governance-engineering-standards
 uv run --frozen --no-sync bandit -q -c pyproject.toml src/alpha_research/data/replay.py
 uv run --frozen --no-sync alpha-governance-architecture
@@ -78,7 +78,7 @@ uv run --frozen --no-sync --with 'nbformat==5.10.4' python -c 'import nbformat; 
 git diff --check
 ```
 
-Mypy covered five source/test files; Ruff covered the new source, test, installed
+Final mypy covered all 163 configured source files; Ruff covered the new source, test, installed
 consumer and maintained notebook. The engineering checker retained its complete
 configured scope; architecture checked 53 documents. The temporary verifier
 checks code-bearing line count, unchanged P1, additional component/example and
@@ -168,6 +168,18 @@ policy excludes generated `examples/runs/`, `.kernel-*` and notebook checkpoints
 `git ls-files -- examples/` and `git check-ignore` verified the boundary. Reviewed
 outputs contain small synthetic traces and saved-input identities, not raw book
 exports, credentials or bulk data. P1 is byte-identical to the MR base.
+
+### Hosted integration correction
+
+The first hosted full-scope mypy run at `285bed6` failed before tests because the
+new `tests/unit/data/test_replay.py` collided with the existing live test module
+of that name. [The failed job](https://github.com/lixuanguang/alpha-research-lab-private/actions/runs/35238057626/job/105258990635)
+retains the diagnostic. The new test was renamed to `test_event_stepping.py`;
+no exclusion, typing waiver or runtime behavior changed. The final focused test
+and static commands above use that unique filename. Full configured mypy scope passed for 163 files; the 89-test focused run
+passed with both replay test paths included, without skips or deselections.
+Installed runtime, fixture and notebook source bytes are unchanged, so their
+identified acceptance remains applicable.
 
 ## Risks / reversal
 
