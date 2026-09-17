@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-17 for MR 14 dataset manifest identity.
+Owner: repository founder. Updated 2026-09-17 for MR 15 atomic snapshots.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -124,8 +124,15 @@ and compare manifest/canonical hashes. The reader verifies raw and canonical fil
 retained quality scope and resolved references. Tables show matching repeat hashes,
 a changed-policy identity and failures for unknown versions, causal scope, changed
 identity and missing bytes. Relocating and restoring the same files preserves identity.
-See the [MR 14 record](../docs/roadmap/mr-14-implementation.md). These working files
-have no atomic snapshot visibility; that is the next research question in MR 15.
+See the [MR 14 record](../docs/roadmap/mr-14-implementation.md).
+Section 15 adds NB 15: interrupt publication before its atomic boundary, inspect
+the absent snapshot, then complete the pipeline and reopen by explicit SHA-256.
+The table shows the earlier dataset remains readable during a later failed build
+and after a changed-policy snapshot publishes. Repeated publication preserves the
+same identity, while a mutable `latest` tag is rejected. Keep the original raw
+store available: reopening verifies it alongside the manifest and canonical files.
+See the [MR 15 record](../docs/roadmap/mr-15-implementation.md). The next research
+action is MR 16's installed dataset command and visible quality/persistence report.
 
 ## How to interpret the evidence
 
@@ -165,7 +172,8 @@ raw inputs and run records; a content fingerprint alone cannot recover a lost fi
 | Establish the historically eligible research universe | MR 12 selects by independent validity and knowledge, preserving corrections and explicit unknown/unsupported outcomes. Actual historical evidence is still required for empirical P1 acceptance. |
 | Decide whether the data meets the experiment's quality requirements | MR 13. Unknown required coverage or eligibility cannot silently pass. |
 | Identify admitted partitions and verify their saved files | MR 14 supplies deterministic manifest identity and verified reading, retaining exploratory degraded scope. |
-| Publish and reopen an accepted, versioned research snapshot | MRs 15–16 add atomic publication and the dataset command. |
+| Preserve a completed dataset across interrupted later builds | MR 15 publishes one atomic local snapshot and reopens by explicit ID, with retained raw inputs and unchanged degraded quality. |
+| Inspect publication through an installed dataset command | MR 16 will expose normalization, quality and persistence reporting for saved acquisitions. |
 | Run the frozen strategy and interpret costed results | Later research/simulation work in the roadmap. The acquisition notebook supplies no empirical strategy conclusion. |
 
 ## A useful way to work through a notebook

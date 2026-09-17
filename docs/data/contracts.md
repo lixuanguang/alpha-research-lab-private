@@ -342,8 +342,44 @@ attestation. It retains all eligibility exclusions and revision predecessors and
 never upgrades unknown historical coverage/availability. The saved-input path uses
 one completed raw archive per canonical partition; combining separately acquired
 revision archives remains outside this bounded consumer. Atomic visibility and
-reopening a published snapshot belong to MR 15; queries and the installed dataset
+reopening a published snapshot are supplied below by MR 15; queries and the installed dataset
 command remain later consumers. See the [MR 14 record](../roadmap/mr-14-implementation.md).
+
+## Atomic local snapshots (MR 15)
+
+`SnapshotStore` binds an existing, durably provisioned snapshot directory and the
+retained `RawStore`. `publish_dataset` composes admission, manifest assembly and
+publication, returning the dataset SHA-256 only after successful synchronization.
+Snapshot identity is the existing manifest identity; no mutable alias or second
+identity schema is introduced. Each published directory contains `manifest.json`
+and its canonical partition files named by digest. Embedded acquisition manifests
+retain raw descriptors; raw bytes stay in the original immutable store.
+
+Publication writes read-only files in a hidden same-filesystem staging directory,
+flushes and synchronizes each file, and reuses `DatasetManifest.read` to verify all
+bytes and reproduce admission. It synchronizes the staging directory before one
+directory rename makes the complete snapshot visible, then synchronizes the parent
+before returning. Existing snapshots are verified and reused, never replaced.
+Concurrent publishers of the same identity verify the winning nonempty directory.
+The caller excludes external mutation/removal of stores and ancestors throughout
+use. Local atomic directory rename and file/directory `fsync` are required; failed
+operations propagate. This is a local filesystem contract, not an object-store API.
+
+`read(identity, max_bytes=...)` accepts only an explicit lowercase SHA-256 and
+verifies the manifest, canonical files and retained raw inputs before returning.
+It rejects symlinks, unavailable inputs, unsupported formats, changed bytes and
+reproduced-quality disagreement. No run can silently select `latest`. Publication
+keeps the original full histories, exclusions and exploratory degraded scope.
+
+Failure before rename exposes no snapshot under its identity. Process death may
+leave an orphan `.staging-*` directory, which cannot be selected by the reader;
+ordinary exceptions clean up their staging directory. Failure after rename can
+leave a complete visible snapshot whose durable acknowledgement is uncertain.
+Retry the same inputs/identity to verify it and synchronize the parent. Both failure
+and later successful publication leave earlier snapshots readable, provided their
+raw inputs remain available. There is no automatic orphan collection or raw-file
+deletion. Tests establish process-interruption behavior, not physical power-loss
+or distributed-filesystem guarantees. See the [MR 15 record](../roadmap/mr-15-implementation.md).
 
 ## Planned boundaries
 

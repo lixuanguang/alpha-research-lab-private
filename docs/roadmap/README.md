@@ -13,13 +13,14 @@ MR 10 is merged in PR #34 at `d88ba11`; see its [implementation record](mr-10-im
 MR 11 is merged in PR #35 at `5b10f78`; see its [implementation record](mr-11-implementation.md).
 MR 12 is merged in PR #36 at `210db65`; see its [implementation record](mr-12-implementation.md).
 MR 13 is merged in PR #37 at `7ef4892`; see its [implementation record](mr-13-implementation.md).
-MR 14 is implemented and locally verified in its [review candidate](mr-14-implementation.md).
-MRs 15–62 and R1 remain planned except the bounded M3 collector slice below;
+MR 14 is merged in PR #38 at `746e002`; see its [implementation record](mr-14-implementation.md).
+MR 15 is implemented and locally verified in its [review candidate](mr-15-implementation.md).
+MRs 16–62 and R1 remain planned except the bounded M3 collector slice below;
 no M1–M7 completion or P1 result is claimed.
 
-**Review [MR 14](mr-14-implementation.md). The founder-authorized
+**Review [MR 15](mr-15-implementation.md). The founder-authorized
 [crypto L3 collector slice](crypto-l3-collectors.md) brings forward parts of MRs 22–27.
-MR 15 is the next historical ingestion package; it has not been started.**
+MR 16 is the next historical ingestion package; it has not been started.**
 The 2026-09-15 [market-data and replay refinement](#market-data-expansion-and-replay-lessons)
 preserves implementation through MR 07 and adds future collection, recovery and
 simulation acceptance within the existing MR owners. No additional implementation
@@ -79,8 +80,10 @@ knowledge cutoffs, retaining explicit corrections and unknown/unsupported outcom
 actual historical membership evidence remains unresolved. MR 13 composes partition quality,
 retained histories and deterministic exploratory bytes; unknown recorder coverage
 prevents causal admission. MR 14 binds admitted partitions and resolved evidence into
-versioned dataset manifests and verifies their saved bytes; atomic snapshot publication remains planned.
-The frozen uv build, strict source checks, CI and runtime wheel installation exist. Versioned datasets, strategy
+versioned dataset manifests and verifies their saved bytes. MR 15 stages verified
+canonical partitions and their manifest, publishes one atomic local snapshot and
+reopens only an explicit identity while retaining the original raw store.
+The frozen uv build, strict source checks, CI and runtime wheel installation exist. Dataset commands, strategy
 runners, accounting, simulation, execution, deployment and monitoring are planned.
 The current native dependency restriction is recorded in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
@@ -307,7 +310,9 @@ MR 12 adds as-of selection, append-only corrections and NB 12 in section 12; see
 [implementation record](mr-12-implementation.md). MR 13 adds partition validation and
 NB 13 in section 13; see its [implementation record](mr-13-implementation.md). MR 14
 adds dataset manifest identity and verified reading with NB 14 in section 14; see
-its [review candidate](mr-14-implementation.md). Atomic snapshot publication remains MR 15.
+its [implementation record](mr-14-implementation.md). MR 15 adds atomic publication
+and explicit-ID reopening with NB 15 in section 15; see its
+[review candidate](mr-15-implementation.md).
 
 | MR | Depends on | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- |
@@ -1201,6 +1206,10 @@ future clock-rewrite rejection. Its fresh installed execution is recorded in the
 MR 14 adds section 14: repeatable rebuilds, policy-sensitive hashes, relocated saved
 inputs, unknown-version/scope rejection and missing-byte failures. Its installed
 execution evidence is recorded in the [MR 14 record](mr-14-implementation.md#fresh-kernel-nb-14).
+MR 15 adds section 15: prepublication failure, explicit-ID reader refusal,
+successful retry and reopening, prior-snapshot survival across a later failed and
+successful build, and mutable-tag rejection. Its installed execution is recorded
+in the [MR 15 record](mr-15-implementation.md#fresh-kernel-nb-15).
 
 1. Import the package APIs from the candidate installed by the frozen project
    environment, using the pinned interpreter. Keep notebook tooling in a
