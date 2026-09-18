@@ -1,10 +1,13 @@
 # MR 24 — Recover sessions without hiding gaps
 
 Owner: repository founder. Status: implemented and locally verified for review on
-2026-09-18 (Asia/Singapore); not merged. Branch: `codex/mr-24-session-recovery`.
+2026-09-18 (Asia/Singapore). Branch: `codex/mr-24-session-recovery`.
 Base: fetched, unchanged `origin/main` at `b30f89e`. Direct prerequisite MR 23 merged
 through PR #49 at `4308a5a`; `git merge-base --is-ancestor 4308a5a HEAD` passed before
 implementation. The [roadmap](README.md#m3-reliable-live-capture) owns acceptance.
+[PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51) records
+hosted checks and merge status. Tested implementation: `2753d68`. The PR-link
+follow-up changes prose only and reuses the installed-wheel and notebook evidence.
 
 ## Problem / change
 
@@ -173,9 +176,9 @@ inspection; it does not promise to kill an already running OS thread immediately
 The current streams have no historical backfill adapter, so gaps remain unknown.
 Coinbase external access acceptance, MR 25 reconstruction/quality/publication,
 MR 26 supervision, MR 27 shared canonical parity and R1 deployment remain open.
-No M3 completion, strategy result or global exactly-once claim is made. Full local
-`make check` and hosted CI were not run; the complete hosted lane remains required
-before merge. Existing release restrictions remain in force.
+No M3 completion, strategy result or global exactly-once claim is made. At the initial implementation handoff, full local `make check` and hosted CI
+had not run. PR #51 retains the subsequent hosted results; its complete hosted lane
+is required before merge. Existing release restrictions remain in force.
 
 Revert this MR before dependent changes. Existing raw capture envelopes and
 manifests require no migration; preserve original and interrupted recordings.

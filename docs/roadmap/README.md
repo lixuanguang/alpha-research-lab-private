@@ -16,8 +16,8 @@ MR 22's [bounded Bitfinex source verification](mr-22-implementation.md) merged
 through [PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48).
 MR 23's [durable append cursor and bounded consumer](mr-23-implementation.md) merged
 through [PR #49](https://github.com/lixuanguang/alpha-research-lab-private/pull/49).
-MR 24 is [implemented and locally verified for review](mr-24-implementation.md);
-it is not yet merged. MRs 25–62 and R1 remain planned except
+MR 24's [session recovery and retained-gap evidence](mr-24-implementation.md) is
+tracked in [PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51). MRs 25–62 and R1 remain planned except
 the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
 forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
@@ -1300,8 +1300,9 @@ procedural notes. Current usage belongs in component guides and examples.
 | [MR 20](mr-20-implementation.md) | #46 | `f8ef338` |
 | [MR 21](mr-21-implementation.md) | #47 | `d11dd2c` |
 
-MR 24 has [local implementation and acceptance evidence](mr-24-implementation.md)
-on its review branch; it is not a merged implementation record.
+MR 24 retains [implementation and acceptance evidence](mr-24-implementation.md);
+[PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51) records
+its hosted checks and merge status.
 
 ## How to execute and maintain the plan
 
