@@ -19,7 +19,7 @@ class TestCaptureReplay:
         config = CaptureConfig.read(_ROOT / "configs/live/bitfinex-btc-usd.json")
         replay = CaptureReplay(config)
         for epoch in (0, 1):
-            replay.apply(CaptureRecord(kind="session", epoch=epoch, received_ns=1))
+            replay.apply(CaptureRecord(kind="session", epoch=epoch, received_ns=1 + epoch * 10))
             for raw in (
                 b'{"event":"conf","status":"OK","flags":65536}',
                 (
@@ -28,7 +28,9 @@ class TestCaptureReplay:
                 ),
                 b"[7,[[1,3,2]],1]",
             ):
-                replay.apply(CaptureRecord(kind="frame", epoch=epoch, received_ns=2, raw=raw))
+                replay.apply(
+                    CaptureRecord(kind="frame", epoch=epoch, received_ns=2 + epoch * 10, raw=raw)
+                )
             assert replay.book.ready
             if epoch == 0:
                 replay.apply(CaptureRecord(kind="frame", epoch=0, received_ns=3, raw=b'[7,"hb",9]'))
