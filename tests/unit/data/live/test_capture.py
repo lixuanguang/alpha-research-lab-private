@@ -5,6 +5,7 @@ from __future__ import annotations
 # standard library imports
 import asyncio
 import os
+from http.client import IncompleteRead
 from pathlib import Path
 from threading import Event
 from unittest.mock import patch
@@ -212,14 +213,26 @@ class TestCapture:
     def test_rejected_source_session(self, tmp_path: Path, raw: bytes) -> None:
         """Keep incompatible negotiation visible without admitting a book."""
         config = self.config()
-        transport = ScriptedTransport(config, ((raw, *_FRAMES),))
-        result = asyncio.run(
-            collect(config, tmp_path, implementation_identity="a" * 64, transport=transport)
-        )
-        assert result["messages"] == 1 and result["synchronized"] is False
+        transport = ScriptedTransport(config, ())
+        socket = ScriptedSocket(())
+        burst: tuple[bytes, ...] = (raw, *_FRAMES)
+        with (
+            patch.object(transport, "open", return_value=socket),
+            patch.object(socket, "recv", side_effect=burst),
+        ):
+            result = asyncio.run(
+                collect(config, tmp_path, implementation_identity="a" * 64, transport=transport)
+            )
+        assert result["messages"] == 5 and result["synchronized"] is False
+        root = next(tmp_path.iterdir())
+        request = DomainCodec().decode_json((root / "request.json").read_bytes(), CaptureRequest)
+        assert [r.raw for r in CaptureJournal(root, request).records() if r.kind == "frame"] == [
+            raw,
+            *_FRAMES[:4],
+        ]
         assert result["stop_reason"] == "invalid_stream_requires_snapshot"
         assert result["gaps"] and result["replay_parity"] is True
-        assert transport.sockets[0].closed
+        assert socket.closed
 
     def test_disconnect_resubscription(self, tmp_path: Path) -> None:
         """A fresh snapshot recovers state while the old session's unknown gap survives."""
@@ -233,6 +246,32 @@ class TestCapture:
         assert result["gaps"]
         assert result["replay_parity"] is True
         assert len(transport.sockets) == 2
+        assert all(len(socket.sent) == 2 for socket in transport.sockets)
+        assert result["retry_exhausted"] is False
+
+    @pytest.mark.parametrize("is_exact", [True, False])
+    def test_duplicate_delivery(self, tmp_path: Path, is_exact: bool) -> None:
+        """Retain duplicate R0 bytes while applying one mutation or refusing a conflict."""
+        config = replace(self.config(), max_messages=6)
+        repeated = _FRAMES[-1] if is_exact else b"[7,[1,100,1.4],3]"
+        result = asyncio.run(
+            collect(
+                config,
+                tmp_path,
+                implementation_identity="a" * 64,
+                transport=ScriptedTransport(config, ((*_FRAMES, repeated),)),
+            )
+        )
+        assert result["messages"] == 6 and result["updates"] == 1
+        assert result["duplicates"] == int(is_exact)
+        assert result["synchronized"] is is_exact
+        assert result["retry_exhausted"] is not is_exact
+        root = next(tmp_path.iterdir())
+        request = DomainCodec().decode_json((root / "request.json").read_bytes(), CaptureRequest)
+        assert [r.raw for r in CaptureJournal(root, request).records() if r.kind == "frame"] == [
+            *_FRAMES,
+            repeated,
+        ]
 
     def test_retry_exhaustion(self, tmp_path: Path) -> None:
         """Connection failures create finite unavailable epochs and visible terminal status."""
@@ -521,6 +560,17 @@ class CoinbaseScript(VenueTransport):
 class TestCoinbaseCapture:
     """Verify the authenticated pipeline composition independently of live eligibility."""
 
+    def test_snapshot_protocol_failure(self) -> None:
+        """Turn a truncated HTTP response into a queued gap instead of orphaning the consumer."""
+        config = CaptureConfig.read(_ROOT / "configs/live/coinbase-btc-usd.json")
+        queue: asyncio.Queue[CaptureRecord] = asyncio.Queue(1)
+        transport = VenueTransport(config)
+        with patch.object(transport, "snapshot", side_effect=IncompleteRead(b"partial")):
+            asyncio.run(receive_snapshot(transport, queue, 2))
+        record = queue.get_nowait()
+        assert record.kind == "gap" and record.epoch == 2
+        assert record.reason == "snapshot_failed_unknown_loss" and not record.raw
+
     def test_snapshot_acquisition_and_replay(self, tmp_path: Path) -> None:
         """A concurrent REST response bridges persisted compact updates with exact parity."""
         from_config = CaptureConfig.read(_ROOT / "configs/live/coinbase-btc-usd.json")
@@ -539,6 +589,7 @@ class TestCoinbaseCapture:
                 )
             )
         assert result["snapshots"] == 1
+        assert result["messages"] == config.max_messages
         assert result["orders"] == 1
         assert result["replay_parity"] is True
         assert result["synchronized"] is True

@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-18 for MR 23 and the MR 16 handoff.
+Owner: repository founder. Updated 2026-09-18 for MR 24 session recovery.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -252,3 +252,20 @@ acquire BTC/ETH, interrupt and resume without refetching completed input, then
 validate, publish, reopen and inspect the saved dataset. The
 [merge verification](../docs/roadmap/mr-16-implementation.md#integration-with-mr-23)
 records the combined candidate and fresh execution of both checkpoints.
+
+## Can a reconnect hide what I missed?
+
+Section 15 (NB 24) of the foundations notebook uses synthetic Coinbase L3 input
+and the installed collector to inspect a repeated match, a conflicting repeat,
+stale snapshots and recovery failures. Raw duplicates keep their receipt clocks;
+one exact match changes the maker size once. A delayed snapshot keeps its later
+receipt and cannot erase the earlier unknown gap. Tables show three bounded
+connection/REST attempts with 1- then 2-second backoff requests for disconnect,
+bridge-gap and simulated rate-limit failures; all remain unsynchronized.
+
+The scenario opens no venue connection and uses no credentials. Existing saved
+Bitfinex and OKX inputs remain the earlier sections' independent observations.
+This is raw capture/replay evidence; canonical quality/publication is the next
+question in MR 25, after MR 24 merges. Use the
+[MR 24 acceptance record](../docs/roadmap/mr-24-implementation.md) for commands
+and limits.
