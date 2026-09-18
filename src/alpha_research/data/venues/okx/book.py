@@ -14,11 +14,22 @@ from alpha_research.data.live.book import Wire
 from alpha_research.serialization import DomainCodec
 
 
-class Level(msgspec.Struct, frozen=True):
+class Level(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
     """Exact aggregate size and reported order count at a native price level."""
 
     size: Decimal
     order_count: int
+
+    def __post_init__(self) -> None:
+        """Keep retained aggregate levels positive, finite and exactly counted."""
+        if (
+            type(self.size) is not Decimal
+            or not self.size.is_finite()
+            or self.size <= 0
+            or type(self.order_count) is not int
+            or self.order_count <= 0
+        ):
+            raise ValueError("aggregate levels require positive exact size and order count")
 
 
 class OKXBook:
@@ -97,11 +108,11 @@ class OKXBook:
                 raise ValueError("OKX sequence gap")
             if sequence == self.sequence and (row.get("asks") != [] or row.get("bids") != []):
                 raise ValueError("unchanged OKX sequence with nonempty update")
-            if self.sequence is not None and sequence < self.sequence:
-                self.sequence_resets += 1
         else:
             raise ValueError("unknown OKX book action")
         self._merge(row, action=action, width=4)
+        if self.sequence is not None and sequence < self.sequence:
+            self.sequence_resets += 1
         unchanged = action == "update" and sequence == self.sequence
         self.sequence = sequence
         return "heartbeat" if unchanged else action
@@ -139,11 +150,10 @@ class OKXBook:
                 raise ValueError("OKX timestamp outside supported UTC range")
             if self.source_time is not None and current < int(self.source_time):
                 raise ValueError("OKX source time moved backwards")
-        if action == "snapshot":
-            self.bids.clear()
-            self.asks.clear()
-            self._fingerprint = 0
-        for side, levels in (("bids", self.bids), ("asks", self.asks)):
+        bids = {} if action == "snapshot" else self.bids.copy()
+        asks = {} if action == "snapshot" else self.asks.copy()
+        fingerprint = 0 if action == "snapshot" else self._fingerprint
+        for side, levels in (("bids", bids), ("asks", asks)):
             entries = Wire.array(row.get(side))
             if len(entries) > 800 or (action == "snapshot" and len(entries) > 400):
                 raise ValueError("OKX message exceeds bounded depth")
@@ -161,13 +171,14 @@ class OKXBook:
                 seen.add(price)
                 previous = levels.pop(price, None)
                 if previous is not None:
-                    self._fingerprint ^= self._hash(side, price, previous)
+                    fingerprint ^= self._hash(side, price, previous)
                 if size:
                     level = Level(size, count)
                     levels[price] = level
-                    self._fingerprint ^= self._hash(side, price, level)
+                    fingerprint ^= self._hash(side, price, level)
             for price in sorted(levels, reverse=side == "bids")[400:]:
-                self._fingerprint ^= self._hash(side, price, levels.pop(price))
+                fingerprint ^= self._hash(side, price, levels.pop(price))
+        self.bids, self.asks, self._fingerprint = bids, asks, fingerprint
         self.source_time = source_time
         self.ready = True
 

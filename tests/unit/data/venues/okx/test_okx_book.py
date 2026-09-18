@@ -137,3 +137,16 @@ class TestOKXBook:
         book.apply(self.frame("update", 1, 2, [["100", "0.2", "0", "2"]]))
         fresh.apply(self.frame("snapshot", -1, 2, [["100.000", "0.200", "0", "2"]]))
         assert book.identity == fresh.identity
+
+    def test_atomic_rejection_keeps_both_sides_and_reset_count(self) -> None:
+        """A malformed second side cannot expose a changed bid or a partial sequence reset."""
+        book = self.book()
+        book.apply(self.frame("snapshot", -1, 10, [["100", "1", "0", "1"]]))
+        before = book.identity
+        invalid = self.frame("update", 10, 3, [["100", "2", "0", "1"]]).replace(
+            b'"asks":[]', b'"asks":[["0","1","0","1"]]'
+        )
+        with pytest.raises(ValueError):
+            book.apply(invalid)
+        assert book.identity == before and book.sequence_resets == 0
+        assert book.bids[Decimal(100)].size == 1
