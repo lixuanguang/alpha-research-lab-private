@@ -328,3 +328,38 @@ The Binance historical acquisition command and
 [P1 experiment specification](../research/p1-baseline.md) retain their original
 scope. Earlier notebook attempts retain their historical meaning; current
 researcher examples use OKX and Bitfinex as described above.
+
+## MR 25 continuous quality and bounded publication
+
+`CaptureReplay.quality` is the same scoped gate used by the collector and saved
+input admission. Each durable boundary exposes status, reason, scope, transition
+time, last durable receipt, last economic progress and receipt/source watermarks.
+Live capture binds strict zero lateness and the configured `idle_seconds` freshness
+budget. Original clocks remain unchanged; Bitfinex's absent exchange time is not
+invented. The standalone `ContinuousQuality` gate can exercise a positive bounded
+lateness policy explicitly, but the live configuration does not enable that mode.
+
+A source or receipt regression beyond its watermark invalidates reconstruction.
+Schema/sequence failure and gaps stay recovering until a fresh session validates
+its native snapshot/bridge. Reconnect controls cannot resume use. Heartbeats and
+duplicates do not update economic progress. Stale, recovering and unavailable
+states refuse freshness-dependent use. `require_usable(now_ns=...,
+allow_degraded=True)` permits only explicitly opted-in, fresh exploratory state;
+the default refuses it. No current source has the complete evidence required to
+emit `valid`, and no execution-sensitive book consumer is enabled. End-of-session
+state is unavailable even when the last reconstructed book remains inspectable.
+
+Optional installed capture flags `--snapshot-directory <existing-directory>` and
+`--snapshot-records <1..10000>` publish a selected prefix after durable completion.
+Both are required together. Publication uses the capture's existing byte budget,
+shared `QualityReport` gate and atomic `SnapshotStore`. A publication refusal does
+not remove the completed raw recording or its summary. Original raw configuration
+and capture serialization remain compatible. Saved-only publication and explicit
+book reopening are described in the [data guide](../../src/alpha_research/data/README.md#bounded-saved-books-mr-25).
+
+The native OKX decoder now commits both sides of a message together: a malformed
+second side leaves the preceding state and source cursor intact. Native sequence
+rules, visible depth and archive unknown-continuity restrictions remain unchanged.
+The [MR 25 acceptance record](../roadmap/mr-25-implementation.md) separates
+synthetic recovery evidence, reuse of bounded saved source observations and
+remaining MR 26/27/R1 work.

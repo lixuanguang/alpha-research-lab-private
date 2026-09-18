@@ -14,6 +14,7 @@ from typing import Literal
 
 # project library imports
 from alpha_research.configuration import Configuration, ResolvedManifest
+from alpha_research.data.book_datasets import BookDatasetManifest, BookInput, BookPartition
 from alpha_research.data.datasets import DatasetInput, DatasetManifest, DatasetPartition
 from alpha_research.data.eligibility import EligibilityAssertions
 from alpha_research.data.events import MarketEventRecord
@@ -39,6 +40,56 @@ class _InspectionArguments(argparse.Namespace):
     received: str
     ingested: str
     sequence: int
+
+
+def publish_book_dataset(
+    directories: tuple[Path, ...],
+    store: RawStore,
+    destination: Path,
+    *,
+    max_records: int,
+    max_bytes: int,
+    report: Callable[[str, QualityReport], None] | None = None,
+) -> str:
+    """Bind saved native inputs, admit exploratory prefixes and atomically publish them.
+
+    Args:
+        directories: Completed capture/archive directories; no network access is performed.
+        store: Provisioned immutable raw store retaining copied original inputs.
+        destination: Provisioned directory shared with the existing snapshot store.
+        max_records: Explicit per-input raw-position prefix ceiling, at most 10,000.
+        max_bytes: Positive per-file raw/canonical byte bound.
+        report: Optional quality sink called before each partition's publication gate.
+
+    Returns:
+        Explicit book snapshot identity for reopening with the selected book manifest type.
+
+    Raises:
+        ValueError: An input is incomplete, unsupported, malformed or exceeds its bounds.
+    """
+    partitions, payloads = [], []
+    for directory in directories:
+        selected = BookInput.read(directory, max_records=max_records)
+        if type(max_bytes) is not int or not 0 < selected.raw.size_bytes <= max_bytes:
+            raise ValueError("book raw input exceeds max_bytes")
+        store.publish(
+            directory / selected.raw.sha256, descriptor=selected.raw, request=selected.request
+        )
+        outcome = selected.admit(store, max_bytes=max_bytes)
+        if report is not None:
+            report(selected.request.identity, outcome)
+        canonical = outcome.require_canonical()
+        payloads.append(canonical)
+        partitions.append(BookPartition(hashlib.sha256(canonical).hexdigest(), selected))
+    manifest = BookDatasetManifest(
+        normalization_identity=Configuration._implementation_identity(),
+        partitions=tuple(partitions),
+    )
+    return SnapshotStore(destination, store, manifest_type=BookDatasetManifest).publish(
+        manifest,
+        tuple(payloads),
+        max_bytes=max_bytes,
+    )
 
 
 def publish_dataset(

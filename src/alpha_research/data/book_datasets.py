@@ -7,10 +7,10 @@ import hashlib
 import re
 import tarfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from decimal import Decimal
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 # third party library imports
 import msgspec
@@ -357,3 +357,102 @@ class BookHistory(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fiel
         self.input.__post_init__()
         for row in self.observations:
             row.__post_init__()
+
+
+class BookPartition(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Bind deterministic book bytes to the immutable input and explicit prefix selection."""
+
+    sha256: str
+    selection: BookInput
+
+    def __post_init__(self) -> None:
+        """Validate digest and native input identity before snapshot staging."""
+        if not isinstance(self.sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", self.sha256):
+            raise ValueError("invalid canonical book digest")
+        if type(self.selection) is not BookInput:
+            raise ValueError("book partition requires a typed input")
+        self.selection.__post_init__()
+
+
+class BookDatasetManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fields=True):
+    """Version exploratory book publication separately from the unchanged trade format."""
+
+    _codec: ClassVar[DomainCodec] = DomainCodec()
+    schema_version: Literal["book-dataset-v1"] = "book-dataset-v1"
+    scope: Literal["exploratory_degraded"] = "exploratory_degraded"
+    normalization_identity: str
+    partitions: tuple[BookPartition, ...]
+
+    def __post_init__(self) -> None:
+        """Require unique complete book selections and an identified normalizer."""
+        if (
+            self.schema_version != "book-dataset-v1"
+            or self.scope != "exploratory_degraded"
+            or not isinstance(self.normalization_identity, str)
+            or not re.fullmatch(r"[a-f0-9]{64}", self.normalization_identity)
+            or type(self.partitions) is not tuple
+            or not self.partitions
+        ):
+            raise ValueError("unsupported book dataset version, scope or identity")
+        selected: set[str] = set()
+        for partition in self.partitions:
+            if type(partition) is not BookPartition:
+                raise ValueError("book manifest requires typed partitions")
+            partition.__post_init__()
+            identity = partition.selection.request.identity
+            if identity in selected:
+                raise ValueError("duplicate book source selection")
+            selected.add(identity)
+
+    @property
+    def identity(self) -> str:
+        """Identify the schema, ordered raw inputs, quality policy and canonical states.
+
+        Returns:
+            Stable SHA-256 independent of publication location and wall clock.
+        """
+        self.__post_init__()
+        return hashlib.sha256(self._codec.encode_json(self)).hexdigest()
+
+    @classmethod
+    def read(
+        cls,
+        path: Path,
+        *,
+        identity: str,
+        partitions: Path,
+        store: RawStore,
+        max_bytes: int,
+        report: Callable[[str, QualityReport], None] | None = None,
+    ) -> BookDatasetManifest:
+        """Reproduce all selected book boundaries before admitting a saved snapshot.
+
+        Args:
+            path: Explicit immutable manifest file.
+            identity: Independently expected dataset SHA-256.
+            partitions: Directory of canonical files addressed by digest.
+            store: Retained original raw objects, protected from external mutation.
+            max_bytes: Positive bound on each canonical file and original raw object.
+            report: Optional sink for each reproduced partition's quality report.
+
+        Returns:
+            Verified exploratory manifest; this format grants no trade-query capability.
+
+        Raises:
+            ValueError: Identity, format, bytes, scope or reproduced admission differs.
+        """
+        if type(max_bytes) is not int or max_bytes <= 0:
+            raise ValueError("book dataset requires positive max_bytes")
+        manifest = cls._codec.decode_json(BookInput._read_bytes(path, max_bytes), cls)
+        if manifest.identity != identity:
+            raise ValueError("book dataset identity mismatch")
+        for partition in manifest.partitions:
+            canonical = BookInput._read_bytes(partitions / partition.sha256, max_bytes)
+            if hashlib.sha256(canonical).hexdigest() != partition.sha256:
+                raise ValueError("canonical book digest mismatch")
+            outcome = partition.selection.admit(store, max_bytes=max_bytes)
+            if outcome.require_canonical() != canonical:
+                raise ValueError("canonical book differs from retained admission inputs")
+            if report is not None:
+                report(partition.selection.request.identity, outcome)
+        return manifest

@@ -10,16 +10,17 @@ import stat
 from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import ClassVar
+from typing import ClassVar, cast, overload
 
 # project library imports
-from alpha_research.data.datasets import DatasetManifest
+from alpha_research.data.book_datasets import BookDatasetManifest, BookPartition
+from alpha_research.data.datasets import DatasetManifest, DatasetPartition
 from alpha_research.data.quality import QualityReport
 from alpha_research.data.raw_store import RawStore
 from alpha_research.serialization import DomainCodec
 
 
-class SnapshotStore:
+class SnapshotStore[Manifest: DatasetManifest | BookDatasetManifest = DatasetManifest]:
     """Own atomic publication in an existing, durably provisioned local directory.
 
     Callers retain the referenced raw store and exclude external mutation/removal
@@ -30,19 +31,51 @@ class SnapshotStore:
 
     _codec: ClassVar[DomainCodec] = DomainCodec()
 
-    def __init__(self, root: Path, raw: RawStore) -> None:
+    @overload
+    def __init__(self: SnapshotStore[DatasetManifest], root: Path, raw: RawStore) -> None:  # noqa: D418 [owner=founder; rationale=repository checker requires documentation on overload signatures; expires=2026-12-17]
+        """Bind the original trade snapshot format.
+
+        Args:
+            root: Provisioned snapshot directory.
+            raw: Retained immutable originals.
+        """
+        ...
+
+    @overload
+    def __init__(self, root: Path, raw: RawStore, *, manifest_type: type[Manifest]) -> None:  # noqa: D418 [owner=founder; rationale=repository checker requires documentation on overload signatures; expires=2026-12-17]
+        """Bind the explicitly selected snapshot format.
+
+        Args:
+            root: Provisioned snapshot directory.
+            raw: Retained immutable originals.
+            manifest_type: Supported manifest reader used for complete verification.
+        """
+        ...
+
+    def __init__(
+        self,
+        root: Path,
+        raw: RawStore,
+        *,
+        manifest_type: type[Manifest] | type[DatasetManifest] = DatasetManifest,
+    ) -> None:
         """Bind stable publication and raw-input locations without filesystem effects.
 
         Args:
             root: Existing snapshot directory on the destination filesystem.
             raw: Retained immutable raw objects required for verification and reopening.
+            manifest_type: Explicit book format, or the original trade format by default.
+
+        Raises:
+            ValueError: The requested snapshot format is unsupported.
         """
         self._root = root
+        if manifest_type not in (DatasetManifest, BookDatasetManifest):
+            raise ValueError("unsupported snapshot manifest type")
         self._raw = raw
+        self._manifest_type: type[Manifest] | type[DatasetManifest] = manifest_type
 
-    def publish(
-        self, manifest: DatasetManifest, payloads: tuple[bytes, ...], *, max_bytes: int
-    ) -> str:
+    def publish(self, manifest: Manifest, payloads: tuple[bytes, ...], *, max_bytes: int) -> str:
         """Stage and verify the entire dataset before publishing its explicit identity.
 
         Args:
@@ -61,6 +94,8 @@ class SnapshotStore:
         """
         if type(max_bytes) is not int or max_bytes <= 0:
             raise ValueError("snapshot max_bytes must be a positive integer")
+        if type(manifest) is not self._manifest_type:
+            raise ValueError("snapshot manifest differs from selected format")
         identity = manifest.identity
         if len(payloads) != len(manifest.partitions):
             raise ValueError("snapshot requires one payload per declared partition")
@@ -68,7 +103,8 @@ class SnapshotStore:
         if not destination.exists():
             with TemporaryDirectory(dir=self._root, prefix=".staging-") as temporary:
                 staging = Path(temporary)
-                for partition, payload in zip(manifest.partitions, payloads, strict=True):
+                selected: tuple[DatasetPartition | BookPartition, ...] = manifest.partitions
+                for partition, payload in zip(selected, payloads, strict=True):
                     self._write(staging / partition.sha256, payload, max_bytes)
                 self._write(staging / "manifest.json", self._codec.encode_json(manifest), max_bytes)
                 self._read(staging, identity, max_bytes)
@@ -89,7 +125,7 @@ class SnapshotStore:
         *,
         max_bytes: int,
         report: Callable[[str, QualityReport], None] | None = None,
-    ) -> DatasetManifest:
+    ) -> Manifest:
         """Reopen a complete snapshot by explicit content identity, never a mutable tag.
 
         Args:
@@ -117,14 +153,14 @@ class SnapshotStore:
         max_bytes: int,
         *,
         report: Callable[[str, QualityReport], None] | None = None,
-    ) -> DatasetManifest:
+    ) -> Manifest:
         """Verify staging or published bytes through the existing manifest boundary."""
         if not stat.S_ISDIR(directory.lstat().st_mode):
             raise ValueError("snapshot must be a directory, not a symlink")
         for path in directory.iterdir():
             if not stat.S_ISREG(path.lstat().st_mode):
                 raise ValueError("snapshot files must be regular files, not symlinks")
-        return DatasetManifest.read(
+        manifest = self._manifest_type.read(
             directory / "manifest.json",
             identity=identity,
             partitions=directory,
@@ -132,6 +168,7 @@ class SnapshotStore:
             max_bytes=max_bytes,
             report=report,
         )
+        return cast(Manifest, manifest)
 
     @staticmethod
     def _write(path: Path, payload: bytes, max_bytes: int) -> None:

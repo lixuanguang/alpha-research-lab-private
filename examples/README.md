@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has fourteen sections:
+The current notebook has sixteen sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -104,7 +104,8 @@ The current notebook has fourteen sections:
 | 14: MR 16 acquisition handoff | Acquire a synthetic two-instrument universe through installed commands, interrupt/resume without repeating completed fetches, refuse the incomplete acquisition and interrupted snapshot, then publish/reopen and inspect six history rows. HTTP is injected; persistence and all downstream stages are real. |
 
 The generic composition boundary is in place. Installed saved-input publication
-currently supports trade archives; actual LOB adapters are planned for MR 25.
+supports trade archives and MR 25's explicit bounded book format. Book snapshots
+retain exploratory degraded scope; trade queries do not silently accept that format.
 Future source combinations retain distinct source/venue streams within one dataset.
 The real OKX/Bitfinex book readers still have separate capture/archive formats.
 This walkthrough supplies no empirical historical membership or revision evidence
@@ -269,3 +270,25 @@ This is raw capture/replay evidence; canonical quality/publication is the next
 question in MR 25, after MR 24 merges. Use the
 [MR 24 acceptance record](../docs/roadmap/mr-24-implementation.md) for commands
 and limits.
+
+## Which saved books can pass publication and freshness checks?
+
+Section 16 (NB 25) publishes a 32-position prefix of the saved Bitfinex recording
+and OKX historical archive, retaining raw and snapshot identities. Native L3 order
+IDs remain separate from L2 price levels. The archive has no invented receipt,
+source sequence or historical knowledge time. Both inputs remain exploratory
+degraded; the sample does not establish full depth, coverage or executable liquidity.
+
+A separate installed consumer shows an uninitialized-prefix refusal, interrupted
+publication with the old snapshot intact, and quality transitions from recovering
+to degraded, stale, recovering and unavailable. A heartbeat advances durable receipt
+but cannot refresh economic progress. Default freshness-dependent use refuses
+degraded state; explicit exploratory opt-in is required. The retained tests also
+exercise late source/receipt clocks, native gaps, exact L3 duplicate handling,
+malformed atomic messages and L2 zero-size deletion.
+
+The [MR 25 record](../docs/roadmap/mr-25-implementation.md) owns commands, installed
+identity and limitations. The next roadmap work is MR 26 supervision; MR 27 owns
+shared canonical stepping and capture/replay parity. Section 9 retains MR 18's
+historical measurements at their original source identity. MR 25 changes snapshot
+format dispatch and imports, so those timings are not current-candidate benchmarks.

@@ -1234,3 +1234,50 @@ only, with no spot-record coercion. It is not admitted to the spot reader/replay
 unsupported source products, lifecycle/adapter fields and unit combinations fail.
 See the [acceptance record](../../../docs/roadmap/mr-21-implementation.md) for
 commands, observations, justified review size and remaining scope.
+
+## Bounded saved books (MR 25)
+
+`pipelines.dataset.publish_book_dataset` accepts completed native capture or OKX
+archive directories, an existing `RawStore`, a provisioned snapshot directory and
+explicit `max_records` / `max_bytes` limits. Capture adapters cover Bitfinex R0,
+Coinbase Exchange L3 and OKX books. The archive adapter preserves unknown original
+availability and sequence. It never applies trade-ID revision rules to order
+lifecycles. Exact adjacent duplicates retain raw positions and do not repeat
+mutations; conflicting native sequences fail admission.
+
+```python
+from alpha_research.data.book_datasets import BookDatasetManifest, BookHistory
+from alpha_research.data.raw_store import RawStore
+from alpha_research.data.snapshots import SnapshotStore
+from alpha_research.pipelines.dataset import publish_book_dataset
+
+# directories, raw_directory and snapshot_directory are explicit caller-owned Paths.
+raw = RawStore(raw_directory)
+identity = publish_book_dataset(
+    directories, raw, snapshot_directory, max_records=32, max_bytes=600_000_000,
+)
+manifest = SnapshotStore(
+    snapshot_directory, raw, manifest_type=BookDatasetManifest,
+).read(identity, max_bytes=600_000_000)
+```
+
+The separate `book-dataset-v1` format leaves trade manifests and default trade
+readers unchanged. Each partition binds the original request, raw descriptor,
+selected prefix, normalized complete message states and quality. A `BookHistory`
+can be decoded from its verified partition using `DomainCodec`; controls carry
+empty state and must not be interpreted as an empty book. L3 orders keep their
+native IDs and exact sizes; L2 levels keep aggregate sizes/counts. Zero-size
+updates delete levels, while nonpositive prices and zero snapshot sizes fail.
+
+The limit is at most 10,000 raw positions per input (archive configuration may
+further restrict it). Complete raw digests are checked; only the selected prefix's
+native messages are admitted. A malformed selected frame rejects the whole
+partition, and transport gaps remain quality-annotated controls. Full visible
+state per market message is a bounded reference representation: byte limits can
+refuse a large prefix, and no throughput claim is made. Prior snapshots survive
+failure, and reopening reproduces admission from retained original bytes.
+
+Only `exploratory_degraded` publication is supported. Historical eligibility,
+complete coverage, full depth, causal use, trade queries, shared chronological
+book stepping, fills and execution are not admitted. The
+[MR 25 record](../../../docs/roadmap/mr-25-implementation.md) retains acceptance.

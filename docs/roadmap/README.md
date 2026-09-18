@@ -1,6 +1,6 @@
 # Platform implementation roadmap
 
-Owner: repository founder. Status checked against merged `main` at `b30f89e`
+Owner: repository founder. Status checked against merged `main` at `12be1a6`
 on 2026-09-18. MR 00, C0 and MRs 01–17 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
@@ -16,15 +16,19 @@ MR 22's [bounded Bitfinex source verification](mr-22-implementation.md) merged
 through [PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48).
 MR 23's [durable append cursor and bounded consumer](mr-23-implementation.md) merged
 through [PR #49](https://github.com/lixuanguang/alpha-research-lab-private/pull/49).
-MR 24's [session recovery and retained-gap evidence](mr-24-implementation.md) is
-tracked in [PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51). MRs 25–62 and R1 remain planned except
+MR 24's [session recovery and retained-gap evidence](mr-24-implementation.md) merged
+through [PR #51](https://github.com/lixuanguang/alpha-research-lab-private/pull/51) at `12be1a6`.
+MR 25's [continuous quality and saved book publication](mr-25-implementation.md)
+is implemented for review. MRs 26–62 and R1 remain planned except
 the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
 forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Next implementation: MR 25 — Apply continuous quality and recovery states**,
-after MR 24 merges. MR 24 drains accepted input through session recovery, retains
+**Next implementation: MR 26 — Supervise live health and responses**,
+after MR 25 merges. MR 24 drains accepted input through session recovery, retains
 late/stale snapshot lineage, suppresses exact adjacent duplicates and exposes
-bounded retry exhaustion. Canonical reconstruction/publication remains with MR 25.
+bounded retry exhaustion. MR 25 adds scoped freshness/recovery gates and bounded
+exploratory book publication. Live book-dependent decisions remain disabled;
+canonical stepping/parity remains MR 27.
 MR 23 verifies the committed append prefix before interrupted replay, refuses a
 failed writer, and keeps source receipt independent of bounded downstream work.
 MR 22 verifies the existing direct Bitfinex spot R0 path, bounds subscription sends
@@ -399,9 +403,12 @@ names alone are insufficient: transition/recovery behavior is tested at the cons
 
 ### Collector integration with shared datasets and replay
 
-**Planned; integration owner MR 25, completion owner MR 27.** The merged
-Bitfinex R0, Coinbase Exchange L3 and OKX L2 collectors preserve replayable source
-input; they do not yet publish shared canonical datasets or use MR 20 stepping.
+**Steps 1–2 implemented for bounded exploratory review in MR 25; completion owner
+MR 27.** Bitfinex R0, Coinbase Exchange L3, OKX L2 capture and OKX L2 archives
+now bind native states to raw positions and publish through the shared atomic
+snapshot store. Their explicit book schema preserves order IDs versus aggregate
+levels and unknown archive availability. They do not yet use MR 20 stepping.
+No source gains causal, execution or complete-coverage admission from this change.
 Complete the following ordered steps within the existing MR owners:
 
 | Step | Owner and prerequisite | Required pipeline result |
@@ -1154,7 +1161,8 @@ stepping and cursor recovery is section 10; NB 21 configured EDA and extension
 boundaries is section 11; NB 22 saved live-source negotiation and refusals is
 section 12; NB 23 durable append boundaries and failure diagnosis is section 13;
 the MR 16 follow-up's installed acquisition-to-EDA handoff is section 14;
-NB 24 session recovery, duplicate lineage and pending-snapshot failures is section 15.
+NB 24 session recovery, duplicate lineage and pending-snapshot failures is section 15;
+NB 25 scoped quality transitions and saved book publication is section 16.
 The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),
