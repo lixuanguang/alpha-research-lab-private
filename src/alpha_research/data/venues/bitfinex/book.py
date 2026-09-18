@@ -89,6 +89,10 @@ class BitfinexBook(VisibleBook):
             self.channel_id = channel_id
             self.acknowledged = True
         elif event == "info":
+            if "version" in message and (
+                type(message["version"]) is not int or message["version"] != 2
+            ):
+                raise ValueError("unsupported Bitfinex WebSocket version")
             if message.get("code") in (20051, 20060, 20061):
                 raise ValueError("Bitfinex restart or maintenance requires fresh session")
             if "platform" in message and Wire.mapping(message["platform"]).get("status") != 1:

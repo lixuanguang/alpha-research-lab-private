@@ -9,6 +9,7 @@ from msgspec.structs import replace
 
 # project library imports
 from alpha_research.data.live.config import CaptureConfig
+from alpha_research.serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[4]
 
@@ -43,3 +44,20 @@ class TestCaptureConfig:
         )
         with pytest.raises(ValueError):
             CaptureConfig.read(path)
+
+    @pytest.mark.parametrize(
+        ("original", "unsupported"),
+        [
+            ('"R0"', '"books"'),
+            ('"R0"', '"trades"'),
+            ('"tBTCUSD"', '"fUSD"'),
+            ('"tBTCUSD"', '"tBTCF0:USTF0"'),
+            ('"venue": "bitfinex"', '"venue": "unknown"'),
+        ],
+    )
+    def test_unsupported_source_combinations(self, original: str, unsupported: str) -> None:
+        """Refuse stream, product and venue substitutions at configuration decoding."""
+        raw = (_ROOT / "configs/live/bitfinex-btc-usd.json").read_text()
+        assert original in raw
+        with pytest.raises(ValueError):
+            DomainCodec().decode_json(raw.replace(original, unsupported).encode(), CaptureConfig)

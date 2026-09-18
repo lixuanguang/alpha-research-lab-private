@@ -453,3 +453,25 @@ Those saved book paths are the actual acceptance inputs; select compatible retai
 paths explicitly on another machine. The external wheel and generated synthetic
 stores are local acceptance artifacts, not a release archive. The owning MR record
 retains the successful/failed attempts, hashes, observations and environment limits.
+
+
+## MR 22 saved source negotiation
+
+Section 12 reads the same pinned Bitfinex capture as section 2, exposing protocol
+version, configuration/subscription acknowledgement, original receipt nanoseconds
+and server sequences. It opens no live connection. Six synthetic examples reject
+unsupported negotiation and product/stream combinations using the installed APIs.
+
+The [MR 22 acceptance record](../docs/roadmap/mr-22-implementation.md#fresh-kernel-nb-22)
+contains the exact installed-wheel/kernel commands and the actual capture directory.
+All 55 cells / 28 code cells passed with candidate imports and bytes verified.
+Keep the saved capture or select another compatible retained recording explicitly;
+the notebook never substitutes a later archive download for live receipt.
+
+The first run detected changed live files in MR 18's historical whole-package
+comparison. Section 9 now preserves that historical digest, requires every other
+measured file to match, checks in a separate process that the two explicitly named
+live modules are not query imports, and displays their changed paths. The query
+measurements remain historical; no live/replay performance inference is made.
+Both failed and successful attempts remain separately retained under the generated
+runs policy. No runtime notebook dependency or ignore rule changed.

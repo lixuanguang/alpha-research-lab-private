@@ -110,6 +110,20 @@ class ScriptedTransport(VenueTransport):
         return socket
 
 
+class StalledSubscriptionSocket(ScriptedSocket):
+    """Hold the second outbound message until the capture deadline cancels it."""
+
+    async def send(self, message: str) -> None:
+        """Send the configuration frame, then stall subscription under backpressure.
+
+        Args:
+            message: Outbound non-secret configuration or subscription JSON.
+        """
+        await super().send(message)
+        if len(self.sent) == 2:
+            await asyncio.Event().wait()
+
+
 class FailingJournal(CaptureJournal):
     """Fail the first market append after durable session metadata exists."""
 
@@ -165,6 +179,46 @@ class TestCapture:
         (root / digest).write_bytes(b"tampered")
         with pytest.raises(ValueError, match="size mismatch"):
             CaptureReplay.read(root)
+
+    def test_subscription_deadline(self, tmp_path: Path) -> None:
+        """Cancel blocked subscription sends and retain an unavailable closed session."""
+        asyncio.run(self._subscription_deadline(tmp_path))
+
+    async def _subscription_deadline(self, tmp_path: Path) -> None:
+        """An outer guard makes a missing subscription timeout fail without hanging tests."""
+        config = replace(self.config(), duration_seconds=1)
+        socket = StalledSubscriptionSocket(())
+        transport = ScriptedTransport(config, ())
+        with patch.object(transport, "open", return_value=socket):
+            async with asyncio.timeout(5):
+                result = await collect(
+                    config, tmp_path, implementation_identity="a" * 64, transport=transport
+                )
+        assert len(socket.sent) == 2 and socket.closed
+        assert result["messages"] == 0 and result["synchronized"] is False
+        assert result["stop_reason"] == "connect_failed_unknown_loss"
+        assert result["gaps"] and result["replay_parity"] is True
+        saved = CaptureReplay.read(next(tmp_path.iterdir()))
+        assert saved.gaps[0]["reason"] == "connect_failed_unknown_loss"
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            b'{"event":"info","version":3,"platform":{"status":1}}',
+            b'{"event":"error","code":10300,"msg":"Subscription failed"}',
+        ],
+    )
+    def test_rejected_source_session(self, tmp_path: Path, raw: bytes) -> None:
+        """Keep incompatible negotiation visible without admitting a book."""
+        config = self.config()
+        transport = ScriptedTransport(config, ((raw, *_FRAMES),))
+        result = asyncio.run(
+            collect(config, tmp_path, implementation_identity="a" * 64, transport=transport)
+        )
+        assert result["messages"] == 1 and result["synchronized"] is False
+        assert result["stop_reason"] == "invalid_stream_requires_snapshot"
+        assert result["gaps"] and result["replay_parity"] is True
+        assert transport.sockets[0].closed
 
     def test_disconnect_resubscription(self, tmp_path: Path) -> None:
         """A fresh snapshot recovers state while the old session's unknown gap survives."""
