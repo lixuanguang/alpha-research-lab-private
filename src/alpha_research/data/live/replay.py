@@ -28,6 +28,9 @@ class CaptureReplay:
         self.book: BitfinexBook | CoinbaseBook | OKXBook = self._new_book()
         self.epoch = -1
         self.messages = 0
+        self.frames = 0
+        self.duplicates = 0
+        self.stale_snapshots = 0
         self.updates = 0
         self.snapshots = 0
         self.heartbeats = 0
@@ -36,6 +39,9 @@ class CaptureReplay:
         self.finished_ns: int | None = None
         self.ended = False
         self.invalid = False
+        self._last_frame = b""
+        self._session_ended = False
+        self._stop_reason = ""
         self._trace = hashlib.sha256()
         self._codec = DomainCodec()
 
@@ -51,6 +57,10 @@ class CaptureReplay:
 
     def apply(self, record: CaptureRecord) -> str:
         """Apply exactly one saved message, retaining invalid states until a fresh session.
+
+        Exact adjacent Bitfinex/Coinbase sequenced frames remain raw lineage but
+        do not repeat mutations. Ambiguous repeats use the native sequence refusal.
+        Prior/closed-epoch snapshots are retained without changing current state.
 
         Args:
             record: One complete received message or scoped session transition.
@@ -73,11 +83,31 @@ class CaptureReplay:
             self.epoch = record.epoch
             self.book = self._new_book()
             self.invalid = False
+            self._last_frame = b""
+            self._session_ended = False
+        elif record.kind == "snapshot" and (
+            record.epoch < self.epoch or (record.epoch == self.epoch and self._session_ended)
+        ):
+            self.messages += 1
+            self.stale_snapshots += 1
+            outcome = "stale_snapshot"
         elif record.epoch != self.epoch:
             raise ValueError("record outside capture epoch")
         elif record.kind in ("frame", "snapshot"):
             self.messages += 1
-            if not self.invalid:
+            self.frames += record.kind == "frame"
+            if self._session_ended:
+                raise ValueError("frame after session end")
+            if (
+                not self.invalid
+                and self.book.ready
+                and self.config.venue in ("bitfinex", "coinbase")
+                and record.kind == "frame"
+                and record.raw == self._last_frame
+            ):
+                self.duplicates += 1
+                outcome = "duplicate"
+            elif not self.invalid:
                 try:
                     outcome = self.book.apply(record.raw, snapshot=record.kind == "snapshot")
                     self.updates += outcome == "update"
@@ -86,10 +116,17 @@ class CaptureReplay:
                 except ValueError, KeyError, IndexError, TypeError:
                     outcome = "invalid_frame"
                     self._gap(record, outcome)
+            if record.kind == "frame" and outcome != "duplicate":
+                self._last_frame = (
+                    record.raw if outcome in ("update", "snapshot", "heartbeat") else b""
+                )
         elif record.kind == "gap":
             self._gap(record, record.reason)
         elif record.kind == "end":
             self.ended = True
+            self._stop_reason = record.reason
+        elif record.kind == "session_end":
+            self._session_ended = True
         self._trace.update(
             self._codec.encode_json((record, outcome, self.book.identity, self.invalid))
         )
@@ -129,6 +166,20 @@ class CaptureReplay:
             "started_ns": self.started_ns,
             "finished_ns": self.finished_ns,
             "messages": self.messages,
+            "frames": self.frames,
+            "duplicates": self.duplicates,
+            "stale_snapshots": self.stale_snapshots,
+            "retry_exhausted": (
+                self.ended
+                and self.epoch == self.config.retries
+                and self._stop_reason
+                not in (
+                    "duration_limit",
+                    "message_limit",
+                    "storage_limit_unknown_tail",
+                    "overload_unknown_loss",
+                )
+            ),
             "updates": self.updates,
             "snapshots": self.snapshots,
             "heartbeats": self.heartbeats,

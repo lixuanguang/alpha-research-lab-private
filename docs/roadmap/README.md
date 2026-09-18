@@ -1,6 +1,6 @@
 # Platform implementation roadmap
 
-Owner: repository founder. Status checked against merged `main` at `4308a5a`
+Owner: repository founder. Status checked against merged `main` at `b30f89e`
 on 2026-09-18. MR 00, C0 and MRs 01–17 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
@@ -16,16 +16,20 @@ MR 22's [bounded Bitfinex source verification](mr-22-implementation.md) merged
 through [PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48).
 MR 23's [durable append cursor and bounded consumer](mr-23-implementation.md) merged
 through [PR #49](https://github.com/lixuanguang/alpha-research-lab-private/pull/49).
-MRs 24–62 and R1 remain planned except
+MR 24 is [implemented and locally verified for review](mr-24-implementation.md);
+it is not yet merged. MRs 25–62 and R1 remain planned except
 the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
 forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Next implementation: MR 24 — Recover sessions without hiding gaps**.
+**Next implementation: MR 25 — Apply continuous quality and recovery states**,
+after MR 24 merges. MR 24 drains accepted input through session recovery, retains
+late/stale snapshot lineage, suppresses exact adjacent duplicates and exposes
+bounded retry exhaustion. Canonical reconstruction/publication remains with MR 25.
 MR 23 verifies the committed append prefix before interrupted replay, refuses a
 failed writer, and keeps source receipt independent of bounded downstream work.
 MR 22 verifies the existing direct Bitfinex spot R0 path, bounds subscription sends
 and refuses advertised unsupported protocol versions. Other source admission and
-MRs 24–27 retain their own acceptance; this does not complete M3.
+MRs 25–27 retain their own acceptance; this does not complete M3.
 MR 21 delivers configured multi-instrument summaries, retained attempt observations,
 a bounded plot and standalone replay, plus an explicit synthetic contract projection
 with unsupported capability refusals.
@@ -1149,7 +1153,8 @@ walkthrough (sections 5–7) of `research-foundations.ipynb`; NB 19 is section 8
 stepping and cursor recovery is section 10; NB 21 configured EDA and extension
 boundaries is section 11; NB 22 saved live-source negotiation and refusals is
 section 12; NB 23 durable append boundaries and failure diagnosis is section 13;
-the MR 16 follow-up's installed acquisition-to-EDA handoff is section 14.
+the MR 16 follow-up's installed acquisition-to-EDA handoff is section 14;
+NB 24 session recovery, duplicate lineage and pending-snapshot failures is section 15.
 The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),
@@ -1294,6 +1299,9 @@ procedural notes. Current usage belongs in component guides and examples.
 | [MR 18](mr-18-implementation.md) | #45 | `f37c07d` |
 | [MR 20](mr-20-implementation.md) | #46 | `f8ef338` |
 | [MR 21](mr-21-implementation.md) | #47 | `d11dd2c` |
+
+MR 24 has [local implementation and acceptance evidence](mr-24-implementation.md)
+on its review branch; it is not a merged implementation record.
 
 ## How to execute and maintain the plan
 

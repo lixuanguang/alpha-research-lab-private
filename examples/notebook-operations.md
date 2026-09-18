@@ -519,3 +519,19 @@ records the later run with both checkpoints. The existing
 saved OKX/Bitfinex inputs, P1, notebook runner and ignore policy are unchanged.
 MR 18 evidence remains historical: the notebook verifies every pre-existing
 manifest operation and excludes the new publication-only method from that comparison.
+
+## MR 24 session recovery checkpoint
+
+Section 15 copies the maintained recovery consumer and synthetic Coinbase inputs
+to a temporary directory, then runs it under the installed kernel interpreter
+with `-I`. It displays exact duplicate accounting, conflicting/stale refusals,
+late snapshot receipt and bounded recovery after disconnect, bridge gaps and
+simulated HTTP 429. No network or credentials are used.
+
+The [MR 24 acceptance record](../docs/roadmap/mr-24-implementation.md#fresh-kernel-notebook)
+contains the exact wheel/kernel commands. Attempt
+`036bb3a6-bd16-40a9-bafa-a3d2c96019d2` passed all 67 cells / 33 code cells and
+verified all 76 runtime files against the installed candidate. The kernel shut
+down; generated runs remain ignored and maintained examples remain tracked.
+A later snapshot or new connection cannot fill an earlier unknown interval.
+Shared reconstruction/quality/publication remains MR 25 work.

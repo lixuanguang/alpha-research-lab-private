@@ -9,6 +9,7 @@ import contextlib
 import hashlib
 import sys
 import time
+from http.client import HTTPException
 from pathlib import Path
 from uuid import uuid4
 
@@ -104,7 +105,7 @@ async def receive_snapshot(
     try:
         raw = await asyncio.to_thread(transport.snapshot)
         record = CaptureRecord(kind="snapshot", epoch=epoch, received_ns=time.time_ns(), raw=raw)
-    except OSError, ValueError:
+    except OSError, ValueError, HTTPException:
         record = CaptureRecord(
             kind="gap",
             epoch=epoch,
@@ -127,6 +128,8 @@ async def collect(
     Output is a unique directory, never appended to a prior recording. Persistence
     failures propagate without trying to write success onto the failing medium.
     The incomplete journal remains visible for explicit offline inspection.
+    Drain accepted queue entries and the epoch's single snapshot before retrying.
+    Coinbase reserves one message slot for that response; unused slots stay unused.
 
     Args:
         config: Validated native spot source selection and resource budgets.
@@ -207,14 +210,28 @@ async def collect(
                         config,
                         epoch,
                         deadline,
-                        config.max_messages - replay.messages,
+                        # Reserve the single REST response before accepting stream input.
+                        config.max_messages - replay.messages - (config.venue == "coinbase"),
                     )
                 )
-                while True:
+                reason = "message_limit"
+                while (
+                    not queue.empty()
+                    or not reader.done()
+                    or (snapshot is not None and not snapshot.done())
+                ):
                     record = await queue.get()
                     if record.kind == "session_end":
-                        reason = record.reason
-                        break
+                        if not replay.invalid or record.reason == "overload_unknown_loss":
+                            reason = record.reason
+                        if record.reason in ("duration_limit", "message_limit"):
+                            continue
+                        record = CaptureRecord(
+                            kind="gap",
+                            epoch=epoch,
+                            received_ns=record.received_ns,
+                            reason=record.reason,
+                        )
                     try:
                         await asyncio.to_thread(journal.append, record)
                     except OverflowError:
@@ -222,18 +239,21 @@ async def collect(
                         break
                     outcome = await asyncio.to_thread(replay.apply, record)
                     if outcome == "invalid_frame" or record.kind == "gap":
-                        reason = "invalid_stream_requires_snapshot"
-                        break
+                        if outcome == "invalid_frame":
+                            reason = "invalid_stream_requires_snapshot"
+                        elif reason == "message_limit":
+                            reason = record.reason
+                        reader.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await reader
                     if (
-                        isinstance(replay.book, CoinbaseBook)
+                        not replay.invalid
+                        and isinstance(replay.book, CoinbaseBook)
                         and replay.book.acknowledged
                         and replay.book.schema
                         and snapshot is None
                     ):
                         snapshot = asyncio.create_task(receive_snapshot(transport, queue, epoch))
-                    if replay.messages >= config.max_messages:
-                        reason = "message_limit"
-                        break
         finally:
             for task in (reader, snapshot):
                 if task is not None:
@@ -242,7 +262,7 @@ async def collect(
                         await task
             if socket is not None:
                 await socket.close()
-        if reason not in ("duration_limit", "message_limit"):
+        if reason not in ("duration_limit", "message_limit") and not replay.invalid:
             gap = CaptureRecord(kind="gap", epoch=epoch, received_ns=time.time_ns(), reason=reason)
             journal.append(gap)
             replay.apply(gap)

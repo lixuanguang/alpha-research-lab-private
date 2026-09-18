@@ -257,8 +257,53 @@ assumed. Restart/maintenance notices invalidate the session under existing behav
 `SEQ_ALL` is documented as beta server-order evidence, not matching-engine
 completeness. This bounded job is not a continuous service or historical backfill.
 MR 23 retains its [durability evidence](../roadmap/mr-23-implementation.md);
-MR 24/26 own recovery/supervision acceptance, MR 25/27 own canonical book
+MR 24 retains its [recovery evidence](../roadmap/mr-24-implementation.md);
+MR 26 owns supervision acceptance, MR 25/27 own canonical book
 publication/shared replay, and R1 still precedes deployment.
+
+## MR 24 session recovery
+
+The collector now drains already accepted queue entries after an invalid frame
+instead of dropping the tail of a completed recording. It stops the affected
+receiver and keeps the epoch's single REST request alive until its result is
+persisted. Invalid state blocks that result and queued frames from changing the
+book. Disk failure and storage exhaustion retain their explicit incomplete or
+unknown-tail outcomes; volatile input is never described as durable.
+
+One epoch requests at most one Coinbase snapshot, even after repeated subscription
+acknowledgements. The next epoch waits for that request to complete, so recovery
+requests cannot overlap. The configured `retries` gives at most `retries + 1`
+connections and snapshots (maximum six); retry delays are 1, 2, 4, 8 and 16 seconds,
+capped by the remaining receive interval. Existing fixed endpoints, connection and
+HTTP timeouts remain. Rate-limit and protocol failures retain an invalid gap and
+consume the same finite budget. These are per-invocation ceilings; there is no
+shared-IP limiter or service supervisor. Coinbase reserves one message slot per
+epoch for the independent REST response, preserving `max_messages` across retries;
+an unused reservation is not filled by additional stream messages.
+
+A new connection still requires its native acknowledgement and snapshot bridge.
+It never repairs the preceding unknown interval. No selected stream has a
+historical backfill adapter. Snapshots retain their actual later response receipt;
+no earlier knowledge timestamp is assigned. A prior-epoch or closed-epoch snapshot
+is retained and counted as stale without changing current state. Canonical
+knowledge/quality admission remains MR 25 work.
+
+At the replay boundary, byte-identical adjacent sequenced Bitfinex/Coinbase frames
+within an epoch count as duplicates and do not repeat economic mutations. Both
+copies retain their bytes and original receipt instants. The one-frame cache is
+bounded by the frame ceiling and resets with the epoch. A conflicting or older
+repeat still invalidates the stream under its native sequence contract; OKX keeps
+its existing sequence/reset semantics. Direct native decoders remain strict.
+Derived summaries add `frames`, `duplicates`, `stale_snapshots` and
+`retry_exhausted`; raw envelope and manifest serialization is unchanged. Old raw
+input can produce a different derived trace when a formerly invalid exact repeat
+is now explicitly classified as a duplicate.
+
+The [MR 24 record](../roadmap/mr-24-implementation.md) and section 15 of the
+[foundations notebook](../../examples/research-foundations.ipynb) retain exact
+arithmetic, disconnect-during-snapshot, bridge-gap, simulated HTTP 429 and stale
+response evidence. They do not establish Coinbase external eligibility or shared
+canonical dataset admission.
 
 ## Official protocol references
 
