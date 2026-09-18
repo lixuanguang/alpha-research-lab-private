@@ -15,7 +15,9 @@ through [PR #47](https://github.com/lixuanguang/alpha-research-lab-private/pull/
 MR 22's [bounded Bitfinex source verification](mr-22-implementation.md) merged
 through [PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48).
 MR 23's [durable append cursor and bounded consumer](mr-23-implementation.md) is
-implemented and locally verified for review. MRs 24–62 and R1 remain planned except
+implemented and locally verified;
+[PR #49](https://github.com/lixuanguang/alpha-research-lab-private/pull/49) tracks
+hosted checks and merge acceptance. MRs 24–62 and R1 remain planned except
 the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
 forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
 

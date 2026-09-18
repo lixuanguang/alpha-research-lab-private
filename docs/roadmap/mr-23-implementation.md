@@ -6,6 +6,8 @@ Owner: repository founder. Status: implemented and locally verified for review o
 was verified with `git merge-base --is-ancestor de58c99 ff2b28e` (exit 0). Work uses
 `/private/tmp/alpha-mr23`; the original checkout's unrelated commit and modified
 notebook were preserved. The [roadmap](README.md#m3-reliable-live-capture) owns scope.
+[PR #49](https://github.com/lixuanguang/alpha-research-lab-private/pull/49) retains
+the hosted checks and merge status. Tested implementation: `f72b12c`.
 
 ## Problem / change
 
@@ -176,9 +178,10 @@ interrupted captures have the weaker explicitly documented prefix evidence.
 
 MR 24 owns session recovery and gap reconciliation; MR 25/27 own canonical book
 admission and shared replay. MR 26 supervision and R1 deployment acceptance remain
-open. Existing release restrictions remain. Complete local `make check` and hosted
-CI were not run for this local review branch; the complete hosted lane is required
-before merge. No empirical strategy result or M3 completion is claimed.
+open. Existing release restrictions remain. At the initial implementation handoff,
+complete local `make check` and hosted CI had not run. PR #49 retains subsequent
+hosted results; the complete hosted lane is required before merge. The PR-link
+follow-up changes prose only and reuses the installed/notebook runtime evidence. No empirical strategy result or M3 completion is claimed.
 
 Revert this MR before dependent changes; capture envelopes and existing completed
 manifests require no migration. Preserve original and interrupted recordings. P1,
