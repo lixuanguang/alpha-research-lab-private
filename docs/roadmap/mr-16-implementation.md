@@ -459,6 +459,9 @@ started by this follow-up.
 
 ### Integration with MR 23
 
+Integration review: [PR #50](https://github.com/lixuanguang/alpha-research-lab-private/pull/50).
+The original handoff commit is retained as a parent of integration commit `4226bb8`.
+
 On 2026-09-18, the existing handoff commit `bcbc26f` was integrated with freshly
 fetched `main` at `4308a5a` (MR 23, PR #49), on `codex/mr-16-handoff-merge`.
 Its original prerequisite ancestry remains satisfied. The two runtime files are
