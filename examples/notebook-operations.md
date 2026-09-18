@@ -500,3 +500,22 @@ cursor mismatch or committed truncation fails; do not delete the cursor to force
 legacy inspection or label an uncertain prefix complete. Start a new recording
 for subsequent input. Neither the cursor nor a new UUID restores consumer state
 or reconciles the preceding source gap; those remain later roadmap work.
+
+## MR 16 follow-up: whole-acquisition handoff
+
+Section 14 invokes the retained installed integration consumer with copied synthetic
+inputs. It creates child processes for acquisition interruption/resume, incomplete
+publication refusal, abrupt publication interruption and recovery, then reopens the
+snapshot and calls EDA. Only source HTTP is injected; no live connection is made.
+The notebook displays two partitions, six history rows, zero cutoff rows, preserved
+raw clocks and required failure exits. Its temporary synthetic files are cleaned up
+with the other walkthrough inputs.
+
+Use the clean wheel/kernel command in the
+[follow-up acceptance record](../docs/roadmap/mr-16-implementation.md#fresh-kernel-notebook).
+The original 58-cell / 29-code-cell run passed before MR 23 integration; the
+[combined verification](../docs/roadmap/mr-16-implementation.md#integration-with-mr-23)
+records the later run with both checkpoints. The existing
+saved OKX/Bitfinex inputs, P1, notebook runner and ignore policy are unchanged.
+MR 18 evidence remains historical: the notebook verifies every pre-existing
+manifest operation and excludes the new publication-only method from that comparison.

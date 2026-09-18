@@ -1,6 +1,6 @@
 # A quant researcher's guide to this project
 
-Owner: repository founder. Updated 2026-09-18 for MR 23 durable capture boundaries.
+Owner: repository founder. Updated 2026-09-18 for MR 23 and the MR 16 handoff.
 This is the living entry point for using the project as a researcher. The
 [roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
 this guide explains what you can do, how to read the evidence and what remains open.
@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has thirteen sections:
+The current notebook has fourteen sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -101,6 +101,7 @@ The current notebook has thirteen sections:
 | 11: configured EDA | Select six synthetic revisions across two instruments, retain exact summaries and attempt observations, plot the three-second business interval and inspect standalone replay. Exercise a synthetic contract projection and unsupported capability refusals. |
 | 12: source negotiation | Inspect the saved Bitfinex version, native acknowledgement, sequence range and exact receipt clocks. Refuse incompatible subscriptions, versions and product/stream combinations without reconnecting. |
 | 13: durable capture | Inspect the committed input cursor; exclude uncommitted tails and reject damaged committed bytes, failed writers and invalid units. |
+| 14: MR 16 acquisition handoff | Acquire a synthetic two-instrument universe through installed commands, interrupt/resume without repeating completed fetches, refuse the incomplete acquisition and interrupted snapshot, then publish/reopen and inspect six history rows. HTTP is injected; persistence and all downstream stages are real. |
 
 The generic composition boundary is in place. Installed saved-input publication
 currently supports trade archives; actual LOB adapters are planned for MR 25.
@@ -231,7 +232,7 @@ valuation or execution support. The [MR 21 record](../docs/roadmap/mr-21-impleme
 retains installed and notebook evidence and exact refusals. Section 12 adds MR 22 source verification using saved Bitfinex input and controlled
 refusals. The [MR 22 record](../docs/roadmap/mr-22-implementation.md) identifies the
 real installed-candidate capture and fresh-kernel evidence. Next roadmap work is
-MR 24 after MR 23 merges; it is not started here.
+MR 24; MR 23 is merged, and MR 24 is not started here.
 
 
 Section 13 adds NB 23: observe exact synthetic message bytes, receipt nanoseconds,
@@ -245,3 +246,9 @@ The [MR 23 record](../docs/roadmap/mr-23-implementation.md) identifies the candi
 fresh-kernel run, process-death and slow-consumer tests. This is synthetic durability
 evidence, not uninterrupted venue coverage or a new source observation. The next
 research question is how reconnects and unknown gaps remain visible under MR 24.
+
+Section 14 exercises the MR 16 whole-acquisition handoff through installed commands:
+acquire BTC/ETH, interrupt and resume without refetching completed input, then
+validate, publish, reopen and inspect the saved dataset. The
+[merge verification](../docs/roadmap/mr-16-implementation.md#integration-with-mr-23)
+records the combined candidate and fresh execution of both checkpoints.
