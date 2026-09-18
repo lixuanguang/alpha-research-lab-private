@@ -196,6 +196,45 @@ The planned [shared dataset and replay integration](../roadmap/README.md#collect
 is an explicit MR 25/27 checkpoint, reusing MR 09–15 normalization/publication
 and MR 20 replay through the existing pipelines.
 
+## MR 22 verified source contract
+
+MR 22 selects the existing **Bitfinex spot `tBTCUSD`, R0/F0, depth 25** job for
+bounded foreground verification. It reuses `CaptureConfig`, `CaptureRequest`,
+`VenueTransport`, `BitfinexBook` and `collect`; no second transport or configuration
+schema is added. The [acceptance record](../roadmap/mr-22-implementation.md) binds
+the actual installed candidate, acknowledgements and exact saved session.
+
+| Boundary | Supported meaning |
+| --- | --- |
+| Source and session | Fixed public TLS endpoint; request hash binds config, recording UUID and installed implementation. Each connection has an epoch; acknowledged `chanId` is connection-local. |
+| Format | JSON, native R0 order tuples and `SEQ_ALL=65536`; exact decimal decoding. Advertised version must be integer 2; absent version on later info messages remains allowed. Unsupported framing fails closed. |
+| Time and availability | Original application-receipt Unix nanoseconds remain in every envelope. These flags provide no exchange timestamp; wall-clock resolution/accuracy is not inferred from the integer unit. Live receipt establishes this local observation only. Vendor archives retain their separate acquisition semantics. |
+| Admission | Matching configuration/subscription acknowledgement precedes market admission; a racing heartbeat establishes liveness only. Snapshot, exact-unit, channel and sequence checks already exist. No new stream is admitted. |
+| Permissions | Public anonymous market-data access requires no account/key. This selected workflow is bounded private development with local retention; no redistribution, commercial data licence or trading authority is claimed. See the [API requirements](https://docs.bitfinex.com/docs/requirements-and-limitations) and [API terms](https://www.bitfinex.com/legal/general/api-terms/). |
+
+The official [limits page](https://docs.bitfinex.com/docs/requirements-and-limitations),
+checked 2026-09-18 Singapore, states 20 public connections/minute and 25 concurrent
+channels. The [general page](https://docs.bitfinex.com/docs/ws-general) instead says
+30 channels; use the conservative 25. This job subscribes to one channel, sends
+one configuration plus one subscription per epoch, and allows at most three
+connections per invocation. Acceptance made one connection, without stressing a
+limit. Repeated invocations or other clients sharing the IP are not globally
+rate-limited by this development collector; coordinate that budget externally.
+
+The documented heartbeat interval is 15 seconds. The existing job's 15-second
+idle ceiling can expire around network jitter; such an expiry reports unknown loss,
+not success. WebSocket protocol pings run at 15 seconds with a 10-second pong timeout.
+The receive lifetime is 20 seconds for the maintained job; open is bounded by
+10 seconds or the remaining budget, subscription sends now share the remaining
+capture deadline, and close has a two-second timeout. Persistence and close may
+extend command wall time. No guaranteed vendor maximum connection lifetime is
+assumed. Restart/maintenance notices invalidate the session under existing behavior.
+
+`SEQ_ALL` is documented as beta server-order evidence, not matching-engine
+completeness. This bounded job is not a continuous service or historical backfill.
+MR 23 and later retain durability/recovery/supervision acceptance, MR 25/27 own
+canonical book publication/shared replay, and R1 still precedes deployment.
+
 ## Official protocol references
 
 Checked 2026-09-15 UTC. Runtime `probe` also verified both configured listings.

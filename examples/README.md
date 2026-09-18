@@ -86,7 +86,7 @@ where they run without provider access.
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
 [unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
-The current notebook has eleven sections:
+The current notebook has twelve sections:
 
 | Sections | Question and evidence |
 | --- | --- |
@@ -99,6 +99,7 @@ The current notebook has eleven sections:
 | 9: measured query workload | Recompute the MR 18 decision from retained installed measurements of 27,480 permitted trade observations; distinguish these measurements from synthetic correctness examples. |
 | 10: chronological replay | Step the retained original, gap and correction at their availability; compare batches, inspect phase order, resume a serialized cursor and reject incompatible checkpoints. |
 | 11: configured EDA | Select six synthetic revisions across two instruments, retain exact summaries and attempt observations, plot the three-second business interval and inspect standalone replay. Exercise a synthetic contract projection and unsupported capability refusals. |
+| 12: source negotiation | Inspect the saved Bitfinex version, native acknowledgement, sequence range and exact receipt clocks. Refuse incompatible subscriptions, versions and product/stream combinations without reconnecting. |
 
 The generic composition boundary is in place. Installed saved-input publication
 currently supports trade archives; actual LOB adapters are planned for MR 25.
@@ -226,5 +227,7 @@ is not a performance qualification.
 The explicit synthetic future fixture uses contract units and a 50-unit multiplier
 at the neutral projection boundary. It grants no derivative snapshot, lifecycle,
 valuation or execution support. The [MR 21 record](../docs/roadmap/mr-21-implementation.md)
-retains installed and notebook evidence and exact refusals. Next roadmap work is
-MR 22 after MR 21 merges; it is not started here.
+retains installed and notebook evidence and exact refusals. Section 12 adds MR 22 source verification using saved Bitfinex input and controlled
+refusals. The [MR 22 record](../docs/roadmap/mr-22-implementation.md) identifies the
+real installed-candidate capture and fresh-kernel evidence. Next roadmap work is
+MR 23 after MR 22 merges; it is not started here.

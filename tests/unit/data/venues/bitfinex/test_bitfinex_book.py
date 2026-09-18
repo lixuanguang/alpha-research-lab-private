@@ -77,3 +77,20 @@ class TestBitfinexBook:
                 b'{"event":"subscribed","chanId":7,"channel":"book","symbol":"tBTCU'
                 b'SD","prec":"P0","freq":"F0","len":"25"}'
             )
+
+    @pytest.mark.parametrize("version", [b"3", b'"2"', b"2.0", b"null", b"true"])
+    def test_reject_unsupported_version(self, version: bytes) -> None:
+        """Reject incompatible or malformed advertised versions before book admission."""
+        book = self.book()
+        with pytest.raises(ValueError, match="unsupported Bitfinex WebSocket version"):
+            book.apply(b'{"event":"info","version":' + version + b"}")
+
+    def test_supported_version_and_heartbeat_before_ack(self) -> None:
+        """A sequenced heartbeat proves liveness but cannot authorize market data."""
+        book = BitfinexBook(CaptureConfig.read(_ROOT / "configs/live/bitfinex-btc-usd.json"))
+        assert book.apply(b'{"event":"info","version":2,"platform":{"status":1}}') == "control"
+        book.apply(b'{"event":"conf","status":"OK","flags":65536}')
+        assert book.apply(b'[7,"hb",1]') == "heartbeat"
+        assert not book.ready and not book.acknowledged
+        with pytest.raises(ValueError, match="before subscription acknowledgement"):
+            book.apply(b"[7,[[1,100,2]],2]")

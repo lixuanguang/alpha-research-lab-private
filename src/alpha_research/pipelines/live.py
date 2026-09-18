@@ -194,7 +194,8 @@ async def collect(
                         credentials.subscription(config.symbol, str(int(time.time()))),
                     )
                 for subscription in subscriptions:
-                    await socket.send(codec.encode_json(subscription).decode())
+                    async with asyncio.timeout(max(0, deadline - time.monotonic())):
+                        await socket.send(codec.encode_json(subscription).decode())
                 del subscriptions
             except OSError, WebSocketException, TimeoutError:
                 reason = "connect_failed_unknown_loss"
