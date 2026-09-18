@@ -161,6 +161,10 @@ class CaptureReplay:
         request = DomainCodec().decode_json((root / "request.json").read_bytes(), CaptureRequest)
         replay = cls(request.config)
         for record in CaptureJournal(root, request).records(completed=completed):
+            if not completed and record.kind == "end":
+                continue  # A journal end without verified publication is still interrupted.
+            if not completed and replay.epoch < 0 and record.kind == "gap":
+                replay.epoch = record.epoch  # Death before the first durable session.
             replay.apply(record)
         if completed and not replay.ended:
             raise ValueError("completed capture lacks terminal record")

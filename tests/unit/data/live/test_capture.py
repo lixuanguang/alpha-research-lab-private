@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from threading import Event
 from unittest.mock import patch
 
 # third party library imports
@@ -253,17 +254,125 @@ class TestCapture:
         """No manifest is published after disk failure; offline inspection reports unknown loss."""
         config = self.config()
         transport = ScriptedTransport(config, (_FRAMES,))
-        with patch("alpha_research.pipelines.live.CaptureJournal", FailingJournal):
+        consumer = CaptureReplay(config)
+        with (
+            patch("alpha_research.pipelines.live.CaptureJournal", FailingJournal),
+            patch("alpha_research.pipelines.live.CaptureReplay", return_value=consumer),
+        ):
             with pytest.raises(OSError, match="disk full"):
                 asyncio.run(
                     collect(config, tmp_path, implementation_identity="a" * 64, transport=transport)
                 )
         root = next(tmp_path.iterdir())
+        assert consumer.messages == 0
         assert not (root / "manifest.json").exists()
         replay = CaptureReplay.read(root, completed=False)
         assert replay.gaps[0]["reason"] == "interrupted_persistence_unknown_tail"
         assert not replay.book.ready
         assert all(socket.closed for socket in transport.sockets)
+
+    def test_same_day_restart_preserves_prior_segment(self, tmp_path: Path) -> None:
+        """Two invocations publish distinct identities without replacing the first input."""
+        config = self.config()
+        results = []
+        for _ in range(2):
+            results.append(
+                asyncio.run(
+                    collect(
+                        config,
+                        tmp_path,
+                        implementation_identity="a" * 64,
+                        transport=ScriptedTransport(config, (_FRAMES,)),
+                    )
+                )
+            )
+        assert results[0]["request_identity"] != results[1]["request_identity"]
+        assert len(list(tmp_path.iterdir())) == 2
+        for root in tmp_path.iterdir():
+            assert CaptureReplay.read(root).messages == len(_FRAMES)
+
+    @pytest.mark.parametrize("invalid", [b"[7,[[1,-100,2]],2]", b"[7,[[1,100,0]],2]", b"not JSON"])
+    def test_invalid_units_and_schema_retain_raw_diagnosis(
+        self, tmp_path: Path, invalid: bytes
+    ) -> None:
+        """Raw invalid inputs survive the durable boundary while downstream state is blocked."""
+        config = self.config()
+        result = asyncio.run(
+            collect(
+                config,
+                tmp_path,
+                implementation_identity="a" * 64,
+                transport=ScriptedTransport(config, ((*_FRAMES[:3], invalid),)),
+            )
+        )
+        root = next(tmp_path.iterdir())
+        request = DomainCodec().decode_json((root / "request.json").read_bytes(), CaptureRequest)
+        records = list(CaptureJournal(root, request).records())
+        assert [r.raw for r in records if r.kind == "frame"][-1] == invalid
+        assert result["synchronized"] is False and result["gaps"]
+        assert result["replay_parity"] is True
+
+    def test_slow_consumer_receipt_remains_bounded(self, tmp_path: Path) -> None:
+        """A blocked consumer cannot stall receipt or hide queue overflow behind a good book."""
+        applying, overflow = Event(), Event()
+        config = replace(self.config(), queue_capacity=1, max_messages=100)
+
+        class PressureSocket(ScriptedSocket):
+            """Synchronize a source burst with an actual blocked downstream invocation."""
+
+            delivered = 0
+
+            async def recv(self) -> bytes:
+                """Wait for downstream processing, then fill and overflow its bounded queue.
+
+                Returns:
+                    One exact frame in the deliberate burst.
+                """
+                if self.delivered == 1:
+                    assert await asyncio.to_thread(applying.wait, 5)
+                raw = await super().recv()
+                self.delivered += 1
+                if self.delivered == 3:
+                    overflow.set()
+                return raw
+
+        class SlowReplay(CaptureReplay):
+            """Inspect persistence before blocking the first downstream message."""
+
+            def apply(self, record: CaptureRecord) -> str:
+                """Check the durable prefix before the live consumer can acknowledge a frame.
+
+                Args:
+                    record: One message delivered by capture or offline replay.
+
+                Returns:
+                    Normal replay classification after the deterministic barrier.
+                """
+                root = next(tmp_path.iterdir())
+                if not (root / "manifest.json").exists():
+                    request = DomainCodec().decode_json(
+                        (root / "request.json").read_bytes(), CaptureRequest
+                    )
+                    assert (
+                        list(CaptureJournal(root, request).records(completed=False))[-2] == record
+                    )
+                    if record.kind == "frame" and self.messages == 0:
+                        applying.set()
+                        assert overflow.wait(5), "consumer blocked receipt event loop"
+                return super().apply(record)
+
+        socket = PressureSocket(_FRAMES)
+        transport = ScriptedTransport(config, ())
+        with (
+            patch.object(transport, "open", return_value=socket),
+            patch("alpha_research.pipelines.live.CaptureReplay", SlowReplay),
+        ):
+            result = asyncio.run(
+                collect(config, tmp_path, implementation_identity="a" * 64, transport=transport)
+            )
+        assert socket.delivered == 3 and socket.closed
+        assert result["messages"] == 2 and result["stop_reason"] == "overload_unknown_loss"
+        assert result["gaps"] and result["replay_parity"] is True
 
     def test_truncated_tail(self, tmp_path: Path) -> None:
         """Process death in an append preserves readable records and explicitly rejects the tail."""
