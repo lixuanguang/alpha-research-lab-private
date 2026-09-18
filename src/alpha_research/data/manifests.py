@@ -112,6 +112,39 @@ class AcquisitionManifest(msgspec.Struct, frozen=True, kw_only=True, forbid_unkn
             finally:
                 staging.unlink(missing_ok=True)
 
+    def partitions(self) -> tuple[AcquisitionManifest, ...]:
+        """Project a complete daily acquisition into ordered single-instrument views.
+
+        Keep each original descriptor, job, catalog and implementation binding. Only
+        the resolved instrument tuple narrows; source-request identity excludes other
+        universe members. The original acquisition remains the resume checkpoint.
+
+        Returns:
+            Complete immutable partition views in the original request order. A
+            single-partition acquisition is returned unchanged.
+
+        Raises:
+            ValueError: The acquisition is incomplete, pending or not daily partitioned.
+        """
+        self.__post_init__()
+        requests = SourceRequest.partition(self.run)
+        if (
+            self.run.job.partition != "utc-day"
+            or self.pending is not None
+            or len(self.completed) != len(requests)
+        ):
+            raise ValueError("dataset requires a complete daily acquisition without pending input")
+        if len(requests) == 1:
+            return (self,)
+        return tuple(
+            replace(
+                self,
+                run=replace(self.run, instruments=(request.instrument,)),
+                completed=(descriptor,),
+            )
+            for request, descriptor in zip(requests, self.completed, strict=True)
+        )
+
     def prepare(self, path: Path, descriptor: RawObject) -> None:
         """Persist original receipt metadata before the pipeline publishes raw bytes.
 

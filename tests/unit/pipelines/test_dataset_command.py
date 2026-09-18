@@ -208,6 +208,159 @@ class TestDatasetCommand:
                 max_bytes=_LIMIT,
             )
 
+    @classmethod
+    def _combined(cls, root: Path, *, content: bytes = _ROW * 2) -> list[str]:
+        """Join saved descriptors into the same complete universe emitted by acquisition."""
+        arguments = cls._inputs(root, content=content)
+        cls._inputs(root, symbol="ETHUSDT")
+        btc, eth = (
+            _CODEC.decode_json((root / f"{symbol}.json").read_bytes(), AcquisitionManifest)
+            for symbol in ("BTCUSDT", "ETHUSDT")
+        )
+        instruments = btc.run.instruments + eth.run.instruments
+        completed = btc.completed + eth.completed
+        combined = replace(
+            btc,
+            run=replace(
+                btc.run,
+                job=replace(btc.run.job, universe="both"),
+                instruments=instruments,
+            ),
+            completed=completed,
+        )
+        combined.save(root / "combined.json")
+        return [*arguments[:-1], str(root / "combined.json")]
+
+    def test_multi_instrument_command_and_per_input_evidence_match_partition_views(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Publish a whole acquisition directly with unchanged raw identity and resume bytes."""
+        arguments = self._combined(tmp_path)
+        before = (tmp_path / "combined.json").read_bytes()
+        acquisition = _CODEC.decode_json(before, AcquisitionManifest)
+        policy = _CODEC.decode_json((tmp_path / "policy.json").read_bytes(), QualityPolicy)
+        history = _CODEC.decode_json(
+            (tmp_path / "eligibility.json").read_bytes(), EligibilityAssertions
+        )
+        assert dataset_main([*arguments, arguments[-1]]) == 0
+        rows = self._records(capsys.readouterr().out)
+        identity = str(rows[-1]["snapshot_id"])
+        assert rows[-1]["partitions"] == 2
+        assert [row["duplicate_count"] for row in rows if row["status"] == "validated"] == [1, 1]
+        assert (tmp_path / "combined.json").read_bytes() == before
+        assert (
+            publish_dataset(
+                acquisition.partitions(),
+                RawStore(tmp_path / "raw"),
+                tmp_path / "snapshots",
+                max_bytes=_LIMIT,
+                policy=policy,
+                eligibility=history,
+                corrections={},
+            )
+            == identity
+        )
+        selected = DatasetInput(acquisition=acquisition, policy=policy, eligibility=history)
+        (tmp_path / "selected.json").write_bytes(_CODEC.encode_json(selected))
+        assert (
+            dataset_main(
+                [
+                    *arguments[: arguments.index("--policy")],
+                    "--inputs",
+                    str(tmp_path / "selected.json"),
+                ]
+            )
+            == 0
+        )
+        assert self._records(capsys.readouterr().out)[-1]["snapshot_id"] == identity
+        assert dataset_main(self._inspect(tmp_path, identity)) == 0
+        capsys.readouterr()
+        assert dataset_main([*arguments, str(tmp_path / "BTCUSDT.json")]) == 3
+        assert "overlapping acquisitions" in capsys.readouterr().err
+
+    @pytest.mark.parametrize("failure", ["incomplete", "pending", "missing", "corrupt", "schema"])
+    def test_multi_instrument_failure_never_publishes_a_successful_prefix(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str], failure: str
+    ) -> None:
+        """Refuse incomplete checkpoints and a bad later instrument before snapshot publication."""
+        arguments = self._combined(tmp_path)
+        original = _CODEC.decode_json(
+            (tmp_path / "combined.json").read_bytes(), AcquisitionManifest
+        )
+        if failure in ("incomplete", "pending"):
+            replace(
+                original,
+                completed=original.completed[:1],
+                pending=original.completed[1] if failure == "pending" else None,
+            ).save(tmp_path / "combined.json")
+        elif failure == "schema":
+            self._inputs(tmp_path, symbol="ETHUSDT", content=b"wrong,schema\n")
+            invalid = _CODEC.decode_json(
+                (tmp_path / "ETHUSDT.json").read_bytes(), AcquisitionManifest
+            )
+            completed = original.completed[:1] + invalid.completed
+            replace(original, completed=completed).save(tmp_path / "combined.json")
+        else:
+            path = tmp_path / "raw" / original.completed[1].sha256
+            if failure == "missing":
+                path.unlink()
+            else:
+                path.chmod(0o644)
+                path.write_bytes(b"damaged")
+        assert dataset_main(arguments) == 3
+        output = capsys.readouterr()
+        assert '"status":"complete"' not in output.out
+        if failure not in ("incomplete", "pending"):
+            assert '"invalid_count":1' in output.out
+        assert not list((tmp_path / "snapshots").iterdir())
+
+    def test_multi_instrument_corrections_are_scoped_and_unused_links_fail(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Route payload-linked evidence without dropping unknown or cross-instrument links."""
+        arguments = self._combined(tmp_path, content=_ROW + _ROW.replace(b"100.00", b"102.00"))
+        original = _CODEC.decode_json(
+            (tmp_path / "combined.json").read_bytes(), AcquisitionManifest
+        )
+        occurrences = tuple(
+            iter_occurrences(original, RawStore(tmp_path / "raw"), max_bytes=_LIMIT)
+        )
+        versions = tuple(TradeRevision(occurrences=(item,)).identity for item in occurrences)
+        evidence = Correction(
+            supersedes=versions[0],
+            replacement=versions[1],
+            ts_published=original.run.job.end,
+            ts_available=original.run.job.end,
+            evidence_reference="synthetic:mr16:combined",
+        )
+        path = tmp_path / "correction.json"
+        path.write_bytes(_CODEC.encode_json(evidence))
+        command = [*arguments, "--correction", original.run.identity, str(path)]
+        assert dataset_main(command) == 0
+        identity = str(self._records(capsys.readouterr().out)[-1]["snapshot_id"])
+        saved = SnapshotStore(tmp_path / "snapshots", RawStore(tmp_path / "raw")).read(
+            identity, max_bytes=_LIMIT
+        )
+        assert tuple(part.corrections for part in saved.partitions) == ((evidence,), ())
+        for foreign in (
+            replace(evidence, replacement=versions[2]),
+            replace(evidence, supersedes="a" * 64, replacement="b" * 64),
+        ):
+            (tmp_path / "foreign.json").write_bytes(_CODEC.encode_json(foreign))
+            assert (
+                dataset_main(
+                    [
+                        *command,
+                        "--correction",
+                        original.run.identity,
+                        str(tmp_path / "foreign.json"),
+                    ]
+                )
+                == 3
+            )
+            assert '"status":"complete"' not in capsys.readouterr().out
+            assert {p.name for p in (tmp_path / "snapshots").iterdir()} == {identity}
+
     def test_second_instrument_and_late_failure_expose_no_prefix(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

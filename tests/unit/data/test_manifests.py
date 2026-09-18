@@ -167,3 +167,40 @@ class TestAcquisitionManifest:
         assert (
             AcquisitionManifest.read(path, run=run, store=RawStore(tmp_path)).pending == descriptor
         )
+
+    def test_daily_views_preserve_requests_clocks_and_original_checkpoint(self) -> None:
+        """Narrow only complete daily inputs and retain the original multi-instrument run."""
+        config = Configuration.read(_ROOT / "configs/data-jobs/binance-archive.json")
+        catalog = _CODEC.decode_json(
+            (_ROOT / "configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
+        )
+        config = replace(config, jobs=(replace(config.jobs[0], universe="both"),))
+        run = config.resolve("btc-archive", catalog)
+        requests = SourceRequest.partition(run)
+        descriptors = tuple(map(self._descriptor, requests))
+        original = AcquisitionManifest(run=run, completed=descriptors)
+        before = _CODEC.encode_json(original)
+        views = original.partitions()
+        assert _CODEC.encode_json(original) == before
+        for view, request, descriptor in zip(views, requests, descriptors, strict=True):
+            assert view.run.job == run.job and view.run.catalog == run.catalog
+            assert view.run.implementation_identity == run.implementation_identity
+            assert view.completed == (descriptor,)
+            assert SourceRequest.partition(view.run)[0].identity == request.identity
+            assert view.partitions() == (view,)
+            assert _CODEC.decode_json(_CODEC.encode_json(view), AcquisitionManifest) == view
+        for partial in (
+            replace(original, completed=()),
+            replace(original, completed=descriptors[:1]),
+            replace(original, completed=descriptors[:1], pending=descriptors[1]),
+        ):
+            with pytest.raises(ValueError, match="complete daily acquisition"):
+                partial.partitions()
+
+    def test_minute_acquisition_cannot_be_projected_as_daily(self, run: ResolvedManifest) -> None:
+        """Keep unsupported saved adapters outside the daily publication extension."""
+        original = AcquisitionManifest(
+            run=run, completed=tuple(map(self._descriptor, SourceRequest.partition(run)))
+        )
+        with pytest.raises(ValueError, match="complete daily acquisition"):
+            original.partitions()

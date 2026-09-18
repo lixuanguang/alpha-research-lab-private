@@ -819,7 +819,7 @@ enable them. MR 19/20 own later query/replay composition.
 The existing shared-evidence call remains supported:
 
 Call `assemble_dataset` from `alpha_research.pipelines.dataset` with an ordered tuple
-of complete single-partition acquisitions, their `RawStore`, a positive raw byte
+of complete daily acquisitions, their `RawStore`, a positive raw byte
 cap, shared `QualityPolicy`/`EligibilityAssertions`, and correction evidence keyed
 by `acquisition.run.identity` (an empty mapping when absent). It returns a
 `DatasetManifest` and an equally ordered tuple of canonical bytes after every
@@ -925,15 +925,25 @@ file and compressed/expanded raw archive; it is not a total-memory limit. The
 current reference implementation retains admitted partitions in memory and may
 verify them several times during publication/reopening. It is not a scalable query API.
 
-`--manifests` accepts several complete single-instrument/day acquisitions. Exact
-repeated manifests are reused in first-seen order. Nonidentical acquisitions whose
+`--manifests` accepts complete Binance daily acquisitions with one or more selected
+instruments. Assembly uses `AcquisitionManifest.partitions()` to narrow the resolved
+instrument tuple for each partition, preserving the job, catalog, implementation,
+raw descriptors, request identities and original clocks. Keep the original complete
+manifest for acquisition resume; publication never rewrites it. A partial or pending
+acquisition fails before its partition views are admitted. Jobs still select one UTC
+day; separate days need separate acquisitions.
+
+Exact repeated manifests are reused in first-seen order. Nonidentical acquisitions whose
 instrument/time selections overlap fail instead of adding duplicate economics.
-Multi-instrument acquisition splitting and arbitrary overlap reconciliation are
-unsupported. Within a partition, MR 10 retains duplicate lineage and evidenced
-correction histories. Supply each correction as
+Arbitrary overlap reconciliation remains unsupported. Within a partition, MR 10
+retains duplicate lineage and evidenced correction histories. Supply each correction as
 `--correction <resolved-acquisition-run-sha256> /saved/correction.json`; it is a
-strict `Correction` record. Omission means no correction evidence; conflicts and
-unknown run keys fail. No correction/availability policy is silently relaxed.
+strict `Correction` record keyed to the original input run. Multi-instrument evidence
+is routed by economic payload identity; dangling, cross-instrument and unused links
+fail the whole publication. Routing evidence performs an additional bounded raw
+decode for each instrument only when a multi-instrument input supplies corrections.
+Omission means no correction evidence; conflicts and unknown run keys fail.
+No correction/availability policy is silently relaxed.
 
 Alternatively, use `--inputs /saved/input-a.json /saved/input-b.json` with strict
 `DatasetInput` JSON records encoded by `DomainCodec`. Each embeds its acquisition,
@@ -943,7 +953,9 @@ installed adapter and canonical-format limits apply to both forms.
 
 Every JSON line is flushed. Normalization emits one quality report per reached
 partition, including `run_identity`, `scope`, `invalid_count`, `gap_count`,
-`duplicate_count` and retained `reasons`, before its publication gate. Invalid
+`duplicate_count` and retained `reasons`, before its publication gate. These
+partition reports use the narrowed run identity, which is also embedded in the
+snapshot; source-request identities still match the original acquisition. Invalid
 counts cover observed failures, not unread records following a terminal error.
 Zero gaps do not prove recorder coverage. Rejected late partitions cannot expose
 an accepted dataset prefix. Exploratory gaps remain explicitly degraded; causal
