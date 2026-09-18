@@ -13,7 +13,9 @@ MR 20's [shared stepping and cursor](mr-20-implementation.md) merged through
 MR 21's [configured EDA and extension exercise](mr-21-implementation.md) merged
 through [PR #47](https://github.com/lixuanguang/alpha-research-lab-private/pull/47).
 MR 22's [bounded Bitfinex source verification](mr-22-implementation.md) is implemented
-and locally verified for review; hosted merge acceptance remains pending.
+and locally verified;
+[PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48)
+tracks hosted checks and merge acceptance.
 MRs 23–62 and R1 remain planned except the bounded
 [crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
 MRs 22–27. No M1–M7 completion or P1 result is claimed.

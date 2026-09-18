@@ -6,6 +6,8 @@ at `d11dd2c`, identical to `origin/main` before branching. Prerequisites MR 01
 (`80b5bc6`, PR #23), MR 03 (`bf3fb99`, PR #24) and MR 04 (`b136b36`, PR #25) were
 verified merged ancestors. MR 21 is also merged through PR #47. The
 [roadmap](README.md#m3-reliable-live-capture) remains the scope authority.
+[PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48)
+retains the hosted checks and merge status. Tested implementation: `e649f9d`.
 
 ## Problem / change
 
@@ -65,9 +67,9 @@ Focused static checks, repository engineering standards, notebook schema and loc
 links passed (55 governed documents plus 72 example/notebook links). Strict mypy
 checked five changed Python files; secret scanning passed 273 governed paths.
 The local final verifier also checked sequential
-cell execution, snapshot equality, tracked examples, preserved bytes and review size. Complete local
-`make check` and hosted CI were not run; the complete hosted lane remains required
-before merge. Existing unrelated acquisition, publication and performance evidence
+cell execution, snapshot equality, tracked examples, preserved bytes and review size. At the initial implementation handoff, complete local `make check` and hosted CI
+were not run. PR #48 retains the subsequent hosted results; the complete hosted
+lane remains required before merge. Existing unrelated acquisition, publication and performance evidence
 is retained; no new empirical research result is claimed.
 
 ### Installed consumer and actual source
