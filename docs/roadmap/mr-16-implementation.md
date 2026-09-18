@@ -7,6 +7,8 @@ that base (`ddd1bfb`, `f05ef18`, `a66b49a`, `d88ba11`, `5b10f78`, `210db65`,
 `7ef4892`, `746e002`, `127efa9`). Runtime/fixture commit: `f3cdf01`.
 Merged in PR #40 at `95e1a14` after all three hosted checks passed. The
 commands and artifact identities below describe the pre-merge candidate.
+The [MR 16 follow-up](#mr-16-follow-up-acquisition-handoff) records the later
+multi-instrument acquisition handoff and its current acceptance evidence.
 
 ## Problem / change
 
@@ -253,3 +255,204 @@ No data removal or migration is required. Unchanged acquisition/source and snaps
 semantics reuse previous evidence; the new command and full notebook are renewed.
 
 **Next: MR 17 — Read point events as of a cutoff.** It has not been started.
+
+## MR 16 follow-up: acquisition handoff
+
+Owner: repository founder. Implemented and locally verified for review on
+2026-09-18 (Asia/Singapore), branch `codex/mr-16-acquisition-handoff`. Base is freshly
+fetched `main`/`origin/main` at `ff2b28e01305ce4c90be9fcaf78cbf78f91c5389`.
+All required MR 07–15 merge commits in the roadmap's record index, plus original
+MR 16 (`95e1a14`), are merged ancestors. This follow-up closes MR 16's configured
+acquisition-to-publication handoff; it does not implement MR 23 or later work.
+The earlier sections retain their historical candidate identities and results.
+
+### Problem / change
+
+A configured two-instrument acquisition could complete, but passing its saved
+manifest directly to `alpha-dataset publish` failed at the single-partition quality
+gate. Publication now expands complete daily acquisitions into one immutable view
+per instrument, in original request order. The same behavior serves shared evidence,
+per-input `DatasetInput` records, the Python callable and the installed command.
+
+`AcquisitionManifest.partitions()` owns complete-checkpoint validation and the pure
+projection. It narrows only the resolved instrument tuple; descriptors, source
+request identities, original receipt/ingestion clocks, job, catalog and implementation
+binding are retained. The original manifest is never rewritten and remains the
+acquisition resume checkpoint. A single-partition input is returned unchanged.
+The dataset pipeline owns iteration, correction routing, quality reporting and
+atomic publication using existing readers and gates. Partition quality reports and
+saved partition manifests use the narrowed run identity.
+
+Corrections remain keyed to the original input run. For multi-instrument input,
+economic payload identities select each partition's evidence; unknown, unused,
+cross-instrument, conflicting and duplicate links remain refusals. Selecting either
+endpoint routes a malformed cross-partition link to validation instead of dropping
+it. An input decoding failure still reaches the existing quality gate and its
+invalid count. No successful prefix is published when any selected partition fails.
+Exact repeated input selections remain idempotent; nonidentical overlaps still fail.
+
+### Affected scope
+
+Runtime changes are limited to `data/manifests.py` and `pipelines/dataset.py`.
+Against `ff2b28e`, code-bearing changes are **55 additions + 18 deletions = 73 lines**
+(19 in the manifest operation; 54 in dataset composition), excluding tests,
+fixtures, notebook examples, blank lines, comments and docstrings. No cohesive
+size overage, new runtime abstraction, schema, dependency, lock, entry point,
+declarative configuration or ignore-policy change is needed.
+
+The retained [integration consumer](../../tests/fixtures/mr16/ingestion_workflow.py)
+is invoked by its [integration test](../../tests/unit/pipelines/test_ingestion_workflow.py)
+and notebook section 13. It injects only source HTTP; transport checksum/ZIP handling,
+installed commands, filesystem persistence, normalization, quality, snapshot and EDA
+are real. The existing abrupt-publication fixture is reused. MR 17–21 APIs are
+consumed unchanged; this adds no query, replay, live source or scheduling behavior.
+
+### Validation result
+
+CPython 3.14.7, macOS arm64. **92 focused tests passed, zero skips or deselections**,
+including the explicitly selected installed-process integration case and existing
+acquisition/snapshot recovery cases. Focused Ruff, strict mypy (eight Python files),
+repository engineering standards and focused Bandit checks passed.
+
+```sh
+uv run --frozen --no-editable pytest -q -m 'not performance' tests/unit/data/test_manifests.py tests/unit/data/test_datasets.py tests/unit/data/test_snapshots.py tests/unit/pipelines/test_dataset_command.py tests/unit/pipelines/test_ingestion_workflow.py tests/unit/pipelines/test_eda_pipeline.py tests/unit/pipelines/test_acquisition_resume.py
+uv run --frozen --no-sync ruff check src/alpha_research/data/manifests.py src/alpha_research/pipelines/dataset.py tests/unit/data/test_manifests.py tests/unit/pipelines/test_dataset_command.py tests/unit/pipelines/test_ingestion_workflow.py tests/fixtures/mr16 examples/research-foundations.ipynb
+uv run --frozen --no-sync ruff format --check src/alpha_research/data/manifests.py src/alpha_research/pipelines/dataset.py tests/unit/data/test_manifests.py tests/unit/pipelines/test_dataset_command.py tests/unit/pipelines/test_ingestion_workflow.py tests/fixtures/mr16 examples/research-foundations.ipynb
+uv run --frozen --no-sync mypy --strict src/alpha_research/data/manifests.py src/alpha_research/pipelines/dataset.py tests/unit/data/test_manifests.py tests/unit/pipelines/test_dataset_command.py tests/unit/pipelines/test_ingestion_workflow.py tests/fixtures/mr16
+uv run --frozen --no-sync alpha-governance-engineering-standards
+uv run --frozen --no-sync bandit -q -c pyproject.toml src/alpha_research/data/manifests.py src/alpha_research/pipelines/dataset.py
+```
+
+The first focused run passed 52 tests. Initial strict typing found three test-only
+variadic tuple expressions inferred as `Any` in `msgspec.replace` arguments; typed
+intermediate tuples resolved them before final validation. No source or notebook
+acceptance failed. Cache, Git, isolated-install and kernel access used the required
+sandbox escalation path.
+
+The new cases cover whole-manifest and `--inputs` parity, repeated selections,
+request/clock preservation, complete/pending checks, unsupported minute partitions,
+overlap refusal, corrupted/missing/malformed later inputs, correction routing and
+unused/cross-instrument evidence. Existing cases retain schema/time/unit, causal-gap,
+correction history and publication-failure coverage.
+
+#### Isolated candidate and complete workflow
+
+```sh
+uv run --frozen --no-editable uv build --no-build-isolation --wheel --no-sources . --out-dir /private/tmp/mr16-followup/dist
+mkdir -p /private/tmp/mr16-followup/installed /private/tmp/mr16-followup/inputs
+cp configs/data-jobs/binance-archive.json configs/reference/binance-archive-spot.json tests/fixtures/mr12/eligibility.json tests/fixtures/mr16/ingestion_workflow.py tests/fixtures/mr16/dataset_command.py tests/fixtures/mr16/interrupt_command.py /private/tmp/mr16-followup/inputs/
+uv run --frozen --no-sync python /private/tmp/mr16-followup/install.py
+cd /private/tmp/mr16-followup
+./installed/venv/bin/python -I inputs/ingestion_workflow.py inputs integration > integration-result.json
+./installed/venv/bin/python -I inputs/dataset_command.py inputs > legacy-consumer.log
+./installed/venv/bin/python -I verify.py
+```
+
+The temporary installer invokes existing `_InstalledWheelCheck.validate` with the
+checkout, `installed/` and the candidate wheel. Hash-locked binary runtime dependencies,
+isolated public imports/exact codecs, absent governance imports and compatibility
+checks passed. A temporary verifier compared all **77 runtime files** across source,
+wheel and isolated installation; no file was missing, extra or stale.
+
+The standalone chain acquired BTC, stopped before ETH with exit **130**, refused
+publication of that incomplete acquisition with exit **3**, and resumed without
+refetching BTC or changing its descriptor. There were exactly **four HTTP requests**
+(two checksums and two archives); a repeat acquisition made **zero** additional
+requests and preserved checkpoint bytes. Publication was then stopped before rename
+with process exit **75**; inspection of the uncommitted ID failed with exit **4**.
+Retry published that same candidate ID, and repeated publication/reopening succeeded.
+
+The final snapshot is
+`22d5bf59ab3e6650821e88af4562db89aa56c8ce1bed995a16e9dafe27b898a2`:
+**two partitions**, **one economic duplicate per partition**, **six history rows**,
+**zero cutoff rows**, scope **`exploratory_degraded`**. The original manifest and
+raw descriptors remain unchanged. The zero cutoff is required because synthetic
+archive download clocks do not supply historical availability. The earlier installed
+MR 16 consumer also passed, including its single-instrument command and recovery
+cases. All retained source HTTP in the new consumer is synthetic; no network source
+request, purchase or new source entitlement was used.
+
+The installed candidate also reopened the existing permitted-source snapshot from
+outside the checkout, verifying raw bytes, reproducing normalization/quality and
+matching canonical bytes without changing the saved dataset:
+
+```sh
+cd /private/tmp/mr16-followup
+./installed/venv/bin/alpha-dataset inspect --store '/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/silver/mr18-query-workload/raw' --snapshots '/Users/lxg/Documents/GitHub/Alpha Research/alpha-research-lab-private/data/silver/mr18-query-workload/snapshots' --max-bytes 268435456 --snapshot-id c0f8f3953dee8a15a79d1e9a597e37220c094b3d3c555c8f06d0ec366d3ed278 > retained-source-inspect.jsonl
+```
+
+Exit **0**, one partition, **0 invalid / 0 observed gaps / 0 duplicates**, with
+original availability, membership and recorder coverage still unknown. The original
+single-instrument permitted acquisition/publication evidence above is reused;
+this new verification proves candidate read/admission compatibility, not a fresh
+source download or a causal acceptance claim.
+
+| Candidate input | SHA-256 |
+| --- | --- |
+| Wheel | `2655536e40da0ed75f7a555060af43553c89a257018eef627ea34af13ff567ab` |
+| All 77 runtime files: sorted relative path, NUL, bytes, NUL | `9967d04b2bfd43d8b7a8385f2de8f669b28d7bf0b7f85ec3131a34196db63ec8` |
+| Unchanged lock | `e6cd3a169ff4b6850bcb5b09e38c44e1179b0dc1fb7c6a9bd95d2c4a058595e4` |
+| Preserved P1 | `7feb8039724001889060dfeb79138fb4bc78764dcca6683297bc64fb2bd0192d` |
+
+Temporary `install.py` and `verify.py`, wheel/environment, generated inputs and
+JSONL command/EDA reports live under `/private/tmp/mr16-followup/`. They are local
+acceptance artifacts, not a durable release archive. Maintained test consumers
+reproduce the synthetic workflow. Original source-access evidence is reused; the
+follow-up neither changes acquisition/transport nor upgrades source completeness.
+
+#### Fresh-kernel notebook
+
+```sh
+uv pip install --python /private/tmp/mr16-followup/installed/venv/bin/python --only-binary=:all: 'ipykernel==7.2.0' 'matplotlib==3.10.8'
+ALPHA_OKX_ARCHIVE_DIRECTORY=data/okx/history/802967bb-05eb-4b7b-9c90-2c964f22e41f ALPHA_BITFINEX_CAPTURE_DIRECTORY=data/bitfinex/a5116c5a-b7d6-4e2b-9ee6-c79839c80f43 uv run --frozen --no-sync --with 'nbclient==0.10.4' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations.ipynb --kernel-python /private/tmp/mr16-followup/installed/venv/bin/python
+```
+
+All **58 cells / 29 code cells passed** on the first fresh-kernel attempt
+`40609f65-79d1-4ed3-9ecd-baa09198fb42`, completed at `2026-09-18T08:25:10Z`.
+Notebook source SHA-256:
+`14e10536bdddf14f0faa1339c7a038b0191140e56ba43c0b9841297854675bf5`.
+Section 13 displays the two partitions, six history/zero cutoff rows, duplicate
+counts, zero repeat fetches, preserved descriptor and four required failure exits.
+The original kernel display-name edit is preserved. All previous checkpoints reran;
+existing saved book inputs were read only, and the runner closed the kernel.
+
+Final notebook schema, syntax, sequential execution, source digest and byte equality
+with its archived attempt passed. Its plot and compact HTML tables were inspected.
+The final verifier checked **358 local links**, including changed component/example
+Markdown and notebook cells; the architecture command passed **55 governed documents**.
+Maintained examples are tracked, while run snapshots, kernel files and checkpoints
+remain ignored. These checks used:
+
+```sh
+uv run --frozen --no-sync --with 'nbformat==5.10.4' python /private/tmp/mr16-followup/final_check.py
+uv run --frozen --no-sync alpha-governance-architecture
+uv run --frozen --no-sync alpha-governance-ci scan-secrets --all
+git diff --check
+git ls-files -- examples/
+git check-ignore examples/runs/research-foundations/40609f65-79d1-4ed3-9ecd-baa09198fb42.ipynb examples/.kernel-probe/connection.json examples/.ipynb_checkpoints/checkpoint.ipynb
+```
+
+MR 18's historical measurements and hashes are unchanged. Section 9 additionally
+proves `pipelines/dataset.py` is outside the query import path and compares the
+manifest module's syntax tree to its measured version after removing only the new
+`partitions` method. All pre-existing query-side operations must still match. This
+is explicit reuse of unchanged query evidence, not a new ingestion or scale benchmark.
+
+### Risks / reversal
+
+Jobs still select one UTC day; saved canonical admission remains Binance trades
+and exploratory degraded. Complete recorder coverage, original historical availability
+and empirical membership are not established. Live-book integration belongs to
+MR 25/27. Multi-instrument correction routing adds a bounded decoding pass; no
+performance or process-memory-limit claim is made. Nonidentical overlapping input
+selections still require explicit reconciliation outside this consumer.
+
+The canonical and snapshot schemas are unchanged. Preserve original checkpoints,
+raw stores and published datasets; reverting this code restores the earlier
+single-partition input restriction without deleting evidence. P1, runtime dependency
+lock, notebook runner and ignore policy are byte-identical to the base. The complete
+hosted CI lane remains the merge gate; no full local `make check`, push, merge,
+release or deployment is claimed.
+
+**Next roadmap MR: MR 23 — Capture durably before downstream use.** It is not
+started by this follow-up.

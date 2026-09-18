@@ -321,11 +321,11 @@ fixes `canonical-trade-partition-v1`, `evidenced-v1` corrections and
 `original-or-evidenced-later-v1` availability; other versions require implementation
 and cannot be accepted by changing a label.
 
-`assemble_dataset` consumes ordered, complete, single-partition Binance acquisitions
+`assemble_dataset` consumes ordered, complete daily Binance acquisitions
 with shared quality/eligibility inputs and corrections keyed by resolved run identity.
 It calls the existing quality gate and returns the manifest plus corresponding bytes
-only after all partitions pass. Empty/duplicate selections, unused correction keys,
-rejected use or a failed later partition return no assembled prefix. The callable
+only after all partitions pass. Exact repeated inputs are reused; empty selections,
+unused correction keys, rejected use or a failed later partition return no assembled prefix. The callable
 writes no files and preserves raw inputs.
 
 `DatasetManifest.read` requires an independently retained expected identity, an
@@ -443,8 +443,13 @@ contracts; it creates no additional canonical format or historical evidence.
 
 Exact repeated manifests are idempotent. Nonidentical overlapping instrument/time
 selections are rejected rather than published as duplicate partitions. The current
-consumer accepts one instrument/day per acquisition, with multiple compatible
-acquisitions in a dataset. Wrong schema, binding, time, units or required coverage
+consumer expands complete multi-instrument acquisitions into one instrument/day per
+canonical partition. Each view narrows only the resolved instrument tuple and retains
+the original job/catalog, raw descriptor, request identity and clocks. The original
+manifest remains unchanged for resume. Partial/pending acquisitions are refused.
+Corrections are keyed to the original input run and routed by payload identities;
+unused or cross-instrument links fail before publication. Multiple compatible
+acquisitions may share a dataset. Wrong schema, binding, time, units or required coverage
 cannot produce an apparently valid snapshot. Exploratory gaps remain visibly
 `exploratory_degraded`; causal use fails on unknown required evidence.
 

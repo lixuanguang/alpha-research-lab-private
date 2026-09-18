@@ -292,6 +292,14 @@ historical coverage, eligibility or causal-availability acceptance.
 | **15 — Publish and reopen one snapshot atomically** | 14 | `data/snapshots.py`: stage verified partitions/manifest, publish the immutable snapshot as one visibility boundary, and reopen by explicit snapshot ID. Use existing raw-publication primitives only where semantics match. Complete the dataset pipeline by calling this publication operation and returning the snapshot identity. | An interrupted build exposes no partial snapshot. Prior snapshots remain readable after failure and publication of a new one. Never silently resolve a mutable latest tag in a run. **NB 15:** fail before publication, inspect reader behavior, then reopen the completed snapshot. |
 | **16 — Publish and inspect a validated dataset** | 08–15, 07 | Extend the dataset command to normalize saved acquisitions, apply declared policies, publish/reopen by snapshot ID and return a compact quality/coverage report. Expose invalid counts, persistence failures and actionable status as work executes. | Ingest → normalize → validate → publish → reopen succeeds on the permitted supported sample. Duplicate ranges preserve logical content. Wrong schema/instrument/time/units, a coverage gap and interrupted publication cannot expose an apparently valid snapshot. |
 
+The MR 16 follow-up closes the configured-universe handoff: publish a complete
+multi-instrument daily acquisition directly while retaining per-instrument quality,
+raw identity and clocks. Its installed integration checkpoint covers acquisition
+interruption/resume through publication/reopen and consumes the result using the
+already implemented EDA interface. It adds no source, causal policy, multi-day
+scheduler or live-book integration. See the
+[follow-up record](mr-16-implementation.md#mr-16-follow-up-acquisition-handoff).
+
 Persisted event revisions may carry the current decoder output in an envelope
 instead of widening every public event type. The envelope owns occurrence and
 revision metadata. Whichever representation is implemented, all dataset
@@ -1138,7 +1146,7 @@ MR at a time. MR 00 and C0 are complete. M0 and NB 03–08 remain in sections 10
 walkthrough (sections 5–7) of `research-foundations.ipynb`; NB 19 is section 8; NB 18 workload evaluation is section 9; NB 20 shared
 stepping and cursor recovery is section 10; NB 21 configured EDA and extension
 boundaries is section 11; NB 22 saved live-source negotiation and refusals is
-section 12.
+section 12; the MR 16 follow-up's installed acquisition-to-EDA handoff is section 13.
 The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),

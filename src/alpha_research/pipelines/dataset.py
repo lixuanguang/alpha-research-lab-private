@@ -57,7 +57,7 @@ def publish_dataset(
 
     Args:
         acquisitions: Ordered DatasetInput records with per-source evidence, or complete
-            single-partition acquisitions using shared evidence. Exact repeats are reused
+            daily acquisitions using shared evidence. Exact repeats are reused
             in first-seen order; nonidentical overlaps within a source/stream are rejected.
         store: Retained immutable raw objects needed by publication and later reads.
         destination: Existing, durably provisioned snapshot store directory.
@@ -109,7 +109,7 @@ def assemble_dataset(
 
     Args:
         acquisitions: Ordered DatasetInput records retaining each source's admission
-            evidence, or complete single-partition acquisitions using shared evidence.
+            evidence, or complete daily acquisitions using shared evidence.
         store: Existing immutable raw objects, verified before admission.
         max_bytes: Positive compressed/expanded byte cap per raw archive.
         policy: Shared declared use, knowledge cutoff and gap tolerance for acquisitions.
@@ -132,28 +132,47 @@ def assemble_dataset(
     partitions: list[DatasetPartition] = []
     payloads: list[bytes] = []
     for selected in inputs:
-        acquisition, evidence = selected.acquisition, selected.corrections
-        outcome = validate_saved_partition(
-            acquisition,
-            store,
-            max_bytes=max_bytes,
-            policy=selected.policy,
-            eligibility=selected.eligibility,
-            corrections=evidence,
-        )
-        if report is not None:
-            report(acquisition.run.identity, outcome)
-        canonical = outcome.require_canonical()
-        partitions.append(
-            DatasetPartition(
-                sha256=hashlib.sha256(canonical).hexdigest(),
-                acquisition=acquisition,
+        partitioned = selected.acquisition.partitions()
+        unused = set(selected.corrections)
+        for acquisition in partitioned:
+            evidence = selected.corrections
+            if evidence and len(partitioned) > 1:
+                try:
+                    with closing(iter_occurrences(acquisition, store, max_bytes=max_bytes)) as rows:
+                        versions = {TradeRevision(occurrences=(item,)).identity for item in rows}
+                except ValueError, TypeError, OSError, OverflowError:
+                    # The quality gate below retains the input failure and invalid count.
+                    pass
+                else:
+                    evidence = tuple(
+                        item
+                        for item in evidence
+                        if item.supersedes in versions or item.replacement in versions
+                    )
+            outcome = validate_saved_partition(
+                acquisition,
+                store,
+                max_bytes=max_bytes,
                 policy=selected.policy,
                 eligibility=selected.eligibility,
                 corrections=evidence,
             )
-        )
-        payloads.append(canonical)
+            if report is not None:
+                report(acquisition.run.identity, outcome)
+            canonical = outcome.require_canonical()
+            unused.difference_update(evidence)
+            partitions.append(
+                DatasetPartition(
+                    sha256=hashlib.sha256(canonical).hexdigest(),
+                    acquisition=acquisition,
+                    policy=selected.policy,
+                    eligibility=selected.eligibility,
+                    corrections=evidence,
+                )
+            )
+            payloads.append(canonical)
+        if unused:
+            raise ValueError("dataset correction evidence names an unselected partition payload")
     return DatasetManifest(
         normalization_identity=Configuration._implementation_identity(),
         partitions=tuple(partitions),
@@ -374,7 +393,8 @@ def dataset_main(argv: list[str] | None = None) -> int:
 
     Args:
         argv: Command arguments, or process arguments when omitted. Publish accepts
-            complete single-partition manifests; exact repeated manifests are reused.
+            complete daily manifests; exact repeated manifests are reused. Selected
+            instruments become separate partitions without changing raw identities.
             Correction pairs bind one strict evidence file to its retained run identity.
 
     Returns:
