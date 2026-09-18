@@ -103,8 +103,12 @@ A recording gets an exclusive UUID directory under the supplied venue output:
   subscription meaning and native identity.
 - `journal.jsonl`: append-only envelopes with exact message bytes (base64 in JSON),
   receipt nanoseconds, epoch, record kind and local control reason. Each line is
-  flushed and fsynced before decoding or consumer use. Journal order is the replay
-  cursor; messages remain atomic and are never resorted by exchange timestamps.
+  flushed and fsynced before decoding or consumer use. Messages remain atomic and
+  are never resorted by exchange timestamps.
+- `cursor.json` (MR 23): the request identity, committed byte offset, record count
+  and incremental SHA-256 of that exact prefix. Each append returns only after
+  journal fsync, synced `cursor.pending`, atomic replacement and directory fsync.
+  New output-directory ancestors are synchronized before the writer starts.
 - A SHA-256 named `RawStore` object plus `manifest.json`: exact published journal
   and descriptor. Publication verifies bytes, fsyncs files/directories and replaces
   the descriptor only after durable raw publication.
@@ -113,7 +117,8 @@ A recording gets an exclusive UUID directory under the supplied venue output:
 
 The journal ceiling includes envelopes and reserves 4 KiB for controls. Publication
 can temporarily use twice the journal ceiling plus small bounded metadata; it
-retains the original journal for interrupted-input inspection. Neither attempts
+retains the original journal for interrupted-input inspection. One finite recording
+is one bounded segment; this adds no continuous rotation service. Neither attempts
 nor previous same-day directories are overwritten. Data directories and filled
 secrets are Git-ignored; maintained config, notebook and code are tracked.
 
@@ -132,13 +137,32 @@ The decoder bounds exact values to 40 significant digits and magnitude up to
 10^30, with exact lifecycle subtraction under a 100-digit context. Prices,
 quantities, IDs and native symbols remain independent of display formatting.
 
-The independent receiver and durable consumer use bounded buffers. Queue overflow,
+The receiver and durable consumer use the existing bounded queue. Persistence and
+downstream replay execute outside the receipt event loop, one record at a time.
+The transport also bounds its frame queue. Memory is bounded by the configured
+queue capacities, maximum message size, active record and bounded book state;
+these ceilings are not measured latency or process-RSS guarantees. Queue overflow,
 oversized frames, idle expiry, reconnect, malformed input and relevant sequence
 breaks stop the epoch and retain scoped unknown-loss reasons. Queue contents that
 cannot be persisted at a failed boundary are not called received durable data.
 Persistence errors propagate, close the feed and leave an incomplete attempt;
 no successful manifest is written. Disk/process failure can leave a partial final
-line even if its preceding writes were durable. No exactly-once or gap-free-history
+line, or a complete uncommitted line, after its last cursor. Interrupted inspection
+verifies the cursor's request, bounded prefix hash/count and message boundary
+before yielding any records; it excludes the suffix and adds
+`interrupted_persistence_unknown_tail`. A corrupted or truncated committed prefix
+fails closed. After any persistence failure the writer refuses append/publication;
+start a new UUID recording and retain the old one. No exact lost-message count is
+invented for a process that died with messages in memory.
+
+Completed legacy recordings remain verified through their unchanged manifests.
+Legacy interrupted recordings without `cursor.json` retain bounded newline-prefix
+inspection and the unknown-loss marker, without a cursor acknowledgement claim.
+An empty recording that died before its first session and an end record without
+verified publication both count as interrupted. Checkpoints acknowledge
+saved input, not downstream consumer state; consumer resume remains later work.
+The [MR 23 record](../roadmap/mr-23-implementation.md) retains fault and installed
+acceptance evidence. No exactly-once or gap-free-history
 claim follows from a completed capture. Clean duration/message limits are intended
 recording boundaries; source continuity outside those boundaries is unknown.
 
@@ -232,8 +256,9 @@ assumed. Restart/maintenance notices invalidate the session under existing behav
 
 `SEQ_ALL` is documented as beta server-order evidence, not matching-engine
 completeness. This bounded job is not a continuous service or historical backfill.
-MR 23 and later retain durability/recovery/supervision acceptance, MR 25/27 own
-canonical book publication/shared replay, and R1 still precedes deployment.
+MR 23 retains its [durability evidence](../roadmap/mr-23-implementation.md);
+MR 24/26 own recovery/supervision acceptance, MR 25/27 own canonical book
+publication/shared replay, and R1 still precedes deployment.
 
 ## Official protocol references
 

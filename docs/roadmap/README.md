@@ -1,6 +1,6 @@
 # Platform implementation roadmap
 
-Owner: repository founder. Status checked against merged `main` at `d11dd2c`
+Owner: repository founder. Status checked against merged `main` at `ff2b28e`
 on 2026-09-18. MR 00, C0 and MRs 01–17 are merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
@@ -12,18 +12,19 @@ MR 20's [shared stepping and cursor](mr-20-implementation.md) merged through
 [PR #46](https://github.com/lixuanguang/alpha-research-lab-private/pull/46).
 MR 21's [configured EDA and extension exercise](mr-21-implementation.md) merged
 through [PR #47](https://github.com/lixuanguang/alpha-research-lab-private/pull/47).
-MR 22's [bounded Bitfinex source verification](mr-22-implementation.md) is implemented
-and locally verified;
-[PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48)
-tracks hosted checks and merge acceptance.
-MRs 23–62 and R1 remain planned except the bounded
-[crypto L3 collector slice](crypto-l3-collectors.md), which brings forward parts of
-MRs 22–27. No M1–M7 completion or P1 result is claimed.
+MR 22's [bounded Bitfinex source verification](mr-22-implementation.md) merged
+through [PR #48](https://github.com/lixuanguang/alpha-research-lab-private/pull/48).
+MR 23's [durable append cursor and bounded consumer](mr-23-implementation.md) is
+implemented and locally verified for review. MRs 24–62 and R1 remain planned except
+the bounded [crypto L3 collector slice](crypto-l3-collectors.md), which brings
+forward parts of MRs 22–27. No M1–M7 completion or P1 result is claimed.
 
-**Next implementation after MR 22 merges: MR 23 — Capture durably before downstream use**.
+**Next implementation after MR 23 merges: MR 24 — Recover sessions without hiding gaps**.
+MR 23 verifies the committed append prefix before interrupted replay, refuses a
+failed writer, and keeps source receipt independent of bounded downstream work.
 MR 22 verifies the existing direct Bitfinex spot R0 path, bounds subscription sends
 and refuses advertised unsupported protocol versions. Other source admission and
-MRs 23–27 retain their own acceptance; this does not complete M3.
+MRs 24–27 retain their own acceptance; this does not complete M3.
 MR 21 delivers configured multi-instrument summaries, retained attempt observations,
 a bounded plot and standalone replay, plus an explicit synthetic contract projection
 with unsupported capability refusals.
@@ -1138,7 +1139,7 @@ MR at a time. MR 00 and C0 are complete. M0 and NB 03–08 remain in sections 10
 walkthrough (sections 5–7) of `research-foundations.ipynb`; NB 19 is section 8; NB 18 workload evaluation is section 9; NB 20 shared
 stepping and cursor recovery is section 10; NB 21 configured EDA and extension
 boundaries is section 11; NB 22 saved live-source negotiation and refusals is
-section 12.
+section 12; NB 23 durable append boundaries and failure diagnosis is section 13.
 The [researcher's guide](../../examples/README.md)
 explains current outputs. Historical cell counts, tested source hashes, successful
 and failed attempts live in the [owning records](#merged-implementation-records),

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 # standard library imports
+import hashlib
 import os
+import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import BinaryIO, Literal
 
 # third party library imports
 import msgspec
@@ -35,8 +37,36 @@ class CaptureRecord(msgspec.Struct, frozen=True, kw_only=True, forbid_unknown_fi
 
     def __post_init__(self) -> None:
         """Require valid control scope and a positive UTC receipt instant."""
-        if self.epoch < 0 or self.received_ns <= 0:
-            raise ValueError("invalid capture epoch or receipt timestamp")
+        if (
+            type(self.epoch) is not int
+            or type(self.received_ns) is not int
+            or self.epoch < 0
+            or self.received_ns <= 0
+            or self.kind not in ("session", "frame", "snapshot", "gap", "session_end", "end")
+            or not isinstance(self.raw, bytes)
+            or not isinstance(self.reason, str)
+            or (self.kind not in ("frame", "snapshot") and self.raw)
+        ):
+            raise ValueError("invalid capture record, epoch or receipt timestamp")
+
+
+class CaptureCursor(msgspec.Struct, frozen=True, forbid_unknown_fields=True):
+    """Bind an acknowledged append boundary to its request, byte prefix and record count."""
+
+    request_identity: str
+    offset: int
+    records: int
+    sha256: str
+
+    def __post_init__(self) -> None:
+        """Reject malformed identities and noninteger or inconsistent prefix coordinates."""
+        if any(
+            not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{64}", value)
+            for value in (self.request_identity, self.sha256)
+        ) or any(type(value) is not int or value < 0 for value in (self.offset, self.records)):
+            raise ValueError("invalid capture cursor")
+        if (self.offset == 0) != (self.records == 0) or self.records > self.offset:
+            raise ValueError("inconsistent capture cursor")
 
 
 class CaptureJournal:
@@ -59,13 +89,24 @@ class CaptureJournal:
         self.codec = DomainCodec()
         self.size = 0
         self.count = 0
+        self._digest = hashlib.sha256()
+        self._writable = False
 
     def start(self) -> None:
         """Exclusively provision and synchronize the request and journal directory."""
+        missing_parents = []
+        parent = self.root.parent
+        while not parent.exists():
+            missing_parents.append(parent)
+            parent = parent.parent
         self.root.mkdir(parents=True, exist_ok=False)
         self._write_new(self.root / "request.json", self.codec.encode_json(self.request))
         self._write_new(self.root / "journal.jsonl", b"")
+        self._checkpoint()
         self._sync_directory(self.root.parent)
+        for parent in missing_parents:
+            self._sync_directory(parent.parent)
+        self._writable = True
 
     def append(self, record: CaptureRecord) -> None:
         """Persist one message, reserving bounded space for terminal loss diagnostics.
@@ -75,17 +116,60 @@ class CaptureJournal:
 
         Raises:
             OverflowError: The journal has reached its configured storage budget.
+            OSError: The writer is not active or persistence failed; start a new recording.
         """
+        if not self._writable:
+            raise OSError("capture writer is not active; start a new recording")
+        record.__post_init__()
         encoded = self.codec.encode_json(record) + b"\n"
         reserve = 4096 if record.kind in ("frame", "snapshot", "session") else 0
         if self.size + len(encoded) > self.request.config.max_bytes - reserve:
             raise OverflowError("capture storage limit")
+        self._writable = False
         with (self.root / "journal.jsonl").open("ab") as output:
             output.write(encoded)
             output.flush()
             os.fsync(output.fileno())
         self.size += len(encoded)
         self.count += 1
+        self._digest.update(encoded)
+        self._checkpoint()
+        self._writable = True
+
+    def _checkpoint(self) -> None:
+        """Acknowledge only a synced journal prefix through an atomic durable cursor."""
+        cursor = CaptureCursor(
+            self.request.identity, self.size, self.count, self._digest.hexdigest()
+        )
+        self._write_new(self.root / "cursor.pending", self.codec.encode_json(cursor))
+        os.replace(self.root / "cursor.pending", self.root / "cursor.json")
+        self._sync_directory(self.root)
+
+    def _verify_cursor(self, source: BinaryIO) -> int:
+        """Verify the committed prefix before exposing any interrupted records."""
+        with (self.root / "cursor.json").open("rb") as checkpoint:
+            encoded = checkpoint.read(1025)
+        if len(encoded) > 1024:
+            raise ValueError("capture cursor exceeds metadata bound")
+        cursor = self.codec.decode_json(encoded, CaptureCursor)
+        if (
+            cursor.request_identity != self.request.identity
+            or cursor.offset > self.request.config.max_bytes
+        ):
+            raise ValueError("capture cursor request or size mismatch")
+        digest, count, remaining, tail = hashlib.sha256(), 0, cursor.offset, b"\n"
+        while remaining:
+            chunk = source.read(min(remaining, 65536))
+            if not chunk:
+                raise ValueError("committed capture prefix is truncated")
+            digest.update(chunk)
+            count += chunk.count(b"\n")
+            remaining -= len(chunk)
+            tail = chunk[-1:]
+        if digest.hexdigest() != cursor.sha256 or count != cursor.records or tail != b"\n":
+            raise ValueError("committed capture prefix differs from cursor")
+        source.seek(0)
+        return cursor.offset
 
     def finish(self, received_ns: int) -> RawObject:
         """Publish exact durable input and descriptor; interrupted stages never imply completion.
@@ -95,7 +179,13 @@ class CaptureJournal:
 
         Returns:
             RawObject descriptor binding the published journal bytes.
+
+        Raises:
+            OSError: The writer has failed, was never started or is already finished.
         """
+        if not self._writable:
+            raise OSError("capture writer is not active; cannot publish")
+        self._writable = False
         timestamp = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(microseconds=received_ns // 1000)
         descriptor = RawObject.from_file(
             self.root / "journal.jsonl",
@@ -115,7 +205,9 @@ class CaptureJournal:
     def records(self, *, completed: bool = True) -> Iterator[CaptureRecord]:
         """Verify completed bytes or inspect only the newline-terminated interrupted prefix.
 
-        Incomplete inspection always ends with an explicit unknown-loss gap,
+        New recordings admit only their verified durable cursor prefix. Legacy
+        recordings without a cursor retain newline-prefix inspection without an
+        acknowledgement guarantee. Incomplete inspection ends with an unknown-loss gap,
         including when process death happened exactly at a line boundary.
 
         Args:
@@ -131,14 +223,19 @@ class CaptureJournal:
             descriptor = self.codec.decode_json(
                 (self.root / "manifest.json").read_bytes(), RawObject
             )
+            if descriptor.size_bytes > self.request.config.max_bytes:
+                raise ValueError("completed capture exceeds storage bound")
             source = RawStore(self.root).open(descriptor=descriptor, request=self.request)
         else:
             source = (self.root / "journal.jsonl").open("rb")
         last_epoch, last_ns = 0, 1
         with source:
-            while line := source.readline(self.request.config.max_bytes + 1):
-                if len(line) > self.request.config.max_bytes:
-                    raise ValueError("journal line exceeds bound")
+            limit = self.request.config.max_bytes
+            if not completed and (self.root / "cursor.json").exists():
+                limit = self._verify_cursor(source)
+            elif os.fstat(source.fileno()).st_size > limit:
+                raise ValueError("journal exceeds storage bound")
+            while source.tell() < limit and (line := source.readline(limit - source.tell())):
                 if not line.endswith(b"\n"):
                     if completed:
                         raise ValueError("completed capture has truncated tail")

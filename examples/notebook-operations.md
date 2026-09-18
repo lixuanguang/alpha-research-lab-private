@@ -475,3 +475,28 @@ live modules are not query imports, and displays their changed paths. The query
 measurements remain historical; no live/replay performance inference is made.
 Both failed and successful attempts remain separately retained under the generated
 runs policy. No runtime notebook dependency or ignore rule changed.
+
+
+## MR 23 durable append checkpoint
+
+Section 13 of `research-foundations.ipynb` uses synthetic Bitfinex messages and
+local temporary journals. It displays durable cursors, exact bytes and receipt
+nanoseconds, then injects a failed fsync and inspects complete/torn uncommitted
+suffixes. It rejects committed-prefix truncation and failed-writer reuse or
+publication, preserves a distinct restart and diagnoses an invalid zero-size order.
+It opens no network connection and requires the same pinned saved books as the
+preceding sections.
+
+The [MR 23 acceptance record](../docs/roadmap/mr-23-implementation.md#fresh-kernel-nb-23)
+contains the exact wheel/kernel commands and retained input locations. The final
+fresh-kernel run passed **61 cells / 31 code cells** with all 76 installed runtime
+files verified. Its attempt is `4d63af45-75da-4f85-a3f4-9b4465cdc777`; the earlier
+successful attempt is retained separately and does not establish the final wheel.
+Only generated snapshots, transient kernels and checkpoints remain ignored.
+
+On a real persistence failure, preserve the recording and inspect it using the
+existing `alpha-collect replay --capture <directory> --interrupted` command. A
+cursor mismatch or committed truncation fails; do not delete the cursor to force
+legacy inspection or label an uncertain prefix complete. Start a new recording
+for subsequent input. Neither the cursor nor a new UUID restores consumer state
+or reconciles the preceding source gap; those remain later roadmap work.

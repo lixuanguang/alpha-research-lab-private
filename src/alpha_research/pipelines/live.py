@@ -220,7 +220,7 @@ async def collect(
                     except OverflowError:
                         reason = "storage_limit_unknown_tail"
                         break
-                    outcome = replay.apply(record)
+                    outcome = await asyncio.to_thread(replay.apply, record)
                     if outcome == "invalid_frame" or record.kind == "gap":
                         reason = "invalid_stream_requires_snapshot"
                         break
