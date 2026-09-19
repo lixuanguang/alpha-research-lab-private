@@ -1,6 +1,6 @@
 # Notebook setup, execution and troubleshooting
 
-Owner: repository founder. Current retention guidance updated 2026-09-19. This is
+Owner: repository founder. Current retention guidance updated 2026-09-20. This is
 the supporting operations guide. Start with the [researcher's guide](README.md) to choose a question and
 understand the data. This page owns notebook setup, execution and source/output retention. The
 [roadmap](../docs/roadmap/README.md#execution-and-maintenance) owns implementation
@@ -11,7 +11,8 @@ owns research methodology and promotion.
 
 Maintain two reader journeys under repository-root `examples/`:
 [QR research](research-foundations.ipynb) and
-[engineering diagnostics](infrastructure-diagnostics.ipynb). The 2026-09-19 cleanup
+[engineering diagnostics](infrastructure-diagnostics.ipynb), each with an explicit
+[live version](#live-versions) alongside its offline entry point. The 2026-09-19 cleanup
 consolidates the old reliability/capture notebooks and removes infrastructure
 milestone sections from the QR path. The earlier activity-based and source-retention
 decisions still apply: extend working content by activity, not by MR, and create
@@ -55,7 +56,7 @@ protected research outputs. Keep retrievable permitted raw/output references.
 ## Before executing
 
 Use the pinned project interpreter and installed candidate, from the repository
-root or `examples/`. Both notebooks default to synthetic local fixtures and
+root or `examples/`. The two offline versions default to synthetic local fixtures and
 installed subprocess consumers. No venue connection, archive download, account
 or credential is needed. The engineer's health exercise uses a temporary local
 syslog socket and intentionally stops its own synthetic child collectors.
@@ -78,7 +79,8 @@ limits delivered rows, not total memory.
 
 ### Acquire and reopen permitted inputs
 
-Acquisition is a deliberate source operation outside the default notebook run.
+Acquisition is a deliberate source operation in the live versions or the installed commands.
+It is outside the offline notebook runs.
 Use the existing [trade acquisition/publication commands](../src/market_data/README.md#installed-acquisition-command),
 [Bitfinex collector guide](../docs/data/l3-collectors.md#start-here) and
 [OKX guide](../docs/data/okx-market-data.md#installed-commands). Check the selected configuration,
@@ -93,7 +95,7 @@ uv run --frozen --no-editable alpha-acquire archive fetch --config configs/histo
 
 These commands contact the public sources and retain new bounded live recordings
 or the selected historical archive. The configured historical archive is about
-104 MiB plus working bytes; it is not downloaded by either notebook. Command
+104 MiB plus working bytes; it is not downloaded by any maintained notebook. Command
 budgets, completion and failure semantics belong to the linked source guides.
 Do not treat a failed acquisition as a completed input or edit its manifest to
 conceal a configuration mismatch.
@@ -116,14 +118,74 @@ Existing `data/bitfinex/`, `data/okx/`, `data/binance-archives/` and ignored
 run snapshots retain their original environment-variable meaning. No latest-input
 search or automatic source switch occurs in the current QR path.
 
+## Live versions
+
+[QR live](research-foundations-live.ipynb) and
+[engineer live](infrastructure-diagnostics-live.ipynb) each initiate one new public
+Bitfinex R0 capture when run. The selected [configuration](../configs/live/bitfinex-btc-usd.json)
+allows 20 seconds of receipt, 10,000 messages, a 32 MB journal, 8 MB frames, queue
+capacity 1,024, 100,000 visible orders, a 15-second idle bound and two retries.
+The cells reject a different venue/channel or a receive interval above 20 seconds.
+They retain and display the resolved config before the source call. Connection,
+finalization and fsync can extend elapsed time; an 80-second outer child deadline
+kills and waits for the process on timeout. No credentials or account endpoint is used.
+Source meanings, use limits and recovery remain owned by the
+[collector guide](../docs/data/l3-collectors.md#verified-source-contract).
+
+Each execution creates an exclusive UUID study under ignored
+`data/notebooks/research-live/` or `data/notebooks/infrastructure-live/`.
+It retains attempt identity/question, copied config, exact command, stdout/stderr,
+exit code when available, original capture, raw objects, bounded snapshots and a
+pinned `selection.json`. The capture cell exclusively claims its attempt before connecting;
+rerunning that cell without rerunning setup fails instead of overwriting its logs.
+Only the first 32 raw positions are published, including controls. The whole finite native recording remains available. This is bounded
+foreground development; no deployment, continuous service or trading is started.
+
+A network, quality, publication or timeout failure stops the notebook, retains its
+attempt and never switches to offline/synthetic input. Inspect its logs and the
+explicit recording path. A missing completed manifest requires deliberately selecting
+interrupted mode in the offline engineer notebook; do not infer success from files.
+The existing notebook runner also archives the failed execution. Retain all real-data
+attempts that influence research under the research program's trial contract.
+Local ignored storage is not a backed-up journal.
+
+Both live versions print paths for offline reopening:
+
+```sh
+export ALPHA_RESEARCH_DATASET_DIRECTORY='/absolute/path/to/printed-study'
+export ALPHA_BITFINEX_CAPTURE_DIRECTORY='/absolute/path/to/printed-recording'
+```
+
+Run the respective offline version below. No capture is repeated and no mutable latest
+alias is selected. The offline QR path reads a saved selection and inspects its values,
+controls and earlier cutoff; its synthetic prototype remains restricted to the teaching
+sample. The live QR version retains its explicitly declared R0 prototype in the study.
+Both live versions ignore these offline input selectors and always create a new recording.
+
+Live QR analysis uses exact rational arithmetic over native base quantities and retains
+market-derived ratios locally in `prototype.json`. Maintained outputs show only reviewed
+identities, counts and quality, not raw frames or market values. Before committing a live
+notebook, strip market-derived outputs or retain only reviewed non-sensitive summaries.
+The live engineer verifies full native replay and the selected canonical prefix. It uses
+the foreground collector; independent watchdog/alert fault scenarios remain in the offline
+version because the current supervised capture command refuses snapshot flags.
+
 ## Running a notebook
 
 From the repository root, use separate pinned notebook tooling. The no-argument
-runner defaults to the QR workflow. Both commands execute offline synthetic examples:
+runner defaults to the offline QR workflow. These commands execute offline synthetic
+examples when their saved-input selectors are unset:
 
 ```sh
 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations.ipynb
 uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/infrastructure-diagnostics.ipynb
+```
+
+The live counterparts explicitly contact the public source and retain new local data:
+
+```sh
+uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/research-foundations-live.ipynb
+uv run --frozen --no-editable --with 'nbclient==0.10.4' --with 'ipykernel==7.2.0' --with 'nbformat==5.10.4' python examples/run_notebook.py examples/infrastructure-diagnostics-live.ipynb
 ```
 
 The runner executes once by default. Append `--repeat 2` only when two

@@ -91,3 +91,5 @@ Thumbs.db
 /data/bitfinex/
 /data/coinbase/
 /data/okx/
+# Live notebook studies, capture logs and market-derived research outputs.
+/data/notebooks/

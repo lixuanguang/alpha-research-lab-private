@@ -81,7 +81,9 @@ arguments for saved captures and synthetic endpoints; use their existing pytest
 callers or the maintained [engineer notebook](../examples/infrastructure-diagnostics.ipynb).
 The [QR notebook](../examples/research-foundations.ipynb) follows research activities
 and uses the existing installed handoff as its default synthetic input setup.
-Run both through the [existing notebook runner](../examples/notebook-operations.md#running-a-notebook)
+The explicit [live counterparts](../examples/README.md#start-with-your-research-question)
+exercise bounded public capture and saved-input reopening; they are manual external-source
+checks, not network-dependent unit tests. Run each through the [existing notebook runner](../examples/notebook-operations.md#running-a-notebook)
 when their executable cells change; the configured source checks do not discover
 notebook cells.
 

@@ -1,6 +1,6 @@
 # Platform infrastructure roadmap
 
-Owner: repository founder. Updated 2026-09-19. **MR 1 is implemented; MRs 2–21 are planned.**
+Owner: repository founder. Updated 2026-09-20. **MR 1 is implemented; MRs 2–21 are planned.**
 Numbering identifies the selected delivery slices; completed capabilities become
 the current platform without renumbering the remaining backlog. MR numbers identify delivery
 work, not packages, APIs, notebook sections or experiment versions.
@@ -116,12 +116,18 @@ acceptance boundaries; the [QR guide](../../examples/README.md#select-and-inspec
 and [command reference](../../src/market_data/README.md#discover-and-reopen-research-selections)
 own current use. The maintained [QR notebook](../../examples/research-foundations.ipynb)
 follows research activities; the [engineer notebook](../../examples/infrastructure-diagnostics.ipynb)
-owns infrastructure diagnostics. Future research stages are labeled planned rather
+owns infrastructure diagnostics. Each journey also has a live public-capture version:
+[QR live](../../examples/research-foundations-live.ipynb) and
+[engineer live](../../examples/infrastructure-diagnostics-live.ipynb). They reuse the
+existing bounded collector/publication APIs and retain selections for offline reopening.
+Future research stages are labeled planned rather
 than accumulated as infrastructure milestone sections. Validation commands/results
 and the failed development attempts
 are recorded in the implementation PR, rather than a separate MR archive.
 
-This is synthetic software evidence. Source coverage, book historical membership
+The dataset-extension acceptance is synthetic software evidence. Live notebook runs
+add bounded public-source observations, without establishing empirical acceptance.
+Source coverage, book historical membership
 and archive revision availability remain unproven where documented. Unknown
 availability yields no earlier values; no new provider, macro schema, empirical
 P1 acceptance, deployment or execution capability is claimed.

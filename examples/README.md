@@ -1,6 +1,6 @@
 # Quant researcher implementation guide
 
-Owner: repository founder. Updated 2026-09-19.
+Owner: repository founder. Updated 2026-09-20.
 This is the activity-based guide for researching data, features, models and
 strategies, then preparing accepted candidates for operation. The
 [platform infrastructure roadmap](../docs/roadmap/README.md) owns what must be
@@ -76,8 +76,10 @@ Ignored notebook run snapshots alone are not a durable research journal.
 The index describes sources; it is not an executable catalog of implemented
 adapters. Use the existing acquisition/publication commands in the
 [data command reference](../src/market_data/README.md), or the current notebooks.
-Both maintained notebooks run offline by default. Acquire new permitted inputs
-through the existing commands in the [operations guide](notebook-operations.md#acquire-and-reopen-permitted-inputs).
+Choose the explicitly offline or live notebook in the [catalog](#start-with-your-research-question).
+Offline versions use synthetic or selected saved inputs; live versions initiate one bounded
+public capture through the existing installed command. See the
+[operations guide](notebook-operations.md#live-versions) for effects and retention.
 
 Select instruments, business interval, requested fields and the decision/knowledge
 cutoff explicitly. Inspect units, coverage, gaps, historical membership, revisions
@@ -273,27 +275,30 @@ new orchestration framework or second production implementation.
 
 ## Start with your research question
 
-Two maintained notebooks separate the research journey from infrastructure diagnostics.
-Neither needs a prior acquisition, a provider connection or credentials for its default run.
+Two reader journeys each have an offline and a live version. The existing filenames
+remain the offline entry points so saved commands and links continue to work.
 
-| Reader and purpose | Notebook | Observable result |
+| Reader | Offline version | Live version |
 | --- | --- | --- |
-| QR: follow a question through data selection and exploratory analysis | [Research workflow](research-foundations.ipynb) | Discover and pin named trade/book inputs, inspect missingness and cutoff behavior, compute one explicitly synthetic depth diagnostic and identify the next research handoff |
-| Engineer: diagnose the installed infrastructure | [Infrastructure diagnostics](infrastructure-diagnostics.ipynb) | Identify runtime/configuration inputs and inspect existing temporal, acquisition/publication, recovery and collector-health consumers |
+| QR: question → data → quality → prototype → planned comparison/backtest/handoff | [Research workflow — offline](research-foundations.ipynb): synthetic trade/book lesson or an explicitly saved selection | [Research workflow — live](research-foundations-live.ipynb): one public Bitfinex capture, bounded book publication, pinned EDA and exact visible-size diagnostic |
+| Engineer: inspect infrastructure and diagnose failures | [Infrastructure diagnostics — offline](infrastructure-diagnostics.ipynb): installed contracts, synthetic recovery/health failures or an explicit saved recording | [Infrastructure diagnostics — live](infrastructure-diagnostics-live.ipynb): one public Bitfinex capture, durable/native/canonical replay parity and observed quality |
 
-Restart the kernel and **Run All in order**. Each notebook runs independently;
-setup cells are collapsed where supported. Use the [operations guide](notebook-operations.md)
-for exact commands, retained saved selections and diagnostic interpretation.
+Restart the kernel and **Run All in order**. Each version runs independently.
+The live versions create new retained recordings on each run; the offline versions never
+contact a provider. Both live versions produce `raw/`, `snapshots/` and `selection.json`
+that the offline QR version can reopen, plus a recording directory for offline engineering.
+Use the [operations guide](notebook-operations.md#live-versions) for exact commands,
+source budgets, failures and saved-input handoff.
 
-The former data-reliability and capture notebooks are consolidated into these two
-reader journeys and the existing acquisition command guides. Their original source
-and outputs remain in Git history; saved raw data and ignored run snapshots are
-preserved. Future feature/model, economic and monitoring work extends the QR
-journey when its implementation exists. A roadmap item does not require a new notebook.
+The former reliability/capture notebooks remain consolidated into these two reader
+journeys. Live/offline entry points distinguish input effects while reusing the installed
+capture, publication, query and replay operations. Future platform stages extend these
+journeys when implemented; they do not require one notebook per roadmap item.
+Older source, outputs, saved raw data and ignored run snapshots remain retained.
 
 ## What data am I actually researching?
 
-The QR notebook's default is **synthetic software evidence**: two Binance-format
+The offline QR notebook's default is **synthetic software evidence**: two Binance-format
 trade archives and one saved OKX L2 message sequence. The installed configured
 workflow creates and publishes them without connecting to either venue. Six
 historical trade observations yield zero decision-eligible trade rows because
@@ -308,7 +313,7 @@ study-specific: the teaching imbalance is not applied automatically to arbitrary
 
 Existing source adapters also support the permitted samples below. They are
 acquired deliberately through [source commands](notebook-operations.md#acquire-and-reopen-permitted-inputs),
-not as a side effect of running a tutorial.
+or by choosing the explicit live versions; offline tutorials make no source calls.
 
 | Sample | What it exposes | Remaining boundary |
 | --- | --- | --- |

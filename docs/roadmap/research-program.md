@@ -75,7 +75,11 @@ the [QR workflow](../../examples/research-foundations.ipynb), ordered from resea
 question through the current data/EDA capabilities and planned later stages, and
 [engineering diagnostics](../../examples/infrastructure-diagnostics.ipynb) for
 installed infrastructure, failure and recovery observations. Source acquisition
-uses the existing commands. Separate data-fetching, strategy or monitoring
+uses the existing commands. The 2026-09-20 follow-up gives each journey an explicit
+live and offline version: [QR live](../../examples/research-foundations-live.ipynb) and
+[engineer live](../../examples/infrastructure-diagnostics-live.ipynb) acquire bounded
+public recordings through those commands; their saved studies reopen offline.
+Separate data-fetching, strategy or monitoring
 notebooks are conditional on distinct working content that warrants separation.
 They are test beds for new ideas and may span many implementation MRs; an MR records the
 relevant notebook section and decisive scenario rather than requiring a new file.
