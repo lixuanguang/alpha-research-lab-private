@@ -62,7 +62,8 @@ class TestAsOfSelector:
     def _history(request: SourceRequest) -> EligibilityAssertions:
         """Bind the maintained synthetic bitemporal history to the selected catalog."""
         history = _CODEC.decode_json(
-            (_ROOT / "tests/fixtures/mr12/eligibility.json").read_bytes(), EligibilityAssertions
+            (_ROOT / "tests/fixtures/eligibility/membership-corrections.json").read_bytes(),
+            EligibilityAssertions,
         )
         return replace(history, catalog=request.manifest.catalog)
 

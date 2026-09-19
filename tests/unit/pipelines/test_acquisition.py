@@ -119,7 +119,7 @@ class TestAcquisition:
         instrument = next(item for item in original.catalog.instruments if item.symbol == symbol)
         manifest = replace(original, instruments=(instrument,))
         request = SourceRequest(manifest=manifest, instrument=instrument, offset_minutes=3)
-        frame = (_ROOT / f"tests/fixtures/m0/{symbol.lower()}.txt").read_bytes()
+        frame = (_ROOT / f"tests/fixtures/market_data/tardis/{symbol.lower()}.txt").read_bytes()
         frame = frame.replace(b"00:00:00.0041023Z", b"00:03:00.0041023Z")
         payload = gzip.compress(frame + b"\n", mtime=0)
         exchange = _HTTPFixture(payload)

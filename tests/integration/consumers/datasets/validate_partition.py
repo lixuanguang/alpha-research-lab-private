@@ -45,7 +45,7 @@ def main() -> None:
     )
     run = config.resolve("btc-archive", catalog)
     request = SourceRequest.partition(run)[0]
-    history = EligibilityAssertions.read(inputs / "eligibility.json", catalog=catalog)
+    history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
     policy = QualityPolicy(use="exploratory", known_at=run.job.start, max_gap=timedelta(minutes=5))
     first = b"12,100.00,2.0,200,1717200000000,true,true\n"
     second = b"13,101.00,1.0,101,1717201200000,false,true\n"
@@ -115,7 +115,7 @@ def main() -> None:
         )
         assert missing.canonical is None and missing.invalid_count == 1
     assert len(reports) == 4
-    print(f"Installed MR 13 consumer passed: {alpha_research.__file__}")
+    print(f"Installed partition validation consumer passed: {alpha_research.__file__}")
 
 
 if __name__ == "__main__":

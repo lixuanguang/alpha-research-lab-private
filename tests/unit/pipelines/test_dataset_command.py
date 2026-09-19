@@ -66,7 +66,7 @@ class TestDatasetCommand:
         acquisition = AcquisitionManifest(run=run, completed=(descriptor,))
         acquisition.save(root / f"{symbol}.json")
         history = EligibilityAssertions.read(
-            _ROOT / "tests/fixtures/mr12/eligibility.json", catalog=catalog
+            _ROOT / "tests/fixtures/eligibility/membership-corrections.json", catalog=catalog
         )
         (root / "eligibility.json").write_bytes(_CODEC.encode_json(history))
         policy = QualityPolicy(

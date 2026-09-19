@@ -138,6 +138,21 @@ API public. Declare direct dependencies in the owning metadata and lock, and do
 not rely on a mutable environment, path mutation, transitive imports, or an
 editable install at runtime.
 
+### Stable names and test-support layout
+
+Maintained directories, modules, files, classes, functions, and test names MUST
+use stable domain, capability, or behavior names. Newly authored runtime and
+test scenario labels MUST follow the same rule. These names MUST NOT be based on
+MR identifiers, review-package labels, or milestone IDs. Organize static fixture
+data, subprocess support, and integration scenarios by purpose and domain; see
+the [tests guide](../../tests/README.md) for the test-tree contract. This naming
+rule is a review requirement; no automated enforcement is currently provided.
+
+Roadmaps and acceptance records MAY refer to MR, review-package, and milestone
+IDs when those identifiers are the subject of the record. Preserve historical
+provenance and content-addressed evidence, including its original names and
+references; do not rewrite it to satisfy the current naming rule.
+
 ### Orchestrator pipelines and libraries
 
 Bare module-level functions, including asynchronous functions, MUST be workflow

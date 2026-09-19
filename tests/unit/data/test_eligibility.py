@@ -24,7 +24,7 @@ from alpha_research.reference_data import CatalogSnapshot
 from alpha_research.serialization import DomainCodec
 
 _ROOT = Path(__file__).parents[3]
-_FIXTURE = _ROOT / "tests/fixtures/mr11/eligibility.json"
+_FIXTURE = _ROOT / "tests/fixtures/eligibility/assumptions-and-membership.json"
 _CODEC = DomainCodec()
 _START = datetime(2024, 6, 1, tzinfo=UTC)
 

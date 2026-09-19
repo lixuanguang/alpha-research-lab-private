@@ -1,5 +1,8 @@
 # MR 04: Durable raw-byte publication
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-15
 for review on `codex/mr-04-durable-raw-store`. This record covers MR 04 only;
 acquisition, manifests and dataset validity remain planned.
@@ -95,7 +98,7 @@ existing `_InstalledWheelCheck.validate` to install hash-locked runtime dependen
 and the wheel into `/private/tmp/mr04-verification/consumer/venv`. Its isolated
 imports, exact round trips, absence of governance and `uv pip check` passed.
 Copied only the existing synthetic configuration/catalog/frame and the maintained
-[interruption fixture](../../tests/fixtures/mr04/interrupt_publish.py) for the
+[interruption fixture](../../tests/support/subprocesses/interrupt_publish.py) for the
 additional storage consumer. No checkout source or editable imports were used.
 
 ```sh

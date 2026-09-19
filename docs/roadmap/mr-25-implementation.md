@@ -1,5 +1,8 @@
 # MR 25 — Continuous quality and bounded book publication
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Status: implemented and locally verified for review on
 2026-09-18. Branch: `codex/mr-25-continuous-quality`. Base: fetched, unchanged
 `origin/main` at `12be1a6`. Direct prerequisites are merged: MR 24 / PR #51 at
@@ -127,7 +130,7 @@ The temporary installer uses the existing `_InstalledWheelCheck.validate` with
 hash-locked binary runtime dependencies, governance-free imports, exact-value
 smoke and compatibility checks. All **78 runtime files** match source, wheel and
 installation byte for byte. The tracked consumer is
-`tests/fixtures/mr25/book_consumer.py`; it runs with `-I` outside the checkout,
+`tests/integration/consumers/capture/book_consumer.py`; it runs with `-I` outside the checkout,
 publishes/reopens 32 saved Bitfinex positions, repeats the identity, refuses an
 uninitialized prefix and an interrupted later publication, and records seven
 quality transitions plus nine expected refusals. The final fixture also prints three

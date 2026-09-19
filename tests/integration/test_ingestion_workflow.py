@@ -12,7 +12,7 @@ from pathlib import Path
 import msgspec
 import pytest
 
-_ROOT = Path(__file__).parents[3]
+_ROOT = Path(__file__).parents[2]
 
 
 class TestIngestionWorkflow:
@@ -24,9 +24,9 @@ class TestIngestionWorkflow:
         for source in (
             "configs/data-jobs/binance-archive.json",
             "configs/reference/binance-archive-spot.json",
-            "tests/fixtures/mr12/eligibility.json",
-            "tests/fixtures/mr16/ingestion_workflow.py",
-            "tests/fixtures/mr16/interrupt_command.py",
+            "tests/fixtures/eligibility/membership-corrections.json",
+            "tests/integration/consumers/datasets/ingestion_workflow.py",
+            "tests/support/subprocesses/interrupt_command.py",
         ):
             shutil.copyfile(_ROOT / source, tmp_path / Path(source).name)
         result = subprocess.run(

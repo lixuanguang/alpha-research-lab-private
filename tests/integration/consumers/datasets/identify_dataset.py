@@ -45,9 +45,9 @@ def main() -> None:
     )
     run = config.resolve("btc-archive", catalog)
     request = SourceRequest.partition(run)[0]
-    history = EligibilityAssertions.read(inputs / "eligibility.json", catalog=catalog)
+    history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
     policy = QualityPolicy(use="exploratory", known_at=run.job.start, max_gap=timedelta(hours=1))
-    with TemporaryDirectory(prefix="mr14-consumer-") as temporary:
+    with TemporaryDirectory(prefix="identify-dataset-") as temporary:
         root = Path(temporary)
         store = RawStore(root)
         source = root / "source.zip"
@@ -168,7 +168,7 @@ def main() -> None:
             )
             == manifest
         )
-    print(f"Installed MR 14 consumer passed: {alpha_research.__file__}")
+    print(f"Installed dataset identity consumer passed: {alpha_research.__file__}")
 
 
 if __name__ == "__main__":

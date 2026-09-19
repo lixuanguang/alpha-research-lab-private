@@ -1,5 +1,8 @@
 # MR 21 — Exercise EDA and extension boundaries
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Status: implemented and locally verified for review on
 2026-09-18 (Asia/Singapore). Branch: `codex/mr-21-eda-extensions`. Base: fetched,
 updated `main` at `f8ef338`. Prerequisites MR 19 (`0898d0a`, PR #44) and MR 20
@@ -33,7 +36,7 @@ contracts are reused unchanged. The installed consumer and NB 21 section 11 quer
 two supported instruments and replay their three-second business interval outside
 Jupyter. The notebook calls the same installed orchestration to plot it.
 
-The explicit [synthetic contract fixture](../../tests/fixtures/mr21/contract.json)
+The explicit [synthetic contract fixture](../../tests/fixtures/instruments/contract.json)
 exercises neutral contract identity, quantity/multiplier and projected-batch summary
 contracts. Two contracts × 50 underlying units/contract × 4200.25 USD/unit yields
 exactly 420025 USD. Wrong dimensions, a future product at the spot adapter boundary,

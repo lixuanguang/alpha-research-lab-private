@@ -98,7 +98,7 @@ An empty assertion tuple asserts nothing; the reader never infers eligibility.
 The evidence identity is a caller-supplied reference, not independently authenticated
 proof: the reader neither fetches the referenced document nor verifies its contents.
 Source-evidence admission still requires a trustworthy retained document supporting
-the claimed historical availability. The [synthetic fixture](../../tests/fixtures/mr11/eligibility.json)
+the claimed historical availability. The [synthetic fixture](../../tests/fixtures/eligibility/assumptions-and-membership.json)
 and NB 11 prove temporal validation only; empirical P1 eligibility remains unresolved.
 MR 12 adds the selection/correction contract below; quality acceptance and publication
 remain planned. The

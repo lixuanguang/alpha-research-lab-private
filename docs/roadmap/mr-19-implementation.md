@@ -1,5 +1,8 @@
 # MR 19 — Query selected data in bounded batches
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Status: implemented and locally verified for review on 2026-09-17. Branch: `codex/mr-19-bounded-query`.
 [PR #44](https://github.com/lixuanguang/alpha-research-lab-private/pull/44) retains
 subsequent hosted checks and the merge result.
@@ -36,7 +39,7 @@ schema, runtime dependency, lock, declarative configuration or executable toolin
 The [API guide](../../src/alpha_research/data/README.md#bounded-reference-queries-mr-19),
 [researcher guide](../../examples/README.md),
 [NB 19 section 8](../../examples/research-foundations.ipynb) and
-[installed consumer](../../tests/fixtures/mr19/query_consumer.py) exercise the same API.
+[installed consumer](../../tests/integration/consumers/query/query_consumer.py) exercise the same API.
 The frozen P1 specification is preserved.
 
 Against `f4cb239`, production code-bearing changes are **185 additions + 0 deletions

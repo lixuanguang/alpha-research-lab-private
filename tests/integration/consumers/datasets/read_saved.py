@@ -1,4 +1,4 @@
-"""Exercise an installed MR08 reader from copied configuration outside the checkout."""
+"""Exercise installed archive row reading from copied configuration outside the checkout."""
 
 from __future__ import annotations
 

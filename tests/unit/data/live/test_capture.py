@@ -682,7 +682,7 @@ class CoinbaseScript(VenueTransport):
         self.snapshot_queued = asyncio.Event()
         self.socket = SnapshotSocket(
             (
-                (_ROOT / "tests/fixtures/l3/coinbase-schema.json").read_bytes(),
+                (_ROOT / "tests/fixtures/market_data/coinbase/coinbase-schema.json").read_bytes(),
                 b'{"type":"subscriptions","channels":[{"name":"level3",'
                 b'"product_ids":["BTC-USD"]}]}',
                 *(b'["noop","BTC-USD","' + str(i).encode() + b'",null]' for i in range(8, 30)),
@@ -720,7 +720,7 @@ class CoinbaseScript(VenueTransport):
         Returns:
             Exact synthetic REST bytes with snapshot sequence ten.
         """
-        return (_ROOT / "tests/fixtures/l3/coinbase-snapshot.json").read_bytes()
+        return (_ROOT / "tests/fixtures/market_data/coinbase/coinbase-snapshot.json").read_bytes()
 
 
 class TestCoinbaseCapture:
@@ -816,7 +816,7 @@ class TestCoinbaseCapture:
         directory = result["capture_directory"]
         assert isinstance(directory, str)
         script = tmp_path / "parity_consumer.py"
-        shutil.copyfile(_ROOT / "tests/fixtures/mr27/parity_consumer.py", script)
+        shutil.copyfile(_ROOT / "tests/integration/consumers/capture/parity_consumer.py", script)
         process = subprocess.run(
             [sys.executable, "-I", str(script), str(tmp_path / "consumer"), directory],
             cwd=tmp_path,

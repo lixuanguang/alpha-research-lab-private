@@ -89,7 +89,9 @@ class TestContinuousQuality:
                 kind="frame",
                 epoch=0,
                 received_ns=receipt_ns + 1,
-                raw=(_ROOT / "tests/fixtures/l3/coinbase-schema.json").read_bytes(),
+                raw=(
+                    _ROOT / "tests/fixtures/market_data/coinbase/coinbase-schema.json"
+                ).read_bytes(),
             )
         )
         replay.apply(
@@ -117,7 +119,9 @@ class TestContinuousQuality:
                 kind="snapshot",
                 epoch=0,
                 received_ns=receipt_ns + 105_000_000_000,
-                raw=(_ROOT / "tests/fixtures/l3/coinbase-snapshot.json").read_bytes(),
+                raw=(
+                    _ROOT / "tests/fixtures/market_data/coinbase/coinbase-snapshot.json"
+                ).read_bytes(),
             )
         )
         assert outcome == "snapshot"

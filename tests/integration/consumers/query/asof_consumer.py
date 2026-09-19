@@ -53,9 +53,9 @@ def main() -> None:
     catalog = codec.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    history = EligibilityAssertions.read(inputs / "eligibility.json", catalog=catalog)
+    history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
     start = datetime(2024, 6, 1, tzinfo=UTC)
-    with TemporaryDirectory(prefix="mr17-consumer-") as temporary:
+    with TemporaryDirectory(prefix="asof-consumer-") as temporary:
         local = Path(temporary)
         (local / "raw").mkdir()
         (local / "snapshots").mkdir()

@@ -77,7 +77,7 @@ codec = DomainCodec()
 catalog = codec.decode_json(
     Path("configs/reference/binance-archive-spot.json").read_bytes(), CatalogSnapshot
 )
-history = EligibilityAssertions.read(Path("tests/fixtures/mr11/eligibility.json"), catalog=catalog)
+history = EligibilityAssertions.read(Path("tests/fixtures/eligibility/assumptions-and-membership.json"), catalog=catalog)
 for assertion in history.assertions:
     print(assertion.state, assertion.ts_knowledge, assertion.evidence.basis)
 ```
@@ -107,7 +107,7 @@ from datetime import UTC, datetime
 # project library imports
 from alpha_research.data.eligibility import EligibilityAssertion
 
-history = EligibilityAssertions.read(Path("tests/fixtures/mr12/eligibility.json"), catalog=catalog)
+history = EligibilityAssertions.read(Path("tests/fixtures/eligibility/membership-corrections.json"), catalog=catalog)
 members = []
 for instrument in catalog.instruments:
     result = history.select(
@@ -258,7 +258,7 @@ catalog, job and saved frame. For a development checkout:
 uv run --frozen --no-editable alpha-inspect-fixture \
   --config configs/data-jobs/fixture-inspection.json \
   --catalog configs/reference/binance-spot.json --job btc-fixture \
-  --fixture tests/fixtures/m0/btcusdt.txt \
+  --fixture tests/fixtures/market_data/tardis/btcusdt.txt \
   --received 2026-09-14T00:00:00Z --ingested 2026-09-14T00:00:01Z --sequence 0
 ```
 
@@ -658,7 +658,7 @@ and absent-capture provenance below, with availability/quality consumers later.
 [`BinanceArchiveRows`](providers/binance/rows.py) selects expected daily partitions
 from an explicit `AcquisitionManifest` using its existing prefix validation.
 Its consumers include the offline notebook's NB 08 checks, the retained
-[installed consumer](../../../tests/fixtures/mr08/read_saved.py) and MR 09's
+[installed consumer](../../../tests/integration/consumers/datasets/read_saved.py) and MR 09's
 persisted dataset pipeline. The reader constructs no acquisition or event decoder.
 
 For an independently resolved `run`, explicit `manifest_path` and `store`:
@@ -788,7 +788,7 @@ unevidenced conflicts return no bytes; terminal saved-reader failures reject the
 entire prefix and mark unread rows unvalidated. The originals remain in the store.
 See the [quality contract](../../../docs/data/contracts.md#canonical-partition-quality-mr-13)
 for interval, units, ordering and count semantics, and the
-[retained installed consumer](../../../tests/fixtures/mr13/validate_partition.py)
+[retained installed consumer](../../../tests/integration/consumers/datasets/validate_partition.py)
 for a complete synthetic saved-input example. NB 13 in
 [research-foundations.ipynb](../../../examples/research-foundations.ipynb) displays
 both declared uses and the required failures.
@@ -842,7 +842,7 @@ remain visible. This is a bounded in-memory reference path with one saved raw
 archive per partition, not a query API or an atomic snapshot. The
 [manifest contract](../../../docs/data/contracts.md#dataset-manifest-identity-and-verification-mr-14)
 explains identity and version semantics; the
-[isolated consumer](../../../tests/fixtures/mr14/identify_dataset.py) and NB 14 in
+[isolated consumer](../../../tests/integration/consumers/datasets/identify_dataset.py) and NB 14 in
 [research-foundations.ipynb](../../../examples/research-foundations.ipynb) provide
 complete saved-input examples. Atomic publication follows below.
 
@@ -887,7 +887,7 @@ synchronization acknowledged. Abrupt process exits can leave hidden staging
 directories; no garbage collection is introduced.
 
 The [snapshot contract](../../../docs/data/contracts.md#atomic-local-snapshots-mr-15),
-[isolated installed consumer](../../../tests/fixtures/mr15/publish_snapshot.py) and
+[isolated installed consumer](../../../tests/integration/consumers/datasets/publish_snapshot.py) and
 NB 15 in [research-foundations.ipynb](../../../examples/research-foundations.ipynb)
 show interruption, retry and prior-snapshot preservation. These synthetic snapshots
 retain exploratory degraded scope; they do not establish empirical coverage,
@@ -1181,7 +1181,7 @@ the same incomplete-step recovery rule. Cursor/phase callbacks expose progress
 and failure context without a second telemetry framework.
 
 [NB 20](../../../examples/research-foundations.ipynb) and the
-[installed consumer](../../../tests/fixtures/mr20/replay_consumer.py) exercise the
+[installed consumer](../../../tests/integration/consumers/replay/replay_consumer.py) exercise the
 same operation. This trade/control scope rejects unsupported canonical book
 inputs. L2/L3 publication/adapters and accepted-snapshot/recovery-epoch state
 remain with the later collector consumers. E1/MR 44 own economic batch/resume
@@ -1225,10 +1225,10 @@ per-query allocation; input blocks are not application reads and can be zero wit
 cached inputs. Snapshot admission still verifies full saved inputs; projection
 claims no I/O pushdown. The reader's canonical-byte cap is not an RSS bound.
 
-The [standalone consumer](../../../tests/fixtures/mr21/eda_consumer.py) builds a
+The [standalone consumer](../../../tests/integration/consumers/query/eda_consumer.py) builds a
 small deterministic synthetic archive, publishes two instruments, retains EDA
 records and replays outside Jupyter. [NB 21](../../../examples/research-foundations.ipynb)
-plots the same bounded interval. The [contract fixture](../../../tests/fixtures/mr21/contract.json)
+plots the same bounded interval. The [contract fixture](../../../tests/fixtures/instruments/contract.json)
 exercises neutral identity, exact quantity/multiplier and projected-batch summaries
 only, with no spot-record coercion. It is not admitted to the spot reader/replay;
 unsupported source products, lifecycle/adapter fields and unit combinations fail.
@@ -1312,7 +1312,7 @@ canonical input or terminal changes invalidate the cursor; batch-size changes do
 
 Save the consumer's accepted snapshot, current visible state and last quality/session
 boundary alongside the completed cursor. The installed
-[consumer fixture](../../../tests/fixtures/mr27/parity_consumer.py) demonstrates the
+[consumer fixture](../../../tests/integration/consumers/capture/parity_consumer.py) demonstrates the
 same exact spread/state consumer on captured and replayed observations and resumes
 in a fresh process. Cursor restoration does not reconnect or resynchronize a live
 feed. Controls contain no replacement book; interpret them through their outcome

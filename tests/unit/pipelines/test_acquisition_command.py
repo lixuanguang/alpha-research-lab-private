@@ -49,7 +49,7 @@ class TestAcquisitionCommand:
         )
         (tmp_path / "jobs.json").write_bytes(_CODEC.encode_json(configuration))
         shutil.copyfile(_ROOT / "configs/reference/binance-spot.json", tmp_path / "catalog.json")
-        shutil.copyfile(_ROOT / "tests/fixtures/mr06/acquire.py", tmp_path / "acquire.py")
+        shutil.copyfile(_ROOT / "tests/support/subprocesses/acquire.py", tmp_path / "acquire.py")
         catalog = _CODEC.decode_json((tmp_path / "catalog.json").read_bytes(), CatalogSnapshot)
         run = configuration.resolve(job.name, catalog)
         (tmp_path / "run.json").write_bytes(_CODEC.encode_json(run))

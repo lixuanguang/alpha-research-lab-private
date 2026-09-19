@@ -1,0 +1,109 @@
+# Tests and retained inputs
+
+This guide describes the maintained test layout and how to run its isolated
+consumers. The [engineering guide](../docs/coding_standards/README.md#stable-names-and-test-support-layout)
+owns naming requirements; the [development workflow](../docs/governance/workflow.md)
+owns validation and merge requirements.
+
+## Layout
+
+| Location | Responsibility |
+| --- | --- |
+| `unit/` | Domain and component tests, including existing integration-marked cases beside their owning component |
+| `engineering/` | Packaging, dependency, source-standard and governance tests |
+| `golden/` | Independently specified domain expectations |
+| `fixtures/` | Static input bytes organized by domain and scenario; no executable Python |
+| `support/subprocesses/` | Child-process acquisition fakes and deliberate publication interruptions |
+| `integration/test_*.py` | Discovered workflow tests, including acquisition through saved EDA |
+| `integration/consumers/` | Standalone installed-package scenarios grouped into datasets, eligibility, query, replay and capture |
+
+The static inputs include Tardis-framed trades and Coinbase book messages under
+`fixtures/market_data/`, eligibility histories under `fixtures/eligibility/`, a
+canonical trade partition under `fixtures/replay/`, and an explicit synthetic
+contract under `fixtures/instruments/`.
+
+[Assumptions and membership](fixtures/eligibility/assumptions-and-membership.json)
+distinguishes later research assumptions from historically available synthetic
+membership evidence. [Membership corrections](fixtures/eligibility/membership-corrections.json)
+adds decision-time correction and delisting scenarios. These are different inputs,
+not interchangeable copies of a generic eligibility file.
+
+## Execution and isolation
+
+Run from the repository root:
+
+```sh
+# All correctness tests, including integration cases; excludes performance cases.
+make test
+
+# Only the installed acquisition/resume/publication/EDA workflow.
+uv run --frozen --no-editable pytest -q -m integration tests/integration/test_ingestion_workflow.py
+
+# Existing component integration cases as well as workflow integration tests.
+make integration-test
+```
+
+Plain pytest uses the configured marker filter, which excludes integration and
+performance cases. A file under `consumers/` is not automatically a pytest test.
+The ingestion, capture recovery, saved-book, health and parity consumers have
+pytest callers. Other consumers remain manual acceptance programs; moving them
+does not add CI coverage. The recovery probe needs an explicitly selected saved
+Bitfinex capture; the synthetic acceptance consumers need only copied inputs.
+
+Consumers intentionally run as fresh processes with `python -I`, copied scripts
+and inputs, a working directory outside the checkout, and the installed runtime.
+They must not import repository test helpers or add the checkout to `sys.path`.
+The subprocess support scripts may terminate without cleanup using `os._exit`;
+invoke them through their test or consumer, never in the pytest process itself.
+The package's real orchestration stays in `src/alpha_research/pipelines/`;
+consumers compose it with synthetic transports, failure injection and assertions.
+
+For manual installed checks, copy the selected consumer and its inputs into a
+fresh external directory, preserving basenames. Use the installed interpreter
+to run `python -I <copied-consumer> <inputs>`; `eda_consumer.py` and
+`ingestion_workflow.py` additionally require a fresh output-directory argument.
+
+| Consumers | Copied inputs |
+| --- | --- |
+| Dataset and query consumers | `configs/data-jobs/binance-archive.json`, `configs/reference/binance-archive-spot.json`; readers of eligibility also need `fixtures/eligibility/membership-corrections.json` |
+| `read_occurrences.py` | Archive inputs above plus `configs/data-jobs/fixture-inspection.json` and `configs/reference/binance-spot.json` |
+| `read_eligibility.py` | Archive reference catalog and `fixtures/eligibility/assumptions-and-membership.json` |
+| `select_eligibility.py` | Archive reference catalog and `fixtures/eligibility/membership-corrections.json` |
+| `publish_snapshot.py` | Dataset inputs plus `support/subprocesses/interrupt_snapshot.py` |
+| `dataset_command.py`, `ingestion_workflow.py` | Dataset inputs plus `support/subprocesses/interrupt_command.py` |
+| `eda_consumer.py` | Query inputs plus `fixtures/instruments/contract.json` |
+| `replay_consumer.py` | `fixtures/replay/canonical.json`, `configs/data-jobs/fixture-inspection.json`, `configs/reference/binance-spot.json` |
+
+Fixture and support paths in this table are relative to `tests/`; configuration
+paths are relative to the repository root. Capture consumers have different
+arguments for saved captures and synthetic endpoints; use their existing pytest
+callers or the maintained [capture notebook](../examples/market-data-capture.ipynb)
+and [research notebook](../examples/research-foundations.ipynb).
+
+## Historical path migration
+
+MR identifiers describe historical delivery packages, not code ownership.
+Acceptance records retain their tested revisions and original command paths;
+their source links now point to the maintained locations. Reproducing an old
+record requires its recorded revision. Notebook outputs and serialized evidence
+identifiers retain their historical provenance; this move does not regenerate
+their bytes or claim a new research run.
+
+| Former fixture location | Current location |
+| --- | --- |
+| `m0/` | `fixtures/market_data/tardis/` |
+| `l3/` | `fixtures/market_data/coinbase/` |
+| Python under `mr04/`, `mr06/`; `mr15/interrupt_snapshot.py`, `mr16/interrupt_command.py` | `support/subprocesses/`, retaining script basenames |
+| Consumers under `mr08/`, `mr09/`, `mr10/`, `mr13/`, `mr14/`, `mr15/`, `mr16/` | `integration/consumers/datasets/` |
+| Consumers under `mr11/`, `mr12/` | `integration/consumers/eligibility/` |
+| Consumers under `mr17/`, `mr19/`, `mr21/` | `integration/consumers/query/` |
+| Consumer under `mr20/` | `integration/consumers/replay/` |
+| Consumers under `mr24/` through `mr27/` | `integration/consumers/capture/` |
+| `mr11/eligibility.json` | `fixtures/eligibility/assumptions-and-membership.json` |
+| `mr12/eligibility.json` | `fixtures/eligibility/membership-corrections.json` |
+| `mr20/canonical.json` | `fixtures/replay/canonical.json` |
+| `mr21/contract.json` | `fixtures/instruments/contract.json` |
+
+Former locations in the first column were relative to `tests/fixtures/`; current
+locations are relative to `tests/`. The ingestion workflow's pytest wrapper moved
+from `unit/pipelines/` to `integration/`, retaining its test name and marker.

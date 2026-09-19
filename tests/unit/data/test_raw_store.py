@@ -137,7 +137,9 @@ class TestRawStore:
     ) -> None:
         """Reject changed compressed bytes, truncation and conflicts without replacement."""
         source = tmp_path / "source.gz"
-        payload = gzip.compress((_ROOT / "tests/fixtures/m0/btcusdt.txt").read_bytes(), mtime=0)
+        payload = gzip.compress(
+            (_ROOT / "tests/fixtures/market_data/tardis/btcusdt.txt").read_bytes(), mtime=0
+        )
         source.write_bytes(payload)
         descriptor = self._describe(source, source_request)
         root = tmp_path / "store"
@@ -274,7 +276,7 @@ class TestRawStore:
             [
                 sys.executable,
                 "-I",
-                str(_ROOT / "tests/fixtures/mr04/interrupt_publish.py"),
+                str(_ROOT / "tests/support/subprocesses/interrupt_publish.py"),
                 str(root),
                 str(source),
                 str(descriptor_path),

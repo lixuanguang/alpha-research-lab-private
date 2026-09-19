@@ -21,9 +21,9 @@ class TestRecovery:
         """Bound pending-snapshot recovery, retain raw duplicates and reject stale responses."""
         for source in (
             "configs/live/coinbase-btc-usd.json",
-            "tests/fixtures/l3/coinbase-schema.json",
-            "tests/fixtures/l3/coinbase-snapshot.json",
-            "tests/fixtures/mr24/recovery_consumer.py",
+            "tests/fixtures/market_data/coinbase/coinbase-schema.json",
+            "tests/fixtures/market_data/coinbase/coinbase-snapshot.json",
+            "tests/integration/consumers/capture/recovery_consumer.py",
         ):
             shutil.copyfile(_ROOT / source, tmp_path / Path(source).name)
         result = subprocess.run(

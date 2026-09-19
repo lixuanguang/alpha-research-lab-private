@@ -28,7 +28,7 @@ def main() -> None:
     """Reopen verified originals and revisions, retaining lineage and explicit failures.
 
     Raises:
-        AssertionError: An installed behavior differs from the MR 10 acceptance contract.
+        AssertionError: Installed behavior violates the revision admission contract.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", type=Path)
@@ -122,7 +122,7 @@ def main() -> None:
             pass
         else:
             raise AssertionError("incomplete saved input accepted")
-    print(f"Installed MR 10 consumer passed: {alpha_research.__file__}")
+    print(f"Installed revision admission consumer passed: {alpha_research.__file__}")
     print(
         "Shifted-row duplicates, complete lineage, evidenced correction, prior version, "
         "exact codec round trip, deterministic rebuild and required failures passed."

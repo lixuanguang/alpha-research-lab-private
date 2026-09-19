@@ -1,5 +1,8 @@
 # MR 07: Make acquisition usable and observable
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-15
 on `codex/mr-07-acquisition-cli`. The original delivery below covers synthetic
 installed-command acceptance at `dbd94b9`. The separately reviewable
@@ -98,7 +101,7 @@ a missing credential variable and an output/input alias. They prove a failed
 checkpoint retains previous acknowledged totals and that a supplied credential
 appears only in the HTTP header, not command reports or saved state. Missing,
 mutated, truncated and foreign-run inputs fail at resume. The shared
-[process fixture](../../tests/fixtures/mr06/acquire.py) adds command execution and
+[process fixture](../../tests/support/subprocesses/acquire.py) adds command execution and
 HTTP/keyboard fault modes to MR 06's real filesystem interruption boundaries.
 
 Initial static failures were inferred untyped lists in argparse/mock inputs,

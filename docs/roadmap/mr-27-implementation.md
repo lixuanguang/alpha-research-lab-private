@@ -1,5 +1,8 @@
 # MR 27 — Captured book parity and shared replay
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Status: implemented and locally verified for separate
 review on 2026-09-19; not merged or deployed. Branch:
 `codex/mr-27-capture-replay-parity`. Base: fetched `origin/main` at
@@ -119,11 +122,11 @@ The independent OKX historical input remains
 Its 32 canonical query messages produce **zero scheduled source events** because
 original receipt/availability is unknown. Download time is not substituted.
 
-The retained [parity consumer](../../tests/fixtures/mr27/parity_consumer.py) was
+The retained [parity consumer](../../tests/integration/consumers/capture/parity_consumer.py) was
 copied outside the checkout and executed with `-I`, both directly and through the
 notebooks. It compares live prefix bytes, canonical history, downstream exact
 spreads/state, every completed checkpoint and an additional fresh-process resume.
-The [recovery probe](../../tests/fixtures/mr27/recovery_probe.py) separately injects
+The [recovery probe](../../tests/integration/consumers/capture/recovery_probe.py) separately injects
 a disconnect and one exact repeat per session into original permitted Bitfinex
 frames. It records new local receipts explicitly: two sessions, two duplicates,
 one retained gap, two updates and canonical parity. This is controlled transport

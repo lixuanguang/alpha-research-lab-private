@@ -1,5 +1,8 @@
 # MR 10 — Trade duplicate and correction admission
 
+Historical commands below retain paths from their tested revision. Current source links
+and the [test layout](../../tests/README.md) use the reorganized locations.
+
 Owner: repository founder. Historical validation: implemented and locally verified on 2026-09-16.
 This record covers only
 [MR 10](README.md#canonical-datasets-and-publication).
@@ -111,7 +114,7 @@ checkout root, external validation directory and built wheel. It installs frozen
 runtime requirements using `--require-hashes --only-binary=:all:`, then the candidate
 with `--no-deps`, and runs dependency/import/codec smoke checks. All passed.
 
-The copied [retained consumer](../../tests/fixtures/mr10/admit_revisions.py) ran
+The copied [retained consumer](../../tests/integration/consumers/datasets/admit_revisions.py) ran
 with `-I`, external `site-packages` and no governance package or checkout path
 injection. It reopened saved manifests, admitted shifted-row duplicates, rejected
 unevidenced conflicts and incomplete inputs, admitted a linked correction, retained

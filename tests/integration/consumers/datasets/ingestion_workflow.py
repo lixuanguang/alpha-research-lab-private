@@ -194,7 +194,7 @@ def main() -> None:
     catalog = _CODEC.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    history = EligibilityAssertions.read(inputs / "eligibility.json", catalog=catalog)
+    history = EligibilityAssertions.read(inputs / "membership-corrections.json", catalog=catalog)
     (output / "eligibility.json").write_bytes(_CODEC.encode_json(history))
     policy = QualityPolicy(
         use="exploratory", known_at=config.jobs[0].start, max_gap=timedelta(hours=1)

@@ -137,7 +137,7 @@ class TestSnapshotStore:
             store.publish(source, descriptor=descriptor, request=request)
             acquisitions.append(AcquisitionManifest(run=selected, completed=(descriptor,)))
         history = EligibilityAssertions.read(
-            _ROOT / "tests/fixtures/mr12/eligibility.json", catalog=catalog
+            _ROOT / "tests/fixtures/eligibility/membership-corrections.json", catalog=catalog
         )
         manifest, payloads = assemble_dataset(
             tuple(acquisitions),
@@ -365,7 +365,7 @@ class TestSnapshotStore:
             [
                 sys.executable,
                 "-I",
-                str(_ROOT / "tests/fixtures/mr15/interrupt_snapshot.py"),
+                str(_ROOT / "tests/support/subprocesses/interrupt_snapshot.py"),
                 str(root),
                 str(tmp_path / "raw"),
                 str(working),

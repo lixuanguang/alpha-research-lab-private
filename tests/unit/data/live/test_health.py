@@ -149,7 +149,7 @@ class TestHealth:
     def test_installed_health_consumer(self, tmp_path: Path) -> None:
         """Exercise real process loss and failure responses through the installed package."""
         script = tmp_path / "health_consumer.py"
-        shutil.copyfile(_ROOT / "tests/fixtures/mr26/health_consumer.py", script)
+        shutil.copyfile(_ROOT / "tests/integration/consumers/capture/health_consumer.py", script)
         result = subprocess.run(
             [
                 sys.executable,

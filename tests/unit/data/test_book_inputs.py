@@ -37,7 +37,9 @@ class TestBookInputs:
                     kind="frame",
                     epoch=0,
                     received_ns=2,
-                    raw=(_ROOT / "tests/fixtures/l3/coinbase-schema.json").read_bytes(),
+                    raw=(
+                        _ROOT / "tests/fixtures/market_data/coinbase/coinbase-schema.json"
+                    ).read_bytes(),
                 ),
                 CaptureRecord(
                     kind="frame",
@@ -52,7 +54,9 @@ class TestBookInputs:
                     kind="snapshot",
                     epoch=0,
                     received_ns=5,
-                    raw=(_ROOT / "tests/fixtures/l3/coinbase-snapshot.json").read_bytes(),
+                    raw=(
+                        _ROOT / "tests/fixtures/market_data/coinbase/coinbase-snapshot.json"
+                    ).read_bytes(),
                 ),
                 CaptureRecord(
                     kind="frame",

@@ -1,4 +1,4 @@
-"""Exercise MR09 from a runtime-only installed wheel and copied input configurations."""
+"""Exercise occurrence decoding from an installed wheel and copied configurations."""
 
 from __future__ import annotations
 

@@ -90,7 +90,9 @@ def main() -> None:
     catalog = codec.decode_json(
         (inputs / "binance-archive-spot.json").read_bytes(), CatalogSnapshot
     )
-    eligibility = EligibilityAssertions.read(inputs / "eligibility.json", catalog=catalog)
+    eligibility = EligibilityAssertions.read(
+        inputs / "membership-corrections.json", catalog=catalog
+    )
     start = datetime(2024, 6, 1, tzinfo=UTC)
     store = RawStore(local / "raw")
     acquisitions: list[AcquisitionManifest] = []

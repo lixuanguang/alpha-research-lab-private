@@ -89,7 +89,7 @@ class TestCapturedOccurrences:
         self, requests: tuple[SourceRequest, ...]
     ) -> None:
         """Retain submicrosecond capture text and reject wrong binding, position or source bytes."""
-        item = self._bind(requests[0], _ROOT / "tests/fixtures/m0/btcusdt.txt")
+        item = self._bind(requests[0], _ROOT / "tests/fixtures/market_data/tardis/btcusdt.txt")
         assert isinstance(item.event, Trade)
         assert item.event.original_capture_time == "2024-06-01T00:00:00.0041023Z"
         assert item.event.provenance.ts_source_received == item.request.start + timedelta(
