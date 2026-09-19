@@ -11,9 +11,11 @@ service or an execution model.
 Use the installed `alpha-collect` command below for deliberate acquisition.
 The [QR notebook](../../examples/research-foundations.ipynb) opens pinned research
 inputs; the [engineer notebook](../../examples/infrastructure-diagnostics.ipynb)
-diagnoses installed infrastructure with synthetic fixtures by default. Neither
-notebook initiates provider access. The former capture notebook's source and
-outputs remain in Git history.
+diagnoses installed infrastructure with synthetic fixtures by default. These are the
+offline versions. [QR live](../../examples/research-foundations-live.ipynb) and
+[engineer live](../../examples/infrastructure-diagnostics-live.ipynb) each initiate one
+bounded public Bitfinex recording and retain its inputs for offline reopening.
+The former capture notebook's source and outputs remain in Git history.
 
 [OKX public L2](okx-market-data.md) retains aggregate levels and historical source
 clocks separately from these L3 order feeds. Coinbase remains available through

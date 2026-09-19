@@ -578,7 +578,11 @@ The [engineer notebook](../../examples/infrastructure-diagnostics.ipynb) exercis
 installed acquisition command with synthetic HTTP, interruption and verified resume.
 The [QR notebook](../../examples/research-foundations.ipynb) discovers and opens pinned
 trade/book selections through the existing EDA entry. Raw acquisition alone does
-not establish canonical quality or empirical P1 acceptance.
+not establish canonical quality or empirical P1 acceptance. The
+[live QR](../../examples/research-foundations-live.ipynb) and
+[live engineer](../../examples/infrastructure-diagnostics-live.ipynb) versions use the
+existing bounded public collector and book publication/replay APIs, retaining studies
+for offline reopening. Source capture and saved selection remain explicit stages.
 
 
 ## Binance public daily archive acquisition
