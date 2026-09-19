@@ -48,6 +48,7 @@ class OKXBook:
         self.acknowledged = False
         self.sequence: int | None = None
         self.source_time: str | None = None
+        self._last_source_ms: int | None = None
         self.sequence_resets = 0
         self._fingerprint = 0
         self._codec = DomainCodec()
@@ -144,11 +145,11 @@ class OKXBook:
         """Merge absolute sizes, trimming visible depth; consumers invalidate rejected frames."""
         timestamp = row.get("ts")
         source_time = None if timestamp in (None, "") else Wire.text(timestamp)
-        if source_time is not None:
-            current = Wire.integer(source_time)
+        current = None if source_time is None else Wire.integer(source_time)
+        if current is not None:
             if current > 253402300799999:
                 raise ValueError("OKX timestamp outside supported UTC range")
-            if self.source_time is not None and current < int(self.source_time):
+            if self._last_source_ms is not None and current < self._last_source_ms:
                 raise ValueError("OKX source time moved backwards")
         bids = {} if action == "snapshot" else self.bids.copy()
         asks = {} if action == "snapshot" else self.asks.copy()
@@ -180,6 +181,8 @@ class OKXBook:
                 fingerprint ^= self._hash(side, price, levels.pop(price))
         self.bids, self.asks, self._fingerprint = bids, asks, fingerprint
         self.source_time = source_time
+        if current is not None:
+            self._last_source_ms = current
         self.ready = True
 
     def _hash(self, side: str, price: Decimal, level: Level) -> int:

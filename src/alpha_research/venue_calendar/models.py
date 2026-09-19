@@ -1087,9 +1087,11 @@ class SettlementCalendar(_VenueCalendarModel):
 class VenueCalendarSnapshot(_VenueCalendarModel):
     """Hold one immutable, bounded projection of venue and settlement state.
 
-    Coverage bounds are inclusive session-label dates. When no session contains
-    a queried instant, coverage is checked using its venue-local date. A session
-    that crosses midnight can contain instants outside those local-date bounds.
+    Coverage bounds are inclusive session-label dates, not instant boundaries.
+    When no session contains a queried instant, only a gap bounded by retained
+    sessions establishes CLOSED. Instants before the first session or at/after
+    the final close are unknown, including every instant in an empty snapshot.
+    Recorded overnight sessions remain queryable outside the label-date bounds.
     Construction validates supplied records; it does not fetch source data or
     apply overrides. Optional settlement coverage is checked by that calendar
     independently and need not equal trading coverage.
@@ -1406,9 +1408,10 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
     def market_state_at(self, instant: datetime) -> MarketState:
         """Resolve deterministic venue state at an explicit UTC instant.
 
-        Containing sessions take precedence over the local-date coverage fallback,
-        including sessions crossing midnight. Session close and each overlay end are
-        exclusive; auction state takes precedence when an auction overlaps a break.
+        Containing sessions include their portions crossing midnight. Only gaps
+        between retained sessions establish CLOSED; label-date coverage alone
+        cannot exclude an omitted overnight session at either edge. Session close
+        and each overlay end are exclusive; auctions take precedence over breaks.
 
         Args:
             instant: Aware datetime with zero UTC offset, tested against half-open session and
@@ -1416,23 +1419,22 @@ class VenueCalendarSnapshot(_VenueCalendarModel):
 
         Returns:
             HALTED, AUCTION, BREAK or CONTINUOUS in that precedence order within a session, with
-            an independent price-limit state; CLOSED with no limit outside sessions on covered
-            venue-local dates.
+            an independent price-limit state; CLOSED with no limit in gaps bounded by retained
+            sessions.
 
         Raises:
             VenueCalendarValidationError: The instant is not an aware datetime with a zero UTC
                 offset.
-            CalendarCoverageError: No session contains the instant and its venue-local date is
-                outside coverage.
+            CalendarCoverageError: The instant is neither inside a retained session nor in a
+                gap between retained sessions.
         """
         checked = _VenueCalendarModel._require_utc_datetime(instant, field_name="instant")
         session_index = bisect_right(self.sessions, checked, key=self._session_opening_time) - 1
         session = self.sessions[session_index] if session_index >= 0 else None
         if session is None or not session.contains(checked):
-            local_date = checked.astimezone(ZoneInfo(self.venue.timezone_name)).date()
-            if not self.covered_from <= local_date <= self.covered_through:
+            if session is None or session_index + 1 == len(self.sessions):
                 raise CalendarCoverageError(
-                    f"instant {checked.isoformat()} is outside snapshot coverage"
+                    f"instant {checked.isoformat()} is outside snapshot coverage for market state"
                 )
             return MarketState(
                 status=MarketStatus.CLOSED,

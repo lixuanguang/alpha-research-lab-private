@@ -327,6 +327,51 @@ class _CalendarTestData:
 class TestVenueCalendarSessionContracts(_CalendarTestData):
     """Exercise bounded session, market-state and settlement contracts."""
 
+    @pytest.mark.parametrize("label", [date(2024, 3, 10), date(2024, 3, 11)])
+    def test_overnight_session_outside_label_coverage_is_unknown(self, label: date) -> None:
+        """An omitted next-label session cannot be mistaken for a closed local evening."""
+        adapter = ExchangeCalendarsAdapter()
+        venue = self._venue(mic="XCME", timezone_name="America/Chicago")
+        narrow = adapter.build_snapshot(
+            venue=venue,
+            calendar_name="CMES",
+            version=self._version(),
+            start=label,
+            end=label,
+        )
+        wider = adapter.build_snapshot(
+            venue=venue,
+            calendar_name="CMES",
+            version=self._version(),
+            start=label,
+            end=label + timedelta(days=1),
+        )
+        instant = datetime.combine(label, datetime.min.time(), UTC) + timedelta(hours=23)
+
+        assert wider.market_state_at(instant).status is MarketStatus.CONTINUOUS
+        with pytest.raises(CalendarCoverageError, match="outside snapshot coverage"):
+            narrow.market_state_at(instant)
+
+    def test_closed_state_requires_neighboring_sessions(self) -> None:
+        """Retained sessions bound a closed weekend, while edge instants remain unknown."""
+        snapshot = ExchangeCalendarsAdapter().build_snapshot(
+            venue=self._venue(),
+            calendar_name="XNYS",
+            version=self._version(),
+            start=date(2024, 3, 8),
+            end=date(2024, 3, 11),
+        )
+
+        assert snapshot.market_state_at(datetime(2024, 3, 10, 16, tzinfo=UTC)).status is (
+            MarketStatus.CLOSED
+        )
+        for instant in (
+            snapshot.sessions[0].opens_at - timedelta(microseconds=1),
+            snapshot.sessions[-1].closes_at,
+        ):
+            with pytest.raises(CalendarCoverageError, match="outside snapshot coverage"):
+                snapshot.market_state_at(instant)
+
     def test_adapter_matches_pinned_cross_timezone_dst_half_day_and_break_fixture(
         self,
     ) -> None:
@@ -570,9 +615,25 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
                 timezone_name="Asia/Hong_Kong",
             ),
             version=self._version(overridden=True),
-            covered_from=date(2024, 3, 11),
-            covered_through=date(2024, 3, 11),
-            sessions=(session,),
+            covered_from=date(2024, 3, 10),
+            covered_through=date(2024, 3, 12),
+            sessions=(
+                self._session(
+                    label=date(2024, 3, 10),
+                    opens_at=session.opens_at - timedelta(days=1),
+                    closes_at=session.closes_at - timedelta(days=1),
+                    break_starts_at=None,
+                    break_ends_at=None,
+                ),
+                session,
+                self._session(
+                    label=date(2024, 3, 12),
+                    opens_at=session.opens_at + timedelta(days=1),
+                    closes_at=session.closes_at + timedelta(days=1),
+                    break_starts_at=None,
+                    break_ends_at=None,
+                ),
+            ),
             interruptions=(interruption,),
             price_limits=(price_limit,),
         )
@@ -599,9 +660,9 @@ class TestVenueCalendarSessionContracts(_CalendarTestData):
         assert snapshot.market_state_at(session.break_ends_at).status is MarketStatus.CONTINUOUS
         assert snapshot.market_state_at(session.closes_at).status is MarketStatus.CLOSED
         with pytest.raises(CalendarCoverageError, match="outside snapshot coverage"):
-            snapshot.market_state_at(datetime(2024, 3, 12, 2, 0, tzinfo=UTC))
+            snapshot.market_state_at(datetime(2024, 3, 13, 2, 0, tzinfo=UTC))
         with pytest.raises(CalendarCoverageError, match="outside snapshot coverage"):
-            snapshot.closure_for_date(date(2024, 3, 12))
+            snapshot.closure_for_date(date(2024, 3, 13))
 
     @pytest.mark.parametrize("halt_start", ["2024-03-11T01:32:00Z", "2024-03-11T04:10:00Z"])
     def test_halt_takes_precedence_over_auction_and_break(self, halt_start: str) -> None:
@@ -980,7 +1041,7 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
     def test_closure_only_adapter_ranges_preserve_exact_empty_coverage(
         self, start: date, end: date
     ) -> None:
-        """Retain exact requested coverage and closed state when the range contains no sessions."""
+        """Retain empty label coverage without inferring instant coverage from those dates."""
         snapshot = ExchangeCalendarsAdapter().build_snapshot(
             venue=self._venue(),
             calendar_name="XNYS",
@@ -992,12 +1053,10 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
         assert snapshot.covered_from == start
         assert snapshot.covered_through == end
         assert snapshot.sessions == ()
-        assert (
+        with pytest.raises(CalendarCoverageError, match="outside snapshot coverage"):
             snapshot.market_state_at(
                 datetime.combine(start, datetime.min.time(), UTC) + timedelta(hours=16)
-            ).status
-            is MarketStatus.CLOSED
-        )
+            )
 
     def test_adapter_rejects_mislabeled_source_revision_and_duplicate_source_sessions(
         self,
@@ -1197,7 +1256,7 @@ class TestVenueCalendarAdapterContracts(_CalendarTestData):
         )
         assert len(snapshot.sessions) == 185
         instants = tuple(session.opens_at for session in snapshot.sessions) + tuple(
-            session.closes_at for session in snapshot.sessions
+            session.closes_at for session in snapshot.sessions[:-1]
         )
 
         started_at = time.perf_counter()
@@ -1222,9 +1281,16 @@ def test_market_state_projection_is_deterministic_for_every_boundary_offset(
     snapshot = VenueCalendarSnapshot(
         venue=_CalendarTestData._venue(),
         version=_CalendarTestData._version(),
-        covered_from=date(2024, 1, 2),
-        covered_through=date(2024, 1, 2),
-        sessions=(session,),
+        covered_from=date(2024, 1, 1),
+        covered_through=date(2024, 1, 3),
+        sessions=tuple(
+            TradingSession(
+                session_label=session.session_label + timedelta(days=offset),
+                opens_at=session.opens_at + timedelta(days=offset),
+                closes_at=session.closes_at + timedelta(days=offset),
+            )
+            for offset in (-1, 0, 1)
+        ),
     )
     instant = session.opens_at + timedelta(seconds=offset_seconds)
 
