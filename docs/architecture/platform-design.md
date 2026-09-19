@@ -76,11 +76,12 @@ src/
     replay/                 Historical stepping, cursors and saved replay
     books/                  Shared book state and reconstruction contracts
   research/
-    exploration/            Existing EDA selections and summaries
+    exploration/            Existing EDA; PLANNED D1 saved-data selection/alignment
     observations/           FUTURE MR 33: completed decision observations
-    features/               FUTURE MR 28–30: transforms, fit state, checkpoints
-    models/                 CONDITIONAL MR 31–32: training and evaluation
-    experiments/            FUTURE MR 31 when used, 43–47: attempts and reports
+    features/               CONDITIONAL MR 28–30: research transforms/state
+    labels/                 CONDITIONAL MR 31: outcome generation and alignment
+    models/                 CONDITIONAL MR 31–32: training, inference and evaluation
+    experiments/            FUTURE MR 43/47 cores: attempts/splits; 35 candidates; 45 reports
   strategies/               FUTURE MR 35–36: contexts and decision rules
   simulation/               FUTURE MR 37–38: fills, costs and market mechanics
   accounting/               FUTURE MR 39–41, 55: ledger, valuation, reconciliation
@@ -96,10 +97,10 @@ src/
     collect/                Existing capture/probe/replay command and workflow
     publish_dataset/        Existing dataset publish/inspect command
     inspect_fixture/        Existing configured fixture command
-    explore/                Existing configured callable EDA workflow
-    features/               FUTURE MR 28–30: historical/incremental feature flow
+    explore/                Existing EDA; PLANNED D1 research assembly consumer
+    features/               CONDITIONAL MR 28–32: feature/label research workflows
     train_model/            CONDITIONAL MR 31: fit and retain a model attempt
-    evaluate_model/         CONDITIONAL MR 32: delayed-outcome evaluation
+    evaluate_model/         CONDITIONAL MR 32: research/delayed-outcome evaluation
     backtest/               FUTURE E1/MR 44–46: one configured economic runner
     paper/                  FUTURE MR 50–57: paper/shadow composition
     live/                   FUTURE MR 59–62: explicitly authorized operation
@@ -479,6 +480,78 @@ before evaluation.
 Research reports state the economic mechanism, falsifiable hypothesis, target, sign, horizon, universe, rebalance,
 benchmark, expected turnover/liquidity, cost and capacity assumptions, metrics, rejection criteria, and limitations.
 Once an exploratory result influences a candidate decision, it receives durable identity and provenance.
+
+### Research-driven feature lifecycle
+
+Introduce a feature for a concrete research consumer: a diagnostic, factor/signal
+study, deterministic rule or model. A selected model is not required. This expands
+the earlier model-only trigger while retaining its ban on a mandatory starter
+catalog and unused abstractions. The QR owns the formula and research choices;
+the platform owns execution, alignment, lineage and applicable state contracts.
+MR 28's completed layout is separate from its conditional historical feature
+scope. MR 29 adds fitted preprocessing when needed; MR 30 adds incremental
+execution only when the candidate requires it.
+
+D1 assembles explicit research inputs over the existing query contracts. MR 31
+owns label generation/alignment and optional training/inference. MR 43's shared
+attempt core and MR 47's temporal split/selection core are introduced with the
+first formal comparison, without waiting for a backtest CLI. Label intervals and
+availability constrain fitting; they are not prediction inputs. These contracts
+serve model-free feature studies as well as learned candidates.
+
+Reusable transforms belong to `research/features/`; labels to `research/labels/`;
+trainers/inference to `research/models/`; split/attempt/candidate records to
+`research/experiments/`. These future owners appear only with working consumers.
+Notebooks may explore local variants; formal retained and promoted results call
+the accepted versioned implementations. A candidate binds its inputs, definitions,
+parameters, split/fit identity and fitted state where applicable. Rejected
+candidates remain research evidence without becoming active runtime components.
+
+Training and runtime applications compose those same library operations through
+admitted input adapters. They do not import one another's workflows, copy formulas
+or refit state implicitly. An incremental implementation must preserve historical
+semantics under ordering, late data, warm-up and recovery; validate numerical
+agreement under a declared contract rather than assuming identical algorithms.
+A scheduled batch candidate need not acquire incremental machinery. Changed
+semantics require new versions and affected validation.
+
+### Model-driven feature lifecycle
+
+This retained heading preserves earlier links. Model-driven work is one case of
+the [research-driven feature lifecycle](#research-driven-feature-lifecycle), which
+also admits feature diagnostics and deterministic signals without selecting a model.
+
+### Candidate promotion contract
+
+Status: **planned**. MR 35 introduces the candidate manifest in
+`research/experiments/candidates.py` with its first strategy consumer; learned
+fields are added with MR 31 artifacts and remain inapplicable for a rule-only
+candidate. MR 50 consumes this contract for deployment. Research can construct
+and validate a candidate without a paper runtime, venue connection or trading
+credentials. These are small versioned artifacts, not a registry service.
+
+| Candidate content | Meaning at research/runtime handoff |
+| --- | --- |
+| Identity and reproduction | Candidate/component versions, code/environment identity, retrievable artifacts and accepted trial/report references; training input/split provenance remains retained |
+| Runtime input requirements | Named data bindings, schema/units, supported instrument/product, cadence, knowledge/availability rules, coverage/freshness and missingness policy; runtime bindings may differ from historical snapshots but must satisfy the same contract |
+| Features and fitted preprocessing | Definitions/parameters, input order/schema, accepted fitted-state bytes and fit cutoff; runtime does not refit implicitly |
+| Optional model | Serialization/version, expected feature signature, output meaning and numerical contract, training/label cutoff and permitted activation time |
+| Decision policy | Versioned prediction/signal-to-target implementation and parameters; rules need no model, and unsupported output contracts fail |
+| State and qualification | Warm-up/checkpoint/reset compatibility, batch/incremental requirements, retained parity/evaluation evidence and limitations |
+
+A model is not a trading strategy. The QR's decision policy turns then-available
+predictions/signals into the supported target contract. Shared applications apply
+independent risk, simulation or execution and accounting outside that policy.
+Walk-forward evaluation chooses only artifacts that could have been fitted by the
+historical decision, including label availability and declared training/deployment
+timing. Never use a final full-history fit for earlier decisions.
+
+Promotion loads the accepted components and verifies compatible inputs/state;
+matched inputs reproduce features, predictions and targets under their declared
+contracts. R1 verifies the deployment artifact; MR 50 binds candidate and runtime;
+MRs 57–61 qualify paper/live operation. Candidate evidence grants neither release
+admission nor trading authority. Retraining produces a new version and repeats
+affected qualification. Rollback compatibility is explicit and cannot undo fills.
 
 ## Shared strategy and simulation parity
 

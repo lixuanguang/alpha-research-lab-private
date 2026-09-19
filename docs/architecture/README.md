@@ -23,9 +23,10 @@ C01, C02 and C03 foundation contracts remain preserved.
 
 The [platform roadmap](../roadmap/README.md) selects the next work. The retired
 blueprint and package catalog remain in Git history. MRs 01–16 deliver the
-configured fixture consumer and versioned dataset publication; MR 17 begins
-reference dataset queries as of a cutoff. E1 then starts the economic path toward
-the reproducible costed baseline; the same strategy logic later serves paper operation.
+configured fixture consumer and versioned dataset publication; MRs 17–27 add
+bounded query/replay, EDA and collector integration. MR 28 completed the functional
+source-layout stages. Planned D1 and experiment cores extend researcher access;
+planned E1 starts the economic path toward the reproducible costed baseline; the same strategy logic later serves paper operation.
 
 The full monorepo is one source tree with multiple deployables and release
 cadences. Shared economic semantics are canonical; strategy variants, asset

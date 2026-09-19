@@ -2,13 +2,18 @@
 
 This page describes the empirical work needed to grow the repository from its current domain libraries into an
 institutional, multi-asset, multi-strategy research-to-production platform. It is a human-maintained program,
-not an executable package catalog, registry service, or release gate. The repository currently has no
-data-ingestion system, strategy runner, simulator, broker integration, or monitoring service.
+not an executable package catalog, registry service, or release gate. Acquisition,
+publication, bounded queries/replay, EDA and collector health are implemented.
+Reusable feature/model workflows, strategy simulation, broker integration and
+strategy monitoring remain planned; the roadmap records exact supported scope.
 
 The immediate operating model is a single founder implementing the
 [selected P1 source and frozen hypothesis](../research/p1-baseline.md), with access and historical evidence still
 unresolved. The single [implementation roadmap](README.md) owns delivery of its library operations and
-orchestrator pipelines. A production operating target remains a later decision. The long-term model can add asset classes, strategy families, shared
+orchestrator pipelines. The [QR implementation guide](../../examples/README.md#research-activities-and-journey)
+owns the activity-based journey and current usage; this page owns methodology and
+research records. Candidate research plans do not duplicate the infrastructure backlog.
+A production operating target remains a later decision. The long-term model can add asset classes, strategy families, shared
 portfolio construction, production execution, monitoring, and recovery. Independent research, model-risk,
 risk, release, and activation controls become formal organizational controls when people are hired; they do
 not block the founder from implementing and reproducibly testing technical work now.
@@ -73,7 +78,9 @@ relevant notebook section and decisive scenario rather than requiring a new file
 
 Exploratory source calls, transformations, signals, models and visualizations
 may be developed locally without first turning every experiment into a package
-API. Use existing instrument, calendar, provenance and exact financial contracts
+API. A feature diagnostic or deterministic signal is a concrete research consumer;
+choosing a model is not a prerequisite. Use existing instrument, calendar,
+provenance and exact financial contracts
 where applicable. Source-access permissions and the predeclared experiment's
 universe, hypothesis and holdout boundaries continue to apply to notebook work.
 Exploration that changes selection must retain its attempts, including failures;

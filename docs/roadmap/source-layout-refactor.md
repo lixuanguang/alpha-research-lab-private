@@ -1,7 +1,11 @@
 # Functional source refactoring plan
 
-Owner: repository founder. Status: **stages 1–3 implemented and locally validated;
-stage 4 historical features remains planned for a separate task**.
+Owner: repository founder. Status: **stages 1–3 implemented and validated, merged
+at `58bc99a`; stage 4 is conditional and deferred until a concrete research
+consumer needs named features**. The founder's 2026-09-19 clarification removed
+the mandatory starter set. The subsequent platform/QR roadmap refactoring broadens
+its model-only trigger to feature diagnostics, signals and models; completed
+source-layout acceptance remains unchanged.
 Started from refreshed main `a0dcc86` on `codex/mr28-functional-source-layout`,
 2026-09-19. The original plan inspected `5262d61` (78 Python files, 16,459 lines).
 This record governs the layout migration and functional ownership assigned to
@@ -196,22 +200,29 @@ construct a runtime identity.
 
 ## MR 28 delivery stages
 
-These are ordered reviewable stages within MR 28, not new MR numbers or a new
-milestone. They may use more than one pull request; each accepted intermediate
-state keeps the current commands usable. The source-layout stage is a
+Stages 1–3 are the required source-layout deliverable within MR 28. Stage 4 is
+a conditional extension, activated by a concrete research consumer's input needs;
+it is not a prerequisite for closing the source-layout work. These are not new
+MR numbers or milestones. They may use more than one pull request; each accepted
+intermediate state keeps current commands usable. The source-layout stage is a
 prerequisite for new MRs 28–62 source placement, including E1. Historical feature
-completion is not a new prerequisite for the deterministic baseline.
+completion is not a prerequisite for the deterministic baseline.
 
 | Stage | Work and concrete consumer | Sufficient completion evidence |
 | --- | --- | --- |
 | 1. Separate contracts and shared behavior | Repair the dependencies above in the current layout: source records vs adapters, byte binding vs source requests, injected admission/readers, shared book reconstruction, reusable dataset publication, and identity/supervision outside peer pipelines. Each extraction has the existing CLI, query or replay consumer named in the disposition table. | Focused regressions cover strict source refusal, re-decoding, immutable storage, saved snapshot verification and live/replay parity affected by the extraction. No command behavior or schema change is hidden in a move. |
 | 2. Cut over functional packages and callers | Move existing functionality using the disposition table; split the two dataset commands; update Python imports, package metadata, resources, governance package discovery, notebooks and installed consumers atomically. Retire `src/alpha_research/` after its callers are migrated. | Installed wheel outside the checkout imports every shipped functional public API and executes the four existing command contracts using synthetic/saved inputs. Verify old snapshot readability, expected new implementation identity, source/asset scan scope, currency resources and typing markers. |
 | 3. Enforce ownership and finish migration | Add small AST/import and metadata checks to the existing engineering checks for forbidden dependency directions, cross-owner private imports and multiple command entry functions in one application directory. Library folders must not gain executable mains. Update current architecture/data/test usage docs and the first-party import rule. | Positive cases plus representative forbidden imports/duplicate entrypoints prove the checks work; affected integration tests and required full pre-merge checks pass. Report counts/skips honestly; retired paths have no maintained callers. Record the migrated revision and reversal artifact here. |
-| 4. Deliver MR 28 historical features | Implement the selected causal feature contract in `research/features/` and its configured consumer in `applications/features/`, using `market_data/query/` and `market_data/replay/` APIs. Do not move transforms into the application or add an independent feature runner elsewhere. | Retain MR 28's independent window examples, future-perturbation checks, units, availability, lineage and explicit missing/stale outcomes. Layout completion alone does not complete feature acceptance. |
+| 4. Add historical features for a research consumer — conditional | Implement the consumed causal transforms in `research/features/` and their workflow in `applications/features/` when needed, using public query/replay APIs. Feature diagnostics, deterministic signals and models are valid consumers. Reuse accepted transforms in formal research and later production; do not add a speculative catalog or second production implementation. | Retain independent window examples, future-perturbation checks, units, availability, lineage and explicit missing/stale outcomes. Bind versions and any fitted state to the candidate. Without a concrete research requirement, defer this scope; do not claim feature implementation. |
 
 Stages 1–3 are the **MR 28 source-layout stage** referenced by later dependency
-cells. They may close before stage 4 so E1 can proceed without feature/model
-work. There is one installed source tree at cutover, not two long-lived parallel
+cells. Their acceptance completes the source-layout deliverable while stage 4
+remains deferred, so E1 can proceed without feature/model work. Add each new feature
+with its actual research consumer; adding features progressively does not
+itself require MR 30's streaming machinery. The
+[research-driven lifecycle](../architecture/platform-design.md#research-driven-feature-lifecycle)
+governs research-to-production reuse. There is one installed source tree at cutover,
+not two long-lived parallel
 implementations. R1 can still be pulled forward for a concrete deployment before
 this migration; it verifies the actual selected artifact layout.
 
@@ -308,6 +319,8 @@ published release. For an existing resumable run, use that run's exact retained
 artifact/configuration, or start a new run; do not relabel stored identities.
 Revert source, packaging, callers and docs together through ordinary review.
 
-Stage 4 remains unimplemented: no historical feature definitions, causal window
-acceptance, feature application, model work, new empirical capture or baseline
-research result is claimed. Existing exploratory/degraded source limits remain.
+At this merged revision, stage 4 remains unimplemented and is now conditional:
+no historical feature definitions, causal window acceptance, feature application,
+model work, new empirical capture or baseline research result is claimed. Existing
+exploratory/degraded source limits remain. Deferral changes scheduling, not the
+feature correctness requirements once a concrete research consumer activates the work.

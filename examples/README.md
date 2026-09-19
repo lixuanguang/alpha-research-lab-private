@@ -1,9 +1,259 @@
-# A quant researcher's guide to this project
+# Quant researcher implementation guide
 
-Owner: repository founder. Updated 2026-09-19 for MR 26 health supervision.
-This is the living entry point for using the project as a researcher. The
-[roadmap](../docs/roadmap/README.md) remains the authority for delivery and acceptance;
-this guide explains what you can do, how to read the evidence and what remains open.
+Owner: repository founder. Updated 2026-09-19 against source layout `58bc99a`.
+This is the activity-based guide for researching data, features, models and
+strategies, then preparing accepted candidates for operation. The
+[platform infrastructure roadmap](../docs/roadmap/README.md) owns what must be
+built and its acceptance; the [research program](../docs/roadmap/research-program.md)
+owns experimental methodology. This guide explains what a QR supplies, what the
+platform does and what to retain. It is not a second implementation backlog.
+
+**Available now:** bounded acquisition, saved-input publication, trade queries,
+book reconstruction/replay and EDA. **Planned:** reusable feature/label and model
+workflows, economic backtesting, candidate packaging and paper/live operation.
+Exploratory notebook calculations are possible today; they do not establish that
+the corresponding maintained platform workflow exists. Current empirical data
+retains source-specific exploratory/degraded qualifications.
+
+For a working starting point, choose a [current notebook](#start-with-your-research-question)
+and follow [setup and execution](notebook-operations.md). For the intended research
+process, follow the journey below. Future activities describe contracts and
+handoffs, not commands or imports that can be run today.
+
+## Research activities and journey
+
+```mermaid
+flowchart LR
+    Q[Research question] --> D[Select versioned data]
+    D --> F[Explore features and labels]
+    F --> M[Optional model fitting]
+    F --> S[Rule or signal-to-target policy]
+    M --> S
+    S --> B[Backtest and evaluate]
+    B -->|revise hypothesis| F
+    B -->|accepted candidate| C[Freeze candidate bundle]
+    C --> P[Replay and paper or shadow qualification]
+    P --> L[Authorized production and monitoring]
+    D -->|missing inputs| N[Onboard source or dataset]
+    N --> D
+```
+
+Feature research need not start with a chosen model. A signal diagnostic, factor
+study or deterministic rule is a valid research consumer. Use only the applicable
+activities: a rule can skip fitting; a batch model need not have streaming feature
+machinery. Data inspection, predictive diagnostics and economic backtesting answer
+different questions and should retain separate conclusions.
+
+| Activity | You provide | Result to retain | Current support |
+| --- | --- | --- | --- |
+| [Frame the question](#frame-a-research-question) | Mechanism, universe, horizon and comparison intent | Research note and applicable evaluation boundaries | Methodology available; maintain records manually |
+| [Select and inspect data](#select-and-inspect-research-data) | Explicit sample, fields, clocks and quality needs | Saved-input/snapshot/query identities and coverage limitations | Bounded APIs and notebooks available; unified assembly planned |
+| [Onboard missing inputs](#onboard-a-missing-source-or-dataset) | Source/data requirements and intended use | Qualified dataset plus source limitations | Existing source configurations supported; new capabilities require implementation |
+| [Explore features and labels](#research-features-and-labels) | Formula, window, target and missingness policy | Versioned definitions, diagnostics and information intervals | Notebook exploration possible; reusable workflow planned |
+| [Compare models or rules](#compare-models-or-deterministic-rules) | Splits, transforms, trainer/rule and selection criteria | Complete attempts, out-of-sample predictions and applicable fitted state | Maintained fit/evaluation workflow planned |
+| [Backtest](#build-and-backtest-a-strategy) | Signal-to-target policy and execution/cost assumptions | Reconciled economic trace and net report | Planned; current replay is not a backtest |
+| [Promote and monitor](#freeze-and-qualify-a-candidate) | Frozen candidate and operating requirements | Qualification evidence and authorized deployment identity | Planned; no production workflow exists today |
+
+### Frame a research question
+
+Write the mechanism you want to test, required observations, intended decision
+horizon and a simple comparator. Identify what would make the result uninformative:
+missing historical availability, inadequate coverage, unstable behavior or an
+execution assumption the data cannot support. Select the applicable methodology
+from the [research program](../docs/roadmap/research-program.md#rules-for-every-workstream).
+
+Exploration can begin with a small permitted sample. Before formal comparison,
+record selection criteria and evaluation boundaries. Retain failed, rejected and
+abandoned attempts that influence the next choice. Until the shared trial journal
+exists, use an append-only text record beside protected research outputs with the
+[trial fields](../docs/roadmap/research-program.md#small-records-and-artifacts).
+Ignored notebook run snapshots alone are not a durable research journal.
+
+### Select and inspect research data
+
+**Available, with bounded source-specific interfaces.** Start with the
+[data-source index](../docs/data_source/README.md) and [current samples](#what-data-am-i-actually-researching).
+The index describes sources; it is not an executable catalog of implemented
+adapters. Use the existing acquisition/publication commands in the
+[data command reference](../src/market_data/README.md), or the current notebooks.
+Reading saved notebook outputs makes no source request; running the capture
+notebook acquires new inputs.
+
+Select instruments, business interval, requested fields and the decision/knowledge
+cutoff explicitly. Inspect units, coverage, gaps, historical membership, revisions
+and source clocks before calculating a result. Pin the printed saved directories
+for notebook repeatability; formal queries use explicit snapshot identity rather
+than a mutable latest-input selection.
+
+The current Python entry `applications.explore.inspect_eda` consumes an explicit
+`research.exploration.EdaQuery` configuration, saved snapshots and a `RawStore`,
+with a retention callback. See the [configured EDA contract](../src/market_data/README.md#configured-eda-and-extension-boundaries-mr-21)
+and the connected notebook example. It returns summaries and retainable query/
+quality identities; it does not acquire data or construct a feature matrix.
+Trade `QueryReader` batches and [book replay](../src/market_data/README.md#published-book-queries-and-shared-stepping-mr-27)
+are distinct interfaces. Their byte budgets bound retained inputs, not total RSS.
+
+**Planned assembly:** D1 will expose saved-data discovery and bounded multi-input
+selection/alignment over these interfaces. A research selection will retain its
+snapshot/universe/field/time identities plus missingness and quality information.
+Joining an input cannot make it visible before its actual availability. Unknown
+historical knowledge remains unknown, even when a file can be opened successfully.
+
+Finish this activity with a pinned sample and a statement of what it can support.
+If missing evidence prevents causal research, retain an exploratory conclusion
+or obtain appropriate evidence; do not silently relabel the dataset.
+
+### Onboard a missing source or dataset
+
+Start from the missing research input, not from a new downloader for each model.
+Record the source, instruments/data family, fields and units, history/cadence,
+availability/revision behavior, access/retention needs, expected volume and first
+consumer. Distinguish obtaining more data from implementing a new capability.
+
+| Requested addition | QR action | Platform implementation boundary |
+| --- | --- | --- |
+| Another supported instrument, interval or source selection | Supply compatible reference/configuration and inspect the resulting quality | Reuse existing acquisition/publication/query operations; unsupported selections fail |
+| A new provider or data type | Supply a bounded sample/request and required semantics | Add the adapter/schema, identity/clock/revision mapping and shared publication/read integration |
+| New historical-to-live use | Declare required cadence, freshness and recovery behavior | Qualify applicable capture/replay/runtime compatibility; historical access does not establish live availability |
+| A new tradable product | Declare the product and intended strategy mechanics | Add missing lifecycle, simulation, accounting, risk and execution capabilities before economic/operational admission |
+
+The planned [D1 extension workflow](../docs/roadmap/README.md#d1-research-dataset-access-and-source-onboarding)
+will exercise a concrete source extension. Today, new unsupported capabilities
+need an implementation change. Exploratory source calls may start in a notebook;
+maintained source handling belongs to the shared data adapter, so multiple
+candidates can reuse the resulting dataset. Keep a macro release or fundamental
+revision in its appropriate schema rather than disguising it as a trade.
+
+Return to data inspection with retrievable raw inputs, dataset identity, quality
+and source limitations. A successful download alone does not complete onboarding.
+
+### Research features and labels
+
+**Notebook exploration is possible; the maintained workflow is planned.** Define
+a feature by its input bindings, formula, units, window, decision cadence,
+availability, warm-up and missing/stale policy. Define a label separately by its
+outcome, horizon, price convention, information interval and time of availability.
+A forward label can evaluate an earlier prediction only after that outcome is
+known; it cannot enter that prediction's inputs.
+
+Use a small hand-inspectable sample first. Examine coverage and distributions,
+then diagnostics appropriate to the hypothesis: stability, redundancy, decay or
+relationship to a target. Missing observations must not quietly become zeroes.
+Fitted normalization or feature selection belongs inside the training split.
+
+For example, a proposed visible-book imbalance study could start with a saved
+book diagnostic before choosing a model. A later forward-return label would need
+suitable future prices and evidenced timing; the existing archive's unknown
+historical availability does not become acceptable because the formula is simple.
+This is an illustrative research path, not a selected experiment or a change to
+frozen P1.
+
+Prototype freely within the study's data/holdout boundaries. Promote a transform
+when a retained consumer needs reproducible execution: put its logic behind the
+supported feature interface, add decisive causal/window examples and let formal
+notebook results call that implementation. Retain feature/label versions and
+input identities. The [promotion methodology](../docs/roadmap/research-program.md#notebook-research-and-package-promotion)
+and [planned interfaces](../docs/roadmap/README.md#m4-reproducible-features-and-model-research)
+define the boundary; no feature registry service is required.
+
+### Compare models or deterministic rules
+
+**Maintained workflow planned.** Supply the selected feature/label definitions,
+temporal split specification, trainer or rule, transform choices, comparison
+space, seeds, metrics and stopping/selection rule. Use a transparent comparator.
+A model-free signal study can stop at diagnostics or proceed directly to a target
+policy; it does not need a fitted model artifact.
+
+The platform will execute the declared folds, fit transforms/models only on
+permitted then-available rows and labels, save predictions and record complete
+attempts. Follow the research program's information-interval rules for purging
+and embargo; a generic row split is insufficient where outcomes overlap. A final
+holdout is consumed evidence after evaluation, not another exploratory dataset.
+
+Retain the exact split/fit rows, dataset/feature/label versions, fitted transform
+state, model parameters/bytes, predictions and evaluation identity. Reload and
+compare inference on fixed inputs under declared numerical tolerances. A new
+training window or changed transform creates a new artifact/attempt rather than
+overwriting the previous result. Predictive accuracy alone is not economic value.
+
+### Build and backtest a strategy
+
+**Planned.** A model produces predictions; the QR supplies a separate policy that
+turns available predictions or a deterministic signal into targets. Declare the
+supported instrument/output contract, decision cadence, position/capital policy,
+fees, delay and execution assumptions. The platform runner will compose that
+policy with shared replay, independent limits, fills, accounting and reports.
+
+Inspect inputs, prediction/signal, target, risk rejection, fill, costs and NAV in
+one trace. Reconcile a small economic example before interpreting aggregate
+metrics. Preserve missing/gap periods and rejected intents; a completed run can
+contain expected rejections, while broken accounting or missing required valuation
+prevents a valid result. Trade prints and book replay alone establish no executable
+fill or queue position.
+
+For walk-forward retraining, each historical decision must use the model and
+preprocessing state that could have been fitted by then, including label
+availability and declared fit/deployment timing. Never apply a final full-history
+fit to earlier decisions. Record model transitions and warm-up/reset behavior.
+
+The [planned shared backtest](../docs/roadmap/README.md#m5-strategy-simulation-and-research-controls)
+will produce a reproducible gross-to-net report and trace. The existing
+[frozen P1](../docs/research/p1-baseline.md) remains its own fixed engineering
+baseline; new QR experiments have separate identities and assumptions. There is
+no supported backtest command today. A negative economic result can still be a
+valid completed experiment.
+
+### Freeze and qualify a candidate
+
+**Planned.** Freeze the chosen research components and their evidence into a
+candidate manifest; do not copy notebook formulas into a separate production
+implementation. The bundle's exact
+[shared contract](../docs/architecture/platform-design.md#candidate-promotion-contract)
+belongs to architecture. Its research-facing contents identify required inputs,
+features/preprocessing, optional model, signal-to-target policy, state/warm-up
+requirements and accepted experiment references. Retain the bytes as well as hashes.
+
+Promotion changes the admitted input/execution composition while preserving those
+versioned components. The platform checks compatible schemas, units, timing,
+state and runtime capabilities. If incremental features are required, qualify
+historical/replay/live semantics and restart behavior first; a scheduled batch
+candidate can use a qualified batch path. Fitting is an explicit versioned job,
+not an implicit side effect of inference.
+
+Compare matched input/feature/prediction/target traces during replay and paper or
+shadow qualification. Investigate the first difference before interpreting P&L
+differences. Simulated fills demonstrate only their declared execution model.
+Candidate acceptance, release installation and trading activation are separate
+steps. The current [release restrictions](../docs/architecture/README.md#dependency-and-release-boundaries)
+and [operating workflow](../docs/governance/workflow.md#activate-and-operate) still apply.
+
+### Monitor, investigate and revise
+
+**Strategy monitoring planned; bounded collector health exists.** Retain candidate,
+instance, input and artifact identities beside freshness, missingness, inference/
+decision failures, prediction behavior, delayed-label coverage and economic
+attribution. The platform owns persistent collection, alert delivery and protective
+runtime controls; a monitoring notebook inspects those records.
+
+An investigation returns to the appropriate research activity with a new attempt:
+data break, changed feature behavior, model degradation or execution mismatch.
+Changing the model or data assumptions creates a new candidate and renews affected
+qualification. Rollback requires compatible state and cannot undo external fills.
+Collector health and matching saved replay alone do not establish strategy health.
+
+## When research requires platform work
+
+Within an implemented capability, a new formula, estimator, rule or compatible
+instance should change its own implementation/configuration and focused tests,
+without editing shared runners. A new source/schema, output contract, execution
+mechanic or runtime state requirement may need infrastructure work first.
+
+Describe that request using the blocked QR activity, smallest concrete input/
+output example, missing capability, current workaround/limitation and observable
+acceptance. Link it to the owning infrastructure MR or add a bounded follow-on
+there. Keep the candidate's hypothesis and comparison attempts in its research
+record. A request for another feature does not by itself justify a feature store,
+new orchestration framework or second production implementation.
 
 ## Start with your research question
 
@@ -85,7 +335,7 @@ where they run without provider access.
 
 The main notebook condenses the former NB 09–17 milestone exercises into one
 workflow. Repeated archive setup and exhaustive negative cases remain in the
-[unit tests](../tests/unit/data/) and historical [MR records](../docs/roadmap/README.md).
+[test guide](../tests/README.md) and historical [MR records](../docs/roadmap/README.md).
 The current notebook has eighteen sections:
 
 | Sections | Question and evidence |
@@ -234,8 +484,8 @@ at the neutral projection boundary. It grants no derivative snapshot, lifecycle,
 valuation or execution support. The [MR 21 record](../docs/roadmap/mr-21-implementation.md)
 retains installed and notebook evidence and exact refusals. Section 12 adds MR 22 source verification using saved Bitfinex input and controlled
 refusals. The [MR 22 record](../docs/roadmap/mr-22-implementation.md) identifies the
-real installed-candidate capture and fresh-kernel evidence. Next roadmap work is
-MR 24; MR 23 is merged, and MR 24 is not started here.
+real installed-candidate capture and fresh-kernel evidence. The later MR 23–27
+sections below describe durability, recovery, quality, supervision and replay.
 
 
 Section 13 adds NB 23: observe exact synthetic message bytes, receipt nanoseconds,
@@ -290,7 +540,7 @@ exercise late source/receipt clocks, native gaps, exact L3 duplicate handling,
 malformed atomic messages and L2 zero-size deletion.
 
 The [MR 25 record](../docs/roadmap/mr-25-implementation.md) owns commands, installed
-identity and limitations. The next roadmap work is MR 26 supervision; MR 27 owns
+identity and limitations. MR 26 covers supervision; MR 27 owns
 shared canonical stepping and capture/replay parity. Section 9 retains MR 18's
 historical measurements at their original source identity. MR 25 changes snapshot
 format dispatch and imports, so those timings are not current-candidate benchmarks.

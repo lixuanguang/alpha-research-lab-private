@@ -6,10 +6,12 @@ instrument identity, venue calendars, financial units, exact serialization,
 event provenance, an authored reference catalog, bounded Tardis/Binance
 decoding, historical acquisition, saved-row reading, eligibility selection and
 validated dataset publication/reopening with explicit quality scope. Native
-Bitfinex and OKX order-book acquisition/replay are also available. Causal dataset
-acceptance, point-in-time dataset queries, simulation, accounting, risk enforcement,
-execution and deployment remain future work. Start with the [quant researcher's guide](../examples/README.md)
-for current OKX/Bitfinex notebooks and the meaning of their outputs.
+Bitfinex and OKX order-book acquisition/replay, point-in-time trade queries and
+configured EDA are also available. Empirical causal dataset acceptance, reusable
+feature/model research, simulation, accounting, risk enforcement, execution and
+deployment remain future work. Start with the [QR implementation guide](../examples/README.md)
+for current notebooks and the full research-to-production journey, with planned
+activities clearly distinguished from implemented workflows.
 One reproducible strategy baseline is the first delivery target; shared research,
 portfolio infrastructure and independently operated strategies are the destination.
 
@@ -19,10 +21,12 @@ The permitted saved hour has passed dataset publication with exploratory degrade
 scope. Historical eligibility, coverage and revision-availability evidence remain
 unresolved; no empirical strategy result is claimed.
 
-The single [implementation roadmap](roadmap/README.md) groups every MR under its
-delivery milestone and includes pipeline ownership, acceptance and longer-term
-scope. MRs 00–16 are merged; MR 17 adds point-event reading as of a cutoff.
-The roadmap indexes the retained implementation and acceptance records.
+The single [platform infrastructure roadmap](roadmap/README.md) owns reusable
+capability delivery, MR dependencies and acceptance. MRs through 27 provide
+bounded data capabilities; MR 28 stages 1–3 complete the functional source layout
+at `58bc99a`. Deferred feature work and future D1/MRs 29–62/R1 remain distinct
+from completed implementation and milestone acceptance. The roadmap indexes
+retained evidence; the QR guide owns usage, and the research program owns methodology.
 The [platform design](architecture/platform-design.md) preserves intended module
 boundaries, interfaces, runtime lanes and scaling choices. Technical correctness,
 reproducibility and trading safety accompany the features that need them. Team
@@ -96,7 +100,8 @@ the QuantLib release restriction.
 | [Platform design](architecture/platform-design.md) | Planned shared modules, runtime lanes, contracts, recovery and scaling decisions |
 | [Development workflow](governance/workflow.md) | Implementation, validation and founder activation rules |
 | [Operations runbook](governance/operations.md) | Security, monitoring, stop and recovery requirements for a future deployment |
-| [Implementation roadmap](roadmap/README.md) | One delivery sequence: milestones, MR definitions, pipeline/library ownership, acceptance and longer-term scope |
+| [Platform infrastructure roadmap](roadmap/README.md) | One backlog for reusable capabilities, MR dependencies, functional ownership and acceptance |
+| [QR implementation guide](../examples/README.md) | Research activities: data selection/onboarding, features/labels, models/rules, backtesting, candidate promotion and monitoring; current versus planned support |
 | [Frozen P1 experiment](research/p1-baseline.md) | Selected sample, strategy, timing, cost assumptions and experiment acceptance requirements |
 | [Research program](roadmap/research-program.md) | Research workstreams, implementation outputs, costed comparisons and holdout discipline |
 | [Data sources](data_source/README.md) | Sources by asset class and data type, historical coverage, access limits and dated verification evidence |

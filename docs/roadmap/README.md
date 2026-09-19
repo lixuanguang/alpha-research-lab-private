@@ -1,7 +1,9 @@
-# Platform implementation roadmap
+# Platform infrastructure roadmap
 
-Owner: repository founder. Status checked against merged `main` at `c4469fa`
-on 2026-09-19. MR 00, C0 and MRs 01–17 are merged; their
+Owner: repository founder. Implementation status checked against merged `main` at
+`58bc99a` on 2026-09-19. The research/platform separation below revises future
+scope; it does not change historical acceptance. MR 00, C0 and MRs 01–17 are
+merged; their
 [acceptance records](#merged-implementation-records) retain tested revisions and limitations.
 MR 17 merged through [PR #42](https://github.com/lixuanguang/alpha-research-lab-private/pull/42).
 MR 19 merged through [PR #44](https://github.com/lixuanguang/alpha-research-lab-private/pull/44);
@@ -25,12 +27,17 @@ at `8b3027b`. MR 26 merged through
 its [acceptance record](mr-26-implementation.md) retains tested states.
 MR 27 is present in the starting main revision `a0dcc86`; its
 [acceptance record](mr-27-implementation.md) retains the source evidence.
-MR 28 stages 1–3 implement the [functional source-layout migration](source-layout-refactor.md).
-Stage 4 historical features and MRs 29–62/R1 remain planned, except previously
-recorded bounded collector work. No M1–M7 completion or P1 result is claimed.
+MR 28 stages 1–3 implement the [functional source-layout migration](source-layout-refactor.md),
+merged through PR #59 at `58bc99a`. Stage 4 historical features is **conditional
+and deferred until a concrete feature, signal or model research consumer needs it**.
+MRs 29–62, D1 and R1 remain planned or conditional as specified below, except previously recorded
+bounded collector work. No M1–M7 completion or P1 result is claimed.
 
-**Next MR 28 work: stage 4 historical features, in a separate task.**
-Source-layout completion does not complete MR 28 feature acceptance or M4.
+**MR 28's source-layout deliverable is complete; a generic feature catalog is not
+the next required task.** Add feature definitions with a concrete research
+consumer, including a feature diagnostic or deterministic signal. Stage 4
+deferral does not block E1 or other independent roadmap work, and does not claim
+feature implementation or M4 acceptance.
 MR 27 reuses the shared stepping/cursor operation for bounded published books and
 compares exact live prefixes, raw normalization and consumer outputs for Bitfinex
 and OKX. Unknown archive availability remains unscheduled; no M3 completion is claimed.
@@ -59,12 +66,14 @@ and coverage acceptance remain open. The frozen sample, strategy and cost
 assumptions remain in the [P1 experiment specification](../research/p1-baseline.md).
 
 Use the identifiers as follows: **M0–M7** are usable delivery milestones;
-**MR 00–62 and R1** are the implementation packages defined once under their
+**MR 00–62, D1 and R1** are the implementation packages defined once under their
 owning milestone or prerequisite; **E1** is an early integration checkpoint;
 **P0–P7** describe broader maturity and scope. P1 baseline acceptance is a defined
 outcome within M5, with fewer requirements than full M5 acceptance. These are
 views of the same work, not separate backlogs.
 
+- [Platform and researcher responsibilities](#platform-and-researcher-responsibilities), [next delivery order](#next-delivery-order)
+- [D1 research dataset access and source onboarding](#d1-research-dataset-access-and-source-onboarding)
 - [Delivery graph and completion rules](#completion-and-dependency-model)
 - [Functional source ownership from MR 28](#functional-source-ownership-from-mr-28), [current-file refactoring plan](source-layout-refactor.md)
 - [Completed foundations](#completed-foundations), [M0](#m0-minimal-runnable-foundation), [M1](#m1-validated-historical-ingestion), [M2](#m2-research-data-access-and-replay)
@@ -76,6 +85,60 @@ views of the same work, not separate backlogs.
 - [Existing libraries](#existing-libraries-and-remaining-work), [code ownership](#p1-code-ownership-and-call-flow), [configuration/support](#shared-configuration-and-support-contracts)
 - [Review contract](#merge-size-and-review-contract), [notebook workflow](#local-notebook-workflow), [validation and evidence](#validation-evidence-reuse-and-reversal)
 - [Longer-term scope](#longer-term-scope)
+
+## Platform and researcher responsibilities
+
+This is the single implementation backlog for reusable platform capabilities.
+The [QR implementation guide](../../examples/README.md#research-activities-and-journey)
+owns the researcher's activity-based journey, inputs, outputs and current usage.
+The [research program](research-program.md) owns experimental methodology;
+[platform design](../architecture/platform-design.md) owns shared interfaces and
+semantics. Candidate experiments retain their own hypotheses, configurations and
+attempt records; they do not create a second infrastructure backlog.
+
+| Boundary | Infrastructure responsibility | QR responsibility |
+| --- | --- | --- |
+| Data | Source adapters, publication, availability/revision semantics, selection/alignment and quality evidence | Research universe, required fields, sample, acceptable assumptions and missing-data needs |
+| Features and labels | Reusable execution, timing/lineage, label alignment and fitted-state interfaces | Formulas, windows, target/horizon, missingness and diagnostic choices |
+| Experiments | Temporal split execution, attempt retention, fit/evaluation and artifact loading | Hypothesis, model/trainer, comparison space, metrics and selection rule |
+| Backtesting | Scheduling, simulation, cost/accounting/risk operations and reproducible reports | Signal-to-target policy, parameters and declared execution assumptions |
+| Promotion and operation | Compatibility checks, candidate loading, paper/live runners, recovery and monitoring | Accepted candidate contents, input requirements and candidate-specific qualification |
+
+These are ownership boundaries, not staffing or permission gates. A QR may author
+maintained Python components as well as notebooks. Platform operations take explicit
+inputs; candidate formulas and research choices remain in their owning components.
+An existing supported candidate should require implementation/configuration changes
+at those extension points, without branches in shared orchestration.
+
+Each future capability names a runnable QR outcome and updates the corresponding
+guide activity when delivered. Verify the new interface with a concrete consumer;
+use a second compatible consumer when proving reuse. Keep engineering proof,
+empirical research acceptance and operational qualification distinct. A feature
+store, registry service, dashboard or distributed runner is not a prerequisite.
+
+## Next delivery order
+
+MR numbering identifies ownership, not a mandatory execution sequence. The next
+work has two useful paths after the completed MR 28 source-layout stage:
+
+1. Deliver E1's existing saved-events-to-net-result slice through one callable
+   backtest workflow. Continue its accounting, persistence and permitted-source
+   acceptance under MRs 33–49; preserve the frozen P1 experiment.
+2. Deliver D1 with a concrete research selection/assembly consumer. Introduce the
+   shared MR 43 attempt core and MR 47 split/selection core with the first formal
+   research comparison. Add MR 28's deferred features, MR 29 fitted transforms
+   and MR 31–32 research evaluation only as that consumer requires them.
+3. Connect an accepted learned candidate through MR 35's inference-to-target
+   boundary and the same backtest workflow. MR 48 proves compatible extension
+   and isolation; its learned-candidate case is conditional on that support.
+4. Qualify the accepted candidate for paper/shadow and then authorized operation
+   through MRs 50–62 and R1. Add MR 30 incremental execution when runtime requires
+   it. A batch candidate may instead reuse a qualified scheduled computation.
+
+The attempt/split cores have no dependency on a backtest CLI or completed trained
+model. E1 may still use the existing protected text record before the journal
+exists. Pull live capture forward for data worth preserving; neither complete live
+capture nor production qualification gates offline feature/model research.
 
 ## Destination and current state
 
@@ -102,8 +165,9 @@ CI and wheel installation exist; strategy runners, accounting, simulation,
 execution and deployment remain planned. The native release restriction is in the
 [architecture guide](../architecture/README.md#dependency-and-release-boundaries).
 
-This single roadmap owns delivery order, MR definitions, pipeline/library
-ownership, acceptance and longer-term capability status. The
+This infrastructure roadmap owns delivery order, MR definitions, pipeline/library
+ownership, acceptance and longer-term capability status. Researcher instructions
+belong in the QR guide rather than a parallel roadmap. The
 [platform design](../architecture/platform-design.md) owns intended module
 boundaries, interfaces, runtime lanes and scaling choices. The
 [research program](research-program.md) owns experiment methodology and candidate
@@ -115,8 +179,8 @@ A monorepo provides shared source history, atomic changes and reusable contracts
 It can contain multiple packages, native libraries, applications and independently
 released artifacts. It does not require every application to install the whole
 repository, run in one process or deploy on the same schedule. Keep the current
-uv development/build path while MR 28 replaces the single `market_data`
-import package with functional packages directly under `src/`. One distribution
+uv development/build path with the functional packages introduced by MR 28
+directly under `src/`. One distribution
 may contain those packages initially. Separate distributions or build targets
 follow actual installation/release needs; source ownership does not wait for
 such a split. Retain a straightforward supported development entry point.
@@ -143,9 +207,10 @@ The [refactoring plan](source-layout-refactor.md) records the 78-file source
 inventory, every current file family's destination, substantive dependency
 repairs, CLI compatibility, installed identity changes and verification. MR 28
 first separates shared behavior, then cuts over packages/callers and enforces
-the boundaries, then delivers historical features. The first three stages are
-the **MR 28 source-layout stage**, implemented by this change. Its evidence is
-recorded separately from stage 4; no new MR IDs or milestone counts are added.
+the boundaries. These first three stages are the **MR 28 source-layout stage**,
+now implemented. Stage 4 adds historical features only when a concrete research
+consumer requires them; it is not a placeholder package or a mandatory example catalog.
+Its acceptance remains separate; this stage split adds no MR IDs or milestone counts.
 
 All new implementation in MRs 28–62, including E1, uses this layout after that
 stage. E1 depends on the layout stage, not on historical feature completion or
@@ -169,16 +234,18 @@ record its scope under the owning MR; counts do not weaken its acceptance.
 E1 is an early integration checkpoint within existing research packages. R1 is
 the artifact-consumer responsibility split out of MR 59 and scheduled before the
 first deployment; it is one additional logical package, not an M7 prerequisite
-on M6. Numeric MR IDs remain stable. MR 18 and MR 54 are conditional on their
-declared consumer; deferred packages are not claimed implemented.
+on M6. D1 is a new follow-on package for research dataset access/source onboarding
+after the existing M2 interfaces; it does not reopen MRs 17–21. Numeric MR IDs
+remain stable. MR 18 and MR 54 are conditional on their declared consumer; deferred packages are not claimed implemented.
 
 | Milestone | Runnable outcome | Assigned packages | Dependencies and scope |
 | --- | --- | --- | --- |
 | M0 — Minimal runnable foundation | Config resolves a bounded data job and runs a saved fixture through configured decoders. | MR 01–02: **2** | Current foundations and MR 00/C0. No network, registry service or universal runner framework. |
 | M1 — Validated historical ingestion | Ingest, normalize, validate, publish and reopen a versioned historical dataset through documented commands. | MR 03–16: **14** | M0 and permitted source access for external acceptance. Initial trade-data path; full snapshot eligibility/coverage claims require their actual evidence. |
 | M2 — Research data access and replay | Select instruments, intervals, columns and a snapshot for bounded-memory EDA and deterministic replay. | MR 17–21: **5**, with 18 conditional | Verified published inputs and 10/12/15 contracts; synthetic development does not await M1's acquisition commands or external acceptance. The reference reader suffices unless a measured workload needs 18. |
+| D1 — Research dataset access and source onboarding | Inspect available saved datasets and assemble a reproducible research selection; qualify one demanded source extension through shared interfaces. | **1** follow-on package | M2 query/replay and MR 28 layout; M1/M3 adapter contracts and permitted access only for the selected extension. Source-specific acceptance remains explicit. |
 | M3 — Reliable live capture | Configured live inputs are validated, durably captured, recoverable and consumable through compatible canonical contracts. | MR 22–27: **6** | Prototype capture after 01, 03–04; complete with quality/publication and MR 20 replay contracts. Any deployed collector first requires R1. Live source/format is selected and verified in MR 22. |
-| M4 — Reproducible features and model research | Versioned transforms and optional models have causal inputs, retained fit state and reproducible evaluation; supported incremental features match replay. | MR 28–32: **5** | Historical work starts after M2. Incremental/live parity uses M3. Model work applies only to a selected model consumer. |
+| M4 — Reproducible features and model research | A concrete feature, signal or model experiment has causal inputs, retained attempts and reproducible evaluation; fitted/incremental state is qualified when used. | MR 28–32: **5**, with feature, fitting, model and incremental scope selected by the consumer | M2 and MR 28 layout; D1 where dataset assembly is consumed; shared 43/47 cores with the first formal comparison. MR 30 uses applicable M3 evidence for live qualification. Model-free feature research is supported; absent consumers do not justify placeholders. |
 | M5 — Strategy simulation and research controls | E1 first composes synthetic economics; MR 49 accepts the frozen baseline; M5 adds reusable research/workflow/isolation evidence. | MR 33–49: **17** | MR 28 source-layout stage and reference query/replay contracts for E1; full M5 requires M1/M2 workflow exits and 47–48. M4 feature/model acceptance only for consuming strategies; neither M3 nor ML blocks the deterministic baseline. |
 | M6 — Paper/shadow deployment | The same versioned strategy/feature artifacts run against live inputs with order, risk, reconciliation, recovery and monitoring controls. | MR 50–57: **8**, with 54 conditional | M3 and M5; R1 before deployed acceptance; M4 where used. Single-instance accounts use base reconciliation; sharing requires 54 and allocation reconciliation. No executable orders. |
 | M7 — Controlled live operation and expansion | A specifically authorized deployment operates within tested limits; a compatible additional instance can be onboarded without copying strategy code. | MR 58–62: **5**, with release-consumer work moved to R1 | M6 and maintained release/dependency admission. MR 59 binds trading authority. Each new product/venue needs acceptance for its actual mechanics before execution is enabled. |
@@ -196,8 +263,14 @@ flowchart LR
     M2 -->|EDA and extension evidence| M5
     M1 -->|validation and publication| M3
     M2 -->|replay contract| M3
-    L -->|historical features| M4
-    M3 -->|incremental parity| M4
+    L --> D1
+    L -.->|existing inputs suffice| M4
+    D1 -.->|when assembly is consumed| M4
+    L --> T[MR 43 attempt core]
+    T --> S[MR 47 split and selection core]
+    S -->|first formal comparison| M4
+    S -->|strategy integration| M5
+    M3 -.->|when incremental parity is required| M4
     M4 -.->|when consumed| M5
     M3 --> M6
     R1 -->|before deployed capture| M3
@@ -213,12 +286,11 @@ The M1→M2 edge names saved-input contracts, not completion of downloader or CL
 work; synthetic verified snapshots can supply them. R1 edges apply to actual
 deployment, while isolated development smoke may continue under current policy.
 
-For founder delivery, follow one main path: configured fixture and early source
-feasibility → durable historical data → reference query/replay and E1 → frozen
-P1 reproduction → M5 reuse and useful live capture → one paper deployment →
-scoped live operation. Pull capture forward for history worth preserving, and
-R1 forward whenever that capture is actually deployed. Numeric milestone order
-does not require completing live capture or models before research.
+Follow the [next delivery order](#next-delivery-order): develop the economic E1
+slice and research access/experiment interfaces from their actual dependencies,
+then connect accepted candidates to shared backtesting and qualification. P1
+reproduction remains its own required acceptance, not a prerequisite for offline
+feature/model comparisons. R1 precedes any actual deployment.
 
 Dependencies identify required contracts under the
 [milestone map](#completion-and-dependency-model);
@@ -416,6 +488,34 @@ when shared access, concurrency, isolation or a measured latency budget warrants
 it. [DuckDB Parquet documentation](https://duckdb.org/docs/current/data/parquet/overview)
 (reviewed 2026-09-13). Market-event queries and feature serving remain distinct contracts.
 
+## D1: Research dataset access and source onboarding
+
+Status: **planned follow-on to M2**, not a completed M2 claim. Deliver this with a
+named QR question and bounded input requirements, using existing manifests,
+configuration and readers rather than adding a catalog service.
+
+| Package | Depends on | Functional owner and consumer | QR outcome and decisive acceptance |
+| --- | --- | --- | --- |
+| **D1 — Assemble research inputs and qualify a source extension** | 17, 19–21 and MR 28 layout; applicable 01–16/22–27 contracts for a selected source | Extend `research/exploration/` and `applications/explore/` for saved-data discovery, selection and bounded alignment. Source acquisition/normalization remains in `market_data/adapters/`, publication in `market_data/datasets/`, with existing applications composing them. | A QR can inspect supported fields, units, coverage and availability limitations; select explicit snapshots/universe/time ranges; and reopen the same assembled inputs with input/selection identity. Exercise a multi-input alignment case where one source arrives late: it cannot change an earlier decision row. Retain controls, missingness, revisions and quality evidence. Qualify one concrete demanded source/dataset extension through the shared publication/query boundary without a candidate-specific downloader or runner. |
+
+Keep data-native event, book and release/table schemas distinct. Do not coerce a
+new data family into trades, erase source clocks or treat a historical download
+as historical availability. An analytical table/array projection must document its
+index, columns, units, numeric representation and validity/quality side information;
+retain the exact canonical inputs for lineage and economic use. Joining inputs
+must apply the declared decision cutoff before revision/alignment selection.
+D1 supplies the input selection/alignment boundary; candidate label definitions
+and label generation belong to MR 31, and split/holdout execution to MR 47.
+
+For an already supported instrument/source, onboarding uses configuration/reference
+changes plus focused validation. A new provider or data type adds the owning
+adapter/schema and its timing, quality and retained-byte tests. A new tradable
+product additionally needs its actual economics and execution capabilities; data
+admission does not grant them. Bound the first extension to a real request and
+record source-access limitations honestly. If external evidence is unavailable,
+the assembly slice can ship, but source qualification remains open. MR 18's
+storage optimization stays conditional on a measured workload.
+
 ## M3: Reliable live capture
 
 The 2026-09-15 founder-authorized narrow amendment prioritizes **Bitfinex public
@@ -524,36 +624,38 @@ cross-product fault matrix.
 
 ## M4: Reproducible features and model research
 
-Historical feature research starts after M2 and MR 28's source-layout stage.
-MR 28 must complete the [four delivery stages](source-layout-refactor.md#mr-28-delivery-stages),
-including the current-code migration and the original feature acceptance.
-Each package ships with its actual
-consumer; no generic feature graph or model registry is needed for a fixed rule.
-The incremental subset closes only when M3 parity is exercised. A model package
-is conditional on a selected trained-model consumer and is not a prerequisite
-for M5's deterministic baseline.
+Build reusable research interfaces with a concrete QR consumer: a feature
+diagnostic, factor/signal study, deterministic rule or learned model. Choosing a
+model is not a prerequisite for feature research. This 2026-09-19 refactoring
+broadens the earlier model-only trigger while retaining its intent: no mandatory
+starter catalog, unused application or empty package. MR 28 stages 1–3 remain
+complete; stage 4 is a separate conditional deliverable under the same identifier.
+
+Infrastructure owns execution, alignment, state and evidence interfaces. The QR
+supplies formulas, labels, trainers and research choices through those interfaces.
+Exploratory notebooks may prototype them before promotion. Formal comparisons use
+retained input/config/code identities and the shared MR 43/47 cores; production
+reuse follows the [research-driven lifecycle](../architecture/platform-design.md#research-driven-feature-lifecycle).
+No M4 feature/model completion is required for the deterministic P1 baseline.
 
 | MR | Depends on | Functional owner and application (relative to `src/`) | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- | --- |
-| **28 — Refactor functional source ownership and compute historical features** | M2 | Stages 1–3 implemented; stage 4 pending. Migrate current owners through the [source-layout stages](source-layout-refactor.md#mr-28-delivery-stages), then implement `research/features/`; compose in `applications/features/`. | Complete the source-layout stages, then deliver pure feature definitions with input requirements, units, windows, availability and lineage, composed by the historical feature application. | [Source-layout acceptance](source-layout-refactor.md#verification-evidence-reuse-and-reversal) preserves existing commands, source/data contracts and installed package behavior. Independent window examples and future perturbations preserve earlier feature outputs; missing/stale inputs retain explicit status and available-at time. Neither migration alone nor features alone close this MR. |
-| **29 — Fit and reuse preprocessing state** | 28 | Extend `research/features/preprocessing.py`; integrate fit/transform in the existing `applications/features/` workflow. | Separate fit from transform with immutable state/version and explicit permitted training rows; keep fitted parameters out of global mutable configuration. | Held-out/future rows cannot influence fitted state; saved state reproduces transformations and rejects incompatible schema/units. |
-| **30 — Reuse features incrementally** | 28, M3; 29 if fitted | Extend `research/features/incremental.py` and checkpoint state; reuse `market_data/replay/` and the same `applications/features/` entrypoint for incremental mode. | Add bounded window state/checkpoints consumed by the streaming feature pipeline using the same semantic definitions. | Exact captured replay and historical processing agree under declared ordering, late-data and numerical policy; restart/warm-up does not silently reuse invalid state. |
-| **31 — Record a model research attempt** | 28–29; selected model | Implement `research/models/training.py` and model-attempt records in `research/experiments/`; compose in `applications/train_model/`. | Compose a selected trainer/evaluator with immutable code, config, feature, split, model and trial identities; tracking storage is an adapter to owned records. | Retained attempts, including failures, reproduce model inputs and evaluation under the declared numerical contract. A database or MLflow installation alone does not satisfy this package. |
-| **32 — Evaluate delayed outcomes** | 31; selected model | Implement `research/models/evaluation.py` with label availability and coverage; compose in `applications/evaluate_model/` and expose library results for later telemetry reuse. | Reusable evaluation operations bind prediction time, feature/model versions, label availability, label coverage and metrics. Record research drift/inference failures and defined responses for later runtime reuse. | Labels arriving later cannot influence earlier predictions; missing labels are not zero outcomes. Compare declared reference/current windows and attribute results to the correct model/input versions. |
+| **28 — Completed layout; conditional research feature interface** | Layout stages 1–3 complete; M2 and a concrete research input contract for stage 4; D1 where assembly is used | Stage 4 implements consumed definitions/interfaces in `research/features/`, composed through `applications/features/` only when that workflow is needed. | Deliver pure versioned transforms with explicit input requirements, units, windows, availability, missingness and lineage. A feature diagnostic or rule is a valid consumer without a model. Preserve completed layout acceptance. | Independent window examples and future perturbations preserve earlier outputs; missing/stale inputs retain status and available-at time. Exercise a second compatible formula through the same interface without changing orchestration. Deferred feature scope is not implemented scope. |
+| **29 — Fit and reuse preprocessing state** | Required feature inputs; MR 47 split core; a consumer requiring fitted preprocessing | `research/features/preprocessing.py`; compose fit/transform in the actual feature/training workflow. | Separate fit from transform with immutable state/version and permitted training rows. The QR supplies the selected transform and parameters; accepted state travels to inference and is never silently refitted. | Held-out/future rows and not-yet-available labels cannot affect fitting. Reloaded state reproduces transformations under the declared numerical contract and rejects incompatible schema/units. Unfitted transforms need no fitted-state machinery. |
+| **30 — Qualify incremental feature execution** | Consumed 28 features, 29 if fitted; applicable M3 source evidence for live qualification | `research/features/incremental.py` and checkpoint state, reusing `market_data/replay/`; runtime consumers import the library. | Add incremental execution only for a candidate requiring it, with explicit ordering, warm-up, late-data and checkpoint semantics. Offline development can use saved/synthetic replay before external source acceptance. | Historical and exact captured replay outputs agree under declared numerical/timing policy; restart cannot reuse incompatible state. A batch candidate does not acquire this dependency merely because it is deployed. |
+| **31 — Run reproducible feature and model experiments** | MR 28 layout, M2/D1 inputs as consumed, 43 attempt core and 47 split core; features/29 only where used | `research/labels/` owns label generation/alignment; `research/models/` owns selected training/inference; `research/experiments/` owns experiment composition records. Use `applications/features/` for model-free diagnostics and `applications/train_model/` when fitting. | Execute declared feature/label studies and optional trainers on explicit folds. Labels carry horizon, availability, overlap and missing policy. Save predictions, transform/model artifacts and complete attempt identities for reusable evaluation. Candidate formulas/estimators remain QR components; no training platform is required for a model-free study. | A small hand-aligned example proves input/label timing. Each fit uses only then-permitted rows/labels; held-out changes cannot affect fitted state. Saved artifacts reproduce inference and reject incompatible feature schemas. Failed attempts remain attributable through the same journal as backtests. |
+| **32 — Evaluate research and delayed outcomes** | 31 outputs or compatible versioned feature/signal predictions; 43/47 cores | `research/experiments/evaluation.py` owns shared feature/signal diagnostics and reports; `research/models/evaluation.py` adds model-specific evaluation. Compose in the feature workflow or `applications/evaluate_model/` when a separate model evaluation consumer exists. | Apply QR-declared diagnostics/comparisons to fixed inputs, folds, predictions and labels. Support feature/signal studies without requiring a trained model. Retain inference failures, drift diagnostics and defined responses for later telemetry reuse. Reuse metric definitions for delayed runtime outcomes; live telemetry transport is separate. | Preserve prediction/feature/model identity, label availability and coverage. Missing labels are not zero outcomes. Compare declared windows and retain rejected comparisons. Diagnostics are not a costed strategy result; M5 supplies economic evaluation. |
 
-Feature serving is separate from market-data access. Any store must preserve
-availability as well as event time: Feast documents that its default event-time
-join can include later corrections; availability filtering depends on the
-selected backend and correctly interpreted timestamps.
-[Feast point-in-time joins](https://docs.feast.dev/getting-started/concepts/point-in-time-joins)
-(reviewed 2026-09-13). Test the chosen adapter rather than treating a product label
-as proof of causal correctness. MLflow or another tracker remains optional.
+Feature serving and market-data access are separate contracts. Introduce a store
+or tracking backend only for an actual consumer; versioned local records and
+artifacts are sufficient initially. The backend must preserve the causal and
+reproduction contracts of the owned interfaces.
 
-Exit workflow: reproduce versioned historical features, then compare supported
-incremental features on exact captured replay with restart. When a trained model
-is selected, retain its fit/evaluation attempts and delayed-label results;
-otherwise record those conditional packages as inapplicable to the current
-feature scope, not implemented model support.
+Exit for each declared research scope: reproduce input assembly, features/labels,
+applicable fitted state and comparisons from retained bytes/configuration. A
+model scope additionally reloads inference artifacts; an incremental scope proves
+replay/restart parity. Mark unused capabilities inapplicable. Record the supported
+scope instead of declaring every possible feature/model capability complete.
 
 ## M5: Strategy simulation and research controls
 
@@ -684,7 +786,7 @@ under the existing protected text-record rule.
 | --- | --- | --- | --- | --- |
 | **33 — Build completed observations at a fixed cadence** | MR 28 source-layout stage; 17, 19 reference reader; declared rational contract | Implement `research/observations/` using public query/replay APIs; consume it in E1 through `applications/backtest/`. | `research/observations/`: derive trade-price observations and exact rational returns from bounded query batches and explicit half-open windows. Carry lineage, availability and staleness; emit missing/invalid status. Introduce its smallest working consumer in E1. No columnar backend, M4 feature pipeline or fitted model is required. | A decision sees only completed, then-available observations; later changes cannot revise an emitted input. Preserve `1/10003` exactly for `100.03` → `100.04` and across codec round trips. **NB 33:** show warm-up, a late trade and a stale/disconnected interval without imputation. |
 | **34 — Resolve active strategy configurations** | MR 28 source-layout stage; 00–01; dataset/capability metadata and binding contracts, not 05 or 09 workflows | Extend `configuration/strategies.py` and repository `configs/` definitions; `applications/backtest/` constructs explicitly selected implementations. | Extend `configuration/strategies.py` with strategy definitions and distinct instances/state namespaces. Bind exact strategy/version, canonical instruments, named dataset/data-job dependencies and typed cadence/horizon, quantity, capital and execution/cost parameters. Introduce the consumed metadata validation with synthetic bindings in E1; publication reuses the same contract. Preserve many-to-many bindings and independently configured collection universes. Validate rule parameters with MRs 35–36 and freeze resolved identities. | Duplicate instances/namespaces, missing bindings, unsupported mechanics and unsafe parameters fail. Empty selection never enables all definitions. Two instances may share matching inputs without sharing state. **NB 34:** deactivate one instance while another consumer and an independent collection job retain their bindings; reject missing data and attempted trading authority in research config. MR 49 separately proves source-backed integration. |
-| **35 — Define decision context and typed targets** | 33–34 | Implement `strategies/contracts.py`, reusing `financial_units/` and `reference_data/instruments/`; consume through `applications/backtest/`. | `strategies/contracts.py`: typed entry-point contract and immutable context binding instance/run/state namespace, strategy/version, instrument and data/config identities, explicit clock and seed. The supported P1 output is target quantity/time/horizon/lineage, not a universal contract for all future quoting or execution strategies. | Context cannot silently change dataset or another instance's state. Units belong to the selected instrument; expiry/time are explicit. Seed is retained even when unused. **NB 35:** round-trip context/target and reject another instrument's quantity or unsupported output contract. |
+| **35 — Define decisions and candidate inference-to-target contracts** | 33–34 for P1; 31 artifacts only for a learned consumer | Implement `strategies/contracts.py` and candidate manifests in `research/experiments/candidates.py`; consume through `applications/backtest/`. | Define immutable instance/run/state, strategy/version, instrument, data/config identities, clock and seed. Bind the feature/preprocessing/model versions consumed by a learned candidate and a separate QR-owned prediction-to-target policy. The candidate manifest freezes input/output schemas, units, timing, state/warm-up requirements and retained evidence, with model fields inapplicable for a rule. The P1 output remains target quantity/time/horizon/lineage; no universal quoting interface is claimed. | Round-trip context/target and refuse wrong units, changed dataset identity, foreign state or unsupported output contracts. Retain seed even when unused and explicit target expiry/horizon. A learned integration reloads its saved artifacts and produces the same predictions/targets on matched inputs; each historical decision uses an artifact fitted only on then-available data/labels. No full-history final-model shortcut. **NB 35:** inspect rule inputs/targets first, and learned candidate bindings when supported. |
 | **36 — Implement no-trade and the transparent rule** | 35 | Implement `strategies/no_trade.py` and `strategies/return_momentum.py`; export their actual types through the strategy API and select them in `applications/backtest/`. | `strategies/no_trade.py` and `strategies/return_momentum.py`: cohesive strategy classes with pure decision methods and rule parameter validation under the shared contract. Use the context's instrument and configured cadence/quantity; produce zero or the configured fixed quantity. Resolve these installed strategy types through config definitions and construct them in the orchestrator. No fitting, parameter search or notebook-owned signal calculation. | No-trade always stays flat. Hand examples cover positive/zero/negative return, warm-up and invalid/stale observations using the frozen policy. Same context reproduces decisions, independent of invocation order. Unsupported parameter/contracts fail resolution. **NB 36:** display inputs beside targets for two compatible synthetic instruments and perturb future observations without changing the frozen empirical case. |
 | **37 — Select a causally delayed simulated fill** | 17, 34–36 | Implement `simulation/fills.py`; `applications/backtest/` supplies chronological events from `market_data/replay/`. | `simulation/fills.py`: exact immutable simulated fill record and the selected full-fill price rule. Evaluate an explicit pending intent and causally admitted event; return a fill, pending or expiry/rejection outcome. The research pipeline supplies events in order so a target delta uses the first eligible subsequent trade after the positive delay, within its horizon; retain decision and price-event identities. | No same-observation fill. Price event and its effective availability meet the delay; source quantity does not imply available liquidity. Missing/stale/gapped prices expire or reject according to the frozen policy. **NB 37:** show decision, earliest-fill and actual-fill times, including equal-time and no-price cases. |
 | **38 — Compute fees and adverse price costs** | 37; declared posting/rounding contract | Implement `simulation/costs.py` using `financial_units/`; reuse it in `applications/backtest/`. | `simulation/costs.py`: versioned quote-currency fee and declared adverse slippage rules using C03 arithmetic/rounding. Add the explicit half-up operation for the independent oracle; retain half-even for P1. Preserve reference/effective fill prices and signed quantity. | Buy and sell fees reduce NAV; adverse slippage worsens both sides. Zero cost gives exact gross parity. Wrong currency, unsupported fee and nonfinite values fail. **NB 38:** retain existing hand fees and distinguish `0.205` at `0.01`: half-up `0.21`, half-even `0.20`. |
@@ -728,14 +830,19 @@ or the existing ledger to manufacture this distinction.
 
 ### Trials, reports and baseline acceptance
 
+MRs 43 and 47 have an early shared core and later consumer integrations. Their
+placement under M5 records ownership; it does not defer research attempt retention
+or temporal split execution until a backtest or CLI exists. Core dependencies
+are explicit below and do not cycle through model training.
+
 | MR | Depends on | Functional owner and application (relative to `src/`) | Owned behavior and consumer | Acceptance and notebook checkpoint |
 | --- | --- | --- | --- | --- |
-| **43 — Persist append-only trial attempts** | 14, 34–36 | Implement `research/experiments/trials.py`; `applications/backtest/` owns attempt sequencing and failure recording. | `research/experiments/trials.py`: semantic run identity from source commit, lock/environment, resolved active config, instance/implementation versions, reference/data bindings and seed; distinct attempt ID; append-only start/completion/failure records under an explicit single-writer local policy. Retain resolved non-secret configuration alongside its identity. | Repeating the same inputs retains semantic identity but creates another attempt. Changed config/data/code cannot overwrite history. A crash leaves a visible incomplete attempt; startup identifies it, and a truncated tail is reported without erasing prior records. **NB 43:** append success, failure and interrupted attempts and inspect retained history. |
+| **43 — Persist shared append-only research attempts** | Core: input/config/code identity contracts and MR 28 layout; strategy binding extension: 34–36 | Implement `research/experiments/trials.py`; feature/training/evaluation/backtest applications own their attempt sequencing and consume the same journal. | Pull the minimal core forward to the first formal research comparison, independently of backtest/CLI completion. Separate semantic run identity from attempt ID; retain source commit, lock/environment, reference versions, resolved non-secret config, dataset/feature/label/split/model identities as applicable, seed and append-only start/completion/failure records under an explicit single-writer local policy. Add strategy-instance/state identities with their consumer. | Same inputs retain semantic identity but create a new attempt; changed inputs cannot overwrite history. Success, failure, interruption and truncated tails remain visible without erasing previous records. No journal implementation is required for a synthetic E1 before formal comparison; retain the existing protected text record until available. **NB 43:** inspect attempts from the first actual research consumer and later the backtest consumer. |
 | **44 — Extend the early path to configured causal runs** | E1; 15, 17, 19–20, 33–43 for full closure | Extend the existing `applications/backtest/` orchestrator with configured saved bindings; reuse observation, strategy, risk, simulation and accounting APIs. | Extend E1's `applications/backtest/` with complete saved bindings, trial starts/outcomes and per-instance progress/failure. Reuse MR 20's scheduler; compose configured decisions, independent risk, delayed fills, costs, ledger and valuation sequentially with isolated state. No second runner or strategy-name switch. | Preserve all E1 cases, including scoped controls, chronological stepping, batch invariance and resume parity. Inactive instances never execute. Risk-rejected intents never become fills; expected rejections remain attributable outcomes and may appear in a complete, reconciled report. Invariants, incompatible required inputs or incomplete required valuation prevent success. Compatible additions use config/reference or strategy code. **NB 44:** inspect completed rejection traces and failed computations separately; MR 48 broadens isolation proof. |
 | **45 — Save the net report and durable references** | 41, 43–44 | Implement `research/experiments/reports.py`; publish reports from `applications/backtest/` before trial completion. | `research/experiments/reports.py` owns versioned exact serialization and atomic output persistence, including canonical rational returns and dimensioned attribution alongside C03 balances. Include instance/implementation/config/input identities, initial/final cash, positions/NAV, gross/net P&L, fees/slippage/financing, turnover, fill/decision counts, rejection counts/reasons, coverage and assumptions. Publish reports and append digest references before completing the trial. | Report totals match the retained ledger/trace without Decimal-display rounding; rational round trips preserve exact values. Expected rejection outcomes survive reopening without implying failed computation or baseline acceptance. Independent trial NAVs are not combined into portfolio NAV. Refuse clobbering; incomplete output is not a completed trial. **NB 45:** reopen and reconcile, then tamper with output and show rejection. |
 | **46 — Add the reproducible command and installed consumer** | 45 | Add the sole installed `applications.backtest:main` entry function and package smoke coverage; reuse the E1/MR 44 callable orchestration. | Add argument parsing with a required config file, explicit saved-input/output resolution and exit handling in `applications/backtest/`, with the one installed entry function `applications.backtest:main`. The config selects active instances and implementations; no hidden pair, strategy or working-directory default. Reuse the callable workflow and save the actual command and resolved identities. Extend the existing wheel smoke for the new public consumer. | From a fresh process outside the checkout, install the candidate wheel and reproduce configured synthetic reports from saved inputs, without notebooks, editable imports or a network fetch. Verify installed strategy resolution and config-only activation changes. Unsupported/missing bindings fail before a run; an active-instance failure produces a nonzero exit and retains its outcome. **NB 46:** compare fresh-process output with the callable results; execute the command independently as retained acceptance proof. |
-| **47 — Retain research selection controls** | 43–46 | Extend `research/experiments/selection.py` and `configuration/`; retain selection records through `applications/backtest/` and conditional `applications/train_model/` / `applications/evaluate_model/`. | Extend trial/config consumers with predeclared comparisons and applicable split, fit and holdout access records; integrate M4 state/model identities only when used. | Failed/rejected comparisons remain visible. A changed split/cost/config cannot overwrite a prior trial; a fitted consumer cannot use future/held-out inputs. The deterministic baseline records fitting as inapplicable. |
-| **48 — Prove instance and capability isolation** | 44–46, 42, 47 | Exercise `applications/backtest/` and public strategy/state contracts; place isolation regressions under `tests/integration/` and relevant unit owners. Add no alternate runner. | Exercise two strategy implementations/instances on overlapping multi-instrument fixtures through the same orchestration, with distinct state namespaces and identities. Reuse matching immutable inputs, not mutable cash or pending intents. | Failure/restart of one instance cannot change another's state, fills or output. A compatible strategy needs only implementation/config additions. A different-family contract fixture exposes unit/multiplier assumptions and rejects unsupported economic execution. No shared-account portfolio support is inferred. |
+| **47 — Execute temporal splits and retain selection controls** | Core: 43 attempt core and declared input/label information intervals; integrations: 29/31/32 and 44–46 only where consumed | `research/experiments/splits.py`, `research/experiments/selection.py` and `configuration/`; consumed by feature/training/evaluation/backtest applications. | Deliver the split/selection core with the first formal comparison. QR specifications declare permitted train/validation/holdout rows, label horizons/availability, overlap purge/embargo rationale and selection rules. Execute and freeze these selections; retain fit-row and holdout-access records. Full backtest/CLI integration follows without blocking earlier model research. | Hand-aligned temporal folds exclude unavailable labels and overlapping information according to declared policy. Fitted consumers cannot use future/held-out inputs; changed splits/costs/config create new identities. Failed/rejected comparisons and consumed holdouts remain visible. The deterministic baseline records fitting as inapplicable. No dependency on a trained model to define the split contract. |
+| **48 — Prove research extension and instance isolation** | 44–46, 42, 47 for strategy scope; applicable 28–32/35 interfaces for a learned candidate | Exercise public research/candidate/strategy APIs and `applications/backtest/`; regressions under `tests/integration/` and their unit owners. No alternate runner. | Run two strategies/instances on overlapping multi-instrument fixtures with separate state. For implemented feature/model support, onboard a second compatible feature or estimator through QR component/config additions and the same fit/evaluate/backtest workflow, without shared-runner edits. A changed output contract remains an infrastructure extension. | Failure/restart of one instance cannot change another's state, fills or outputs. Immutable inputs may be shared; cash/pending intents may not. Model/feature onboarding reuses split, attempt and candidate records and preserves earlier candidates. A different-family fixture exposes unit/multiplier assumptions and rejects unsupported execution. Learned extension proof is conditional on actual model support and does not block rule-only M5. No shared-account support is inferred. |
 | **49 — Accept the frozen P1 baseline with a permitted saved sample** | 00–06, 08–15, 17, 19–20, 33–46; C0 and E1 | Use `applications/acquire/`, `applications/publish_dataset/` and `applications/backtest/` through their installed commands and saved artifacts; acceptance code belongs in repository `tests/integration/consumers/`, not copied runtime workflows. | Run the frozen case on the permitted source and retain request/raw/canonical/report identities and protected retrievable bytes. Verify every baseline row in the acceptance map; update the owning experiment and roadmap with this precise outcome. This package does not close M5. | Resume actual acquisition, rebuild the snapshot and reproduce the report in another process using saved inputs. Hand-reconcile a bounded ledger excerpt; audit source availability/eligibility assumptions and retain failures/limits. **NB 49:** explain the trace and attribution in `examples/` under the notebook retention rules. Fix product defects before acceptance; synthetic evidence cannot close source claims. |
 
 Run identity excludes attempt timestamps and local output paths. Report comparison
@@ -833,7 +940,7 @@ or a same-privilege process alone do not establish that guarantee.
 
 | MR | Depends on | Functional owner and application (relative to `src/`) | Owned behavior and concrete consumer | Decisive evidence |
 | --- | --- | --- | --- | --- |
-| **50 — Resolve an immutable deployment** | M3, M5; M4 where used | Implement `runtime/deployment.py` and `configuration/deployments.py`; introduce `applications/paper/` for paper/shadow composition. | Runtime orchestration resolves instance/run/deployment/state namespace, exact artifact/input versions, environment, accounts and explicit mode. Keep collection/research selections separate from executable authorization. | Incompatible artifacts/state/bindings fail startup; the same strategy decisions agree for matched research/runtime inputs. Paper/shadow cannot acquire an executable connection by adding a symbol to config. |
+| **50 — Resolve an immutable candidate deployment** | M3 and M5 for deployed scope; 35 candidate contract and M4 capabilities where consumed | `runtime/deployment.py`, `configuration/deployments.py` and `applications/paper/`; consume QR candidate manifests/artifacts without importing research application workflows. | Resolve candidate versions, instance/run/deployment/state identity, input bindings, environment, accounts and mode. Verify feature/model signatures, accepted fitted state, inference-to-target policy, warm-up/checkpoint compatibility and available runtime capabilities. Batch scheduling is allowed when qualified for the declared cadence; incremental features require MR 30. Collection/research selection never grants executable authority. | A frozen candidate loads without copying formulas or retraining. Matched admitted inputs yield matching features/predictions/targets; incompatible artifacts, missing dependencies, stale inputs or invalid state refuse startup or follow the declared protective policy. Model-free rules use the same deployment boundary. |
 | **51 — Implement the paper order lifecycle** | 50 for paper runtime; pure lifecycle contracts may be pulled forward for P3 | Implement `execution/orders.py` and `execution/adapters/paper/`; integrate via `applications/paper/`, reusing simulation semantics where contracts match. | Execution contracts and a working paper adapter handle submit/acknowledge/fill/reject/cancel/replace and unknown outcomes under one defined venue model. | Independent order/fill traces preserve IDs, quantities and states; timeout is not silently treated as rejection or permission to resend. For supported quoting modes, verify post-only rejection, partial-fill versus cancel/replace races and separate entry/response delays under the [fill-fidelity contract](../architecture/platform-design.md#replay-clocks-and-fill-fidelity). |
 | **52 — Journal and recover execution state** | 51 | Implement `execution/journal.py` and recovery transitions; `runtime/recovery.py` owns fencing/startup coordination consumed by `applications/paper/`. | Durable order/fill journal, idempotent transitions and a single-writer/fencing policy used by runtime startup and restart. | Duplicate/late messages and process loss cannot apply a fill twice; a stale process cannot continue owning the same session. |
 | **53 — Enforce independent runtime risk** | 52, 42 | Extend `risk/limits.py` and independent stop/control behavior; integrate through runtime and `applications/paper/`. | Strategy-instance budgets and account/portfolio hard limits include pending commitments. Enforce limits and kill controls outside trusted strategy logic under the stated threat model. | Supported strategy interfaces cannot raise limits, bypass stops or write peer state; failures retain protective behavior. Pending intents cannot spend reserved capital twice. No hostile-code isolation claim. |
@@ -859,7 +966,7 @@ authorized observed outcomes under MRs 58–61 and retains the original errors.
 | **59 — Bind executable trading authority** | 58, R1; maintained release admission | Implement `runtime/activation.py` and explicit authorization configuration; introduce the sole `applications/live/` entrypoint, reusing runtime services rather than importing the paper application. | Consume the verified immutable release/config/state identity and bind the explicit founder-authorized account, venue, instrument, capital, limits and duration at runtime. Release-consumer implementation belongs to R1. | Unverified/incompatible releases or out-of-envelope selections fail. Deployment and activation remain distinct; changed dependencies or expired authority block use. No additional institutional approver is invented. |
 | **60 — Apply operational and economic monitoring** | 59, 56; 32 where used | Extend `telemetry/` with economic and operational monitoring; reuse accounting/risk results and conditional model-evaluation APIs in `applications/live/`. | Track data/feature freshness, inference/decision failures, execution quality, exposures and economic attribution for every strategy. Learned models also reuse prediction/drift and delayed-label evaluation definitions. | Inject stale features, a stalled decision path and attribution/label gaps; verify the defined response and model/instance/version identity. A healthy tracking server is not evidence of a healthy strategy. |
 | **61 — Exercise bounded activation and recovery** | 59–60 | Exercise `applications/live/` activation/recovery subcommands and runtime services; retain operational scenarios under `tests/scenarios/` and actual run records. | Complete actual scoped activation, stop/cancel, reconciliation and compatible rollback workflows with explicit founder authorization for external operation. | Retain the declared envelope and observed outcomes; recovery cannot undo filled orders or silently widen limits. No milestone plan itself grants capital authority. |
-| **62 — Onboard a compatible additional instance** | 61; 54 and 55 allocation scope before sharing an account | Extend repository `configs/` selections and `applications/live/` bindings; keep algorithms in `strategies/` and reuse `applications/paper/` for qualification. Add capability-specific code only when required; no per-instance runner. | Add an instance/asset within implemented capabilities through config and scoped authority, preserving artifact reuse and support declarations. Shared-account onboarding also consumes qualified allocations and reconciliation. | Prior instances remain correct; new inputs/orders/fills are attributable. Qualify the actual enabled mode. A new instrument family needs its own data/lifecycle/accounting/risk/adapter acceptance before support advances. |
+| **62 — Onboard a compatible additional live instance** | 61; 48 research extension evidence for the supported scope; 54/55 allocation scope before sharing an account | Extend `configs/` selections and `applications/live/` bindings; reuse QR components, candidate manifests and paper qualification. | Add an instance/asset within implemented capabilities through configuration and scoped authority, preserving artifact reuse. Research feature/model extensibility was established at its earlier consumer; this MR proves the operational extension, not the first plugin interface. | Existing instances remain correct and all inputs/orders/fills stay attributable. Qualify the enabled mode and account scope. A new product, input/output contract or unsupported execution mechanic requires the owning infrastructure extension before admission. No per-instance runner. |
 
 ## Existing libraries and remaining work
 
@@ -1038,8 +1145,9 @@ The bounded onboarding proof changes only config/reference fixtures to run the
 same strategy on another supported synthetic instrument, then adds a compatible
 test strategy entry point plus config without editing shared orchestration.
 MR 21 adds a bounded different-family fixture at neutral query/replay interfaces;
-MR 48 exercises overlapping inputs, two instances, failed/restarted state and
-unsupported economic capabilities. These are interface/isolation proofs, not
+D1 qualifies demanded data extensions through shared interfaces. MR 48 exercises
+overlapping inputs, two instances, failed/restarted state, supported feature/model
+onboarding and unsupported economic capabilities. These are interface/isolation proofs, not
 production support for another instrument family or another empirical experiment.
 
 ### Existing abstractions to retain or retire
@@ -1129,7 +1237,7 @@ Follow the [engineering guide](../coding_standards/README.md) and
 arithmetic, strict typing, immutable validated records and the existing CI lane.
 
 The sequence describes behavior to deliver, with proposed MR boundaries. MR 00
-and C0 are completed prerequisites; planned work uses MR 01–62 in this roadmap.
+and C0 are completed prerequisites; planned work uses MR 01–62 plus D1/R1 in this roadmap.
 Branch from updated `main` after prerequisites merge; use
 `codex/mr-<NN>-<topic>` for implementation branches unless another name is requested.
 Follow the milestone dependency graph, subject to the source-evidence limits
@@ -1173,104 +1281,25 @@ semantic checks below without rerunning behavioral notebooks.
 
 ## Local notebook workflow
 
-The [researcher-facing guide](../../examples/README.md) is the maintained entry
-point for choosing a research question and interpreting notebook outputs. Update
-it and the affected notebook explanations in the same change that adds a usable
-research capability: state inputs, observed behavior, limits and the next research
-action. Keep implementation ownership and acceptance here; keep setup and repair
-instructions in the [notebook operations guide](../../examples/notebook-operations.md).
-Notebook narratives follow question → sample/assumptions → action → observed output
-→ interpretation/limits → next question, with engineering checkpoint IDs retained
-for traceability. This presentation does not expand any MR's scope.
-
-Use long-lived notebooks organized by research activity under repository-root
-`examples/`. On 2026-09-14 the founder selected version control for maintained
-`.ipynb`, `.py` and `.md` examples, superseding the earlier local-only retention
-rule. Generated run snapshots, notebook checkpoints and temporary kernel files
-remain ignored. The 2026-09-13 activity-based organization continues; do not
-require a separate notebook per MR.
+The [QR implementation guide](../../examples/README.md#research-activities-and-journey)
+owns activity selection, inputs/outputs and interpretation. The
+[notebook operations guide](../../examples/notebook-operations.md) owns setup,
+execution, repair and [source/output retention](../../examples/notebook-operations.md#maintained-source-and-output-retention).
 The [research program](research-program.md#notebook-research-and-package-promotion)
-owns the boundary between exploratory ideas and maintained package behavior.
+owns exploratory-to-package promotion and research record discipline.
 
-| Notebook responsibility | Intended contents | Package boundary as behavior matures |
-| --- | --- | --- |
-| Data fetching | Explore permitted source APIs, bounded requests, responses, clocks and acquisition quality. | Reusable clients, validation, immutable storage and resumable acquisition. |
-| EDA | Inspect saved data, coverage, missingness, distributions, temporal alignment and candidate features. | Shared quality/feature transformations needed by retained consumers. |
-| Quant strategy research | Prototype hypotheses, signals and models; compare scenarios, costs and attribution. | Versioned strategy logic, configuration, simulation/accounting and reproducible runners. |
-| Strategy monitoring | Inspect saved or available runtime reports, exposures, P&L, data freshness and drift. | Persistent monitoring, metric definitions, alert delivery and operational controls when implemented. |
+Each capability MR updates the affected guide activity and working example with
+its implemented status, supported inputs, observable result and limitations.
+Use existing activity notebooks and name the exercised section/scenario in the
+MR record; do not create a notebook per MR or an empty future workflow. Keep
+historical tested revisions, commands and failed/successful attempts in their
+[owning acceptance records](#merged-implementation-records).
 
-Use [market-data-capture.ipynb](../../examples/market-data-capture.ipynb) for
-public Bitfinex R0 and OKX live books, persistence and offline replay, plus OKX
-historical archive acquisition. Coinbase implementation and tests remain available;
-its external acceptance still requires local Exchange credentials and eligibility,
-and it is no longer part of the default notebook route.
-
-Following the founder's 2026-09-16 source-access request, use
-`examples/research-foundations.ipynb` for network-free inspection of saved OKX
-historical L2 and Bitfinex recorded R0 books: explicit sample identities, bounded
-reconstruction, visible orders/spread, clocks and controlled failures. Sections 1–4 explain those operations; sections 5–9 cover the dataset
-and query checkpoints. This changes the exploratory notebook route, not the frozen P1 trade
-study, MR 08's source contract or later MR ownership.
-`examples/foundation-contract-checks.ipynb` retains the independent synthetic
-scenarios, reference checks and original numbered MR checkpoints. Both are
-maintained, executable notebooks; neither needs state from the other. The local
-runner defaults to one execution and preserves distinct successful or failed
-snapshots under ignored `examples/runs/`.
-Split or move its sections into these activity notebooks as actual work grows;
-do not create empty notebooks or fictional fetching/monitoring capabilities now.
-Each MR names the notebook and relevant scenario/section it exercised. Notebook
-lifetime follows the research activity, while package changes remain one bounded
-MR at a time. MR 00 and C0 are complete. M0 and NB 03–08 remain in sections 10–16 of
-`foundation-contract-checks.ipynb`; NB 09–17 are retained in the connected dataset
-walkthrough (sections 5–7) of `research-foundations.ipynb`; NB 19 is section 8; NB 18 workload evaluation is section 9; NB 20 shared
-stepping and cursor recovery is section 10; NB 21 configured EDA and extension
-boundaries is section 11; NB 22 saved live-source negotiation and refusals is
-section 12; NB 23 durable append boundaries and failure diagnosis is section 13;
-the MR 16 follow-up's installed acquisition-to-EDA handoff is section 14;
-NB 24 session recovery, duplicate lineage and pending-snapshot failures is section 15;
-NB 25 scoped quality transitions and saved book publication is section 16;
-NB 26 independent health supervision, process loss and alert failure is section 17;
-NB 27 canonical capture/replay, consumer-state recovery and first divergence is section 18.
-The capture notebook section 10 records the named Bitfinex/OKX publication/query/replay checkpoint.
-The [researcher's guide](../../examples/README.md)
-explains current outputs. Historical cell counts, tested source hashes, successful
-and failed attempts live in the [owning records](#merged-implementation-records),
-not in this workflow.
-
-1. Import the package APIs from the candidate installed by the frozen project
-   environment, using the pinned interpreter. Keep notebook tooling in a
-   separately identified development environment/kernel; do not silently change
-   `uv.lock`, add runtime Jupyter dependencies or patch `sys.path`. Confirm the
-   interpreter, package location and candidate identity before interpreting a
-   result. Refresh the install/kernel after source changes.
-2. Start with a tiny synthetic or permitted saved sample. Display meaningful
-   intermediate objects/tables: clocks, identities, eligibility, observations,
-   targets, fills, cash or report attribution. Exploratory transforms, signals,
-   models and hand calculations may remain notebook-local while an idea is being
-   evaluated. Reuse existing foundation APIs; promote mature shared behavior and
-   selected strategy implementations into the package when they need retained
-   consumers, regression coverage or reproducible execution outside a notebook.
-3. Exercise the listed boundary failure, then restart the kernel and run all cells
-   in order. Promote decisive cases into focused tests and small permitted
-   fixtures. Record commands, identities, conclusions and limitations in the MR.
-   Keep a retrievable protected reference for permitted raw data/bulk outputs.
-4. Before **each commit, push and merge to main**, review the maintained notebook,
-   Python runner and Markdown guide as versioned source. Keep credentials,
-   restricted/raw data and bulk exports outside Git. Small synthetic outputs may
-   remain in the notebook when they help inspect the implemented behavior. Close
-   finished execution kernels. Preserve attempt snapshots under ignored
-   `examples/runs/`; these do not replace retained tests or research trial records.
-5. Stage explicit maintained example files. Confirm `git ls-files -- examples/`
-   contains only intended source and reviewed small outputs, and use
-   `git check-ignore` on generated run/kernel/checkpoint paths. Do not force-add
-   generated artifacts. Inspect notebook code, output and metadata for secrets,
-   unintended data and stale execution claims before pushing or merging.
-
-Do not inspect a final holdout through a notebook. Synthetic learning exercises
-are engineering work; any real-data attempt influencing hypothesis or parameter
-selection must be retained, including failed/abandoned attempts. Before MR 43
-implements the journal, use an append-only text record beside protected research
-outputs with the [trial fields](research-program.md#small-records-and-artifacts).
+Maintained `.ipynb`, `.py` and `.md` examples remain versioned under the founder's
+2026-09-14 decision; generated snapshots and transient kernels stay ignored.
+A documentation-only change does not require fresh capture or notebook execution
+when executable cells and their outputs are unchanged. Changed executable examples
+need their affected fresh-kernel proof, with actual side effects and limits stated.
 
 ## Validation, evidence reuse and reversal
 
@@ -1346,6 +1375,27 @@ runtime/artifact boundaries need their affected proofs. Counts and status change
 with actual delivery, while every retained requirement has an owning MR or an
 explicitly applicable later capability.
 
+### Roadmap and QR guide refactoring — 2026-09-19
+
+This documentation change separates the infrastructure backlog, QR activity guide,
+research methodology and shared contracts. It adds planned D1, broadens conditional
+feature consumers, advances the MR 43/47 cores and defines candidate handoff and
+extension acceptance. It preserves the MR 28 layout completion, historical
+acceptance records and frozen P1 specification. No runtime, configuration schema,
+notebook cell/output, dependency or empirical result changes.
+
+Validation uses `uv run --frozen --no-sync alpha-governance-architecture`, the same
+`ArchitectureGovernanceService.validate_local_links` explicitly over all
+`docs/**/*.md` and `examples/*.md` (63 documents), and `git diff --check`. The
+extended check corrected a legacy link to a test directory by linking the test
+guide; final local-link validation passed. Semantic review checks
+conditional dependencies and current/planned claims against the inspected source.
+Runtime/notebook evidence is reused only for unchanged behavior; no fresh capture,
+research execution, package release or deployment is claimed. `docs/README.md`
+is package metadata, so a later wheel build will have changed descriptive bytes;
+this documentation validation does not attest a new artifact. Reversal restores
+these documentation edits together without changing saved research inputs.
+
 ### Merged implementation records
 
 These are historical acceptance records for the identified candidates, not current
@@ -1383,7 +1433,7 @@ its hosted checks and merge status.
 
 ## How to execute and maintain the plan
 
-Use the [current status](#platform-implementation-roadmap) and dependency-ordered
+Use the [current status](#platform-infrastructure-roadmap) and dependency-ordered
 [milestone packages](#completion-and-dependency-model) to select work. For each
 slice, record the input/output contract, affected modules and consumers,
 persisted identities, critical failure behavior, selected tests and a working
@@ -1433,9 +1483,11 @@ the current delivery definitions.
 
 ### P2: shared research and strategy development
 
-Use M2 historical data access to develop features/models in M4 and research
-controls in M5. Fitting and comparison work does not require the entire original
-baseline or live platform to finish first:
+Use M2/D1 historical data access for feature, signal and optional model research
+in M4, with shared research controls from MRs 43/47. Introduce features for concrete
+research consumers and reuse accepted implementations during production
+qualification. Fitting and comparison work does not require the entire original baseline or live platform
+to finish first:
 
 - Separate dataset/universe selection, feature and label generation, transforms,
   model fitting, signal generation, portfolio targets and execution assumptions.

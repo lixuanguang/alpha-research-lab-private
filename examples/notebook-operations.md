@@ -1,9 +1,56 @@
 # Notebook setup, execution and troubleshooting
 
-Owner: repository founder. Updated 2026-09-18 for MR 21. This is the supporting operations
-guide. Start with the [researcher's guide](README.md) to choose a question and
-understand the data. The [roadmap](../docs/roadmap/README.md#local-notebook-workflow)
-owns notebook retention and acceptance; this page explains the existing tools.
+Owner: repository founder. Current retention guidance updated 2026-09-19. This is
+the supporting operations guide; historical execution records retain their tested revisions. Start with the [researcher's guide](README.md) to choose a question and
+understand the data. This page owns notebook setup, execution and source/output retention. The
+[roadmap](../docs/roadmap/README.md#local-notebook-workflow) owns implementation
+acceptance; the [research program](../docs/roadmap/research-program.md#notebook-research-and-package-promotion)
+owns research methodology and promotion.
+
+## Maintained source and output retention
+
+Use long-lived activity notebooks under repository-root `examples/`: fetching,
+EDA, strategy research and monitoring as working content appears. The founder's
+2026-09-13 activity organization and 2026-09-14 source-retention decision remain
+in force. Maintained `.ipynb`, `.py` and `.md` examples are versioned; generated
+run snapshots, checkpoints and temporary kernels remain ignored. Do not create
+an empty notebook per future capability or a notebook per MR.
+
+| Activity | Notebook responsibility | Maintained package boundary |
+| --- | --- | --- |
+| Data fetching | Explore permitted requests, responses, clocks and quality | Shared adapters, validation, immutable storage and acquisition |
+| EDA | Inspect coverage, missingness, alignment and candidate features | Reusable selection/quality/feature operations when consumed |
+| Strategy research | Prototype and compare features, models, rules and economic assumptions | Versioned components and shared fit/backtest/report workflows |
+| Monitoring | Inspect attributed results and runtime observations | Persistent metrics, alerts and controls when implemented |
+
+1. Import the installed candidate from the pinned interpreter. Keep notebook
+   tooling in an explicitly identified development environment/kernel; do not
+   silently change `uv.lock`, add runtime Jupyter dependencies or patch `sys.path`.
+   Confirm interpreter, package location and identity; refresh the install/kernel
+   after source changes.
+2. Begin with a tiny synthetic or permitted saved sample and inspect meaningful
+   clocks, identities, units and outputs. Exploratory calculations can remain
+   local while investigated; formal promoted results call the versioned package.
+3. For changed executable examples, exercise the applicable boundary case, restart
+   the kernel and run all cells. Retain commands, identities, conclusions and
+   limitations in the owning MR record; promote decisive regression cases into
+   focused tests. Unchanged code/output evidence need not be rerun for prose.
+4. Before **each commit, push and merge to main**, review maintained notebook,
+   runner and guide sources. Keep credentials, restricted/raw data and bulk
+   exports outside Git. Reviewed small synthetic outputs may remain. Close
+   finished kernels and preserve successful/failed snapshots under ignored
+   `examples/runs/`; these are not a backed-up research journal.
+5. Stage explicit maintained files. Check `git ls-files -- examples/` for intended
+   source/reviewed outputs and use `git check-ignore` on generated paths. Do not
+   force-add generated artifacts. Review notebook code, outputs and metadata for
+   secrets, unintended data and stale execution claims.
+
+Do not inspect the final holdout through an exploratory notebook. Retain every
+real-data attempt influencing hypothesis or parameter selection, including failures
+and abandoned comparisons, under the research program's
+[trial record contract](../docs/roadmap/research-program.md#small-records-and-artifacts).
+Until the shared journal is implemented, use an append-only text record beside
+protected research outputs. Keep retrievable permitted raw/output references.
 
 ## Before executing
 
